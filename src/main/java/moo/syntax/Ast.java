@@ -12,7 +12,8 @@ public sealed interface Ast
         Ast.ErrorSelector,
         Ast.ElseIf,
         Ast.ExceptClause,
-        Ast.FinallyClause {
+        Ast.FinallyClause,
+        Ast.MapEntry {
 
   /** A complete verb body. */
   record Program(List<Statement> statements) implements Ast {
@@ -87,6 +88,8 @@ public sealed interface Ast
           ObjectLiteral,
           ErrorLiteral,
           ListLiteral,
+          MapLiteral,
+          Splice,
           Call,
           Assignment,
           PropertyAccess,
@@ -112,6 +115,16 @@ public sealed interface Ast
       elements = List.copyOf(elements);
     }
   }
+
+  record MapLiteral(List<MapEntry> entries) implements Expression {
+    public MapLiteral {
+      entries = List.copyOf(entries);
+    }
+  }
+
+  record MapEntry(Expression key, Expression value) implements Ast {}
+
+  record Splice(Expression value) implements Expression {}
 
   record Call(String name, List<Expression> arguments) implements Expression {
     public Call {

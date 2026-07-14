@@ -240,6 +240,7 @@ public final class MooParser {
         yield expression;
       }
       case LEFT_BRACE -> parseListLiteral();
+      case LEFT_BRACKET -> parseMapLiteral();
       case MINUS -> {
         advance();
         yield new Ast.Unary(Ast.UnaryOperator.NEGATE, parseExpression(UNARY_PRECEDENCE));
@@ -265,11 +266,28 @@ public final class MooParser {
     List<Ast.Expression> elements = new ArrayList<>();
     if (current.kind() != TokenKind.RIGHT_BRACE) {
       do {
-        elements.add(parseExpression(ASSIGNMENT_PRECEDENCE));
+        boolean splice = match(TokenKind.AT);
+        Ast.Expression element = parseExpression(ASSIGNMENT_PRECEDENCE);
+        elements.add(splice ? new Ast.Splice(element) : element);
       } while (match(TokenKind.COMMA));
     }
     expectAndAdvance(TokenKind.RIGHT_BRACE, "'}' after list literal");
     return new Ast.ListLiteral(elements);
+  }
+
+  private Ast.MapLiteral parseMapLiteral() {
+    advance();
+    List<Ast.MapEntry> entries = new ArrayList<>();
+    if (current.kind() != TokenKind.RIGHT_BRACKET) {
+      do {
+        Ast.Expression key = parseExpression(ASSIGNMENT_PRECEDENCE);
+        expectAndAdvance(TokenKind.THIN_ARROW, "'->' in map literal");
+        Ast.Expression value = parseExpression(ASSIGNMENT_PRECEDENCE);
+        entries.add(new Ast.MapEntry(key, value));
+      } while (match(TokenKind.COMMA));
+    }
+    expectAndAdvance(TokenKind.RIGHT_BRACKET, "']' after map literal");
+    return new Ast.MapLiteral(entries);
   }
 
   private Ast.Catch parseCatch() {

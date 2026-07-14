@@ -63,6 +63,28 @@ final class MooParserTest {
         });
   }
 
+  @Test
+  void parsesMapEntriesAndListSplicesAsConcreteSyntax() {
+    Ast.Program program = MooParser.parse("return [1 -> 2, \"x\" -> {3}]; return {@items, 4};");
+
+    Ast.Return mapReturn = assertInstanceOf(Ast.Return.class, program.statements().get(0));
+    Ast.MapLiteral map = assertInstanceOf(Ast.MapLiteral.class, mapReturn.value().orElseThrow());
+    assertEquals(
+        List.of(
+            new Ast.MapEntry(new Ast.IntegerLiteral(1), new Ast.IntegerLiteral(2)),
+            new Ast.MapEntry(
+                new Ast.StringLiteral("x"),
+                new Ast.ListLiteral(List.of(new Ast.IntegerLiteral(3))))),
+        map.entries());
+
+    Ast.Return listReturn = assertInstanceOf(Ast.Return.class, program.statements().get(1));
+    Ast.ListLiteral list =
+        assertInstanceOf(Ast.ListLiteral.class, listReturn.value().orElseThrow());
+    assertEquals(
+        List.of(new Ast.Splice(new Ast.Identifier("items")), new Ast.IntegerLiteral(4)),
+        list.elements());
+  }
+
   private static Map<String, String> exactFixturePrograms(List<String> lines) {
     Map<String, String> programs = new LinkedHashMap<>();
     int lineIndex = 0;

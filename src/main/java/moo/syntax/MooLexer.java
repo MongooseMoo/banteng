@@ -36,6 +36,7 @@ final class MooLexer {
     COMMA,
     SEMICOLON,
     DOT,
+    AT,
     DOLLAR,
     BACKTICK,
     APOSTROPHE,
@@ -55,7 +56,8 @@ final class MooLexer {
     GREATER_THAN_OR_EQUAL,
     AND_AND,
     OR_OR,
-    FAT_ARROW
+    FAT_ARROW,
+    THIN_ARROW
   }
 
   record Token(TokenKind kind, String lexeme, int line, int column) {}
@@ -91,11 +93,13 @@ final class MooLexer {
           !atEnd() && isDigit(peek()) && (offset < 2 || source.charAt(offset - 2) != '.')
               ? number(tokenLine, tokenColumn, true)
               : token(TokenKind.DOT, tokenLine, tokenColumn);
+      case '@' -> token(TokenKind.AT, tokenLine, tokenColumn);
       case '$' -> token(TokenKind.DOLLAR, tokenLine, tokenColumn);
       case '`' -> token(TokenKind.BACKTICK, tokenLine, tokenColumn);
       case '\'' -> token(TokenKind.APOSTROPHE, tokenLine, tokenColumn);
       case '+' -> token(TokenKind.PLUS, tokenLine, tokenColumn);
-      case '-' -> token(TokenKind.MINUS, tokenLine, tokenColumn);
+      case '-' ->
+          token(match('>') ? TokenKind.THIN_ARROW : TokenKind.MINUS, tokenLine, tokenColumn);
       case '*' -> token(TokenKind.STAR, tokenLine, tokenColumn);
       case '/' -> token(TokenKind.SLASH, tokenLine, tokenColumn);
       case '%' -> token(TokenKind.PERCENT, tokenLine, tokenColumn);

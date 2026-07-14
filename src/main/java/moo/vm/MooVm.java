@@ -4,6 +4,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import moo.builtin.BuiltinCatalog;
 import moo.builtin.BuiltinCatalog.Result;
 import moo.bytecode.BytecodeProgram;
@@ -14,6 +15,7 @@ import moo.value.MooValue.ErrorValue;
 import moo.value.MooValue.FloatValue;
 import moo.value.MooValue.IntegerValue;
 import moo.value.MooValue.ListValue;
+import moo.value.MooValue.MapValue;
 import moo.value.MooValue.ObjectValue;
 import moo.value.MooValue.StringValue;
 import moo.vm.VmState.ActiveHandler;
@@ -72,6 +74,10 @@ public final class MooVm {
         frame.instructionPointer++;
       }
       case BUILD_LIST -> buildList(frame, Math.toIntExact(instruction.operand().orElseThrow()));
+      case LIST_APPEND -> appendList(frame, state);
+      case LIST_EXTEND -> extendList(frame, state);
+      case BUILD_MAP ->
+          buildMap(frame, state, Math.toIntExact(instruction.operand().orElseThrow()));
       case LOAD_LOCAL -> loadLocal(frame, instruction.text().orElseThrow(), state);
       case STORE_LOCAL -> {
         frame.locals.put(normalize(instruction.text().orElseThrow()), frame.operandStack.pop());
@@ -88,6 +94,7 @@ public final class MooVm {
       case GET_PROPERTY -> getProperty(frame, instruction.text().orElseThrow(), state, world);
       case SET_PROPERTY -> setProperty(frame, instruction.text().orElseThrow(), state, world);
       case INDEX -> index(frame, state);
+      case SET_INDEX_LOCAL -> setIndexedLocal(frame, state, instruction.text().orElseThrow());
       case CALL -> invokeBuiltin(instruction, frame, state, world, builtins);
       case NEGATE -> unaryNegate(frame, state);
       case NOT -> {
@@ -126,6 +133,51 @@ public final class MooVm {
     }
     frame.operandStack.push(new ListValue(elements));
     frame.instructionPointer++;
+  }
+
+  private static void appendList(Frame frame, VmState state) {
+    MooValue value = frame.operandStack.pop();
+    MooValue collection = frame.operandStack.pop();
+    if (!(collection instanceof ListValue list)) {
+      raiseError(state, ErrorValue.E_TYPE);
+      return;
+    }
+    List<MooValue> elements = new ArrayList<>(list.elements());
+    elements.add(value);
+    frame.operandStack.push(new ListValue(elements));
+    frame.instructionPointer++;
+  }
+
+  private static void extendList(Frame frame, VmState state) {
+    MooValue extension = frame.operandStack.pop();
+    MooValue collection = frame.operandStack.pop();
+    if (!(collection instanceof ListValue list) || !(extension instanceof ListValue appended)) {
+      raiseError(state, ErrorValue.E_TYPE);
+      return;
+    }
+    List<MooValue> elements = new ArrayList<>(list.elements());
+    elements.addAll(appended.elements());
+    frame.operandStack.push(new ListValue(elements));
+    frame.instructionPointer++;
+  }
+
+  private static void buildMap(Frame frame, VmState state, int count) {
+    List<MooValue> keys = new ArrayList<>(count);
+    List<MooValue> values = new ArrayList<>(count);
+    for (int index = 0; index < count; index++) {
+      values.addFirst(frame.operandStack.pop());
+      keys.addFirst(frame.operandStack.pop());
+    }
+    try {
+      MapValue map = new MapValue(Map.of());
+      for (int index = 0; index < count; index++) {
+        map = map.with(keys.get(index), values.get(index));
+      }
+      frame.operandStack.push(map);
+      frame.instructionPointer++;
+    } catch (IllegalArgumentException error) {
+      raiseError(state, ErrorValue.E_TYPE);
+    }
   }
 
   private static void loadLocal(Frame frame, String name, VmState state) {
@@ -171,17 +223,50 @@ public final class MooVm {
   private static void index(Frame frame, VmState state) {
     MooValue index = frame.operandStack.pop();
     MooValue collection = frame.operandStack.pop();
-    if (!(collection instanceof ListValue list) || !(index instanceof IntegerValue integer)) {
+    if (collection instanceof ListValue list && index instanceof IntegerValue integer) {
+      MooValue value = list.get(integer.value()).orElse(null);
+      if (value == null) {
+        raiseError(state, ErrorValue.E_RANGE);
+        return;
+      }
+      frame.operandStack.push(value);
+      frame.instructionPointer++;
+      return;
+    }
+    if (collection instanceof MapValue map) {
+      MooValue value;
+      try {
+        value = map.get(index).orElse(null);
+      } catch (IllegalArgumentException error) {
+        raiseError(state, ErrorValue.E_TYPE);
+        return;
+      }
+      if (value == null) {
+        raiseError(state, ErrorValue.E_RANGE);
+        return;
+      }
+      frame.operandStack.push(value);
+      frame.instructionPointer++;
+      return;
+    }
+    raiseError(state, ErrorValue.E_TYPE);
+  }
+
+  private static void setIndexedLocal(Frame frame, VmState state, String owner) {
+    MooValue value = frame.operandStack.pop();
+    MooValue key = frame.operandStack.pop();
+    MooValue collection = frame.operandStack.pop();
+    if (!(collection instanceof MapValue map)) {
       raiseError(state, ErrorValue.E_TYPE);
       return;
     }
-    MooValue value = list.get(integer.value()).orElse(null);
-    if (value == null) {
-      raiseError(state, ErrorValue.E_RANGE);
-      return;
+    try {
+      frame.locals.put(normalize(owner), map.with(key, value));
+      frame.operandStack.push(value);
+      frame.instructionPointer++;
+    } catch (IllegalArgumentException error) {
+      raiseError(state, ErrorValue.E_TYPE);
     }
-    frame.operandStack.push(value);
-    frame.instructionPointer++;
   }
 
   private static void invokeBuiltin(
@@ -246,6 +331,18 @@ public final class MooVm {
   private static void arithmetic(Instruction instruction, Frame frame, VmState state) {
     MooValue rightValue = frame.operandStack.pop();
     MooValue leftValue = frame.operandStack.pop();
+    if (instruction.opcode() == BytecodeProgram.Opcode.ADD
+        && leftValue instanceof StringValue left
+        && rightValue instanceof StringValue right) {
+      byte[] leftBytes = left.bytes();
+      byte[] rightBytes = right.bytes();
+      byte[] concatenated = new byte[Math.addExact(leftBytes.length, rightBytes.length)];
+      System.arraycopy(leftBytes, 0, concatenated, 0, leftBytes.length);
+      System.arraycopy(rightBytes, 0, concatenated, leftBytes.length, rightBytes.length);
+      frame.operandStack.push(new StringValue(concatenated));
+      frame.instructionPointer++;
+      return;
+    }
     if (leftValue instanceof IntegerValue left && rightValue instanceof IntegerValue right) {
       if ((instruction.opcode() == BytecodeProgram.Opcode.DIVIDE
               || instruction.opcode() == BytecodeProgram.Opcode.REMAINDER)

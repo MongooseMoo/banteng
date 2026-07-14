@@ -9,6 +9,7 @@ import moo.value.MooValue;
 import moo.value.MooValue.ErrorValue;
 import moo.value.MooValue.IntegerValue;
 import moo.value.MooValue.ListValue;
+import moo.value.MooValue.MapValue;
 import moo.value.MooValue.ObjectValue;
 import moo.value.MooValue.StringValue;
 import moo.world.WorldObject;
@@ -20,6 +21,7 @@ public final class BuiltinCatalog {
   public Result invoke(String name, List<MooValue> arguments, WorldTxn world, long programmer) {
     return switch (name.toLowerCase(Locale.ROOT)) {
       case "length" -> length(arguments);
+      case "mapkeys" -> mapKeys(arguments);
       case "create" -> create(arguments, world, programmer);
       case "set_player_flag" -> setPlayerFlag(arguments, world);
       case "move" -> move(arguments, world);
@@ -36,7 +38,7 @@ public final class BuiltinCatalog {
   /** Returns the fixed effect class for a builtin enabled in this slice. */
   public EffectClass effectClass(String name) {
     return switch (name.toLowerCase(Locale.ROOT)) {
-      case "length", "toliteral", "eval" -> EffectClass.PURE;
+      case "length", "mapkeys", "toliteral", "eval" -> EffectClass.PURE;
       case "create" -> EffectClass.IRREVOCABLE;
       case "set_player_flag", "move", "add_property" -> EffectClass.TRANSACTION_WRITE;
       case "notify", "switch_player", "set_task_perms" -> EffectClass.DEFERRED_EFFECT;
@@ -56,6 +58,16 @@ public final class BuiltinCatalog {
       return Result.value(new IntegerValue(list.size()));
     }
     return Result.error(ErrorValue.E_TYPE);
+  }
+
+  private static Result mapKeys(List<MooValue> arguments) {
+    if (arguments.size() != 1) {
+      return Result.error(ErrorValue.E_ARGS);
+    }
+    if (!(arguments.getFirst() instanceof MapValue map)) {
+      return Result.error(ErrorValue.E_TYPE);
+    }
+    return Result.value(new ListValue(List.copyOf(map.entries().keySet())));
   }
 
   private static Result create(List<MooValue> arguments, WorldTxn world, long programmer) {

@@ -9,19 +9,22 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import moo.value.MooValue.ErrorValue;
 import moo.value.MooValue.FloatValue;
 import moo.value.MooValue.IntegerValue;
 import moo.value.MooValue.ListValue;
+import moo.value.MooValue.MapValue;
 import moo.value.MooValue.ObjectValue;
 import moo.value.MooValue.StringValue;
 import org.junit.jupiter.api.Test;
 
 final class MooValueTest {
   @Test
-  void familyIsClosedOverExactlyTheSixAuthorizedValues() {
+  void familyIsClosedOverExactlyTheSevenAuthorizedValues() {
     assertTrue(MooValue.class.isSealed());
     assertEquals(
         Set.of(
@@ -30,10 +33,11 @@ final class MooValueTest {
             StringValue.class,
             ObjectValue.class,
             ErrorValue.class,
-            ListValue.class),
+            ListValue.class,
+            MapValue.class),
         Set.of(MooValue.class.getPermittedSubclasses()));
     assertEquals(
-        List.of(0, 1, 2, 3, 4, 9),
+        List.of(0, 1, 2, 3, 4, 9, 10),
         List.of(MooValue.Type.values()).stream().map(MooValue.Type::code).toList());
   }
 
@@ -92,12 +96,20 @@ final class MooValueTest {
   }
 
   @Test
-  void stringsUseAsciiCaseInsensitiveEqualityAndConsistentHashing() {
+  void stringsFoldValidUtf8ButOnlyAsciiWithinInvalidByteArrays() {
     StringValue upper = new StringValue("Wizard".getBytes(StandardCharsets.ISO_8859_1));
     StringValue lower = new StringValue("wIZARD".getBytes(StandardCharsets.ISO_8859_1));
+    StringValue upperUtf8 = new StringValue("À".getBytes(StandardCharsets.UTF_8));
+    StringValue lowerUtf8 = new StringValue("à".getBytes(StandardCharsets.UTF_8));
+    StringValue invalidUpper = new StringValue(new byte[] {(byte) 0xC0, 'A'});
+    StringValue invalidLower = new StringValue(new byte[] {(byte) 0xC0, 'a'});
 
     assertEquals(upper, lower);
     assertEquals(upper.hashCode(), lower.hashCode());
+    assertEquals(upperUtf8, lowerUtf8);
+    assertEquals(upperUtf8.hashCode(), lowerUtf8.hashCode());
+    assertEquals(invalidUpper, invalidLower);
+    assertEquals(invalidUpper.hashCode(), invalidLower.hashCode());
     assertNotEquals(
         new StringValue(new byte[] {(byte) 0xC0}), new StringValue(new byte[] {(byte) 0xE0}));
   }
@@ -168,5 +180,62 @@ final class MooValueTest {
     assertEquals(value, equal);
     assertEquals(value.hashCode(), equal.hashCode());
     assertNotEquals(value, new ListValue(List.of(new IntegerValue(2), new IntegerValue(1))));
+  }
+
+  @Test
+  void mapsOwnInsertionOrderButUseOrderIndependentRecursiveEqualityAndHashing() {
+    LinkedHashMap<MooValue, MooValue> firstEntries = new LinkedHashMap<>();
+    firstEntries.put(
+        new StringValue("Key".getBytes(StandardCharsets.ISO_8859_1)),
+        new ListValue(List.of(new IntegerValue(1))));
+    firstEntries.put(new FloatValue(0.0), new IntegerValue(2));
+    MapValue first = new MapValue(firstEntries);
+
+    LinkedHashMap<MooValue, MooValue> reversedEntries = new LinkedHashMap<>();
+    reversedEntries.put(new FloatValue(-0.0), new IntegerValue(2));
+    reversedEntries.put(
+        new StringValue("key".getBytes(StandardCharsets.ISO_8859_1)),
+        new ListValue(List.of(new IntegerValue(1))));
+    MapValue reversed = new MapValue(reversedEntries);
+
+    assertEquals(MooValue.Type.MAP, first.type());
+    assertTrue(first.isTruthy());
+    assertFalse(new MapValue(Map.of()).isTruthy());
+    assertEquals(first, reversed);
+    assertEquals(first.hashCode(), reversed.hashCode());
+    assertEquals(List.copyOf(firstEntries.keySet()), List.copyOf(first.entries().keySet()));
+    assertThrows(
+        UnsupportedOperationException.class,
+        () -> first.entries().put(new IntegerValue(3), new IntegerValue(4)));
+  }
+
+  @Test
+  void mapsReplaceEqualScalarKeyObjectsInPlaceAndRejectCollectionKeys() {
+    StringValue original = new StringValue("Key".getBytes(StandardCharsets.ISO_8859_1));
+    LinkedHashMap<MooValue, MooValue> initialEntries = new LinkedHashMap<>();
+    initialEntries.put(original, new IntegerValue(1));
+    initialEntries.put(new IntegerValue(9), new IntegerValue(9));
+    MapValue initial = new MapValue(initialEntries);
+    MapValue replaced =
+        initial.with(
+            new StringValue("kEY".getBytes(StandardCharsets.ISO_8859_1)), new IntegerValue(2));
+
+    assertEquals(2, initial.size());
+    assertEquals(2, replaced.size());
+    assertEquals(new IntegerValue(1), initial.get(original).orElseThrow());
+    assertEquals(new IntegerValue(2), replaced.get(original).orElseThrow());
+    assertArrayEquals(
+        "Key".getBytes(StandardCharsets.ISO_8859_1),
+        ((StringValue) List.copyOf(initial.entries().keySet()).getFirst()).bytes());
+    assertArrayEquals(
+        "kEY".getBytes(StandardCharsets.ISO_8859_1),
+        ((StringValue) List.copyOf(replaced.entries().keySet()).getFirst()).bytes());
+    assertEquals(new IntegerValue(9), List.copyOf(replaced.entries().keySet()).get(1));
+    assertThrows(
+        IllegalArgumentException.class,
+        () -> new MapValue(Map.of(new ListValue(List.of()), new IntegerValue(1))));
+    assertThrows(
+        IllegalArgumentException.class,
+        () -> initial.with(new MapValue(Map.of()), new IntegerValue(1)));
   }
 }

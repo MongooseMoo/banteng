@@ -1,8 +1,15 @@
 package moo.value;
 
+import java.nio.ByteBuffer;
+import java.nio.charset.CharacterCodingException;
+import java.nio.charset.CodingErrorAction;
+import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
+import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Optional;
 
 /** The closed value family required by the first server slice. */
@@ -12,7 +19,8 @@ public sealed interface MooValue
         MooValue.StringValue,
         MooValue.ObjectValue,
         MooValue.ErrorValue,
-        MooValue.ListValue {
+        MooValue.ListValue,
+        MooValue.MapValue {
 
   /** Returns the persisted MOO type tag. */
   Type type();
@@ -30,7 +38,8 @@ public sealed interface MooValue
     STRING(2),
     ERROR(3),
     LIST(4),
-    FLOAT(9);
+    FLOAT(9),
+    MAP(10);
 
     private final int code;
 
@@ -179,7 +188,15 @@ public sealed interface MooValue
       if (this == other) {
         return true;
       }
-      if (!(other instanceof StringValue string) || bytes.length != string.bytes.length) {
+      if (!(other instanceof StringValue string)) {
+        return false;
+      }
+      Optional<String> decoded = decodeValidUtf8(bytes);
+      Optional<String> otherDecoded = decodeValidUtf8(string.bytes);
+      if (decoded.isPresent() && otherDecoded.isPresent()) {
+        return foldUnicode(decoded.orElseThrow()).equals(foldUnicode(otherDecoded.orElseThrow()));
+      }
+      if (bytes.length != string.bytes.length) {
         return false;
       }
       for (int index = 0; index < bytes.length; index++) {
@@ -192,6 +209,10 @@ public sealed interface MooValue
 
     @Override
     public int hashCode() {
+      Optional<String> decoded = decodeValidUtf8(bytes);
+      if (decoded.isPresent()) {
+        return foldUnicode(decoded.orElseThrow()).hashCode();
+      }
       int hash = 1;
       for (byte value : bytes) {
         hash = 31 * hash + Byte.toUnsignedInt(foldAscii(value));
@@ -202,6 +223,29 @@ public sealed interface MooValue
     @Override
     public String toString() {
       return toLiteral();
+    }
+
+    private static Optional<String> decodeValidUtf8(byte[] value) {
+      try {
+        return Optional.of(
+            StandardCharsets.UTF_8
+                .newDecoder()
+                .onMalformedInput(CodingErrorAction.REPORT)
+                .onUnmappableCharacter(CodingErrorAction.REPORT)
+                .decode(ByteBuffer.wrap(value))
+                .toString());
+      } catch (CharacterCodingException error) {
+        return Optional.empty();
+      }
+    }
+
+    private static String foldUnicode(String value) {
+      StringBuilder folded = new StringBuilder(value.length());
+      value
+          .codePoints()
+          .map(codePoint -> Character.toLowerCase(Character.toUpperCase(codePoint)))
+          .forEach(folded::appendCodePoint);
+      return folded.toString();
     }
 
     private static byte foldAscii(byte value) {
@@ -356,6 +400,103 @@ public sealed interface MooValue
     @Override
     public String toString() {
       return toLiteral();
+    }
+  }
+
+  /** An immutable insertion-preserving MOO map with scalar keys. */
+  final class MapValue implements MooValue {
+    private final Map<MooValue, MooValue> entries;
+
+    /** Creates a map by taking an immutable insertion-preserving snapshot of {@code entries}. */
+    public MapValue(Map<? extends MooValue, ? extends MooValue> entries) {
+      LinkedHashMap<MooValue, MooValue> owned = new LinkedHashMap<>();
+      for (Map.Entry<? extends MooValue, ? extends MooValue> entry : entries.entrySet()) {
+        requireScalarKey(entry.getKey());
+        owned.put(entry.getKey(), entry.getValue());
+      }
+      this.entries = Collections.unmodifiableMap(owned);
+    }
+
+    /** Returns the immutable insertion-preserving entry snapshot. */
+    public Map<MooValue, MooValue> entries() {
+      return entries;
+    }
+
+    /** Returns the number of entries. */
+    public int size() {
+      return entries.size();
+    }
+
+    /** Returns the value for an equal scalar key, if present. */
+    public Optional<MooValue> get(MooValue key) {
+      requireScalarKey(key);
+      return Optional.ofNullable(entries.get(key));
+    }
+
+    /** Returns an immutable map with {@code key} bound to {@code value}. */
+    public MapValue with(MooValue key, MooValue value) {
+      requireScalarKey(key);
+      LinkedHashMap<MooValue, MooValue> replacement = new LinkedHashMap<>();
+      boolean found = false;
+      for (Map.Entry<MooValue, MooValue> entry : entries.entrySet()) {
+        if (!found && entry.getKey().equals(key)) {
+          replacement.put(key, value);
+          found = true;
+        } else {
+          replacement.put(entry.getKey(), entry.getValue());
+        }
+      }
+      if (!found) {
+        replacement.put(key, value);
+      }
+      return new MapValue(replacement);
+    }
+
+    @Override
+    public Type type() {
+      return Type.MAP;
+    }
+
+    @Override
+    public boolean isTruthy() {
+      return !entries.isEmpty();
+    }
+
+    @Override
+    public String toLiteral() {
+      StringBuilder literal = new StringBuilder("[");
+      int index = 0;
+      for (Map.Entry<MooValue, MooValue> entry : entries.entrySet()) {
+        if (index++ != 0) {
+          literal.append(", ");
+        }
+        literal
+            .append(entry.getKey().toLiteral())
+            .append(" -> ")
+            .append(entry.getValue().toLiteral());
+      }
+      return literal.append(']').toString();
+    }
+
+    @Override
+    public boolean equals(Object other) {
+      return this == other || (other instanceof MapValue map && entries.equals(map.entries));
+    }
+
+    @Override
+    public int hashCode() {
+      return entries.hashCode();
+    }
+
+    @Override
+    public String toString() {
+      return toLiteral();
+    }
+
+    private static void requireScalarKey(MooValue key) {
+      if (key instanceof ListValue || key instanceof MapValue) {
+        throw new IllegalArgumentException("MOO map keys must be scalar");
+      }
     }
   }
 }

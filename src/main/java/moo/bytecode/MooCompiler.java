@@ -170,10 +170,24 @@ public final class MooCompiler {
       return;
     }
     if (expression instanceof Ast.ListLiteral list) {
+      instructions.add(new Instruction(Opcode.BUILD_LIST, 0));
       for (Ast.Expression element : list.elements()) {
-        compileExpression(element, instructions);
+        if (element instanceof Ast.Splice splice) {
+          compileExpression(splice.value(), instructions);
+          instructions.add(new Instruction(Opcode.LIST_EXTEND));
+        } else {
+          compileExpression(element, instructions);
+          instructions.add(new Instruction(Opcode.LIST_APPEND));
+        }
       }
-      instructions.add(new Instruction(Opcode.BUILD_LIST, list.elements().size()));
+      return;
+    }
+    if (expression instanceof Ast.MapLiteral map) {
+      for (Ast.MapEntry entry : map.entries()) {
+        compileExpression(entry.key(), instructions);
+        compileExpression(entry.value(), instructions);
+      }
+      instructions.add(new Instruction(Opcode.BUILD_MAP, map.entries().size()));
       return;
     }
     if (expression instanceof Ast.Call call) {
@@ -227,6 +241,16 @@ public final class MooCompiler {
       compileExpression(property.object(), instructions);
       compileExpression(assignment.value(), instructions);
       instructions.add(new Instruction(Opcode.SET_PROPERTY, property.property()));
+      return;
+    }
+    if (assignment.target() instanceof Ast.IndexTarget index) {
+      if (!(index.collection() instanceof Ast.Identifier owner)) {
+        throw new IllegalArgumentException("indexed assignment requires a local owner");
+      }
+      instructions.add(new Instruction(Opcode.LOAD_LOCAL, owner.name()));
+      compileExpression(index.index(), instructions);
+      compileExpression(assignment.value(), instructions);
+      instructions.add(new Instruction(Opcode.SET_INDEX_LOCAL, owner.name()));
       return;
     }
     if (assignment.target() instanceof Ast.ScatterTarget scatter) {

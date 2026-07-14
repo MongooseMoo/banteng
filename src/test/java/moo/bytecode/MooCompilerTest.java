@@ -64,6 +64,43 @@ final class MooCompilerTest {
   }
 
   @Test
+  void lowersMapConstructionLocalUpdateAndListSplicingToExplicitBytecode() {
+    BytecodeProgram program =
+        new MooCompiler()
+            .compile(
+                MooParser.parse("items = {1}; m = [1 -> 2]; m[1] = 3; return {@items, m[1]};"));
+
+    assertEquals(
+        """
+        0 BUILD_LIST 0
+        1 PUSH_INTEGER 1
+        2 LIST_APPEND
+        3 DUP
+        4 STORE_LOCAL items
+        5 POP
+        6 PUSH_INTEGER 1
+        7 PUSH_INTEGER 2
+        8 BUILD_MAP 1
+        9 DUP
+        10 STORE_LOCAL m
+        11 POP
+        12 LOAD_LOCAL m
+        13 PUSH_INTEGER 1
+        14 PUSH_INTEGER 3
+        15 SET_INDEX_LOCAL m
+        16 POP
+        17 BUILD_LIST 0
+        18 LOAD_LOCAL items
+        19 LIST_EXTEND
+        20 LOAD_LOCAL m
+        21 PUSH_INTEGER 1
+        22 INDEX
+        23 LIST_APPEND
+        24 RETURN""",
+        program.disassemble());
+  }
+
+  @Test
   void compilesEveryCompleteStoredVerbIncludingUnexecutedBranches() throws Exception {
     Path fixture =
         Path.of("..", "moo-conformance-tests", "src", "moo_conformance", "_db", "Test.db");
