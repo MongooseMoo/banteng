@@ -53,6 +53,63 @@ final class MooCompilerTest {
   }
 
   @Test
+  void lowersUnnamedInterruptForkAndNestedListMembershipToForkVector() {
+    BytecodeProgram program =
+        new MooCompiler()
+            .compile(
+                MooParser.parse(
+                    """
+                    fork (1)
+                      suspend(1);
+                      sqlite_interrupt(h);
+                    endfork
+                    return {1, {2}} in {{0}, {1, {2}}};
+                    """));
+
+    assertEquals(1, program.forkVectors().size());
+    assertEquals(
+        """
+        0 PUSH_INTEGER 1
+        1 FORK 0
+        2 BUILD_LIST 0
+        3 PUSH_INTEGER 1
+        4 LIST_APPEND
+        5 BUILD_LIST 0
+        6 PUSH_INTEGER 2
+        7 LIST_APPEND
+        8 LIST_APPEND
+        9 BUILD_LIST 0
+        10 BUILD_LIST 0
+        11 PUSH_INTEGER 0
+        12 LIST_APPEND
+        13 LIST_APPEND
+        14 BUILD_LIST 0
+        15 PUSH_INTEGER 1
+        16 LIST_APPEND
+        17 BUILD_LIST 0
+        18 PUSH_INTEGER 2
+        19 LIST_APPEND
+        20 LIST_APPEND
+        21 LIST_APPEND
+        22 IN
+        23 RETURN
+        fork 0:
+          0 BUILD_LIST 0
+          1 PUSH_INTEGER 1
+          2 LIST_APPEND
+          3 CALL suspend
+          4 POP
+          5 BUILD_LIST 0
+          6 LOAD_LOCAL h
+          7 LIST_APPEND
+          8 CALL sqlite_interrupt
+          9 POP
+          10 PUSH_INTEGER 0
+          11 RETURN""",
+        program.disassemble());
+  }
+
+  @Test
   void encodesStatementAndExpressionCatchBindingModesExplicitly() {
     MooCompiler compiler = new MooCompiler();
     BytecodeProgram statement =
@@ -61,6 +118,57 @@ final class MooCompilerTest {
 
     assertTrue(statement.disassemble().contains("binding=STRUCTURED"));
     assertTrue(expression.disassemble().contains("binding=ERROR"));
+  }
+
+  @Test
+  void lowersOrderedStatementHandlersDeterministically() {
+    Ast.Program syntax =
+        MooParser.parse(
+            """
+            try
+              raise(E_ARGS);
+            except first (E_TYPE)
+              return 1;
+            except second (E_ARGS)
+              return 2;
+            finally
+              marker = 3;
+            endtry
+            """);
+    MooCompiler compiler = new MooCompiler();
+
+    BytecodeProgram first = compiler.compile(syntax);
+    BytecodeProgram second = compiler.compile(syntax);
+
+    assertEquals(first, second);
+    assertEquals(
+        """
+        0 ENTER_HANDLER catch=-1:-:,binding=NONE,finally=17,end=22
+        1 ENTER_HANDLER catch=14:second:E_ARGS,binding=STRUCTURED,finally=-1,end=10
+        2 ENTER_HANDLER catch=11:first:E_TYPE,binding=STRUCTURED,finally=-1,end=9
+        3 BUILD_LIST 0
+        4 PUSH_ERROR E_ARGS
+        5 LIST_APPEND
+        6 CALL raise
+        7 POP
+        8 LEAVE_HANDLER
+        9 LEAVE_HANDLER
+        10 LEAVE_HANDLER
+        11 PUSH_INTEGER 1
+        12 RETURN
+        13 LEAVE_HANDLER
+        14 PUSH_INTEGER 2
+        15 RETURN
+        16 LEAVE_HANDLER
+        17 PUSH_INTEGER 3
+        18 DUP
+        19 STORE_LOCAL marker
+        20 POP
+        21 END_FINALLY
+        22 PUSH_INTEGER 0
+        23 RETURN""",
+        first.disassemble());
+    assertEquals(first.disassemble(), second.disassemble());
   }
 
   @Test

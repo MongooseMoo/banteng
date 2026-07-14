@@ -8,6 +8,10 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.StringTokenizer;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import moo.builtin.BuiltinCatalog;
 import moo.bytecode.BytecodeProgram;
 import moo.bytecode.MooCompiler;
@@ -108,9 +112,117 @@ public final class MooRuntime {
 
   private VmState executeStored(WorldVerb verb, Map<String, MooValue> locals) {
     BytecodeProgram program = compiler.compile(MooParser.parse(verb.programSource()));
-    VmState state = new VmState(locals, verb.owner());
-    vm.execute(program, state, world, builtins);
-    return state;
+    VmState root = new VmState(locals, verb.owner());
+    Map<VmState, BytecodeProgram> programs = new LinkedHashMap<>();
+    Map<VmState, Long> timedTasks = new LinkedHashMap<>();
+    Map<VmState, CompletableFuture<MooValue>> hostTasks = new LinkedHashMap<>();
+    List<VmState> runnable = new ArrayList<>();
+    programs.put(root, program);
+    runnable.add(root);
+
+    while (root.outcome() != VmState.Outcome.RETURNED
+        && root.outcome() != VmState.Outcome.ERRORED) {
+      while (!runnable.isEmpty()) {
+        VmState task = runnable.removeFirst();
+        BytecodeProgram taskProgram = programs.get(task);
+        if (taskProgram == null) {
+          throw new IllegalStateException("runnable task has no program");
+        }
+        vm.execute(taskProgram, task, world, builtins);
+        while (task.outcome() == VmState.Outcome.FORKED) {
+          VmState.ForkRequest request = task.forkRequest().orElseThrow();
+          VmState child = new VmState(request.locals(), request.programmer());
+          programs.put(child, request.program());
+          long delayNanos = Math.max(0L, Math.round(request.delaySeconds() * 1_000_000_000.0));
+          timedTasks.put(child, Math.addExact(System.nanoTime(), delayNanos));
+          task.continueAfterFork();
+          vm.execute(taskProgram, task, world, builtins);
+        }
+        if (task.outcome() == VmState.Outcome.SUSPENDED) {
+          if (task.suspensionDelaySeconds().isPresent()) {
+            long delayNanos =
+                Math.max(
+                    0L, Math.round(task.suspensionDelaySeconds().orElseThrow() * 1_000_000_000.0));
+            timedTasks.put(task, Math.addExact(System.nanoTime(), delayNanos));
+          } else {
+            hostTasks.put(task, task.hostResult().orElseThrow());
+          }
+        } else if (task != root) {
+          programs.remove(task);
+        }
+      }
+
+      if (root.outcome() == VmState.Outcome.RETURNED || root.outcome() == VmState.Outcome.ERRORED) {
+        break;
+      }
+
+      long now = System.nanoTime();
+      List<VmState> timedReady = new ArrayList<>();
+      for (Map.Entry<VmState, Long> entry : timedTasks.entrySet()) {
+        if (entry.getValue() - now <= 0) {
+          timedReady.add(entry.getKey());
+        }
+      }
+      for (VmState task : timedReady) {
+        timedTasks.remove(task);
+        if (task.outcome() == VmState.Outcome.SUSPENDED) {
+          task.resume(new moo.value.MooValue.IntegerValue(0));
+        } else if (task.outcome() != VmState.Outcome.RUNNING) {
+          throw new IllegalStateException("timed task is neither queued nor suspended");
+        }
+        runnable.add(task);
+      }
+
+      List<VmState> hostReady = new ArrayList<>();
+      for (Map.Entry<VmState, CompletableFuture<MooValue>> entry : hostTasks.entrySet()) {
+        if (entry.getValue().isDone()) {
+          hostReady.add(entry.getKey());
+        }
+      }
+      for (VmState task : hostReady) {
+        CompletableFuture<MooValue> result = hostTasks.remove(task);
+        if (result == null) {
+          throw new IllegalStateException("completed host task has no result");
+        }
+        task.resume(result.join());
+        runnable.add(task);
+      }
+      if (!runnable.isEmpty()) {
+        continue;
+      }
+
+      long earliestWake = Long.MAX_VALUE;
+      for (long wake : timedTasks.values()) {
+        earliestWake = Math.min(earliestWake, wake);
+      }
+      long waitNanos =
+          earliestWake == Long.MAX_VALUE
+              ? Long.MAX_VALUE
+              : Math.max(1L, earliestWake - System.nanoTime());
+      try {
+        if (!hostTasks.isEmpty()) {
+          CompletableFuture<?>[] pending = hostTasks.values().toArray(CompletableFuture<?>[]::new);
+          CompletableFuture<Object> nextHost = CompletableFuture.anyOf(pending);
+          if (waitNanos == Long.MAX_VALUE) {
+            nextHost.get();
+          } else {
+            nextHost.get(waitNanos, TimeUnit.NANOSECONDS);
+          }
+        } else if (waitNanos != Long.MAX_VALUE) {
+          TimeUnit.NANOSECONDS.sleep(waitNanos);
+        } else {
+          throw new IllegalStateException("suspended runtime has no wake source");
+        }
+      } catch (TimeoutException ignored) {
+        // The next timed task is now eligible and is selected at the top of the loop.
+      } catch (InterruptedException error) {
+        Thread.currentThread().interrupt();
+        throw new IllegalStateException("runtime interrupted while waiting for a MOO task", error);
+      } catch (ExecutionException error) {
+        throw new IllegalStateException("host operation completed exceptionally", error.getCause());
+      }
+    }
+    return root;
   }
 
   private static Map<String, MooValue> verbLocals(

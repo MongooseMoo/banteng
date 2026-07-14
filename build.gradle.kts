@@ -28,6 +28,7 @@ application {
 dependencies {
     implementation("info.picocli:picocli:4.7.7")
     implementation("org.jspecify:jspecify:1.0.0")
+    implementation("org.xerial:sqlite-jdbc:3.53.2.0")
 
     errorprone("com.google.errorprone:error_prone_core:2.50.0")
     errorprone("com.uber.nullaway:nullaway:0.13.7")

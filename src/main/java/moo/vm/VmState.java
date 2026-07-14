@@ -8,7 +8,9 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.OptionalDouble;
 import java.util.OptionalLong;
+import java.util.concurrent.CompletableFuture;
 import moo.bytecode.BytecodeProgram;
 import moo.bytecode.BytecodeProgram.HandlerSpec;
 import moo.value.MooValue;
@@ -25,6 +27,9 @@ public final class VmState {
   private Optional<ErrorValue> pendingError = Optional.empty();
   private Optional<ErrorValue> uncaughtError = Optional.empty();
   private OptionalLong switchedPlayer = OptionalLong.empty();
+  private Optional<ForkRequest> forkRequest = Optional.empty();
+  private OptionalDouble suspensionDelaySeconds = OptionalDouble.empty();
+  private Optional<CompletableFuture<MooValue>> hostResult = Optional.empty();
   private final long initialProgrammer;
 
   /** Creates an empty state for a pure root program. */
@@ -53,6 +58,21 @@ public final class VmState {
   /** Returns whether execution is running, returned, or ended in a MOO error. */
   public Outcome outcome() {
     return outcome;
+  }
+
+  /** Returns the child task requested at the current fork boundary. */
+  public Optional<ForkRequest> forkRequest() {
+    return forkRequest;
+  }
+
+  /** Returns the timed delay requested at the current suspension boundary. */
+  public OptionalDouble suspensionDelaySeconds() {
+    return suspensionDelaySeconds;
+  }
+
+  /** Returns the external result that will resume the current suspended task. */
+  public Optional<CompletableFuture<MooValue>> hostResult() {
+    return hostResult;
   }
 
   /** Returns the value stored by a completed root return. */
@@ -168,6 +188,42 @@ public final class VmState {
     currentFrame().programmer = programmer;
   }
 
+  void requestFork(BytecodeProgram program, double delaySeconds) {
+    Frame frame = currentFrame();
+    forkRequest =
+        Optional.of(new ForkRequest(program, frame.locals, frame.programmer, delaySeconds));
+    outcome = Outcome.FORKED;
+  }
+
+  /** Clears a queued fork boundary so the parent continues before its child runs. */
+  public void continueAfterFork() {
+    if (outcome != Outcome.FORKED || forkRequest.isEmpty()) {
+      throw new IllegalStateException("VM is not at a fork boundary");
+    }
+    forkRequest = Optional.empty();
+    outcome = Outcome.RUNNING;
+  }
+
+  void suspend(OptionalDouble delaySeconds, Optional<CompletableFuture<MooValue>> externalResult) {
+    if (delaySeconds.isPresent() == externalResult.isPresent()) {
+      throw new IllegalArgumentException("suspension requires exactly one wake source");
+    }
+    suspensionDelaySeconds = delaySeconds;
+    hostResult = externalResult;
+    outcome = Outcome.SUSPENDED;
+  }
+
+  /** Resumes this exact captured VM and supplies the suspended builtin's value. */
+  public void resume(MooValue value) {
+    if (outcome != Outcome.SUSPENDED) {
+      throw new IllegalStateException("VM is not suspended");
+    }
+    suspensionDelaySeconds = OptionalDouble.empty();
+    hostResult = Optional.empty();
+    currentFrame().operandStack.push(value);
+    outcome = Outcome.RUNNING;
+  }
+
   private static Map<String, MooValue> normalizedLocals(Map<String, MooValue> locals) {
     Map<String, MooValue> normalized = new LinkedHashMap<>();
     locals.forEach((name, value) -> normalized.put(name.toLowerCase(Locale.ROOT), value));
@@ -217,6 +273,14 @@ public final class VmState {
       Optional<MooValue> returnValue,
       Optional<ErrorValue> error) {}
 
+  /** Immutable child state captured when a fork instruction queues work. */
+  public record ForkRequest(
+      BytecodeProgram program, Map<String, MooValue> locals, long programmer, double delaySeconds) {
+    public ForkRequest {
+      locals = Map.copyOf(locals);
+    }
+  }
+
   static final class LoopCursor {
     final ListValue values;
     int nextIndex;
@@ -246,6 +310,8 @@ public final class VmState {
   /** Terminal status held directly in VM state. */
   public enum Outcome {
     RUNNING,
+    FORKED,
+    SUSPENDED,
     RETURNED,
     ERRORED
   }

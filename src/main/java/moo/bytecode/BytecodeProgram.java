@@ -5,9 +5,15 @@ import java.util.Optional;
 import java.util.OptionalLong;
 
 /** Immutable bytecode for the executable language slice. */
-public record BytecodeProgram(List<Instruction> instructions) {
+public record BytecodeProgram(List<Instruction> instructions, List<BytecodeProgram> forkVectors) {
   public BytecodeProgram {
     instructions = List.copyOf(instructions);
+    forkVectors = List.copyOf(forkVectors);
+  }
+
+  /** Creates a program with no fork vectors. */
+  public BytecodeProgram(List<Instruction> instructions) {
+    this(instructions, List.of());
   }
 
   /** Returns a stable, line-oriented representation of this program. */
@@ -22,6 +28,13 @@ public record BytecodeProgram(List<Instruction> instructions) {
       instruction.operand().ifPresent(operand -> text.append(' ').append(operand));
       instruction.text().ifPresent(operand -> text.append(' ').append(operand));
       instruction.handler().ifPresent(operand -> text.append(' ').append(operand.disassemble()));
+    }
+    for (int index = 0; index < forkVectors.size(); index++) {
+      if (!text.isEmpty()) {
+        text.append('\n');
+      }
+      text.append("fork ").append(index).append(":\n  ");
+      text.append(forkVectors.get(index).disassemble().replace("\n", "\n  "));
     }
     return text.toString();
   }
@@ -61,6 +74,8 @@ public record BytecodeProgram(List<Instruction> instructions) {
     LESS_THAN_OR_EQUAL,
     GREATER_THAN,
     GREATER_THAN_OR_EQUAL,
+    IN,
+    FORK,
     JUMP,
     JUMP_IF_FALSE,
     JUMP_IF_TRUE,
@@ -86,6 +101,7 @@ public record BytecodeProgram(List<Instruction> instructions) {
                 JUMP,
                 JUMP_IF_FALSE,
                 JUMP_IF_TRUE,
+                FORK,
                 ITERATE,
                 SCATTER ->
                 true;

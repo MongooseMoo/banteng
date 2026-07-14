@@ -23,7 +23,8 @@ public sealed interface Ast
   }
 
   /** The closed statement family. */
-  sealed interface Statement extends Ast permits If, While, For, Try, Return, ExpressionStatement {}
+  sealed interface Statement extends Ast
+      permits If, While, For, Fork, Try, Return, ExpressionStatement {}
 
   record If(
       Expression condition, List<Statement> body, List<ElseIf> elseIfs, List<Statement> elseBody)
@@ -49,6 +50,12 @@ public sealed interface Ast
 
   record For(String variable, Expression iterable, List<Statement> body) implements Statement {
     public For {
+      body = List.copyOf(body);
+    }
+  }
+
+  record Fork(Expression delay, List<Statement> body) implements Statement {
+    public Fork {
       body = List.copyOf(body);
     }
   }
@@ -198,6 +205,7 @@ public sealed interface Ast
     LESS_THAN_OR_EQUAL,
     GREATER_THAN,
     GREATER_THAN_OR_EQUAL,
+    IN,
     AND,
     OR
   }

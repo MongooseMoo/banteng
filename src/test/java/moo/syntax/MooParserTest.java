@@ -48,6 +48,59 @@ final class MooParserTest {
   }
 
   @Test
+  void parsesBareSemicolonsAsEmptyStatementsIncludingAfterEndtry() {
+    Ast.Program program =
+        MooParser.parse(";; return 1;; try return 2; except (ANY) return 3; endtry;");
+
+    assertEquals(2, program.statements().size());
+    assertInstanceOf(Ast.Return.class, program.statements().get(0));
+    assertInstanceOf(Ast.Try.class, program.statements().get(1));
+  }
+
+  @Test
+  void parsesUnnamedInterruptForkAndNestedListMembership() {
+    Ast.Program program =
+        MooParser.parse(
+            """
+            fork (1)
+              suspend(1);
+              sqlite_interrupt(h);
+            endfork
+            return {1, {2}} in {{0}, {1, {2}}};
+            """);
+
+    Ast.Fork fork = assertInstanceOf(Ast.Fork.class, program.statements().get(0));
+    assertEquals(new Ast.IntegerLiteral(1), fork.delay());
+    assertEquals(
+        List.of(
+            new Ast.ExpressionStatement(
+                new Ast.Call("suspend", List.of(new Ast.IntegerLiteral(1)))),
+            new Ast.ExpressionStatement(
+                new Ast.Call("sqlite_interrupt", List.of(new Ast.Identifier("h"))))),
+        fork.body());
+
+    Ast.Return returnStatement = assertInstanceOf(Ast.Return.class, program.statements().get(1));
+    Ast.Binary membership =
+        assertInstanceOf(Ast.Binary.class, returnStatement.value().orElseThrow());
+    assertEquals(Ast.BinaryOperator.IN, membership.operator());
+    assertEquals(
+        new Ast.ListLiteral(
+            List.of(
+                new Ast.IntegerLiteral(1),
+                new Ast.ListLiteral(List.of(new Ast.IntegerLiteral(2))))),
+        membership.left());
+    assertEquals(
+        new Ast.ListLiteral(
+            List.of(
+                new Ast.ListLiteral(List.of(new Ast.IntegerLiteral(0))),
+                new Ast.ListLiteral(
+                    List.of(
+                        new Ast.IntegerLiteral(1),
+                        new Ast.ListLiteral(List.of(new Ast.IntegerLiteral(2))))))),
+        membership.right());
+  }
+
+  @Test
   void parsesToastFloatLiteralForms() {
     Map<String, Double> forms =
         Map.of(".5", 0.5, "1.", 1.0, "1e2", 100.0, "1E+2", 100.0, "11.0", 11.0);

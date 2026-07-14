@@ -49,6 +49,13 @@ suspending process resource; it is not Banteng's durable world database.
   VM state, automatic wakeup, and background limits.
 - `../barn/spec/vm.md:21-31,113-140` assigns explicit fork/suspend outcomes and
   captured VM state to the VM and task lifecycle/queues to the scheduler.
+- `../barn/spec/statements.md:506-522,533-540,558-608,693-720` specifies that
+  one `try` has an ordered list of exception clauses, the first matching clause
+  handles the error and receives the error package when it names a variable,
+  and a `finally` clause runs after either the body or the selected handler and
+  during error or return unwinding.
+- `../barn/spec/statements.md:5,24-40` specifies that a bare semicolon is a
+  valid empty statement and has no effect.
 
 ## Current Barn implementation path
 
@@ -76,6 +83,17 @@ The prerequisites are owned by:
   and `../barn/scheduler` for fork capture and scheduling;
 - `../barn/builtins/tasks.go:104-148`, `../barn/vm/op_misc.go:66-72`, and
   `../barn/scheduler/task_runtime.go:230-260` for suspension and resumption.
+- `../barn/verb/ir.go:478-496`,
+  `../barn/parser/parser_stmt.go:535-598`, and
+  `../barn/bytecode/compiler.go:2211-2277` preserve the ordered exception
+  clauses on one try statement and emit every clause before the finalizer;
+  `../barn/vm/control.go:173-207` and `../barn/vm/vm.go:727-788` preserve source
+  order on the handler stack, select the first matching clause, and bind the
+  structured error package. `../barn/vm/builtin_error_value_test.go:9-29`
+  freezes that package shape.
+- `../barn/parser/parser_stmt.go:27-45,48-78` consumes a bare semicolon while
+  parsing a statement sequence, and `../barn/bytecode/compiler.go:1688-1692`
+  emits no bytecode for the resulting nil expression.
 
 Barn agrees with Toast on the nine public names and signatures, wizard access,
 the active row result shapes, type code 4, one-based LIST membership,
@@ -190,6 +208,32 @@ when the handle has active locks.
 - `src/tasks.cc:1628-1646,1772-1795` wakes due forked and suspended tasks and
   resumes the saved VM.
 
+### Ordered exception clauses used by the presence row
+
+- `src/parser.y:317-348` builds the exception clauses in source order and
+  rejects a clause after `ANY`; `src/include/ast.h:135-142,174-196` keeps that
+  ordered list on one try statement.
+- `src/code_gen.cc:1089-1124` emits every clause for the one protected body.
+  `src/execute.cc:277-300` scans those guards from first to last and selects
+  only the first match. `src/execute.cc:269-276,2577-2613` owns finalizer and
+  unwind behavior after selection.
+- `src/parser.y:121-135,275-282` parses statement sequences, accepts a bare
+  semicolon as a null statement, and then parses try/except through `ENDTRY`.
+
+The exact `sqlite_exists_in_runtime` body has `except (E_VERBNF)` followed by
+`except (ANY)`. If `sqlite_open` is absent, the first clause returns zero. If
+the builtin exists, its deliberate nine-argument call raises `E_ARGS`, the
+first clause does not match, and the second clause returns one. The conformance
+schema appends a terminal semicolon and the socket transport flattens the body,
+so the exact managed source ends in `endtry;`; the final semicolon is a separate
+empty statement. The managed Toast family pass therefore proves ordered
+multi-clause selection and acceptance of that empty statement. Banteng already
+preserves `List<ExceptClause>` in `Ast.Try` and `MooParser`, but initially
+rejected both multiple clauses in the compiler and a bare semicolon in the
+parser. Both prerequisites are fixed in the active slice. Before the parser
+fix, the empty statement failed before the compiler or SQLite dispatch and
+dynamic `eval` converted that parse failure to `E_INVARG`.
+
 The exact interrupt row first queues `fork (1)`. When that child starts, it
 calls `suspend(1)`, so interruption occurs approximately two seconds after the
 original fork enqueue, subject to scheduler latency. Meanwhile the parent's
@@ -249,9 +293,81 @@ remains deliberately unfrozen; the durable row requires only `interrupt`.
 
 ## Representation boundary after the oracle gate
 
-Banteng has no SQLite driver, connection lifecycle, fork vector, suspended VM
-outcome, timed task queue, or resource shutdown path. The semantic contract is
-now frozen, but the smallest Java representation must be chosen against the
-existing concrete owners after this evidence record is committed. It must not
-replace the proven task suspension with a blocking serialized runtime or a
-timer shortcut.
+The evidence record was committed before API design as Banteng commit
+`375320b`. The smallest representation for the active rows is now frozen:
+
+- Add xerial `sqlite-jdbc` 3.53.2.0 as the one implementation dependency and
+  update the existing Gradle lock and verification records. Its concrete
+  `SQLiteConnection.getDatabase()` exposes both native `limit(int, int)` and
+  `interrupt()`, so Banteng does not emulate either operation.
+- Keep SQLite handle ownership inside the one process-lifetime
+  `BuiltinCatalog` instance already owned by `MooRuntime`. Add one private
+  concrete handle state there for the JDBC connection, path, flags, and active
+  lock count. Do not add a database interface, registry interface, adapter, or
+  alternate store package.
+- Add all nine names directly to the existing catalog switch with explicit
+  wizard checks and one effect classification: query/execute are suspending
+  host operations; open/close/limit/interrupt are irrevocable external
+  operations; handles/info/last-insert-ID are external reads.
+- Extend the existing concrete `BuiltinCatalog.Result` with only the two
+  suspension shapes the VM must hand to the runtime: a timed delay or a
+  `CompletableFuture<MooValue>` host result. `call_function` recursively invokes
+  the same catalog after removing its string name, preserving the target result
+  without a sender or adapter.
+- Run query and execute on one virtual thread per host operation. Increment the
+  handle lock before launch, decrement it in the worker's final path, return SQL
+  failures as MOO strings, and resume the exact suspended `VmState` with the
+  resulting MOO value. Native `interrupt()` remains callable while the worker
+  is active.
+- Add `typeof` directly to the catalog. Resolve `LIST` directly in the existing
+  VM local-load path from `MooValue.Type.LIST.code()`; do not add an environment
+  abstraction.
+- Extend the existing binary-expression path with `IN`. The active slice
+  implements structural LIST membership, returning the first one-based index
+  or zero and raising `E_TYPE` for a non-LIST right operand. Do not add a
+  membership helper.
+- Add one closed `Ast.Fork(delay, body)` statement and `FORK` opcode. Store fork
+  bodies as immutable child `BytecodeProgram` vectors on their parent program,
+  with the instruction carrying the vector index. Do not encode source text or
+  a Java callback as the child.
+- Extend the existing `VmState` with explicit FORKED and SUSPENDED outcomes,
+  one concrete fork request containing the child program, copied locals,
+  programmer, and delay, and direct resume with a supplied MOO value. The VM
+  stops at those explicit segment boundaries; it never blocks on JDBC or a
+  timer.
+- Keep task coordination in the existing concrete `MooRuntime`. On a fork
+  boundary it queues the child state by wake time and immediately resumes the
+  parent before any child can run. On timed or host suspension it retains the
+  same `VmState`, wakes it with zero or the future result, and continues it.
+  Runtime maps of concrete `VmState` instances are sufficient for this first
+  task slice; no scheduler interface or Java-thread-as-task model is added.
+- The exact interrupt row has two delays: the child is queued for one second,
+  then suspends itself for another second. The runtime must preserve both
+  boundaries while the parent's query future remains active.
+- Preserve ordered statement handlers with the existing `HandlerSpec` rather
+  than adding a second handler model. Lower one owner handler first, carrying
+  the shared `finally` and end targets, then lower each existing
+  `Ast.ExceptClause` as a contiguous handler in reverse source order so the
+  first source clause is on top at runtime. Normal completion leaves those
+  clause handlers in source order and then leaves the owner. On a structured
+  clause match, the VM removes the matching handler and the remaining
+  contiguous structured sibling handlers before entering the selected body,
+  leaving only the owner to run the shared finalizer or reach the shared end.
+  This removal is required: an error raised by the selected handler is not
+  eligible for a later sibling clause. Expression catches retain their existing
+  single-handler behavior. No new handler record, interface, or dispatch
+  helper is added.
+- Consume and skip `SEMICOLON` directly in the existing statement-sequence
+  parser as an empty no-op. The lexer already identifies it, and the semantic
+  contract requires no AST node or bytecode. This applies wherever a bare
+  semicolon appears, including the harness-generated terminator immediately
+  after `endtry`; do not special-case try statements or managed input.
+
+Focused Java tests must cover the exact prerequisite expressions, fork-vector
+lowering, ordered first-match statement handlers, a later-clause match, an
+error raised inside the selected handler escaping all sibling clauses, shared
+`finally` execution, parent-before-child behavior, timed resumption, native
+limit updates, raised versus returned invalid-handle errors, result conversion,
+and active interruption. The kept slice must pass focused tests, `gradlew
+check`, `installDist`, the managed 14-row `sqlite::` family, a read-only review,
+and a fresh plan reread before commit.

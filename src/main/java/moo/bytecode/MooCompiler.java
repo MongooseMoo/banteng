@@ -15,18 +15,20 @@ public final class MooCompiler {
   /** Compiles one parsed MOO verb body. */
   public BytecodeProgram compile(Ast.Program program) {
     List<Instruction> instructions = new ArrayList<>();
+    List<BytecodeProgram> forkVectors = new ArrayList<>();
     catchSequence = 0;
     for (Ast.Statement statement : program.statements()) {
-      compileStatement(statement, instructions);
+      compileStatement(statement, instructions, forkVectors);
     }
     if (program.statements().isEmpty() || !(program.statements().getLast() instanceof Ast.Return)) {
       instructions.add(new Instruction(Opcode.PUSH_INTEGER, 0));
       instructions.add(new Instruction(Opcode.RETURN));
     }
-    return new BytecodeProgram(instructions);
+    return new BytecodeProgram(instructions, forkVectors);
   }
 
-  private void compileStatement(Ast.Statement statement, List<Instruction> instructions) {
+  private void compileStatement(
+      Ast.Statement statement, List<Instruction> instructions, List<BytecodeProgram> forkVectors) {
     if (statement instanceof Ast.Return returnStatement) {
       if (returnStatement.value().isPresent()) {
         compileExpression(returnStatement.value().orElseThrow(), instructions);
@@ -42,14 +44,14 @@ public final class MooCompiler {
       return;
     }
     if (statement instanceof Ast.If ifStatement) {
-      compileIf(ifStatement, instructions);
+      compileIf(ifStatement, instructions, forkVectors);
       return;
     }
     if (statement instanceof Ast.While whileStatement) {
       int conditionTarget = instructions.size();
       compileExpression(whileStatement.condition(), instructions);
       int exitJump = addJump(Opcode.JUMP_IF_FALSE, instructions);
-      compileStatements(whileStatement.body(), instructions);
+      compileStatements(whileStatement.body(), instructions, forkVectors);
       instructions.add(new Instruction(Opcode.JUMP, conditionTarget));
       patchJump(exitJump, instructions.size(), instructions);
       return;
@@ -58,88 +60,126 @@ public final class MooCompiler {
       compileExpression(forStatement.iterable(), instructions);
       int iterate = instructions.size();
       instructions.add(new Instruction(Opcode.ITERATE, -1, forStatement.variable()));
-      compileStatements(forStatement.body(), instructions);
+      compileStatements(forStatement.body(), instructions, forkVectors);
       instructions.add(new Instruction(Opcode.JUMP, iterate));
       patchNumericOperand(iterate, instructions.size(), instructions);
       return;
     }
+    if (statement instanceof Ast.Fork forkStatement) {
+      int vectorIndex = forkVectors.size();
+      compileExpression(forkStatement.delay(), instructions);
+      List<Instruction> childInstructions = new ArrayList<>();
+      List<BytecodeProgram> childForkVectors = new ArrayList<>();
+      compileStatements(forkStatement.body(), childInstructions, childForkVectors);
+      if (forkStatement.body().isEmpty()
+          || !(forkStatement.body().getLast() instanceof Ast.Return)) {
+        childInstructions.add(new Instruction(Opcode.PUSH_INTEGER, 0));
+        childInstructions.add(new Instruction(Opcode.RETURN));
+      }
+      forkVectors.add(new BytecodeProgram(childInstructions, childForkVectors));
+      instructions.add(new Instruction(Opcode.FORK, vectorIndex));
+      return;
+    }
     if (statement instanceof Ast.Try tryStatement) {
-      compileTry(tryStatement, instructions);
+      compileTry(tryStatement, instructions, forkVectors);
       return;
     }
     throw new IllegalArgumentException("unsupported statement in bytecode slice: " + statement);
   }
 
-  private void compileIf(Ast.If statement, List<Instruction> instructions) {
+  private void compileIf(
+      Ast.If statement, List<Instruction> instructions, List<BytecodeProgram> forkVectors) {
     List<Integer> endJumps = new ArrayList<>();
     compileExpression(statement.condition(), instructions);
     int nextBranch = addJump(Opcode.JUMP_IF_FALSE, instructions);
-    compileStatements(statement.body(), instructions);
+    compileStatements(statement.body(), instructions, forkVectors);
     endJumps.add(addJump(Opcode.JUMP, instructions));
     patchJump(nextBranch, instructions.size(), instructions);
 
     for (Ast.ElseIf elseIf : statement.elseIfs()) {
       compileExpression(elseIf.condition(), instructions);
       nextBranch = addJump(Opcode.JUMP_IF_FALSE, instructions);
-      compileStatements(elseIf.body(), instructions);
+      compileStatements(elseIf.body(), instructions, forkVectors);
       endJumps.add(addJump(Opcode.JUMP, instructions));
       patchJump(nextBranch, instructions.size(), instructions);
     }
-    compileStatements(statement.elseBody(), instructions);
+    compileStatements(statement.elseBody(), instructions, forkVectors);
     int endTarget = instructions.size();
     for (int jump : endJumps) {
       patchJump(jump, endTarget, instructions);
     }
   }
 
-  private void compileTry(Ast.Try statement, List<Instruction> instructions) {
-    if (statement.exceptClauses().size() > 1) {
-      throw new IllegalArgumentException("multiple except clauses are outside this bytecode slice");
-    }
-    int enter = instructions.size();
+  private void compileTry(
+      Ast.Try statement, List<Instruction> instructions, List<BytecodeProgram> forkVectors) {
+    int ownerEnter = instructions.size();
     instructions.add(new Instruction(Opcode.JUMP, -1));
-    compileStatements(statement.body(), instructions);
+
+    int clauseCount = statement.exceptClauses().size();
+    int[] clauseEnters = new int[clauseCount];
+    for (int index = clauseCount - 1; index >= 0; index--) {
+      clauseEnters[index] = instructions.size();
+      instructions.add(new Instruction(Opcode.JUMP, -1));
+    }
+
+    compileStatements(statement.body(), instructions, forkVectors);
+
+    int[] normalCleanupTargets = new int[clauseCount];
+    for (int index = 0; index < clauseCount; index++) {
+      normalCleanupTargets[index] = instructions.size();
+      instructions.add(new Instruction(Opcode.LEAVE_HANDLER));
+    }
+    int ownerCleanupTarget = instructions.size();
     instructions.add(new Instruction(Opcode.LEAVE_HANDLER));
 
-    int catchTarget = -1;
-    Optional<String> catchVariable = Optional.empty();
-    boolean catchesAny = false;
-    List<String> caughtErrors = List.of();
-    if (!statement.exceptClauses().isEmpty()) {
-      Ast.ExceptClause clause = statement.exceptClauses().getFirst();
-      catchTarget = instructions.size();
-      catchVariable = clause.variable();
-      catchesAny = clause.errors() instanceof Ast.AnyErrors;
-      if (clause.errors() instanceof Ast.ErrorList errors) {
-        caughtErrors = errors.names();
-      }
-      compileStatements(clause.body(), instructions);
+    int[] catchTargets = new int[clauseCount];
+    for (int index = 0; index < clauseCount; index++) {
+      Ast.ExceptClause clause = statement.exceptClauses().get(index);
+      catchTargets[index] = instructions.size();
+      compileStatements(clause.body(), instructions, forkVectors);
       instructions.add(new Instruction(Opcode.LEAVE_HANDLER));
     }
 
     int finallyTarget = -1;
     if (statement.finallyClause().isPresent()) {
       finallyTarget = instructions.size();
-      compileStatements(statement.finallyClause().orElseThrow().body(), instructions);
+      compileStatements(statement.finallyClause().orElseThrow().body(), instructions, forkVectors);
       instructions.add(new Instruction(Opcode.END_FINALLY));
     }
     int endTarget = instructions.size();
     instructions.set(
-        enter,
+        ownerEnter,
         new Instruction(
             new HandlerSpec(
-                catchTarget,
-                catchVariable,
-                catchesAny,
-                caughtErrors,
-                catchTarget >= 0,
-                finallyTarget,
-                endTarget)));
+                -1, Optional.empty(), false, List.of(), false, finallyTarget, endTarget)));
+
+    for (int index = 0; index < clauseCount; index++) {
+      Ast.ExceptClause clause = statement.exceptClauses().get(index);
+      boolean catchesAny = clause.errors() instanceof Ast.AnyErrors;
+      List<String> caughtErrors =
+          clause.errors() instanceof Ast.ErrorList errors ? errors.names() : List.of();
+      int nextCleanupTarget =
+          index + 1 < clauseCount ? normalCleanupTargets[index + 1] : ownerCleanupTarget;
+      instructions.set(
+          clauseEnters[index],
+          new Instruction(
+              new HandlerSpec(
+                  catchTargets[index],
+                  clause.variable(),
+                  catchesAny,
+                  caughtErrors,
+                  true,
+                  -1,
+                  nextCleanupTarget)));
+    }
   }
 
-  private void compileStatements(List<Ast.Statement> statements, List<Instruction> instructions) {
+  private void compileStatements(
+      List<Ast.Statement> statements,
+      List<Instruction> instructions,
+      List<BytecodeProgram> forkVectors) {
     for (Ast.Statement statement : statements) {
-      compileStatement(statement, instructions);
+      compileStatement(statement, instructions, forkVectors);
     }
   }
 
@@ -348,6 +388,7 @@ public final class MooCompiler {
       case LESS_THAN_OR_EQUAL -> Opcode.LESS_THAN_OR_EQUAL;
       case GREATER_THAN -> Opcode.GREATER_THAN;
       case GREATER_THAN_OR_EQUAL -> Opcode.GREATER_THAN_OR_EQUAL;
+      case IN -> Opcode.IN;
       case AND, OR -> throw new AssertionError("short-circuit operator reached direct lowering");
     };
   }

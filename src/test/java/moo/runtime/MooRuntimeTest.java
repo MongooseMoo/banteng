@@ -1,9 +1,11 @@
 package moo.runtime;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Locale;
 import moo.persistence.LambdaMooV4Reader;
 import moo.value.MooValue.ObjectValue;
 import moo.world.WorldObject;
@@ -98,6 +100,166 @@ final class MooRuntimeTest {
         runtime.executeLine(
             connectionId,
             "; return {\"10\" == \"1\" + \"0\", [] == {}, {\"A\" == \"a\", \"À\" == \"à\"}};"));
+  }
+
+  @Test
+  void executesSqliteExistsInRuntimeThroughStoredEvalRuntime() throws Exception {
+    WorldTxn world = new LambdaMooV4Reader().read(FIXTURE);
+    MooRuntime runtime = new MooRuntime(world);
+    long connectionId = -47;
+
+    assertEquals(List.of(), runtime.openConnection(connectionId));
+    assertEquals(List.of("*** Connected ***"), runtime.executeLine(connectionId, "connect Wizard"));
+    assertEquals(List.of(), runtime.executeLine(connectionId, "PREFIX " + CONNECTION_PREFIX));
+    assertEquals(List.of(), runtime.executeLine(connectionId, "SUFFIX " + CONNECTION_SUFFIX));
+
+    assertEquals(
+        List.of(
+            CONNECTION_PREFIX, CONNECTION_PREFIX, "{1, 1}", CONNECTION_SUFFIX, CONNECTION_SUFFIX),
+        runtime.executeLine(
+            connectionId,
+            "; try sqlite_open(1,2,3,4,5,6,7,8,9); return 1; except (E_VERBNF) return 0; except (ANY) return 1; endtry;"));
+  }
+
+  @Test
+  void executesSqliteManagedSurfaceThroughStoredEvalRuntime() throws Exception {
+    WorldTxn world = new LambdaMooV4Reader().read(FIXTURE);
+    MooRuntime runtime = new MooRuntime(world);
+    long connectionId = -47;
+
+    assertEquals(List.of(), runtime.openConnection(connectionId));
+    assertEquals(List.of("*** Connected ***"), runtime.executeLine(connectionId, "connect Wizard"));
+    assertEquals(List.of(), runtime.executeLine(connectionId, "PREFIX " + CONNECTION_PREFIX));
+    assertEquals(List.of(), runtime.executeLine(connectionId, "SUFFIX " + CONNECTION_SUFFIX));
+
+    assertEquals(
+        List.of(
+            CONNECTION_PREFIX,
+            CONNECTION_PREFIX,
+            "{1, {1, 1, 1, 1, 1, 1, 1}}",
+            CONNECTION_SUFFIX,
+            CONNECTION_SUFFIX),
+        runtime.executeLine(
+            connectionId,
+            "; h = sqlite_open(\":memory:\"); info = sqlite_info(h); "
+                + "return {h > 0, h in sqlite_handles(), info[\"path\"] == \":memory:\", "
+                + "info[\"parse_types\"] == 1, info[\"parse_objects\"] == 1, "
+                + "info[\"sanitize_strings\"] == 0, info[\"locks\"] == 0};"));
+
+    assertEquals(
+        List.of(
+            CONNECTION_PREFIX,
+            CONNECTION_PREFIX,
+            "{1, {1, 1, 1}}",
+            CONNECTION_SUFFIX,
+            CONNECTION_SUFFIX),
+        runtime.executeLine(
+            connectionId,
+            "; sqlite_query(1, \"CREATE TABLE t(id INTEGER PRIMARY KEY, n INTEGER, "
+                + "x REAL, obj TEXT, label TEXT)\"); "
+                + "inserted = sqlite_execute(1, \"INSERT INTO t(n, x, obj, label) "
+                + "VALUES (?, ?, ?, ?)\", {42, 3.5, #0, \"alpha\"}); "
+                + "return {typeof(inserted) == LIST, length(inserted) == 0, "
+                + "sqlite_last_insert_row_id(1) == 1};"));
+
+    assertEquals(
+        List.of(
+            CONNECTION_PREFIX,
+            CONNECTION_PREFIX,
+            "{1, {{42, 3.5, #0, \"alpha\"}}}",
+            CONNECTION_SUFFIX,
+            CONNECTION_SUFFIX),
+        runtime.executeLine(
+            connectionId,
+            "; return sqlite_execute(1, \"SELECT ?, ?, ?, ?\", {42, 3.5, #0, \"alpha\"});"));
+
+    assertEquals(
+        List.of(
+            CONNECTION_PREFIX,
+            CONNECTION_PREFIX,
+            "{1, {{{\"first\", 42}, {\"label\", \"alpha\"}}}}",
+            CONNECTION_SUFFIX,
+            CONNECTION_SUFFIX),
+        runtime.executeLine(
+            connectionId, "; return sqlite_query(1, \"SELECT n AS first, label FROM t\", 1);"));
+
+    assertEquals(
+        List.of(
+            CONNECTION_PREFIX,
+            CONNECTION_PREFIX,
+            "{1, {1, 1, 1, 1, 1}}",
+            CONNECTION_SUFFIX,
+            CONNECTION_SUFFIX),
+        runtime.executeLine(
+            connectionId,
+            "; name_limit = sqlite_limit(1, \"LIMIT_COLUMN\", -1); "
+                + "number_limit = sqlite_limit(1, 2, -1); "
+                + "previous = sqlite_limit(1, 2, name_limit - 1); "
+                + "current = sqlite_limit(1, \"LIMIT_COLUMN\", -1); "
+                + "restored = sqlite_limit(1, \"LIMIT_COLUMN\", name_limit); "
+                + "final = sqlite_limit(1, 2, -1); "
+                + "return {name_limit == number_limit, previous == name_limit, "
+                + "current == name_limit - 1, restored == name_limit - 1, "
+                + "final == name_limit};"));
+
+    assertEquals(
+        List.of(
+            CONNECTION_PREFIX,
+            CONNECTION_PREFIX,
+            "{1, {1, 1, 1, 1, 1, 1, 1}}",
+            CONNECTION_SUFFIX,
+            CONNECTION_SUFFIX),
+        runtime.executeLine(
+            connectionId,
+            "; query_returned = sqlite_query(999999, \"SELECT 1\") == E_INVARG; "
+                + "execute_returned = sqlite_execute(999999, \"SELECT 1\", {}) == E_INVARG; "
+                + "close_raised = `sqlite_close(999999) ! E_INVARG => 1'; "
+                + "info_raised = `sqlite_info(999999) ! E_INVARG => 1'; "
+                + "limit_raised = `sqlite_limit(1, \"LIMIT_NOT_REAL\", -1) "
+                + "! E_INVARG => 1'; "
+                + "call_raised = `call_function(\"sqlite_info\", 2) ! E_INVARG => 1'; "
+                + "interrupt_raised = `sqlite_interrupt(999999) ! E_INVARG => 1'; "
+                + "return {query_returned, execute_returned, close_raised, info_raised, "
+                + "limit_raised, call_raised, interrupt_raised};"));
+
+    assertEquals(
+        List.of(
+            CONNECTION_PREFIX,
+            CONNECTION_PREFIX,
+            "{1, {0, 0}}",
+            CONNECTION_SUFFIX,
+            CONNECTION_SUFFIX),
+        runtime.executeLine(
+            connectionId,
+            "; result = sqlite_close(1); return {result, length(sqlite_handles())};"));
+  }
+
+  @Test
+  void interruptsActiveSqliteQueryAfterExactDelayedForkAndSuspend() throws Exception {
+    WorldTxn world = new LambdaMooV4Reader().read(FIXTURE);
+    MooRuntime runtime = new MooRuntime(world);
+    long connectionId = -47;
+
+    assertEquals(List.of(), runtime.openConnection(connectionId));
+    assertEquals(List.of("*** Connected ***"), runtime.executeLine(connectionId, "connect Wizard"));
+
+    List<String> output =
+        runtime.executeLine(
+            connectionId,
+            """
+            ; h = sqlite_open(":memory:");
+            fork (1)
+              suspend(1);
+              sqlite_interrupt(h);
+            endfork
+            result = sqlite_query(h, "WITH RECURSIVE cnt(x) AS (VALUES(1) UNION ALL SELECT x+1 FROM cnt WHERE x < 1000) SELECT count(*) FROM cnt AS a, cnt AS b, cnt AS c, cnt AS d;");
+            sqlite_close(h);
+            return result;
+            """);
+
+    assertTrue(
+        output.stream().anyMatch(line -> line.toLowerCase(Locale.ROOT).contains("interrupt")),
+        output::toString);
   }
 
   private static void executeSetup(

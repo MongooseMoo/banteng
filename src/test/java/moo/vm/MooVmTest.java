@@ -43,6 +43,83 @@ final class MooVmTest {
   }
 
   @Test
+  void evaluatesExactSqliteTypePrerequisiteExpression() {
+    BytecodeProgram program =
+        new MooCompiler().compile(MooParser.parse("return typeof({}) == LIST;"));
+    VmState state = new VmState();
+
+    new MooVm().execute(program, state);
+
+    assertEquals(VmState.Outcome.RETURNED, state.outcome());
+    assertEquals(new IntegerValue(1), state.returnValue().orElseThrow());
+  }
+
+  @Test
+  void evaluatesStructuralListMembershipAndRejectsNonListRightOperand() {
+    BytecodeProgram program =
+        new MooCompiler()
+            .compile(
+                MooParser.parse(
+                    "return {{1, {2}} in {{0}, {1, {2}}}, " + "{1, {3}} in {{0}, {1, {2}}}};"));
+    VmState state = new VmState();
+
+    new MooVm().execute(program, state);
+
+    assertEquals(VmState.Outcome.RETURNED, state.outcome());
+    assertEquals(
+        new ListValue(List.of(new IntegerValue(2), new IntegerValue(0))),
+        state.returnValue().orElseThrow());
+
+    BytecodeProgram invalid = new MooCompiler().compile(MooParser.parse("return 1 in 1;"));
+    VmState invalidState = new VmState();
+
+    new MooVm().execute(invalid, invalidState);
+
+    assertEquals(VmState.Outcome.ERRORED, invalidState.outcome());
+    assertEquals(ErrorValue.E_TYPE, invalidState.uncaughtError().orElseThrow());
+  }
+
+  @Test
+  void stopsAtForkBoundaryBeforeParentReturnAndCapturesChildDelayAndLocals() {
+    ListValue captured =
+        new ListValue(
+            List.of(
+                new IntegerValue(7),
+                new StringValue("captured".getBytes(StandardCharsets.ISO_8859_1))));
+    BytecodeProgram program =
+        new MooCompiler().compile(MooParser.parse("fork (1) return marker; endfork return 99;"));
+    VmState state = new VmState(Map.of("marker", captured), 8);
+
+    new MooVm().execute(program, state);
+
+    assertEquals(VmState.Outcome.FORKED, state.outcome());
+    assertTrue(state.returnValue().isEmpty());
+    VmState.ForkRequest request = state.forkRequest().orElseThrow();
+    assertEquals(program.forkVectors().getFirst(), request.program());
+    assertEquals(1.0, request.delaySeconds());
+    assertEquals(Map.of("marker", captured), request.locals());
+    assertEquals(8, request.programmer());
+
+    VmState child = new VmState(request.locals(), request.programmer());
+    new MooVm().execute(request.program(), child);
+    assertEquals(VmState.Outcome.RETURNED, child.outcome());
+    assertEquals(captured, child.returnValue().orElseThrow());
+  }
+
+  @Test
+  void timedSuspendYieldsExplicitSuspendedBoundaryWithoutSleeping() {
+    BytecodeProgram program = new MooCompiler().compile(MooParser.parse("return suspend(1);"));
+    VmState state = new VmState();
+
+    new MooVm().execute(program, state);
+
+    assertEquals(VmState.Outcome.SUSPENDED, state.outcome());
+    assertEquals(1.0, state.suspensionDelaySeconds().orElseThrow());
+    assertTrue(state.hostResult().isEmpty());
+    assertTrue(state.returnValue().isEmpty());
+  }
+
+  @Test
   void subtractsTwoFloatsWithoutNumericPromotion() {
     BytecodeProgram program = new MooCompiler().compile(MooParser.parse("return 11.0 - 5.5;"));
     VmState state = new VmState();
@@ -125,6 +202,95 @@ final class MooVmTest {
 
     assertEquals(VmState.Outcome.RETURNED, state.outcome());
     assertEquals(ErrorValue.E_TYPE, state.returnValue().orElseThrow());
+  }
+
+  @Test
+  void orderedStatementHandlersSelectFirstMatchAndLaterClause() {
+    BytecodeProgram firstMatch =
+        new MooCompiler()
+            .compile(
+                MooParser.parse(
+                    "try raise(E_TYPE); "
+                        + "except error (E_TYPE) return error[1]; "
+                        + "except (ANY) return E_NONE; endtry"));
+    VmState firstState = new VmState();
+
+    new MooVm().execute(firstMatch, firstState);
+
+    assertEquals(VmState.Outcome.RETURNED, firstState.outcome());
+    assertEquals(ErrorValue.E_TYPE, firstState.returnValue().orElseThrow());
+
+    BytecodeProgram laterMatch =
+        new MooCompiler()
+            .compile(
+                MooParser.parse(
+                    "try raise(E_ARGS); "
+                        + "except (E_TYPE) return 1; "
+                        + "except (E_ARGS) return 2; "
+                        + "except (ANY) return 3; endtry"));
+    VmState laterState = new VmState();
+
+    new MooVm().execute(laterMatch, laterState);
+
+    assertEquals(VmState.Outcome.RETURNED, laterState.outcome());
+    assertEquals(new IntegerValue(2), laterState.returnValue().orElseThrow());
+  }
+
+  @Test
+  void exactNineArgumentSqliteOpenPresenceShapeReachesLaterAnyClause() {
+    BytecodeProgram program =
+        new MooCompiler()
+            .compile(
+                MooParser.parse(
+                    "try sqlite_open(\"\", 0, 0, 0, 0, 0, 0, 0, 0); "
+                        + "except (E_VERBNF) return 0; "
+                        + "except (ANY) return 1; endtry"));
+    VmState state = new VmState(Map.of(), 0);
+    WorldObject wizard =
+        new WorldObject(0, "wizard", 6, 0, -1, -1, List.of(), List.of(), List.of(), List.of());
+    WorldTxn world = new WorldTxn(List.of(0L), List.of(wizard));
+
+    new MooVm().execute(program, state, world, new BuiltinCatalog());
+
+    assertEquals(VmState.Outcome.RETURNED, state.outcome());
+    assertEquals(new IntegerValue(1), state.returnValue().orElseThrow());
+  }
+
+  @Test
+  void errorRaisedBySelectedHandlerEscapesLaterSiblingClause() {
+    BytecodeProgram program =
+        new MooCompiler()
+            .compile(
+                MooParser.parse(
+                    "try raise(E_TYPE); "
+                        + "except (E_TYPE) raise(E_ARGS); "
+                        + "except (E_ARGS) return 99; endtry"));
+    VmState state = new VmState();
+
+    new MooVm().execute(program, state);
+
+    assertEquals(VmState.Outcome.ERRORED, state.outcome());
+    assertEquals(ErrorValue.E_ARGS, state.uncaughtError().orElseThrow());
+  }
+
+  @Test
+  void statementHandlersShareFinallyAfterNormalBodyAndSelectedHandler() {
+    String[] sources = {
+      "x = 0; try x = 1; except (ANY) x = 2; finally x = x + 10; endtry return x;",
+      "x = 0; try raise(E_TYPE); except (E_TYPE) x = 2; finally x = x + 10; endtry return x;"
+    };
+    long[] expected = {11, 12};
+
+    for (int index = 0; index < sources.length; index++) {
+      BytecodeProgram program = new MooCompiler().compile(MooParser.parse(sources[index]));
+      VmState state = new VmState();
+
+      new MooVm().execute(program, state);
+
+      assertEquals(VmState.Outcome.RETURNED, state.outcome(), sources[index]);
+      assertEquals(
+          new IntegerValue(expected[index]), state.returnValue().orElseThrow(), sources[index]);
+    }
   }
 
   @Test
@@ -933,7 +1099,7 @@ final class MooVmTest {
     new MooVm()
         .execute(
             new MooCompiler()
-                .compile(MooParser.parse("return set_verb_code(#1, 1, {\"return 9;\", \";\"});")),
+                .compile(MooParser.parse("return set_verb_code(#1, 1, {\"return 9;\", \"if\"});")),
             diagnostic,
             world,
             new BuiltinCatalog());

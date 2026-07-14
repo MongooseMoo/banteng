@@ -145,6 +145,8 @@ public final class MooVm {
       case EQUAL, NOT_EQUAL -> equality(instruction, frame);
       case LESS_THAN, LESS_THAN_OR_EQUAL, GREATER_THAN, GREATER_THAN_OR_EQUAL ->
           comparison(instruction, frame, state, world);
+      case IN -> membership(frame, state, world);
+      case FORK -> fork(instruction, frame, state, world);
       case JUMP -> frame.instructionPointer = target(instruction);
       case JUMP_IF_FALSE -> conditionalJump(instruction, frame, false);
       case JUMP_IF_TRUE -> conditionalJump(instruction, frame, true);
@@ -222,6 +224,11 @@ public final class MooVm {
   private static void loadLocal(Frame frame, String name, VmState state, WorldTxn world) {
     MooValue value = frame.locals.get(normalize(name));
     if (value == null) {
+      if (name.equalsIgnoreCase("LIST")) {
+        frame.operandStack.push(new IntegerValue(MooValue.Type.LIST.code()));
+        frame.instructionPointer++;
+        return;
+      }
       raiseError(state, ErrorValue.E_VARNF, world);
       return;
     }
@@ -341,6 +348,10 @@ public final class MooVm {
     if (result.programmer().isPresent()) {
       state.setProgrammer(result.programmer().orElseThrow());
     }
+    if (result.delaySeconds().isPresent() || result.hostResult().isPresent()) {
+      state.suspend(result.delaySeconds(), result.hostResult());
+      return;
+    }
     if (result.dynamicSource().isPresent()) {
       try {
         BytecodeProgram dynamicProgram =
@@ -382,6 +393,45 @@ public final class MooVm {
       return;
     }
     frame.operandStack.push(result.value().orElseThrow());
+  }
+
+  private static void membership(Frame frame, VmState state, WorldTxn world) {
+    MooValue collection = frame.operandStack.pop();
+    MooValue requested = frame.operandStack.pop();
+    if (!(collection instanceof ListValue list)) {
+      raiseError(state, ErrorValue.E_TYPE, world);
+      return;
+    }
+    long position = 0;
+    for (int index = 0; index < list.elements().size(); index++) {
+      if (requested.equals(list.elements().get(index))) {
+        position = index + 1L;
+        break;
+      }
+    }
+    frame.operandStack.push(new IntegerValue(position));
+    frame.instructionPointer++;
+  }
+
+  private static void fork(Instruction instruction, Frame frame, VmState state, WorldTxn world) {
+    MooValue delay = frame.operandStack.pop();
+    double seconds;
+    if (delay instanceof IntegerValue integer) {
+      seconds = integer.value();
+    } else if (delay instanceof FloatValue floating) {
+      seconds = floating.value();
+    } else {
+      raiseError(state, ErrorValue.E_TYPE, world);
+      return;
+    }
+    if (seconds < 0) {
+      raiseError(state, ErrorValue.E_INVARG, world);
+      return;
+    }
+    BytecodeProgram child =
+        frame.program.forkVectors().get(Math.toIntExact(instruction.operand().orElseThrow()));
+    frame.instructionPointer++;
+    state.requestFork(child, seconds);
   }
 
   private static void unaryNegate(Frame frame, VmState state, WorldTxn world) {
@@ -677,7 +727,15 @@ public final class MooVm {
           while (frame.operandStack.size() > handler.operandDepth) {
             frame.operandStack.pop();
           }
-          handler.phase = HandlerPhase.CATCH;
+          if (handler.specification.structuredCatchBinding()) {
+            frame.handlers.pop();
+            while (!frame.handlers.isEmpty()
+                && frame.handlers.getFirst().specification.structuredCatchBinding()) {
+              frame.handlers.pop();
+            }
+          } else {
+            handler.phase = HandlerPhase.CATCH;
+          }
           handler
               .specification
               .catchVariable()

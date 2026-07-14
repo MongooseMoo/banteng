@@ -43,6 +43,10 @@ public final class MooParser {
       if (current.kind() == TokenKind.EOF) {
         throw error("unexpected end of source");
       }
+      if (current.kind() == TokenKind.SEMICOLON) {
+        advance();
+        continue;
+      }
       statements.add(parseStatement());
     }
     return List.copyOf(statements);
@@ -62,6 +66,7 @@ public final class MooParser {
       case IF -> parseIf();
       case WHILE -> parseWhile();
       case FOR -> parseFor();
+      case FORK -> parseFork();
       case TRY -> parseTry();
       case RETURN -> parseReturn();
       default -> parseExpressionStatement();
@@ -107,6 +112,14 @@ public final class MooParser {
     List<Ast.Statement> body = parseStatementsUntil(TokenKind.ENDFOR);
     expectAndAdvance(TokenKind.ENDFOR, "endfor");
     return new Ast.For(variable, iterable, body);
+  }
+
+  private Ast.Fork parseFork() {
+    advance();
+    Ast.Expression delay = parseParenthesizedExpression("fork");
+    List<Ast.Statement> body = parseStatementsUntil(TokenKind.ENDFORK);
+    expectAndAdvance(TokenKind.ENDFORK, "endfork");
+    return new Ast.Fork(delay, body);
   }
 
   private Ast.Try parseTry() {
@@ -427,7 +440,8 @@ public final class MooParser {
           LESS_THAN,
           LESS_THAN_OR_EQUAL,
           GREATER_THAN,
-          GREATER_THAN_OR_EQUAL ->
+          GREATER_THAN_OR_EQUAL,
+          IN ->
           COMPARISON_PRECEDENCE;
       case PLUS, MINUS -> ADDITIVE_PRECEDENCE;
       case STAR, SLASH, PERCENT -> MULTIPLICATIVE_PRECEDENCE;
@@ -450,6 +464,7 @@ public final class MooParser {
       case LESS_THAN_OR_EQUAL -> Ast.BinaryOperator.LESS_THAN_OR_EQUAL;
       case GREATER_THAN -> Ast.BinaryOperator.GREATER_THAN;
       case GREATER_THAN_OR_EQUAL -> Ast.BinaryOperator.GREATER_THAN_OR_EQUAL;
+      case IN -> Ast.BinaryOperator.IN;
       case AND_AND -> Ast.BinaryOperator.AND;
       case OR_OR -> Ast.BinaryOperator.OR;
       default -> throw new AssertionError("not a binary operator: " + kind);

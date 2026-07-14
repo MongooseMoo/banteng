@@ -1,11 +1,23 @@
 package moo.builtin;
 
 import java.nio.charset.StandardCharsets;
+import java.sql.DriverManager;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
+import java.sql.ResultSetMetaData;
+import java.sql.SQLException;
+import java.sql.Statement;
+import java.sql.Types;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Optional;
+import java.util.OptionalDouble;
 import java.util.OptionalLong;
 import java.util.StringTokenizer;
+import java.util.concurrent.CompletableFuture;
 import moo.bytecode.MooCompiler;
 import moo.syntax.MooParser;
 import moo.value.MooValue;
@@ -19,9 +31,15 @@ import moo.value.MooValue.StringValue;
 import moo.world.WorldObject;
 import moo.world.WorldTxn;
 import moo.world.WorldVerb;
+import org.sqlite.SQLiteConnection;
 
 /** The explicit builtin catalog required by the first managed runtime path. */
 public final class BuiltinCatalog {
+  private static final int DEFAULT_SQLITE_FLAGS = 6;
+
+  private final Map<Integer, SqliteHandle> sqliteHandles = new LinkedHashMap<>();
+  private int nextSqliteHandle = 1;
+
   /** Invokes one named builtin without reflection or hidden world access. */
   public Result invoke(String name, List<MooValue> arguments, WorldTxn world, long programmer) {
     return switch (name.toLowerCase(Locale.ROOT)) {
@@ -92,6 +110,18 @@ public final class BuiltinCatalog {
       case "notify" -> notifyLine(arguments);
       case "toliteral" -> toLiteral(arguments);
       case "eval" -> dynamicEval(arguments);
+      case "typeof" -> typeOf(arguments);
+      case "suspend" -> suspend(arguments);
+      case "call_function" -> callFunction(arguments, world, programmer);
+      case "sqlite_open" -> sqliteOpen(arguments, world, programmer);
+      case "sqlite_close" -> sqliteClose(arguments, world, programmer);
+      case "sqlite_handles" -> sqliteHandles(arguments, world, programmer);
+      case "sqlite_info" -> sqliteInfo(arguments, world, programmer);
+      case "sqlite_query" -> sqliteQuery(arguments, world, programmer);
+      case "sqlite_execute" -> sqliteExecute(arguments, world, programmer);
+      case "sqlite_last_insert_row_id" -> sqliteLastInsertRowId(arguments, world, programmer);
+      case "sqlite_limit" -> sqliteLimit(arguments, world, programmer);
+      case "sqlite_interrupt" -> sqliteInterrupt(arguments, world, programmer);
       case "raise" -> {
         if (arguments.size() != 1) {
           yield Result.error(ErrorValue.E_ARGS);
@@ -108,12 +138,22 @@ public final class BuiltinCatalog {
   /** Returns the fixed effect class for a builtin enabled in this slice. */
   public EffectClass effectClass(String name) {
     return switch (name.toLowerCase(Locale.ROOT)) {
-      case "length", "mapkeys", "max", "toliteral", "eval", "raise" -> EffectClass.PURE;
+      case "length", "mapkeys", "max", "toliteral", "eval", "raise", "typeof" -> EffectClass.PURE;
       case "valid" -> EffectClass.TRANSACTION_READ;
-      case "create", "recycle" -> EffectClass.IRREVOCABLE;
+      case "sqlite_handles", "sqlite_info", "sqlite_last_insert_row_id" ->
+          EffectClass.EXTERNAL_READ;
+      case "sqlite_query", "sqlite_execute" -> EffectClass.SUSPENDING_HOST;
+      case "create",
+          "recycle",
+          "call_function",
+          "sqlite_open",
+          "sqlite_close",
+          "sqlite_limit",
+          "sqlite_interrupt" ->
+          EffectClass.IRREVOCABLE;
       case "add_verb", "delete_verb", "set_verb_code", "set_player_flag", "move", "add_property" ->
           EffectClass.TRANSACTION_WRITE;
-      case "notify", "switch_player", "set_task_perms" -> EffectClass.DEFERRED_EFFECT;
+      case "notify", "switch_player", "set_task_perms", "suspend" -> EffectClass.DEFERRED_EFFECT;
       default -> EffectClass.UNIMPLEMENTED;
     };
   }
@@ -514,6 +554,470 @@ public final class BuiltinCatalog {
     return Result.dynamicEval(decode(source));
   }
 
+  private static Result typeOf(List<MooValue> arguments) {
+    if (arguments.size() != 1) {
+      return Result.error(ErrorValue.E_ARGS);
+    }
+    return Result.value(new IntegerValue(arguments.getFirst().type().code()));
+  }
+
+  private static Result suspend(List<MooValue> arguments) {
+    if (arguments.size() != 1) {
+      return Result.error(ErrorValue.E_ARGS);
+    }
+    double seconds;
+    if (arguments.getFirst() instanceof IntegerValue integer) {
+      seconds = integer.value();
+    } else if (arguments.getFirst() instanceof FloatValue floating) {
+      seconds = floating.value();
+    } else {
+      return Result.error(ErrorValue.E_TYPE);
+    }
+    if (seconds < 0.0) {
+      return Result.error(ErrorValue.E_INVARG);
+    }
+    return Result.delay(seconds);
+  }
+
+  private Result callFunction(List<MooValue> arguments, WorldTxn world, long programmer) {
+    if (arguments.isEmpty()) {
+      return Result.error(ErrorValue.E_ARGS);
+    }
+    if (!(arguments.getFirst() instanceof StringValue functionName)) {
+      return Result.error(ErrorValue.E_TYPE);
+    }
+    return invoke(
+        decode(functionName),
+        List.copyOf(arguments.subList(1, arguments.size())),
+        world,
+        programmer);
+  }
+
+  private Result sqliteOpen(List<MooValue> arguments, WorldTxn world, long programmer) {
+    WorldObject permissions = world.object(programmer).orElse(null);
+    if (permissions == null || (permissions.flags() & 4) == 0) {
+      return Result.error(ErrorValue.E_PERM);
+    }
+    if (arguments.size() < 1 || arguments.size() > 2) {
+      return Result.error(ErrorValue.E_ARGS);
+    }
+    if (!(arguments.getFirst() instanceof StringValue pathValue)) {
+      return Result.error(ErrorValue.E_TYPE);
+    }
+    int flags = DEFAULT_SQLITE_FLAGS;
+    if (arguments.size() == 2) {
+      if (!(arguments.get(1) instanceof IntegerValue requestedFlags)) {
+        return Result.error(ErrorValue.E_TYPE);
+      }
+      try {
+        flags = Math.toIntExact(requestedFlags.value());
+      } catch (ArithmeticException error) {
+        return Result.error(ErrorValue.E_INVARG);
+      }
+    }
+    String path = decode(pathValue);
+    try {
+      SQLiteConnection connection =
+          (SQLiteConnection) DriverManager.getConnection("jdbc:sqlite:" + path);
+      synchronized (this) {
+        int handle = nextSqliteHandle++;
+        sqliteHandles.put(handle, new SqliteHandle(connection, path, flags));
+        return Result.value(new IntegerValue(handle));
+      }
+    } catch (SQLException error) {
+      return Result.error(ErrorValue.E_FILE);
+    }
+  }
+
+  private Result sqliteClose(List<MooValue> arguments, WorldTxn world, long programmer) {
+    WorldObject permissions = world.object(programmer).orElse(null);
+    if (permissions == null || (permissions.flags() & 4) == 0) {
+      return Result.error(ErrorValue.E_PERM);
+    }
+    if (arguments.size() != 1) {
+      return Result.error(ErrorValue.E_ARGS);
+    }
+    if (!(arguments.getFirst() instanceof IntegerValue handleValue)) {
+      return Result.error(ErrorValue.E_TYPE);
+    }
+    synchronized (this) {
+      SqliteHandle handle = sqliteHandles.get((int) handleValue.value());
+      if (handle == null) {
+        return Result.error(ErrorValue.E_INVARG);
+      }
+      if (handle.activeLocks != 0) {
+        return Result.error(ErrorValue.E_PERM);
+      }
+      try {
+        handle.connection.close();
+      } catch (SQLException error) {
+        return Result.error(ErrorValue.E_FILE);
+      }
+      sqliteHandles.remove((int) handleValue.value());
+      if (sqliteHandles.isEmpty()) {
+        nextSqliteHandle = 1;
+      }
+      return Result.zero();
+    }
+  }
+
+  private Result sqliteHandles(List<MooValue> arguments, WorldTxn world, long programmer) {
+    WorldObject permissions = world.object(programmer).orElse(null);
+    if (permissions == null || (permissions.flags() & 4) == 0) {
+      return Result.error(ErrorValue.E_PERM);
+    }
+    if (!arguments.isEmpty()) {
+      return Result.error(ErrorValue.E_ARGS);
+    }
+    synchronized (this) {
+      List<MooValue> handles = new ArrayList<>(sqliteHandles.size());
+      for (int handle : sqliteHandles.keySet()) {
+        handles.add(new IntegerValue(handle));
+      }
+      return Result.value(new ListValue(handles));
+    }
+  }
+
+  private Result sqliteInfo(List<MooValue> arguments, WorldTxn world, long programmer) {
+    WorldObject permissions = world.object(programmer).orElse(null);
+    if (permissions == null || (permissions.flags() & 4) == 0) {
+      return Result.error(ErrorValue.E_PERM);
+    }
+    if (arguments.size() != 1) {
+      return Result.error(ErrorValue.E_ARGS);
+    }
+    if (!(arguments.getFirst() instanceof IntegerValue handleValue)) {
+      return Result.error(ErrorValue.E_TYPE);
+    }
+    synchronized (this) {
+      SqliteHandle handle = sqliteHandles.get((int) handleValue.value());
+      if (handle == null) {
+        return Result.error(ErrorValue.E_INVARG);
+      }
+      Map<MooValue, MooValue> information = new LinkedHashMap<>();
+      information.put(encode("path"), encode(handle.path));
+      information.put(encode("parse_types"), new IntegerValue((handle.flags & 2) == 0 ? 0 : 1));
+      information.put(encode("parse_objects"), new IntegerValue((handle.flags & 4) == 0 ? 0 : 1));
+      information.put(
+          encode("sanitize_strings"), new IntegerValue((handle.flags & 8) == 0 ? 0 : 1));
+      information.put(encode("locks"), new IntegerValue(handle.activeLocks));
+      return Result.value(new MapValue(information));
+    }
+  }
+
+  private Result sqliteQuery(List<MooValue> arguments, WorldTxn world, long programmer) {
+    WorldObject permissions = world.object(programmer).orElse(null);
+    if (permissions == null || (permissions.flags() & 4) == 0) {
+      return Result.error(ErrorValue.E_PERM);
+    }
+    if (arguments.size() < 2 || arguments.size() > 3) {
+      return Result.error(ErrorValue.E_ARGS);
+    }
+    if (!(arguments.get(0) instanceof IntegerValue handleValue)
+        || !(arguments.get(1) instanceof StringValue sqlValue)) {
+      return Result.error(ErrorValue.E_TYPE);
+    }
+    SqliteHandle handle;
+    synchronized (this) {
+      handle = sqliteHandles.get((int) handleValue.value());
+      if (handle != null) {
+        handle.activeLocks++;
+      }
+    }
+    if (handle == null) {
+      return Result.value(ErrorValue.E_INVARG);
+    }
+    String sql = decode(sqlValue);
+    boolean includeHeaders = arguments.size() == 3 && arguments.get(2).isTruthy();
+    CompletableFuture<MooValue> future = new CompletableFuture<>();
+    Thread.ofVirtual()
+        .start(
+            () -> {
+              MooValue completed;
+              try (Statement statement = handle.connection.createStatement()) {
+                if (!statement.execute(sql)) {
+                  completed = new ListValue(List.of());
+                } else {
+                  try (ResultSet resultSet = statement.getResultSet()) {
+                    ResultSetMetaData metadata = resultSet.getMetaData();
+                    int columnCount = metadata.getColumnCount();
+                    List<MooValue> resultRows = new ArrayList<>();
+                    while (resultSet.next()) {
+                      List<MooValue> row = new ArrayList<>(columnCount);
+                      for (int column = 1; column <= columnCount; column++) {
+                        String text = resultSet.getString(column);
+                        MooValue value;
+                        if (text == null) {
+                          value = encode("NULL");
+                        } else {
+                          if ((handle.flags & 8) != 0) {
+                            text = text.replace('\n', '\t');
+                          }
+                          value = encode(text);
+                          if ((handle.flags & 4) != 0 && text.startsWith("#")) {
+                            try {
+                              value = new ObjectValue(Long.parseLong(text.substring(1)));
+                            } catch (NumberFormatException error) {
+                              value = encode(text);
+                            }
+                          }
+                          if ((handle.flags & 2) != 0 && value instanceof StringValue) {
+                            try {
+                              value = new IntegerValue(Long.parseLong(text));
+                            } catch (NumberFormatException integerError) {
+                              try {
+                                value = new FloatValue(Double.parseDouble(text));
+                              } catch (NumberFormatException floatError) {
+                                value = encode(text);
+                              }
+                            }
+                          }
+                        }
+                        if (includeHeaders) {
+                          row.add(
+                              new ListValue(
+                                  List.of(encode(metadata.getColumnLabel(column)), value)));
+                        } else {
+                          row.add(value);
+                        }
+                      }
+                      resultRows.add(new ListValue(row));
+                    }
+                    completed = new ListValue(resultRows);
+                  }
+                }
+              } catch (SQLException | RuntimeException error) {
+                String message = error.getMessage();
+                completed = encode(message == null ? error.getClass().getSimpleName() : message);
+              } finally {
+                synchronized (this) {
+                  handle.activeLocks--;
+                }
+              }
+              future.complete(completed);
+            });
+    return Result.hostResult(future);
+  }
+
+  private Result sqliteExecute(List<MooValue> arguments, WorldTxn world, long programmer) {
+    WorldObject permissions = world.object(programmer).orElse(null);
+    if (permissions == null || (permissions.flags() & 4) == 0) {
+      return Result.error(ErrorValue.E_PERM);
+    }
+    if (arguments.size() != 3) {
+      return Result.error(ErrorValue.E_ARGS);
+    }
+    if (!(arguments.get(0) instanceof IntegerValue handleValue)
+        || !(arguments.get(1) instanceof StringValue sqlValue)
+        || !(arguments.get(2) instanceof ListValue bindings)) {
+      return Result.error(ErrorValue.E_TYPE);
+    }
+    SqliteHandle handle;
+    synchronized (this) {
+      handle = sqliteHandles.get((int) handleValue.value());
+      if (handle != null) {
+        handle.activeLocks++;
+      }
+    }
+    if (handle == null) {
+      return Result.value(ErrorValue.E_INVARG);
+    }
+    String sql = decode(sqlValue);
+    CompletableFuture<MooValue> future = new CompletableFuture<>();
+    Thread.ofVirtual()
+        .start(
+            () -> {
+              MooValue completed;
+              try (PreparedStatement statement = handle.connection.prepareStatement(sql)) {
+                for (int index = 0; index < bindings.size(); index++) {
+                  MooValue binding = bindings.elements().get(index);
+                  int parameter = index + 1;
+                  if (binding instanceof StringValue string) {
+                    statement.setString(parameter, decode(string));
+                  } else if (binding instanceof IntegerValue integer) {
+                    statement.setInt(parameter, (int) integer.value());
+                  } else if (binding instanceof FloatValue floating) {
+                    statement.setDouble(parameter, floating.value());
+                  } else if (binding instanceof ObjectValue object) {
+                    statement.setString(parameter, "#" + object.value());
+                  } else {
+                    statement.setNull(parameter, Types.NULL);
+                  }
+                }
+                if (!statement.execute()) {
+                  completed = new ListValue(List.of());
+                } else {
+                  try (ResultSet resultSet = statement.getResultSet()) {
+                    ResultSetMetaData metadata = resultSet.getMetaData();
+                    int columnCount = metadata.getColumnCount();
+                    List<MooValue> resultRows = new ArrayList<>();
+                    while (resultSet.next()) {
+                      List<MooValue> row = new ArrayList<>(columnCount);
+                      for (int column = 1; column <= columnCount; column++) {
+                        String text = resultSet.getString(column);
+                        MooValue value;
+                        if (text == null) {
+                          value = encode("NULL");
+                        } else {
+                          if ((handle.flags & 8) != 0) {
+                            text = text.replace('\n', '\t');
+                          }
+                          value = encode(text);
+                          if ((handle.flags & 4) != 0 && text.startsWith("#")) {
+                            try {
+                              value = new ObjectValue(Long.parseLong(text.substring(1)));
+                            } catch (NumberFormatException error) {
+                              value = encode(text);
+                            }
+                          }
+                          if ((handle.flags & 2) != 0 && value instanceof StringValue) {
+                            try {
+                              value = new IntegerValue(Long.parseLong(text));
+                            } catch (NumberFormatException integerError) {
+                              try {
+                                value = new FloatValue(Double.parseDouble(text));
+                              } catch (NumberFormatException floatError) {
+                                value = encode(text);
+                              }
+                            }
+                          }
+                        }
+                        row.add(value);
+                      }
+                      resultRows.add(new ListValue(row));
+                    }
+                    completed = new ListValue(resultRows);
+                  }
+                }
+              } catch (SQLException | RuntimeException error) {
+                String message = error.getMessage();
+                completed = encode(message == null ? error.getClass().getSimpleName() : message);
+              } finally {
+                synchronized (this) {
+                  handle.activeLocks--;
+                }
+              }
+              future.complete(completed);
+            });
+    return Result.hostResult(future);
+  }
+
+  private Result sqliteLastInsertRowId(List<MooValue> arguments, WorldTxn world, long programmer) {
+    WorldObject permissions = world.object(programmer).orElse(null);
+    if (permissions == null || (permissions.flags() & 4) == 0) {
+      return Result.error(ErrorValue.E_PERM);
+    }
+    if (arguments.size() != 1) {
+      return Result.error(ErrorValue.E_ARGS);
+    }
+    if (!(arguments.getFirst() instanceof IntegerValue handleValue)) {
+      return Result.error(ErrorValue.E_TYPE);
+    }
+    SqliteHandle handle;
+    synchronized (this) {
+      handle = sqliteHandles.get((int) handleValue.value());
+    }
+    if (handle == null) {
+      return Result.error(ErrorValue.E_INVARG);
+    }
+    try (Statement statement = handle.connection.createStatement();
+        ResultSet rows = statement.executeQuery("SELECT last_insert_rowid()")) {
+      return rows.next()
+          ? Result.value(new IntegerValue(rows.getLong(1)))
+          : Result.error(ErrorValue.E_FILE);
+    } catch (SQLException error) {
+      return Result.error(ErrorValue.E_FILE);
+    }
+  }
+
+  private Result sqliteLimit(List<MooValue> arguments, WorldTxn world, long programmer) {
+    WorldObject permissions = world.object(programmer).orElse(null);
+    if (permissions == null || (permissions.flags() & 4) == 0) {
+      return Result.error(ErrorValue.E_PERM);
+    }
+    if (arguments.size() != 3) {
+      return Result.error(ErrorValue.E_ARGS);
+    }
+    if (!(arguments.get(0) instanceof IntegerValue handleValue)
+        || !(arguments.get(2) instanceof IntegerValue limitValue)) {
+      return Result.error(ErrorValue.E_TYPE);
+    }
+    int category;
+    if (arguments.get(1) instanceof IntegerValue integerCategory) {
+      if (integerCategory.value() < 0 || integerCategory.value() > 11) {
+        return Result.error(ErrorValue.E_INVARG);
+      }
+      category = (int) integerCategory.value();
+    } else if (arguments.get(1) instanceof StringValue stringCategory) {
+      category =
+          switch (decode(stringCategory)) {
+            case "LIMIT_LENGTH" -> 0;
+            case "LIMIT_SQL_LENGTH" -> 1;
+            case "LIMIT_COLUMN" -> 2;
+            case "LIMIT_EXPR_DEPTH" -> 3;
+            case "LIMIT_COMPOUND_SELECT" -> 4;
+            case "LIMIT_VDBE_OP" -> 5;
+            case "LIMIT_FUNCTION_ARG" -> 6;
+            case "LIMIT_ATTACHED" -> 7;
+            case "LIMIT_LIKE_PATTERN_LENGTH" -> 8;
+            case "LIMIT_VARIABLE_NUMBER" -> 9;
+            case "LIMIT_TRIGGER_DEPTH" -> 10;
+            case "LIMIT_WORKER_THREADS" -> 11;
+            default -> -1;
+          };
+      if (category < 0) {
+        return Result.error(ErrorValue.E_INVARG);
+      }
+    } else {
+      return Result.error(ErrorValue.E_TYPE);
+    }
+    int newValue;
+    try {
+      newValue = Math.toIntExact(limitValue.value());
+    } catch (ArithmeticException error) {
+      return Result.error(ErrorValue.E_INVARG);
+    }
+    SqliteHandle handle;
+    synchronized (this) {
+      handle = sqliteHandles.get((int) handleValue.value());
+    }
+    if (handle == null) {
+      return Result.error(ErrorValue.E_INVARG);
+    }
+    try {
+      return Result.value(
+          new IntegerValue(handle.connection.getDatabase().limit(category, newValue)));
+    } catch (SQLException error) {
+      return Result.error(ErrorValue.E_FILE);
+    }
+  }
+
+  private Result sqliteInterrupt(List<MooValue> arguments, WorldTxn world, long programmer) {
+    WorldObject permissions = world.object(programmer).orElse(null);
+    if (permissions == null || (permissions.flags() & 4) == 0) {
+      return Result.error(ErrorValue.E_PERM);
+    }
+    if (arguments.size() != 1) {
+      return Result.error(ErrorValue.E_ARGS);
+    }
+    if (!(arguments.getFirst() instanceof IntegerValue handleValue)) {
+      return Result.error(ErrorValue.E_TYPE);
+    }
+    SqliteHandle handle;
+    synchronized (this) {
+      handle = sqliteHandles.get((int) handleValue.value());
+    }
+    if (handle == null) {
+      return Result.error(ErrorValue.E_INVARG);
+    }
+    try {
+      handle.connection.getDatabase().interrupt();
+      return Result.zero();
+    } catch (SQLException error) {
+      return Result.error(ErrorValue.E_FILE);
+    }
+  }
+
   private static String decode(StringValue value) {
     return new String(value.bytes(), StandardCharsets.ISO_8859_1);
   }
@@ -522,12 +1026,27 @@ public final class BuiltinCatalog {
     return new StringValue(value.getBytes(StandardCharsets.ISO_8859_1));
   }
 
+  private static final class SqliteHandle {
+    private final SQLiteConnection connection;
+    private final String path;
+    private final int flags;
+    private int activeLocks;
+
+    private SqliteHandle(SQLiteConnection connection, String path, int flags) {
+      this.connection = connection;
+      this.path = path;
+      this.flags = flags;
+    }
+  }
+
   /** Observable effect class for the explicitly enabled catalog. */
   public enum EffectClass {
     PURE,
     TRANSACTION_READ,
     TRANSACTION_WRITE,
     DEFERRED_EFFECT,
+    EXTERNAL_READ,
+    SUSPENDING_HOST,
     IRREVOCABLE,
     UNIMPLEMENTED
   }
@@ -540,7 +1059,9 @@ public final class BuiltinCatalog {
       Optional<String> output,
       OptionalLong switchedPlayer,
       OptionalLong programmer,
-      OptionalLong recycleTarget) {
+      OptionalLong recycleTarget,
+      OptionalDouble delaySeconds,
+      Optional<CompletableFuture<MooValue>> hostResult) {
     static Result value(MooValue value) {
       return new Result(
           Optional.of(value),
@@ -549,7 +1070,9 @@ public final class BuiltinCatalog {
           Optional.empty(),
           OptionalLong.empty(),
           OptionalLong.empty(),
-          OptionalLong.empty());
+          OptionalLong.empty(),
+          OptionalDouble.empty(),
+          Optional.empty());
     }
 
     static Result zero() {
@@ -564,7 +1087,9 @@ public final class BuiltinCatalog {
           Optional.empty(),
           OptionalLong.empty(),
           OptionalLong.empty(),
-          OptionalLong.empty());
+          OptionalLong.empty(),
+          OptionalDouble.empty(),
+          Optional.empty());
     }
 
     static Result dynamicEval(String source) {
@@ -575,7 +1100,9 @@ public final class BuiltinCatalog {
           Optional.empty(),
           OptionalLong.empty(),
           OptionalLong.empty(),
-          OptionalLong.empty());
+          OptionalLong.empty(),
+          OptionalDouble.empty(),
+          Optional.empty());
     }
 
     static Result output(String line) {
@@ -586,7 +1113,9 @@ public final class BuiltinCatalog {
           Optional.of(line),
           OptionalLong.empty(),
           OptionalLong.empty(),
-          OptionalLong.empty());
+          OptionalLong.empty(),
+          OptionalDouble.empty(),
+          Optional.empty());
     }
 
     static Result switchPlayer(long player) {
@@ -597,7 +1126,9 @@ public final class BuiltinCatalog {
           Optional.empty(),
           OptionalLong.of(player),
           OptionalLong.empty(),
-          OptionalLong.empty());
+          OptionalLong.empty(),
+          OptionalDouble.empty(),
+          Optional.empty());
     }
 
     static Result programmer(long programmer) {
@@ -608,7 +1139,9 @@ public final class BuiltinCatalog {
           Optional.empty(),
           OptionalLong.empty(),
           OptionalLong.of(programmer),
-          OptionalLong.empty());
+          OptionalLong.empty(),
+          OptionalDouble.empty(),
+          Optional.empty());
     }
 
     static Result recycle(long target) {
@@ -619,7 +1152,35 @@ public final class BuiltinCatalog {
           Optional.empty(),
           OptionalLong.empty(),
           OptionalLong.empty(),
-          OptionalLong.of(target));
+          OptionalLong.of(target),
+          OptionalDouble.empty(),
+          Optional.empty());
+    }
+
+    static Result delay(double seconds) {
+      return new Result(
+          Optional.empty(),
+          Optional.empty(),
+          Optional.empty(),
+          Optional.empty(),
+          OptionalLong.empty(),
+          OptionalLong.empty(),
+          OptionalLong.empty(),
+          OptionalDouble.of(seconds),
+          Optional.empty());
+    }
+
+    static Result hostResult(CompletableFuture<MooValue> future) {
+      return new Result(
+          Optional.empty(),
+          Optional.empty(),
+          Optional.empty(),
+          Optional.empty(),
+          OptionalLong.empty(),
+          OptionalLong.empty(),
+          OptionalLong.empty(),
+          OptionalDouble.empty(),
+          Optional.of(future));
     }
   }
 }
