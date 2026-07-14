@@ -28,4 +28,14 @@ final class BantengTest {
     assertEquals(CommandLine.ExitCode.USAGE, commandLine.execute("--port", "0"));
     assertTrue(errors.toString().contains("--port must be between 1 and 65535"));
   }
+
+  @Test
+  void requiresDatabaseForAnActualRun() {
+    StringWriter errors = new StringWriter();
+    CommandLine commandLine = new CommandLine(new Banteng());
+    commandLine.setErr(new PrintWriter(errors));
+
+    assertEquals(CommandLine.ExitCode.USAGE, commandLine.execute());
+    assertTrue(errors.toString().contains("--database is required"));
+  }
 }

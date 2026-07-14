@@ -3,6 +3,10 @@ package moo.app;
 import java.nio.file.Path;
 import java.util.Objects;
 import java.util.concurrent.Callable;
+import moo.persistence.LambdaMooV4Reader;
+import moo.runtime.MooRuntime;
+import moo.server.MooServer;
+import moo.world.WorldTxn;
 import org.jspecify.annotations.Nullable;
 import picocli.CommandLine;
 import picocli.CommandLine.Command;
@@ -10,7 +14,7 @@ import picocli.CommandLine.Model.CommandSpec;
 import picocli.CommandLine.Option;
 import picocli.CommandLine.Spec;
 
-/** Banteng command-line entry point. MOO semantics are intentionally not implemented here. */
+/** Banteng command-line entry point and concrete server composition root. */
 @Command(
     name = "banteng",
     mixinStandardHelpOptions = true,
@@ -21,6 +25,8 @@ public final class Banteng implements Callable<Integer> {
   private @Nullable Path database;
 
   @Option(names = "--checkpoint", paramLabel = "PATH", description = "Checkpoint output path")
+  @SuppressWarnings(
+      "UnusedVariable") // Accepted now; checkpoint writing is deferred from this slice.
   private @Nullable Path checkpoint;
 
   @Option(names = "--listen-address", defaultValue = "127.0.0.1", description = "Listener address")
@@ -30,25 +36,31 @@ public final class Banteng implements Callable<Integer> {
   private int port = 7777;
 
   @Option(names = "--log-level", defaultValue = "INFO", description = "System.Logger level")
+  @SuppressWarnings(
+      "UnusedVariable") // Retained CLI surface; server logging is not part of this slice.
   private System.Logger.Level logLevel = System.Logger.Level.INFO;
 
   @Spec private @Nullable CommandSpec commandSpec;
 
-  /** Runs the non-semantic bootstrap command. */
+  /** Loads the configured database and blocks while serving connections. */
   @Override
-  public Integer call() {
+  public Integer call() throws Exception {
     CommandSpec spec = Objects.requireNonNull(commandSpec, "picocli command spec");
     if (port < 1 || port > 65_535) {
       throw new CommandLine.ParameterException(
           spec.commandLine(), "--port must be between 1 and 65535");
     }
 
-    @Nullable Path checkpointPath = checkpoint != null ? checkpoint : database;
-    spec.commandLine()
-        .getOut()
-        .printf(
-            "banteng bootstrap: database=%s checkpoint=%s listen=%s:%d log=%s%n",
-            database, checkpointPath, listenAddress, port, logLevel);
+    @Nullable Path databasePath = database;
+    if (databasePath == null) {
+      throw new CommandLine.ParameterException(spec.commandLine(), "--database is required");
+    }
+
+    WorldTxn world = new LambdaMooV4Reader().read(databasePath);
+    MooRuntime runtime = new MooRuntime(world);
+    try (MooServer server = new MooServer(listenAddress, port, runtime)) {
+      server.serve();
+    }
     return CommandLine.ExitCode.OK;
   }
 

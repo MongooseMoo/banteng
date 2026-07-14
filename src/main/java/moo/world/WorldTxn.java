@@ -1,0 +1,338 @@
+package moo.world;
+
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Optional;
+import java.util.OptionalLong;
+import java.util.StringTokenizer;
+import moo.value.MooValue;
+import moo.value.MooValue.IntegerValue;
+import moo.value.MooValue.ObjectValue;
+
+/** The concrete transaction path for all runtime-visible world reads and writes. */
+public final class WorldTxn {
+  private static final int PLAYER_FLAG = 1;
+  private static final int PROGRAMMER_FLAG = 2;
+  private static final int WIZARD_FLAG = 4;
+
+  private final Map<Long, Long> connections = new LinkedHashMap<>();
+  private World world;
+
+  /** Creates a transaction over immutable snapshots of the supplied records. */
+  public WorldTxn(List<Long> players, List<WorldObject> objects) {
+    Objects.requireNonNull(players, "players");
+    Objects.requireNonNull(objects, "objects");
+    Map<Long, WorldObject> objectsById = new LinkedHashMap<>();
+    for (WorldObject object : objects) {
+      Objects.requireNonNull(object, "object");
+      if (objectsById.putIfAbsent(object.id(), object) != null) {
+        throw new IllegalArgumentException("duplicate object #" + object.id());
+      }
+    }
+    world = new World(players, objectsById);
+  }
+
+  /** Returns the players in persisted order. */
+  public List<Long> players() {
+    return world.players();
+  }
+
+  /** Returns the number of live objects. */
+  public int objectCount() {
+    return world.objects().size();
+  }
+
+  /** Registers one negative pre-login connection object. */
+  public void openConnection(long connectionId) {
+    if (connectionId >= 0) {
+      throw new IllegalArgumentException("connection object must be negative");
+    }
+    if (connections.putIfAbsent(connectionId, connectionId) != null) {
+      throw new IllegalArgumentException("duplicate connection #" + connectionId);
+    }
+  }
+
+  /** Removes one connection record. */
+  public void closeConnection(long connectionId) {
+    connections.remove(connectionId);
+  }
+
+  /** Returns the player currently attached to a connection. */
+  public OptionalLong connectionPlayer(long connectionId) {
+    Long player = connections.get(connectionId);
+    return player == null ? OptionalLong.empty() : OptionalLong.of(player);
+  }
+
+  /** Stages a player switch on an existing connection. */
+  public boolean switchConnectionPlayer(long connectionId, long playerId) {
+    if (!connections.containsKey(connectionId) || object(playerId).isEmpty()) {
+      return false;
+    }
+    connections.put(connectionId, playerId);
+    return true;
+  }
+
+  /** Looks up an object by its signed object number. */
+  public Optional<WorldObject> object(long objectId) {
+    return Optional.ofNullable(world.objects().get(objectId));
+  }
+
+  /** Looks up a zero-based verb slot on an object. */
+  public Optional<WorldVerb> verb(long objectId, int verbIndex) {
+    Optional<WorldObject> object = object(objectId);
+    if (object.isEmpty() || verbIndex < 0 || verbIndex >= object.get().verbs().size()) {
+      return Optional.empty();
+    }
+    return Optional.of(object.get().verbs().get(verbIndex));
+  }
+
+  /** Finds a named verb locally and then through the parent chain. */
+  public Optional<WorldVerb> verb(long objectId, String verbName) {
+    Objects.requireNonNull(verbName, "verbName");
+    long current = objectId;
+    while (current != -1) {
+      Optional<WorldObject> candidate = object(current);
+      if (candidate.isEmpty()) {
+        return Optional.empty();
+      }
+      for (WorldVerb verb : candidate.orElseThrow().verbs()) {
+        StringTokenizer names = new StringTokenizer(verb.names());
+        while (names.hasMoreTokens()) {
+          String name = names.nextToken();
+          if (name.equalsIgnoreCase(verbName)) {
+            return Optional.of(verb);
+          }
+        }
+      }
+      current = candidate.orElseThrow().parent();
+    }
+    return Optional.empty();
+  }
+
+  /** Looks up a local or inherited property name. */
+  public Optional<WorldProperty> property(long objectId, String propertyName) {
+    Objects.requireNonNull(propertyName, "propertyName");
+    long current = objectId;
+    while (current != -1) {
+      Optional<WorldObject> candidate = object(current);
+      if (candidate.isEmpty()) {
+        return Optional.empty();
+      }
+      Optional<WorldProperty> property = findProperty(candidate.orElseThrow(), propertyName);
+      if (property.isPresent()) {
+        return property;
+      }
+      current = candidate.orElseThrow().parent();
+    }
+    return Optional.empty();
+  }
+
+  /** Reads an ordinary or built-in object property. */
+  public Optional<MooValue> readObjectProperty(long objectId, String propertyName) {
+    Optional<WorldObject> candidate = object(objectId);
+    if (candidate.isEmpty()) {
+      return Optional.empty();
+    }
+    WorldObject object = candidate.orElseThrow();
+    return switch (propertyName.toLowerCase(Locale.ROOT)) {
+      case "owner" -> Optional.of(new ObjectValue(object.owner()));
+      case "programmer" ->
+          Optional.of(new IntegerValue((object.flags() & PROGRAMMER_FLAG) == 0 ? 0 : 1));
+      case "wizard" -> Optional.of(new IntegerValue((object.flags() & WIZARD_FLAG) == 0 ? 0 : 1));
+      default -> property(objectId, propertyName).map(WorldProperty::value);
+    };
+  }
+
+  /** Writes an authorized built-in object property and returns whether it exists. */
+  public boolean writeObjectProperty(long objectId, String propertyName, MooValue value) {
+    Objects.requireNonNull(propertyName, "propertyName");
+    Objects.requireNonNull(value, "value");
+    WorldObject object = object(objectId).orElse(null);
+    if (object == null) {
+      return false;
+    }
+    String normalizedName = propertyName.toLowerCase(Locale.ROOT);
+    if (normalizedName.equals("owner")) {
+      if (!(value instanceof ObjectValue owner)) {
+        return false;
+      }
+      replaceObject(
+          copyObject(
+              object, object.flags(), owner.value(), object.location(), object.properties()));
+      return true;
+    }
+    if (normalizedName.equals("programmer")) {
+      if (!(value instanceof IntegerValue enabled)) {
+        return false;
+      }
+      replaceFlags(object, PROGRAMMER_FLAG, enabled.isTruthy());
+      return true;
+    }
+    if (normalizedName.equals("wizard")) {
+      if (!(value instanceof IntegerValue enabled)) {
+        return false;
+      }
+      replaceFlags(object, WIZARD_FLAG, enabled.isTruthy());
+      return true;
+    }
+    List<WorldProperty> properties = new ArrayList<>(object.properties());
+    for (int index = 0; index < properties.size(); index++) {
+      WorldProperty property = properties.get(index);
+      if (property.name().equalsIgnoreCase(propertyName)) {
+        properties.set(
+            index,
+            new WorldProperty(property.name(), value, property.owner(), property.permissions()));
+        replaceObject(
+            copyObject(object, object.flags(), object.owner(), object.location(), properties));
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /** Allocates the next object number and returns the new object. */
+  public WorldObject createObject(long parentId, long ownerId) {
+    if (parentId != -1 && object(parentId).isEmpty()) {
+      throw new IllegalArgumentException("missing parent #" + parentId);
+    }
+    long objectId = -1;
+    for (long existing : world.objects().keySet()) {
+      objectId = Math.max(objectId, existing);
+    }
+    objectId = Math.incrementExact(objectId);
+    WorldObject created =
+        new WorldObject(
+            objectId, "", 0, ownerId, -1, parentId, List.of(), List.of(), List.of(), List.of());
+    replaceObject(created);
+    if (parentId != -1) {
+      WorldObject parent = object(parentId).orElseThrow();
+      List<Long> children = new ArrayList<>(parent.children());
+      children.add(objectId);
+      replaceObject(
+          new WorldObject(
+              parent.id(),
+              parent.name(),
+              parent.flags(),
+              parent.owner(),
+              parent.location(),
+              parent.parent(),
+              parent.contents(),
+              children,
+              parent.verbs(),
+              parent.properties()));
+    }
+    return created;
+  }
+
+  /** Adds or removes the player flag and keeps the player index in the same transaction. */
+  public boolean setPlayerFlag(long objectId, boolean enabled) {
+    WorldObject object = object(objectId).orElse(null);
+    if (object == null) {
+      return false;
+    }
+    replaceFlags(object, PLAYER_FLAG, enabled);
+    List<Long> players = new ArrayList<>(world.players());
+    if (enabled && !players.contains(objectId)) {
+      players.add(objectId);
+    } else if (!enabled) {
+      players.remove(objectId);
+    }
+    replaceWorld(players, world.objects());
+    return true;
+  }
+
+  /** Moves an object while updating both reciprocal topology records. */
+  public boolean move(long objectId, long destinationId) {
+    WorldObject object = object(objectId).orElse(null);
+    WorldObject destination = object(destinationId).orElse(null);
+    if (object == null || destination == null) {
+      return false;
+    }
+    if (object.location() != -1) {
+      WorldObject previous = object(object.location()).orElseThrow();
+      List<Long> previousContents = new ArrayList<>(previous.contents());
+      previousContents.remove(objectId);
+      replaceObject(copyContents(previous, previousContents));
+    }
+    List<Long> destinationContents = new ArrayList<>(destination.contents());
+    destinationContents.add(objectId);
+    replaceObject(copyContents(destination, destinationContents));
+    replaceObject(
+        copyObject(object, object.flags(), object.owner(), destinationId, object.properties()));
+    return true;
+  }
+
+  /** Adds one local property, rejecting a duplicate inherited or local name. */
+  public boolean addProperty(
+      long objectId, String name, MooValue value, long owner, int permissions) {
+    Objects.requireNonNull(name, "name");
+    Objects.requireNonNull(value, "value");
+    WorldObject object = object(objectId).orElse(null);
+    if (object == null || property(objectId, name).isPresent()) {
+      return false;
+    }
+    List<WorldProperty> properties = new ArrayList<>(object.properties());
+    properties.add(new WorldProperty(name, value, owner, permissions));
+    replaceObject(
+        copyObject(object, object.flags(), object.owner(), object.location(), properties));
+    return true;
+  }
+
+  private static Optional<WorldProperty> findProperty(WorldObject object, String propertyName) {
+    for (WorldProperty property : object.properties()) {
+      if (property.name().equalsIgnoreCase(propertyName)) {
+        return Optional.of(property);
+      }
+    }
+    return Optional.empty();
+  }
+
+  private void replaceFlags(WorldObject object, int flag, boolean enabled) {
+    int flags = enabled ? object.flags() | flag : object.flags() & ~flag;
+    replaceObject(
+        copyObject(object, flags, object.owner(), object.location(), object.properties()));
+  }
+
+  private void replaceObject(WorldObject replacement) {
+    Map<Long, WorldObject> objects = new LinkedHashMap<>(world.objects());
+    objects.put(replacement.id(), replacement);
+    replaceWorld(world.players(), objects);
+  }
+
+  private void replaceWorld(List<Long> players, Map<Long, WorldObject> objects) {
+    world = new World(players, objects);
+  }
+
+  private static WorldObject copyContents(WorldObject object, List<Long> contents) {
+    return new WorldObject(
+        object.id(),
+        object.name(),
+        object.flags(),
+        object.owner(),
+        object.location(),
+        object.parent(),
+        contents,
+        object.children(),
+        object.verbs(),
+        object.properties());
+  }
+
+  private static WorldObject copyObject(
+      WorldObject object, int flags, long owner, long location, List<WorldProperty> properties) {
+    return new WorldObject(
+        object.id(),
+        object.name(),
+        flags,
+        owner,
+        location,
+        object.parent(),
+        object.contents(),
+        object.children(),
+        object.verbs(),
+        properties);
+  }
+}
