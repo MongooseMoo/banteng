@@ -210,6 +210,92 @@ public final class MooRuntime {
             prepositionStart == words.size()
                 ? ""
                 : String.join(" ", words.subList(prepositionEnd, words.size()));
+        long directObject = directObjectString.isEmpty() ? -1 : -3;
+        if (!directObjectString.isEmpty()) {
+          if (directObjectString.startsWith("#")) {
+            try {
+              long literalObject = Long.parseLong(directObjectString.substring(1));
+              if (literalObject >= 0 && world.object(literalObject).isPresent()) {
+                directObject = literalObject;
+              }
+            } catch (NumberFormatException ignored) {
+              // Malformed and out-of-range object literals are failed matches.
+            }
+          } else if (directObjectString.equalsIgnoreCase("me")) {
+            directObject = player;
+          } else {
+            WorldObject playerObject = world.object(player).orElseThrow();
+            if (directObjectString.equalsIgnoreCase("here")) {
+              directObject = playerObject.location();
+            } else {
+              List<Long> candidates = new ArrayList<>();
+              for (long candidate : playerObject.contents()) {
+                if (!candidates.contains(candidate)) {
+                  candidates.add(candidate);
+                }
+              }
+              WorldObject location = world.object(playerObject.location()).orElse(null);
+              if (location != null) {
+                for (long candidate : location.contents()) {
+                  if (!candidates.contains(candidate)) {
+                    candidates.add(candidate);
+                  }
+                }
+              }
+
+              List<Long> exactMatches = new ArrayList<>();
+              List<Long> partialMatches = new ArrayList<>();
+              for (long candidate : candidates) {
+                WorldObject candidateObject = world.object(candidate).orElse(null);
+                if (candidateObject == null) {
+                  continue;
+                }
+                boolean exact = false;
+                boolean partial = false;
+                String candidateName = candidateObject.name();
+                if (candidateName.regionMatches(
+                    true, 0, directObjectString, 0, directObjectString.length())) {
+                  if (candidateName.length() == directObjectString.length()) {
+                    exact = true;
+                  } else {
+                    partial = true;
+                  }
+                }
+                MooValue aliasesValue = world.readObjectProperty(candidate, "aliases").orElse(null);
+                if (aliasesValue instanceof ListValue aliases) {
+                  for (MooValue aliasValue : aliases.elements()) {
+                    if (!(aliasValue instanceof StringValue alias)) {
+                      continue;
+                    }
+                    String candidateAlias = new String(alias.bytes(), StandardCharsets.ISO_8859_1);
+                    if (candidateAlias.regionMatches(
+                        true, 0, directObjectString, 0, directObjectString.length())) {
+                      if (candidateAlias.length() == directObjectString.length()) {
+                        exact = true;
+                      } else {
+                        partial = true;
+                      }
+                    }
+                  }
+                }
+                if (exact) {
+                  exactMatches.add(candidate);
+                } else if (partial) {
+                  partialMatches.add(candidate);
+                }
+              }
+              if (exactMatches.size() == 1) {
+                directObject = exactMatches.getFirst();
+              } else if (exactMatches.size() > 1) {
+                directObject = -2;
+              } else if (partialMatches.size() == 1) {
+                directObject = partialMatches.getFirst();
+              } else if (partialMatches.size() > 1) {
+                directObject = -2;
+              }
+            }
+          }
+        }
         Map<String, MooValue> locals =
             verbLocals(
                 player,
@@ -221,7 +307,7 @@ public final class MooRuntime {
         locals.put("dobjstr", encode(directObjectString));
         locals.put("prepstr", encode(prepositionString));
         locals.put("iobjstr", encode(indirectObjectString));
-        locals.put("dobj", new ObjectValue(directObjectString.isEmpty() ? -1 : -3));
+        locals.put("dobj", new ObjectValue(directObject));
         locals.put("iobj", new ObjectValue(indirectObjectString.isEmpty() ? -1 : -3));
         output.addAll(executeStored(commandVerb.orElseThrow(), locals).output());
       }

@@ -175,6 +175,24 @@ public final class WorldTxn {
       return false;
     }
     String normalizedName = propertyName.toLowerCase(Locale.ROOT);
+    if (normalizedName.equals("name")) {
+      if (!(value instanceof StringValue name)) {
+        return false;
+      }
+      replaceObject(
+          new WorldObject(
+              object.id(),
+              new String(name.bytes(), StandardCharsets.ISO_8859_1),
+              object.flags(),
+              object.owner(),
+              object.location(),
+              object.parent(),
+              object.contents(),
+              object.children(),
+              object.verbs(),
+              object.properties()));
+      return true;
+    }
     if (normalizedName.equals("owner")) {
       if (!(value instanceof ObjectValue owner)) {
         return false;

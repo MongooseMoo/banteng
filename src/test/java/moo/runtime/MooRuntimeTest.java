@@ -161,6 +161,188 @@ final class MooRuntimeTest {
   }
 
   @Test
+  void keepsNegativeObjectLiteralsAsFailedMatchesForStoredPlayerCommands() throws Exception {
+    WorldTxn world = new LambdaMooV4Reader().read(FIXTURE);
+    MooRuntime runtime = new MooRuntime(world);
+    long connectionId = -47;
+
+    assertEquals(List.of(), runtime.openConnection(connectionId));
+    assertEquals(List.of("*** Connected ***"), runtime.executeLine(connectionId, "connect Wizard"));
+    List<String> setupOutput =
+        runtime.executeLine(
+            connectionId,
+            """
+            ; add_verb(player, {player, "xd", "auditgrab"}, {"any", "none", "none"});
+            set_verb_code(player, "auditgrab", {
+              "notify(player, \\"DOBJ:\\" + toliteral(dobj));"
+            });
+            return 1;
+            """);
+    assertTrue(
+        world.verb(world.connectionPlayer(connectionId).orElseThrow(), "auditgrab").isPresent(),
+        setupOutput::toString);
+
+    try {
+      assertEquals(List.of("DOBJ:#-3"), runtime.executeLine(connectionId, "auditgrab #-1"));
+      assertEquals(List.of("DOBJ:#-3"), runtime.executeLine(connectionId, "auditgrab #-2"));
+      assertEquals(List.of("DOBJ:#-3"), runtime.executeLine(connectionId, "auditgrab #-3"));
+    } finally {
+      runtime.executeLine(connectionId, "; return delete_verb(player, \"auditgrab\");");
+    }
+  }
+
+  @Test
+  void poolsExactObjectNamesAndAliasesForStoredPlayerCommands() throws Exception {
+    WorldTxn world = new LambdaMooV4Reader().read(FIXTURE);
+    MooRuntime runtime = new MooRuntime(world);
+    long connectionId = -47;
+
+    assertEquals(List.of(), runtime.openConnection(connectionId));
+    assertEquals(List.of("*** Connected ***"), runtime.executeLine(connectionId, "connect Wizard"));
+    long player = world.connectionPlayer(connectionId).orElseThrow();
+    List<String> setupOutput =
+        runtime.executeLine(
+            connectionId,
+            """
+            ; first = create($nothing);
+            first.name = "auditexact";
+            add_property(first, "aliases", {}, {player, "rw"});
+            move(first, player);
+            second = create($nothing);
+            second.name = "other audit exact";
+            add_property(second, "aliases", {"auditexact"}, {player, "rw"});
+            move(second, player);
+            add_verb(player, {player, "xd", "auditlook"}, {"any", "none", "none"});
+            set_verb_code(player, "auditlook", {
+              "notify(player, \\"DOBJ:\\" + toliteral(dobj));"
+            });
+            return {first, second};
+            """);
+    List<Long> inventory = world.object(player).orElseThrow().contents();
+    assertEquals(2, inventory.size(), setupOutput::toString);
+    long first = inventory.get(0);
+    long second = inventory.get(1);
+    assertEquals("auditexact", world.object(first).orElseThrow().name());
+    assertEquals("other audit exact", world.object(second).orElseThrow().name());
+    assertEquals("{}", world.readObjectProperty(first, "aliases").orElseThrow().toLiteral());
+    assertEquals(
+        "{\"auditexact\"}", world.readObjectProperty(second, "aliases").orElseThrow().toLiteral());
+    assertEquals(player, world.object(first).orElseThrow().location());
+    assertEquals(player, world.object(second).orElseThrow().location());
+    assertTrue(world.verb(player, "auditlook").isPresent(), setupOutput::toString);
+
+    try {
+      assertEquals(List.of("DOBJ:#-2"), runtime.executeLine(connectionId, "auditlook auditexact"));
+    } finally {
+      runtime.executeLine(
+          connectionId,
+          "; delete_verb(player, \"auditlook\"); recycle(#"
+              + first
+              + "); recycle(#"
+              + second
+              + "); return 1;");
+    }
+  }
+
+  @Test
+  void poolsPartialObjectNamesAndAliasesForStoredPlayerCommands() throws Exception {
+    WorldTxn world = new LambdaMooV4Reader().read(FIXTURE);
+    MooRuntime runtime = new MooRuntime(world);
+    long connectionId = -47;
+
+    assertEquals(List.of(), runtime.openConnection(connectionId));
+    assertEquals(List.of("*** Connected ***"), runtime.executeLine(connectionId, "connect Wizard"));
+    long player = world.connectionPlayer(connectionId).orElseThrow();
+    List<String> setupOutput =
+        runtime.executeLine(
+            connectionId,
+            """
+            ; first = create($nothing);
+            first.name = "auditpartialone";
+            add_property(first, "aliases", {}, {player, "rw"});
+            move(first, player);
+            second = create($nothing);
+            second.name = "other audit partial";
+            add_property(second, "aliases", {"auditpartialtwo"}, {player, "rw"});
+            move(second, player);
+            add_verb(player, {player, "xd", "auditlook"}, {"any", "none", "none"});
+            set_verb_code(player, "auditlook", {
+              "notify(player, \\"DOBJ:\\" + toliteral(dobj));"
+            });
+            return {first, second};
+            """);
+    List<Long> inventory = world.object(player).orElseThrow().contents();
+    assertEquals(2, inventory.size(), setupOutput::toString);
+    long first = inventory.get(0);
+    long second = inventory.get(1);
+    assertEquals("auditpartialone", world.object(first).orElseThrow().name());
+    assertEquals("other audit partial", world.object(second).orElseThrow().name());
+    assertEquals("{}", world.readObjectProperty(first, "aliases").orElseThrow().toLiteral());
+    assertEquals(
+        "{\"auditpartialtwo\"}",
+        world.readObjectProperty(second, "aliases").orElseThrow().toLiteral());
+    assertEquals(player, world.object(first).orElseThrow().location());
+    assertEquals(player, world.object(second).orElseThrow().location());
+    assertTrue(world.verb(player, "auditlook").isPresent(), setupOutput::toString);
+
+    try {
+      assertEquals(
+          List.of("DOBJ:#-2"), runtime.executeLine(connectionId, "auditlook auditpartial"));
+    } finally {
+      runtime.executeLine(
+          connectionId,
+          "; delete_verb(player, \"auditlook\"); recycle(#"
+              + first
+              + "); recycle(#"
+              + second
+              + "); return 1;");
+    }
+  }
+
+  @Test
+  void matchesTheCurrentPlayerThroughRoomContentsForStoredPlayerCommands() throws Exception {
+    WorldTxn world = new LambdaMooV4Reader().read(FIXTURE);
+    MooRuntime runtime = new MooRuntime(world);
+    long connectionId = -47;
+
+    assertEquals(List.of(), runtime.openConnection(connectionId));
+    assertEquals(List.of("*** Connected ***"), runtime.executeLine(connectionId, "connect Wizard"));
+    long player = world.connectionPlayer(connectionId).orElseThrow();
+    String oldName = world.object(player).orElseThrow().name();
+    List<String> setupOutput =
+        runtime.executeLine(
+            connectionId,
+            """
+            ; old_name = player.name;
+            player.name = "auditplayerunique";
+            add_property(player, "audit_old_name", old_name, {player, "rw"});
+            add_verb(player, {player, "xd", "auditlook"}, {"any", "none", "none"});
+            set_verb_code(player, "auditlook", {
+              "notify(player, \\"ISPLAYER:\\" + tostr(dobj == player));"
+            });
+            return 1;
+            """);
+    assertEquals("auditplayerunique", world.object(player).orElseThrow().name());
+    assertEquals(
+        "\"" + oldName + "\"",
+        world.readObjectProperty(player, "audit_old_name").orElseThrow().toLiteral());
+    long location = world.object(player).orElseThrow().location();
+    assertTrue(world.object(location).orElseThrow().contents().contains(player));
+    assertTrue(world.verb(player, "auditlook").isPresent(), setupOutput::toString);
+
+    try {
+      assertEquals(
+          List.of("ISPLAYER:1"), runtime.executeLine(connectionId, "auditlook auditplayerunique"));
+    } finally {
+      runtime.executeLine(
+          connectionId,
+          "; player.name = player.audit_old_name; "
+              + "delete_property(player, \"audit_old_name\"); "
+              + "delete_verb(player, \"auditlook\"); return 1;");
+    }
+  }
+
+  @Test
   void passesTheFullWordListToTruthyDoCommandBeforeNormalDispatch() throws Exception {
     WorldTxn world = new LambdaMooV4Reader().read(FIXTURE);
     MooRuntime runtime = new MooRuntime(world);

@@ -193,6 +193,83 @@ proves position-first partitioning and the required command locals. Row five
 also passes because negative object literals retain `FAILED_MATCH` (`#-3`), but
 that result does not authorize or prove a general object matcher.
 
+## Third-slice final authority trace
+
+The third slice is exactly rows five through eight: retain the accepted
+negative-object-literal result, then implement exact name/alias ambiguity,
+partial name/alias ambiguity, and matching the current player through the
+literal Toast candidate scope. It has two causal prerequisites: the setup's
+Wizard `STR` writes to built-in `name`, then direct-object matching.
+
+### Wizard `STR` built-in name mutation
+
+At pinned Toast HEAD `aecc51e9449c6e7c95272f0f044b5ba38948459e`,
+`src/include/db.h:374-401` declares `name` as a built-in property.
+`src/execute.cc:2001-2019,2067-2078` requires a `STR` right-hand side and
+permits a Wizard to write the built-in name, including a player object's name.
+`src/db_properties.cc:637-654` performs that write through the existing object
+name field. The conformance setup runs as Wizard and supplies only `STR`
+values. This trace therefore authorizes exactly a case-insensitive built-in
+`name` branch in Banteng's existing `WorldTxn.writeObjectProperty()`, changing
+only `WorldObject.name`. It does not prove a new API, non-Wizard authorization,
+or any other built-in property mutation.
+
+Current Barn agrees: `../barn/vm/op_property.go:362-364` routes `name` writes
+to the existing `Store.SetObjectName`, and `../barn/db/store/store_core.go:146+`
+owns the concrete object mutation. Banteng already reads `name` from its
+`WorldObject` record but currently falls through to ordinary-property lookup
+when writing it, so row-six setup raises `E_PROPNF` before matching can occur.
+
+### Aliases, candidate scope, pooling, and sentinels
+
+Pinned Toast `src/match.cc:30-42` reads inherited property `aliases`; only a
+list participates, and non-string list elements are ignored. Lines 50-81 pool
+the primary object name and every string alias together. A matching object ID
+is counted once even if more than one of its strings matches. Exact matches and
+raw-prefix partial matches are accumulated across all candidates; two distinct
+exact IDs immediately yield `AMBIGUOUS`, otherwise any exact ID wins over the
+partial pool, and the partial pool yields its one ID, `AMBIGUOUS`, or
+`FAILED_MATCH`.
+
+The literal candidate enumeration is fixed by `src/match.cc:84-113`:
+
+1. enumerate `contents(player)`;
+2. enumerate `contents(player.location)`;
+3. do not add the player independently.
+
+The player in row eight matches because the logged-in player is already in the
+room's contents. Candidate IDs must still be deduplicated so the same object is
+never counted twice if topology exposes it more than once. `src/match.cc:115-134`
+also fixes the sentinels: empty text is `NOTHING` (`#-1`); a complete valid
+nonnegative `#N` names that object; malformed, negative, or missing object
+literals are `FAILED_MATCH` (`#-3`); `me` is the player; and `here` is the
+player's location.
+
+Current Barn `../barn/command/matcher.go:11-132` has the same inventory-then-room
+scope, special forms, exact-before-prefix phases, combined primary-name/alias
+pools, and per-object deduplication. The active strings are ASCII, so the
+proven comparison boundary is ASCII case-insensitivity; this slice does not
+claim broader Unicode folding semantics.
+
+Banteng's existing owners already contain the required state and mutations:
+`WorldObject` has `name`, `location`, and ordered `contents`;
+`WorldTxn.readObjectProperty()` exposes inherited `aliases` as the stored
+`ListValue`; `create`, `add_property`, and `move` already populate the row-six
+and row-seven inventory. After a fresh fixture login, the focused runtime has
+player `#8` at room `#2`, room contents `{#3, #4, #8}`, and the two created
+objects become `#9` and `#10` in `contents(#8)`. These numbers are fixture
+evidence only; production uses the current player and topology dynamically.
+
+After the object-matching slice, the managed family receipt reached nine
+passing rows and stopped first at row ten,
+`audit_huh_runs_after_argspec_mismatch`. Rows six through eight now prove the
+direct-object resolution described here, and row nine independently confirms
+the existing `do_command`-before-semicolon ordering. This slice leaves
+indirect-object matching, argspec-aware verb lookup, `huh`, and broader command
+dispatch untouched. Row eight's cleanup also calls the currently absent
+`delete_property`; cleanup is best-effort and that adjacent builtin is not
+authorized by these assertions.
+
 ## Harness ordering and cleanup
 
 `runner.py:404-418` sends a `command:` step through raw-command transport.
@@ -230,6 +307,8 @@ For rows one and two the durable sequence is therefore:
 
 - `MooRuntime` still has no general object matcher; row-specific nonempty object
   strings currently receive `FAILED_MATCH` after the proven preposition scan.
+- `WorldTxn.writeObjectProperty()` reads built-in `name` but cannot yet perform
+  the proven Wizard `STR` name write used by rows six through eight.
 - Banteng has no general object matcher, argspec-aware command lookup, `huh`
   fallback, or command programming mode. Those remain later rows.
 - `WorldTxn.verb()` returns the inherited verb but not its defining object and
@@ -249,10 +328,10 @@ For rows one and two the durable sequence is therefore:
 | `audit_argstr_preserves_internal_spacing` | `argstr` keeps raw internal spacing after verb separation. | Accepted by current raw-line preservation. |
 | `audit_preposition_scan_uses_leftmost_position` | Earliest preposition position wins. | Accepted second slice. |
 | `audit_negative_object_literals_are_failed_match` | Negative object literals resolve to failed match. | Accepted by current failed-match default; no general object matcher proven. |
-| `audit_name_alias_exact_match_is_ambiguous` | Exact name and alias candidates share one ambiguity pool. | Deferred. |
-| `audit_name_alias_partial_match_is_ambiguous` | Partial name and alias candidates share one ambiguity pool. | Deferred. |
-| `audit_player_name_matches_room_contents` | The player participates in room-content matching. | Deferred. |
-| `audit_do_command_runs_before_semicolon_eval` | `do_command` runs before eval dispatch. | Ordering is frozen now; this row remains a later gate. |
+| `audit_name_alias_exact_match_is_ambiguous` | Exact name and alias candidates share one ambiguity pool. | Accepted third slice. |
+| `audit_name_alias_partial_match_is_ambiguous` | Partial name and alias candidates share one ambiguity pool. | Accepted third slice. |
+| `audit_player_name_matches_room_contents` | The player participates in room-content matching. | Accepted third slice through literal room contents. |
+| `audit_do_command_runs_before_semicolon_eval` | `do_command` runs before eval dispatch. | Accepted by existing first-slice ordering. |
 | `audit_huh_runs_after_argspec_mismatch` | Argspec mismatch falls through to `huh`. | Deferred; no argspec matching or `huh` authorized. |
 | `audit_say_shortcut_reparses_preposition` | Leading quote rewrites to `say` then fully reparses. | Deferred. |
 | `audit_emote_shortcut_reparses_preposition` | Leading colon rewrites to `emote` then fully reparses. | Deferred. |
