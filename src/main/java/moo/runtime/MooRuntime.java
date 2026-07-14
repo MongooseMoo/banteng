@@ -7,6 +7,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.OptionalLong;
 import java.util.StringTokenizer;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
@@ -181,12 +182,18 @@ public final class MooRuntime {
     }
     List<String> doCommandOutput = List.of();
     boolean handled = false;
-    Optional<WorldVerb> doCommand = world.verb(0, "do_command");
+    Optional<WorldVerb> doCommand = world.verb(connection.listenerHandler, "do_command");
     if (doCommand.isPresent()) {
       VmState state =
           executeStored(
               doCommand.orElseThrow(),
-              verbLocals(0, player, player, "do_command", new ListValue(commandWords), line));
+              verbLocals(
+                  connection.listenerHandler,
+                  player,
+                  player,
+                  "do_command",
+                  new ListValue(commandWords),
+                  line));
       doCommandOutput = state.output();
       handled = state.returnValue().isPresent() && state.returnValue().orElseThrow().isTruthy();
     }
@@ -594,8 +601,14 @@ public final class MooRuntime {
             new ListValue(arguments),
             line);
     VmState state = executeStored(login, locals);
-    if (state.switchedPlayer().isPresent()) {
-      long switchedPlayer = state.switchedPlayer().orElseThrow();
+    OptionalLong authenticatedPlayer = state.switchedPlayer();
+    if (authenticatedPlayer.isEmpty()
+        && state.returnValue().orElse(null) instanceof ObjectValue returnedPlayer
+        && world.players().contains(returnedPlayer.value())) {
+      authenticatedPlayer = OptionalLong.of(returnedPlayer.value());
+    }
+    if (authenticatedPlayer.isPresent()) {
+      long switchedPlayer = authenticatedPlayer.orElseThrow();
       if (!world.switchConnectionPlayer(connectionId, switchedPlayer)) {
         throw new IllegalStateException("stored login switched to a missing player");
       }

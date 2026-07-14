@@ -167,3 +167,42 @@ The durable family contains these 23 rows, in order:
 Each stateful row owns explicit cleanup. Exact convergence remains on the first
 row until its focused Java test, exact managed row, and substantial targeted
 category pass and the kept slice is committed.
+
+## Second slice: returned login player and handler command fallback
+
+The second row is `audit_listener_handler_do_command` at YAML lines 95-173.
+Its handler `do_login_command` returns a newly player-flagged object. After
+that login input, a later `postlogin alpha beta` line must call the same
+handler's `do_command` with `this=handler`, `player=login_player`, parsed words
+as `args`, and the original line as `argstr`.
+
+Pinned Toast at the same verified source identity passes the exact row with one
+selected and 11,503 deselected in 5.35 seconds. `src/tasks.cc:913-959` accepts a
+valid user object returned by `do_login_command`, changes the task queue's
+player from the negative connection to that object, and enters the connected
+path. `src/tasks.cc:1762-1769` consequently selects `do_command_task` for later
+input. `src/tasks.cc:812-875` invokes `do_command` on `tq->handler`, supplies
+the authenticated player, parsed word list, and original command, and only
+falls through to ordinary command matching when the handler returns false.
+
+The exact managed Banteng baseline failed with one selected row and 11,503
+deselected in 7.18 seconds. The final assertion raised `E_RANGE` because the
+handler recorder remained empty: Banteng ignored the returned player object,
+left the connection negative, and dispatched every later line as another
+login input. The focused Java regression proved the same cause directly:
+expected connection player `#10`, actual `#-48`.
+
+The accepted second slice changes only `MooRuntime`. A login return switches
+the connection when it is an object in the world's player index, while the
+existing explicit `switch_player` result retains precedence. Post-login
+`do_command` lookup and `this` use the listener handler already stored in the
+connection; `player` and `caller` remain the authenticated player. No server,
+socket, builtin, parser, compiler, VM, or world representation changes are in
+this slice.
+
+The focused Java regression and complete Java 25 `check installDist` gate
+pass. The exact managed row passes with one selected and 11,503 deselected in
+7.09 seconds. The targeted family fail-fast receipt is two passing rows, then
+`audit_listener_handler_do_blank_command` first failing, with 11,481
+deselected in 9.11 seconds. Rows one and two are accepted; exact convergence
+continues on row three.

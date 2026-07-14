@@ -61,6 +61,57 @@ final class MooRuntimeTest {
   }
 
   @Test
+  void authenticatesReturnedPlayerAndDispatchesCommandToListenerHandler() throws Exception {
+    WorldTxn world = new LambdaMooV4Reader().read(FIXTURE);
+    MooRuntime runtime = new MooRuntime(world);
+    long primaryConnection = -47;
+
+    assertEquals(List.of(), runtime.openConnection(primaryConnection));
+    assertEquals(
+        List.of("*** Connected ***"), runtime.executeLine(primaryConnection, "connect Wizard"));
+    long handler = world.objectCount();
+    long loginPlayer = handler + 1;
+    runtime.executeLine(
+        primaryConnection,
+        """
+        ; add_property(#0, "audit_command_handler", {}, {#0, "rw"});
+        add_property(#0, "audit_command_player", {}, {#0, "rw"});
+        add_property(#0, "audit_command_seen", {}, {#0, "rw"});
+        handler = create($nothing);
+        login_player = create($nothing);
+        set_player_flag(login_player, 1);
+        #0.audit_command_handler = handler;
+        #0.audit_command_player = login_player;
+        add_verb(handler, {player, "rxd", "do_login_command"}, {"this", "none", "this"});
+        set_verb_code(handler, "do_login_command", {"return #0.audit_command_player;"});
+        add_verb(handler, {player, "rxd", "do_command"}, {"this", "none", "this"});
+        set_verb_code(handler, "do_command", {
+          "#0.audit_command_seen = {this, player, args, argstr};",
+          "return 0;"
+        });
+        return 1;
+        """);
+    assertTrue(world.object(handler).isPresent());
+    assertTrue(world.object(loginPlayer).isPresent());
+
+    long dynamicConnection = -48;
+    try {
+      assertEquals(List.of(), runtime.openConnection(dynamicConnection, handler, false));
+      assertEquals(loginPlayer, world.connectionPlayer(dynamicConnection).orElseThrow());
+      assertEquals(List.of(), runtime.executeLine(dynamicConnection, "postlogin alpha beta"));
+      assertEquals(
+          "{#"
+              + handler
+              + ", #"
+              + loginPlayer
+              + ", {\"postlogin\", \"alpha\", \"beta\"}, \"postlogin alpha beta\"}",
+          world.property(0, "audit_command_seen").orElseThrow().value().toLiteral());
+    } finally {
+      runtime.closeConnection(dynamicConnection);
+    }
+  }
+
+  @Test
   void tokenizesBackslashEscapesForAStoredPlayerCommandVerb() throws Exception {
     WorldTxn world = new LambdaMooV4Reader().read(FIXTURE);
     MooRuntime runtime = new MooRuntime(world);
