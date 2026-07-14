@@ -53,6 +53,10 @@ the existing concrete owners.
 - `../barn/spec/builtins/objects.md:70-96` defines the `recycle()` hook,
   owner-or-wizard permission, topology destruction, invalidation, and zero
   result. It does not state what happens to a hook error.
+- `../barn/spec/builtins/objects.md:100-122` defines `valid(object)` as a
+  non-throwing existence check for object references. The implementation and
+  Toast source below correct the spec's omission of `E_TYPE` for non-object
+  values.
 
 The Barn specification does not state the computed-name type contract, name
 case behavior, or expression evaluation order. Those gaps are frozen below by
@@ -110,6 +114,9 @@ For the adjacent contracts required by this family:
   the hook before destruction but explicitly discards its error. That differs
   from managed Toast, where the original hook error continues propagating
   after destruction.
+- `../barn/builtins/objects.go:384-415` owns `valid()`: one object-flavored
+  argument returns INT 1 or 0, wrong arity raises `E_ARGS`, and a non-object
+  value raises `E_TYPE`.
 
 ## Current Toast implementation path
 
@@ -155,6 +162,9 @@ Handler restoration, `max()`, and `recycle()`:
 - `src/execute.cc:331-395` resumes a builtin continuation during both normal
   return and error unwinding. On hook error, continuation 2 still destroys the
   object and the original error keeps unwinding.
+- `src/objects.cc:283-299,1351` registers `valid` with arity one and `TYPE_ANY`;
+  the body returns INT 1 or 0 for an object-flavored value and `E_TYPE`
+  otherwise.
 
 ## Durable conformance evidence
 
@@ -194,6 +204,10 @@ Existing durable rows separately cover computed property case folding in
 `objects/property_lookup.yaml:8-25`, static verb inheritance in
 `builtins/objects.yaml:717-736`, and executable ancestor selection in
 `audit/verb_dispatch_toast_oracle.yaml:150-186`.
+`builtins/objects.yaml:1697-1721`, `builtins/recycle.yaml:213-221`, and
+`generated_builtins/valid.yaml:22-40` already durably cover a created object,
+recycled object, `#-1`, and wrong arity. The managed hook row above directly
+uses the recycled-object result; no duplicate `valid()` row is needed.
 
 ## Managed oracle and Banteng baseline
 
@@ -265,6 +279,10 @@ the focused gate for the single active Java source slice.
   helper or put runtime depth in `HandlerSpec`.
 - Keep `recycle` classified `IRREVOCABLE`. Validate arity, object type,
   validity, and owner-or-wizard permission directly in `BuiltinCatalog`.
+- Add `TRANSACTION_READ` to the existing concrete effect enum and add `valid`
+  directly to the catalog: one argument is required, a non-`ObjectValue`
+  raises `E_TYPE`, and an `ObjectValue` returns INT 1 when present in the
+  current `WorldTxn` snapshot or INT 0 otherwise.
 - Extend the existing concrete `BuiltinCatalog.Result` with only the recycle
   target needed by the VM continuation. The VM resolves and runs inherited
   executable `:recycle` before destruction. The concrete verb frame carries a
