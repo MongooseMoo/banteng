@@ -117,6 +117,14 @@ For the adjacent contracts required by this family:
 - `../barn/builtins/objects.go:384-415` owns `valid()`: one object-flavored
   argument returns INT 1 or 0, wrong arity raises `E_ARGS`, and a non-object
   value raises `E_TYPE`.
+- `../barn/builtins/verbs.go:352-540,670-768` owns `add_verb`, `delete_verb`,
+  and `set_verb_code`. It corroborates validation and compile-before-install,
+  but its delete permission check is incomplete and its set-code lookup can
+  select an inherited verb. Toast controls those disagreements.
+- `../barn/spec/builtins/tasks.md:618-668` and
+  `../barn/builtins/tasks.go:399-434` incorrectly narrow `raise()` to an ERR
+  code. The active row requires only that narrow `raise(E_DIV)` path; full
+  arbitrary-code payload support is explicitly deferred below.
 
 ## Current Toast implementation path
 
@@ -165,6 +173,24 @@ Handler restoration, `max()`, and `recycle()`:
 - `src/objects.cc:283-299,1351` registers `valid` with arity one and `TYPE_ANY`;
   the body returns INT 1 or 0 for an object-flavored value and `E_TYPE`
   otherwise.
+- `src/verbs.cc:76-210,668-669` owns `add_verb`: it validates the info and
+  argument-spec lists, target, owner, permissions, and names; enforces object
+  write permission plus owner assignment permission; and returns the new
+  one-based local verb index.
+- `src/verbs.cc:215-268,670-671` owns `delete_verb`: descriptors are a string or
+  positive integer, lookup is local-only, missing verbs raise `E_VERBNF`, and
+  success returns zero.
+- `src/verbs.cc:504-549,674-675` owns `set_verb_code`: it validates every source
+  line, resolves a local descriptor, requires programmer and verb-write
+  permission, compiles before installation, returns diagnostics without
+  mutation on failure, and returns an empty LIST on success.
+- `src/db_verbs.cc:195-214` and `src/include/db.h:488-500` freeze persistent
+  verb packing: `r/w/x/d` are bits 1/2/4/8, direct and indirect argument specs
+  are packed at shifts 4 and 6 using none/any/this values 0/1/2, and the
+  preposition is stored separately as none `-1`, any `-2`, or its table index.
+- `src/execute.cc:3499-3516,3777` registers `raise` for one through three
+  arguments and carries arbitrary code, message, and value. The current VM's
+  `ErrorValue` channel cannot yet represent that full payload.
 
 ## Durable conformance evidence
 
@@ -208,6 +234,26 @@ Existing durable rows separately cover computed property case folding in
 `generated_builtins/valid.yaml:22-40` already durably cover a created object,
 recycled object, `#-1`, and wrong arity. The managed hook row above directly
 uses the recycled-object result; no duplicate `valid()` row is needed.
+
+Existing durable verb rows cover the active mutation dependencies without a
+duplicate addition:
+
+- `generated_builtins/add_verb.yaml:22-52`,
+  `builtins/add_verb_call_shapes.yaml:9-21`, and
+  `builtins/verbs.yaml:22-140` cover signature, shape errors, and the returned
+  one-based index;
+- `generated_builtins/delete_verb.yaml:22-41`,
+  `builtins/delete_verb_call_shapes.yaml:9-62`, and
+  `builtins/verbs.yaml:141-204` cover descriptors, zero success, `E_INVARG`,
+  and `E_VERBNF`;
+- `generated_builtins/set_verb_code.yaml:22-46`,
+  `builtins/set_verb_code_call_shapes.yaml:9-33`, and
+  `builtins/verbs.yaml:533-599` cover source types, stored compilation, and
+  empty-LIST success;
+- `generated_builtins/raise.yaml:22-47` and
+  `builtins/raise_call_shapes.yaml:9-65` freeze the eventual full `raise`
+  signature. The active recycle discriminator itself proves the currently
+  required one-argument ErrorValue path.
 
 ## Managed oracle and Banteng baseline
 
@@ -304,6 +350,22 @@ the focused gate for the single active Java source slice.
 - Add direct `BuiltinCatalog` cases and immutable `WorldTxn` snapshot
   mutations for `add_verb`, `delete_verb`, and `set_verb_code`. Reuse existing
   `WorldObject` and `WorldVerb` records; do not add mutable wrappers.
+- For `add_verb`, validate and pack info/argument specs inline, pass the current
+  programmer, enforce target write and owner-assignment permission, append one
+  existing `WorldVerb`, and return its one-based index.
+- For delete and set-code, validate a string or positive-integer descriptor in
+  `BuiltinCatalog`, resolve only the target's existing local verb list, and
+  pass the concrete zero-based index to the existing `WorldTxn` mutation.
+  Delete enforces target write permission, returns zero, and maps a missing
+  local descriptor to `E_VERBNF`. Set-code enforces programmer plus verb-write
+  permission, parses and compiles before mutation, returns a one-string
+  diagnostic LIST on local parse failure, and returns an empty LIST on
+  success. Do not add a descriptor or lookup abstraction.
+- Keep only the active `raise(E_DIV)` minimum in this slice: one ErrorValue
+  argument routes through the existing concrete error channel. Other arities
+  and arbitrary code/message/value payloads remain failing, explicitly
+  deferred work requiring a separately authorized raised-error representation;
+  they must not be claimed conformant by this slice.
 
 Focused Java tests must prove the missing rows through parser, deterministic
 bytecode, VM, handler, and stored runtime seams. The kept slice must pass those
