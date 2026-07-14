@@ -259,6 +259,10 @@ public final class BuiltinCatalog {
       case "move" -> move(arguments, world);
       case "switch_player" -> switchPlayer(arguments);
       case "add_property" -> addProperty(arguments, world);
+      case "task_perms" ->
+          arguments.isEmpty()
+              ? Result.value(new ObjectValue(programmer))
+              : Result.error(ErrorValue.E_ARGS);
       case "set_task_perms" -> setTaskPerms(arguments);
       case "notify" -> notifyLine(arguments);
       case "tostr" -> {
@@ -379,6 +383,7 @@ public final class BuiltinCatalog {
           "toliteral",
           "eval",
           "raise",
+          "task_perms",
           "typeof",
           "function_info" ->
           EffectClass.PURE;

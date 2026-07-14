@@ -699,3 +699,126 @@ rows and reaches
 where its observation expression raises `E_RANGE` instead of returning the
 expected `[1, 1, 1, 1, 1]`. Row six is accepted; the `confunc` and
 `set_task_perms` row is the next causally relevant unchecked lifecycle target.
+
+## Eighth row: nested suspension, callable verbs, and task permissions
+
+The active durable row is
+`audit_user_connected_confunc_calls_continue_after_fork_and_setting_task_perms`
+at
+`../moo-conformance-tests/src/moo_conformance/_tests/audit/connection_lifecycle_toast_oracle.yaml:695-849`.
+It queues a zero-delay child from `user_connected`, calls a login-player-owned
+`location:yield_once` that executes `suspend(0)`, resumes the complete parent
+activation, changes the parent activation's programmer to the login player,
+and calls login-player-owned executable `confunc` verbs on the location and
+player. The child records its inherited user and programmer; the parent path
+records the resumed `this`, both callable frames, and the lowered programmer.
+
+The original row recorded but did not assert the fork child's programmer. It
+therefore allowed an implementation to apply the later parent
+`set_task_perms(user)` retroactively to the already-captured child. The corrected
+row compares the entire child observation to `{p, player}`, where `player` is
+the setup wizard and `p` is the login player. It is committed in the
+conformance repository as `cf3f39e`. No child-versus-resumed-parent ordering was
+added: Toast places this fork and suspended parent in different programmer
+queues, so accumulated-usage selection does not guarantee one exact order.
+The corrected row passes pinned WSL Toast with one selected and 11,504
+deselected in 4.21 seconds.
+
+Barn's corrected normative `../barn/spec/tasks.md:99-116` requires the fork to
+capture and queue the child before the parent continues, without inline child
+execution. `../barn/spec/tasks.md:198-205` requires suspension to preserve the
+explicit VM, including its activation stack, environments, instruction
+positions, task identity, and task-local value. `../barn/spec/tasks.md:289-290`
+defines `task_perms()` as the current activation's programmer, distinct from
+the calling activation returned by `caller_perms()`. The permission contract at
+`../barn/spec/tasks.md:385-395` changes only the top activation: a non-wizard
+may select only the current programmer, while a wizard may select another
+object, and the check uses the running programmer rather than the connected
+player. `../barn/spec/objects.md:461-468` separately requires an ordinary
+callable verb to have the execute bit.
+
+The older `../barn/spec/builtins/tasks.md:46-67` contradicts that corrected
+contract by describing `set_task_perms` as simply wizard-only and
+`task_perms()` as an alias for `caller_perms()`. Current Barn and pinned Toast
+both disprove those statements; they are not authority for this slice.
+
+Current Barn enters the hook through
+`../barn/server/input_login.go:202-224,239-312` and
+`../barn/scheduler/task_factory.go:61-105`. Its fork path is
+`../barn/vm/control.go:24-117` followed by
+`../barn/scheduler/task_runtime.go:408-418`. Ordinary callable dispatch in
+`../barn/vm/op_verb.go:30-269` requires the execute bit and creates each callee
+with the target `this`, caller activation's `this`, inherited player, supplied
+arguments, and the called verb's owner as programmer. The nested
+`builtinSuspend` at `../barn/builtins/tasks.go:104-149` preserves the VM through
+`../barn/scheduler/task_runtime.go:230-257`; returning through
+`../barn/vm/stack.go:100-119` restores the saved `user_connected` activation.
+`builtinSetTaskPerms` at `../barn/builtins/tasks.go:181-226` checks and changes
+the current programmer and top frame, while `builtinTaskPerms` at
+`../barn/builtins/signatures.go:187-192` directly returns that current
+programmer. Current Barn agrees with every observation frozen by the corrected
+row. Its task-record ownership after a later suspension is broader than this
+row and remains excluded.
+
+At pinned Toast commit `aecc51e9449c6e7c95272f0f044b5ba38948459e`,
+`src/execute.cc:2084-2113` and `src/tasks.cc:1258-1292` capture and queue the
+fork. `src/execute.cc:2115-2198` dispatches an ordinary verb through
+`call_verb2`; `src/db_verbs.cc:228-237,483-668` requires the execute bit, and
+`src/execute.cc:663-782` installs the callee verb owner as its programmer along
+with the exact receiver, caller, player, and arguments. `bf_suspend` at
+`src/execute.cc:3520-3539`, `suspend_task` at `src/execute.cc:221-238`, and
+`enqueue_suspended_task` at `src/tasks.cc:1296-1318` retain the complete nested
+VM. `src/tasks.cc:1629-1814,1786-1795` later selects and restores it, and
+`src/execute.cc:3253-3272` resumes its activation stack.
+
+Pinned Toast's exact permission owners are `bf_set_task_perms` at
+`src/execute.cc:3695-3707`, which permits a different target only for the
+current wizard programmer and then changes `RUN_ACTIV.progr`, and
+`bf_task_perms` at `src/execute.cc:3710-3717`, which returns that same current
+activation field. `bf_caller_perms` at `src/execute.cc:3720-3729` independently
+reads the preceding activation. Registrations at `src/execute.cc:3786-3788`
+freeze one object argument for the setter and zero arguments for both getters.
+The child therefore retains the setup wizard programmer captured before the
+parent changes permissions, both `confunc` frames run under their login-player
+verb owner, and the restored parent retains its explicit login-player
+programmer.
+
+The corrected row is red on committed Banteng `1fa90bf`: it returns
+`[0, 1, 0, 0, 0]` instead of `[1, 1, 1, 1, 1]`. The successful second element
+proves that the complete nested call resumes and records the location. The
+other observations all execute `task_perms()`. Banteng's direct
+`BuiltinCatalog` implements `set_task_perms` but has no `task_perms` case, so
+the child and both parent-side callable paths receive `E_VERBNF` before their
+assignments. The earlier `E_RANGE` report was only the original observer
+indexing the empty child value; it was not the semantic failure.
+
+The smallest Java representation is a direct `BuiltinCatalog.invoke` case:
+zero arguments return an object reference for the `programmer` already supplied
+from the current VM frame, while any argument returns `E_ARGS`. The existing
+catalog effect classification must mark this read-only builtin as pure. The
+existing `VmState` programmer field, fork snapshot, suspension stack,
+`set_task_perms` result, callable dispatch, compiler, parser, runtime queues,
+and world path require no change. Permission-denial cases, caller permissions,
+post-lowering task ownership, full frame introspection, background limits, and
+cross-programmer scheduling remain outside this row and require their own
+durable authority.
+
+## Eighth-row Banteng receipt
+
+The focused Java regression is red with the expected nested-suspension marker
+present but the child and all permission-dependent callable observations empty:
+the expected value is
+`{{#10, #8}, #11, {#11, #10, #10}, {#10, {}, #10}, {#10, #10}}`,
+while Banteng produces `{{}, #11, {}, {}, {}}`. The accepted implementation
+adds only the direct zero-argument `task_perms` result and its pure effect
+classification in `BuiltinCatalog`. The focused regression, four adjacent
+fork/suspend/call-frame regressions, formatting, and the Java 25
+`check installDist` gate pass.
+
+Managed
+`audit_user_connected_confunc_calls_continue_after_fork_and_setting_task_perms`
+passes in isolation with one selected and 11,504 deselected in 4.63 seconds.
+The complete `connection_lifecycle_toast_oracle` fail-fast run then passes the
+first eight rows and reaches `audit_user_client_disconnected_hook`, where the
+final observation is zero instead of one. Row eight is accepted; the client
+disconnect hook is the next causally relevant unchecked lifecycle target.

@@ -265,6 +265,110 @@ final class MooRuntimeTest {
   }
 
   @Test
+  void continuesUserConnectedConfuncsAfterForkSuspendAndTaskPermissionChange() throws Exception {
+    WorldTxn world = new LambdaMooV4Reader().read(FIXTURE);
+    MooRuntime runtime = new MooRuntime(world);
+    long primaryConnection = -47;
+
+    assertEquals(List.of(), runtime.openConnection(primaryConnection));
+    assertEquals(
+        List.of("*** Connected ***"), runtime.executeLine(primaryConnection, "connect Wizard"));
+    long setupWizard = world.connectionPlayer(primaryConnection).orElseThrow();
+    long handler = world.objectCount();
+    long loginPlayer = handler + 1;
+    long location = loginPlayer + 1;
+    runtime.executeLine(
+        primaryConnection,
+        """
+        ; for prop in ({"audit_confunc_player", "audit_confunc_location", "audit_confunc_child", "audit_confunc_after_suspend", "audit_confunc_location_seen", "audit_confunc_user_seen", "audit_confunc_parent"})
+          try
+            add_property(#0, prop, {}, {#0, "rw"});
+          except (E_INVARG)
+          endtry
+        endfor
+        handler = create($nothing);
+        login_player = create($nothing);
+        location = create($nothing);
+        set_player_flag(login_player, 1);
+        move(login_player, location);
+        #0.audit_confunc_player = login_player;
+        #0.audit_confunc_location = location;
+        add_verb(location, {login_player, "rxd", "confunc"}, {"this", "none", "this"});
+        set_verb_code(location, "confunc", {
+          "#0.audit_confunc_location_seen = {this, args[1], task_perms()};",
+          "return 1;"
+        });
+        add_verb(location, {login_player, "rxd", "yield_once"}, {"this", "none", "this"});
+        set_verb_code(location, "yield_once", {
+          "suspend(0);",
+          "#0.audit_confunc_after_suspend = this;",
+          "return 1;"
+        });
+        add_verb(login_player, {login_player, "rxd", "confunc"}, {"this", "none", "this"});
+        set_verb_code(login_player, "confunc", {
+          "#0.audit_confunc_user_seen = {this, args, task_perms()};",
+          "return 1;"
+        });
+        add_verb(handler, {player, "rxd", "do_login_command"}, {"this", "none", "this"});
+        set_verb_code(handler, "do_login_command", {"return #0.audit_confunc_player;"});
+        add_verb(handler, {player, "rxd", "user_connected"}, {"this", "none", "this"});
+        set_verb_code(handler, "user_connected", {
+          "user = args[1];",
+          "fork (0)",
+          "  #0.audit_confunc_child = {user, task_perms()};",
+          "endfork",
+          "user.location:yield_once();",
+          "set_task_perms(user);",
+          "user.location:confunc(user);",
+          "user:confunc();",
+          "#0.audit_confunc_parent = {user, task_perms()};",
+          "return 1;"
+        });
+        return 1;
+        """);
+    assertTrue(world.object(handler).isPresent());
+    assertTrue(world.object(loginPlayer).isPresent());
+    assertTrue(world.object(location).isPresent());
+
+    long dynamicConnection = -48;
+    try {
+      assertEquals(List.of(), runtime.openConnection(dynamicConnection, handler, false));
+      assertEquals(
+          "{{#"
+              + loginPlayer
+              + ", #"
+              + setupWizard
+              + "}, #"
+              + location
+              + ", {#"
+              + location
+              + ", #"
+              + loginPlayer
+              + ", #"
+              + loginPlayer
+              + "}, {#"
+              + loginPlayer
+              + ", {}, #"
+              + loginPlayer
+              + "}, {#"
+              + loginPlayer
+              + ", #"
+              + loginPlayer
+              + "}}",
+          new ListValue(
+                  List.of(
+                      world.property(0, "audit_confunc_child").orElseThrow().value(),
+                      world.property(0, "audit_confunc_after_suspend").orElseThrow().value(),
+                      world.property(0, "audit_confunc_location_seen").orElseThrow().value(),
+                      world.property(0, "audit_confunc_user_seen").orElseThrow().value(),
+                      world.property(0, "audit_confunc_parent").orElseThrow().value()))
+              .toLiteral());
+    } finally {
+      runtime.closeConnection(dynamicConnection);
+    }
+  }
+
+  @Test
   void dispatchesTrustedEmptyInputToListenerHandlerBlankVerb() throws Exception {
     WorldTxn world = new LambdaMooV4Reader().read(FIXTURE);
     MooRuntime runtime = new MooRuntime(world);
