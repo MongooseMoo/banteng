@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Locale;
+import moo.builtin.BuiltinCatalog;
 import moo.persistence.LambdaMooV4Reader;
 import moo.value.MooValue.ObjectValue;
 import moo.world.WorldObject;
@@ -609,6 +610,151 @@ final class MooRuntimeTest {
       assertEquals("return 4242;\n", world.verb(object, 0).orElseThrow().programSource());
     } finally {
       runtime.executeLine(connectionId, "; recycle(#" + object + "); return 1;");
+    }
+  }
+
+  @Test
+  void preservesPlayerCallerForAnInheritedCommand() throws Exception {
+    WorldTxn world = new LambdaMooV4Reader().read(FIXTURE);
+    MooRuntime runtime = new MooRuntime(world);
+    long connectionId = -47;
+
+    assertEquals(
+        BuiltinCatalog.EffectClass.TRANSACTION_READ, new BuiltinCatalog().effectClass("parent"));
+    assertEquals(
+        BuiltinCatalog.EffectClass.TRANSACTION_WRITE, new BuiltinCatalog().effectClass("chparent"));
+    assertEquals(List.of(), runtime.openConnection(connectionId));
+    assertEquals(List.of("*** Connected ***"), runtime.executeLine(connectionId, "connect Wizard"));
+    long player = world.connectionPlayer(connectionId).orElseThrow();
+    long oldParent = world.object(player).orElseThrow().parent();
+    assertEquals(-1, oldParent);
+    assertTrue(world.object(oldParent).isEmpty());
+    assertEquals(
+        List.of(CONNECTION_PREFIX, "{1, #" + oldParent + "}", CONNECTION_SUFFIX),
+        runtime.executeLine(connectionId, "; return parent(player);"));
+
+    long ancestor = world.objectCount();
+    assertEquals(
+        List.of(CONNECTION_PREFIX, "{1, #" + ancestor + "}", CONNECTION_SUFFIX),
+        runtime.executeLine(connectionId, "; return create(#" + oldParent + ");"));
+    assertEquals(oldParent, world.object(ancestor).orElseThrow().parent());
+
+    try {
+      List<String> setupOutput =
+          runtime.executeLine(
+              connectionId,
+              """
+              ; add_verb(#%d, {player, "xd", "audit_inherited_caller"}, {"any", "any", "any"});
+              set_verb_code(#%d, "audit_inherited_caller", {"notify(player, \\"CALLER_IS_PLAYER:\\" + tostr(caller == player));"});
+              chparent(player, #%d);
+              return 1;
+              """
+                  .formatted(ancestor, ancestor, ancestor));
+      WorldObject inheritedTarget = world.object(ancestor).orElseThrow();
+      assertEquals(oldParent, inheritedTarget.parent());
+      assertEquals(1, inheritedTarget.verbs().size());
+      WorldVerb inherited = inheritedTarget.verbs().getFirst();
+      assertEquals("audit_inherited_caller", inherited.names());
+      assertEquals(player, inherited.owner());
+      assertEquals(92, inherited.permissions());
+      assertEquals(-2, inherited.preposition());
+      assertEquals(
+          "notify(player, \"CALLER_IS_PLAYER:\" + tostr(caller == player));",
+          inherited.programSource());
+      assertEquals(List.of(player), inheritedTarget.children());
+      assertEquals(ancestor, world.object(player).orElseThrow().parent());
+      assertTrue(world.object(oldParent).isEmpty());
+      assertEquals(List.of(CONNECTION_PREFIX, "{1, 1}", CONNECTION_SUFFIX), setupOutput);
+
+      assertEquals(
+          List.of("CALLER_IS_PLAYER:1"),
+          runtime.executeLine(connectionId, "audit_inherited_caller"));
+    } finally {
+      runtime.executeLine(
+          connectionId,
+          "; chparent(player, #" + oldParent + "); recycle(#" + ancestor + "); return 1;");
+      assertEquals(oldParent, world.object(player).orElseThrow().parent());
+      assertTrue(world.object(ancestor).isEmpty());
+      assertTrue(world.object(oldParent).isEmpty());
+    }
+  }
+
+  @Test
+  void preservesPlayerCallerForADeepInheritedCommand() throws Exception {
+    WorldTxn world = new LambdaMooV4Reader().read(FIXTURE);
+    MooRuntime runtime = new MooRuntime(world);
+    long connectionId = -47;
+
+    assertEquals(List.of(), runtime.openConnection(connectionId));
+    assertEquals(List.of("*** Connected ***"), runtime.executeLine(connectionId, "connect Wizard"));
+    long player = world.connectionPlayer(connectionId).orElseThrow();
+    long oldParent = world.object(player).orElseThrow().parent();
+    assertEquals(-1, oldParent);
+    assertTrue(world.object(oldParent).isEmpty());
+    assertEquals(
+        List.of(CONNECTION_PREFIX, "{1, #" + oldParent + "}", CONNECTION_SUFFIX),
+        runtime.executeLine(connectionId, "; return parent(player);"));
+
+    long definingAncestor = world.objectCount();
+    assertEquals(
+        List.of(CONNECTION_PREFIX, "{1, #" + definingAncestor + "}", CONNECTION_SUFFIX),
+        runtime.executeLine(connectionId, "; return create(#" + oldParent + ");"));
+    long middleAncestor = world.objectCount();
+    assertEquals(
+        List.of(CONNECTION_PREFIX, "{1, #" + middleAncestor + "}", CONNECTION_SUFFIX),
+        runtime.executeLine(connectionId, "; return create(#" + definingAncestor + ");"));
+    assertEquals(oldParent, world.object(definingAncestor).orElseThrow().parent());
+    assertEquals(definingAncestor, world.object(middleAncestor).orElseThrow().parent());
+    assertEquals(List.of(middleAncestor), world.object(definingAncestor).orElseThrow().children());
+
+    try {
+      List<String> setupOutput =
+          runtime.executeLine(
+              connectionId,
+              """
+              ; add_verb(#%d, {player, "xd", "audit_deep_inherited_caller"}, {"any", "any", "any"});
+              set_verb_code(#%d, "audit_deep_inherited_caller", {"notify(player, \\"CALLER_IS_PLAYER:\\" + tostr(caller == player));"});
+              chparent(player, #%d);
+              return 1;
+              """
+                  .formatted(definingAncestor, definingAncestor, middleAncestor));
+      WorldObject defining = world.object(definingAncestor).orElseThrow();
+      WorldObject middle = world.object(middleAncestor).orElseThrow();
+      assertEquals(oldParent, defining.parent());
+      assertEquals(List.of(middleAncestor), defining.children());
+      assertEquals(1, defining.verbs().size());
+      assertEquals(List.of(), middle.verbs());
+      WorldVerb inherited = defining.verbs().getFirst();
+      assertEquals("audit_deep_inherited_caller", inherited.names());
+      assertEquals(player, inherited.owner());
+      assertEquals(92, inherited.permissions());
+      assertEquals(-2, inherited.preposition());
+      assertEquals(
+          "notify(player, \"CALLER_IS_PLAYER:\" + tostr(caller == player));",
+          inherited.programSource());
+      assertEquals(definingAncestor, middle.parent());
+      assertEquals(List.of(player), middle.children());
+      assertEquals(middleAncestor, world.object(player).orElseThrow().parent());
+      assertTrue(world.object(oldParent).isEmpty());
+      assertEquals(List.of(CONNECTION_PREFIX, "{1, 1}", CONNECTION_SUFFIX), setupOutput);
+
+      assertEquals(
+          List.of("CALLER_IS_PLAYER:1"),
+          runtime.executeLine(connectionId, "audit_deep_inherited_caller"));
+    } finally {
+      runtime.executeLine(
+          connectionId,
+          "; chparent(player, #"
+              + oldParent
+              + "); recycle(#"
+              + middleAncestor
+              + "); recycle(#"
+              + definingAncestor
+              + "); return 1;");
+      assertEquals(oldParent, world.object(player).orElseThrow().parent());
+      assertTrue(world.object(middleAncestor).isEmpty());
+      assertTrue(world.object(definingAncestor).isEmpty());
+      assertTrue(world.object(oldParent).isEmpty());
     }
   }
 

@@ -71,6 +71,65 @@ public final class BuiltinCatalog {
         }
         yield Result.error(ErrorValue.E_TYPE);
       }
+      case "parent" -> {
+        if (arguments.size() != 1) {
+          yield Result.error(ErrorValue.E_ARGS);
+        }
+        if (!(arguments.getFirst() instanceof ObjectValue object)) {
+          yield Result.error(ErrorValue.E_TYPE);
+        }
+        if (object.value() < 0) {
+          yield Result.error(ErrorValue.E_INVARG);
+        }
+        WorldObject target = world.object(object.value()).orElse(null);
+        if (target == null) {
+          yield Result.error(ErrorValue.E_INVIND);
+        }
+        yield Result.value(new ObjectValue(target.parent()));
+      }
+      case "chparent" -> {
+        if (arguments.size() != 2) {
+          yield Result.error(ErrorValue.E_ARGS);
+        }
+        if (!(arguments.get(0) instanceof ObjectValue object)
+            || !(arguments.get(1) instanceof ObjectValue newParent)) {
+          yield Result.error(ErrorValue.E_TYPE);
+        }
+        if (object.value() < 0) {
+          yield Result.error(ErrorValue.E_INVARG);
+        }
+        WorldObject target = world.object(object.value()).orElse(null);
+        if (target == null) {
+          yield Result.error(ErrorValue.E_INVIND);
+        }
+        if (object.value() == newParent.value()) {
+          yield Result.error(ErrorValue.E_RECMOVE);
+        }
+        if (newParent.value() < -1) {
+          yield Result.error(ErrorValue.E_INVARG);
+        }
+        if (newParent.value() != -1 && world.object(newParent.value()).isEmpty()) {
+          yield Result.error(ErrorValue.E_INVARG);
+        }
+        long ancestor = newParent.value();
+        while (ancestor != -1) {
+          if (ancestor == object.value()) {
+            yield Result.error(ErrorValue.E_RECMOVE);
+          }
+          WorldObject ancestorObject = world.object(ancestor).orElse(null);
+          if (ancestorObject == null) {
+            yield Result.error(ErrorValue.E_INVARG);
+          }
+          ancestor = ancestorObject.parent();
+        }
+        WorldObject permissions = world.object(programmer).orElse(null);
+        if (permissions == null || (permissions.flags() & 4) == 0) {
+          yield Result.error(ErrorValue.E_PERM);
+        }
+        yield world.changeParent(object.value(), newParent.value())
+            ? Result.zero()
+            : Result.error(ErrorValue.E_INVARG);
+      }
       case "create" -> create(arguments, world, programmer);
       case "recycle" -> {
         if (arguments.size() != 1) {
@@ -229,7 +288,7 @@ public final class BuiltinCatalog {
           "typeof",
           "function_info" ->
           EffectClass.PURE;
-      case "valid" -> EffectClass.TRANSACTION_READ;
+      case "valid", "parent" -> EffectClass.TRANSACTION_READ;
       case "queued_tasks", "sqlite_handles", "sqlite_info", "sqlite_last_insert_row_id" ->
           EffectClass.EXTERNAL_READ;
       case "sqlite_query", "sqlite_execute" -> EffectClass.SUSPENDING_HOST;
@@ -241,7 +300,13 @@ public final class BuiltinCatalog {
           "sqlite_limit",
           "sqlite_interrupt" ->
           EffectClass.IRREVOCABLE;
-      case "add_verb", "delete_verb", "set_verb_code", "set_player_flag", "move", "add_property" ->
+      case "add_verb",
+          "delete_verb",
+          "set_verb_code",
+          "set_player_flag",
+          "move",
+          "add_property",
+          "chparent" ->
           EffectClass.TRANSACTION_WRITE;
       case "notify", "switch_player", "set_task_perms", "suspend" -> EffectClass.DEFERRED_EFFECT;
       default -> EffectClass.UNIMPLEMENTED;

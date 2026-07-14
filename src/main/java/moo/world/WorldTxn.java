@@ -367,6 +367,97 @@ public final class WorldTxn {
     return true;
   }
 
+  /** Changes one object's parent while updating both reciprocal topology records. */
+  public boolean changeParent(long objectId, long newParentId) {
+    WorldObject target = object(objectId).orElse(null);
+    WorldObject newParent = newParentId == -1 ? null : object(newParentId).orElse(null);
+    if (target == null
+        || newParentId < -1
+        || objectId == newParentId
+        || (newParentId != -1 && newParent == null)
+        || (target.parent() != -1 && object(target.parent()).isEmpty())) {
+      return false;
+    }
+
+    List<Long> visited = new ArrayList<>();
+    long ancestor = newParentId;
+    while (ancestor != -1) {
+      if (ancestor == objectId || visited.contains(ancestor)) {
+        return false;
+      }
+      visited.add(ancestor);
+      WorldObject ancestorObject = object(ancestor).orElse(null);
+      if (ancestorObject == null) {
+        return false;
+      }
+      ancestor = ancestorObject.parent();
+    }
+
+    Map<Long, WorldObject> objects = new LinkedHashMap<>(world.objects());
+    if (target.parent() != -1) {
+      WorldObject oldParent = Objects.requireNonNull(objects.get(target.parent()));
+      List<Long> oldChildren = new ArrayList<>();
+      for (long child : oldParent.children()) {
+        if (child != objectId) {
+          oldChildren.add(child);
+        }
+      }
+      objects.put(
+          oldParent.id(),
+          new WorldObject(
+              oldParent.id(),
+              oldParent.name(),
+              oldParent.flags(),
+              oldParent.owner(),
+              oldParent.location(),
+              oldParent.parent(),
+              oldParent.contents(),
+              oldChildren,
+              oldParent.verbs(),
+              oldParent.properties()));
+    }
+
+    if (newParentId != -1) {
+      WorldObject currentNewParent = Objects.requireNonNull(objects.get(newParentId));
+      List<Long> newChildren = new ArrayList<>();
+      for (long child : currentNewParent.children()) {
+        if (child != objectId) {
+          newChildren.add(child);
+        }
+      }
+      newChildren.add(objectId);
+      objects.put(
+          currentNewParent.id(),
+          new WorldObject(
+              currentNewParent.id(),
+              currentNewParent.name(),
+              currentNewParent.flags(),
+              currentNewParent.owner(),
+              currentNewParent.location(),
+              currentNewParent.parent(),
+              currentNewParent.contents(),
+              newChildren,
+              currentNewParent.verbs(),
+              currentNewParent.properties()));
+    }
+
+    objects.put(
+        objectId,
+        new WorldObject(
+            target.id(),
+            target.name(),
+            target.flags(),
+            target.owner(),
+            target.location(),
+            newParentId,
+            target.contents(),
+            target.children(),
+            target.verbs(),
+            target.properties()));
+    replaceWorld(world.players(), objects);
+    return true;
+  }
+
   /** Adds or removes the player flag and keeps the player index in the same transaction. */
   public boolean setPlayerFlag(long objectId, boolean enabled) {
     WorldObject object = object(objectId).orElse(null);

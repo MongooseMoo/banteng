@@ -465,6 +465,75 @@ The focused managed row passes. The subsequent managed family receipt reached
 fifteen passing rows and stopped first at row sixteen,
 `audit_inherited_command_caller_is_player`.
 
+## Seventh-slice final authority trace
+
+The remaining family is rows sixteen through eighteen. This seventh source
+slice is exactly rows sixteen and seventeen: one inherited player command and
+the same caller rule through one intervening ancestor. Row eighteen is traced
+here because it shares the hierarchy setup, but its native `pass()` execution
+is a later source slice. The current managed receipt remains fifteen passing
+rows and row sixteen first failing.
+
+All three rows first evaluate `parent(player)` as Wizard. Banteng's compiler
+already emits an ordinary builtin call, but `BuiltinCatalog` has no `parent`
+case, so the current row-sixteen setup raises `E_VERBNF` before creating an
+ancestor. After that missing read, each setup uses existing `create(parent)`,
+which already writes the child's parent and appends the child to the parent's
+ordered `children`. The next missing operation is `chparent(player, ancestor)`;
+Banteng has neither the builtin case nor one concrete reciprocal reparent
+mutation in `WorldTxn`.
+
+Pinned Toast defines `parent(object)` as a one-object hierarchy read and
+`chparent(object, new_parent)` as the hierarchy mutation. The active setup
+uses valid, nonnegative, Wizard-owned fresh objects only. Current Barn agrees
+in `builtins/objects_hierarchy.go`: invalid arity is `E_ARGS`, non-object
+arguments are `E_TYPE`, an invalid target is `E_INVIND`, an invalid new parent
+is `E_INVARG`, and self-parenting or a descendant parent is `E_RECMOVE`.
+Barn's `db/store/store_relationships.go:271+` owns the actual reciprocal
+mutation: remove the target from each old parent's children, replace its
+parent, and attach it once to the new parent's children. Banteng has single
+inheritance, so this slice needs exactly that one-parent transaction. It does
+not authorize writable `.parent`, multiple inheritance, inherited-property
+reseed behavior, or a hierarchy helper/service/interface.
+
+After setup, Banteng already agrees with Toast and Barn on the two active
+command frames. `WorldTxn.verb(player, name)` walks the complete parent chain
+and returns the first inherited executable `WorldVerb`. `MooRuntime` retains
+the command receiver as `this = player` and constructs both `player` and
+`caller` from the initiating player before `executeStored()` uses the selected
+verb owner as task programmer. Therefore the row-sixteen ancestor and the
+row-seventeen defining ancestor above an empty middle object both observe
+`caller == player`. The defining object is not needed for either assertion;
+no command lookup, command frame, `WorldVerb`, compiler, or VM change is
+authorized in this slice.
+
+Row eighteen builds `old_parent -> pass_target -> pass_gap -> command_definer`
+and reparents the player below `command_definer`. The same existing command
+path correctly runs the first local `audit_pass_caller` with player caller.
+Its source then executes `pass(@args)`. Banteng's parser and compiler already
+accept that syntax as `LIST_EXTEND` followed by ordinary `CALL`, but the call
+reaches the absent `BuiltinCatalog` entry and raises `E_VERBNF`; no parent verb
+frame runs. Current Barn uses native VM `pass` execution, starts lookup above
+the current defining object, skips `pass_gap`, preserves `this`, `player`,
+`caller`, `verb`, and command locals, changes programmer to the target verb
+owner, and pushes the target frame. That later row is the first one that needs
+the current verb's defining object. It remains outside this source slice.
+
+The rows-sixteen-and-seventeen proof boundary is one authenticated Wizard,
+the exact valid fresh-object chains, reciprocal parent/children mutation,
+one local `xd`/`any any any` verb with packed permissions `92` and preposition
+`-2`, inherited executable lookup through one and two ancestry edges, command
+receiver `this = player`, and notification `CALLER_IS_PLAYER:1`. It does not
+prove non-Wizard `chparent`, fertile objects, `$nothing` as a new parent,
+property conflict handling, recycled-object distinctions, multiple parents,
+defining-object retention, chained pass, or any `pass()` behavior. Cleanup
+must first restore the player's original parent and then recycle the fresh
+objects in the exact leaf-to-root YAML order.
+
+The two focused managed rows pass. The subsequent managed family receipt
+reached seventeen passing rows and stopped only at row eighteen,
+`audit_inherited_command_pass_preserves_player_caller`.
+
 ## Harness ordering and cleanup
 
 `runner.py:404-418` sends a `command:` step through raw-command transport.
@@ -532,8 +601,8 @@ For rows one and two the durable sequence is therefore:
 | `audit_eval_shortcut_reparses_preposition` | Leading semicolon rewrites to `eval` then fully reparses. | Accepted fifth slice through normal player-then-room dispatch. |
 | `audit_do_command_receives_quoted_backslash_wordlist` | `do_command` receives the same escaped/quoted complete word list. | Accepted by preserved original-input `do_command` path. |
 | `audit_dot_program_intrinsic_installs_verb_code` | `.program` captures source and installs verb code. | Accepted sixth slice by managed proof. |
-| `audit_inherited_command_caller_is_player` | Inherited command sees player as caller. | Caller rule frozen; row remains deferred. |
-| `audit_deep_inherited_command_caller_is_player` | Deep inherited command still sees player as caller. | Deferred. |
+| `audit_inherited_command_caller_is_player` | Inherited command sees player as caller. | Accepted seventh slice by managed proof. |
+| `audit_deep_inherited_command_caller_is_player` | Deep inherited command still sees player as caller. | Accepted seventh slice by managed proof. |
 | `audit_inherited_command_pass_preserves_player_caller` | Command and `pass()` target retain player caller. | Deferred; `pass()` is not authorized. |
 
 ## Frozen direct representation
