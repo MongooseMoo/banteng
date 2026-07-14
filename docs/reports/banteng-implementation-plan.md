@@ -182,46 +182,6 @@ serialization, overflow, encoding, and error behavior. No sealed hierarchy,
 record, class, collection owner, or helper API may be chosen before those
 contracts are derived from Barn and Toast and proven by the oracle.
 
-## Execution ledger - 2026-07-14
-
-Completed and committed:
-
-- [x] The three Banteng blueprint reports were restored and committed as
-  `203f6b2`.
-- [x] The current managed stock-Toast identity, profile manifest, wrapper, and
-  exact conformance command were verified and recorded in
-  `docs/reports/toast-oracle-identity-2026-07-14.md`; the authority-path
-  correction was committed as `9253ff7`.
-- [x] The non-semantic Java 25/Gradle 9.6.1 bootstrap was committed as
-  `dc097a2`. It includes the pinned wrapper and checksum, dependency locks and
-  verification metadata, picocli bootstrap command, JUnit, Spotless,
-  Error Prone, NullAway, ArchUnit cycle check, application distribution, and
-  `-Xlint:all -Werror`.
-- [x] Commit `dc097a2` passed `gradlew.bat clean check installDist` from a
-  detached clean worktree using only the committed wrapper and Java 25; the
-  installed launcher printed `banteng 0.1.0-SNAPSHOT`, and the proof worktree
-  remained clean.
-- [x] The five-document Barn specification audit and correction was committed
-  in Barn as `084d618`. That commit contains exactly `spec/tasks.md`,
-  `spec/go-design.md`, `spec/vm.md`, `spec/database.md`, and `spec/README.md`;
-  `git show --check 084d618` passed.
-
-Still unchecked; these are not satisfied by the bootstrap:
-
-- [ ] Record the Phase 0 license/provenance decisions, dependency approvals,
-  and exact supported conformance-profile set.
-- [ ] Complete the remaining Phase 1 ownership-package and ArchUnit boundary
-  rules, JetCheck acceptance/recheck spike, Jazzer task, jcstress source set,
-  forked JMH artifact, JFR definitions, representative static-analysis spike,
-  and start/shutdown smoke test.
-- [ ] Begin Phase 2 only with the primitive-type authority matrix and its
-  per-family repository-local evidence records and Toast-proven durable
-  conformance rows.
-
-The bootstrap contains no MOO value, syntax, bytecode, VM, world, persistence,
-server, task, builtin, or concurrency semantics. Its passing tests are not
-semantic evidence and cannot satisfy the mandatory authority gate.
-
 ## Phase 0 - Freeze authority and land the blueprint
 
 Deliverables:
@@ -445,9 +405,3 @@ Final gates:
 - arbitrary serializable scheduling that changes Toast queue order;
 - internal SQL/RocksDB/event-store persistence;
 - native-image support before the JVM implementation is conformant and measured.
-
-## Immediate next action
-
-Record the Phase 0 license/provenance decisions, approved OTS dependency
-matrix, and exact supported conformance-profile set. Complete the remaining
-Phase 0 deliverables and gates before beginning another Phase 1 slice.
