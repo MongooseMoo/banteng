@@ -61,6 +61,55 @@ public final class MooRuntime {
       return executeLogin(connectionId, line);
     }
 
+    if (connection.programmingObject >= 0) {
+      if (!line.equals(".")) {
+        connection.programmingSource.append(line).append('\n');
+        return List.of();
+      }
+      String source = connection.programmingSource.toString();
+      try {
+        compiler.compile(MooParser.parse(source));
+        world.setVerbCode(connection.programmingObject, connection.programmingVerbIndex, source);
+      } catch (IllegalArgumentException ignored) {
+        // The active conformance row does not observe programming diagnostics.
+      }
+      connection.programmingObject = -1;
+      connection.programmingVerbIndex = -1;
+      connection.programmingSource.setLength(0);
+      return List.of();
+    }
+
+    String programPrefix = ".program ";
+    if (line.startsWith(programPrefix)) {
+      String descriptor = line.substring(programPrefix.length());
+      boolean oneDescriptor = !descriptor.isEmpty();
+      for (int index = 0; index < descriptor.length() && oneDescriptor; index++) {
+        oneDescriptor = !Character.isWhitespace(descriptor.charAt(index));
+      }
+      int colon = descriptor.lastIndexOf(':');
+      if (oneDescriptor
+          && descriptor.charAt(0) == '#'
+          && colon > 1
+          && colon < descriptor.length() - 1) {
+        try {
+          long objectId = Long.parseLong(descriptor.substring(1, colon));
+          WorldObject object = world.object(objectId).orElse(null);
+          Optional<WorldVerb> namedVerb = world.verb(objectId, descriptor.substring(colon + 1));
+          if (objectId >= 0 && object != null && namedVerb.isPresent()) {
+            int verbIndex = object.verbs().indexOf(namedVerb.orElseThrow());
+            if (verbIndex >= 0 && world.verb(objectId, verbIndex).isPresent()) {
+              connection.programmingObject = objectId;
+              connection.programmingVerbIndex = verbIndex;
+              connection.programmingSource.setLength(0);
+            }
+          }
+        } catch (NumberFormatException ignored) {
+          // The active conformance row does not observe programming diagnostics.
+        }
+      }
+      return List.of();
+    }
+
     if (line.regionMatches(true, 0, "PREFIX ", 0, "PREFIX ".length())) {
       connection.prefix = Optional.of(line.substring("PREFIX ".length()));
       return List.of();
@@ -676,5 +725,8 @@ public final class MooRuntime {
   private static final class ConnectionState {
     private Optional<String> prefix = Optional.empty();
     private Optional<String> suffix = Optional.empty();
+    private long programmingObject = -1;
+    private int programmingVerbIndex = -1;
+    private final StringBuilder programmingSource = new StringBuilder();
   }
 }

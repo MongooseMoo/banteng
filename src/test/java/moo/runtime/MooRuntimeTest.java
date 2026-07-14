@@ -563,6 +563,56 @@ final class MooRuntimeTest {
   }
 
   @Test
+  void installsSubmittedVerbCodeThroughDotProgramIntrinsic() throws Exception {
+    WorldTxn world = new LambdaMooV4Reader().read(FIXTURE);
+    MooRuntime runtime = new MooRuntime(world);
+    long connectionId = -47;
+
+    assertEquals(List.of(), runtime.openConnection(connectionId));
+    assertEquals(List.of("*** Connected ***"), runtime.executeLine(connectionId, "connect Wizard"));
+    long player = world.connectionPlayer(connectionId).orElseThrow();
+    long object = world.objectCount();
+    assertTrue(world.object(object).isEmpty());
+    List<String> setupOutput =
+        runtime.executeLine(
+            connectionId,
+            """
+            ; obj = create($nothing);
+            obj.name = "audit program target";
+            add_verb(obj, {player, "rxd", "auditprog"}, {"this", "none", "none"});
+            return obj;
+            """);
+    assertEquals(
+        List.of(CONNECTION_PREFIX, "{1, #" + object + "}", CONNECTION_SUFFIX), setupOutput);
+    WorldObject target = world.object(object).orElseThrow();
+    assertEquals("audit program target", target.name());
+    assertEquals(-1, target.parent());
+    assertEquals(player, target.owner());
+    assertEquals(1, target.verbs().size());
+    WorldVerb auditprog = target.verbs().getFirst();
+    assertEquals("auditprog", auditprog.names());
+    assertEquals(player, auditprog.owner());
+    assertEquals(45, auditprog.permissions());
+    assertEquals(-1, auditprog.preposition());
+    assertEquals("", auditprog.programSource());
+
+    try {
+      runtime.executeLine(connectionId, ".program #" + object + ":auditprog");
+      assertEquals("", world.verb(object, 0).orElseThrow().programSource());
+      runtime.executeLine(connectionId, "return 4242;");
+      assertEquals("", world.verb(object, 0).orElseThrow().programSource());
+      runtime.executeLine(connectionId, ".");
+
+      assertEquals(
+          List.of(CONNECTION_PREFIX, "{1, 4242}", CONNECTION_SUFFIX),
+          runtime.executeLine(connectionId, "; return #" + object + ":auditprog();"));
+      assertEquals("return 4242;\n", world.verb(object, 0).orElseThrow().programSource());
+    } finally {
+      runtime.executeLine(connectionId, "; recycle(#" + object + "); return 1;");
+    }
+  }
+
+  @Test
   void evalRuntimeErrorUnwindsIntoPersistedCallerExceptAndFinally() throws Exception {
     WorldTxn world = new LambdaMooV4Reader().read(FIXTURE);
     MooRuntime runtime = new MooRuntime(world);

@@ -404,6 +404,67 @@ rather than jump directly to `huh`. Each selected frame keeps `player` and
 `caller` equal to the initiating player, `this` equal to the selected receiver,
 and `verb` equal to the rewritten command name.
 
+## Sixth-slice final authority trace
+
+The sixth slice is exactly row fifteen,
+`audit_dot_program_intrinsic_installs_verb_code`. The current managed receipt
+is fourteen preceding rows passing and this row failing first. The failure is
+causal: Banteng has no connection-local programming state, so `.program`,
+`return 4242;`, and `.` each enter the ordinary `do_command` and command
+dispatch path. The setup succeeds and leaves one empty local `auditprog` verb,
+but none of those three raw inputs changes its source; the final direct call
+therefore returns `0` instead of `4242`.
+
+The exact YAML setup creates one object with parent `$nothing`, names it
+`audit program target`, and adds local verb `auditprog` with permissions `rxd`
+and argument specification `this none none`. Banteng's existing
+`BuiltinCatalog.addVerb()` stores that as permissions
+`13 | (2 << 4) = 45`, preposition `-1`, and empty source. The row then sends
+the three `command:` values through raw-command transport, in order:
+`.program #N:auditprog`, `return 4242;`, and exact terminator `.`. Only after
+those inputs does eval call `#N:auditprog()` and require integer `4242`.
+
+Pinned Toast keeps `program_stream`, `program_verb`, and `program_object` on
+the connection task queue in `src/tasks.cc`. Its active-program branch owns
+the raw input before command parsing: exact `.` ends the stream, while every
+other input appends the untouched line followed by `\n`. Termination resolves
+the captured verb, parses the complete stream, and installs code only after a
+successful parse. This fixes both ordering and representation: programming
+input must not reach `PREFIX`, `SUFFIX`, tokenization, `do_command`, shortcut
+rewriting, or ordinary dispatch, and the stored one-line source is exactly
+`"return 4242;\n"`.
+
+Current Barn agrees on connection-local object, verb, and ordered raw-line
+state and on compile-before-install. It disagrees only at the terminator edge:
+its current programming input trims whitespace before comparing with `.`,
+whereas pinned Toast uses exact equality. The managed family is pinned to
+Toast, so Banteng must use exact `line.equals(".")` and must not reinterpret a
+whitespace-padded source line as the terminator.
+
+Banteng's existing owners are sufficient. `WorldObject.verbs()` exposes the
+ordered local slots; `WorldTxn.verb(object, name)` supplies existing executable
+name matching; requiring that result in the target object's own verb list
+rejects inheritance; `WorldTxn.verb(object, index)` retains the captured local
+slot; the existing `MooParser` and `MooCompiler` validate source; and
+`WorldTxn.setVerbCode(object, index, source)` performs the immutable source
+replacement. The only missing state belongs directly in the existing
+`MooRuntime.ConnectionState`. No command model, programming helper, resolver
+API, service, adapter, sender, facade, or alternate compiler is authorized.
+
+The proof boundary is the exact active row: one authenticated Wizard, one
+valid nonnegative `#N:verb` descriptor naming a local executable verb, one raw
+source line, exact-dot termination, successful compilation with a preserved
+trailing LF, installation into the captured local slot, and the later direct
+call returning `4242`. The row does not prove `.program` abbreviation,
+inherited targets, numeric verb descriptors, permission-denial behavior,
+compiler diagnostics, status notifications, cancellation, or connection
+routing. In particular, the YAML asserts no output for the three raw command
+steps, so this slice must not add output-message behavior.
+
+The focused managed row passes. The subsequent managed family receipt reached
+fifteen passing rows and stopped first at row sixteen,
+`audit_inherited_command_caller_is_player`.
+
 ## Harness ordering and cleanup
 
 `runner.py:404-418` sends a `command:` step through raw-command transport.
@@ -470,7 +531,7 @@ For rows one and two the durable sequence is therefore:
 | `audit_emote_shortcut_reparses_preposition` | Leading colon rewrites to `emote` then fully reparses. | Accepted fifth slice. |
 | `audit_eval_shortcut_reparses_preposition` | Leading semicolon rewrites to `eval` then fully reparses. | Accepted fifth slice through normal player-then-room dispatch. |
 | `audit_do_command_receives_quoted_backslash_wordlist` | `do_command` receives the same escaped/quoted complete word list. | Accepted by preserved original-input `do_command` path. |
-| `audit_dot_program_intrinsic_installs_verb_code` | `.program` captures source and installs verb code. | Deferred. |
+| `audit_dot_program_intrinsic_installs_verb_code` | `.program` captures source and installs verb code. | Accepted sixth slice by managed proof. |
 | `audit_inherited_command_caller_is_player` | Inherited command sees player as caller. | Caller rule frozen; row remains deferred. |
 | `audit_deep_inherited_command_caller_is_player` | Deep inherited command still sees player as caller. | Deferred. |
 | `audit_inherited_command_pass_preserves_player_caller` | Command and `pass()` target retain player caller. | Deferred; `pass()` is not authorized. |
