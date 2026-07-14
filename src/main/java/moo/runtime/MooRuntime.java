@@ -175,9 +175,13 @@ public final class MooRuntime {
                 List.of("off", "off of"));
         int prepositionStart = words.size();
         int prepositionEnd = words.size();
+        int preposition = -1;
         prepositionScan:
         for (int wordIndex = 1; wordIndex < words.size(); wordIndex++) {
-          for (List<String> aliases : prepositionsByCode) {
+          for (int prepositionCode = 0;
+              prepositionCode < prepositionsByCode.size();
+              prepositionCode++) {
+            List<String> aliases = prepositionsByCode.get(prepositionCode);
             for (String alias : aliases) {
               StringTokenizer aliasWords = new StringTokenizer(alias);
               int aliasWordCount = aliasWords.countTokens();
@@ -196,6 +200,7 @@ public final class MooRuntime {
               if (matches) {
                 prepositionStart = wordIndex;
                 prepositionEnd = wordIndex + aliasWordCount;
+                preposition = prepositionCode;
                 break prepositionScan;
               }
             }
@@ -296,9 +301,29 @@ public final class MooRuntime {
             }
           }
         }
+        long indirectObject = indirectObjectString.isEmpty() ? -1 : -3;
+        WorldVerb selectedVerb = commandVerb.orElseThrow();
+        long thisObject = player;
+        int directSpecification = (selectedVerb.permissions() >> 4) & 3;
+        int indirectSpecification = (selectedVerb.permissions() >> 6) & 3;
+        int directClassification = directObject == player ? 2 : directObject == -1 ? 0 : 1;
+        int indirectClassification = indirectObject == player ? 2 : indirectObject == -1 ? 0 : 1;
+        boolean argumentSpecificationMatches =
+            (directSpecification == 1 || directSpecification == directClassification)
+                && (selectedVerb.preposition() == -2 || selectedVerb.preposition() == preposition)
+                && (indirectSpecification == 1 || indirectSpecification == indirectClassification);
+        if (!argumentSpecificationMatches) {
+          long room = world.object(player).orElseThrow().location();
+          selectedVerb = world.verb(room, "huh").orElse(null);
+          thisObject = room;
+        }
+        if (selectedVerb == null) {
+          connection.suffix.ifPresent(output::add);
+          return List.copyOf(output);
+        }
         Map<String, MooValue> locals =
             verbLocals(
-                player,
+                thisObject,
                 player,
                 player,
                 words.getFirst(),
@@ -308,8 +333,8 @@ public final class MooRuntime {
         locals.put("prepstr", encode(prepositionString));
         locals.put("iobjstr", encode(indirectObjectString));
         locals.put("dobj", new ObjectValue(directObject));
-        locals.put("iobj", new ObjectValue(indirectObjectString.isEmpty() ? -1 : -3));
-        output.addAll(executeStored(commandVerb.orElseThrow(), locals).output());
+        locals.put("iobj", new ObjectValue(indirectObject));
+        output.addAll(executeStored(selectedVerb, locals).output());
       }
     }
     connection.suffix.ifPresent(output::add);

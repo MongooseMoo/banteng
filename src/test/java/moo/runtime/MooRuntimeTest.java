@@ -10,6 +10,7 @@ import moo.persistence.LambdaMooV4Reader;
 import moo.value.MooValue.ObjectValue;
 import moo.world.WorldObject;
 import moo.world.WorldTxn;
+import moo.world.WorldVerb;
 import org.junit.jupiter.api.Test;
 
 final class MooRuntimeTest {
@@ -381,6 +382,56 @@ final class MooRuntimeTest {
       runtime.executeLine(
           connectionId,
           "; delete_verb(#0, \"do_command\"); delete_verb(player, \"audit_words\"); return 1;");
+    }
+  }
+
+  @Test
+  void runsRoomHuhAfterStoredCommandArgspecMismatch() throws Exception {
+    WorldTxn world = new LambdaMooV4Reader().read(FIXTURE);
+    MooRuntime runtime = new MooRuntime(world);
+    long connectionId = -47;
+
+    assertEquals(List.of(), runtime.openConnection(connectionId));
+    assertEquals(List.of("*** Connected ***"), runtime.executeLine(connectionId, "connect Wizard"));
+    long player = world.connectionPlayer(connectionId).orElseThrow();
+    long room = world.object(player).orElseThrow().location();
+    List<String> setupOutput =
+        runtime.executeLine(
+            connectionId,
+            """
+            ; room = player.location;
+            add_verb(player, {player, "xd", "auditmismatch"}, {"none", "none", "none"});
+            set_verb_code(player, "auditmismatch", {
+              "notify(player, \\"BAD_MATCH\\");"
+            });
+            add_verb(room, {player, "xd", "huh"}, {"none", "none", "none"});
+            set_verb_code(room, "huh", {
+              "notify(player, \\"HUH:\\" + verb);",
+              "notify(player, \\"ARGSTR:\\" + argstr);"
+            });
+            return room;
+            """);
+    assertEquals(List.of(CONNECTION_PREFIX, "{1, #" + room + "}", CONNECTION_SUFFIX), setupOutput);
+    assertEquals(room, world.object(player).orElseThrow().location());
+    WorldVerb commandVerb = world.verb(player, "auditmismatch").orElseThrow();
+    assertEquals(12, commandVerb.permissions());
+    assertEquals(-1, commandVerb.preposition());
+    assertTrue(!commandVerb.programSource().isEmpty());
+    WorldVerb huhVerb = world.verb(room, "huh").orElseThrow();
+    assertEquals(12, huhVerb.permissions());
+    assertEquals(-1, huhVerb.preposition());
+    assertTrue(!huhVerb.programSource().isEmpty());
+
+    try {
+      assertEquals(
+          List.of("HUH:auditmismatch", "ARGSTR:object"),
+          runtime.executeLine(connectionId, "auditmismatch object"));
+    } finally {
+      runtime.executeLine(
+          connectionId,
+          "; delete_verb(player, \"auditmismatch\"); delete_verb(#"
+              + room
+              + ", \"huh\"); return 1;");
     }
   }
 

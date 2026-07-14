@@ -158,6 +158,7 @@ public final class WorldTxn {
     return switch (propertyName.toLowerCase(Locale.ROOT)) {
       case "name" ->
           Optional.of(new StringValue(object.name().getBytes(StandardCharsets.ISO_8859_1)));
+      case "location" -> Optional.of(new ObjectValue(object.location()));
       case "owner" -> Optional.of(new ObjectValue(object.owner()));
       case "programmer" ->
           Optional.of(new IntegerValue((object.flags() & PROGRAMMER_FLAG) == 0 ? 0 : 1));

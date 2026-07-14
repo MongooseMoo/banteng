@@ -270,6 +270,67 @@ dispatch untouched. Row eight's cleanup also calls the currently absent
 `delete_property`; cleanup is best-effort and that adjacent builtin is not
 authorized by these assertions.
 
+## Fourth-slice final authority trace
+
+The fourth slice is exactly row ten,
+`audit_huh_runs_after_argspec_mismatch`. Its setup installs executable
+`none/none/none` verbs named `auditmismatch` on the player and `huh` on the
+player's room. The raw command is `auditmismatch object`. The pre-slice managed
+receipt was nine preceding rows passing, followed by this first failure: Banteng
+runs the player verb and emits `BAD_MATCH` instead of rejecting its argument
+specification and emitting `HUH:auditmismatch` then `ARGSTR:object` from the
+room's `huh` program. The setup and both stored programs therefore complete;
+the failure is causally in ordinary-command selection, not mutation or code
+installation. After the fourth slice, the managed family receipt reached ten
+passing rows and stopped first at row eleven,
+`audit_say_shortcut_reparses_preposition`.
+
+The exact YAML setup first evaluates `room = player.location`. Pinned Toast
+represents `location` as a built-in object property and returns the object's
+current location object number. Banteng's immutable `WorldObject` already owns
+that signed location, but `WorldTxn.readObjectProperty()` does not yet expose
+it. This setup authorizes exactly one case-insensitive branch in that existing
+method returning `new ObjectValue(object.location())` for a valid receiver. It
+does not authorize a helper, API change, write support, permission expansion,
+or any other built-in property.
+
+Pinned Toast `src/include/db.h:487-500` assigns argument-specification values
+`none=0`, `any=1`, and `this=2`. `src/db_verbs.cc:303-342` reads the direct
+specification from packed permission bits 4-5 and the indirect specification
+from bits 6-7. A stored `any` accepts every parsed classification; otherwise
+the stored and parsed classifications must be equal. The preposition is stored
+separately and likewise accepts either `PREP_ANY` or exact equality.
+
+Pinned Toast `src/tasks.cc:752-766` classifies each object separately for each
+candidate receiver: equal to that receiver is `this`, `#-1` is `none`, and
+every other value is `any`. Thus the player verb's stored direct `none` rejects
+the parsed failed match `#-3` as class `any`; its stored preposition `none`
+matches the absent preposition, and its stored indirect `none` matches `#-1`.
+There is no coercion from failed match to nothing.
+
+After command-verb failure, pinned Toast `src/tasks.cc:844-856` uses the
+callable `huh` on the location when `player_huh` is false, without applying the
+`huh` verb's own argument specification. The stock fixture represents
+`#0.server_options=#6`, but object `#6` has no `player_huh` property, and the
+pinned build leaves the compile-time option disabled. This row therefore
+authorizes only the room fallback, not a server-option implementation.
+
+Pinned Toast `src/execute.cc:3340-3369` executes the selected program with
+`this` equal to its receiver, `player` and `caller` equal to the initiating
+player, and every parsed command local preserved. In particular, `verb` remains
+the original parsed command word `auditmismatch`; it is never rewritten to
+`huh`. Current Barn agrees in `../barn/command/verbs.go:55-93,97-125,195-208`,
+`../barn/server/input_processor.go:528-550`, and
+`../barn/scheduler/task_runtime.go:422-451`.
+
+Banteng's existing `WorldVerb` already retains packed permissions and the
+separate preposition. Existing `WorldTxn.verb()` can select the one executable
+player name candidate and later select callable `huh` from the room; the latter
+lookup intentionally ignores `huh` argspec. The row does not observe overloaded
+same-name command candidates or defining-object retention, so neither a new
+lookup API nor a stored command model is authorized. The implementation remains
+inline in the existing ordinary-command branch and reuses its parsed locals.
+
 ## Harness ordering and cleanup
 
 `runner.py:404-418` sends a `command:` step through raw-command transport.
@@ -305,16 +366,15 @@ For rows one and two the durable sequence is therefore:
 
 ## Current Banteng absences and disagreements
 
-- `MooRuntime` still has no general object matcher; row-specific nonempty object
-  strings currently receive `FAILED_MATCH` after the proven preposition scan.
-- `WorldTxn.writeObjectProperty()` reads built-in `name` but cannot yet perform
-  the proven Wizard `STR` name write used by rows six through eight.
-- Banteng has no general object matcher, argspec-aware command lookup, `huh`
-  fallback, or command programming mode. Those remain later rows.
+- Banteng has no overloaded argspec-aware command lookup, command programming
+  mode, or general missing-command `huh` dispatch. Those remain later rows.
 - `WorldTxn.verb()` returns the inherited verb but not its defining object and
-  does not inspect packed argspec bits. Neither distinction is observed by the
-  first two rows because the audit verb is installed directly on the player
-  with `any/none/none`.
+  does not itself inspect packed argspec bits. Row ten directly inspects its one
+  returned player candidate in `MooRuntime`; overloaded candidates and defining
+  object retention remain unobserved.
+- Row ten proves only room `huh` after a matching player verb name fails its
+  argspec. It does not authorize `player_huh`, `huh` after a missing verb name,
+  or the default English failure message.
 - `notify()` currently stages its string without routing by its object
   argument. The first two rows notify the initiating player, so broader
   connection routing is not authorized here.
@@ -332,7 +392,7 @@ For rows one and two the durable sequence is therefore:
 | `audit_name_alias_partial_match_is_ambiguous` | Partial name and alias candidates share one ambiguity pool. | Accepted third slice. |
 | `audit_player_name_matches_room_contents` | The player participates in room-content matching. | Accepted third slice through literal room contents. |
 | `audit_do_command_runs_before_semicolon_eval` | `do_command` runs before eval dispatch. | Accepted by existing first-slice ordering. |
-| `audit_huh_runs_after_argspec_mismatch` | Argspec mismatch falls through to `huh`. | Deferred; no argspec matching or `huh` authorized. |
+| `audit_huh_runs_after_argspec_mismatch` | Argspec mismatch falls through to `huh`. | Accepted fourth slice for one selected player name candidate and room `huh`. |
 | `audit_say_shortcut_reparses_preposition` | Leading quote rewrites to `say` then fully reparses. | Deferred. |
 | `audit_emote_shortcut_reparses_preposition` | Leading colon rewrites to `emote` then fully reparses. | Deferred. |
 | `audit_eval_shortcut_reparses_preposition` | Leading semicolon rewrites to `eval` then fully reparses. | Deferred beyond the existing eval fallback. |
@@ -350,7 +410,11 @@ the command verb; the remaining elements stay the existing `ListValue args`.
 Preserve the raw substring after the command word as `argstr`, removing only
 the leading separation. For row four, partition that same token tail directly
 inside the existing ordinary-command branch and add the resulting strings to
-the mutable map returned by `verbLocals()`.
+the mutable map returned by `verbLocals()`. For row ten, classify the parsed
+objects against the player receiver directly from the selected `WorldVerb`'s
+packed fields. On mismatch only, replace the selected program with room `huh`
+and change `this` to the room while retaining the original command word and all
+other parsed locals.
 
 Use the existing concrete `verbLocals`, `executeStored`, `WorldTxn.verb`,
 `BuiltinCatalog`, `VmState` staged output, and `MooServer` writer. Do not add a
@@ -361,8 +425,8 @@ alternate evaluator.
 
 - How will inherited command lookup retain both receiver and defining object
   once a row observes that distinction?
-- Which existing owner will enforce packed argspec bits and construct `huh`
-  context when those rows become active?
+- How will later rows continue through overloaded same-name verbs after one
+  candidate's argument specification fails?
 - How will `notify()` select among multiple live player connections when a
   later server row observes connection routing?
 
