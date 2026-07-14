@@ -822,3 +822,107 @@ The complete `connection_lifecycle_toast_oracle` fail-fast run then passes the
 first eight rows and reaches `audit_user_client_disconnected_hook`, where the
 final observation is zero instead of one. Row eight is accepted; the client
 disconnect hook is the next causally relevant unchecked lifecycle target.
+
+## Ninth row: client disconnect notification
+
+The active durable row is `audit_user_client_disconnected_hook` at
+`../moo-conformance-tests/src/moo_conformance/_tests/audit/connection_lifecycle_toast_oracle.yaml:851-963`.
+The original row proved only that a genuine client close eventually called
+`user_client_disconnected` with `args[1]` equal to the authenticated player. It
+did not freeze the accepting handler, full root frame, once-only invocation, or
+whether MOO already considered the connection disconnected when the hook ran.
+
+The corrected row appends each invocation's
+`{this, player, caller, args, argstr, connection_info_succeeds}` to one
+observation list. The hook catches the exact `E_INVARG` from
+`connection_info(args[1])`; the final assertion requires the singleton
+`{{#0, p, #-1, {p}, "", 0}}`. This freezes exactly one call on the accepting
+handler, the authenticated player frame, root caller, exact argument list and
+empty argument string, plus logical disassociation before hook execution. The
+correction is committed in the conformance repository as `e7b2e70` and passes
+pinned WSL Toast with one selected and 11,504 deselected in 4.78 seconds.
+
+Barn's `../barn/spec/login.md:69,125-140,200-226` and
+`../barn/spec/server.md:133-183` document only the older generic
+`#0:user_disconnected(player)` hook. They do not distinguish a genuine client
+or network close from a forced boot, do not name the accepting listener, and
+give contradictory cleanup ordering. `../barn/spec/vm.md:6-9` makes verified
+Toast and the durable managed row authoritative over those stale passages. No
+corrected normative Barn section currently defines `user_client_disconnected`;
+that absence is recorded rather than filled from the nearby generic hook.
+
+Current Barn receives reader failure in
+`../barn/server/input_processor.go:65-196` and serializes it into
+`processDisconnect` at `../barn/server/input_processor.go:314-365`.
+`processDisconnect` captures the player and accepting handler, removes the
+connection and player mappings, performs connection cleanup, and then calls
+`callUserHook(handler, "user_client_disconnected", player)`.
+`../barn/server/input_login.go:202-224` supplies exactly one player argument,
+ignores a normal result, and logs a non-`E_VERBNF` exception without undoing
+cleanup. Barn therefore agrees on hook name, handler, player, args, empty
+argument string, once-only serialized close, and MOO-logical disassociation.
+Its server-task construction at
+`../barn/scheduler/task_factory.go:61-105`, however, sets the root caller to the
+player rather than Toast's `#-1`. Barn also routes forced transport closes from
+`../barn/server/connection_manager.go:187-209,550-566` through the same client
+disconnect path because it does not retain the disconnect cause. Those Barn
+differences are not copied into Banteng.
+
+At pinned Toast commit `aecc51e9449c6e7c95272f0f044b5ba38948459e`, a
+genuine network close reaches `server_close` from `src/network.cc:1468`.
+`src/server.cc:1544-1557` logs the close, sets `h->disconnect_me = true`, calls
+`call_notifier(h->player, h->listener, "user_client_disconnected")`, and only
+then frees the internal server handle. `src/server.cc:519-527` supplies exactly
+`{player}` with empty `argstr` to `run_server_task` and discards the result.
+`src/execute.cc:3279-3336` creates the root frame with `this` equal to the
+accepting listener, `player` equal to the disconnected authenticated player,
+`caller == #-1`, programmer equal to the resolved hook verb owner, the exact
+argument list, and empty command strings.
+
+Toast retains the internal handle until `free_shandle` removes it at
+`src/server.cc:188-194`, but that is not MOO-visible connected state.
+`bf_connection_info` at `src/server.cc:3032-3043` returns `E_INVARG` whenever
+the retained handle has `disconnect_me` set. `bf_connected_players` at
+`src/server.cc:2752-2775` likewise excludes such a handle. The corrected row
+uses `connection_info`, which Banteng already implements, so it freezes logical
+disassociation without introducing a separate `connected_players` prerequisite.
+
+Pinned Toast routes a server-initiated boot through `user_disconnected`, not
+this hook, at `src/server.cc:875-910,1793-1807`. Cross-listener reconnection has
+its own old-listener client-disconnect call at `src/server.cc:1698-1705` and is
+covered by the following lifecycle row. Forced boot, unlogged timeout,
+recycling, reconnect, graceful shutdown, panic shutdown, hook return/error or
+suspension behavior, and multiple simultaneous connections remain outside this
+row.
+
+The corrected row is red on committed Banteng `bc2cb01`: the final singleton
+comparison returns zero because no observation is recorded. `MooServer` already
+routes client EOF through `MooRuntime.closeConnection`, but that method only
+removes the world connection and runtime delimiter state. The smallest owned
+representation changes only `MooRuntime.closeConnection`: capture its existing
+`ConnectionState` and authenticated player, remove the connection from the
+world and runtime map so MOO observes `E_INVARG`, then synchronously invoke the
+accepting handler's optional `user_client_disconnected` with the existing exact
+server-task `verbLocals` frame. Missing hooks and pre-login negative players do
+not invoke it; MOO hook return and error outcomes are ignored. No server,
+world, builtin, parser, compiler, VM, interface, helper, sender, adapter, or
+generic disconnect-cause abstraction belongs to this slice.
+
+## Ninth-row Banteng receipt
+
+The focused Java regression is red because the connection association is
+removed but the disconnect observation remains `{}`. The accepted
+implementation changes only `MooRuntime.closeConnection`: it captures the
+existing connection state and authenticated player, removes both connection
+maps, and invokes the accepting handler's optional hook with the exact frozen
+frame. The focused regression, four adjacent lifecycle regressions, formatting,
+and the Java 25 `check installDist` gate pass.
+
+Managed `audit_user_client_disconnected_hook` passes in isolation with one
+selected and 11,504 deselected in 5.15 seconds. The complete
+`connection_lifecycle_toast_oracle` fail-fast run then passes the first nine
+rows and reaches `audit_user_reconnected_cross_listener_hooks`. Its final
+observation is `[0, 0, 4]` instead of `[1, 1, 4]`: the old-listener client
+disconnect and new-listener connected hooks are absent, while the dynamic
+connection count is already correct. Row nine is accepted; cross-listener
+reconnection is the next causally relevant unchecked lifecycle target.

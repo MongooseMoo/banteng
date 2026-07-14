@@ -203,6 +203,56 @@ final class MooRuntimeTest {
   }
 
   @Test
+  void callsUserClientDisconnectedOnceAfterLogicalDisassociation() throws Exception {
+    WorldTxn world = new LambdaMooV4Reader().read(FIXTURE);
+    MooRuntime runtime = new MooRuntime(world);
+    long primaryConnection = -47;
+
+    assertEquals(List.of(), runtime.openConnection(primaryConnection));
+    assertEquals(
+        List.of("*** Connected ***"), runtime.executeLine(primaryConnection, "connect Wizard"));
+    long handler = world.objectCount();
+    long loginPlayer = handler + 1;
+    runtime.executeLine(
+        primaryConnection,
+        """
+        ; add_property(#0, "audit_disconnected_player", {}, {#0, "rw"});
+        add_property(#0, "audit_disconnected_seen", {}, {#0, "rw"});
+        handler = create($nothing);
+        login_player = create($nothing);
+        set_player_flag(login_player, 1);
+        #0.audit_disconnected_player = login_player;
+        add_verb(handler, {player, "rxd", "do_login_command"}, {"this", "none", "this"});
+        set_verb_code(handler, "do_login_command", {"return #0.audit_disconnected_player;"});
+        add_verb(handler, {player, "rxd", "user_client_disconnected"}, {"this", "none", "this"});
+        set_verb_code(handler, "user_client_disconnected", {
+          "connection_info_succeeds = 1;",
+          "try",
+          "  connection_info(player);",
+          "except (E_INVARG)",
+          "  connection_info_succeeds = 0;",
+          "endtry",
+          "#0.audit_disconnected_seen = {@#0.audit_disconnected_seen, {this, player, caller, args, argstr, connection_info_succeeds}};",
+          "return 1;"
+        });
+        return 1;
+        """);
+    assertTrue(world.object(handler).isPresent());
+    assertTrue(world.object(loginPlayer).isPresent());
+
+    long dynamicConnection = -48;
+    assertEquals(List.of(), runtime.openConnection(dynamicConnection, handler, false));
+    assertEquals(loginPlayer, world.connectionPlayer(dynamicConnection).orElseThrow());
+
+    runtime.closeConnection(dynamicConnection);
+
+    assertTrue(world.connectionPlayer(dynamicConnection).isEmpty());
+    assertEquals(
+        "{{#" + handler + ", #" + loginPlayer + ", #-1, {#" + loginPlayer + "}, \"\", 0}}",
+        world.property(0, "audit_disconnected_seen").orElseThrow().value().toLiteral());
+  }
+
+  @Test
   void runsZeroDelayUserConnectedForkAfterParentWithCapturedLocals() throws Exception {
     WorldTxn world = new LambdaMooV4Reader().read(FIXTURE);
     MooRuntime runtime = new MooRuntime(world);

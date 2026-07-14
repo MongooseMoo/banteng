@@ -76,8 +76,28 @@ public final class MooRuntime {
 
   /** Removes a connection and its intrinsic delimiter state. */
   public synchronized void closeConnection(long connectionId) {
-    world.closeConnection(connectionId);
+    ConnectionState connection = connections.get(connectionId);
+    OptionalLong disconnectedPlayer = world.connectionPlayer(connectionId);
     connections.remove(connectionId);
+    world.closeConnection(connectionId);
+    if (connection != null
+        && disconnectedPlayer.isPresent()
+        && disconnectedPlayer.orElseThrow() >= 0) {
+      long player = disconnectedPlayer.orElseThrow();
+      world
+          .verb(connection.listenerHandler, "user_client_disconnected")
+          .ifPresent(
+              disconnected ->
+                  executeStored(
+                      disconnected,
+                      verbLocals(
+                          connection.listenerHandler,
+                          player,
+                          -1,
+                          "user_client_disconnected",
+                          new ListValue(List.of(new ObjectValue(player))),
+                          "")));
+    }
   }
 
   /** Executes one serialized input line and returns its ordered output lines. */
