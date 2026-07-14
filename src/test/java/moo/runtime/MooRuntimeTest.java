@@ -103,6 +103,34 @@ final class MooRuntimeTest {
   }
 
   @Test
+  void executesTheFrozenQueuedTasksSurfaceThroughStoredEvalRuntime() throws Exception {
+    WorldTxn world = new LambdaMooV4Reader().read(FIXTURE);
+    MooRuntime runtime = new MooRuntime(world);
+    long connectionId = -47;
+
+    assertEquals(List.of(), runtime.openConnection(connectionId));
+    assertEquals(List.of("*** Connected ***"), runtime.executeLine(connectionId, "connect Wizard"));
+    assertEquals(List.of(), runtime.executeLine(connectionId, "PREFIX " + CONNECTION_PREFIX));
+    assertEquals(List.of(), runtime.executeLine(connectionId, "SUFFIX " + CONNECTION_SUFFIX));
+
+    assertEquals(
+        List.of(
+            CONNECTION_PREFIX,
+            CONNECTION_PREFIX,
+            "{1, {{{\"function_info\", 0, 1, {2}}, "
+                + "{\"queued_tasks\", 0, 2, {0, 0}}}, "
+                + "{\"function_info\", 0, 1, {2}}, "
+                + "{\"queued_tasks\", 0, 2, {0, 0}}, {}, {}, {}, 0}}",
+            CONNECTION_SUFFIX,
+            CONNECTION_SUFFIX),
+        runtime.executeLine(
+            connectionId,
+            "; return {function_info(), function_info(\"function_info\"), "
+                + "function_info(\"queued_tasks\"), queued_tasks(), queued_tasks(1), "
+                + "queued_tasks(0, 0), queued_tasks(0, 1)};"));
+  }
+
+  @Test
   void executesSqliteExistsInRuntimeThroughStoredEvalRuntime() throws Exception {
     WorldTxn world = new LambdaMooV4Reader().read(FIXTURE);
     MooRuntime runtime = new MooRuntime(world);

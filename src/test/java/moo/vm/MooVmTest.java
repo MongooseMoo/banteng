@@ -55,6 +55,107 @@ final class MooVmTest {
   }
 
   @Test
+  void describesTheFrozenQueuedTasksCatalogRowsInOrder() {
+    BytecodeProgram program =
+        new MooCompiler()
+            .compile(
+                MooParser.parse(
+                    "return {function_info(), function_info(\"function_info\"), "
+                        + "function_info(\"queued_tasks\")};"));
+    VmState state = new VmState();
+
+    new MooVm().execute(program, state, new WorldTxn(List.of(), List.of()), new BuiltinCatalog());
+
+    ListValue functionInfoDescription =
+        new ListValue(
+            List.of(
+                new StringValue("function_info".getBytes(StandardCharsets.ISO_8859_1)),
+                new IntegerValue(0),
+                new IntegerValue(1),
+                new ListValue(List.of(new IntegerValue(2)))));
+    ListValue queuedTasksDescription =
+        new ListValue(
+            List.of(
+                new StringValue("queued_tasks".getBytes(StandardCharsets.ISO_8859_1)),
+                new IntegerValue(0),
+                new IntegerValue(2),
+                new ListValue(List.of(new IntegerValue(0), new IntegerValue(0)))));
+    assertEquals(VmState.Outcome.RETURNED, state.outcome());
+    assertEquals(
+        new ListValue(
+            List.of(
+                new ListValue(List.of(functionInfoDescription, queuedTasksDescription)),
+                functionInfoDescription,
+                queuedTasksDescription)),
+        state.returnValue().orElseThrow());
+
+    String[] failures = {
+      "return function_info(\"queued_tasks\", \"extra\");",
+      "return function_info(0);",
+      "return function_info(\"missing\");"
+    };
+    ErrorValue[] errors = {ErrorValue.E_ARGS, ErrorValue.E_TYPE, ErrorValue.E_INVARG};
+    for (int index = 0; index < failures.length; index++) {
+      VmState failure = new VmState();
+
+      new MooVm()
+          .execute(
+              new MooCompiler().compile(MooParser.parse(failures[index])),
+              failure,
+              new WorldTxn(List.of(), List.of()),
+              new BuiltinCatalog());
+
+      assertEquals(VmState.Outcome.ERRORED, failure.outcome(), failures[index]);
+      assertEquals(errors[index], failure.uncaughtError().orElseThrow(), failures[index]);
+    }
+    assertEquals(
+        BuiltinCatalog.EffectClass.PURE, new BuiltinCatalog().effectClass("function_info"));
+  }
+
+  @Test
+  void exposesTheFrozenEmptyQueuedTasksListAndCountShapes() {
+    BytecodeProgram program =
+        new MooCompiler()
+            .compile(
+                MooParser.parse(
+                    "return {queued_tasks(), queued_tasks(0), queued_tasks(1), "
+                        + "queued_tasks(0, 0), queued_tasks(1, 0), "
+                        + "queued_tasks(0, 1), queued_tasks(1, 1)};"));
+    VmState state = new VmState();
+
+    new MooVm().execute(program, state, new WorldTxn(List.of(), List.of()), new BuiltinCatalog());
+
+    ListValue empty = new ListValue(List.of());
+    assertEquals(VmState.Outcome.RETURNED, state.outcome());
+    assertEquals(
+        new ListValue(
+            List.of(empty, empty, empty, empty, empty, new IntegerValue(0), new IntegerValue(0))),
+        state.returnValue().orElseThrow());
+
+    String[] failures = {
+      "return queued_tasks(0, 0, 0);",
+      "return queued_tasks(\"not an int\");",
+      "return queued_tasks(0, \"not an int\");"
+    };
+    ErrorValue[] errors = {ErrorValue.E_ARGS, ErrorValue.E_TYPE, ErrorValue.E_TYPE};
+    for (int index = 0; index < failures.length; index++) {
+      VmState failure = new VmState();
+
+      new MooVm()
+          .execute(
+              new MooCompiler().compile(MooParser.parse(failures[index])),
+              failure,
+              new WorldTxn(List.of(), List.of()),
+              new BuiltinCatalog());
+
+      assertEquals(VmState.Outcome.ERRORED, failure.outcome(), failures[index]);
+      assertEquals(errors[index], failure.uncaughtError().orElseThrow(), failures[index]);
+    }
+    assertEquals(
+        BuiltinCatalog.EffectClass.EXTERNAL_READ, new BuiltinCatalog().effectClass("queued_tasks"));
+  }
+
+  @Test
   void evaluatesStructuralListMembershipAndRejectsNonListRightOperand() {
     BytecodeProgram program =
         new MooCompiler()

@@ -111,6 +111,51 @@ public final class BuiltinCatalog {
       case "toliteral" -> toLiteral(arguments);
       case "eval" -> dynamicEval(arguments);
       case "typeof" -> typeOf(arguments);
+      case "function_info" -> {
+        if (arguments.size() > 1) {
+          yield Result.error(ErrorValue.E_ARGS);
+        }
+        ListValue functionInfoDescription =
+            new ListValue(
+                List.of(
+                    encode("function_info"),
+                    new IntegerValue(0),
+                    new IntegerValue(1),
+                    new ListValue(List.of(new IntegerValue(2)))));
+        ListValue queuedTasksDescription =
+            new ListValue(
+                List.of(
+                    encode("queued_tasks"),
+                    new IntegerValue(0),
+                    new IntegerValue(2),
+                    new ListValue(List.of(new IntegerValue(0), new IntegerValue(0)))));
+        if (arguments.isEmpty()) {
+          yield Result.value(
+              new ListValue(List.of(functionInfoDescription, queuedTasksDescription)));
+        }
+        if (!(arguments.getFirst() instanceof StringValue requestedName)) {
+          yield Result.error(ErrorValue.E_TYPE);
+        }
+        yield switch (decode(requestedName)) {
+          case "function_info" -> Result.value(functionInfoDescription);
+          case "queued_tasks" -> Result.value(queuedTasksDescription);
+          default -> Result.error(ErrorValue.E_INVARG);
+        };
+      }
+      case "queued_tasks" -> {
+        if (arguments.size() > 2) {
+          yield Result.error(ErrorValue.E_ARGS);
+        }
+        for (MooValue argument : arguments) {
+          if (!(argument instanceof IntegerValue)) {
+            yield Result.error(ErrorValue.E_TYPE);
+          }
+        }
+        if (arguments.size() == 2 && arguments.get(1).isTruthy()) {
+          yield Result.value(new IntegerValue(0));
+        }
+        yield Result.value(new ListValue(List.of()));
+      }
       case "suspend" -> suspend(arguments);
       case "call_function" -> callFunction(arguments, world, programmer);
       case "sqlite_open" -> sqliteOpen(arguments, world, programmer);
@@ -138,9 +183,10 @@ public final class BuiltinCatalog {
   /** Returns the fixed effect class for a builtin enabled in this slice. */
   public EffectClass effectClass(String name) {
     return switch (name.toLowerCase(Locale.ROOT)) {
-      case "length", "mapkeys", "max", "toliteral", "eval", "raise", "typeof" -> EffectClass.PURE;
+      case "length", "mapkeys", "max", "toliteral", "eval", "raise", "typeof", "function_info" ->
+          EffectClass.PURE;
       case "valid" -> EffectClass.TRANSACTION_READ;
-      case "sqlite_handles", "sqlite_info", "sqlite_last_insert_row_id" ->
+      case "queued_tasks", "sqlite_handles", "sqlite_info", "sqlite_last_insert_row_id" ->
           EffectClass.EXTERNAL_READ;
       case "sqlite_query", "sqlite_execute" -> EffectClass.SUSPENDING_HOST;
       case "create",
