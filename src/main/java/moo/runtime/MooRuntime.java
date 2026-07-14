@@ -688,12 +688,29 @@ public final class MooRuntime {
     }
     if (authenticatedPlayer.isPresent()) {
       long switchedPlayer = authenticatedPlayer.orElseThrow();
+      OptionalLong crossListenerConnection = OptionalLong.empty();
+      if (returnedPlayerAssociation) {
+        for (Map.Entry<Long, ConnectionState> entry : connections.entrySet()) {
+          long existingConnectionId = entry.getKey();
+          if (existingConnectionId != connectionId
+              && world.connectionPlayer(existingConnectionId).orElse(Long.MIN_VALUE)
+                  == switchedPlayer) {
+            if (entry.getValue().listenerHandler != connection.listenerHandler) {
+              crossListenerConnection = OptionalLong.of(existingConnectionId);
+            }
+            break;
+          }
+        }
+      }
       boolean freshReturnedPlayerAssociation =
           returnedPlayerAssociation && world.connectionInfo(switchedPlayer).isEmpty();
+      if (crossListenerConnection.isPresent()) {
+        closeConnection(crossListenerConnection.orElseThrow());
+      }
       if (!world.switchConnectionPlayer(connectionId, switchedPlayer)) {
         throw new IllegalStateException("stored login switched to a missing player");
       }
-      if (freshReturnedPlayerAssociation) {
+      if (freshReturnedPlayerAssociation || crossListenerConnection.isPresent()) {
         world
             .verb(connection.listenerHandler, "user_connected")
             .ifPresent(

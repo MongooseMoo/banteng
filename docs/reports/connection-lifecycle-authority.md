@@ -927,3 +927,116 @@ disconnect and new-listener connected hooks are absent, while the unset
 `user_reconnected` observation correctly remains a list with type code four.
 Row nine is accepted; cross-listener
 reconnection is the next causally relevant unchecked lifecycle target.
+
+## Tenth row: cross-listener reconnection
+
+The active durable row is `audit_user_reconnected_cross_listener_hooks` at
+`../moo-conformance-tests/src/moo_conformance/_tests/audit/connection_lifecycle_toast_oracle.yaml:967-1091`.
+Its original assertions proved only eventual old-listener
+`user_client_disconnected(player)`, eventual new-listener
+`user_connected(player)`, and absence of `user_reconnected`. They did not
+freeze either root frame, invocation count, hook order, or the old-hidden and
+new-active connection transition.
+
+The corrected row records append-only singleton full frames, an exact shared
+order, and connection metadata. It requires the old hook to observe
+`connection_info(player) == E_INVARG`, then the new hook to observe the new
+accepted connection's `source_port`; it requires order
+`{"old_client", "new_connected"}`, an untouched empty `user_reconnected`
+sentinel, and final `connection_info(player)["source_port"]` equal to the new
+listener port. `source_port` is intentional: the managed fixture and Banteng's
+server metadata use it for the accepting local port, while `destination_port`
+is the peer port. The correction is committed in the conformance repository as
+`415dc56` and passes pinned WSL Toast with one selected and 11,504 deselected in
+5.73 seconds.
+
+Barn's `../barn/spec/login.md:85-106,230-239` says every reconnect boots the old
+connection and calls `user_reconnected`, and says lifecycle hooks live on
+`#0`. Both statements are stale for listener-owned Toast behavior.
+`../barn/spec/vm.md:3-9` makes verified Toast plus the durable managed row the
+observable authority. There is no durable same-listener row, so this slice
+freezes only two different handler objects; port equality is not the branch
+condition.
+
+Pinned Toast accepts the returned login player at
+`src/tasks.cc:913-958`, changes the new task queue to that player, moves queued
+work and pending input, and calls `player_connected`. At
+`src/server.cc:1658-1673`, `player_connected` resolves the existing and new
+handles, assigns the player and connection time to the new handle, and briefly
+has two internal handles for the same player. It captures the old listener,
+sends configured redirect messages, and closes or marks the old handle before
+any lifecycle notifier at `src/server.cc:1675-1697`.
+
+The branch at `src/server.cc:1698-1705` compares listener object identity. An
+equal listener receives only `user_reconnected`. Different listeners cause the
+new handle to be marked `disconnect_me`, old-listener
+`user_client_disconnected` to run, the new handle to be re-enabled, and
+new-listener `user_connected` to run, in that exact order. During the old hook,
+`bf_connection_info` at `src/server.cc:3032-3043` returns `E_INVARG`; during
+the new hook and afterward, it returns the new handle metadata. All notifiers
+use `src/server.cc:519-527`, supplying exactly `{player}` and empty `argstr` and
+discarding outcomes. `src/execute.cc:3279-3336` freezes each root frame:
+`this` is the branch-selected listener, `player` is the authenticated player,
+`caller == #-1`, programmer is the resolved hook owner, `args == {player}`,
+and command strings are empty.
+
+Current Barn enters `loginPlayer` through
+`../barn/server/input_processor.go:423-460`. Its implementation at
+`../barn/server/input_login.go:239-301` detects an existing player connection,
+assigns the new connection, replaces the routing map, and always calls old
+`user_client_disconnected` followed by new `user_connected`. It neither compares
+listener identity nor closes the old connection. Thus its cross-listener hook
+names and order agree, but it exposes the new connection during the old hook,
+can later deliver a duplicate old disconnect hook, and never implements the
+same-listener branch. Its shared notifier at
+`../barn/server/input_login.go:202-224` supplies the player argument and ignores
+normal return, but `../barn/scheduler/task_factory.go:61-105` incorrectly sets
+the root caller to the player rather than `#-1`. These Barn divergences are not
+copied into Banteng.
+
+The corrected row is red on committed Banteng `2787ced`: it returns
+`[0, 0, 0, 1, 0]` instead of five ones. Both required hook frames and their
+order are absent; the empty `user_reconnected` sentinel is correctly preserved;
+and final `connection_info` still resolves the retained old connection rather
+than the new listener's metadata. `MooRuntime.executeLogin` currently sees the
+old player metadata, marks the returned association non-fresh, associates the
+new connection without evicting the old one, and invokes no reconnect hook.
+
+The smallest representation changes only `MooRuntime.executeLogin` for a
+returned-player cross-listener association. Before switching the new
+connection, it scans the existing concrete runtime connection entries for a
+different connection already associated with that player and compares the two
+stored listener handlers. For different handlers, it captures the old ID,
+calls the already-frozen `closeConnection(oldId)` before switching the new
+connection so the old hook sees no logical player connection, switches the new
+connection to the player, and invokes the existing exact `user_connected` path
+on the new handler. It never looks up `user_reconnected` in this cross branch.
+The old ID must be captured before mutating the `LinkedHashMap`; no iterator is
+kept across close. Fresh-login behavior remains unchanged.
+
+Same-listener reconnection, physical old-socket closure, redirect messages,
+task-queue transfer, pending-input discard, refcount-deferred close,
+`switch_player`, hook outcome independence, multiple prior connections, and
+server shutdown remain excluded. `MooServer` owns sockets in an unkeyed set, so
+closing the displaced physical socket would require a separate server contract
+and durable row; no helper, interface, sender, adapter, world mutator, or socket
+callback belongs to this slice.
+
+## Tenth-row Banteng receipt
+
+The strengthened Java regression is red before the production change because
+neither cross-listener hook runs and the retained old association supplies the
+final connection metadata. The accepted implementation changes only
+`MooRuntime.executeLogin`: it captures a different-handler connection already
+associated with the returned player, closes that logical connection before
+switching the replacement, and then uses the existing new-handler
+`user_connected` path. The focused regression, five adjacent lifecycle
+regressions, formatting, and the Java 25 `check installDist` gate pass.
+
+Managed `audit_user_reconnected_cross_listener_hooks` passes in isolation with
+one selected and 11,504 deselected in 6.47 seconds. The complete
+`connection_lifecycle_toast_oracle` fail-fast run then passes the first ten rows
+and reaches `audit_connect_timeout_server_option`. That row expects
+`typeof(#0.audit_timeout_seconds) == 1`, but Banteng returns type code four.
+Row ten is accepted; the `connect_timeout` server option is the next causally
+relevant unchecked lifecycle target.

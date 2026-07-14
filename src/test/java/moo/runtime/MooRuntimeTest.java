@@ -10,6 +10,7 @@ import java.util.Locale;
 import java.util.Map;
 import moo.builtin.BuiltinCatalog;
 import moo.persistence.LambdaMooV4Reader;
+import moo.value.MooValue.IntegerValue;
 import moo.value.MooValue.ListValue;
 import moo.value.MooValue.MapValue;
 import moo.value.MooValue.ObjectValue;
@@ -250,6 +251,113 @@ final class MooRuntimeTest {
     assertEquals(
         "{{#" + handler + ", #" + loginPlayer + ", #-1, {#" + loginPlayer + "}, \"\", 0}}",
         world.property(0, "audit_disconnected_seen").orElseThrow().value().toLiteral());
+  }
+
+  @Test
+  void callsOldDisconnectedThenNewConnectedForCrossListenerReturnedPlayerLogin() throws Exception {
+    WorldTxn world = new LambdaMooV4Reader().read(FIXTURE);
+    MooRuntime runtime = new MooRuntime(world);
+    long primaryConnection = -47;
+
+    assertEquals(List.of(), runtime.openConnection(primaryConnection));
+    assertEquals(
+        List.of("*** Connected ***"), runtime.executeLine(primaryConnection, "connect Wizard"));
+    runtime.executeLine(
+        primaryConnection,
+        """
+        ; for prop in ({"audit_cross_player", "audit_cross_old_handler", "audit_cross_new_handler", "audit_cross_order", "audit_cross_old_client", "audit_cross_new_connected", "audit_cross_new_reconnected"})
+          try
+            add_property(#0, prop, {}, {#0, "rw"});
+          except (E_INVARG)
+          endtry
+        endfor
+        old_handler = create($nothing);
+        new_handler = create($nothing);
+        login_player = create($nothing);
+        set_player_flag(login_player, 1);
+        #0.audit_cross_player = login_player;
+        #0.audit_cross_old_handler = old_handler;
+        #0.audit_cross_new_handler = new_handler;
+        #0.audit_cross_order = {};
+        #0.audit_cross_new_reconnected = {};
+        add_verb(old_handler, {player, "rxd", "do_login_command"}, {"this", "none", "this"});
+        set_verb_code(old_handler, "do_login_command", {"return #0.audit_cross_player;"});
+        add_verb(old_handler, {player, "rxd", "user_client_disconnected"}, {"this", "none", "this"});
+        set_verb_code(old_handler, "user_client_disconnected", {
+          "connection_info_succeeds = 1;",
+          "try",
+          "  connection_info(args[1]);",
+          "except (E_INVARG)",
+          "  connection_info_succeeds = 0;",
+          "endtry",
+          "#0.audit_cross_old_client = {@#0.audit_cross_old_client, {this, player, caller, args, argstr, connection_info_succeeds}};",
+          "#0.audit_cross_order = {@#0.audit_cross_order, \\\"old_client\\\"};",
+          "return 1;"
+        });
+        add_verb(new_handler, {player, "rxd", "do_login_command"}, {"this", "none", "this"});
+        set_verb_code(new_handler, "do_login_command", {"return #0.audit_cross_player;"});
+        add_verb(new_handler, {player, "rxd", "user_connected"}, {"this", "none", "this"});
+        set_verb_code(new_handler, "user_connected", {
+          "info = connection_info(args[1]);",
+          "#0.audit_cross_new_connected = {@#0.audit_cross_new_connected, {this, player, caller, args, argstr, info[\\\"source_port\\\"]}};",
+          "#0.audit_cross_order = {@#0.audit_cross_order, \\\"new_connected\\\"};",
+          "return 1;"
+        });
+        add_verb(new_handler, {player, "rxd", "user_reconnected"}, {"this", "none", "this"});
+        set_verb_code(new_handler, "user_reconnected", {
+          "#0.audit_cross_new_reconnected = args[1];",
+          "return 1;"
+        });
+        return 1;
+        """);
+    long oldHandler =
+        ((ObjectValue) world.property(0, "audit_cross_old_handler").orElseThrow().value()).value();
+    long newHandler =
+        ((ObjectValue) world.property(0, "audit_cross_new_handler").orElseThrow().value()).value();
+    long loginPlayer =
+        ((ObjectValue) world.property(0, "audit_cross_player").orElseThrow().value()).value();
+    assertTrue(world.object(oldHandler).isPresent());
+    assertTrue(world.object(newHandler).isPresent());
+    assertTrue(world.object(loginPlayer).isPresent());
+
+    StringValue sourcePortKey =
+        new StringValue("source_port".getBytes(StandardCharsets.ISO_8859_1));
+    int oldSourcePort = 41001;
+    int newSourcePort = 41002;
+    MapValue oldConnectionInfo =
+        new MapValue(Map.of(sourcePortKey, new IntegerValue(oldSourcePort)));
+    MapValue newConnectionInfo =
+        new MapValue(Map.of(sourcePortKey, new IntegerValue(newSourcePort)));
+    long oldConnection = -48;
+    long newConnection = -49;
+
+    assertEquals(
+        List.of(), runtime.openConnection(oldConnection, oldHandler, false, oldConnectionInfo));
+    assertEquals(
+        List.of(), runtime.openConnection(newConnection, newHandler, false, newConnectionInfo));
+
+    assertEquals(
+        "{{#" + oldHandler + ", #" + loginPlayer + ", #-1, {#" + loginPlayer + "}, \"\", 0}}",
+        world.property(0, "audit_cross_old_client").orElseThrow().value().toLiteral());
+    assertEquals(
+        "{{#"
+            + newHandler
+            + ", #"
+            + loginPlayer
+            + ", #-1, {#"
+            + loginPlayer
+            + "}, \"\", "
+            + newSourcePort
+            + "}}",
+        world.property(0, "audit_cross_new_connected").orElseThrow().value().toLiteral());
+    assertEquals(
+        "{\"old_client\", \"new_connected\"}",
+        world.property(0, "audit_cross_order").orElseThrow().value().toLiteral());
+    assertEquals(
+        "{}", world.property(0, "audit_cross_new_reconnected").orElseThrow().value().toLiteral());
+    assertEquals(
+        new IntegerValue(newSourcePort),
+        world.connectionInfo(loginPlayer).orElseThrow().get(sourcePortKey).orElseThrow());
   }
 
   @Test
