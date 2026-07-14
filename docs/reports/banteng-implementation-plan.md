@@ -447,13 +447,14 @@ Final gates:
 ## Immediate next action
 
 Run `/goal` against this plan and resume at the first unchecked Phase 0 item.
-The next slice is one bounded Barn documentation correction, not a concurrent
-survey or implementation effort across Barn subsystems. Do not edit production
-code. Do not inspect a different document's subsystem while the current
-document remains uncorrected.
+The next slice is one Barn documentation audit across all five named documents.
+The audit is intentionally broad: survey all five documents and trace the
+corresponding current Barn and verified Toast implementation/evidence deeply
+enough to decide every existing claim that may be contradicted, historical, or
+stale. Cross-document and cross-subsystem inspection is required where the
+documents overlap. Do not edit production code.
 
-Process the five named Barn documents in this exact order, completing the edit
-for one before reading implementation details for the next:
+Audit this complete five-document set:
 
 1. `spec/tasks.md`: correct the task/concurrency claims and authority paths.
    Check only claims already made by this document, including queue selection,
@@ -477,15 +478,12 @@ for one before reading implementation details for the next:
    conformance instructions agree with the four corrected documents and the
    already-verified Toast identity record.
 
-For each document, before every source read, name the exact existing passage
-whose keep/edit/delete decision the read can change. Once direct evidence
-decides that passage, edit the document immediately; another adjacent source
-read is forbidden until an identified passage still lacks decision-changing
-evidence. Broad package inventories, exhaustive subsystem traces, unrelated
-behavior discovery, and speculative follow-up audits are outside this slice.
-The later implementation-slice authority gate does not authorize expanding
-this documentation correction beyond claims already present in these five
-files.
+The source survey is evidence gathering, not the deliverable. Do not stop after
+reading or tracing implementations. The required artifact is all five Barn
+documents corrected as one coherent set, including cross-document terminology,
+authority, and source references. Source inspection may be broad, but findings
+that neither prove nor contradict a claim in these five documents do not expand
+the slice into production changes or unrelated documentation.
 
 After all five documents are corrected, run the applicable Barn documentation
 checks and `git diff --check`, then commit exactly those five Barn paths as one
