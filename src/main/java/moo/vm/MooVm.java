@@ -2,9 +2,11 @@ package moo.vm;
 
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.OptionalLong;
 import moo.builtin.BuiltinCatalog;
 import moo.builtin.BuiltinCatalog.Result;
 import moo.bytecode.BytecodeProgram;
@@ -25,6 +27,7 @@ import moo.vm.VmState.Frame;
 import moo.vm.VmState.HandlerPhase;
 import moo.vm.VmState.LoopCursor;
 import moo.world.WorldTxn;
+import moo.world.WorldVerb;
 
 /** Iterative executor for the authorized explicit bytecode state. */
 public final class MooVm {
@@ -40,7 +43,7 @@ public final class MooVm {
     while (state.outcome() == VmState.Outcome.RUNNING) {
       Frame frame = state.currentFrame();
       if (frame.instructionPointer >= frame.program.instructions().size()) {
-        routeReturn(state, new IntegerValue(0));
+        routeReturn(state, new IntegerValue(0), world);
         continue;
       }
       executeInstruction(
@@ -74,11 +77,11 @@ public final class MooVm {
         frame.instructionPointer++;
       }
       case BUILD_LIST -> buildList(frame, Math.toIntExact(instruction.operand().orElseThrow()));
-      case LIST_APPEND -> appendList(frame, state);
-      case LIST_EXTEND -> extendList(frame, state);
+      case LIST_APPEND -> appendList(frame, state, world);
+      case LIST_EXTEND -> extendList(frame, state, world);
       case BUILD_MAP ->
-          buildMap(frame, state, Math.toIntExact(instruction.operand().orElseThrow()));
-      case LOAD_LOCAL -> loadLocal(frame, instruction.text().orElseThrow(), state);
+          buildMap(frame, state, world, Math.toIntExact(instruction.operand().orElseThrow()));
+      case LOAD_LOCAL -> loadLocal(frame, instruction.text().orElseThrow(), state, world);
       case STORE_LOCAL -> {
         frame.locals.put(normalize(instruction.text().orElseThrow()), frame.operandStack.pop());
         frame.instructionPointer++;
@@ -91,37 +94,73 @@ public final class MooVm {
         frame.operandStack.pop();
         frame.instructionPointer++;
       }
-      case GET_PROPERTY -> getProperty(frame, instruction.text().orElseThrow(), state, world);
-      case SET_PROPERTY -> setProperty(frame, instruction.text().orElseThrow(), state, world);
-      case INDEX -> index(frame, state);
-      case SET_INDEX_LOCAL -> setIndexedLocal(frame, state, instruction.text().orElseThrow());
+      case GET_PROPERTY -> getProperty(frame, state, world);
+      case SET_PROPERTY -> setProperty(frame, state, world);
+      case INDEX -> index(frame, state, world);
+      case SET_INDEX_LOCAL ->
+          setIndexedLocal(frame, state, world, instruction.text().orElseThrow());
       case CALL -> invokeBuiltin(instruction, frame, state, world, builtins);
-      case NEGATE -> unaryNegate(frame, state);
+      case CALL_VERB -> {
+        MooValue argumentsValue = frame.operandStack.pop();
+        MooValue nameValue = frame.operandStack.pop();
+        MooValue receiverValue = frame.operandStack.pop();
+        if (!(argumentsValue instanceof ListValue arguments)
+            || !(nameValue instanceof StringValue name)
+            || !(receiverValue instanceof ObjectValue receiver)) {
+          raiseError(state, ErrorValue.E_TYPE, world);
+          return;
+        }
+        String verbName = new String(name.bytes(), StandardCharsets.ISO_8859_1);
+        WorldVerb verb = world.verb(receiver.value(), verbName).orElse(null);
+        if (verb == null) {
+          raiseError(state, ErrorValue.E_VERBNF, world);
+          return;
+        }
+        BytecodeProgram verbProgram;
+        try {
+          verbProgram =
+              new moo.bytecode.MooCompiler().compile(MooParser.parse(verb.programSource()));
+        } catch (MooParser.ParseException error) {
+          raiseError(state, ErrorValue.E_INVARG, world);
+          return;
+        }
+        frame.instructionPointer++;
+        Map<String, MooValue> locals = new LinkedHashMap<>();
+        locals.put("this", receiver);
+        locals.put("player", frame.locals.getOrDefault("player", new ObjectValue(-1)));
+        locals.put("caller", frame.locals.getOrDefault("this", new ObjectValue(-1)));
+        locals.put("verb", name);
+        locals.put("args", arguments);
+        locals.put("argstr", encode(""));
+        state.pushVerbFrame(verbProgram, locals, verb.owner(), OptionalLong.empty());
+      }
+      case NEGATE -> unaryNegate(frame, state, world);
       case NOT -> {
         MooValue value = frame.operandStack.pop();
         frame.operandStack.push(new IntegerValue(value.isTruthy() ? 0 : 1));
         frame.instructionPointer++;
       }
       case ADD, SUBTRACT, MULTIPLY, DIVIDE, REMAINDER, POWER ->
-          arithmetic(instruction, frame, state);
+          arithmetic(instruction, frame, state, world);
       case EQUAL, NOT_EQUAL -> equality(instruction, frame);
       case LESS_THAN, LESS_THAN_OR_EQUAL, GREATER_THAN, GREATER_THAN_OR_EQUAL ->
-          comparison(instruction, frame, state);
+          comparison(instruction, frame, state, world);
       case JUMP -> frame.instructionPointer = target(instruction);
       case JUMP_IF_FALSE -> conditionalJump(instruction, frame, false);
       case JUMP_IF_TRUE -> conditionalJump(instruction, frame, true);
       case ENTER_HANDLER -> {
-        frame.handlers.push(new ActiveHandler(instruction.handler().orElseThrow()));
+        frame.handlers.push(
+            new ActiveHandler(instruction.handler().orElseThrow(), frame.operandStack.size()));
         frame.instructionPointer++;
       }
       case LEAVE_HANDLER -> leaveHandler(frame);
-      case END_FINALLY -> endFinally(state);
-      case ITERATE -> iterate(instruction, frame, state);
-      case SCATTER -> scatter(instruction, frame, state);
+      case END_FINALLY -> endFinally(state, world);
+      case ITERATE -> iterate(instruction, frame, state, world);
+      case SCATTER -> scatter(instruction, frame, state, world);
       case RETURN -> {
         MooValue value = frame.operandStack.pop();
         frame.instructionPointer++;
-        routeReturn(state, value);
+        routeReturn(state, value, world);
       }
     }
   }
@@ -135,11 +174,11 @@ public final class MooVm {
     frame.instructionPointer++;
   }
 
-  private static void appendList(Frame frame, VmState state) {
+  private static void appendList(Frame frame, VmState state, WorldTxn world) {
     MooValue value = frame.operandStack.pop();
     MooValue collection = frame.operandStack.pop();
     if (!(collection instanceof ListValue list)) {
-      raiseError(state, ErrorValue.E_TYPE);
+      raiseError(state, ErrorValue.E_TYPE, world);
       return;
     }
     List<MooValue> elements = new ArrayList<>(list.elements());
@@ -148,11 +187,11 @@ public final class MooVm {
     frame.instructionPointer++;
   }
 
-  private static void extendList(Frame frame, VmState state) {
+  private static void extendList(Frame frame, VmState state, WorldTxn world) {
     MooValue extension = frame.operandStack.pop();
     MooValue collection = frame.operandStack.pop();
     if (!(collection instanceof ListValue list) || !(extension instanceof ListValue appended)) {
-      raiseError(state, ErrorValue.E_TYPE);
+      raiseError(state, ErrorValue.E_TYPE, world);
       return;
     }
     List<MooValue> elements = new ArrayList<>(list.elements());
@@ -161,7 +200,7 @@ public final class MooVm {
     frame.instructionPointer++;
   }
 
-  private static void buildMap(Frame frame, VmState state, int count) {
+  private static void buildMap(Frame frame, VmState state, WorldTxn world, int count) {
     List<MooValue> keys = new ArrayList<>(count);
     List<MooValue> values = new ArrayList<>(count);
     for (int index = 0; index < count; index++) {
@@ -176,57 +215,64 @@ public final class MooVm {
       frame.operandStack.push(map);
       frame.instructionPointer++;
     } catch (IllegalArgumentException error) {
-      raiseError(state, ErrorValue.E_TYPE);
+      raiseError(state, ErrorValue.E_TYPE, world);
     }
   }
 
-  private static void loadLocal(Frame frame, String name, VmState state) {
+  private static void loadLocal(Frame frame, String name, VmState state, WorldTxn world) {
     MooValue value = frame.locals.get(normalize(name));
     if (value == null) {
-      raiseError(state, ErrorValue.E_VARNF);
+      raiseError(state, ErrorValue.E_VARNF, world);
       return;
     }
     frame.operandStack.push(value);
     frame.instructionPointer++;
   }
 
-  private static void getProperty(Frame frame, String name, VmState state, WorldTxn world) {
+  private static void getProperty(Frame frame, VmState state, WorldTxn world) {
+    MooValue name = frame.operandStack.pop();
     MooValue receiver = frame.operandStack.pop();
-    if (!(receiver instanceof ObjectValue object)) {
-      raiseError(state, ErrorValue.E_TYPE);
+    if (!(receiver instanceof ObjectValue object) || !(name instanceof StringValue propertyName)) {
+      raiseError(state, ErrorValue.E_TYPE, world);
       return;
     }
-    MooValue value = world.readObjectProperty(object.value(), name).orElse(null);
+    MooValue value =
+        world
+            .readObjectProperty(
+                object.value(), new String(propertyName.bytes(), StandardCharsets.ISO_8859_1))
+            .orElse(null);
     if (value == null) {
-      raiseError(state, ErrorValue.E_PROPNF);
+      raiseError(state, ErrorValue.E_PROPNF, world);
       return;
     }
     frame.operandStack.push(value);
     frame.instructionPointer++;
   }
 
-  private static void setProperty(Frame frame, String name, VmState state, WorldTxn world) {
+  private static void setProperty(Frame frame, VmState state, WorldTxn world) {
     MooValue value = frame.operandStack.pop();
+    MooValue name = frame.operandStack.pop();
     MooValue receiver = frame.operandStack.pop();
-    if (!(receiver instanceof ObjectValue object)) {
-      raiseError(state, ErrorValue.E_TYPE);
+    if (!(receiver instanceof ObjectValue object) || !(name instanceof StringValue propertyName)) {
+      raiseError(state, ErrorValue.E_TYPE, world);
       return;
     }
-    if (!world.writeObjectProperty(object.value(), name, value)) {
-      raiseError(state, ErrorValue.E_PROPNF);
+    if (!world.writeObjectProperty(
+        object.value(), new String(propertyName.bytes(), StandardCharsets.ISO_8859_1), value)) {
+      raiseError(state, ErrorValue.E_PROPNF, world);
       return;
     }
     frame.operandStack.push(value);
     frame.instructionPointer++;
   }
 
-  private static void index(Frame frame, VmState state) {
+  private static void index(Frame frame, VmState state, WorldTxn world) {
     MooValue index = frame.operandStack.pop();
     MooValue collection = frame.operandStack.pop();
     if (collection instanceof ListValue list && index instanceof IntegerValue integer) {
       MooValue value = list.get(integer.value()).orElse(null);
       if (value == null) {
-        raiseError(state, ErrorValue.E_RANGE);
+        raiseError(state, ErrorValue.E_RANGE, world);
         return;
       }
       frame.operandStack.push(value);
@@ -238,26 +284,26 @@ public final class MooVm {
       try {
         value = map.get(index).orElse(null);
       } catch (IllegalArgumentException error) {
-        raiseError(state, ErrorValue.E_TYPE);
+        raiseError(state, ErrorValue.E_TYPE, world);
         return;
       }
       if (value == null) {
-        raiseError(state, ErrorValue.E_RANGE);
+        raiseError(state, ErrorValue.E_RANGE, world);
         return;
       }
       frame.operandStack.push(value);
       frame.instructionPointer++;
       return;
     }
-    raiseError(state, ErrorValue.E_TYPE);
+    raiseError(state, ErrorValue.E_TYPE, world);
   }
 
-  private static void setIndexedLocal(Frame frame, VmState state, String owner) {
+  private static void setIndexedLocal(Frame frame, VmState state, WorldTxn world, String owner) {
     MooValue value = frame.operandStack.pop();
     MooValue key = frame.operandStack.pop();
     MooValue collection = frame.operandStack.pop();
     if (!(collection instanceof MapValue map)) {
-      raiseError(state, ErrorValue.E_TYPE);
+      raiseError(state, ErrorValue.E_TYPE, world);
       return;
     }
     try {
@@ -265,7 +311,7 @@ public final class MooVm {
       frame.operandStack.push(value);
       frame.instructionPointer++;
     } catch (IllegalArgumentException error) {
-      raiseError(state, ErrorValue.E_TYPE);
+      raiseError(state, ErrorValue.E_TYPE, world);
     }
   }
 
@@ -275,16 +321,17 @@ public final class MooVm {
       VmState state,
       WorldTxn world,
       BuiltinCatalog builtins) {
-    int argumentCount = Math.toIntExact(instruction.operand().orElseThrow());
-    List<MooValue> arguments = new ArrayList<>(argumentCount);
-    for (int index = 0; index < argumentCount; index++) {
-      arguments.addFirst(frame.operandStack.pop());
+    MooValue argumentValue = frame.operandStack.pop();
+    if (!(argumentValue instanceof ListValue arguments)) {
+      raiseError(state, ErrorValue.E_TYPE, world);
+      return;
     }
     frame.instructionPointer++;
     Result result =
-        builtins.invoke(instruction.text().orElseThrow(), arguments, world, state.programmer());
+        builtins.invoke(
+            instruction.text().orElseThrow(), arguments.elements(), world, state.programmer());
     if (result.error().isPresent()) {
-      raiseError(state, result.error().orElseThrow());
+      raiseError(state, result.error().orElseThrow(), world);
       return;
     }
     result.output().ifPresent(state::stageOutput);
@@ -301,14 +348,43 @@ public final class MooVm {
                 .compile(MooParser.parse(result.dynamicSource().orElseThrow()));
         state.pushEvalFrame(dynamicProgram);
       } catch (MooParser.ParseException error) {
-        raiseError(state, ErrorValue.E_INVARG);
+        raiseError(state, ErrorValue.E_INVARG, world);
       }
+      return;
+    }
+    if (result.recycleTarget().isPresent()) {
+      long recycleTarget = result.recycleTarget().orElseThrow();
+      WorldVerb hook = world.verb(recycleTarget, "recycle").orElse(null);
+      if (hook == null) {
+        if (!world.recycleObject(recycleTarget)) {
+          raiseError(state, ErrorValue.E_INVARG, world);
+          return;
+        }
+        frame.operandStack.push(new IntegerValue(0));
+        return;
+      }
+      BytecodeProgram hookProgram;
+      try {
+        hookProgram = new moo.bytecode.MooCompiler().compile(MooParser.parse(hook.programSource()));
+      } catch (MooParser.ParseException error) {
+        raiseError(state, ErrorValue.E_INVARG, world);
+        return;
+      }
+      Map<String, MooValue> locals = new LinkedHashMap<>();
+      ObjectValue target = new ObjectValue(recycleTarget);
+      locals.put("this", target);
+      locals.put("player", frame.locals.getOrDefault("player", new ObjectValue(-1)));
+      locals.put("caller", frame.locals.getOrDefault("this", new ObjectValue(-1)));
+      locals.put("verb", encode("recycle"));
+      locals.put("args", new ListValue(List.of()));
+      locals.put("argstr", encode(""));
+      state.pushVerbFrame(hookProgram, locals, hook.owner(), OptionalLong.of(recycleTarget));
       return;
     }
     frame.operandStack.push(result.value().orElseThrow());
   }
 
-  private static void unaryNegate(Frame frame, VmState state) {
+  private static void unaryNegate(Frame frame, VmState state, WorldTxn world) {
     MooValue operand = frame.operandStack.pop();
     if (operand instanceof IntegerValue integer) {
       frame.operandStack.push(new IntegerValue(-integer.value()));
@@ -318,17 +394,18 @@ public final class MooVm {
     if (operand instanceof FloatValue floating) {
       double result = -floating.value();
       if (!Double.isFinite(result)) {
-        raiseError(state, ErrorValue.E_FLOAT);
+        raiseError(state, ErrorValue.E_FLOAT, world);
         return;
       }
       frame.operandStack.push(new FloatValue(result));
       frame.instructionPointer++;
       return;
     }
-    raiseError(state, ErrorValue.E_TYPE);
+    raiseError(state, ErrorValue.E_TYPE, world);
   }
 
-  private static void arithmetic(Instruction instruction, Frame frame, VmState state) {
+  private static void arithmetic(
+      Instruction instruction, Frame frame, VmState state, WorldTxn world) {
     MooValue rightValue = frame.operandStack.pop();
     MooValue leftValue = frame.operandStack.pop();
     if (instruction.opcode() == BytecodeProgram.Opcode.ADD
@@ -347,7 +424,7 @@ public final class MooVm {
       if ((instruction.opcode() == BytecodeProgram.Opcode.DIVIDE
               || instruction.opcode() == BytecodeProgram.Opcode.REMAINDER)
           && right.value() == 0) {
-        raiseError(state, ErrorValue.E_DIV);
+        raiseError(state, ErrorValue.E_DIV, world);
         return;
       }
       long result =
@@ -368,12 +445,12 @@ public final class MooVm {
         && leftValue instanceof FloatValue left
         && rightValue instanceof IntegerValue right) {
       if (left.value() == 0.0 && right.value() < 0) {
-        raiseError(state, ErrorValue.E_DIV);
+        raiseError(state, ErrorValue.E_DIV, world);
         return;
       }
       double result = Math.pow(left.value(), (double) right.value());
       if (!Double.isFinite(result)) {
-        raiseError(state, ErrorValue.E_FLOAT);
+        raiseError(state, ErrorValue.E_FLOAT, world);
         return;
       }
       frame.operandStack.push(new FloatValue(result));
@@ -384,13 +461,13 @@ public final class MooVm {
       if ((instruction.opcode() == BytecodeProgram.Opcode.DIVIDE
               || instruction.opcode() == BytecodeProgram.Opcode.REMAINDER)
           && right.value() == 0.0) {
-        raiseError(state, ErrorValue.E_DIV);
+        raiseError(state, ErrorValue.E_DIV, world);
         return;
       }
       if (instruction.opcode() == BytecodeProgram.Opcode.POWER
           && left.value() == 0.0
           && right.value() < 0.0) {
-        raiseError(state, ErrorValue.E_DIV);
+        raiseError(state, ErrorValue.E_DIV, world);
         return;
       }
       double result =
@@ -411,14 +488,14 @@ public final class MooVm {
             default -> throw new AssertionError(instruction.opcode());
           };
       if (!Double.isFinite(result)) {
-        raiseError(state, ErrorValue.E_FLOAT);
+        raiseError(state, ErrorValue.E_FLOAT, world);
         return;
       }
       frame.operandStack.push(new FloatValue(result));
       frame.instructionPointer++;
       return;
     }
-    raiseError(state, ErrorValue.E_TYPE);
+    raiseError(state, ErrorValue.E_TYPE, world);
   }
 
   private static long integerPower(long base, long exponent) {
@@ -449,7 +526,8 @@ public final class MooVm {
     frame.instructionPointer++;
   }
 
-  private static void comparison(Instruction instruction, Frame frame, VmState state) {
+  private static void comparison(
+      Instruction instruction, Frame frame, VmState state, WorldTxn world) {
     MooValue rightValue = frame.operandStack.pop();
     MooValue leftValue = frame.operandStack.pop();
     if (leftValue instanceof IntegerValue left && rightValue instanceof IntegerValue right) {
@@ -478,7 +556,7 @@ public final class MooVm {
       frame.instructionPointer++;
       return;
     }
-    raiseError(state, ErrorValue.E_TYPE);
+    raiseError(state, ErrorValue.E_TYPE, world);
   }
 
   private static void conditionalJump(Instruction instruction, Frame frame, boolean truth) {
@@ -502,23 +580,23 @@ public final class MooVm {
     }
   }
 
-  private static void endFinally(VmState state) {
+  private static void endFinally(VmState state, WorldTxn world) {
     Frame frame = state.currentFrame();
     FinallyContinuation continuation = frame.finallyContinuations.pop();
     switch (continuation.kind()) {
       case NORMAL -> frame.instructionPointer = continuation.normalTarget();
-      case RETURN -> routeReturn(state, continuation.returnValue().orElseThrow());
-      case ERROR -> raiseError(state, continuation.error().orElseThrow());
+      case RETURN -> routeReturn(state, continuation.returnValue().orElseThrow(), world);
+      case ERROR -> raiseError(state, continuation.error().orElseThrow(), world);
     }
   }
 
-  private static void iterate(Instruction instruction, Frame frame, VmState state) {
+  private static void iterate(Instruction instruction, Frame frame, VmState state, WorldTxn world) {
     int instructionIndex = frame.instructionPointer;
     LoopCursor cursor = frame.loops.get(instructionIndex);
     if (cursor == null) {
       MooValue iterable = frame.operandStack.pop();
       if (!(iterable instanceof ListValue list)) {
-        raiseError(state, ErrorValue.E_TYPE);
+        raiseError(state, ErrorValue.E_TYPE, world);
         return;
       }
       cursor = new LoopCursor(list);
@@ -535,15 +613,15 @@ public final class MooVm {
     frame.instructionPointer++;
   }
 
-  private static void scatter(Instruction instruction, Frame frame, VmState state) {
+  private static void scatter(Instruction instruction, Frame frame, VmState state, WorldTxn world) {
     MooValue source = frame.operandStack.pop();
     if (!(source instanceof ListValue list)) {
-      raiseError(state, ErrorValue.E_TYPE);
+      raiseError(state, ErrorValue.E_TYPE, world);
       return;
     }
     String[] names = instruction.text().orElseThrow().split(",", -1);
     if (names.length != instruction.operand().orElseThrow() || names.length != list.size()) {
-      raiseError(state, ErrorValue.E_ARGS);
+      raiseError(state, ErrorValue.E_ARGS, world);
       return;
     }
     for (int index = 0; index < names.length; index++) {
@@ -553,7 +631,7 @@ public final class MooVm {
     frame.instructionPointer++;
   }
 
-  private static void routeReturn(VmState state, MooValue value) {
+  private static void routeReturn(VmState state, MooValue value, WorldTxn world) {
     Frame frame = state.currentFrame();
     if (!frame.finallyContinuations.isEmpty()) {
       frame.finallyContinuations.pop();
@@ -561,6 +639,9 @@ public final class MooVm {
     while (!frame.handlers.isEmpty()) {
       ActiveHandler handler = frame.handlers.pop();
       if (handler.specification.finallyTarget() >= 0) {
+        while (frame.operandStack.size() > handler.operandDepth) {
+          frame.operandStack.pop();
+        }
         frame.finallyContinuations.push(
             new FinallyContinuation(
                 ContinuationKind.RETURN,
@@ -571,10 +652,20 @@ public final class MooVm {
         return;
       }
     }
+    if (frame.recycleTarget.isPresent()) {
+      long recycleTarget = frame.recycleTarget.orElseThrow();
+      state.unwindChildFrame();
+      if (!world.recycleObject(recycleTarget)) {
+        raiseError(state, ErrorValue.E_INVARG, world);
+        return;
+      }
+      state.currentFrame().operandStack.push(new IntegerValue(0));
+      return;
+    }
     state.finishFrame(value);
   }
 
-  private static void raiseError(VmState state, ErrorValue error) {
+  private static void raiseError(VmState state, ErrorValue error, WorldTxn world) {
     state.beginError(error);
     while (true) {
       Frame frame = state.currentFrame();
@@ -583,6 +674,9 @@ public final class MooVm {
         if (handler.phase == HandlerPhase.TRY
             && handler.specification.catchTarget() >= 0
             && catches(handler, error)) {
+          while (frame.operandStack.size() > handler.operandDepth) {
+            frame.operandStack.pop();
+          }
           handler.phase = HandlerPhase.CATCH;
           handler
               .specification
@@ -600,6 +694,9 @@ public final class MooVm {
         }
         frame.handlers.pop();
         if (handler.specification.finallyTarget() >= 0) {
+          while (frame.operandStack.size() > handler.operandDepth) {
+            frame.operandStack.pop();
+          }
           frame.finallyContinuations.push(
               new FinallyContinuation(
                   ContinuationKind.ERROR,
@@ -611,9 +708,13 @@ public final class MooVm {
           return;
         }
       }
-      if (!state.unwindEvalFrame()) {
+      OptionalLong recycleTarget = frame.recycleTarget;
+      if (!state.unwindChildFrame()) {
         state.failUncaught(error);
         return;
+      }
+      if (recycleTarget.isPresent()) {
+        world.recycleObject(recycleTarget.orElseThrow());
       }
     }
   }

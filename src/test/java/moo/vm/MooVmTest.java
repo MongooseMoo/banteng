@@ -6,14 +6,21 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.nio.charset.StandardCharsets;
 import java.util.List;
+import java.util.Map;
+import moo.builtin.BuiltinCatalog;
 import moo.bytecode.BytecodeProgram;
 import moo.bytecode.MooCompiler;
 import moo.syntax.MooParser;
+import moo.value.MooValue;
 import moo.value.MooValue.ErrorValue;
 import moo.value.MooValue.FloatValue;
 import moo.value.MooValue.IntegerValue;
 import moo.value.MooValue.ListValue;
+import moo.value.MooValue.ObjectValue;
 import moo.value.MooValue.StringValue;
+import moo.world.WorldObject;
+import moo.world.WorldTxn;
+import moo.world.WorldVerb;
 import org.junit.jupiter.api.Test;
 
 final class MooVmTest {
@@ -324,5 +331,658 @@ final class MooVmTest {
       assertEquals(VmState.Outcome.RETURNED, state.outcome(), source);
       assertEquals(ErrorValue.E_TYPE, state.returnValue().orElseThrow(), source);
     }
+  }
+
+  @Test
+  void splicesBuiltinArgumentsAndRejectsANonListSplice() {
+    BytecodeProgram success =
+        new MooCompiler().compile(MooParser.parse("args = {1, 2, 3}; return max(@args);"));
+    VmState successState = new VmState();
+
+    new MooVm().execute(success, successState);
+
+    assertEquals(VmState.Outcome.RETURNED, successState.outcome());
+    assertEquals(new IntegerValue(3), successState.returnValue().orElseThrow());
+
+    BytecodeProgram failure = new MooCompiler().compile(MooParser.parse("return max(@5);"));
+    VmState failureState = new VmState();
+
+    new MooVm().execute(failure, failureState);
+
+    assertEquals(VmState.Outcome.ERRORED, failureState.outcome());
+    assertEquals(ErrorValue.E_TYPE, failureState.uncaughtError().orElseThrow());
+  }
+
+  @Test
+  void readsStaticAndComputedBuiltInPropertiesThroughTheSameOwner() {
+    WorldObject systemObject =
+        new WorldObject(
+            0, "System Object", 7, 0, -1, -1, List.of(), List.of(), List.of(), List.of());
+    WorldTxn world = new WorldTxn(List.of(0L), List.of(systemObject));
+    BytecodeProgram program =
+        new MooCompiler()
+            .compile(
+                MooParser.parse("name = \"name\"; return {#0.(name), #0.(\"name\") == #0.name};"));
+    VmState state = new VmState();
+
+    new MooVm().execute(program, state, world, new BuiltinCatalog());
+
+    assertEquals(VmState.Outcome.RETURNED, state.outcome());
+    assertEquals(
+        new ListValue(
+            List.of(
+                new StringValue("System Object".getBytes(StandardCharsets.ISO_8859_1)),
+                new IntegerValue(1))),
+        state.returnValue().orElseThrow());
+  }
+
+  @Test
+  void computedPropertyNamesRaiseTheFrozenErrors() {
+    WorldObject systemObject =
+        new WorldObject(
+            0, "System Object", 7, 0, -1, -1, List.of(), List.of(), List.of(), List.of());
+    String[] sources = {"return #0.(\"nonexistent_prop_xyz\");", "return #0.(1);"};
+    ErrorValue[] errors = {ErrorValue.E_PROPNF, ErrorValue.E_TYPE};
+
+    for (int index = 0; index < sources.length; index++) {
+      WorldTxn world = new WorldTxn(List.of(0L), List.of(systemObject));
+      BytecodeProgram program = new MooCompiler().compile(MooParser.parse(sources[index]));
+      VmState state = new VmState();
+
+      new MooVm().execute(program, state, world, new BuiltinCatalog());
+
+      assertEquals(VmState.Outcome.ERRORED, state.outcome(), sources[index]);
+      assertEquals(errors[index], state.uncaughtError().orElseThrow(), sources[index]);
+    }
+  }
+
+  @Test
+  void computedPropertyAssignmentsReturnWriteAndUseToastEvaluationOrder() {
+    WorldObject systemObject =
+        new WorldObject(
+            0, "System Object", 7, 0, -1, -1, List.of(), List.of(), List.of(), List.of());
+    String[] sources = {
+      "o = create(#-1); add_property(o, \"foo\", 0, {player, \"\"}); "
+          + "result = (o.(\"foo\") = 99); value = o.foo; recycle(o); "
+          + "return {result, value};",
+      "o = create(#-1); add_property(o, \"first\", \"initial\", {player, \"\"}); "
+          + "add_property(o, \"second\", \"unchanged\", {player, \"\"}); name = \"first\"; "
+          + "o.(name) = (name = \"second\"); result = {o.first, o.second, name}; "
+          + "recycle(o); return result;",
+      "o = create(#-1); add_property(o, \"foo\", 0, {player, \"\"}); name = \"foo\"; "
+          + "o.(name) = 99; result = o.foo; recycle(o); return result;"
+    };
+    List<MooValue> expected =
+        List.of(
+            new ListValue(List.of(new IntegerValue(99), new IntegerValue(99))),
+            new ListValue(
+                List.of(
+                    new StringValue("second".getBytes(StandardCharsets.ISO_8859_1)),
+                    new StringValue("unchanged".getBytes(StandardCharsets.ISO_8859_1)),
+                    new StringValue("second".getBytes(StandardCharsets.ISO_8859_1)))),
+            new IntegerValue(99));
+
+    for (int index = 0; index < sources.length; index++) {
+      WorldTxn world = new WorldTxn(List.of(0L), List.of(systemObject));
+      BytecodeProgram program = new MooCompiler().compile(MooParser.parse(sources[index]));
+      VmState state = new VmState(Map.of("player", new ObjectValue(0)), 0);
+
+      new MooVm().execute(program, state, world, new BuiltinCatalog());
+
+      assertEquals(VmState.Outcome.RETURNED, state.outcome(), sources[index]);
+      assertEquals(expected.get(index), state.returnValue().orElseThrow(), sources[index]);
+      assertEquals(1, world.objectCount(), sources[index]);
+    }
+  }
+
+  @Test
+  void maxPreservesHomogeneousNumericKindsAndRejectsEveryFrozenError() {
+    String[] successes = {"return max(1, 9, 3);", "return max(1.5, 9.25, 3.0);"};
+    MooValue[] values = {new IntegerValue(9), new FloatValue(9.25)};
+    for (int index = 0; index < successes.length; index++) {
+      VmState state = new VmState();
+
+      new MooVm()
+          .execute(
+              new MooCompiler().compile(MooParser.parse(successes[index])),
+              state,
+              new WorldTxn(List.of(), List.of()),
+              new BuiltinCatalog());
+
+      assertEquals(VmState.Outcome.RETURNED, state.outcome(), successes[index]);
+      assertEquals(values[index], state.returnValue().orElseThrow(), successes[index]);
+    }
+
+    String[] failures = {"return max();", "return max(1, 2.0);", "return max(\"x\");"};
+    ErrorValue[] errors = {ErrorValue.E_ARGS, ErrorValue.E_TYPE, ErrorValue.E_TYPE};
+    for (int index = 0; index < failures.length; index++) {
+      VmState state = new VmState();
+
+      new MooVm()
+          .execute(
+              new MooCompiler().compile(MooParser.parse(failures[index])),
+              state,
+              new WorldTxn(List.of(), List.of()),
+              new BuiltinCatalog());
+
+      assertEquals(VmState.Outcome.ERRORED, state.outcome(), failures[index]);
+      assertEquals(errors[index], state.uncaughtError().orElseThrow(), failures[index]);
+    }
+  }
+
+  @Test
+  void caughtErrorsDiscardOnlyPartialGuardedOperands() {
+    String source =
+        """
+        return {
+          `max(1, @5) ! E_TYPE => 11',
+          `#0.(max(@5)) ! E_TYPE => 22',
+          {1, @`max(@5) ! E_TYPE => {2, 3}', 4}
+        };
+        """;
+    VmState state = new VmState();
+
+    new MooVm()
+        .execute(
+            new MooCompiler().compile(MooParser.parse(source)),
+            state,
+            new WorldTxn(List.of(), List.of()),
+            new BuiltinCatalog());
+
+    assertEquals(VmState.Outcome.RETURNED, state.outcome());
+    assertEquals(
+        new ListValue(
+            List.of(
+                new IntegerValue(11),
+                new IntegerValue(22),
+                new ListValue(
+                    List.of(
+                        new IntegerValue(1),
+                        new IntegerValue(2),
+                        new IntegerValue(3),
+                        new IntegerValue(4))))),
+        state.returnValue().orElseThrow());
+  }
+
+  @Test
+  void computedVerbCallsUseDirectMutationsAndToastEvaluationOrder() {
+    WorldObject systemObject =
+        new WorldObject(0, "System", 6, 0, -1, -1, List.of(), List.of(), List.of(), List.of());
+    WorldTxn world = new WorldTxn(List.of(0L), List.of(systemObject));
+    String source =
+        """
+        o = create(#-1);
+        add_verb(o, {player, "xd", "target"}, {"this", "none", "this"});
+        set_verb_code(o, "target", {"return args[1];"});
+        name = "target";
+        result = o:(name)((name = "missing"));
+        delete_verb(o, "target");
+        recycle(o);
+        return {result, name};
+        """;
+    VmState state = new VmState(Map.of("player", new ObjectValue(0)), 0);
+
+    new MooVm()
+        .execute(
+            new MooCompiler().compile(MooParser.parse(source)), state, world, new BuiltinCatalog());
+
+    assertEquals(VmState.Outcome.RETURNED, state.outcome());
+    assertEquals(
+        new ListValue(
+            List.of(
+                new StringValue("missing".getBytes(StandardCharsets.ISO_8859_1)),
+                new StringValue("missing".getBytes(StandardCharsets.ISO_8859_1)))),
+        state.returnValue().orElseThrow());
+    assertEquals(1, world.objectCount());
+
+    VmState typeError = new VmState();
+    new MooVm()
+        .execute(
+            new MooCompiler().compile(MooParser.parse("return #0:(1)();")),
+            typeError,
+            world,
+            new BuiltinCatalog());
+    assertEquals(ErrorValue.E_TYPE, typeError.uncaughtError().orElseThrow());
+  }
+
+  @Test
+  void verbFramesSkipNonExecutableMatchesPopulateLocalsAndScopeProgrammer() {
+    WorldVerb executable =
+        new WorldVerb(
+            "Mi*XeD",
+            7,
+            4,
+            -1,
+            "set_task_perms(#9); "
+                + "return {this, player, caller, verb, args, argstr, create(#-1)};");
+    WorldVerb nonExecutable = new WorldVerb("mixed", 8, 8, -1, "return 0;");
+    WorldObject parent =
+        new WorldObject(
+            1, "parent", 0, 1, -1, -1, List.of(), List.of(2L), List.of(executable), List.of());
+    WorldObject child =
+        new WorldObject(
+            2, "child", 0, 2, -1, 1, List.of(), List.of(), List.of(nonExecutable), List.of());
+    WorldObject player =
+        new WorldObject(3, "player", 0, 3, -1, -1, List.of(), List.of(), List.of(), List.of());
+    WorldObject caller =
+        new WorldObject(4, "caller", 0, 4, -1, -1, List.of(), List.of(), List.of(), List.of());
+    WorldTxn world = new WorldTxn(List.of(), List.of(parent, child, player, caller));
+    VmState state =
+        new VmState(Map.of("player", new ObjectValue(3), "this", new ObjectValue(4)), 3);
+
+    new MooVm()
+        .execute(
+            new MooCompiler()
+                .compile(
+                    MooParser.parse(
+                        "result = #2:(\"MIXED\")(42); after = create(#-1); "
+                            + "return {result, after};")),
+            state,
+            world,
+            new BuiltinCatalog());
+
+    assertEquals(VmState.Outcome.RETURNED, state.outcome());
+    assertEquals(
+        new ListValue(
+            List.of(
+                new ListValue(
+                    List.of(
+                        new ObjectValue(2),
+                        new ObjectValue(3),
+                        new ObjectValue(4),
+                        new StringValue("MIXED".getBytes(StandardCharsets.ISO_8859_1)),
+                        new ListValue(List.of(new IntegerValue(42))),
+                        new StringValue(new byte[0]),
+                        new ObjectValue(5))),
+                new ObjectValue(6))),
+        state.returnValue().orElseThrow());
+    assertEquals(9, world.object(5).orElseThrow().owner());
+    assertEquals(3, world.object(6).orElseThrow().owner());
+  }
+
+  @Test
+  void recycleObjectRewritesEveryTopologyRecordInOneSnapshot() {
+    WorldObject target =
+        new WorldObject(1, "target", 1, 0, 10, 3, List.of(2L), List.of(4L), List.of(), List.of());
+    WorldObject content =
+        new WorldObject(2, "content", 0, 0, 1, -1, List.of(), List.of(), List.of(), List.of());
+    WorldObject parent =
+        new WorldObject(
+            3, "parent", 0, 0, -1, -1, List.of(), List.of(7L, 1L, 6L), List.of(), List.of());
+    WorldObject child =
+        new WorldObject(4, "child", 0, 0, -1, 1, List.of(), List.of(), List.of(), List.of());
+    WorldObject location =
+        new WorldObject(
+            10, "location", 0, 0, -1, -1, List.of(8L, 1L, 9L), List.of(), List.of(), List.of());
+    WorldTxn world = new WorldTxn(List.of(1L), List.of(target, content, parent, child, location));
+
+    assertTrue(world.recycleObject(1));
+
+    assertTrue(world.object(1).isEmpty());
+    assertEquals(List.of(), world.players());
+    assertEquals(-1, world.object(2).orElseThrow().location());
+    assertEquals(3, world.object(4).orElseThrow().parent());
+    assertEquals(List.of(8L, 9L), world.object(10).orElseThrow().contents());
+    assertEquals(List.of(7L, 4L, 6L), world.object(3).orElseThrow().children());
+  }
+
+  @Test
+  void recycleContinuationsDestroyBeforeReturningOrPropagatingHookErrors() {
+    String[] hookSources = {
+      "return 99;",
+      "raise(E_DIV);",
+      "delete_verb(this, \"recycle\"); recycle(this); return 1;",
+      "delete_verb(this, \"recycle\"); recycle(this); raise(E_DIV);"
+    };
+    String[] rootSources = {
+      "return recycle(#2);",
+      "return `recycle(#2) ! E_DIV => 1';",
+      "return `recycle(#2) ! E_INVARG => 1';",
+      "return `recycle(#2) ! E_DIV => 1';"
+    };
+    for (int index = 0; index < hookSources.length; index++) {
+      WorldVerb hook = new WorldVerb("recycle", 0, 4, -1, hookSources[index]);
+      WorldObject parent =
+          new WorldObject(1, "parent", 0, 0, -1, -1, List.of(), List.of(2L), List.of(), List.of());
+      WorldObject target =
+          new WorldObject(2, "target", 0, 0, -1, 1, List.of(), List.of(), List.of(hook), List.of());
+      WorldTxn world = new WorldTxn(List.of(), List.of(parent, target));
+      VmState state = new VmState(Map.of("player", new ObjectValue(0)), 0);
+
+      new MooVm()
+          .execute(
+              new MooCompiler().compile(MooParser.parse(rootSources[index])),
+              state,
+              world,
+              new BuiltinCatalog());
+
+      assertEquals(VmState.Outcome.RETURNED, state.outcome(), hookSources[index]);
+      assertEquals(
+          new IntegerValue(index == 0 ? 0 : 1),
+          state.returnValue().orElseThrow(),
+          hookSources[index]);
+      assertTrue(world.object(2).isEmpty(), hookSources[index]);
+    }
+  }
+
+  @Test
+  void recycleChecksValidityAndOwnerOrWizardPermission() {
+    WorldObject programmer =
+        new WorldObject(3, "programmer", 2, 3, -1, -1, List.of(), List.of(), List.of(), List.of());
+    WorldObject target =
+        new WorldObject(4, "target", 0, 4, -1, -1, List.of(), List.of(), List.of(), List.of());
+    WorldTxn world = new WorldTxn(List.of(), List.of(programmer, target));
+    VmState denied = new VmState(Map.of(), 3);
+
+    new MooVm()
+        .execute(
+            new MooCompiler().compile(MooParser.parse("return `recycle(#4) ! E_PERM => 1';")),
+            denied,
+            world,
+            new BuiltinCatalog());
+
+    assertEquals(new IntegerValue(1), denied.returnValue().orElseThrow());
+    assertTrue(world.object(4).isPresent());
+
+    VmState invalid = new VmState(Map.of(), 3);
+    new MooVm()
+        .execute(
+            new MooCompiler().compile(MooParser.parse("return `recycle(#99) ! E_INVARG => 1';")),
+            invalid,
+            world,
+            new BuiltinCatalog());
+    assertEquals(new IntegerValue(1), invalid.returnValue().orElseThrow());
+  }
+
+  @Test
+  void validReadsTheCurrentWorldSnapshotAndRaisesTheFrozenArgumentErrors() {
+    WorldObject object =
+        new WorldObject(0, "object", 0, 0, -1, -1, List.of(), List.of(), List.of(), List.of());
+    WorldTxn world = new WorldTxn(List.of(), List.of(object));
+    VmState values = new VmState();
+
+    new MooVm()
+        .execute(
+            new MooCompiler().compile(MooParser.parse("return {valid(#0), valid(#-1)};")),
+            values,
+            world,
+            new BuiltinCatalog());
+
+    assertEquals(
+        new ListValue(List.of(new IntegerValue(1), new IntegerValue(0))),
+        values.returnValue().orElseThrow());
+    assertEquals(
+        BuiltinCatalog.EffectClass.TRANSACTION_READ, new BuiltinCatalog().effectClass("valid"));
+
+    String[] failures = {"return valid();", "return valid(1);", "return valid(#0, #0);"};
+    ErrorValue[] errors = {ErrorValue.E_ARGS, ErrorValue.E_TYPE, ErrorValue.E_ARGS};
+    for (int index = 0; index < failures.length; index++) {
+      VmState state = new VmState();
+
+      new MooVm()
+          .execute(
+              new MooCompiler().compile(MooParser.parse(failures[index])),
+              state,
+              world,
+              new BuiltinCatalog());
+
+      assertEquals(VmState.Outcome.ERRORED, state.outcome(), failures[index]);
+      assertEquals(errors[index], state.uncaughtError().orElseThrow(), failures[index]);
+    }
+  }
+
+  @Test
+  void addVerbValidatesPacksAppendsAndReturnsOneBasedIndices() {
+    WorldObject programmer =
+        new WorldObject(0, "programmer", 6, 0, -1, -1, List.of(), List.of(), List.of(), List.of());
+    WorldObject target =
+        new WorldObject(1, "target", 0, 0, -1, -1, List.of(), List.of(), List.of(), List.of());
+    WorldObject owner =
+        new WorldObject(2, "owner", 0, 2, -1, -1, List.of(), List.of(), List.of(), List.of());
+    WorldTxn world = new WorldTxn(List.of(), List.of(programmer, target, owner));
+    VmState state = new VmState(Map.of(), 0);
+
+    new MooVm()
+        .execute(
+            new MooCompiler()
+                .compile(
+                    MooParser.parse(
+                        "return {"
+                            + "add_verb(#1, {#0, \"rWxD\", \"  foo*bar\"}, "
+                            + "{\"any\", \"any\", \"this\"}), "
+                            + "add_verb(#1, {#0, \"\", \"second\"}, "
+                            + "{\"none\", \"none\", \"none\"}), "
+                            + "add_verb(#1, {#0, \"\", \"inside\"}, "
+                            + "{\"this\", \"in\", \"this\"}), "
+                            + "add_verb(#1, {#0, \"\", \"upon\"}, "
+                            + "{\"this\", \"on\", \"this\"}), "
+                            + "add_verb(#1, {#0, \"\", \"numeric\"}, "
+                            + "{\"this\", \"14\", \"this\"}), "
+                            + "add_verb(#1, {#0, \"\", \"hash_numeric\"}, "
+                            + "{\"this\", \"#0\", \"this\"})};")),
+            state,
+            world,
+            new BuiltinCatalog());
+
+    assertEquals(
+        new ListValue(
+            List.of(
+                new IntegerValue(1),
+                new IntegerValue(2),
+                new IntegerValue(3),
+                new IntegerValue(4),
+                new IntegerValue(5),
+                new IntegerValue(6))),
+        state.returnValue().orElseThrow());
+    WorldVerb first = world.verb(1, 0).orElseThrow();
+    assertEquals("foo*bar", first.names());
+    assertEquals(0, first.owner());
+    assertEquals(159, first.permissions());
+    assertEquals(-2, first.preposition());
+    assertEquals("second", world.verb(1, 1).orElseThrow().names());
+    assertEquals(3, world.verb(1, 2).orElseThrow().preposition());
+    assertEquals(4, world.verb(1, 3).orElseThrow().preposition());
+    assertEquals(14, world.verb(1, 4).orElseThrow().preposition());
+    assertEquals(0, world.verb(1, 5).orElseThrow().preposition());
+
+    String[] failures = {
+      "return add_verb(#1, {#99, \"x\", \"bad\"}, {\"this\", \"none\", \"this\"});",
+      "return add_verb(#1, {#0, \"q\", \"bad\"}, {\"this\", \"none\", \"this\"});",
+      "return add_verb(#1, {#0, \"x\", \"   \"}, {\"this\", \"none\", \"this\"});",
+      "return add_verb(#1, {#0, \"x\", \"bad\"}, {\"other\", \"none\", \"this\"});",
+      "return add_verb(#1, {#0, \"x\", \"bad\"}, {\"this\", \"near\", \"this\"});",
+      "return add_verb(#1, 1, {\"this\", \"none\", \"this\"});"
+    };
+    ErrorValue[] errors = {
+      ErrorValue.E_INVARG,
+      ErrorValue.E_INVARG,
+      ErrorValue.E_INVARG,
+      ErrorValue.E_INVARG,
+      ErrorValue.E_INVARG,
+      ErrorValue.E_TYPE
+    };
+    for (int index = 0; index < failures.length; index++) {
+      VmState failure = new VmState(Map.of(), 0);
+      new MooVm()
+          .execute(
+              new MooCompiler().compile(MooParser.parse(failures[index])),
+              failure,
+              world,
+              new BuiltinCatalog());
+      assertEquals(errors[index], failure.uncaughtError().orElseThrow(), failures[index]);
+    }
+  }
+
+  @Test
+  void deleteVerbUsesLocalStringOrPositiveIntegerDescriptorsAndObjectWritePermission() {
+    WorldVerb parentVerb = new WorldVerb("parent", 0, 4, -1, "return 3;");
+    WorldVerb firstVerb = new WorldVerb("fi*rst", 0, 4, -1, "return 1;");
+    WorldVerb secondVerb = new WorldVerb("second", 0, 4, -1, "return 2;");
+    WorldObject programmer =
+        new WorldObject(0, "programmer", 6, 0, -1, -1, List.of(), List.of(), List.of(), List.of());
+    WorldObject target =
+        new WorldObject(
+            1,
+            "target",
+            0,
+            0,
+            -1,
+            2,
+            List.of(),
+            List.of(),
+            List.of(firstVerb, secondVerb),
+            List.of());
+    WorldObject parent =
+        new WorldObject(
+            2, "parent", 0, 0, -1, -1, List.of(), List.of(1L), List.of(parentVerb), List.of());
+    WorldTxn world = new WorldTxn(List.of(), List.of(programmer, target, parent));
+    VmState state = new VmState(Map.of(), 0);
+
+    new MooVm()
+        .execute(
+            new MooCompiler()
+                .compile(
+                    MooParser.parse("return {delete_verb(#1, 2), delete_verb(#1, \"first\")};")),
+            state,
+            world,
+            new BuiltinCatalog());
+
+    assertEquals(
+        new ListValue(List.of(new IntegerValue(0), new IntegerValue(0))),
+        state.returnValue().orElseThrow());
+    assertTrue(world.object(1).orElseThrow().verbs().isEmpty());
+
+    String[] failures = {"return delete_verb(#1, \"parent\");", "return delete_verb(#1, 0);"};
+    ErrorValue[] errors = {ErrorValue.E_VERBNF, ErrorValue.E_INVARG};
+    for (int index = 0; index < failures.length; index++) {
+      VmState failure = new VmState(Map.of(), 0);
+      new MooVm()
+          .execute(
+              new MooCompiler().compile(MooParser.parse(failures[index])),
+              failure,
+              world,
+              new BuiltinCatalog());
+      assertEquals(errors[index], failure.uncaughtError().orElseThrow(), failures[index]);
+    }
+
+    WorldObject ordinaryProgrammer =
+        new WorldObject(3, "ordinary", 2, 3, -1, -1, List.of(), List.of(), List.of(), List.of());
+    WorldObject protectedTarget =
+        new WorldObject(
+            4,
+            "protected",
+            0,
+            4,
+            -1,
+            -1,
+            List.of(),
+            List.of(),
+            List.of(new WorldVerb("verb", 4, 4, -1, "return 1;")),
+            List.of());
+    WorldTxn protectedWorld = new WorldTxn(List.of(), List.of(ordinaryProgrammer, protectedTarget));
+    VmState denied = new VmState(Map.of(), 3);
+    new MooVm()
+        .execute(
+            new MooCompiler().compile(MooParser.parse("return delete_verb(#4, 1);")),
+            denied,
+            protectedWorld,
+            new BuiltinCatalog());
+    assertEquals(ErrorValue.E_PERM, denied.uncaughtError().orElseThrow());
+  }
+
+  @Test
+  void setVerbCodeCompilesBeforeLocalIndexedMutationAndReturnsDiagnosticLists() {
+    WorldObject programmer =
+        new WorldObject(0, "programmer", 2, 0, -1, -1, List.of(), List.of(), List.of(), List.of());
+    WorldVerb local = new WorldVerb("local", 0, 0, -1, "return 1;");
+    WorldVerb writable = new WorldVerb("writable", 9, 2, -1, "return 2;");
+    WorldVerb inherited = new WorldVerb("inherited", 0, 2, -1, "return 3;");
+    WorldObject target =
+        new WorldObject(
+            1, "target", 0, 1, -1, 2, List.of(), List.of(), List.of(local, writable), List.of());
+    WorldObject parent =
+        new WorldObject(
+            2, "parent", 0, 2, -1, -1, List.of(), List.of(1L), List.of(inherited), List.of());
+    WorldTxn world = new WorldTxn(List.of(), List.of(programmer, target, parent));
+    VmState success = new VmState(Map.of(), 0);
+
+    new MooVm()
+        .execute(
+            new MooCompiler()
+                .compile(MooParser.parse("return set_verb_code(#1, 1, {\"return 7;\"});")),
+            success,
+            world,
+            new BuiltinCatalog());
+
+    assertEquals(new ListValue(List.of()), success.returnValue().orElseThrow());
+    assertEquals("return 7;", world.verb(1, 0).orElseThrow().programSource());
+
+    VmState writableSuccess = new VmState(Map.of(), 0);
+    new MooVm()
+        .execute(
+            new MooCompiler()
+                .compile(
+                    MooParser.parse("return set_verb_code(#1, \"writable\", {\"return 8;\"});")),
+            writableSuccess,
+            world,
+            new BuiltinCatalog());
+    assertEquals(new ListValue(List.of()), writableSuccess.returnValue().orElseThrow());
+    assertEquals("return 8;", world.verb(1, 1).orElseThrow().programSource());
+
+    VmState diagnostic = new VmState(Map.of(), 0);
+    new MooVm()
+        .execute(
+            new MooCompiler()
+                .compile(MooParser.parse("return set_verb_code(#1, 1, {\"return 9;\", \";\"});")),
+            diagnostic,
+            world,
+            new BuiltinCatalog());
+    assertTrue(
+        diagnostic.returnValue().orElseThrow() instanceof ListValue errors
+            && errors.size() == 1
+            && errors.elements().getFirst() instanceof StringValue);
+    assertEquals("return 7;", world.verb(1, 0).orElseThrow().programSource());
+
+    String[] failures = {
+      "return set_verb_code(#1, \"inherited\", {\"return 4;\"});",
+      "return set_verb_code(#1, 1, {1});"
+    };
+    ErrorValue[] errors = {ErrorValue.E_VERBNF, ErrorValue.E_TYPE};
+    for (int index = 0; index < failures.length; index++) {
+      VmState failure = new VmState(Map.of(), 0);
+      new MooVm()
+          .execute(
+              new MooCompiler().compile(MooParser.parse(failures[index])),
+              failure,
+              world,
+              new BuiltinCatalog());
+      assertEquals(errors[index], failure.uncaughtError().orElseThrow(), failures[index]);
+    }
+
+    WorldObject nonProgrammer =
+        new WorldObject(
+            3, "not programmer", 0, 3, -1, -1, List.of(), List.of(), List.of(), List.of());
+    WorldObject writableTarget =
+        new WorldObject(
+            4,
+            "target",
+            0,
+            4,
+            -1,
+            -1,
+            List.of(),
+            List.of(),
+            List.of(new WorldVerb("verb", 4, 2, -1, "return 1;")),
+            List.of());
+    WorldTxn deniedWorld = new WorldTxn(List.of(), List.of(nonProgrammer, writableTarget));
+    VmState denied = new VmState(Map.of(), 3);
+    new MooVm()
+        .execute(
+            new MooCompiler()
+                .compile(MooParser.parse("return set_verb_code(#4, 1, {\"return 2;\"});")),
+            denied,
+            deniedWorld,
+            new BuiltinCatalog());
+    assertEquals(ErrorValue.E_PERM, denied.uncaughtError().orElseThrow());
   }
 }

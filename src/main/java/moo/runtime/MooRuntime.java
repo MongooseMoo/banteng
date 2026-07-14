@@ -100,7 +100,7 @@ public final class MooRuntime {
   private List<String> executeEval(long player, String source) {
     WorldObject playerObject = world.object(player).orElseThrow();
     long location = playerObject.location();
-    WorldVerb eval = world.verb(location, "eval").orElseThrow();
+    WorldVerb eval = world.verb(location, 0).orElseThrow();
     Map<String, MooValue> locals =
         verbLocals(location, player, player, "eval", new ListValue(List.of()), source);
     return executeStored(eval, locals).output();

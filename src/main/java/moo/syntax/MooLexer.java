@@ -36,6 +36,7 @@ final class MooLexer {
     COMMA,
     SEMICOLON,
     DOT,
+    COLON,
     AT,
     DOLLAR,
     BACKTICK,
@@ -89,6 +90,7 @@ final class MooLexer {
       case ']' -> token(TokenKind.RIGHT_BRACKET, tokenLine, tokenColumn);
       case ',' -> token(TokenKind.COMMA, tokenLine, tokenColumn);
       case ';' -> token(TokenKind.SEMICOLON, tokenLine, tokenColumn);
+      case ':' -> token(TokenKind.COLON, tokenLine, tokenColumn);
       case '.' ->
           !atEnd() && isDigit(peek()) && (offset < 2 || source.charAt(offset - 2) != '.')
               ? number(tokenLine, tokenColumn, true)

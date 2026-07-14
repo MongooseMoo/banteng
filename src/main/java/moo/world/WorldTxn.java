@@ -1,5 +1,6 @@
 package moo.world;
 
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -12,6 +13,7 @@ import java.util.StringTokenizer;
 import moo.value.MooValue;
 import moo.value.MooValue.IntegerValue;
 import moo.value.MooValue.ObjectValue;
+import moo.value.MooValue.StringValue;
 
 /** The concrete transaction path for all runtime-visible world reads and writes. */
 public final class WorldTxn {
@@ -93,6 +95,7 @@ public final class WorldTxn {
   /** Finds a named verb locally and then through the parent chain. */
   public Optional<WorldVerb> verb(long objectId, String verbName) {
     Objects.requireNonNull(verbName, "verbName");
+    String requestedName = verbName.toLowerCase(Locale.ROOT);
     long current = objectId;
     while (current != -1) {
       Optional<WorldObject> candidate = object(current);
@@ -102,8 +105,22 @@ public final class WorldTxn {
       for (WorldVerb verb : candidate.orElseThrow().verbs()) {
         StringTokenizer names = new StringTokenizer(verb.names());
         while (names.hasMoreTokens()) {
-          String name = names.nextToken();
-          if (name.equalsIgnoreCase(verbName)) {
+          String pattern = names.nextToken().toLowerCase(Locale.ROOT);
+          int wildcard = pattern.indexOf('*');
+          boolean matches;
+          if (wildcard < 0) {
+            matches = pattern.equals(requestedName);
+          } else if (pattern.equals("*")) {
+            matches = true;
+          } else if (wildcard == pattern.length() - 1) {
+            matches = requestedName.startsWith(pattern.substring(0, wildcard));
+          } else {
+            String requiredPrefix = pattern.substring(0, wildcard);
+            String fullName = requiredPrefix + pattern.substring(wildcard + 1);
+            matches =
+                requestedName.startsWith(requiredPrefix) && fullName.startsWith(requestedName);
+          }
+          if (matches && (verb.permissions() & 4) != 0) {
             return Optional.of(verb);
           }
         }
@@ -139,6 +156,8 @@ public final class WorldTxn {
     }
     WorldObject object = candidate.orElseThrow();
     return switch (propertyName.toLowerCase(Locale.ROOT)) {
+      case "name" ->
+          Optional.of(new StringValue(object.name().getBytes(StandardCharsets.ISO_8859_1)));
       case "owner" -> Optional.of(new ObjectValue(object.owner()));
       case "programmer" ->
           Optional.of(new IntegerValue((object.flags() & PROGRAMMER_FLAG) == 0 ? 0 : 1));
@@ -228,6 +247,107 @@ public final class WorldTxn {
     return created;
   }
 
+  /** Removes one object from the current immutable world snapshot. */
+  public boolean recycleObject(long objectId) {
+    WorldObject target = object(objectId).orElse(null);
+    if (target == null) {
+      return false;
+    }
+    Map<Long, WorldObject> objects = new LinkedHashMap<>(world.objects());
+
+    if (target.location() != -1) {
+      WorldObject location = objects.get(target.location());
+      if (location != null) {
+        List<Long> contents = new ArrayList<>(location.contents());
+        contents.remove(objectId);
+        objects.put(
+            location.id(),
+            new WorldObject(
+                location.id(),
+                location.name(),
+                location.flags(),
+                location.owner(),
+                location.location(),
+                location.parent(),
+                contents,
+                location.children(),
+                location.verbs(),
+                location.properties()));
+      }
+    }
+
+    for (long contentId : target.contents()) {
+      WorldObject content = objects.get(contentId);
+      if (content != null && content.id() != objectId) {
+        objects.put(
+            content.id(),
+            new WorldObject(
+                content.id(),
+                content.name(),
+                content.flags(),
+                content.owner(),
+                -1,
+                content.parent(),
+                content.contents(),
+                content.children(),
+                content.verbs(),
+                content.properties()));
+      }
+    }
+
+    for (long childId : target.children()) {
+      WorldObject child = objects.get(childId);
+      if (child != null && child.id() != objectId) {
+        objects.put(
+            child.id(),
+            new WorldObject(
+                child.id(),
+                child.name(),
+                child.flags(),
+                child.owner(),
+                child.location(),
+                target.parent(),
+                child.contents(),
+                child.children(),
+                child.verbs(),
+                child.properties()));
+      }
+    }
+
+    if (target.parent() != -1) {
+      WorldObject parent = objects.get(target.parent());
+      if (parent != null) {
+        List<Long> children = new ArrayList<>();
+        for (long childId : parent.children()) {
+          if (childId == objectId) {
+            children.addAll(target.children());
+          } else {
+            children.add(childId);
+          }
+        }
+        objects.put(
+            parent.id(),
+            new WorldObject(
+                parent.id(),
+                parent.name(),
+                parent.flags(),
+                parent.owner(),
+                parent.location(),
+                parent.parent(),
+                parent.contents(),
+                children,
+                parent.verbs(),
+                parent.properties()));
+      }
+    }
+
+    objects.remove(objectId);
+    List<Long> players = new ArrayList<>(world.players());
+    players.remove(objectId);
+    replaceWorld(players, objects);
+    return true;
+  }
+
   /** Adds or removes the player flag and keeps the player index in the same transaction. */
   public boolean setPlayerFlag(long objectId, boolean enabled) {
     WorldObject object = object(objectId).orElse(null);
@@ -279,6 +399,81 @@ public final class WorldTxn {
     properties.add(new WorldProperty(name, value, owner, permissions));
     replaceObject(
         copyObject(object, object.flags(), object.owner(), object.location(), properties));
+    return true;
+  }
+
+  /** Adds one local verb using the existing immutable verb record. */
+  public int addVerb(long objectId, String names, long owner, int permissions, int preposition) {
+    Objects.requireNonNull(names, "names");
+    WorldObject object = object(objectId).orElse(null);
+    if (object == null) {
+      return 0;
+    }
+    List<WorldVerb> verbs = new ArrayList<>(object.verbs());
+    verbs.add(new WorldVerb(names, owner, permissions, preposition, ""));
+    replaceObject(
+        new WorldObject(
+            object.id(),
+            object.name(),
+            object.flags(),
+            object.owner(),
+            object.location(),
+            object.parent(),
+            object.contents(),
+            object.children(),
+            verbs,
+            object.properties()));
+    return verbs.size();
+  }
+
+  /** Deletes one resolved zero-based local verb from the immutable object record. */
+  public boolean deleteVerb(long objectId, int verbIndex) {
+    WorldObject object = object(objectId).orElse(null);
+    if (object == null || verbIndex < 0 || verbIndex >= object.verbs().size()) {
+      return false;
+    }
+    List<WorldVerb> verbs = new ArrayList<>(object.verbs());
+    verbs.remove(verbIndex);
+    replaceObject(
+        new WorldObject(
+            object.id(),
+            object.name(),
+            object.flags(),
+            object.owner(),
+            object.location(),
+            object.parent(),
+            object.contents(),
+            object.children(),
+            verbs,
+            object.properties()));
+    return true;
+  }
+
+  /** Replaces the source of one resolved zero-based local verb. */
+  public boolean setVerbCode(long objectId, int verbIndex, String programSource) {
+    Objects.requireNonNull(programSource, "programSource");
+    WorldObject object = object(objectId).orElse(null);
+    if (object == null || verbIndex < 0 || verbIndex >= object.verbs().size()) {
+      return false;
+    }
+    List<WorldVerb> verbs = new ArrayList<>(object.verbs());
+    WorldVerb verb = verbs.get(verbIndex);
+    verbs.set(
+        verbIndex,
+        new WorldVerb(
+            verb.names(), verb.owner(), verb.permissions(), verb.preposition(), programSource));
+    replaceObject(
+        new WorldObject(
+            object.id(),
+            object.name(),
+            object.flags(),
+            object.owner(),
+            object.location(),
+            object.parent(),
+            object.contents(),
+            object.children(),
+            verbs,
+            object.properties()));
     return true;
   }
 

@@ -101,6 +101,99 @@ final class MooCompilerTest {
   }
 
   @Test
+  void lowersEveryBuiltinArgumentThroughOneConstructedList() {
+    BytecodeProgram program =
+        new MooCompiler().compile(MooParser.parse("args = {1, 2, 3}; return max(@args);"));
+
+    assertEquals(
+        """
+        0 BUILD_LIST 0
+        1 PUSH_INTEGER 1
+        2 LIST_APPEND
+        3 PUSH_INTEGER 2
+        4 LIST_APPEND
+        5 PUSH_INTEGER 3
+        6 LIST_APPEND
+        7 DUP
+        8 STORE_LOCAL args
+        9 POP
+        10 BUILD_LIST 0
+        11 LOAD_LOCAL args
+        12 LIST_EXTEND
+        13 CALL max
+        14 RETURN""",
+        program.disassemble());
+  }
+
+  @Test
+  void lowersComputedPropertyWriteInToastObjectNameRhsOrder() {
+    BytecodeProgram program =
+        new MooCompiler()
+            .compile(
+                MooParser.parse(
+                    "name = \"first\"; #0.(name) = (name = \"second\"); return #0.(name);"));
+
+    assertEquals(
+        """
+        0 PUSH_STRING first
+        1 DUP
+        2 STORE_LOCAL name
+        3 POP
+        4 PUSH_OBJECT 0
+        5 LOAD_LOCAL name
+        6 PUSH_STRING second
+        7 DUP
+        8 STORE_LOCAL name
+        9 SET_PROPERTY
+        10 POP
+        11 PUSH_OBJECT 0
+        12 LOAD_LOCAL name
+        13 GET_PROPERTY
+        14 RETURN""",
+        program.disassemble());
+  }
+
+  @Test
+  void lowersStaticAndComputedVerbCallsInObjectNameArgumentsOrder() {
+    BytecodeProgram computed =
+        new MooCompiler()
+            .compile(MooParser.parse("name = \"target\"; return #0:(name)((name = \"missing\"));"));
+
+    assertEquals(
+        """
+        0 PUSH_STRING target
+        1 DUP
+        2 STORE_LOCAL name
+        3 POP
+        4 PUSH_OBJECT 0
+        5 LOAD_LOCAL name
+        6 BUILD_LIST 0
+        7 PUSH_STRING missing
+        8 DUP
+        9 STORE_LOCAL name
+        10 LIST_APPEND
+        11 CALL_VERB
+        12 RETURN""",
+        computed.disassemble());
+
+    BytecodeProgram staticCall =
+        new MooCompiler().compile(MooParser.parse("return #0:test(1, @args);"));
+
+    assertEquals(
+        """
+        0 PUSH_OBJECT 0
+        1 PUSH_STRING test
+        2 BUILD_LIST 0
+        3 PUSH_INTEGER 1
+        4 LIST_APPEND
+        5 LOAD_LOCAL args
+        6 LIST_EXTEND
+        7 CALL_VERB
+        8 RETURN""",
+        staticCall.disassemble());
+  }
+
+  @Test
   void compilesEveryCompleteStoredVerbIncludingUnexecutedBranches() throws Exception {
     Path fixture =
         Path.of("..", "moo-conformance-tests", "src", "moo_conformance", "_db", "Test.db");

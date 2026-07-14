@@ -25,7 +25,7 @@ public final class VmState {
   private Optional<ErrorValue> pendingError = Optional.empty();
   private Optional<ErrorValue> uncaughtError = Optional.empty();
   private OptionalLong switchedPlayer = OptionalLong.empty();
-  private long programmer;
+  private final long initialProgrammer;
 
   /** Creates an empty state for a pure root program. */
   public VmState() {
@@ -35,7 +35,7 @@ public final class VmState {
   /** Creates a state with explicit verb locals and task permissions. */
   public VmState(Map<String, MooValue> locals, long programmer) {
     initialLocals = normalizedLocals(locals);
-    this.programmer = programmer;
+    initialProgrammer = programmer;
   }
 
   /** Returns the next instruction index in the active frame. */
@@ -82,12 +82,15 @@ public final class VmState {
 
   /** Returns the current task programmer. */
   public long programmer() {
-    return programmer;
+    Frame frame = frames.peekFirst();
+    return frame == null ? initialProgrammer : frame.programmer;
   }
 
   void ensureRoot(BytecodeProgram program) {
     if (frames.isEmpty()) {
-      frames.push(new Frame(program, initialLocals, ReturnMode.ROOT));
+      frames.push(
+          new Frame(
+              program, initialLocals, ReturnMode.ROOT, initialProgrammer, OptionalLong.empty()));
     }
   }
 
@@ -100,7 +103,18 @@ public final class VmState {
   }
 
   void pushEvalFrame(BytecodeProgram program) {
-    frames.push(new Frame(program, currentFrame().locals, ReturnMode.EVAL));
+    Frame caller = currentFrame();
+    frames.push(
+        new Frame(
+            program, caller.locals, ReturnMode.EVAL, caller.programmer, OptionalLong.empty()));
+  }
+
+  void pushVerbFrame(
+      BytecodeProgram program,
+      Map<String, MooValue> locals,
+      long programmer,
+      OptionalLong recycleTarget) {
+    frames.push(new Frame(program, locals, ReturnMode.VERB, programmer, recycleTarget));
   }
 
   void finishFrame(MooValue value) {
@@ -111,13 +125,17 @@ public final class VmState {
       return;
     }
     frames.removeFirst();
-    currentFrame()
-        .operandStack
-        .push(new ListValue(List.of(new moo.value.MooValue.IntegerValue(1), value)));
+    if (frame.returnMode == ReturnMode.EVAL) {
+      currentFrame()
+          .operandStack
+          .push(new ListValue(List.of(new moo.value.MooValue.IntegerValue(1), value)));
+    } else {
+      currentFrame().operandStack.push(value);
+    }
   }
 
-  boolean unwindEvalFrame() {
-    if (currentFrame().returnMode != ReturnMode.EVAL) {
+  boolean unwindChildFrame() {
+    if (currentFrame().returnMode == ReturnMode.ROOT) {
       return false;
     }
     frames.removeFirst();
@@ -147,7 +165,7 @@ public final class VmState {
   }
 
   void setProgrammer(long programmer) {
-    this.programmer = programmer;
+    currentFrame().programmer = programmer;
   }
 
   private static Map<String, MooValue> normalizedLocals(Map<String, MooValue> locals) {
@@ -164,21 +182,32 @@ public final class VmState {
     final Deque<FinallyContinuation> finallyContinuations = new ArrayDeque<>();
     final Map<Integer, LoopCursor> loops = new LinkedHashMap<>();
     final ReturnMode returnMode;
+    final OptionalLong recycleTarget;
+    long programmer;
     int instructionPointer;
 
-    Frame(BytecodeProgram program, Map<String, MooValue> locals, ReturnMode returnMode) {
+    Frame(
+        BytecodeProgram program,
+        Map<String, MooValue> locals,
+        ReturnMode returnMode,
+        long programmer,
+        OptionalLong recycleTarget) {
       this.program = program;
       this.locals = normalizedLocals(locals);
       this.returnMode = returnMode;
+      this.programmer = programmer;
+      this.recycleTarget = recycleTarget;
     }
   }
 
   static final class ActiveHandler {
     final HandlerSpec specification;
+    final int operandDepth;
     HandlerPhase phase = HandlerPhase.TRY;
 
-    ActiveHandler(HandlerSpec specification) {
+    ActiveHandler(HandlerSpec specification, int operandDepth) {
       this.specification = specification;
+      this.operandDepth = operandDepth;
     }
   }
 
@@ -199,7 +228,8 @@ public final class VmState {
 
   enum ReturnMode {
     ROOT,
-    EVAL
+    EVAL,
+    VERB
   }
 
   enum HandlerPhase {

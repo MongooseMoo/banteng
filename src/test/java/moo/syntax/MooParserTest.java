@@ -85,6 +85,55 @@ final class MooParserTest {
         list.elements());
   }
 
+  @Test
+  void parsesCallSplicesAndStaticAndComputedPropertiesIntoSharedAstOwners() {
+    Ast.Program program =
+        MooParser.parse(
+            "return max(0, @items, 4); return #0.name; return #0.(name); #0.(name) = 9; "
+                + "return #0:test(1, @items); return #0:(name)();");
+
+    Ast.Return callReturn = assertInstanceOf(Ast.Return.class, program.statements().get(0));
+    Ast.Call call = assertInstanceOf(Ast.Call.class, callReturn.value().orElseThrow());
+    assertEquals("max", call.name());
+    assertEquals(
+        List.of(
+            new Ast.IntegerLiteral(0),
+            new Ast.Splice(new Ast.Identifier("items")),
+            new Ast.IntegerLiteral(4)),
+        call.arguments());
+
+    Ast.Return staticReturn = assertInstanceOf(Ast.Return.class, program.statements().get(1));
+    assertEquals(
+        new Ast.PropertyAccess(new Ast.ObjectLiteral(0), new Ast.StringLiteral("name")),
+        staticReturn.value().orElseThrow());
+
+    Ast.Return computedReturn = assertInstanceOf(Ast.Return.class, program.statements().get(2));
+    assertEquals(
+        new Ast.PropertyAccess(new Ast.ObjectLiteral(0), new Ast.Identifier("name")),
+        computedReturn.value().orElseThrow());
+
+    Ast.ExpressionStatement assignmentStatement =
+        assertInstanceOf(Ast.ExpressionStatement.class, program.statements().get(3));
+    Ast.Assignment assignment =
+        assertInstanceOf(Ast.Assignment.class, assignmentStatement.expression());
+    assertEquals(
+        new Ast.PropertyTarget(new Ast.ObjectLiteral(0), new Ast.Identifier("name")),
+        assignment.target());
+
+    Ast.Return staticVerbReturn = assertInstanceOf(Ast.Return.class, program.statements().get(4));
+    assertEquals(
+        new Ast.VerbCall(
+            new Ast.ObjectLiteral(0),
+            new Ast.StringLiteral("test"),
+            List.of(new Ast.IntegerLiteral(1), new Ast.Splice(new Ast.Identifier("items")))),
+        staticVerbReturn.value().orElseThrow());
+
+    Ast.Return computedVerbReturn = assertInstanceOf(Ast.Return.class, program.statements().get(5));
+    assertEquals(
+        new Ast.VerbCall(new Ast.ObjectLiteral(0), new Ast.Identifier("name"), List.of()),
+        computedVerbReturn.value().orElseThrow());
+  }
+
   private static Map<String, String> exactFixturePrograms(List<String> lines) {
     Map<String, String> programs = new LinkedHashMap<>();
     int lineIndex = 0;

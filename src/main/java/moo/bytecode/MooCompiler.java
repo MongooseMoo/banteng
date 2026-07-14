@@ -191,15 +191,39 @@ public final class MooCompiler {
       return;
     }
     if (expression instanceof Ast.Call call) {
+      instructions.add(new Instruction(Opcode.BUILD_LIST, 0));
       for (Ast.Expression argument : call.arguments()) {
-        compileExpression(argument, instructions);
+        if (argument instanceof Ast.Splice splice) {
+          compileExpression(splice.value(), instructions);
+          instructions.add(new Instruction(Opcode.LIST_EXTEND));
+        } else {
+          compileExpression(argument, instructions);
+          instructions.add(new Instruction(Opcode.LIST_APPEND));
+        }
       }
-      instructions.add(new Instruction(Opcode.CALL, call.arguments().size(), call.name()));
+      instructions.add(new Instruction(Opcode.CALL, call.name()));
+      return;
+    }
+    if (expression instanceof Ast.VerbCall call) {
+      compileExpression(call.object(), instructions);
+      compileExpression(call.name(), instructions);
+      instructions.add(new Instruction(Opcode.BUILD_LIST, 0));
+      for (Ast.Expression argument : call.arguments()) {
+        if (argument instanceof Ast.Splice splice) {
+          compileExpression(splice.value(), instructions);
+          instructions.add(new Instruction(Opcode.LIST_EXTEND));
+        } else {
+          compileExpression(argument, instructions);
+          instructions.add(new Instruction(Opcode.LIST_APPEND));
+        }
+      }
+      instructions.add(new Instruction(Opcode.CALL_VERB));
       return;
     }
     if (expression instanceof Ast.PropertyAccess property) {
       compileExpression(property.object(), instructions);
-      instructions.add(new Instruction(Opcode.GET_PROPERTY, property.property()));
+      compileExpression(property.property(), instructions);
+      instructions.add(new Instruction(Opcode.GET_PROPERTY));
       return;
     }
     if (expression instanceof Ast.IndexAccess index) {
@@ -239,8 +263,9 @@ public final class MooCompiler {
     }
     if (assignment.target() instanceof Ast.PropertyTarget property) {
       compileExpression(property.object(), instructions);
+      compileExpression(property.property(), instructions);
       compileExpression(assignment.value(), instructions);
-      instructions.add(new Instruction(Opcode.SET_PROPERTY, property.property()));
+      instructions.add(new Instruction(Opcode.SET_PROPERTY));
       return;
     }
     if (assignment.target() instanceof Ast.IndexTarget index) {

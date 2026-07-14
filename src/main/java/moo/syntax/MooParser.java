@@ -258,7 +258,7 @@ public final class MooParser {
     advance();
     String property = expect(TokenKind.IDENTIFIER, "system property name").lexeme();
     advance();
-    return new Ast.PropertyAccess(new Ast.ObjectLiteral(0), property);
+    return new Ast.PropertyAccess(new Ast.ObjectLiteral(0), new Ast.StringLiteral(property));
   }
 
   private Ast.ListLiteral parseListLiteral() {
@@ -319,6 +319,29 @@ public final class MooParser {
     return switch (current.kind()) {
       case LEFT_PAREN -> parseCall(receiver);
       case DOT -> parseProperty(receiver);
+      case COLON -> {
+        advance();
+        Ast.Expression name;
+        if (match(TokenKind.LEFT_PAREN)) {
+          name = parseExpression(ASSIGNMENT_PRECEDENCE);
+          expectAndAdvance(TokenKind.RIGHT_PAREN, "')' after computed verb name");
+        } else {
+          String staticName = expect(TokenKind.IDENTIFIER, "verb name").lexeme();
+          advance();
+          name = new Ast.StringLiteral(staticName);
+        }
+        expectAndAdvance(TokenKind.LEFT_PAREN, "'(' before verb arguments");
+        List<Ast.Expression> arguments = new ArrayList<>();
+        if (current.kind() != TokenKind.RIGHT_PAREN) {
+          do {
+            boolean splice = match(TokenKind.AT);
+            Ast.Expression argument = parseExpression(ASSIGNMENT_PRECEDENCE);
+            arguments.add(splice ? new Ast.Splice(argument) : argument);
+          } while (match(TokenKind.COMMA));
+        }
+        expectAndAdvance(TokenKind.RIGHT_PAREN, "')' after verb arguments");
+        yield new Ast.VerbCall(receiver, name, arguments);
+      }
       case LEFT_BRACKET -> parseIndex(receiver);
       default -> throw error("expected postfix expression");
     };
@@ -332,7 +355,9 @@ public final class MooParser {
     List<Ast.Expression> arguments = new ArrayList<>();
     if (current.kind() != TokenKind.RIGHT_PAREN) {
       do {
-        arguments.add(parseExpression(ASSIGNMENT_PRECEDENCE));
+        boolean splice = match(TokenKind.AT);
+        Ast.Expression argument = parseExpression(ASSIGNMENT_PRECEDENCE);
+        arguments.add(splice ? new Ast.Splice(argument) : argument);
       } while (match(TokenKind.COMMA));
     }
     expectAndAdvance(TokenKind.RIGHT_PAREN, "')' after call arguments");
@@ -341,8 +366,15 @@ public final class MooParser {
 
   private Ast.PropertyAccess parseProperty(Ast.Expression receiver) {
     advance();
-    String property = expect(TokenKind.IDENTIFIER, "property name").lexeme();
-    advance();
+    Ast.Expression property;
+    if (match(TokenKind.LEFT_PAREN)) {
+      property = parseExpression(ASSIGNMENT_PRECEDENCE);
+      expectAndAdvance(TokenKind.RIGHT_PAREN, "')' after computed property name");
+    } else {
+      String name = expect(TokenKind.IDENTIFIER, "property name").lexeme();
+      advance();
+      property = new Ast.StringLiteral(name);
+    }
     return new Ast.PropertyAccess(receiver, property);
   }
 
@@ -380,7 +412,10 @@ public final class MooParser {
   }
 
   private static boolean isPostfix(TokenKind kind) {
-    return kind == TokenKind.LEFT_PAREN || kind == TokenKind.DOT || kind == TokenKind.LEFT_BRACKET;
+    return kind == TokenKind.LEFT_PAREN
+        || kind == TokenKind.DOT
+        || kind == TokenKind.COLON
+        || kind == TokenKind.LEFT_BRACKET;
   }
 
   private static int binaryPrecedence(TokenKind kind) {

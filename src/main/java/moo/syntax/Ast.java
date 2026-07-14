@@ -91,6 +91,7 @@ public sealed interface Ast
           MapLiteral,
           Splice,
           Call,
+          VerbCall,
           Assignment,
           PropertyAccess,
           IndexAccess,
@@ -132,9 +133,16 @@ public sealed interface Ast
     }
   }
 
+  record VerbCall(Expression object, Expression name, List<Expression> arguments)
+      implements Expression {
+    public VerbCall {
+      arguments = List.copyOf(arguments);
+    }
+  }
+
   record Assignment(AssignmentTarget target, Expression value) implements Expression {}
 
-  record PropertyAccess(Expression object, String property) implements Expression {}
+  record PropertyAccess(Expression object, Expression property) implements Expression {}
 
   record IndexAccess(Expression collection, Expression index) implements Expression {}
 
@@ -151,7 +159,7 @@ public sealed interface Ast
 
   record VariableTarget(String name) implements AssignmentTarget {}
 
-  record PropertyTarget(Expression object, String property) implements AssignmentTarget {}
+  record PropertyTarget(Expression object, Expression property) implements AssignmentTarget {}
 
   record IndexTarget(Expression collection, Expression index) implements AssignmentTarget {}
 
