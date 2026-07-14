@@ -923,6 +923,7 @@ selected and 11,504 deselected in 5.15 seconds. The complete
 `connection_lifecycle_toast_oracle` fail-fast run then passes the first nine
 rows and reaches `audit_user_reconnected_cross_listener_hooks`. Its final
 observation is `[0, 0, 4]` instead of `[1, 1, 4]`: the old-listener client
-disconnect and new-listener connected hooks are absent, while the dynamic
-connection count is already correct. Row nine is accepted; cross-listener
+disconnect and new-listener connected hooks are absent, while the unset
+`user_reconnected` observation correctly remains a list with type code four.
+Row nine is accepted; cross-listener
 reconnection is the next causally relevant unchecked lifecycle target.
