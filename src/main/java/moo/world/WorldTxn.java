@@ -609,6 +609,71 @@ public final class WorldTxn {
     return true;
   }
 
+  /** Replaces the information fields of one resolved zero-based local verb. */
+  public boolean setVerbInfo(
+      long objectId, int verbIndex, String names, long owner, int permissions) {
+    Objects.requireNonNull(names, "names");
+    WorldObject object = object(objectId).orElse(null);
+    if (object == null || verbIndex < 0 || verbIndex >= object.verbs().size()) {
+      return false;
+    }
+    List<WorldVerb> verbs = new ArrayList<>(object.verbs());
+    WorldVerb verb = verbs.get(verbIndex);
+    verbs.set(
+        verbIndex,
+        new WorldVerb(
+            names,
+            owner,
+            (verb.permissions() & ~15) | permissions,
+            verb.preposition(),
+            verb.programSource()));
+    replaceObject(
+        new WorldObject(
+            object.id(),
+            object.name(),
+            object.flags(),
+            object.owner(),
+            object.location(),
+            object.parent(),
+            object.contents(),
+            object.children(),
+            verbs,
+            object.properties()));
+    return true;
+  }
+
+  /** Replaces the argument fields of one resolved zero-based local verb. */
+  public boolean setVerbArgs(
+      long objectId, int verbIndex, int direct, int preposition, int indirect) {
+    WorldObject object = object(objectId).orElse(null);
+    if (object == null || verbIndex < 0 || verbIndex >= object.verbs().size()) {
+      return false;
+    }
+    List<WorldVerb> verbs = new ArrayList<>(object.verbs());
+    WorldVerb verb = verbs.get(verbIndex);
+    verbs.set(
+        verbIndex,
+        new WorldVerb(
+            verb.names(),
+            verb.owner(),
+            (verb.permissions() & 15) | (direct << 4) | (indirect << 6),
+            preposition,
+            verb.programSource()));
+    replaceObject(
+        new WorldObject(
+            object.id(),
+            object.name(),
+            object.flags(),
+            object.owner(),
+            object.location(),
+            object.parent(),
+            object.contents(),
+            object.children(),
+            verbs,
+            object.properties()));
+    return true;
+  }
+
   private static Optional<WorldProperty> findProperty(WorldObject object, String propertyName) {
     for (WorldProperty property : object.properties()) {
       if (property.name().equalsIgnoreCase(propertyName)) {

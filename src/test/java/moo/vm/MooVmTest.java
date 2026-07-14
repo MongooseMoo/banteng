@@ -1104,6 +1104,49 @@ final class MooVmTest {
   }
 
   @Test
+  void setVerbInfoAndArgsReplaceExistingLocalLoginMetadata() {
+    String source = "return #1;";
+    WorldVerb login = new WorldVerb("do_login_command", 9, 85, -2, source);
+    WorldObject wizard =
+        new WorldObject(0, "wizard", 6, 0, -1, -1, List.of(), List.of(), List.of(login), List.of());
+    WorldObject oldOwner =
+        new WorldObject(9, "old owner", 0, 9, -1, -1, List.of(), List.of(), List.of(), List.of());
+    WorldTxn world = new WorldTxn(List.of(), List.of(wizard, oldOwner));
+    VmState state = new VmState(Map.of(), 0);
+
+    new MooVm()
+        .execute(
+            new MooCompiler()
+                .compile(
+                    MooParser.parse(
+                        "return {"
+                            + "set_verb_info(#0, \"do_login_command\", "
+                            + "{#0, \"rxd\", \"do_login_command\"}), "
+                            + "set_verb_args(#0, \"do_login_command\", "
+                            + "{\"this\", \"none\", \"this\"})};")),
+            state,
+            world,
+            new BuiltinCatalog());
+
+    assertEquals(VmState.Outcome.RETURNED, state.outcome());
+    assertEquals(
+        new ListValue(List.of(new IntegerValue(0), new IntegerValue(0))),
+        state.returnValue().orElseThrow());
+    WorldVerb changed = world.verb(0, 0).orElseThrow();
+    assertEquals("do_login_command", changed.names());
+    assertEquals(0, changed.owner());
+    assertEquals(173, changed.permissions());
+    assertEquals(-1, changed.preposition());
+    assertEquals(source, changed.programSource());
+    assertEquals(
+        BuiltinCatalog.EffectClass.TRANSACTION_WRITE,
+        new BuiltinCatalog().effectClass("set_verb_info"));
+    assertEquals(
+        BuiltinCatalog.EffectClass.TRANSACTION_WRITE,
+        new BuiltinCatalog().effectClass("set_verb_args"));
+  }
+
+  @Test
   void deleteVerbUsesLocalStringOrPositiveIntegerDescriptorsAndObjectWritePermission() {
     WorldVerb parentVerb = new WorldVerb("parent", 0, 4, -1, "return 3;");
     WorldVerb firstVerb = new WorldVerb("fi*rst", 0, 4, -1, "return 1;");

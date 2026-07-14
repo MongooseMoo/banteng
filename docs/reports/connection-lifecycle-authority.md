@@ -300,3 +300,113 @@ and 11,503 deselected in 5.06 seconds. The targeted family fail-fast receipt is
 three passing rows followed by `audit_proxy_command_clears_login_input`, with
 11,481 deselected in 11.53 seconds. Row three is accepted; exact convergence
 continues on row four after this slice is committed.
+
+## Fourth row: consume a trusted PROXY prelude
+
+The fourth row is `audit_proxy_command_clears_login_input` at YAML lines
+254-342. It trusts the control connection's observed peer IP, replaces the
+primary listener's `do_login_command` with a recorder, opens a new primary
+connection, and sends exactly
+`PROXY TCP4 127.0.0.1 198.51.100.9 4242 7777`. The only asserted contract is
+that successful trusted-proxy handling consumes this canonical line before
+login dispatch, so `args` is empty and `argstr` is `""`.
+
+Barn's normative `../barn/spec/login.md:25-43` and
+`../barn/spec/server.md:129-170` describe login imprecisely as positional
+`do_login_command(connection, line)` input. Neither section specifies trusted
+proxy detection, parsing, metadata rewrites, failures, or command clearing.
+The exact row therefore does not derive those behaviors from the normative
+prose.
+
+At pinned Toast commit `aecc51e9449c6e7c95272f0f044b5ba38948459e`, the
+public path is `src/network.cc:549,562` through
+`src/server.cc:1535-1540` and `src/tasks.cc:1171-1179,1769` to the semantic
+owner at `src/tasks.cc:878-916`. Trust is an exact remote-IP string match in
+the listener-resolved `trusted_proxies` list at
+`src/server.cc:1576-1598`. `src/tasks.cc:891-915` detects a case-sensitive
+five-byte `PROXY` prefix, calls `proxy_connected`, and clears the command only
+when that call succeeds. `src/server.cc:1601-1654` tokenizes on ASCII spaces,
+requires six tokens, maps the announced addresses and ports into the concrete
+connection rewrite, and ignores extra tokens. The login task then receives an
+empty word list and empty argument string.
+
+Barn's public path is
+`../barn/server/input_processor.go:65-160,196-230,368-478` through
+`../barn/scheduler/task_factory.go:124-176` and
+`../barn/scheduler/task_runtime.go:151-185`. Its canonical successful path
+agrees that a trusted PROXY prelude is consumed before login dispatch. Outside
+this row Barn differs: it requires the literal prefix `PROXY `, uses
+`strings.Fields`, validates only the announced source IP, and clears every
+detected trusted line even when parsing fails. Toast's malformed-prefix,
+failure, metadata, reverse-name, and caller behaviors are not selected by this
+row and require separate durable oracle rows before implementation.
+
+The exact pinned Toast row passes with one selected and 11,503 deselected in
+5.19 seconds. At committed Banteng baseline `3984b04`, the exact row fails with
+one selected and 11,503 deselected in 5.23 seconds: expected `{{}, ""}` but the
+recorder remains `{}`. That receipt does **not** reach PROXY handling. The row's
+setup first calls `set_verb_info` and `set_verb_args`; both are absent from
+`BuiltinCatalog`, so the setup program aborts with `E_VERBNF` before installing
+the recorder code. The earlier diagnosis that the empty recorder proved a
+PROXY-clearing discrepancy was wrong.
+
+A temporary focused Java regression that installed the recorder without those
+unsupported setup calls proved the later expected PROXY red: Banteng supplied
+all six words and the original line instead of `{}` and `""`. That experiment
+was fully restored because it is not the first causal failure in the managed
+row. Exact convergence remains on row four but moves first to the
+`set_verb_info`/`set_verb_args` setup prerequisite. Those verb-metadata
+mutations require their own authority gate and committed kept slice before the
+PROXY implementation can begin. No PROXY production edit is retained.
+
+## Fourth-row prerequisite: verb metadata setters
+
+The durable positive authorities are `verbs::set_verb_info_wizard_succeeds`
+and `verbs::set_verb_args_basic` at
+`../moo-conformance-tests/src/moo_conformance/_tests/builtins/verbs.yaml:449-483`.
+The exact pinned Toast run passes both rows with 11,502 deselected in 3.61
+seconds. They prove successful local-verb mutation and an integer-zero return;
+they do not prove the broader invalid-input matrix.
+
+Barn's normative `../barn/spec/builtins/verbs.md:72-129,134-195` describes the
+metadata and argument lists, but incorrectly calls both setter returns `none`.
+Its `set_verb_info` permission summary is also incomplete. The positive rows
+and pinned Toast source select the contract used here.
+
+At pinned Toast commit `aecc51e9449c6e7c95272f0f044b5ba38948459e`, both
+functions register at exact arity three in `src/verbs.cc:655-667`.
+`src/verbs.cc:77-171,215-236,321-362,421-454` validates a valid target, a local
+string or positive one-based descriptor, the exact three-element lists, valid
+owner, `r/w/x/d` flags, nonempty names, `none`/`any`/`this` object specs, and a
+recognized individual preposition. Both require verb write permission;
+`set_verb_info` additionally restricts a nonwizard's new owner. The concrete
+mutations are in `src/db_verbs.cc:758-818,848-875`.
+
+Barn registers the same names in
+`../barn/builtins/registry.go:174-182` and implements them through
+`../barn/builtins/verbs.go:543-665` and
+`../barn/db/store/store_verbs.go:405-455`. It agrees on both successful rows
+but differs outside them: it accepts only string descriptors, performs weaker
+permission and value validation, and stores looser argument text. Those
+differences are not selected by this prerequisite and remain for separately
+proven verb-family rows.
+
+`WorldVerb` already stores names, owner, packed permission and direct/indirect
+argument bits, preposition, and source. The smallest owned Banteng slice adds
+the two named transaction-write builtins to `BuiltinCatalog` and two concrete
+immutable-record replacements to `WorldTxn`; it does not change the verb data
+model. The focused regression invokes the exact row-four setter calls on an
+existing local `do_login_command`, expects `{0, 0}`, and verifies the changed
+metadata while preserving source. Getter builtins, inherited resolution,
+generic resolver/parser helpers, interfaces, adapters, and PROXY behavior are
+outside this prerequisite.
+
+The focused Java 25 regression first ended `ERRORED` because both builtin names
+were absent. After the owned implementation it returns `{0, 0}` and verifies
+packed permissions `173`, preposition `-1`, and unchanged verb source. The
+complete Java 25 `check installDist` gate passes. The exact managed row still
+fails with one selected and 11,503 deselected in 5.23 seconds, but it now
+reaches the intended PROXY assertion: the recorder contains all six PROXY words
+and the original line instead of remaining empty. This is a kept reduction.
+The setter prerequisite is committed before the rejected PROXY experiment is
+reintroduced under its already-frozen row-four authority.
