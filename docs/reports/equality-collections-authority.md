@@ -26,7 +26,7 @@ families.
 - Durable conformance authority after the focused equality and raw-byte
   additions:
   `../moo-conformance-tests` at
-  `e9517c8ab67346b2b766cac310d869ff35087753`.
+  `13de65fa1d65d35b61926b15343c90d2fd2531f2`.
 - Stock profile: `../barn/profiles/toast/stock-wsl-testdb.json`, including
   `option.PROMOTE_NUMBERS: false`.
 
@@ -119,6 +119,12 @@ single bytes `C0` and `E0` remain different while ASCII `A` and `a` compare
 equal. Together the two rows distinguish UTF-8-aware comparison from either
 ASCII-only or Latin-1-code-page folding.
 
+Conformance commit `13de65f` adds
+`equality::map_equal_key_replacement_preserves_new_key`. It proves that both a
+duplicate equal key in a map literal and an indexed update replace the stored
+key object as well as its value; `mapkeys()` exposes the spelling of the later
+key.
+
 ## Managed oracle results and corrected disagreement
 
 Every oracle command used the exact managed procedure from
@@ -137,6 +143,12 @@ against the tracked fixture.
 - The later raw-byte row passed its exact managed selection, and the corrected
   valid-UTF-8 equality row passed its exact managed selection, each `1 passed,
   11493 deselected` out of 11,494 collected.
+- The replacement-key discriminator passed its exact managed Toast selection,
+  `1 passed, 11494 deselected` out of 11,495 collected. Against the otherwise
+  green pre-commit Banteng slice, the expanded equality family produced the
+  intended red result: `15 passed, 1 failed`, returning the first key spellings
+  `{"Key", "First"}` instead of Toast's later spellings
+  `{"kEY", "fIRST"}`.
 
 The failed first expectation and later raw-byte discriminator are retained
 because they change the Java decision. The managed Toast process runs under
@@ -184,7 +196,10 @@ owner. Existing `MooVm.equality()` must continue to call `left.equals(right)`.
   order-independent recursive equality using the already frozen value
   equality and hash contracts. Do not add a key wrapper or comparator.
 - Map construction and update reject LIST and MAP keys with `E_TYPE`. Updating
-  an equal key replaces its value without mutating the prior `MapValue`.
+  an equal key replaces both its stored key object and its value without
+  mutating the prior `MapValue`; the replacement remains at that entry's
+  existing insertion position. Literal entries apply the same sequential
+  replacement operation.
 - Add concrete MAP-literal and splice syntax nodes only. A splice node is
   compile-time syntax and never enters the runtime value hierarchy.
 - Lower ordinary list elements and splices with explicit append/extend
@@ -204,5 +219,5 @@ owner. Existing `MooVm.equality()` must continue to call `left.equals(right)`.
 The targeted Java tests must first demonstrate the five original managed
 failures plus the three new discriminator contracts. The kept implementation
 then must pass focused parser/compiler/value/VM/runtime tests, `gradlew check`,
-the installed-distribution managed `equality::` family with all 15 rows, and a
+the installed-distribution managed `equality::` family with all 16 rows, and a
 fresh plan reread before commit.
