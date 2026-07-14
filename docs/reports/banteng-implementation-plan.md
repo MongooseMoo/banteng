@@ -187,7 +187,13 @@ contracts are derived from Barn and Toast and proven by the oracle.
 Deliverables:
 
 - Commit `jvm-moo-architecture-research.md`, `java-ots-library-review.md`, and this plan as Banteng's first scoped documentation slice.
-- Verify and record the current WSL Toast source identity and executable using `../barn/reports/toast-oracle-wsl.md` before any behavioral claim.
+- Verify and record the current WSL Toast source identity and executable using
+  `../barn/plans/barn-toast-mongoose-convergence-100-line.md`,
+  `../barn/profiles/toast/stock-wsl-testdb.json`, and
+  `../barn/scripts/run_toast_wsl.sh` before any behavioral claim. Use the exact
+  managed command shape recorded in
+  `../barn/plans/barn-toast-mongoose-convergence-workstreams.md`; do not use a
+  manual Toast process or `moo --version` exit status as a substitute.
 - Audit Barn `spec/tasks.md`, `spec/go-design.md`, `spec/vm.md`, `spec/database.md`, and `spec/README.md` against Toast and current Barn.
 - Correct the contradicted task/concurrency passages. Separate normative MOO semantics from historical Go sketches; do not replace them with Banteng design notes.
 - Fix stale source paths in the spec and add direct Toast source/evidence references.
