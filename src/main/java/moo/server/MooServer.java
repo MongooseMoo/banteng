@@ -12,6 +12,7 @@ import java.net.ServerSocket;
 import java.net.Socket;
 import java.net.SocketException;
 import java.nio.charset.StandardCharsets;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -21,6 +22,10 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import moo.builtin.BuiltinCatalog.ListenerControl;
 import moo.runtime.MooRuntime;
+import moo.value.MooValue;
+import moo.value.MooValue.IntegerValue;
+import moo.value.MooValue.MapValue;
+import moo.value.MooValue.StringValue;
 import moo.world.WorldTxn;
 
 /** The concrete blocking socket server for the first managed vertical slice. */
@@ -99,8 +104,22 @@ public final class MooServer implements AutoCloseable, ListenerControl {
         BufferedWriter output =
             new BufferedWriter(
                 new OutputStreamWriter(socket.getOutputStream(), StandardCharsets.ISO_8859_1))) {
+      Map<MooValue, MooValue> connectionInfo = new LinkedHashMap<>();
+      String sourceAddress = socket.getLocalAddress().getHostAddress();
+      String destinationAddress = socket.getInetAddress().getHostAddress();
+      connectionInfo.put(encode("source_address"), encode(sourceAddress));
+      connectionInfo.put(encode("source_ip"), encode(sourceAddress));
+      connectionInfo.put(encode("source_port"), new IntegerValue(socket.getLocalPort()));
+      connectionInfo.put(encode("destination_address"), encode(destinationAddress));
+      connectionInfo.put(encode("destination_ip"), encode(destinationAddress));
+      connectionInfo.put(encode("destination_port"), new IntegerValue(socket.getPort()));
+      connectionInfo.put(
+          encode("protocol"),
+          encode(socket.getInetAddress().getAddress().length == 16 ? "IPv6" : "IPv4"));
+      connectionInfo.put(encode("outbound"), new IntegerValue(0));
       List<String> initialOutput =
-          runtime.openConnection(connectionId, listener.handler, listener.printMessages);
+          runtime.openConnection(
+              connectionId, listener.handler, listener.printMessages, new MapValue(connectionInfo));
       opened = true;
       writeLines(output, initialOutput);
       String line;
@@ -125,6 +144,10 @@ public final class MooServer implements AutoCloseable, ListenerControl {
       output.write("\r\n");
     }
     output.flush();
+  }
+
+  private static StringValue encode(String value) {
+    return new StringValue(value.getBytes(StandardCharsets.ISO_8859_1));
   }
 
   /** Binds and starts a dynamic listener owned by one MOO object. */

@@ -54,6 +54,16 @@ final class MooServerTest {
         executeSetup(output, input, "sysobj", "#0");
         executeSetup(output, input, "nothing", "#-1");
 
+        writeLine(output, "; return connection_info(player)[\"destination_ip\"];");
+        assertEquals(
+            List.of(
+                CONNECTION_PREFIX,
+                CONNECTION_PREFIX,
+                "{1, \"127.0.0.1\"}",
+                CONNECTION_SUFFIX,
+                CONNECTION_SUFFIX),
+            readLines(input, 5));
+
         writeLine(output, "; return 1 + 1;");
         assertEquals(
             List.of(

@@ -12,6 +12,7 @@ import java.util.OptionalLong;
 import java.util.StringTokenizer;
 import moo.value.MooValue;
 import moo.value.MooValue.IntegerValue;
+import moo.value.MooValue.MapValue;
 import moo.value.MooValue.ObjectValue;
 import moo.value.MooValue.StringValue;
 
@@ -22,6 +23,7 @@ public final class WorldTxn {
   private static final int WIZARD_FLAG = 4;
 
   private final Map<Long, Long> connections = new LinkedHashMap<>();
+  private final Map<Long, MapValue> connectionInfo = new LinkedHashMap<>();
   private World world;
 
   /** Creates a transaction over immutable snapshots of the supplied records. */
@@ -50,23 +52,43 @@ public final class WorldTxn {
 
   /** Registers one negative pre-login connection object. */
   public void openConnection(long connectionId) {
+    openConnection(connectionId, new MapValue(Map.of()));
+  }
+
+  /** Registers one negative connection and its immutable network metadata. */
+  public void openConnection(long connectionId, MapValue info) {
     if (connectionId >= 0) {
       throw new IllegalArgumentException("connection object must be negative");
     }
     if (connections.putIfAbsent(connectionId, connectionId) != null) {
       throw new IllegalArgumentException("duplicate connection #" + connectionId);
     }
+    connectionInfo.put(connectionId, Objects.requireNonNull(info, "info"));
   }
 
   /** Removes one connection record. */
   public void closeConnection(long connectionId) {
     connections.remove(connectionId);
+    connectionInfo.remove(connectionId);
   }
 
   /** Returns the player currently attached to a connection. */
   public OptionalLong connectionPlayer(long connectionId) {
     Long player = connections.get(connectionId);
     return player == null ? OptionalLong.empty() : OptionalLong.of(player);
+  }
+
+  /** Returns network metadata for a connection object or its attached player. */
+  public Optional<MapValue> connectionInfo(long objectId) {
+    if (connections.containsKey(objectId)) {
+      return Optional.ofNullable(connectionInfo.get(objectId));
+    }
+    for (Map.Entry<Long, Long> connection : connections.entrySet()) {
+      if (connection.getValue() == objectId) {
+        return Optional.ofNullable(connectionInfo.get(connection.getKey()));
+      }
+    }
+    return Optional.empty();
   }
 
   /** Stages a player switch on an existing connection. */

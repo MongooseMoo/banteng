@@ -200,6 +200,24 @@ public final class BuiltinCatalog {
             ? Result.zero()
             : Result.error(ErrorValue.E_INVARG);
       }
+      case "connection_info" -> {
+        if (arguments.size() != 1) {
+          yield Result.error(ErrorValue.E_ARGS);
+        }
+        if (!(arguments.getFirst() instanceof ObjectValue connection)) {
+          yield Result.error(ErrorValue.E_TYPE);
+        }
+        MapValue info = world.connectionInfo(connection.value()).orElse(null);
+        if (info == null) {
+          yield Result.error(ErrorValue.E_INVARG);
+        }
+        WorldObject permissions = world.object(programmer).orElse(null);
+        if (connection.value() != programmer
+            && (permissions == null || (permissions.flags() & 4) == 0)) {
+          yield Result.error(ErrorValue.E_PERM);
+        }
+        yield Result.value(info);
+      }
       case "create" -> create(arguments, world, programmer);
       case "recycle" -> {
         if (arguments.size() != 1) {
@@ -359,7 +377,11 @@ public final class BuiltinCatalog {
           "function_info" ->
           EffectClass.PURE;
       case "valid", "parent" -> EffectClass.TRANSACTION_READ;
-      case "queued_tasks", "sqlite_handles", "sqlite_info", "sqlite_last_insert_row_id" ->
+      case "connection_info",
+          "queued_tasks",
+          "sqlite_handles",
+          "sqlite_info",
+          "sqlite_last_insert_row_id" ->
           EffectClass.EXTERNAL_READ;
       case "sqlite_query", "sqlite_execute" -> EffectClass.SUSPENDING_HOST;
       case "create",

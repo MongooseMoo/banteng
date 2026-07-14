@@ -20,6 +20,7 @@ import moo.bytecode.MooCompiler;
 import moo.syntax.MooParser;
 import moo.value.MooValue;
 import moo.value.MooValue.ListValue;
+import moo.value.MooValue.MapValue;
 import moo.value.MooValue.ObjectValue;
 import moo.value.MooValue.StringValue;
 import moo.vm.MooVm;
@@ -56,7 +57,13 @@ public final class MooRuntime {
   /** Registers a connection accepted by one concrete listener. */
   public synchronized List<String> openConnection(
       long connectionId, long listenerHandler, boolean printMessages) {
-    world.openConnection(connectionId);
+    return openConnection(connectionId, listenerHandler, printMessages, new MapValue(Map.of()));
+  }
+
+  /** Registers a connection with its listener identity and network metadata. */
+  public synchronized List<String> openConnection(
+      long connectionId, long listenerHandler, boolean printMessages, MapValue connectionInfo) {
+    world.openConnection(connectionId, connectionInfo);
     connections.put(connectionId, new ConnectionState(listenerHandler, printMessages));
     try {
       return executeLogin(connectionId, "");

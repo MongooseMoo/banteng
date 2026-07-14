@@ -206,3 +206,45 @@ pass. The exact managed row passes with one selected and 11,503 deselected in
 `audit_listener_handler_do_blank_command` first failing, with 11,481
 deselected in 9.11 seconds. Rows one and two are accepted; exact convergence
 continues on row three.
+
+## Third-row prerequisite: connection network metadata
+
+The third row is `audit_listener_handler_do_blank_command` at YAML lines
+174-252. Before it creates the dynamic listener, its setup reads
+`connection_info(player)["destination_ip"]` from the harness's authenticated
+control connection and installs that address in `#6.trusted_proxies`. The
+blank-command behavior cannot be reached until that exact prerequisite works.
+
+The pinned Toast row passes with one selected and 11,503 deselected in 5.13
+seconds. The managed Banteng baseline failed during setup with one selected
+and 11,503 deselected in 4.53 seconds because `connection_info` raised
+`E_VERBNF`. The focused real-socket Java regression likewise returned
+`{2, {E_VERBNF}}` before the implementation and returns
+`{1, "127.0.0.1"}` afterward.
+
+There is no dedicated normative `connection_info` contract in the Barn
+specification. Toast `src/server.cc:3032-3072` resolves either a live negative
+connection object or a connected player, raises `E_INVARG` when no connection
+exists, permits only that player or a wizard, and returns the eight network
+fields `source_address`, `source_ip`, `source_port`, `destination_address`,
+`destination_ip`, `destination_port`, `protocol`, and `outbound`. Barn
+`../barn/builtins/network.go:1161-1220` implements the same lookup, permission,
+and field surface through its concrete connection manager. The implementations
+agree on the observable contract needed by this row; the managed Toast receipt
+resolves the setup behavior.
+
+The accepted prerequisite keeps immutable per-connection metadata beside the
+existing connection record in `WorldTxn`, populated directly from the accepted
+socket by `MooServer`. `BuiltinCatalog.connection_info` validates exact arity
+and type, obtains the record only through `WorldTxn`, applies the Toast
+permission rule, and returns the stored map. Closing a connection removes both
+the player attachment and metadata. No alternate networking owner, adapter, or
+non-transactional world access is introduced.
+
+The complete Java 25 `check installDist` gate passes. The exact managed row now
+advances through setup and fails after the dynamic connection is accepted in
+3.68 seconds: `MooRuntime.executeLogin` looks for `do_login_command` and raises
+`NoSuchElementException`. That later failure is the row's actual trusted-proxy
+blank-dispatch discrepancy, so it is proof of a kept reduction but is not
+claimed as a passing row. The `connection_info` prerequisite is committed
+before the next semantic slice begins.
