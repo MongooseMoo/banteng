@@ -4,9 +4,9 @@
 
 This record freezes the exact contract needed to complete the managed
 `splice::` family. The active gaps are argument splicing in builtin calls,
-computed property reads and writes, computed verb calls, and the direct world
-mutations required by those rows: `max`, `recycle`, `add_verb`, and
-`set_verb_code`.
+computed property reads and writes, computed verb calls, handler operand-stack
+restoration, and the direct world mutations required by those rows: `max`,
+`recycle`, `add_verb`, `delete_verb`, and `set_verb_code`.
 
 This slice does not authorize a runtime splice value, argument adapter,
 property resolver, call-context interface, verb-dispatch service, mutable world
@@ -15,8 +15,8 @@ the existing concrete owners.
 
 ## Verified identities
 
-- Banteng before this slice:
-  `4c7f53a6cbf6d40b818c08bbe1a9d01a3ce4d373`.
+- Banteng committed base for the active source slice:
+  `d29107c372d7fb5b5e977ee1677e86045ce75a79`.
 - Banteng oracle procedure:
   `docs/reports/toast-oracle-identity-2026-07-14.md`.
 - Toast source and executable: `/root/src/toaststunt` at
@@ -24,9 +24,9 @@ the existing concrete owners.
   `/root/src/toaststunt/build-release/moo`.
 - Barn implementation reference at audit time:
   `6400748c69a2b5fe8eb1f90fbcfa28b34c0590e9`.
-- Durable conformance authority after the focused additions:
+- Durable conformance authority after the focused additions and corrections:
   `../moo-conformance-tests` at
-  `8a79771be0b1e4db240ea8065f4c84386e08005a`.
+  `4de57abc69614ccac71ae8fb0848a0771fde4ea2`.
 - Stock profile: `../barn/profiles/toast/stock-wsl-testdb.json`.
 
 ## Normative Barn specification
@@ -44,6 +44,15 @@ the existing concrete owners.
   `../barn/spec/builtins/verbs.md:9-23` define computed verb-call syntax and
   ordinary call errors.
 - `../barn/spec/objects.md:250-268` defines inherited verb dispatch.
+- `../barn/spec/statements.md:493-500,693-728` defines handler selection and
+  propagation but does not state operand-stack restoration at a catch or
+  finally boundary.
+- `../barn/spec/builtins/math.md:50-58,461-472` defines `max()` over a
+  homogeneous INT or homogeneous FLOAT argument sequence and `E_ARGS` for an
+  empty sequence.
+- `../barn/spec/builtins/objects.md:70-96` defines the `recycle()` hook,
+  owner-or-wizard permission, topology destruction, invalidation, and zero
+  result. It does not state what happens to a hook error.
 
 The Barn specification does not state the computed-name type contract, name
 case behavior, or expression evaluation order. Those gaps are frozen below by
@@ -89,6 +98,19 @@ It disagrees on two observable evaluation orders: Barn lowers a computed
 property RHS before its target object/name, and lowers computed verb arguments
 before the computed verb name. Neither ordering is copied into Banteng.
 
+For the adjacent contracts required by this family:
+
+- `../barn/vm/control.go:173-265` and `../barn/vm/vm.go:710-785` own handler
+  installation and error routing. Barn does not provide the Toast marker-based
+  operand-stack truncation used by the frozen row.
+- `../barn/builtins/math.go:75-105` implements homogeneous INT and homogeneous
+  FLOAT `max()` and rejects mixed numeric kinds with `E_TYPE`.
+- `../barn/builtins/objects.go:305-382` owns `recycle()`, and
+  `../barn/db/store/store_lifecycle.go:145-238` owns destruction. Barn invokes
+  the hook before destruction but explicitly discards its error. That differs
+  from managed Toast, where the original hook error continues propagating
+  after destruction.
+
 ## Current Toast implementation path
 
 Argument splice:
@@ -120,6 +142,20 @@ Computed verbs:
 - `src/db_verbs.cc:227-237` and `src/utils.cc:76-109` own case-insensitive
   wildcard name matching.
 
+Handler restoration, `max()`, and `recycle()`:
+
+- `src/execute.cc:245-304` installs stack markers and removes every partial
+  operand above the active marker while routing catch and finally control.
+- `src/numbers.cc:483-510` and its registration accept one or more numeric
+  arguments, preserve a homogeneous INT or FLOAT result kind, and reject mixed
+  numeric kinds with `E_TYPE`.
+- `src/objects.cc:788-949` validates `recycle()`, checks `controls2()`, invokes
+  inherited `:recycle`, resumes at builtin continuation 2, removes contents and
+  location links, reparents children, and destroys the object.
+- `src/execute.cc:331-395` resumes a builtin continuation during both normal
+  return and error unwinding. On hook error, continuation 2 still destroys the
+  object and the original error keeps unwinding.
+
 ## Durable conformance evidence
 
 The original 17 rows are in
@@ -143,6 +179,17 @@ Conformance commit `8a79771` adds seven discriminators:
 - `splice::computed_verb_evaluation_order` proves Toast's
   object/name-before-arguments order and rejects Barn's lowering.
 
+Conformance commit `4de57ab` adds or corrects three further discriminators:
+
+- `splice::caught_error_discards_partial_guarded_expression_operands` proves
+  that catch routing discards partial call, property-name, and nested-splice
+  operands while preserving enclosing operands;
+- `recycle::programmer_cannot_recycle_object_owned_by_another_programmer`
+  replaces a skipped placeholder and proves owner-or-wizard permission;
+- `recycle::recycle_hook_error_propagates_after_recycling_permanent_object`
+  proves the non-obvious Toast contract that the hook error propagates but the
+  permanent object is already invalid afterward.
+
 Existing durable rows separately cover computed property case folding in
 `objects/property_lookup.yaml:8-25`, static verb inheritance in
 `builtins/objects.yaml:717-736`, and executable ancestor selection in
@@ -157,15 +204,20 @@ against the tracked fixture.
 
 - The original family passed `17 passed, 11478 deselected`.
 - The exact seven-row addition passed `7 passed, 11495 deselected`.
-- The expanded family passed `24 passed, 11478 deselected` out of 11,502
+- The first expanded family passed `24 passed, 11478 deselected` out of 11,502
+  collected.
+- The three new or corrected rows passed `3 passed, 11501 deselected` against
+  managed stock Toast.
+- The final frozen family passed `25 passed, 11479 deselected` out of 11,504
   collected.
 
 Before the additions, managed Banteng selected 17 rows and produced
 `11 passed, 6 failed, 11478 deselected`. The failures were the one builtin-call
 splice and all five computed access rows. All six stopped in parsing and
 returned `E_INVARG`, so downstream world and verb prerequisites were not yet
-executed. The expanded 24-row family is the focused red gate for the Java
-slice.
+executed. After the initial uncommitted implementation, managed Banteng passed
+20 rows and failed only the four computed-verb rows. The final 25-row family is
+the focused gate for the single active Java source slice.
 
 ## Frozen smallest Java representation
 
@@ -176,6 +228,9 @@ slice.
   arity. Compile every argument list through existing `BUILD_LIST`,
   `LIST_APPEND`, and `LIST_EXTEND`, preserving left-to-right evaluation.
 - Add `max` directly to the existing `BuiltinCatalog` switch.
+- Implement `max` inline by branching on the first argument: all INT returns
+  the greatest INT, all FLOAT returns the greatest FLOAT, mixed numeric kinds
+  and nonnumeric values raise `E_TYPE`, and no arguments raises `E_ARGS`.
 - Change existing `Ast.PropertyAccess` and `Ast.PropertyTarget` property fields
   from static strings to expressions. Static `.foo` becomes
   `StringLiteral("foo")`; computed `.(expression)` stores that expression.
@@ -200,12 +255,28 @@ slice.
   as `{1, value}`. Error unwinding crosses both eval and verb frames.
 - Populate callee locals directly with the existing runtime shape: `this`,
   `player`, `caller`, `verb`, `args`, and `argstr`.
+- Add the captured operand-stack depth directly to the existing
+  `VmState.ActiveHandler`. Capture it at `ENTER_HANDLER` and trim inline before
+  catch, error-finally, and return-finally routing; do not add a restoration
+  helper or put runtime depth in `HandlerSpec`.
+- Keep `recycle` classified `IRREVOCABLE`. Validate arity, object type,
+  validity, and owner-or-wizard permission directly in `BuiltinCatalog`.
+- Extend the existing concrete `BuiltinCatalog.Result` with only the recycle
+  target needed by the VM continuation. The VM resolves and runs inherited
+  executable `:recycle` before destruction. The concrete verb frame carries a
+  recycle continuation target; both normal-return and error-unwind paths call
+  `WorldTxn.recycleObject()` before returning zero or continuing the original
+  error. Do not add a callback, sender, dispatcher, or lifecycle interface.
+- `WorldTxn.recycleObject()` performs one immutable map rewrite: remove the
+  target from its location contents, move its contents to `#-1`, reparent its
+  children to its parent in order, remove it from the parent's children, and
+  remove the target and player index in one publication.
 - Add direct `BuiltinCatalog` cases and immutable `WorldTxn` snapshot
-  mutations for `recycle`, `add_verb`, and `set_verb_code`. Reuse existing
+  mutations for `add_verb`, `delete_verb`, and `set_verb_code`. Reuse existing
   `WorldObject` and `WorldVerb` records; do not add mutable wrappers.
 
-Focused Java tests must first prove all 13 missing/expanded rows red through
-parser, deterministic bytecode, VM, and stored runtime seams. The kept slice
-must then pass those focused tests, `gradlew check`, `installDist`, the managed
-24-row `splice::` family, a read-only review, and a fresh plan reread before
-commit.
+Focused Java tests must prove the missing rows through parser, deterministic
+bytecode, VM, handler, and stored runtime seams. The kept slice must pass those
+focused tests, `gradlew check`, `installDist`, the managed 25-row `splice::`
+family, the two focused recycle rows, a read-only review, and a fresh plan
+reread before commit.
