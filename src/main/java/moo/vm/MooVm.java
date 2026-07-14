@@ -26,6 +26,7 @@ import moo.vm.VmState.FinallyContinuation;
 import moo.vm.VmState.Frame;
 import moo.vm.VmState.HandlerPhase;
 import moo.vm.VmState.LoopCursor;
+import moo.world.WorldObject;
 import moo.world.WorldTxn;
 import moo.world.WorldVerb;
 
@@ -99,7 +100,70 @@ public final class MooVm {
       case INDEX -> index(frame, state, world);
       case SET_INDEX_LOCAL ->
           setIndexedLocal(frame, state, world, instruction.text().orElseThrow());
-      case CALL -> invokeBuiltin(instruction, frame, state, world, builtins);
+      case CALL -> {
+        String callName = instruction.text().orElseThrow();
+        if (!callName.equalsIgnoreCase("pass")) {
+          invokeBuiltin(instruction, frame, state, world, builtins);
+        } else {
+          MooValue argumentValue = frame.operandStack.pop();
+          MooValue thisValue = frame.locals.get("this");
+          MooValue verbValue = frame.locals.get("verb");
+          if (!(argumentValue instanceof ListValue arguments)
+              || !(thisValue instanceof ObjectValue receiver)
+              || !(verbValue instanceof StringValue verbNameValue)
+              || !(frame.locals.get("player") instanceof ObjectValue)
+              || !(frame.locals.get("caller") instanceof ObjectValue)) {
+            raiseError(state, ErrorValue.E_TYPE, world);
+            return;
+          }
+
+          String verbName = new String(verbNameValue.bytes(), StandardCharsets.ISO_8859_1);
+          WorldVerb currentVerb = world.verb(receiver.value(), verbName).orElse(null);
+          if (currentVerb == null) {
+            raiseError(state, ErrorValue.E_VERBNF, world);
+            return;
+          }
+
+          WorldObject definingObject = null;
+          long ancestor = receiver.value();
+          while (ancestor != -1 && definingObject == null) {
+            WorldObject candidate = world.object(ancestor).orElse(null);
+            if (candidate == null) {
+              raiseError(state, ErrorValue.E_VERBNF, world);
+              return;
+            }
+            if (candidate.verbs().contains(currentVerb)) {
+              definingObject = candidate;
+            } else {
+              ancestor = candidate.parent();
+            }
+          }
+          if (definingObject == null || definingObject.parent() == -1) {
+            raiseError(state, ErrorValue.E_VERBNF, world);
+            return;
+          }
+
+          WorldVerb target = world.verb(definingObject.parent(), verbName).orElse(null);
+          if (target == null) {
+            raiseError(state, ErrorValue.E_VERBNF, world);
+            return;
+          }
+          BytecodeProgram targetProgram;
+          try {
+            targetProgram =
+                new moo.bytecode.MooCompiler().compile(MooParser.parse(target.programSource()));
+          } catch (MooParser.ParseException error) {
+            raiseError(state, ErrorValue.E_INVARG, world);
+            return;
+          }
+
+          frame.instructionPointer++;
+          Map<String, MooValue> locals = new LinkedHashMap<>(frame.locals);
+          locals.put("caller", receiver);
+          locals.put("args", arguments);
+          state.pushVerbFrame(targetProgram, locals, target.owner(), OptionalLong.empty());
+        }
+      }
       case CALL_VERB -> {
         MooValue argumentsValue = frame.operandStack.pop();
         MooValue nameValue = frame.operandStack.pop();

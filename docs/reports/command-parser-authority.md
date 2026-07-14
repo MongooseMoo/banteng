@@ -515,7 +515,8 @@ accept that syntax as `LIST_EXTEND` followed by ordinary `CALL`, but the call
 reaches the absent `BuiltinCatalog` entry and raises `E_VERBNF`; no parent verb
 frame runs. Current Barn uses native VM `pass` execution, starts lookup above
 the current defining object, skips `pass_gap`, preserves `this`, `player`,
-`caller`, `verb`, and command locals, changes programmer to the target verb
+`verb`, and command locals, derives the target `caller` from the current
+activation's `this` (the player here), changes programmer to the target verb
 owner, and pushes the target frame. That later row is the first one that needs
 the current verb's defining object. It remains outside this source slice.
 
@@ -533,6 +534,41 @@ objects in the exact leaf-to-root YAML order.
 The two focused managed rows pass. The subsequent managed family receipt
 reached seventeen passing rows and stopped only at row eighteen,
 `audit_inherited_command_pass_preserves_player_caller`.
+
+## Eighth-slice final authority trace
+
+The eighth slice is exactly row eighteen and retains the seventh-slice causal
+trace above. The current managed receipt is seventeen passing rows with this
+row first failing: setup and the command-definer notification complete, then
+ordinary builtin dispatch raises `E_VERBNF` for `pass`, so the pass-target
+notification is absent.
+
+The adopted representation remains entirely inside the existing VM `CALL`
+branch. The compiler has already built the explicit argument `ListValue` from
+`@args`. For call name `pass`, the frame's existing `this` and `verb` locals
+re-resolve the currently selected inherited `WorldVerb`; walking `this` and
+its ancestry until one local verb list contains that record identifies the
+current definer without changing `WorldVerb` or adding a resolver result. The
+next lookup starts at that definer's parent, so existing inherited executable
+lookup skips the empty `pass_gap` and selects the local pass-target verb.
+
+The target frame uses the existing parser, compiler, and
+`VmState.pushVerbFrame()`. It copies the current command locals, replaces only
+`args` with the explicit passed list, retains `this`, `player`, `verb`,
+`argstr`, `dobj`, `iobj`, and their strings, sets `caller` from the current
+activation's `this`, and uses the target verb owner as programmer. The exact
+proof boundary is one pass from the first inherited command definer to one
+executable same-name ancestor across one empty gap. It does not authorize a
+new opcode, builtin-catalog entry, frame field, defining-object model, general
+resolver API, chained pass, implicit no-argument inheritance, alternate error
+distinctions, or any command lookup change.
+
+The focused row regression, the complete `MooRuntimeTest` class, and the full
+Java 25 `check installDist` gate pass. The exact managed row receipt is one
+passing row with 11,503 deselected. The subsequent complete command-parser
+family receipt is eighteen passing rows with 11,486 deselected. These managed
+receipts supersede the older seventeen-pass receipt and accept the eighth
+slice.
 
 ## Harness ordering and cleanup
 
@@ -603,7 +639,7 @@ For rows one and two the durable sequence is therefore:
 | `audit_dot_program_intrinsic_installs_verb_code` | `.program` captures source and installs verb code. | Accepted sixth slice by managed proof. |
 | `audit_inherited_command_caller_is_player` | Inherited command sees player as caller. | Accepted seventh slice by managed proof. |
 | `audit_deep_inherited_command_caller_is_player` | Deep inherited command still sees player as caller. | Accepted seventh slice by managed proof. |
-| `audit_inherited_command_pass_preserves_player_caller` | Command and `pass()` target retain player caller. | Deferred; `pass()` is not authorized. |
+| `audit_inherited_command_pass_preserves_player_caller` | Command and `pass()` target retain player caller. | Accepted eighth slice by focused, full Java, exact managed-row, and complete managed-family proof. |
 
 ## Frozen direct representation
 

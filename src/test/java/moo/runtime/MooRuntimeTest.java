@@ -759,6 +759,111 @@ final class MooRuntimeTest {
   }
 
   @Test
+  void preservesPlayerCallerAcrossInheritedCommandPass() throws Exception {
+    WorldTxn world = new LambdaMooV4Reader().read(FIXTURE);
+    MooRuntime runtime = new MooRuntime(world);
+    long connectionId = -47;
+
+    assertEquals(List.of(), runtime.openConnection(connectionId));
+    assertEquals(List.of("*** Connected ***"), runtime.executeLine(connectionId, "connect Wizard"));
+    long player = world.connectionPlayer(connectionId).orElseThrow();
+    long oldParent = world.object(player).orElseThrow().parent();
+    assertEquals(-1, oldParent);
+    assertTrue(world.object(oldParent).isEmpty());
+    assertEquals(
+        List.of(CONNECTION_PREFIX, "{1, #" + oldParent + "}", CONNECTION_SUFFIX),
+        runtime.executeLine(connectionId, "; return parent(player);"));
+
+    long passTarget = world.objectCount();
+    assertEquals(
+        List.of(CONNECTION_PREFIX, "{1, #" + passTarget + "}", CONNECTION_SUFFIX),
+        runtime.executeLine(connectionId, "; return create(#" + oldParent + ");"));
+    long passGap = world.objectCount();
+    assertEquals(
+        List.of(CONNECTION_PREFIX, "{1, #" + passGap + "}", CONNECTION_SUFFIX),
+        runtime.executeLine(connectionId, "; return create(#" + passTarget + ");"));
+    long commandDefiner = world.objectCount();
+    assertEquals(
+        List.of(CONNECTION_PREFIX, "{1, #" + commandDefiner + "}", CONNECTION_SUFFIX),
+        runtime.executeLine(connectionId, "; return create(#" + passGap + ");"));
+    assertEquals(oldParent, world.object(passTarget).orElseThrow().parent());
+    assertEquals(List.of(passGap), world.object(passTarget).orElseThrow().children());
+    assertEquals(passTarget, world.object(passGap).orElseThrow().parent());
+    assertEquals(List.of(commandDefiner), world.object(passGap).orElseThrow().children());
+    assertEquals(passGap, world.object(commandDefiner).orElseThrow().parent());
+    assertEquals(List.of(), world.object(commandDefiner).orElseThrow().children());
+
+    try {
+      List<String> setupOutput =
+          runtime.executeLine(
+              connectionId,
+              """
+              ; add_verb(#%d, {player, "xd", "audit_pass_caller"}, {"any", "any", "any"});
+              set_verb_code(#%d, "audit_pass_caller", {"notify(player, \\"PASS_CALLER_IS_PLAYER:\\" + tostr(caller == player));"});
+              add_verb(#%d, {player, "xd", "audit_pass_caller"}, {"any", "any", "any"});
+              set_verb_code(#%d, "audit_pass_caller", {"notify(player, \\"COMMAND_CALLER_IS_PLAYER:\\" + tostr(caller == player));", "return pass(@args);"});
+              chparent(player, #%d);
+              return 1;
+              """
+                  .formatted(
+                      passTarget, passTarget, commandDefiner, commandDefiner, commandDefiner));
+      WorldObject target = world.object(passTarget).orElseThrow();
+      WorldObject gap = world.object(passGap).orElseThrow();
+      WorldObject definer = world.object(commandDefiner).orElseThrow();
+      assertEquals(oldParent, target.parent());
+      assertEquals(List.of(passGap), target.children());
+      assertEquals(passTarget, gap.parent());
+      assertEquals(List.of(commandDefiner), gap.children());
+      assertEquals(List.of(), gap.verbs());
+      assertEquals(passGap, definer.parent());
+      assertEquals(List.of(player), definer.children());
+      assertEquals(commandDefiner, world.object(player).orElseThrow().parent());
+      assertTrue(world.object(oldParent).isEmpty());
+      assertEquals(1, target.verbs().size());
+      WorldVerb pass = target.verbs().getFirst();
+      assertEquals("audit_pass_caller", pass.names());
+      assertEquals(player, pass.owner());
+      assertEquals(92, pass.permissions());
+      assertEquals(-2, pass.preposition());
+      assertEquals(
+          "notify(player, \"PASS_CALLER_IS_PLAYER:\" + tostr(caller == player));",
+          pass.programSource());
+      assertEquals(1, definer.verbs().size());
+      WorldVerb command = definer.verbs().getFirst();
+      assertEquals("audit_pass_caller", command.names());
+      assertEquals(player, command.owner());
+      assertEquals(92, command.permissions());
+      assertEquals(-2, command.preposition());
+      assertEquals(
+          "notify(player, \"COMMAND_CALLER_IS_PLAYER:\" + tostr(caller == player));\n"
+              + "return pass(@args);",
+          command.programSource());
+      assertEquals(List.of(CONNECTION_PREFIX, "{1, 1}", CONNECTION_SUFFIX), setupOutput);
+
+      assertEquals(
+          List.of("COMMAND_CALLER_IS_PLAYER:1", "PASS_CALLER_IS_PLAYER:1"),
+          runtime.executeLine(connectionId, "audit_pass_caller"));
+    } finally {
+      runtime.executeLine(
+          connectionId,
+          "; chparent(player, #"
+              + oldParent
+              + "); recycle(#"
+              + commandDefiner
+              + "); recycle(#"
+              + passGap
+              + "); recycle(#"
+              + passTarget
+              + "); return 1;");
+      assertEquals(oldParent, world.object(player).orElseThrow().parent());
+      assertTrue(world.object(commandDefiner).isEmpty());
+      assertTrue(world.object(passGap).isEmpty());
+      assertTrue(world.object(passTarget).isEmpty());
+      assertTrue(world.object(oldParent).isEmpty());
+    }
+  }
+
+  @Test
   void evalRuntimeErrorUnwindsIntoPersistedCallerExceptAndFinally() throws Exception {
     WorldTxn world = new LambdaMooV4Reader().read(FIXTURE);
     MooRuntime runtime = new MooRuntime(world);
