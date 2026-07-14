@@ -436,6 +436,133 @@ final class MooRuntimeTest {
   }
 
   @Test
+  void reparsesTheLeadingQuoteShortcutAsSay() throws Exception {
+    WorldTxn world = new LambdaMooV4Reader().read(FIXTURE);
+    MooRuntime runtime = new MooRuntime(world);
+    long connectionId = -47;
+
+    assertEquals(List.of(), runtime.openConnection(connectionId));
+    assertEquals(List.of("*** Connected ***"), runtime.executeLine(connectionId, "connect Wizard"));
+    long player = world.connectionPlayer(connectionId).orElseThrow();
+    List<String> setupOutput =
+        runtime.executeLine(
+            connectionId,
+            """
+            ; box = create($nothing);
+            box.name = "auditbox";
+            move(box, player);
+            add_verb(player, {player, "xd", "say"}, {"any", "in", "any"});
+            set_verb_code(player, "say", {
+              "notify(player, \\"DOBJSTR:\\" + dobjstr);",
+              "notify(player, \\"PREPSTR:\\" + prepstr);",
+              "notify(player, \\"IOBJSTR:\\" + iobjstr);"
+            });
+            return box;
+            """);
+    List<Long> inventory = world.object(player).orElseThrow().contents();
+    assertEquals(1, inventory.size(), setupOutput::toString);
+    long box = inventory.getFirst();
+    assertEquals(List.of(CONNECTION_PREFIX, "{1, #" + box + "}", CONNECTION_SUFFIX), setupOutput);
+    assertEquals("auditbox", world.object(box).orElseThrow().name());
+    assertEquals(player, world.object(box).orElseThrow().location());
+    WorldVerb say = world.verb(player, "say").orElseThrow();
+    assertEquals(92, say.permissions());
+    assertEquals(3, say.preposition());
+    assertTrue(!say.programSource().isEmpty());
+
+    try {
+      assertEquals(
+          List.of("DOBJSTR:widget", "PREPSTR:in", "IOBJSTR:auditbox"),
+          runtime.executeLine(connectionId, "\"widget in auditbox"));
+    } finally {
+      runtime.executeLine(
+          connectionId, "; delete_verb(player, \"say\"); recycle(#" + box + "); return 1;");
+    }
+  }
+
+  @Test
+  void reparsesTheLeadingColonShortcutAsEmote() throws Exception {
+    WorldTxn world = new LambdaMooV4Reader().read(FIXTURE);
+    MooRuntime runtime = new MooRuntime(world);
+    long connectionId = -47;
+
+    assertEquals(List.of(), runtime.openConnection(connectionId));
+    assertEquals(List.of("*** Connected ***"), runtime.executeLine(connectionId, "connect Wizard"));
+    long player = world.connectionPlayer(connectionId).orElseThrow();
+    List<String> setupOutput =
+        runtime.executeLine(
+            connectionId,
+            """
+            ; add_verb(player, {player, "xd", "emote"}, {"any", "at", "any"});
+            set_verb_code(player, "emote", {
+              "notify(player, \\"DOBJSTR:\\" + dobjstr);",
+              "notify(player, \\"PREPSTR:\\" + prepstr);",
+              "notify(player, \\"IOBJSTR:\\" + iobjstr);",
+              "notify(player, \\"IOBJISPLAYER:\\" + tostr(iobj == player));"
+            });
+            return 1;
+            """);
+    assertEquals(List.of(CONNECTION_PREFIX, "{1, 1}", CONNECTION_SUFFIX), setupOutput);
+    WorldVerb emote = world.verb(player, "emote").orElseThrow();
+    assertEquals(92, emote.permissions());
+    assertEquals(1, emote.preposition());
+    assertTrue(!emote.programSource().isEmpty());
+
+    try {
+      assertEquals(
+          List.of("DOBJSTR:wave", "PREPSTR:at", "IOBJSTR:me", "IOBJISPLAYER:1"),
+          runtime.executeLine(connectionId, ":wave at me"));
+    } finally {
+      runtime.executeLine(connectionId, "; return delete_verb(player, \"emote\");");
+    }
+  }
+
+  @Test
+  void reparsesTheLeadingSemicolonShortcutAsEval() throws Exception {
+    WorldTxn world = new LambdaMooV4Reader().read(FIXTURE);
+    MooRuntime runtime = new MooRuntime(world);
+    long connectionId = -47;
+
+    assertEquals(List.of(), runtime.openConnection(connectionId));
+    assertEquals(List.of("*** Connected ***"), runtime.executeLine(connectionId, "connect Wizard"));
+    long player = world.connectionPlayer(connectionId).orElseThrow();
+    List<String> setupOutput =
+        runtime.executeLine(
+            connectionId,
+            """
+            ; box = create($nothing);
+            box.name = "auditevalbox";
+            move(box, player);
+            add_verb(player, {player, "xd", "eval"}, {"any", "in", "any"});
+            set_verb_code(player, "eval", {
+              "notify(player, \\"DOBJSTR:\\" + dobjstr);",
+              "notify(player, \\"PREPSTR:\\" + prepstr);",
+              "notify(player, \\"IOBJSTR:\\" + iobjstr);"
+            });
+            return box;
+            """);
+    List<Long> inventory = world.object(player).orElseThrow().contents();
+    assertEquals(1, inventory.size(), setupOutput::toString);
+    long box = inventory.getFirst();
+    assertEquals(List.of(CONNECTION_PREFIX, "{1, #" + box + "}", CONNECTION_SUFFIX), setupOutput);
+    assertEquals("auditevalbox", world.object(box).orElseThrow().name());
+    assertEquals(player, world.object(box).orElseThrow().location());
+    WorldVerb eval = world.verb(player, "eval").orElseThrow();
+    assertEquals(92, eval.permissions());
+    assertEquals(3, eval.preposition());
+    assertTrue(!eval.programSource().isEmpty());
+
+    try {
+      assertEquals(
+          List.of("DOBJSTR:widget", "PREPSTR:in", "IOBJSTR:auditevalbox"),
+          runtime.executeLine(connectionId, ";widget in auditevalbox"));
+    } finally {
+      runtime.executeLine(
+          connectionId, "; delete_verb(player, \"eval\"); recycle(#" + box + "); return 1;");
+    }
+  }
+
+  @Test
   void evalRuntimeErrorUnwindsIntoPersistedCallerExceptAndFinally() throws Exception {
     WorldTxn world = new LambdaMooV4Reader().read(FIXTURE);
     MooRuntime runtime = new MooRuntime(world);

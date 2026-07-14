@@ -129,29 +129,86 @@ public final class MooRuntime {
       connection.suffix.ifPresent(output::add);
       return List.copyOf(output);
     }
-    if (line.startsWith(";")) {
-      output.addAll(executeEval(player, line.substring(1).stripLeading()));
-    } else {
+    String dispatchLine = line;
+    int dispatchStart = 0;
+    while (dispatchStart < dispatchLine.length() && dispatchLine.charAt(dispatchStart) == ' ') {
+      dispatchStart++;
+    }
+    String shortcutVerb =
+        dispatchStart == dispatchLine.length()
+            ? null
+            : switch (dispatchLine.charAt(dispatchStart)) {
+              case '"' -> "say";
+              case ':' -> "emote";
+              case ';' -> "eval";
+              default -> null;
+            };
+    if (shortcutVerb != null) {
+      dispatchLine = shortcutVerb + " " + dispatchLine.substring(dispatchStart + 1);
+      words.clear();
+      currentWord.setLength(0);
+      inQuotes = false;
+      inputIndex = 0;
+      while (inputIndex < dispatchLine.length()) {
+        char character = dispatchLine.charAt(inputIndex);
+        if (character == '\\') {
+          if (inputIndex + 1 < dispatchLine.length()) {
+            currentWord.append(dispatchLine.charAt(inputIndex + 1));
+            inputIndex += 2;
+          } else {
+            currentWord.append(character);
+            inputIndex++;
+          }
+        } else if (character == '"') {
+          inQuotes = !inQuotes;
+          inputIndex++;
+        } else if (Character.isWhitespace(character) && !inQuotes) {
+          if (!currentWord.isEmpty()) {
+            words.add(currentWord.toString());
+            currentWord.setLength(0);
+          }
+          inputIndex++;
+        } else {
+          currentWord.append(character);
+          inputIndex++;
+        }
+      }
+      if (!currentWord.isEmpty()) {
+        words.add(currentWord.toString());
+      }
+    }
+    if (!words.isEmpty()) {
       int argumentStart = 0;
-      while (argumentStart < line.length() && Character.isWhitespace(line.charAt(argumentStart))) {
+      while (argumentStart < dispatchLine.length()
+          && Character.isWhitespace(dispatchLine.charAt(argumentStart))) {
         argumentStart++;
       }
       boolean commandWordQuotes = false;
-      while (argumentStart < line.length()
-          && (commandWordQuotes || !Character.isWhitespace(line.charAt(argumentStart)))) {
-        char character = line.charAt(argumentStart++);
+      while (argumentStart < dispatchLine.length()
+          && (commandWordQuotes || !Character.isWhitespace(dispatchLine.charAt(argumentStart)))) {
+        char character = dispatchLine.charAt(argumentStart++);
         if (character == '"') {
           commandWordQuotes = !commandWordQuotes;
-        } else if (character == '\\' && argumentStart < line.length()) {
+        } else if (character == '\\' && argumentStart < dispatchLine.length()) {
           argumentStart++;
         }
       }
-      while (argumentStart < line.length() && Character.isWhitespace(line.charAt(argumentStart))) {
+      while (argumentStart < dispatchLine.length()
+          && Character.isWhitespace(dispatchLine.charAt(argumentStart))) {
         argumentStart++;
       }
 
-      Optional<WorldVerb> commandVerb = world.verb(player, words.getFirst());
-      if (commandVerb.isPresent()) {
+      long room = world.object(player).orElseThrow().location();
+      Optional<WorldVerb> playerCommandVerb = world.verb(player, words.getFirst());
+      Optional<WorldVerb> roomCommandVerb = world.verb(room, words.getFirst());
+      if (roomCommandVerb.isEmpty() && words.getFirst().equalsIgnoreCase("eval")) {
+        Optional<WorldVerb> fixtureEval = world.verb(room, 0);
+        if (fixtureEval.isPresent()
+            && fixtureEval.orElseThrow().names().equalsIgnoreCase(words.getFirst())) {
+          roomCommandVerb = fixtureEval;
+        }
+      }
+      if (playerCommandVerb.isPresent() || roomCommandVerb.isPresent()) {
         List<MooValue> arguments = new ArrayList<>();
         for (int index = 1; index < words.size(); index++) {
           arguments.add(encode(words.get(index)));
@@ -302,18 +359,126 @@ public final class MooRuntime {
           }
         }
         long indirectObject = indirectObjectString.isEmpty() ? -1 : -3;
-        WorldVerb selectedVerb = commandVerb.orElseThrow();
-        long thisObject = player;
-        int directSpecification = (selectedVerb.permissions() >> 4) & 3;
-        int indirectSpecification = (selectedVerb.permissions() >> 6) & 3;
-        int directClassification = directObject == player ? 2 : directObject == -1 ? 0 : 1;
-        int indirectClassification = indirectObject == player ? 2 : indirectObject == -1 ? 0 : 1;
-        boolean argumentSpecificationMatches =
-            (directSpecification == 1 || directSpecification == directClassification)
-                && (selectedVerb.preposition() == -2 || selectedVerb.preposition() == preposition)
-                && (indirectSpecification == 1 || indirectSpecification == indirectClassification);
-        if (!argumentSpecificationMatches) {
-          long room = world.object(player).orElseThrow().location();
+        if (!indirectObjectString.isEmpty()) {
+          if (indirectObjectString.startsWith("#")) {
+            try {
+              long literalObject = Long.parseLong(indirectObjectString.substring(1));
+              if (literalObject >= 0 && world.object(literalObject).isPresent()) {
+                indirectObject = literalObject;
+              }
+            } catch (NumberFormatException ignored) {
+              // Malformed and out-of-range object literals are failed matches.
+            }
+          } else if (indirectObjectString.equalsIgnoreCase("me")) {
+            indirectObject = player;
+          } else {
+            WorldObject playerObject = world.object(player).orElseThrow();
+            if (indirectObjectString.equalsIgnoreCase("here")) {
+              indirectObject = playerObject.location();
+            } else {
+              List<Long> candidates = new ArrayList<>();
+              for (long candidate : playerObject.contents()) {
+                if (!candidates.contains(candidate)) {
+                  candidates.add(candidate);
+                }
+              }
+              WorldObject location = world.object(playerObject.location()).orElse(null);
+              if (location != null) {
+                for (long candidate : location.contents()) {
+                  if (!candidates.contains(candidate)) {
+                    candidates.add(candidate);
+                  }
+                }
+              }
+
+              List<Long> exactMatches = new ArrayList<>();
+              List<Long> partialMatches = new ArrayList<>();
+              for (long candidate : candidates) {
+                WorldObject candidateObject = world.object(candidate).orElse(null);
+                if (candidateObject == null) {
+                  continue;
+                }
+                boolean exact = false;
+                boolean partial = false;
+                String candidateName = candidateObject.name();
+                if (candidateName.regionMatches(
+                    true, 0, indirectObjectString, 0, indirectObjectString.length())) {
+                  if (candidateName.length() == indirectObjectString.length()) {
+                    exact = true;
+                  } else {
+                    partial = true;
+                  }
+                }
+                MooValue aliasesValue = world.readObjectProperty(candidate, "aliases").orElse(null);
+                if (aliasesValue instanceof ListValue aliases) {
+                  for (MooValue aliasValue : aliases.elements()) {
+                    if (!(aliasValue instanceof StringValue alias)) {
+                      continue;
+                    }
+                    String candidateAlias = new String(alias.bytes(), StandardCharsets.ISO_8859_1);
+                    if (candidateAlias.regionMatches(
+                        true, 0, indirectObjectString, 0, indirectObjectString.length())) {
+                      if (candidateAlias.length() == indirectObjectString.length()) {
+                        exact = true;
+                      } else {
+                        partial = true;
+                      }
+                    }
+                  }
+                }
+                if (exact) {
+                  exactMatches.add(candidate);
+                } else if (partial) {
+                  partialMatches.add(candidate);
+                }
+              }
+              if (exactMatches.size() == 1) {
+                indirectObject = exactMatches.getFirst();
+              } else if (exactMatches.size() > 1) {
+                indirectObject = -2;
+              } else if (partialMatches.size() == 1) {
+                indirectObject = partialMatches.getFirst();
+              } else if (partialMatches.size() > 1) {
+                indirectObject = -2;
+              }
+            }
+          }
+        }
+        WorldVerb selectedVerb = null;
+        long thisObject = -1;
+        if (playerCommandVerb.isPresent()) {
+          WorldVerb candidate = playerCommandVerb.orElseThrow();
+          int directSpecification = (candidate.permissions() >> 4) & 3;
+          int indirectSpecification = (candidate.permissions() >> 6) & 3;
+          int directClassification = directObject == player ? 2 : directObject == -1 ? 0 : 1;
+          int indirectClassification = indirectObject == player ? 2 : indirectObject == -1 ? 0 : 1;
+          boolean argumentSpecificationMatches =
+              (directSpecification == 1 || directSpecification == directClassification)
+                  && (candidate.preposition() == -2 || candidate.preposition() == preposition)
+                  && (indirectSpecification == 1
+                      || indirectSpecification == indirectClassification);
+          if (argumentSpecificationMatches) {
+            selectedVerb = candidate;
+            thisObject = player;
+          }
+        }
+        if (selectedVerb == null && roomCommandVerb.isPresent()) {
+          WorldVerb candidate = roomCommandVerb.orElseThrow();
+          int directSpecification = (candidate.permissions() >> 4) & 3;
+          int indirectSpecification = (candidate.permissions() >> 6) & 3;
+          int directClassification = directObject == room ? 2 : directObject == -1 ? 0 : 1;
+          int indirectClassification = indirectObject == room ? 2 : indirectObject == -1 ? 0 : 1;
+          boolean argumentSpecificationMatches =
+              (directSpecification == 1 || directSpecification == directClassification)
+                  && (candidate.preposition() == -2 || candidate.preposition() == preposition)
+                  && (indirectSpecification == 1
+                      || indirectSpecification == indirectClassification);
+          if (argumentSpecificationMatches) {
+            selectedVerb = candidate;
+            thisObject = room;
+          }
+        }
+        if (selectedVerb == null) {
           selectedVerb = world.verb(room, "huh").orElse(null);
           thisObject = room;
         }
@@ -328,7 +493,7 @@ public final class MooRuntime {
                 player,
                 words.getFirst(),
                 new ListValue(arguments),
-                line.substring(argumentStart));
+                dispatchLine.substring(argumentStart));
         locals.put("dobjstr", encode(directObjectString));
         locals.put("prepstr", encode(prepositionString));
         locals.put("iobjstr", encode(indirectObjectString));
@@ -362,15 +527,6 @@ public final class MooRuntime {
       return List.of("*** Connected ***");
     }
     return state.output();
-  }
-
-  private List<String> executeEval(long player, String source) {
-    WorldObject playerObject = world.object(player).orElseThrow();
-    long location = playerObject.location();
-    WorldVerb eval = world.verb(location, 0).orElseThrow();
-    Map<String, MooValue> locals =
-        verbLocals(location, player, player, "eval", new ListValue(List.of()), source);
-    return executeStored(eval, locals).output();
   }
 
   private VmState executeStored(WorldVerb verb, Map<String, MooValue> locals) {

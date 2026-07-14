@@ -331,6 +331,79 @@ same-name command candidates or defining-object retention, so neither a new
 lookup API nor a stored command model is authorized. The implementation remains
 inline in the existing ordinary-command branch and reuses its parsed locals.
 
+## Fifth-slice final authority trace
+
+The fifth slice is exactly rows eleven through thirteen: leading quote rewrites
+to `say`, leading colon rewrites to `emote`, and leading semicolon rewrites to
+`eval`. The pre-slice managed receipt is ten passing rows and the first failure
+is row eleven, `audit_say_shortcut_reparses_preposition`. Banteng currently
+tokenizes the unmatched opening quote as one word, finds no player verb by that
+word, and emits none of the expected `say` notifications. After the fifth
+slice, the managed family receipt reached fourteen passing rows and stopped
+first at row fifteen, `audit_dot_program_intrinsic_installs_verb_code`. Row
+fourteen therefore also confirms that `do_command` still receives the original
+quoted/backslash word list.
+
+Pinned Toast `src/parse_cmd.cc:126-193` first skips leading spaces, replaces the
+first marker with the corresponding verb plus one space and the untouched tail,
+then tokenizes and performs the normal preposition partition. This is a dispatch
+rewrite, not a separate evaluator: `say widget in auditbox`, `emote wave at me`,
+and `eval widget in auditevalbox` produce the same ordinary command locals as if
+those expanded texts had been entered directly.
+
+The `do_command` input is intentionally different. Pinned Toast
+`src/tasks.cc:820-856` parses the rewritten command for later dispatch, but
+calls `parse_into_wordlist(command)` on the untouched original line before any
+command-verb lookup. Therefore Banteng must retain its current original-line
+tokenization and raw `argstr` for `do_command`, return immediately when that
+verb is truthy, and derive a second dispatch text only after false or absent
+`do_command`.
+
+Current Barn preserves original words separately from rewritten dispatch in
+`../barn/command/command.go:153-197`, but disagrees with Toast on the exact
+shortcut word list: `CommandWordList()` splits the leading marker into its own
+element before tokenizing the tail. `../barn/server/input_processor.go:516-520`
+passes that Barn list to `do_command`. The managed family is pinned to Toast,
+so Banteng must keep Toast's untouched raw tokenizer result rather than adopt
+Barn's marker-separated list.
+
+All three stored player verbs have executable/debug permissions `xd`, direct
+`any`, indirect `any`, and one exact preposition. Their packed permissions are
+`12 | (1 << 4) | (1 << 6) = 92`; `say` and player `eval` store preposition code
+3 (`in`), while `emote` stores code 1 (`at`). The exact command frames are:
+
+- quote: `verb="say"`, `args={"widget", "in", "auditbox"}`,
+  `argstr="widget in auditbox"`, `dobjstr="widget"`, `prepstr="in"`, and
+  `iobjstr="auditbox"`;
+- colon: `verb="emote"`, `args={"wave", "at", "me"}`,
+  `argstr="wave at me"`, `dobjstr="wave"`, `prepstr="at"`,
+  `iobjstr="me"`, and `iobj=player`; and
+- semicolon: `verb="eval"`, `args={"widget", "in", "auditevalbox"}`,
+  `argstr="widget in auditevalbox"`, `dobjstr="widget"`, `prepstr="in"`, and
+  `iobjstr="auditevalbox"`.
+
+Pinned Toast `src/parse_cmd.cc:216-233` applies the same `match_object()` to
+both object strings. The created `auditbox` and `auditevalbox` are in the
+player's contents, while `me` is the player sentinel. Banteng must therefore
+apply its already-proven inventory-then-room, exact-before-prefix, name/alias
+matcher to the indirect string as well as the direct string, inline in the same
+runtime owner; no matcher helper or new command model is authorized.
+
+Normal command selection remains player, then location, then later targets.
+These rows require the first two receivers. The fixture room `#2:eval` has
+packed permissions 88 (`d`, `any/any`) and preposition `-2` (`any`). Its absent
+executable bit means `WorldTxn.verb(room, "eval")` does not expose it, although
+pinned Toast command lookup does not require that bit. The existing indexed
+`WorldTxn.verb(room, 0)` exposes the exact fixture verb; this slice authorizes
+using that existing path only after confirming its stored name is exactly
+`eval`. Eval setup arrives as `; <code>` before the player audit verb exists,
+so it must use the room verb. After setup, the raw row-thirteen command matches
+the player's preposition-`in` verb. Cleanup also arrives as `; <code>`; the
+player verb then fails its preposition and lookup must continue to the room eval
+rather than jump directly to `huh`. Each selected frame keeps `player` and
+`caller` equal to the initiating player, `this` equal to the selected receiver,
+and `verb` equal to the rewritten command name.
+
 ## Harness ordering and cleanup
 
 `runner.py:404-418` sends a `command:` step through raw-command transport.
@@ -393,10 +466,10 @@ For rows one and two the durable sequence is therefore:
 | `audit_player_name_matches_room_contents` | The player participates in room-content matching. | Accepted third slice through literal room contents. |
 | `audit_do_command_runs_before_semicolon_eval` | `do_command` runs before eval dispatch. | Accepted by existing first-slice ordering. |
 | `audit_huh_runs_after_argspec_mismatch` | Argspec mismatch falls through to `huh`. | Accepted fourth slice for one selected player name candidate and room `huh`. |
-| `audit_say_shortcut_reparses_preposition` | Leading quote rewrites to `say` then fully reparses. | Deferred. |
-| `audit_emote_shortcut_reparses_preposition` | Leading colon rewrites to `emote` then fully reparses. | Deferred. |
-| `audit_eval_shortcut_reparses_preposition` | Leading semicolon rewrites to `eval` then fully reparses. | Deferred beyond the existing eval fallback. |
-| `audit_do_command_receives_quoted_backslash_wordlist` | `do_command` receives the same escaped/quoted complete word list. | Mechanism frozen; row remains a later gate. |
+| `audit_say_shortcut_reparses_preposition` | Leading quote rewrites to `say` then fully reparses. | Accepted fifth slice. |
+| `audit_emote_shortcut_reparses_preposition` | Leading colon rewrites to `emote` then fully reparses. | Accepted fifth slice. |
+| `audit_eval_shortcut_reparses_preposition` | Leading semicolon rewrites to `eval` then fully reparses. | Accepted fifth slice through normal player-then-room dispatch. |
+| `audit_do_command_receives_quoted_backslash_wordlist` | `do_command` receives the same escaped/quoted complete word list. | Accepted by preserved original-input `do_command` path. |
 | `audit_dot_program_intrinsic_installs_verb_code` | `.program` captures source and installs verb code. | Deferred. |
 | `audit_inherited_command_caller_is_player` | Inherited command sees player as caller. | Caller rule frozen; row remains deferred. |
 | `audit_deep_inherited_command_caller_is_player` | Deep inherited command still sees player as caller. | Deferred. |
@@ -414,7 +487,10 @@ the mutable map returned by `verbLocals()`. For row ten, classify the parsed
 objects against the player receiver directly from the selected `WorldVerb`'s
 packed fields. On mismatch only, replace the selected program with room `huh`
 and change `this` to the room while retaining the original command word and all
-other parsed locals.
+other parsed locals. For rows eleven through thirteen, preserve that entire
+original path through `do_command`; only afterward rewrite and retokenize the
+dispatch text in place. Apply the existing object matcher to both object strings
+and inspect player then room candidate argspecs before using room `huh`.
 
 Use the existing concrete `verbLocals`, `executeStored`, `WorldTxn.verb`,
 `BuiltinCatalog`, `VmState` staged output, and `MooServer` writer. Do not add a
