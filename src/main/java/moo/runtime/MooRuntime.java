@@ -156,17 +156,74 @@ public final class MooRuntime {
         for (int index = 1; index < words.size(); index++) {
           arguments.add(encode(words.get(index)));
         }
-        output.addAll(
-            executeStored(
-                    commandVerb.orElseThrow(),
-                    verbLocals(
-                        player,
-                        player,
-                        player,
-                        words.getFirst(),
-                        new ListValue(arguments),
-                        line.substring(argumentStart)))
-                .output());
+        List<List<String>> prepositionsByCode =
+            List.of(
+                List.of("with", "using"),
+                List.of("at", "to"),
+                List.of("in front of"),
+                List.of("in", "inside", "into"),
+                List.of("on top of", "on", "onto", "upon"),
+                List.of("out of", "from inside", "from"),
+                List.of("over"),
+                List.of("through"),
+                List.of("under", "underneath", "beneath"),
+                List.of("behind"),
+                List.of("beside"),
+                List.of("for", "about"),
+                List.of("is"),
+                List.of("as"),
+                List.of("off", "off of"));
+        int prepositionStart = words.size();
+        int prepositionEnd = words.size();
+        prepositionScan:
+        for (int wordIndex = 1; wordIndex < words.size(); wordIndex++) {
+          for (List<String> aliases : prepositionsByCode) {
+            for (String alias : aliases) {
+              StringTokenizer aliasWords = new StringTokenizer(alias);
+              int aliasWordCount = aliasWords.countTokens();
+              if (wordIndex + aliasWordCount > words.size()) {
+                continue;
+              }
+              boolean matches = true;
+              int aliasIndex = 0;
+              while (aliasWords.hasMoreTokens()) {
+                if (!words.get(wordIndex + aliasIndex).equalsIgnoreCase(aliasWords.nextToken())) {
+                  matches = false;
+                  break;
+                }
+                aliasIndex++;
+              }
+              if (matches) {
+                prepositionStart = wordIndex;
+                prepositionEnd = wordIndex + aliasWordCount;
+                break prepositionScan;
+              }
+            }
+          }
+        }
+        String directObjectString = String.join(" ", words.subList(1, prepositionStart));
+        String prepositionString =
+            prepositionStart == words.size()
+                ? ""
+                : String.join(" ", words.subList(prepositionStart, prepositionEnd));
+        String indirectObjectString =
+            prepositionStart == words.size()
+                ? ""
+                : String.join(" ", words.subList(prepositionEnd, words.size()));
+        Map<String, MooValue> locals =
+            verbLocals(
+                player,
+                player,
+                player,
+                words.getFirst(),
+                new ListValue(arguments),
+                line.substring(argumentStart));
+        locals.put("dobjstr", encode(directObjectString));
+        locals.put("prepstr", encode(prepositionString));
+        locals.put("iobjstr", encode(indirectObjectString));
+        locals.put("dobj", new ObjectValue(directObjectString.isEmpty() ? -1 : -3));
+        locals.put("iobj", new ObjectValue(indirectObjectString.isEmpty() ? -1 : -3));
+        output.addAll(executeStored(commandVerb.orElseThrow(), locals).output());
       }
     }
     connection.suffix.ifPresent(output::add);

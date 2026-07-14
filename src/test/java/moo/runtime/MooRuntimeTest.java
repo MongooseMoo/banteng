@@ -128,6 +128,39 @@ final class MooRuntimeTest {
   }
 
   @Test
+  void usesTheLeftmostPrepositionForAStoredPlayerCommandVerb() throws Exception {
+    WorldTxn world = new LambdaMooV4Reader().read(FIXTURE);
+    MooRuntime runtime = new MooRuntime(world);
+    long connectionId = -47;
+
+    assertEquals(List.of(), runtime.openConnection(connectionId));
+    assertEquals(List.of("*** Connected ***"), runtime.executeLine(connectionId, "connect Wizard"));
+    List<String> setupOutput =
+        runtime.executeLine(
+            connectionId,
+            """
+            ; add_verb(player, {player, "xd", "auditprep"}, {"any", "any", "any"});
+            set_verb_code(player, "auditprep", {
+              "notify(player, \\"DOBJSTR:\\" + dobjstr);",
+              "notify(player, \\"PREPSTR:\\" + prepstr);",
+              "notify(player, \\"IOBJSTR:\\" + iobjstr);"
+            });
+            return 1;
+            """);
+    assertTrue(
+        world.verb(world.connectionPlayer(connectionId).orElseThrow(), "auditprep").isPresent(),
+        setupOutput::toString);
+
+    try {
+      assertEquals(
+          List.of("DOBJSTR:book", "PREPSTR:out of", "IOBJSTR:bag in front of chair"),
+          runtime.executeLine(connectionId, "auditprep book out of bag in front of chair"));
+    } finally {
+      runtime.executeLine(connectionId, "; return delete_verb(player, \"auditprep\");");
+    }
+  }
+
+  @Test
   void passesTheFullWordListToTruthyDoCommandBeforeNormalDispatch() throws Exception {
     WorldTxn world = new LambdaMooV4Reader().read(FIXTURE);
     MooRuntime runtime = new MooRuntime(world);

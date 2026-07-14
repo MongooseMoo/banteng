@@ -2,17 +2,21 @@
 
 ## Scope and decision
 
-This record freezes Banteng's first ordinary logged-in command slice against
-Barn's normative specifications, current Barn, and the pinned stock WSL Toast
-source. The first implementation target is exactly:
+This record freezes Banteng's ordinary logged-in command slices against Barn's
+normative specifications, current Barn, and the pinned stock WSL Toast source.
+The first implementation target was exactly:
 
 - `command_parser_toast_oracle::audit_tokenizer_backslash_escapes`; and
 - `command_parser_toast_oracle::audit_tokenizer_midword_quotes`.
 
-The slice does not authorize object matching, preposition parsing, argspec
-matching, `huh`, `.program`, `pass()`, a command service, tokenizer helper,
-interface, adapter, sender, or alternate execution path. The exact managed
-18-row oracle execution and its pinned identity are recorded below.
+The second implementation target is exactly
+`command_parser_toast_oracle::audit_preposition_scan_uses_leftmost_position`.
+It authorizes the pinned position-first preposition partition and the resulting
+command-string locals, but not general object matching, argspec-aware lookup,
+`huh`, `.program`, `pass()`, a command service, tokenizer or parser helper,
+interface, adapter, sender, stored command model, or alternate execution path.
+The exact managed 18-row oracle execution and its pinned identity are recorded
+below.
 
 ## Authorities
 
@@ -111,6 +115,84 @@ semicolon command then follows the existing eval path; an unhandled ordinary
 command then performs inherited player-verb lookup and stored-verb execution.
 For a player-entered command, `caller` is the player.
 
+## Second-slice final authority trace
+
+Barn's normative command sequence remains `../barn/spec/login.md:144-177`:
+parse `verb dobj prep iobj`, select the command verb, create its foreground
+task, and install `args`, raw `argstr`, `dobj`, `dobjstr`, `iobj`, `iobjstr`,
+and `prepstr`. `../barn/spec/builtins/verbs.md:136-174,317-333` defines the
+`{dobj, prep, iobj}` argument specification, `none`/`any` object and
+preposition meanings, and the same command locals. The prose table abbreviates
+the accepted preposition family; it is not the exact persisted code table.
+
+Current Barn supplies that exact table and algorithm in
+`../barn/command/command.go:9-111,168-247`. Its accepted aliases, in persisted
+code order, are:
+
+| Code | Accepted aliases, in scan order |
+| ---: | --- |
+| 0 | `with`, `using` |
+| 1 | `at`, `to` |
+| 2 | `in front of` |
+| 3 | `in`, `inside`, `into` |
+| 4 | `on top of`, `on`, `onto`, `upon` |
+| 5 | `out of`, `from inside`, `from` |
+| 6 | `over` |
+| 7 | `through` |
+| 8 | `under`, `underneath`, `beneath` |
+| 9 | `behind` |
+| 10 | `beside` |
+| 11 | `for`, `about` |
+| 12 | `is` |
+| 13 | `as` |
+| 14 | `off`, `off of` |
+
+Current Barn's `findPreposition()` loops argument positions outermost, then
+codes, then aliases. It returns immediately on the first match. Its
+`ParseCommand()` joins tokenized words before and after that match into
+`dobjstr` and `iobjstr`, while leaving `Args` as the complete argument-word
+tail and `Argstr` as the raw substring after the command word. The concrete
+player path resolves nonempty object strings and installs all six command
+locals through `../barn/command/player.go:8-25` and
+`../barn/scheduler/task_runtime.go:151-185,441-451`.
+
+The pinned WSL Toast checkout was re-read at exact HEAD
+`aecc51e9449c6e7c95272f0f044b5ba38948459e`. Its authoritative source is
+`src/db_verbs.cc:42-65,77-147` and `src/parse_cmd.cc:160-237`:
+
+- `prep_list` is the same 15-entry persisted table above;
+- `db_find_prep()` loops token position `i` before table code `j` and alias,
+  compares case-insensitively, and returns the first match;
+- `parse_command()` passes only the argument words to that scan, preserves the
+  already-built `args` list and raw `argstr`, and builds `dobjstr`, `prepstr`,
+  and `iobjstr` around the returned span; and
+- nonempty object strings are passed to `match_object`, while empty object
+  slots are `NOTHING`.
+
+Therefore the active input tokenizes as
+`{auditprep, book, out, of, bag, in, front, of, chair}`. Position 1 in the
+argument tail matches code 5 alias `out of` and wins immediately; the later
+code 2 alias `in front of` cannot replace it. The exact partition is
+`dobjstr = "book"`, `prepstr = "out of"`, and
+`iobjstr = "bag in front of chair"`.
+
+There is no Barn/Toast disagreement on this row. Banteng's existing
+`BuiltinCatalog.addVerb()` also accepts the same table and stores
+`{"any", "any", "any"}` as direct spec 1, preposition `-2`, and indirect
+spec 1. With verb permissions `xd`, the stored permission integer is
+`12 | (1 << 4) | (1 << 6) = 92`. `WorldTxn.verb()` already finds the one local
+executable `auditprep`, so this row does not prove overloaded argspec-aware
+lookup or defining-object retention.
+
+Before the second slice, Banteng had accepted rows one through three and failed
+first at `audit_preposition_scan_uses_leftmost_position` because its command
+frame omitted `dobjstr`, `prepstr`, and `iobjstr`. After the focused row passed,
+the managed family receipt reached five passing rows and failed first at row
+six, `audit_name_alias_exact_match_is_ambiguous`. This second slice therefore
+proves position-first partitioning and the required command locals. Row five
+also passes because negative object literals retain `FAILED_MATCH` (`#-3`), but
+that result does not authorize or prove a general object matcher.
+
 ## Harness ordering and cleanup
 
 `runner.py:404-418` sends a `command:` step through raw-command transport.
@@ -139,20 +221,17 @@ For rows one and two the durable sequence is therefore:
 - `MooServer.java:103-109` writes those ordered lines with CRLF framing.
 - `WorldTxn.java:95-130` already performs inherited executable named-verb
   lookup.
+- `MooRuntime.java:73-103,135-169` now performs the proven escaped/quoted word
+  tokenization, preserves raw `argstr`, and dispatches the stored player verb.
+- `BuiltinCatalog.java:298-419` already packs the complete accepted
+  preposition table and `any` as `-2` into the existing `WorldVerb` record.
 
 ## Current Banteng absences and disagreements
 
-- `MooRuntime.java:55-79` handles login, `PREFIX`, `SUFFIX`, and semicolon eval,
-  but drops every ordinary logged-in command. The first current failure occurs
-  before tokenization; it is not evidence of a Banteng backslash-state-machine
-  disagreement.
-- `BuiltinCatalog` has no `tostr` dispatch. The installed audit verb therefore
-  cannot execute its required `tostr(length(args))` expression until the
-  existing concrete builtin switch handles Toast/Barn zero-or-more
-  concatenation directly.
-- Banteng has no full command object, preposition scan, object matcher,
-  argspec-aware command lookup, `huh` fallback, or command programming mode.
-  Those are later rows, not prerequisites for the first two.
+- `MooRuntime` still has no general object matcher; row-specific nonempty object
+  strings currently receive `FAILED_MATCH` after the proven preposition scan.
+- Banteng has no general object matcher, argspec-aware command lookup, `huh`
+  fallback, or command programming mode. Those remain later rows.
 - `WorldTxn.verb()` returns the inherited verb but not its defining object and
   does not inspect packed argspec bits. Neither distinction is observed by the
   first two rows because the audit verb is installed directly on the player
@@ -165,11 +244,11 @@ For rows one and two the durable sequence is therefore:
 
 | Row | Oracle behavior | Status after this freeze |
 | --- | --- | --- |
-| `audit_tokenizer_backslash_escapes` | Backslash protects the following character inside a word. | Active first target. |
-| `audit_tokenizer_midword_quotes` | Quotes toggle midword and quoted spaces remain in that word. | Active second target. |
-| `audit_argstr_preserves_internal_spacing` | `argstr` keeps raw internal spacing after verb separation. | Raw-line preservation is frozen; row remains deferred. |
-| `audit_preposition_scan_uses_leftmost_position` | Earliest preposition position wins. | Deferred; no preposition scan authorized. |
-| `audit_negative_object_literals_are_failed_match` | Negative object literals resolve to failed match. | Deferred; no object matcher authorized. |
+| `audit_tokenizer_backslash_escapes` | Backslash protects the following character inside a word. | Accepted first slice. |
+| `audit_tokenizer_midword_quotes` | Quotes toggle midword and quoted spaces remain in that word. | Accepted first slice. |
+| `audit_argstr_preserves_internal_spacing` | `argstr` keeps raw internal spacing after verb separation. | Accepted by current raw-line preservation. |
+| `audit_preposition_scan_uses_leftmost_position` | Earliest preposition position wins. | Accepted second slice. |
+| `audit_negative_object_literals_are_failed_match` | Negative object literals resolve to failed match. | Accepted by current failed-match default; no general object matcher proven. |
 | `audit_name_alias_exact_match_is_ambiguous` | Exact name and alias candidates share one ambiguity pool. | Deferred. |
 | `audit_name_alias_partial_match_is_ambiguous` | Partial name and alias candidates share one ambiguity pool. | Deferred. |
 | `audit_player_name_matches_room_contents` | The player participates in room-content matching. | Deferred. |
@@ -184,13 +263,15 @@ For rows one and two the durable sequence is therefore:
 | `audit_deep_inherited_command_caller_is_player` | Deep inherited command still sees player as caller. | Deferred. |
 | `audit_inherited_command_pass_preserves_player_caller` | Command and `pass()` target retain player caller. | Deferred; `pass()` is not authorized. |
 
-## Frozen first representation
+## Frozen direct representation
 
-No new stored command model is required for rows one and two. Keep the raw
-`String` and one transient ordered `List<String>` in the existing concrete
-runtime path. Element zero is the command verb; the remaining elements become
-the existing `ListValue args`. Preserve the raw substring after the command
-word as `argstr`, removing only the leading separation.
+No new stored command model is required. Keep the raw `String` and transient
+ordered `List<String>` in the existing concrete runtime path. Element zero is
+the command verb; the remaining elements stay the existing `ListValue args`.
+Preserve the raw substring after the command word as `argstr`, removing only
+the leading separation. For row four, partition that same token tail directly
+inside the existing ordinary-command branch and add the resulting strings to
+the mutable map returned by `verbLocals()`.
 
 Use the existing concrete `verbLocals`, `executeStored`, `WorldTxn.verb`,
 `BuiltinCatalog`, `VmState` staged output, and `MooServer` writer. Do not add a
@@ -199,8 +280,6 @@ alternate evaluator.
 
 ## Open questions deliberately outside this slice
 
-- Which concrete representation will carry dobj/iobj/preposition state when a
-  later proven row first needs it?
 - How will inherited command lookup retain both receiver and defining object
   once a row observes that distinction?
 - Which existing owner will enforce packed argspec bits and construct `huh`
