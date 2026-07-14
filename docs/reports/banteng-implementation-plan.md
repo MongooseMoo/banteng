@@ -182,6 +182,44 @@ serialization, overflow, encoding, and error behavior. No sealed hierarchy,
 record, class, collection owner, or helper API may be chosen before those
 contracts are derived from Barn and Toast and proven by the oracle.
 
+## Execution ledger - 2026-07-14
+
+Completed and committed:
+
+- [x] The three Banteng blueprint reports were restored and committed as
+  `203f6b2`.
+- [x] The current managed stock-Toast identity, profile manifest, wrapper, and
+  exact conformance command were verified and recorded in
+  `docs/reports/toast-oracle-identity-2026-07-14.md`; the authority-path
+  correction was committed as `9253ff7`.
+- [x] The non-semantic Java 25/Gradle 9.6.1 bootstrap was committed as
+  `dc097a2`. It includes the pinned wrapper and checksum, dependency locks and
+  verification metadata, picocli bootstrap command, JUnit, Spotless,
+  Error Prone, NullAway, ArchUnit cycle check, application distribution, and
+  `-Xlint:all -Werror`.
+- [x] Commit `dc097a2` passed `gradlew.bat clean check installDist` from a
+  detached clean worktree using only the committed wrapper and Java 25; the
+  installed launcher printed `banteng 0.1.0-SNAPSHOT`, and the proof worktree
+  remained clean.
+
+Still unchecked; these are not satisfied by the bootstrap:
+
+- [ ] Complete the remaining Phase 0 Barn spec audit and corrections against
+  the current Barn implementation and Toast implementation/evidence.
+- [ ] Record the Phase 0 license/provenance decisions, dependency approvals,
+  and exact supported conformance-profile set.
+- [ ] Complete the remaining Phase 1 ownership-package and ArchUnit boundary
+  rules, JetCheck acceptance/recheck spike, Jazzer task, jcstress source set,
+  forked JMH artifact, JFR definitions, representative static-analysis spike,
+  and start/shutdown smoke test.
+- [ ] Begin Phase 2 only with the primitive-type authority matrix and its
+  per-family repository-local evidence records and Toast-proven durable
+  conformance rows.
+
+The bootstrap contains no MOO value, syntax, bytecode, VM, world, persistence,
+server, task, builtin, or concurrency semantics. Its passing tests are not
+semantic evidence and cannot satisfy the mandatory authority gate.
+
 ## Phase 0 - Freeze authority and land the blueprint
 
 Deliverables:
@@ -205,7 +243,9 @@ Gates:
 
 - Every changed Barn statement has direct Toast or live-oracle evidence.
 - Banteng and Barn documentation changes are committed separately with exact paths.
-- No production code exists yet.
+- No MOO-semantic production code exists yet. The explicitly recorded
+  non-semantic build and CLI bootstrap does not authorize a semantic API or
+  representation.
 
 ## Phase 1 - Java skeleton and architectural guardrails
 
@@ -406,4 +446,19 @@ Final gates:
 
 ## Immediate next action
 
-Execute Phase 0 only: commit the three Banteng reports as one documentation slice, verify the WSL Toast identity exactly as Barn documents it, and correct the contradicted Barn spec passages with direct evidence. Do not scaffold Java until that documentation slice is committed and the shared semantics are clean.
+Run `/goal` against this plan and resume at the first unchecked Phase 0 item:
+audit Barn `spec/tasks.md`, `spec/go-design.md`, `spec/vm.md`,
+`spec/database.md`, and `spec/README.md` against the current Barn implementation
+and current Toast implementation/evidence, then correct the contradicted Barn
+passages and stale paths with direct evidence. Commit Barn documentation and
+Banteng documentation separately. Continue through the remaining Phase 0 and
+Phase 1 checkboxes; a passing bootstrap is not permission to skip them.
+
+Before the first Phase 2 semantic edit, create and commit the primitive-type
+authority matrix. For each primitive family separately, read and cite the
+normative Barn spec, trace the current Barn implementation, trace the current
+Toast implementation, resolve disagreements with the exact managed WSL Toast
+command, and land the durable `moo-conformance-tests` row. Do not define a Java
+value hierarchy, primitive class, record, helper, conversion, equality,
+ordering, hash, truth, literal, serialization, overflow, encoding, or error
+behavior before its exact family evidence is complete.
