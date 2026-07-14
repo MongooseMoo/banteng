@@ -10,6 +10,7 @@ import java.util.Locale;
 import java.util.Map;
 import moo.builtin.BuiltinCatalog;
 import moo.persistence.LambdaMooV4Reader;
+import moo.value.MooValue.ListValue;
 import moo.value.MooValue.MapValue;
 import moo.value.MooValue.ObjectValue;
 import moo.value.MooValue.StringValue;
@@ -196,6 +197,68 @@ final class MooRuntimeTest {
       assertEquals(
           "{#" + handler + ", #" + loginPlayer + ", #-1, {#" + loginPlayer + "}, \"\"}",
           world.property(0, "audit_connected_seen").orElseThrow().value().toLiteral());
+    } finally {
+      runtime.closeConnection(dynamicConnection);
+    }
+  }
+
+  @Test
+  void runsZeroDelayUserConnectedForkAfterParentWithCapturedLocals() throws Exception {
+    WorldTxn world = new LambdaMooV4Reader().read(FIXTURE);
+    MooRuntime runtime = new MooRuntime(world);
+    long primaryConnection = -47;
+
+    assertEquals(List.of(), runtime.openConnection(primaryConnection));
+    assertEquals(
+        List.of("*** Connected ***"), runtime.executeLine(primaryConnection, "connect Wizard"));
+    long handler = world.objectCount();
+    long loginPlayer = handler + 1;
+    runtime.executeLine(
+        primaryConnection,
+        """
+        ; for prop in ({"audit_connected_fork_player", "audit_connected_fork_child", "audit_connected_fork_parent", "audit_connected_fork_order", "audit_connected_fork_marker"})
+          try
+            add_property(#0, prop, {}, {#0, "rw"});
+          except (E_INVARG)
+          endtry
+        endfor
+        handler = create($nothing);
+        login_player = create($nothing);
+        set_player_flag(login_player, 1);
+        #0.audit_connected_fork_player = login_player;
+        #0.audit_connected_fork_order = {};
+        add_verb(handler, {player, "rxd", "do_login_command"}, {"this", "none", "this"});
+        set_verb_code(handler, "do_login_command", {"return #0.audit_connected_fork_player;"});
+        add_verb(handler, {player, "rxd", "user_connected"}, {"this", "none", "this"});
+        set_verb_code(handler, "user_connected", {
+          "marker = \\\"before\\\";",
+          "fork (0)",
+          "  #0.audit_connected_fork_child = args[1];",
+          "  #0.audit_connected_fork_order = {@#0.audit_connected_fork_order, \\\"child\\\"};",
+          "  #0.audit_connected_fork_marker = marker;",
+          "endfork",
+          "marker = \\\"after\\\";",
+          "#0.audit_connected_fork_parent = args[1];",
+          "#0.audit_connected_fork_order = {@#0.audit_connected_fork_order, \\\"parent\\\"};",
+          "return 1;"
+        });
+        return 1;
+        """);
+    assertTrue(world.object(handler).isPresent());
+    assertTrue(world.object(loginPlayer).isPresent());
+
+    long dynamicConnection = -48;
+    try {
+      assertEquals(List.of(), runtime.openConnection(dynamicConnection, handler, false));
+      assertEquals(
+          "{#" + loginPlayer + ", #" + loginPlayer + ", {\"parent\", \"child\"}, \"before\"}",
+          new ListValue(
+                  List.of(
+                      world.property(0, "audit_connected_fork_parent").orElseThrow().value(),
+                      world.property(0, "audit_connected_fork_child").orElseThrow().value(),
+                      world.property(0, "audit_connected_fork_order").orElseThrow().value(),
+                      world.property(0, "audit_connected_fork_marker").orElseThrow().value()))
+              .toLiteral());
     } finally {
       runtime.closeConnection(dynamicConnection);
     }

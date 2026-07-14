@@ -716,8 +716,12 @@ public final class MooRuntime {
           VmState.ForkRequest request = task.forkRequest().orElseThrow();
           VmState child = new VmState(request.locals(), request.programmer());
           programs.put(child, request.program());
-          long delayNanos = Math.max(0L, Math.round(request.delaySeconds() * 1_000_000_000.0));
-          timedTasks.put(child, Math.addExact(System.nanoTime(), delayNanos));
+          if (request.delaySeconds() == 0.0) {
+            runnable.add(child);
+          } else {
+            long delayNanos = Math.max(0L, Math.round(request.delaySeconds() * 1_000_000_000.0));
+            timedTasks.put(child, Math.addExact(System.nanoTime(), delayNanos));
+          }
           task.continueAfterFork();
           vm.execute(taskProgram, task, world, builtins);
         }

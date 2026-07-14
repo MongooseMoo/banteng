@@ -602,3 +602,100 @@ one selected and 11,504 deselected in 4.60 seconds. The complete
 rows and reaches `audit_user_connected_continues_after_zero_delay_fork`, where
 the final observation is `[1, 0]` instead of `[1, 1]`. Row five is accepted;
 row six is the next causally relevant unchecked lifecycle target.
+
+## Sixth row: zero-delay fork continuation
+
+The active durable row is
+`audit_user_connected_continues_after_zero_delay_fork` at
+`../moo-conformance-tests/src/moo_conformance/_tests/audit/connection_lifecycle_toast_oracle.yaml:451-570`.
+Its original final-state assertion could not distinguish a correctly queued
+child from an incorrect child executed inline at the fork opcode. The corrected
+row now records a shared order list and a fork-time local marker. It requires
+the parent to append `"parent"` before the child appends `"child"`, and it
+requires the child to observe marker `"before"` even though the parent changes
+its own marker to `"after"` after the fork. Existing assertions continue to
+prove that both activations receive the authenticated player through `args[1]`.
+The correction is committed in the conformance repository as `b3b05ad`.
+
+The corrected row passes pinned WSL Toast with one selected and 11,504
+deselected in 4.44 seconds. It is red on committed Banteng `cec1f60`: the
+parent, child, order, and snapshot observations are `[1, 0, 0, 0]` instead of
+`[1, 1, 1, 1]`. The parent therefore continues correctly, but its queued child
+is never selected after the root activation returns.
+
+Barn's normative `../barn/spec/tasks.md:90-120` requires allocation and
+queueing of a copied child environment followed by immediate parent
+continuation. Even at delay zero, the child cannot run before the parent passes
+the fork and runs only after the current interpreter run returns control.
+`../barn/spec/tasks.md:403-450` makes the child independent background work:
+later scheduler selection runs one task until return, suspension, or abort, and
+a child error cannot affect its already-continued parent. Task-local inheritance
+and complete queue selection remain outside this row.
+
+Current Barn implements the parent boundary in
+`../barn/vm/control.go:24-117`, which skips the child bytecode in the parent,
+copies locals and frame context, and returns `FlowFork`.
+`../barn/scheduler/task_runtime.go:94-199,408-418` creates the child, supplies
+its ID, and resumes the parent until no fork boundary remains.
+`../barn/scheduler/task_factory.go:199-281` builds the background child with
+copied locals and queues it; `../barn/scheduler/scheduler.go:140-201` and
+`../barn/server/input_processor.go:163-187` select it on a later scheduler
+turn. Barn agrees for this unnamed-fork row. Its broader caller-frame and named
+fork-ID-copy discrepancies are not observable here and require separate
+durable rows before implementation.
+
+At pinned Toast commit `aecc51e9449c6e7c95272f0f044b5ba38948459e`,
+`src/execute.cc:2084-2113` handles `OP_FORK` by calling
+`enqueue_forked_task2` and then continuing with the next parent opcode.
+`src/tasks.cc:1258-1292` allocates the child ID, copies the runtime environment,
+computes its start time, and queues it. `src/tasks.cc:1208-1232` retains that
+copied activation and environment in `waiting_tasks`.
+`src/tasks.cc:1629-1814` promotes due work only when `run_ready_tasks` begins
+and executes at most one selected task, while `src/server.cc:851-856` invokes
+the selector again on later server-loop iterations. The child then runs through
+`src/tasks.cc:1772-1783` and `src/execute.cc:3375-3383` as independent
+background work. `src/eval_env.cc:65-72` performs the value-preserving runtime
+environment copy used by the corrected marker assertion.
+
+Barn's normative contract, current Barn for this unnamed fork, and pinned Toast
+agree on the fields frozen by the corrected row: the child is captured at the
+fork boundary, the parent completes first, and the child later observes the
+copied `args` and local marker. The row does not freeze task IDs, named-fork ID
+binding, task-local state, full child frame fields, background limits, delayed
+fork retention, cross-player scheduling, output ordering, or error handling.
+Those surfaces remain excluded from this slice.
+
+Banteng already has the required owned path. `MooCompiler` emits a separate
+fork vector, `MooVm` advances the parent and produces a `ForkRequest`, and
+`VmState.ForkRequest` copies the current locals and programmer. In
+`MooRuntime.executeStored`, however, every child is inserted into the local
+timed-task map. Once the root returns, the method exits before its due-task scan
+and discards the zero-delay child. The smallest representation for the corrected
+row places only a delay-zero child directly on the existing serialized runnable
+queue. The existing loop still resumes the parent to completion before taking
+the child, so the fork opcode never runs the child inline and the child sees the
+captured locals. Nonzero delayed children keep their existing timed path. No
+parser, compiler, VM, world, server, interface, adapter, helper, or persistent
+task-registry change belongs to this slice.
+
+## Sixth-row Banteng receipt
+
+The focused Java regression is red with the parent observation present but the
+child, exact order, and captured marker absent: the expected value is
+`{#10, #10, {"parent", "child"}, "before"}`, while committed Banteng produces
+`{#10, {}, {"parent"}, {}}`. The accepted implementation changes only
+`MooRuntime.executeStored`: an exactly zero-delay child is appended to the
+existing serialized runnable queue, while nonzero children retain the existing
+timed-task path. Parent execution still continues to completion before the
+runnable child is selected. The focused regression, the adjacent VM fork
+boundary regression, the existing delayed-fork SQLite interruption regression,
+and the Java 25 `check installDist` gate pass.
+
+Managed `audit_user_connected_continues_after_zero_delay_fork` passes in
+isolation with one selected and 11,504 deselected in 4.59 seconds. The complete
+`connection_lifecycle_toast_oracle` fail-fast run then passes the first seven
+rows and reaches
+`audit_user_connected_confunc_calls_continue_after_fork_and_setting_task_perms`,
+where its observation expression raises `E_RANGE` instead of returning the
+expected `[1, 1, 1, 1, 1]`. Row six is accepted; the `confunc` and
+`set_task_perms` row is the next causally relevant unchecked lifecycle target.
