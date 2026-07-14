@@ -201,11 +201,13 @@ Completed and committed:
   detached clean worktree using only the committed wrapper and Java 25; the
   installed launcher printed `banteng 0.1.0-SNAPSHOT`, and the proof worktree
   remained clean.
+- [x] The five-document Barn specification audit and correction was committed
+  in Barn as `084d618`. That commit contains exactly `spec/tasks.md`,
+  `spec/go-design.md`, `spec/vm.md`, `spec/database.md`, and `spec/README.md`;
+  `git show --check 084d618` passed.
 
 Still unchecked; these are not satisfied by the bootstrap:
 
-- [ ] Complete the remaining Phase 0 Barn spec audit and corrections against
-  the current Barn implementation and Toast implementation/evidence.
 - [ ] Record the Phase 0 license/provenance decisions, dependency approvals,
   and exact supported conformance-profile set.
 - [ ] Complete the remaining Phase 1 ownership-package and ArchUnit boundary
@@ -446,57 +448,6 @@ Final gates:
 
 ## Immediate next action
 
-Run `/goal` against this plan and resume at the first unchecked Phase 0 item.
-The next slice is one Barn documentation audit across all five named documents.
-The audit is intentionally broad: survey all five documents and trace the
-corresponding current Barn and verified Toast implementation/evidence deeply
-enough to decide every existing claim that may be contradicted, historical, or
-stale. Cross-document and cross-subsystem inspection is required where the
-documents overlap. Do not edit production code.
-
-Audit this complete five-document set:
-
-1. `spec/tasks.md`: correct the task/concurrency claims and authority paths.
-   Check only claims already made by this document, including queue selection,
-   task-ID allocation, fork timing, suspension/resumption, `yin()`,
-   `queued_tasks()`, task-local storage, permissions, and default-limit source
-   paths. Use direct current Barn and verified Toast source for each changed
-   claim.
-2. `spec/go-design.md`: reconcile only its current-package and ownership map
-   with tracked Barn source, and keep it explicitly non-normative. Do not turn
-   it into a new architecture proposal.
-3. `spec/vm.md`: separate current Barn implementation documentation from MOO
-   semantics; delete or correct historical pseudo-code, opcode tables, and
-   state descriptions that do not match tracked Barn. Correct Toast authority
-   paths and cite the direct compiler, opcode, execution, and task-state
-   owners. Do not design a Banteng VM here.
-4. `spec/database.md`: correct only its existing v4/v17 format, section-order,
-   value, object, task-persistence, and current Barn implementation claims
-   against direct Toast and tracked Barn codec sources. Correct stale authority
-   and reference paths. Do not design Banteng persistence here.
-5. `spec/README.md`: make its status, source links, authority order, and managed
-   conformance instructions agree with the four corrected documents and the
-   already-verified Toast identity record.
-
-The source survey is evidence gathering, not the deliverable. Do not stop after
-reading or tracing implementations. The required artifact is all five Barn
-documents corrected as one coherent set, including cross-document terminology,
-authority, and source references. Source inspection may be broad, but findings
-that neither prove nor contradict a claim in these five documents do not expand
-the slice into production changes or unrelated documentation.
-
-After all five documents are corrected, run the applicable Barn documentation
-checks and `git diff --check`, then commit exactly those five Barn paths as one
-Barn documentation slice. Only after that commit, update this Banteng plan's
-Phase 0 ledger with the completed Barn commit and commit the Banteng plan change
-separately. Reread this plan and continue through the remaining Phase 0 and
-Phase 1 checkboxes; a passing bootstrap is not permission to skip them.
-
-Before the first Phase 2 semantic edit, create and commit the primitive-type
-authority matrix. For each primitive family separately, read and cite the
-normative Barn spec, trace the current Barn implementation, trace the current
-Toast implementation, resolve disagreements with the exact managed WSL Toast
-command, and land the durable `moo-conformance-tests` row. Do not define a Java
-value hierarchy, primitive class, record, helper, conversion, equality,
-ordering, hash, truth, literal, serialization, overflow, encoding, or error
-behavior before its exact family evidence is complete.
+Record the Phase 0 license/provenance decisions, approved OTS dependency
+matrix, and exact supported conformance-profile set. Complete the remaining
+Phase 0 deliverables and gates before beginning another Phase 1 slice.
