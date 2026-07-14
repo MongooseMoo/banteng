@@ -253,6 +253,10 @@ the focused gate for the single active Java source slice.
 - Extend the existing concrete frame return mode with VERB. Normal verb return
   pushes the raw return value into the caller; unlike EVAL, it is not wrapped
   as `{1, value}`. Error unwinding crosses both eval and verb frames.
+- Move task permissions onto the existing concrete frame: ROOT receives the
+  initial programmer, EVAL inherits it, VERB receives the resolved verb owner,
+  and `set_task_perms` changes only the current frame. Popping a frame thereby
+  restores its caller's programmer without a second permission stack.
 - Populate callee locals directly with the existing runtime shape: `this`,
   `player`, `caller`, `verb`, `args`, and `argstr`.
 - Add the captured operand-stack depth directly to the existing
@@ -267,6 +271,14 @@ the focused gate for the single active Java source slice.
   recycle continuation target; both normal-return and error-unwind paths call
   `WorldTxn.recycleObject()` before returning zero or continuing the original
   error. Do not add a callback, sender, dispatcher, or lifecycle interface.
+- Existing `WorldTxn.verb(object, name)` remains the only lookup owner. It must
+  skip non-executable local matches and continue through ancestry using Toast's
+  case-insensitive wildcard matching; do not add a second recycle-specific
+  lookup path.
+- If no callable hook exists, recycle immediately and return zero. On normal
+  hook return, a failed continuation recycle raises `E_INVARG`; while unwinding
+  an existing hook error, a failed continuation recycle is squelched and the
+  original error continues, matching Toast's builtin unwind rule.
 - `WorldTxn.recycleObject()` performs one immutable map rewrite: remove the
   target from its location contents, move its contents to `#-1`, reparent its
   children to its parent in order, remove it from the parent's children, and
