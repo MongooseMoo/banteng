@@ -584,3 +584,21 @@ zero instead of the expected one. The earlier setup timeout is eliminated.
 This is the required kept causal reduction: row-four cleanup preserves the
 real login verb, and exact convergence can return to the missing fresh-login
 hook after this prerequisite is committed.
+
+## Fifth-row Banteng receipt
+
+The focused Java regression is red with the player associated but the exact
+`user_connected` frame recorder still `{}`. The accepted implementation changes
+only the existing login semantic owner: after a fresh returned-player
+association it synchronously invokes the accepting handler's
+`user_connected` with `this` equal to that handler, `player` equal to the
+returned player, `caller == #-1`, `args == {player}`, and `argstr == ""`.
+The hook's raised error and return value are ignored after association. The
+focused regression and the Java 25 `check installDist` gate pass.
+
+Managed `audit_user_connected_hook_on_first_login` passes in isolation with
+one selected and 11,504 deselected in 4.60 seconds. The complete
+`connection_lifecycle_toast_oracle` fail-fast run then passes the first five
+rows and reaches `audit_user_connected_continues_after_zero_delay_fork`, where
+the final observation is `[1, 0]` instead of `[1, 1]`. Row five is accepted;
+row six is the next causally relevant unchecked lifecycle target.

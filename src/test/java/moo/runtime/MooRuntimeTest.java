@@ -158,6 +158,50 @@ final class MooRuntimeTest {
   }
 
   @Test
+  void callsUserConnectedOnAcceptingHandlerAfterFreshReturnedPlayerLogin() throws Exception {
+    WorldTxn world = new LambdaMooV4Reader().read(FIXTURE);
+    MooRuntime runtime = new MooRuntime(world);
+    long primaryConnection = -47;
+
+    assertEquals(List.of(), runtime.openConnection(primaryConnection));
+    assertEquals(
+        List.of("*** Connected ***"), runtime.executeLine(primaryConnection, "connect Wizard"));
+    long handler = world.objectCount();
+    long loginPlayer = handler + 1;
+    runtime.executeLine(
+        primaryConnection,
+        """
+        ; add_property(#0, "audit_connected_player", {}, {#0, "rw"});
+        add_property(#0, "audit_connected_seen", {}, {#0, "rw"});
+        handler = create($nothing);
+        login_player = create($nothing);
+        set_player_flag(login_player, 1);
+        #0.audit_connected_player = login_player;
+        add_verb(handler, {player, "rxd", "do_login_command"}, {"this", "none", "this"});
+        set_verb_code(handler, "do_login_command", {"return #0.audit_connected_player;"});
+        add_verb(handler, {player, "rxd", "user_connected"}, {"this", "none", "this"});
+        set_verb_code(handler, "user_connected", {
+          "#0.audit_connected_seen = {this, player, caller, args, argstr};",
+          "raise(E_INVARG);"
+        });
+        return 1;
+        """);
+    assertTrue(world.object(handler).isPresent());
+    assertTrue(world.object(loginPlayer).isPresent());
+
+    long dynamicConnection = -48;
+    try {
+      assertEquals(List.of(), runtime.openConnection(dynamicConnection, handler, false));
+      assertEquals(loginPlayer, world.connectionPlayer(dynamicConnection).orElseThrow());
+      assertEquals(
+          "{#" + handler + ", #" + loginPlayer + ", #-1, {#" + loginPlayer + "}, \"\"}",
+          world.property(0, "audit_connected_seen").orElseThrow().value().toLiteral());
+    } finally {
+      runtime.closeConnection(dynamicConnection);
+    }
+  }
+
+  @Test
   void dispatchesTrustedEmptyInputToListenerHandlerBlankVerb() throws Exception {
     WorldTxn world = new LambdaMooV4Reader().read(FIXTURE);
     MooRuntime runtime = new MooRuntime(world);

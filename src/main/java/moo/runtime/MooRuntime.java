@@ -659,15 +659,34 @@ public final class MooRuntime {
             loginLine);
     VmState state = executeStored(login, locals);
     OptionalLong authenticatedPlayer = state.switchedPlayer();
+    boolean returnedPlayerAssociation = false;
     if (authenticatedPlayer.isEmpty()
         && state.returnValue().orElse(null) instanceof ObjectValue returnedPlayer
         && world.players().contains(returnedPlayer.value())) {
       authenticatedPlayer = OptionalLong.of(returnedPlayer.value());
+      returnedPlayerAssociation = true;
     }
     if (authenticatedPlayer.isPresent()) {
       long switchedPlayer = authenticatedPlayer.orElseThrow();
+      boolean freshReturnedPlayerAssociation =
+          returnedPlayerAssociation && world.connectionInfo(switchedPlayer).isEmpty();
       if (!world.switchConnectionPlayer(connectionId, switchedPlayer)) {
         throw new IllegalStateException("stored login switched to a missing player");
+      }
+      if (freshReturnedPlayerAssociation) {
+        world
+            .verb(connection.listenerHandler, "user_connected")
+            .ifPresent(
+                userConnected ->
+                    executeStored(
+                        userConnected,
+                        verbLocals(
+                            connection.listenerHandler,
+                            switchedPlayer,
+                            -1,
+                            "user_connected",
+                            new ListValue(List.of(new ObjectValue(switchedPlayer))),
+                            "")));
       }
       return connection.printMessages ? List.of("*** Connected ***") : state.output();
     }
