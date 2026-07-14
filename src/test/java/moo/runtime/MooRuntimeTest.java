@@ -3,12 +3,16 @@ package moo.runtime;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import moo.builtin.BuiltinCatalog;
 import moo.persistence.LambdaMooV4Reader;
+import moo.value.MooValue.MapValue;
 import moo.value.MooValue.ObjectValue;
+import moo.value.MooValue.StringValue;
 import moo.world.WorldObject;
 import moo.world.WorldTxn;
 import moo.world.WorldVerb;
@@ -106,6 +110,56 @@ final class MooRuntimeTest {
               + loginPlayer
               + ", {\"postlogin\", \"alpha\", \"beta\"}, \"postlogin alpha beta\"}",
           world.property(0, "audit_command_seen").orElseThrow().value().toLiteral());
+    } finally {
+      runtime.closeConnection(dynamicConnection);
+    }
+  }
+
+  @Test
+  void dispatchesTrustedEmptyInputToListenerHandlerBlankVerb() throws Exception {
+    WorldTxn world = new LambdaMooV4Reader().read(FIXTURE);
+    MooRuntime runtime = new MooRuntime(world);
+    long primaryConnection = -47;
+
+    assertEquals(List.of(), runtime.openConnection(primaryConnection));
+    assertEquals(
+        List.of("*** Connected ***"), runtime.executeLine(primaryConnection, "connect Wizard"));
+    long handler = world.objectCount();
+    runtime.executeLine(
+        primaryConnection,
+        """
+        ; add_property(#0, "audit_blank_handler", {}, {#0, "rw"});
+        add_property(#0, "audit_blank_seen", {}, {#0, "rw"});
+        try
+          add_property(#6, "trusted_proxies", {}, {#0, "rw"});
+        except (E_INVARG)
+        endtry
+        #6.trusted_proxies = {"127.0.0.1"};
+        handler = create($nothing);
+        #0.audit_blank_handler = handler;
+        add_verb(handler, {player, "rxd", "do_blank_command"}, {"this", "none", "none"});
+        set_verb_code(handler, "do_blank_command", {
+          "#0.audit_blank_seen = {this, player, caller, args, argstr};",
+          "return 0;"
+        });
+        return 1;
+        """);
+    assertEquals(new ObjectValue(6), world.property(0, "server_options").orElseThrow().value());
+
+    StringValue destinationIp = new StringValue("127.0.0.1".getBytes(StandardCharsets.ISO_8859_1));
+    MapValue connectionInfo =
+        new MapValue(
+            Map.of(
+                new StringValue("destination_ip".getBytes(StandardCharsets.ISO_8859_1)),
+                destinationIp));
+    long dynamicConnection = -48;
+    try {
+      assertEquals(
+          List.of(), runtime.openConnection(dynamicConnection, handler, false, connectionInfo));
+      assertEquals(List.of(), runtime.executeLine(dynamicConnection, ""));
+      assertEquals(
+          "{#" + handler + ", #-48, #-48, {}, \"\"}",
+          world.property(0, "audit_blank_seen").orElseThrow().value().toLiteral());
     } finally {
       runtime.closeConnection(dynamicConnection);
     }

@@ -248,3 +248,55 @@ advances through setup and fails after the dynamic connection is accepted in
 blank-dispatch discrepancy, so it is proof of a kept reduction but is not
 claimed as a passing row. The `connection_info` prerequisite is committed
 before the next semantic slice begins.
+
+## Third-row semantic slice: trusted blank dispatch
+
+Barn's normative `../barn/spec/server.md:129-170,189-240` names
+`do_login_command`, the unlogged state, and listener ownership, but does not
+specify `trusted_proxies` or `do_blank_command`. Its statement that every
+unlogged command routes to `do_login_command` is incomplete for trusted empty
+input. That gap is not filled from the Barn implementation: the pinned Toast
+source and the already-proven managed row decide it.
+
+Pinned Toast `src/server.cc:530-542` resolves a named server option from the
+listener object's `server_options` object, falling back to system object `#0`.
+`src/server.cc:1577-1597` resolves `trusted_proxies` through that path, requires
+a list, reads the connection's remote IP, and accepts only an equal string
+element. `src/tasks.cc:877-916` checks that predicate before ordinary login.
+For exactly empty input it invokes `do_blank_command` on the retained listener
+handler with the negative connection as player, empty `args`, and empty
+`argstr`. A false result returns from the login task without invoking
+`do_login_command`; a true result continues into ordinary login processing.
+The call uses the listener handler as `this`, and the server task supplies the
+same negative connection as `caller`.
+
+Barn `../barn/server/input_login.go:17-35,136-165,315-346` has the same branch,
+receiver and arguments. It treats a missing verb, an exception, or a falsey
+result as “do not continue to login”; a truthy result permits login. Barn's
+server-option lookup uses listener-first and system-object fallback, matching
+Toast. There is no MOO-observable disagreement for the exact row. Row four's
+nonempty `PROXY` command parsing and command clearing remain outside this
+slice.
+
+At committed Banteng baseline `3f54521`, `MooRuntime.openConnection` registers
+the dynamic connection and immediately calls `executeLogin(connectionId, "")`.
+That method unconditionally requires `do_login_command`; this row's handler
+deliberately defines only `do_blank_command`, so the managed process aborts at
+`MooRuntime.java:594` before the explicit client send. The smallest owned
+change is confined to `MooRuntime.executeLogin`: resolve the exact
+listener-first `server_options.trusted_proxies` option through `WorldTxn`,
+compare it with the stored `destination_ip`, execute the existing handler verb
+with the existing VM path and locals, and stop when the blank result is false.
+The focused regression belongs in `MooRuntimeTest`. No server, world, builtin,
+value representation, interface, helper, adapter, or sender is added.
+
+The focused Java regression first failed with `NoSuchElementException` from
+the `openConnection` call because the handler had no `do_login_command`. After
+the owned `executeLogin` change, that exact test passes and records
+`{this, player, caller, args, argstr}` as
+`{handler, connection, connection, {}, ""}`. The complete Java 25
+`check installDist` gate passes. The exact managed row passes with one selected
+and 11,503 deselected in 5.06 seconds. The targeted family fail-fast receipt is
+three passing rows followed by `audit_proxy_command_clears_login_input`, with
+11,481 deselected in 11.53 seconds. Row three is accepted; exact convergence
+continues on row four after this slice is committed.
