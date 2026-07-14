@@ -23,9 +23,10 @@ families.
   `/root/src/toaststunt/build-release/moo`.
 - Barn implementation reference at audit time:
   `7950bf4bdb1512193d34c90572b562ddf6c2e19f`.
-- Durable conformance authority after the focused equality additions:
+- Durable conformance authority after the focused equality and raw-byte
+  additions:
   `../moo-conformance-tests` at
-  `b68b1d7ad4ae2dd1534df2facf8427f364561bdb`.
+  `e9517c8ab67346b2b766cac310d869ff35087753`.
 - Stock profile: `../barn/profiles/toast/stock-wsl-testdb.json`, including
   `option.PROMOTE_NUMBERS: false`.
 
@@ -62,9 +63,10 @@ Banteng.
 
 Barn code agrees with Toast on recursive collection equality, distinct INT and
 FLOAT keys, signed-zero identity, and ordinary splice behavior. It uses
-Unicode-aware `strings.EqualFold` and `strings.ToLower`, while Banteng stores
-Latin-1 bytes and therefore needs byte-preserving Latin-1 case folding rather
-than a Java UTF-16 string representation.
+Unicode-aware `strings.EqualFold` and `strings.ToLower` over raw Go strings.
+Banteng must likewise retain owned bytes while recognizing valid UTF-8 byte
+sequences for equality; it must not replace the value representation with an
+unconstrained Java UTF-16 string.
 
 ## Current Toast implementation path
 
@@ -108,8 +110,14 @@ Conformance commit `b68b1d7` adds three focused discriminators:
   equality and a nested unequal result;
 - `equality::map_scalar_key_identity` proves folded string-key replacement
   while INT `1` and FLOAT `1.0` remain separate keys;
-- `equality::string_equality_folds_latin1_case` proves both ASCII `A`/`a` and
-  Latin-1 `À`/`à` compare equal.
+- `equality::string_equality_folds_valid_utf8_case` proves both ASCII `A`/`a`
+  and the valid UTF-8 encodings of `À`/`à` compare equal.
+
+Conformance commit `e9517c8` adds the raw-byte discriminator
+`chr_raw_bytes::raw_high_bytes_are_not_utf8_case_folded`. It proves that raw
+single bytes `C0` and `E0` remain different while ASCII `A` and `a` compare
+equal. Together the two rows distinguish UTF-8-aware comparison from either
+ASCII-only or Latin-1-code-page folding.
 
 ## Managed oracle results and corrected disagreement
 
@@ -124,14 +132,22 @@ against the tracked fixture.
   equality and scalar key identity but disproved the proposed ASCII-only
   expectation: Toast returned `{1, 1}` for
   `{"A" == "a", "À" == "à"}`.
-- After correcting the durable expectation and row name, the exact three-row
+- After correcting the durable expectation and initial row name, the exact three-row
   selection passed: `3 passed, 11490 deselected` out of 11,493 collected.
+- The later raw-byte row passed its exact managed selection, and the corrected
+  valid-UTF-8 equality row passed its exact managed selection, each `1 passed,
+  11493 deselected` out of 11,494 collected.
 
-The failed first expectation is retained here because it changes the Java
-decision. Banteng's pre-slice `StringValue.equals/hashCode` folds ASCII bytes
-only and is therefore observably wrong for the managed Toast contract. The
-correct representation remains owned Latin-1 bytes, with equality and hashing
-using consistent Latin-1 case folding.
+The failed first expectation and later raw-byte discriminator are retained
+because they change the Java decision. The managed Toast process runs under
+`en_US.UTF-8`; `strcasecmp` folds valid UTF-8 byte sequences, but raw invalid
+high bytes are not folded as Latin-1 characters. Banteng's pre-slice
+`StringValue.equals/hashCode` folds ASCII bytes only and is therefore
+observably wrong. The correct representation remains owned bytes: equality and
+hashing apply one consistent Unicode fold only when both byte arrays are valid
+UTF-8, and otherwise use the existing ASCII byte fold. TCP input remains the
+plan's ISO-8859-1 byte-preserving stream; decoding the connection as UTF-8
+would destroy arbitrary MOO bytes and is not authorized.
 
 ## Pre-slice Banteng failure trace
 
@@ -154,10 +170,13 @@ owner. Existing `MooVm.equality()` must continue to call `left.equals(right)`.
 
 ## Frozen smallest Java representation
 
-- Keep `StringValue` as an immutable owned Latin-1 byte array. Concatenation
-  joins the two owned byte sequences directly. Equality and hash code fold
-  each Latin-1 byte consistently, including the Toast-proven `À`/`à` pair.
-  Do not convert the value representation to Java UTF-16 strings.
+- Keep `StringValue` as an immutable owned byte array. Concatenation joins the
+  two owned byte sequences directly. Equality and hash code use the same
+  UTF-8-aware fold for valid UTF-8 byte sequences and the same ASCII-only byte
+  fold for arbitrary invalid byte sequences. Raw `C0` and `E0` remain
+  different; the UTF-8 encodings of `À` and `à` compare equal. UTF-8 decoding
+  is a comparison operation, not the stored representation and not a TCP
+  transcoding step.
 - Keep the existing recursive `ListValue.equals/hashCode` unchanged.
 - Add one concrete immutable nested `MapValue` with persisted type code 10.
   It owns an insertion-preserving unmodifiable snapshot of a
