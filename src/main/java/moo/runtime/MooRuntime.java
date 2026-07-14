@@ -60,6 +60,7 @@ public final class MooRuntime {
     if (player < 0) {
       return executeLogin(connectionId, line);
     }
+
     if (line.regionMatches(true, 0, "PREFIX ", 0, "PREFIX ".length())) {
       connection.prefix = Optional.of(line.substring("PREFIX ".length()));
       return List.of();
@@ -69,10 +70,104 @@ public final class MooRuntime {
       return List.of();
     }
 
+    List<String> words = new ArrayList<>();
+    StringBuilder currentWord = new StringBuilder();
+    boolean inQuotes = false;
+    int inputIndex = 0;
+    while (inputIndex < line.length()) {
+      char character = line.charAt(inputIndex);
+      if (character == '\\') {
+        if (inputIndex + 1 < line.length()) {
+          currentWord.append(line.charAt(inputIndex + 1));
+          inputIndex += 2;
+        } else {
+          currentWord.append(character);
+          inputIndex++;
+        }
+      } else if (character == '"') {
+        inQuotes = !inQuotes;
+        inputIndex++;
+      } else if (Character.isWhitespace(character) && !inQuotes) {
+        if (!currentWord.isEmpty()) {
+          words.add(currentWord.toString());
+          currentWord.setLength(0);
+        }
+        inputIndex++;
+      } else {
+        currentWord.append(character);
+        inputIndex++;
+      }
+    }
+    if (!currentWord.isEmpty()) {
+      words.add(currentWord.toString());
+    }
+
+    if (words.isEmpty()) {
+      return List.of();
+    }
+
+    List<MooValue> commandWords = new ArrayList<>();
+    for (String word : words) {
+      commandWords.add(encode(word));
+    }
+    List<String> doCommandOutput = List.of();
+    boolean handled = false;
+    Optional<WorldVerb> doCommand = world.verb(0, "do_command");
+    if (doCommand.isPresent()) {
+      VmState state =
+          executeStored(
+              doCommand.orElseThrow(),
+              verbLocals(0, player, player, "do_command", new ListValue(commandWords), line));
+      doCommandOutput = state.output();
+      handled = state.returnValue().isPresent() && state.returnValue().orElseThrow().isTruthy();
+    }
+
     List<String> output = new ArrayList<>();
     connection.prefix.ifPresent(output::add);
+    output.addAll(doCommandOutput);
+    if (handled) {
+      connection.suffix.ifPresent(output::add);
+      return List.copyOf(output);
+    }
     if (line.startsWith(";")) {
       output.addAll(executeEval(player, line.substring(1).stripLeading()));
+    } else {
+      int argumentStart = 0;
+      while (argumentStart < line.length() && Character.isWhitespace(line.charAt(argumentStart))) {
+        argumentStart++;
+      }
+      boolean commandWordQuotes = false;
+      while (argumentStart < line.length()
+          && (commandWordQuotes || !Character.isWhitespace(line.charAt(argumentStart)))) {
+        char character = line.charAt(argumentStart++);
+        if (character == '"') {
+          commandWordQuotes = !commandWordQuotes;
+        } else if (character == '\\' && argumentStart < line.length()) {
+          argumentStart++;
+        }
+      }
+      while (argumentStart < line.length() && Character.isWhitespace(line.charAt(argumentStart))) {
+        argumentStart++;
+      }
+
+      Optional<WorldVerb> commandVerb = world.verb(player, words.getFirst());
+      if (commandVerb.isPresent()) {
+        List<MooValue> arguments = new ArrayList<>();
+        for (int index = 1; index < words.size(); index++) {
+          arguments.add(encode(words.get(index)));
+        }
+        output.addAll(
+            executeStored(
+                    commandVerb.orElseThrow(),
+                    verbLocals(
+                        player,
+                        player,
+                        player,
+                        words.getFirst(),
+                        new ListValue(arguments),
+                        line.substring(argumentStart)))
+                .output());
+      }
     }
     connection.suffix.ifPresent(output::add);
     return List.copyOf(output);

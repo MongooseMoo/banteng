@@ -55,6 +55,29 @@ final class MooVmTest {
   }
 
   @Test
+  void concatenatesZeroOrMoreTostrArgumentsAcrossTheClosedValueFamily() {
+    BytecodeProgram program =
+        new MooCompiler()
+            .compile(
+                MooParser.parse(
+                    "return {tostr(), tostr(\"value=\", 42, 3.0, #0, E_TYPE, {1}, [\"a\" -> 1])};"));
+    VmState state = new VmState();
+
+    new MooVm().execute(program, state, new WorldTxn(List.of(), List.of()), new BuiltinCatalog());
+
+    assertEquals(VmState.Outcome.RETURNED, state.outcome());
+    assertEquals(
+        new ListValue(
+            List.of(
+                new StringValue(new byte[0]),
+                new StringValue(
+                    "value=423.0#0Type mismatch{list}[map]"
+                        .getBytes(StandardCharsets.ISO_8859_1)))),
+        state.returnValue().orElseThrow());
+    assertEquals(BuiltinCatalog.EffectClass.PURE, new BuiltinCatalog().effectClass("tostr"));
+  }
+
+  @Test
   void describesTheFrozenQueuedTasksCatalogRowsInOrder() {
     BytecodeProgram program =
         new MooCompiler()

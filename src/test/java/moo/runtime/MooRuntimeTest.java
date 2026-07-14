@@ -59,6 +59,117 @@ final class MooRuntimeTest {
   }
 
   @Test
+  void tokenizesBackslashEscapesForAStoredPlayerCommandVerb() throws Exception {
+    WorldTxn world = new LambdaMooV4Reader().read(FIXTURE);
+    MooRuntime runtime = new MooRuntime(world);
+    long connectionId = -47;
+
+    assertEquals(List.of(), runtime.openConnection(connectionId));
+    assertEquals(List.of("*** Connected ***"), runtime.executeLine(connectionId, "connect Wizard"));
+    List<String> setupOutput =
+        runtime.executeLine(
+            connectionId,
+            """
+            ; add_verb(player, {player, "xd", "audit_words"}, {"any", "none", "none"});
+            set_verb_code(player, "audit_words", {
+              "notify(player, \\"LEN:\\" + tostr(length(args)));",
+              "notify(player, \\"ARG1:\\" + args[1]);",
+              "notify(player, \\"ARG2:\\" + args[2]);"
+            });
+            return 1;
+            """);
+    long player = world.connectionPlayer(connectionId).orElseThrow();
+    assertTrue(
+        world.verb(player, "audit_words").isPresent(),
+        () -> setupOutput + " player=" + player + " object=" + world.object(player));
+    assertTrue(
+        !world.verb(player, "audit_words").orElseThrow().programSource().isEmpty(),
+        setupOutput::toString);
+
+    try {
+      assertEquals(
+          List.of("LEN:2", "ARG1:foo bar", "ARG2:baz"),
+          runtime.executeLine(connectionId, "audit_words foo\\ bar baz"));
+    } finally {
+      runtime.executeLine(connectionId, "; return delete_verb(player, \"audit_words\");");
+    }
+  }
+
+  @Test
+  void tokenizesMidwordQuotesForAStoredPlayerCommandVerb() throws Exception {
+    WorldTxn world = new LambdaMooV4Reader().read(FIXTURE);
+    MooRuntime runtime = new MooRuntime(world);
+    long connectionId = -47;
+
+    assertEquals(List.of(), runtime.openConnection(connectionId));
+    assertEquals(List.of("*** Connected ***"), runtime.executeLine(connectionId, "connect Wizard"));
+    List<String> setupOutput =
+        runtime.executeLine(
+            connectionId,
+            """
+            ; add_verb(player, {player, "xd", "audit_words"}, {"any", "none", "none"});
+            set_verb_code(player, "audit_words", {
+              "notify(player, \\"LEN:\\" + tostr(length(args)));",
+              "notify(player, \\"ARG1:\\" + args[1]);",
+              "notify(player, \\"ARG2:\\" + args[2]);"
+            });
+            return 1;
+            """);
+    long player = world.connectionPlayer(connectionId).orElseThrow();
+    assertTrue(world.verb(player, "audit_words").isPresent(), setupOutput::toString);
+
+    try {
+      assertEquals(
+          List.of("LEN:2", "ARG1:abc def", "ARG2:zz"),
+          runtime.executeLine(connectionId, "audit_words ab\"c d\"ef zz"));
+    } finally {
+      runtime.executeLine(connectionId, "; return delete_verb(player, \"audit_words\");");
+    }
+  }
+
+  @Test
+  void passesTheFullWordListToTruthyDoCommandBeforeNormalDispatch() throws Exception {
+    WorldTxn world = new LambdaMooV4Reader().read(FIXTURE);
+    MooRuntime runtime = new MooRuntime(world);
+    long connectionId = -47;
+
+    assertEquals(List.of(), runtime.openConnection(connectionId));
+    assertEquals(List.of("*** Connected ***"), runtime.executeLine(connectionId, "connect Wizard"));
+    List<String> setupOutput =
+        runtime.executeLine(
+            connectionId,
+            """
+            ; try
+              add_verb(#0, {player, "rxd", "do_command"}, {"this", "none", "this"});
+            except (E_INVARG)
+            endtry
+            set_verb_code(#0, "do_command", {
+              "if (args[1] == \\";\\")",
+              "  return 0;",
+              "endif",
+              "notify(player, \\"DO_COMMAND:\\" + tostr(length(args)) + \\":\\" + args[2]);",
+              "return 1;"
+            });
+              add_verb(player, {player, "xd", "audit_words"}, {"any", "none", "none"});
+              set_verb_code(player, "audit_words", {"notify(player, \\"NORMAL_DISPATCH\\");"});
+              return 1;
+            """);
+    assertTrue(world.verb(0, "do_command").isPresent(), setupOutput::toString);
+
+    try {
+      assertEquals(List.of(), runtime.executeLine(connectionId, "pReFiX command-prefix"));
+      assertEquals(List.of(), runtime.executeLine(connectionId, "sUfFiX command-suffix"));
+      assertEquals(
+          List.of("command-prefix", "DO_COMMAND:2:foo bar", "command-suffix"),
+          runtime.executeLine(connectionId, "audit_words foo\\ bar"));
+    } finally {
+      runtime.executeLine(
+          connectionId,
+          "; delete_verb(#0, \"do_command\"); delete_verb(player, \"audit_words\"); return 1;");
+    }
+  }
+
+  @Test
   void evalRuntimeErrorUnwindsIntoPersistedCallerExceptAndFinally() throws Exception {
     WorldTxn world = new LambdaMooV4Reader().read(FIXTURE);
     MooRuntime runtime = new MooRuntime(world);

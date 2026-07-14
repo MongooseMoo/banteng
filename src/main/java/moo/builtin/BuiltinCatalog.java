@@ -108,6 +108,42 @@ public final class BuiltinCatalog {
       case "add_property" -> addProperty(arguments, world);
       case "set_task_perms" -> setTaskPerms(arguments);
       case "notify" -> notifyLine(arguments);
+      case "tostr" -> {
+        StringBuilder text = new StringBuilder();
+        for (MooValue argument : arguments) {
+          text.append(
+              switch (argument) {
+                case StringValue string -> decode(string);
+                case IntegerValue integer -> Long.toString(integer.value());
+                case FloatValue floating -> floating.toLiteral();
+                case ObjectValue object -> object.toLiteral();
+                case ErrorValue error ->
+                    switch (error) {
+                      case E_NONE -> "No error";
+                      case E_TYPE -> "Type mismatch";
+                      case E_DIV -> "Division by zero";
+                      case E_PERM -> "Permission denied";
+                      case E_PROPNF -> "Property not found";
+                      case E_VERBNF -> "Verb not found";
+                      case E_VARNF -> "Variable not found";
+                      case E_INVIND -> "Invalid indirection";
+                      case E_RECMOVE -> "Recursive move";
+                      case E_MAXREC -> "Too many verb calls";
+                      case E_RANGE -> "Range error";
+                      case E_ARGS -> "Incorrect number of arguments";
+                      case E_NACC -> "Move refused by destination";
+                      case E_INVARG -> "Invalid argument";
+                      case E_QUOTA -> "Resource limit exceeded";
+                      case E_FLOAT -> "Floating-point arithmetic error";
+                      case E_FILE -> "File error";
+                      case E_EXEC -> "Exec error";
+                    };
+                case ListValue ignored -> "{list}";
+                case MapValue ignored -> "[map]";
+              });
+        }
+        yield Result.value(encode(text.toString()));
+      }
       case "toliteral" -> toLiteral(arguments);
       case "eval" -> dynamicEval(arguments);
       case "typeof" -> typeOf(arguments);
@@ -183,7 +219,15 @@ public final class BuiltinCatalog {
   /** Returns the fixed effect class for a builtin enabled in this slice. */
   public EffectClass effectClass(String name) {
     return switch (name.toLowerCase(Locale.ROOT)) {
-      case "length", "mapkeys", "max", "toliteral", "eval", "raise", "typeof", "function_info" ->
+      case "length",
+          "mapkeys",
+          "max",
+          "tostr",
+          "toliteral",
+          "eval",
+          "raise",
+          "typeof",
+          "function_info" ->
           EffectClass.PURE;
       case "valid" -> EffectClass.TRANSACTION_READ;
       case "queued_tasks", "sqlite_handles", "sqlite_info", "sqlite_last_insert_row_id" ->
