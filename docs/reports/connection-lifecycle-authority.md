@@ -420,3 +420,167 @@ seconds. The targeted family fail-fast receipt is four passing rows followed by
 `audit_user_connected_hook_on_first_login`, with 11,481 deselected in 21.70
 seconds. Row four is accepted; exact convergence continues on row five after
 this slice is committed.
+
+## Fifth row: fresh `user_connected` hook
+
+The active durable row is `audit_user_connected_hook_on_first_login` at
+`../moo-conformance-tests/src/moo_conformance/_tests/audit/connection_lifecycle_toast_oracle.yaml:344-449`.
+It creates an existing player, installs the accepting listener handler's
+`do_login_command` to return that player, opens a fresh connection, and records
+the `user_connected` frame. The row now asserts the complete observable frame:
+`this == #0`, `player == returned_player`, `caller == #-1`,
+`args == {returned_player}`, and `argstr == ""`. The corrected row is committed
+in the conformance repository as `a1264bb` and passes pinned WSL Toast with one
+selected and 11,503 deselected in 4.35 seconds.
+
+Barn's normative `../barn/spec/login.md:25-43,75-140` agrees that a returned
+existing player is associated before a fresh `user_connected(player)` hook and
+that hook failure does not undo the association. It inaccurately describes the
+hook as always residing on `#0` and does not specify the exact task frame.
+
+At pinned Toast commit `aecc51e9449c6e7c95272f0f044b5ba38948459e`,
+`src/tasks.cc:878-958` validates the returned player, associates it with the
+connection, completes the login task, and calls `player_connected`.
+`src/server.cc:1657-1723,519-526` selects `user_connected` for this fresh
+existing player and starts the notifier on the accepting listener handler with
+one player argument and an empty argument string. `src/tasks.cc:1825-1869` and
+`src/execute.cc:3279-3336` establish the exact frame selected by the corrected
+row, including `caller == #-1`. The notifier return value is discarded; a
+missing or failing hook does not reverse the already-completed association.
+
+Barn's public path is
+`../barn/server/input_processor.go:368-478`,
+`../barn/server/input_login.go:99-133,202-223,237-312`, and
+`../barn/scheduler/task_factory.go:61-105`. It agrees on returned-player
+acceptance, association before notification, the accepting listener handler,
+`this`, `player`, `args`, and `argstr`. It disagrees by supplying the accepted
+player as `caller`; the corrected managed row resolves that observable field in
+favor of pinned Toast's `#-1`. Anonymous-player acceptance, reconnect routing,
+connection-message policy, suspended hooks, and traceback output remain outside
+this row and require their own durable evidence before implementation.
+
+At committed Banteng baseline `0913cce`, the original row fails with one
+selected and 11,503 deselected in 6.04 seconds: the player association succeeds
+but the recorder remains `{}`, so the comparison returns zero. The smallest
+accepted slice changes only the existing login semantic owner: after a fresh
+returned-player association it synchronously executes the accepting listener
+handler's existing `user_connected` verb with the corrected row's exact frame.
+No listener, world-model, scheduler, reconnect, helper, adapter, or interface
+change belongs to this slice.
+
+The first attempted hook slice proves its focused Java regression and the
+corrected managed row in isolation, but it is fully restored rather than kept.
+The two-row family sequence passes row four and then times out before row five's
+setup. The harness defaults each test to programmer permission, so it closes
+the Wizard control connection and logs in again between rows. Row four's save
+block calls `verb_info`, `verb_args`, and `verb_code`; all three are absent in
+Banteng, so its `E_VERBNF` handler records that `do_login_command` did not exist.
+Cleanup consequently deletes the real login verb. The next control connection
+cannot authenticate, and its framed setup command produces no response. A live
+thread dump rules out a runtime deadlock: the server connection threads are
+back in `BufferedReader.readLine`. This causally earlier getter prerequisite
+must be committed before the hook slice is retried.
+
+## Fifth-row prerequisite: verb metadata getters
+
+The positive durable rows are `verb_info_basic`, `verb_args_basic`, and
+`set_verb_code_basic` at
+`../moo-conformance-tests/src/moo_conformance/_tests/builtins/verbs.yaml:205-296,533-550`.
+They prove the three getter result shapes, expanded preposition spelling, and
+nonempty code-list round trips. The added
+`verb_getters_restore_canonical_source` row freezes the remaining exact fields:
+the owner is the calling player, permissions are emitted in canonical `r`, `w`,
+`x`, `d` order as `"rxd"`, argument specs round trip unchanged, and source installed
+as `"1   ;"` is returned canonically as `"1;"`, accepted unchanged by
+`set_verb_code`, and executes with the same result after restoration. The row is
+committed in the conformance repository as `0244098` and passes pinned WSL
+Toast with one selected and 11,504 deselected in 3.51 seconds. The three earlier
+positive rows pass together with three selected and 11,501 deselected in 3.53
+seconds. The pinned row-four/row-five sequence also passes with two selected and
+11,502 deselected in 6.32 seconds.
+
+Barn's normative `../barn/spec/builtins/verbs.md:72-109,134-200,202-238`
+specifies `{owner, perms, names}`, `{dobj, prep, iobj}`, and a source-line list.
+The current public path is `../barn/bytecode/compiler.go:1320-1369`,
+`../barn/vm/vm.go:655`, `../barn/vm/op_misc.go:10-47`, and
+`../barn/builtins/registry.go:175,399-435`. Its concrete owners are
+`../barn/builtins/verbs.go:163-345`, with local-only lookup in
+`../barn/db/store/store_verbs.go:266-309`.
+
+At pinned Toast commit `aecc51e9449c6e7c95272f0f044b5ba38948459e`,
+`src/verbs.cc:215-236` validates and resolves descriptors only on the named
+object. `bf_verb_info` at `src/verbs.cc:272-317` emits the exact owner,
+canonical `r`, `w`, `x`, `d` permission order, and stored names.
+`bf_verb_args` at `src/verbs.cc:382-417` emits direct object, expanded
+preposition, and indirect object strings. `bf_verb_code` at
+`src/verbs.cc:469-500` canonically unparses the installed program. Registration
+at `src/verbs.cc:660-675` fixes two arguments for `verb_info` and `verb_args`
+and two through four for `verb_code`.
+
+Barn and Toast agree on local named lookup and the exact info/argument shapes.
+They disagree on code representation: current Barn returns stored raw source,
+while Toast returns canonical decompilation. The new durable row resolves that
+observable difference for this slice. Optional `verb_code` formatting flags,
+numeric descriptors, invalid inputs, permission failures, inherited lookup,
+and generic expanded-preposition setter compatibility remain outside this
+prerequisite.
+
+Local named lookup includes stored MOO wildcard patterns rather than literal
+alias equality. Existing durable rows `verb_lookup_wildcard_expands` and
+`verb_lookup_rejects_literal_wildcard_name` freeze both sides: a stored
+`foo*bar` is found by `foobar`, while the literal lookup string `foo*bar` raises
+`E_VERBNF`. Both rows pass together on pinned WSL Toast with two selected and
+11,503 deselected in 3.40 seconds. The expansion row is red on the initial
+Banteng getter implementation because exact alias comparison returns
+`E_VERBNF`; the three getter owners must use the already-established MOO name
+pattern algorithm while remaining local to the named object.
+
+The smallest honest Banteng representation adds the three named read-only
+builtin owners to the existing concrete `BuiltinCatalog`. They resolve one
+local string descriptor directly against the existing immutable `WorldVerb`,
+emit existing `MooValue` lists, and add no world mutator, interface, adapter, or
+public model. Canonical `verb_code` cannot come from `WorldVerb`, which stores
+only raw source, or from `MooCompiler`, whose output is executable bytecode.
+It therefore requires a syntax-owned unparser over the existing closed `Ast`
+model. That unparser is the semantic owner of source reconstruction rather than
+a `BuiltinCatalog` formatting workaround. Its focused syntax tests must prove
+precedence and escaping plus parse-unparse-parse preservation across every AST
+variant accepted by Banteng. The runtime regression exercises exact owner,
+`rxd`, `this/none/this`, canonical one-line code, and unchanged setter
+restoration before the family sequence is rerun.
+
+### Banteng prerequisite receipt
+
+The focused runtime regression first fails with the expected metadata recorder
+still `{}` because the first getter raises `E_VERBNF`. After the getter and
+syntax-owner implementation, the combined `MooUnparserTest` plus
+`readsAndRestoresCanonicalLocalVerbMetadata` run passes, and `check installDist`
+passes on Java 25 after applying the repository formatter.
+
+Against the freshly built managed Banteng distribution,
+`verb_getters_restore_canonical_source` passes with one selected and 11,504
+deselected. `verb_args_basic` and `set_verb_code_basic` also pass in the
+three-row getter command. `verb_info_basic` reaches its post-getter expression
+but then raises `E_VARNF` because Banteng does not yet define the unrelated
+`OBJ` global used by that row; this is not a getter failure and is outside this
+prerequisite. The adjacent `verb_info_with_read_permission` row passes with one
+selected and 11,504 deselected, proving the positive getter path without that
+constant dependency.
+
+Adversarial review then identifies exact-alias comparison as inconsistent with
+the recorded wildcard contract. The strengthened runtime regression stores
+`get*ter_probe` and uses `getter_probe` through all three getters and all three
+restorations; it is red with the original exact comparison and green after the
+three direct owners adopt MOO pattern matching. The final substantial managed
+getter command selects seven rows covering canonical source, positive info and
+args values, code restoration, wildcard expansion, and literal-wildcard
+rejection. All seven pass, with 11,498 deselected in 4.45 seconds. The final
+Java 25 `check installDist` gate also passes.
+
+Most importantly, the ordered lifecycle run now passes
+`audit_proxy_command_clears_login_input` and reaches
+`audit_user_connected_hook_on_first_login`'s final observation, which returns
+zero instead of the expected one. The earlier setup timeout is eliminated.
+This is the required kept causal reduction: row-four cleanup preserves the
+real login verb, and exact convergence can return to the missing fresh-login
+hook after this prerequisite is committed.

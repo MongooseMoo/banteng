@@ -65,6 +65,48 @@ final class MooRuntimeTest {
   }
 
   @Test
+  void readsAndRestoresCanonicalLocalVerbMetadata() throws Exception {
+    WorldTxn world = new LambdaMooV4Reader().read(FIXTURE);
+    MooRuntime runtime = new MooRuntime(world);
+    long connectionId = -47;
+
+    assertEquals(List.of(), runtime.openConnection(connectionId));
+    assertEquals(List.of("*** Connected ***"), runtime.executeLine(connectionId, "connect Wizard"));
+    runtime.executeLine(
+        connectionId,
+        """
+        ; add_property(#0, "audit_verb_getters", {}, {#0, "rw"});
+        object = create($nothing);
+        add_verb(object, {player, "rxd", "get*ter_probe"}, {"this", "none", "this"});
+        set_verb_code(object, "getter_probe", {"1   ;"});
+        info = verb_info(object, "getter_probe");
+        arguments = verb_args(object, "getter_probe");
+        code = verb_code(object, "getter_probe");
+        set_verb_info(object, "getter_probe", info);
+        set_verb_args(object, "getter_probe", arguments);
+        set_verb_code(object, "getter_probe", code);
+        result = object:getter_probe();
+        #0.audit_verb_getters = {
+          info,
+          arguments,
+          code,
+          result,
+          verb_info(object, "getter_probe"),
+          verb_args(object, "getter_probe"),
+          verb_code(object, "getter_probe")
+        };
+        return 1;
+        """);
+
+    assertEquals(
+        "{{#8, \"rxd\", \"get*ter_probe\"}, "
+            + "{\"this\", \"none\", \"this\"}, {\"1;\"}, 0, "
+            + "{#8, \"rxd\", \"get*ter_probe\"}, "
+            + "{\"this\", \"none\", \"this\"}, {\"1;\"}}",
+        world.property(0, "audit_verb_getters").orElseThrow().value().toLiteral());
+  }
+
+  @Test
   void authenticatesReturnedPlayerAndDispatchesCommandToListenerHandler() throws Exception {
     WorldTxn world = new LambdaMooV4Reader().read(FIXTURE);
     MooRuntime runtime = new MooRuntime(world);
