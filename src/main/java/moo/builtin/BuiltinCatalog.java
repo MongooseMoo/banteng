@@ -1,5 +1,6 @@
 package moo.builtin;
 
+import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.sql.DriverManager;
 import java.sql.PreparedStatement;
@@ -37,8 +38,19 @@ import org.sqlite.SQLiteConnection;
 public final class BuiltinCatalog {
   private static final int DEFAULT_SQLITE_FLAGS = 6;
 
+  private final Optional<ListenerControl> listenerControl;
   private final Map<Integer, SqliteHandle> sqliteHandles = new LinkedHashMap<>();
   private int nextSqliteHandle = 1;
+
+  /** Creates a catalog without host listener access for focused VM execution. */
+  public BuiltinCatalog() {
+    listenerControl = Optional.empty();
+  }
+
+  /** Creates the production catalog with the concrete server listener owner. */
+  public BuiltinCatalog(ListenerControl listenerControl) {
+    this.listenerControl = Optional.of(listenerControl);
+  }
 
   /** Invokes one named builtin without reflection or hidden world access. */
   public Result invoke(String name, List<MooValue> arguments, WorldTxn world, long programmer) {
@@ -127,6 +139,64 @@ public final class BuiltinCatalog {
           yield Result.error(ErrorValue.E_PERM);
         }
         yield world.changeParent(object.value(), newParent.value())
+            ? Result.zero()
+            : Result.error(ErrorValue.E_INVARG);
+      }
+      case "listen" -> {
+        if (arguments.size() < 2 || arguments.size() > 3) {
+          yield Result.error(ErrorValue.E_ARGS);
+        }
+        if (!(arguments.get(0) instanceof ObjectValue handler)
+            || !(arguments.get(1) instanceof IntegerValue port)) {
+          yield Result.error(ErrorValue.E_TYPE);
+        }
+        MapValue options;
+        if (arguments.size() == 3) {
+          if (!(arguments.get(2) instanceof MapValue suppliedOptions)) {
+            yield Result.error(ErrorValue.E_TYPE);
+          }
+          options = suppliedOptions;
+        } else {
+          options = new MapValue(Map.of());
+        }
+        WorldObject permissions = world.object(programmer).orElse(null);
+        if (permissions == null || (permissions.flags() & 4) == 0) {
+          yield Result.error(ErrorValue.E_PERM);
+        }
+        if (world.object(handler.value()).isEmpty() || port.value() < 1 || port.value() > 65_535) {
+          yield Result.error(ErrorValue.E_INVARG);
+        }
+        ListenerControl control = listenerControl.orElse(null);
+        if (control == null) {
+          yield Result.error(ErrorValue.E_PERM);
+        }
+        boolean printMessages =
+            options.get(encode("print-messages")).map(MooValue::isTruthy).orElse(false);
+        try {
+          yield Result.value(
+              new IntegerValue(control.listen(handler.value(), (int) port.value(), printMessages)));
+        } catch (IllegalArgumentException error) {
+          yield Result.error(ErrorValue.E_INVARG);
+        } catch (IOException error) {
+          yield Result.error(ErrorValue.E_QUOTA);
+        }
+      }
+      case "unlisten" -> {
+        if (arguments.size() != 1) {
+          yield Result.error(ErrorValue.E_ARGS);
+        }
+        if (!(arguments.getFirst() instanceof IntegerValue port)) {
+          yield Result.error(ErrorValue.E_TYPE);
+        }
+        WorldObject permissions = world.object(programmer).orElse(null);
+        if (permissions == null || (permissions.flags() & 4) == 0) {
+          yield Result.error(ErrorValue.E_PERM);
+        }
+        ListenerControl control = listenerControl.orElse(null);
+        if (control == null || port.value() < 1 || port.value() > 65_535) {
+          yield Result.error(ErrorValue.E_INVARG);
+        }
+        yield control.unlisten((int) port.value())
             ? Result.zero()
             : Result.error(ErrorValue.E_INVARG);
       }
@@ -295,6 +365,8 @@ public final class BuiltinCatalog {
       case "create",
           "recycle",
           "call_function",
+          "listen",
+          "unlisten",
           "sqlite_open",
           "sqlite_close",
           "sqlite_limit",
@@ -1192,6 +1264,15 @@ public final class BuiltinCatalog {
       this.path = path;
       this.flags = flags;
     }
+  }
+
+  /** Concrete host capability required by the MOO listener builtins. */
+  public interface ListenerControl {
+    /** Binds and starts one listener, returning its integer descriptor. */
+    int listen(long handler, int port, boolean printMessages) throws IOException;
+
+    /** Closes one dynamic listener selected by its integer descriptor. */
+    boolean unlisten(int port);
   }
 
   /** Observable effect class for the explicitly enabled catalog. */

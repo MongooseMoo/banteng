@@ -4,7 +4,6 @@ import java.nio.file.Path;
 import java.util.Objects;
 import java.util.concurrent.Callable;
 import moo.persistence.LambdaMooV4Reader;
-import moo.runtime.MooRuntime;
 import moo.server.MooServer;
 import moo.world.WorldTxn;
 import org.jspecify.annotations.Nullable;
@@ -57,8 +56,7 @@ public final class Banteng implements Callable<Integer> {
     }
 
     WorldTxn world = new LambdaMooV4Reader().read(databasePath);
-    MooRuntime runtime = new MooRuntime(world);
-    try (MooServer server = new MooServer(listenAddress, port, runtime)) {
+    try (MooServer server = new MooServer(listenAddress, port, world)) {
       server.serve();
     }
     return CommandLine.ExitCode.OK;

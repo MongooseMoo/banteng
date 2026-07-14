@@ -13,6 +13,7 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import moo.builtin.BuiltinCatalog;
+import moo.builtin.BuiltinCatalog.ListenerControl;
 import moo.bytecode.BytecodeProgram;
 import moo.bytecode.MooCompiler;
 import moo.syntax.MooParser;
@@ -30,20 +31,39 @@ import moo.world.WorldVerb;
 public final class MooRuntime {
   private final WorldTxn world;
   private final MooCompiler compiler = new MooCompiler();
-  private final BuiltinCatalog builtins = new BuiltinCatalog();
+  private final BuiltinCatalog builtins;
   private final MooVm vm = new MooVm();
   private final Map<Long, ConnectionState> connections = new LinkedHashMap<>();
 
   /** Creates a runtime over the one concrete world transaction. */
   public MooRuntime(WorldTxn world) {
     this.world = Objects.requireNonNull(world, "world");
+    builtins = new BuiltinCatalog();
+  }
+
+  /** Creates the production runtime with the concrete server listener owner. */
+  public MooRuntime(WorldTxn world, ListenerControl listenerControl) {
+    this.world = Objects.requireNonNull(world, "world");
+    builtins = new BuiltinCatalog(Objects.requireNonNull(listenerControl, "listenerControl"));
   }
 
   /** Registers a negative connection and executes its initial empty login input. */
   public synchronized List<String> openConnection(long connectionId) {
+    return openConnection(connectionId, 0, true);
+  }
+
+  /** Registers a connection accepted by one concrete listener. */
+  public synchronized List<String> openConnection(
+      long connectionId, long listenerHandler, boolean printMessages) {
     world.openConnection(connectionId);
-    connections.put(connectionId, new ConnectionState());
-    return executeLogin(connectionId, "");
+    connections.put(connectionId, new ConnectionState(listenerHandler, printMessages));
+    try {
+      return executeLogin(connectionId, "");
+    } catch (RuntimeException | Error failure) {
+      connections.remove(connectionId);
+      world.closeConnection(connectionId);
+      throw failure;
+    }
   }
 
   /** Removes a connection and its intrinsic delimiter state. */
@@ -556,7 +576,8 @@ public final class MooRuntime {
   }
 
   private List<String> executeLogin(long connectionId, String line) {
-    WorldVerb login = world.verb(0, "do_login_command").orElseThrow();
+    ConnectionState connection = requireConnection(connectionId);
+    WorldVerb login = world.verb(connection.listenerHandler, "do_login_command").orElseThrow();
     List<MooValue> arguments = new ArrayList<>();
     if (!line.isBlank()) {
       StringTokenizer words = new StringTokenizer(line);
@@ -566,14 +587,19 @@ public final class MooRuntime {
     }
     Map<String, MooValue> locals =
         verbLocals(
-            0, connectionId, connectionId, "do_login_command", new ListValue(arguments), line);
+            connection.listenerHandler,
+            connectionId,
+            connectionId,
+            "do_login_command",
+            new ListValue(arguments),
+            line);
     VmState state = executeStored(login, locals);
     if (state.switchedPlayer().isPresent()) {
       long switchedPlayer = state.switchedPlayer().orElseThrow();
       if (!world.switchConnectionPlayer(connectionId, switchedPlayer)) {
         throw new IllegalStateException("stored login switched to a missing player");
       }
-      return List.of("*** Connected ***");
+      return connection.printMessages ? List.of("*** Connected ***") : state.output();
     }
     return state.output();
   }
@@ -723,10 +749,17 @@ public final class MooRuntime {
   }
 
   private static final class ConnectionState {
+    private final long listenerHandler;
+    private final boolean printMessages;
     private Optional<String> prefix = Optional.empty();
     private Optional<String> suffix = Optional.empty();
     private long programmingObject = -1;
     private int programmingVerbIndex = -1;
     private final StringBuilder programmingSource = new StringBuilder();
+
+    private ConnectionState(long listenerHandler, boolean printMessages) {
+      this.listenerHandler = listenerHandler;
+      this.printMessages = printMessages;
+    }
   }
 }

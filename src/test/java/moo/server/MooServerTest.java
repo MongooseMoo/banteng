@@ -8,13 +8,13 @@ import java.io.BufferedWriter;
 import java.io.InputStreamReader;
 import java.io.OutputStreamWriter;
 import java.net.InetAddress;
+import java.net.ServerSocket;
 import java.net.Socket;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.List;
 import moo.persistence.LambdaMooV4Reader;
-import moo.runtime.MooRuntime;
 import org.junit.jupiter.api.Test;
 
 final class MooServerTest {
@@ -25,8 +25,7 @@ final class MooServerTest {
 
   @Test
   void servesTheFirstManagedRowOverRealSockets() throws Exception {
-    MooRuntime runtime = new MooRuntime(new LambdaMooV4Reader().read(TEST_DATABASE));
-    MooServer server = new MooServer("127.0.0.1", 0, runtime);
+    MooServer server = new MooServer("127.0.0.1", 0, new LambdaMooV4Reader().read(TEST_DATABASE));
     Thread serving = Thread.startVirtualThread(server::serve);
     try {
 
@@ -66,6 +65,92 @@ final class MooServerTest {
             readLines(input, 5));
       }
 
+    } finally {
+      server.close();
+      serving.join(Duration.ofSeconds(5));
+      assertFalse(serving.isAlive());
+    }
+  }
+
+  @Test
+  void dispatchesLoginThroughDynamicListenerHandler() throws Exception {
+    int dynamicPort;
+    try (ServerSocket reservation = new ServerSocket(0)) {
+      dynamicPort = reservation.getLocalPort();
+    }
+
+    MooServer server = new MooServer("127.0.0.1", 0, new LambdaMooV4Reader().read(TEST_DATABASE));
+    Thread serving = Thread.startVirtualThread(server::serve);
+    try (Socket primary = new Socket(InetAddress.getLoopbackAddress(), server.port());
+        BufferedReader primaryInput =
+            new BufferedReader(
+                new InputStreamReader(primary.getInputStream(), StandardCharsets.ISO_8859_1));
+        BufferedWriter primaryOutput =
+            new BufferedWriter(
+                new OutputStreamWriter(primary.getOutputStream(), StandardCharsets.ISO_8859_1))) {
+      primary.setSoTimeout((int) Duration.ofSeconds(5).toMillis());
+
+      writeLine(primaryOutput, "connect Wizard");
+      assertEquals("*** Connected ***", primaryInput.readLine());
+      writeLine(primaryOutput, "PREFIX " + CONNECTION_PREFIX);
+      writeLine(primaryOutput, "SUFFIX " + CONNECTION_SUFFIX);
+      executeSetup(primaryOutput, primaryInput, "object", "#1");
+      executeSetup(primaryOutput, primaryInput, "anonymous", "#5");
+      executeSetup(primaryOutput, primaryInput, "anon", "#5");
+      executeSetup(primaryOutput, primaryInput, "sysobj", "#0");
+      executeSetup(primaryOutput, primaryInput, "nothing", "#-1");
+
+      writeLine(
+          primaryOutput,
+          "; add_property(#0, \"audit_listener_handler\", {}, {#0, \"rw\"});"
+              + " add_property(#0, \"audit_listener_port\", "
+              + dynamicPort
+              + ", {#0, \"rw\"});"
+              + " add_property(#0, \"audit_listener_seen\", {}, {#0, \"rw\"});"
+              + " handler = create($nothing);"
+              + " #0.audit_listener_handler = handler;"
+              + " add_verb(handler, {player, \"rxd\", \"do_login_command\"}, {\"this\", \"none\", \"this\"});"
+              + " set_verb_code(handler, \"do_login_command\", {\"#0.audit_listener_seen = {this, args, argstr};\", \"return 0;\"});"
+              + " return listen(handler, "
+              + dynamicPort
+              + ", [\"print-messages\" -> 0]);");
+      assertEquals(
+          List.of(
+              CONNECTION_PREFIX,
+              CONNECTION_PREFIX,
+              "{1, " + dynamicPort + "}",
+              CONNECTION_SUFFIX,
+              CONNECTION_SUFFIX),
+          readLines(primaryInput, 5));
+
+      try (Socket dynamic = new Socket(InetAddress.getLoopbackAddress(), dynamicPort);
+          BufferedWriter dynamicOutput =
+              new BufferedWriter(
+                  new OutputStreamWriter(dynamic.getOutputStream(), StandardCharsets.ISO_8859_1))) {
+        writeLine(dynamicOutput, "listener-login alpha beta");
+        Thread.sleep(Duration.ofMillis(250));
+      }
+
+      writeLine(
+          primaryOutput,
+          "; return {#0.audit_listener_seen[1] == #0.audit_listener_handler,"
+              + " #0.audit_listener_seen[2], #0.audit_listener_seen[3]};");
+      assertEquals(
+          List.of(
+              CONNECTION_PREFIX,
+              CONNECTION_PREFIX,
+              "{1, {1, {\"listener-login\", \"alpha\", \"beta\"}, \"listener-login alpha beta\"}}",
+              CONNECTION_SUFFIX,
+              CONNECTION_SUFFIX),
+          readLines(primaryInput, 5));
+
+      writeLine(
+          primaryOutput,
+          "; unlisten(#0.audit_listener_port);" + " recycle(#0.audit_listener_handler); return 1;");
+      assertEquals(
+          List.of(
+              CONNECTION_PREFIX, CONNECTION_PREFIX, "{1, 1}", CONNECTION_SUFFIX, CONNECTION_SUFFIX),
+          readLines(primaryInput, 5));
     } finally {
       server.close();
       serving.join(Duration.ofSeconds(5));

@@ -13,31 +13,43 @@ import java.net.Socket;
 import java.net.SocketException;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicLong;
+import moo.builtin.BuiltinCatalog.ListenerControl;
 import moo.runtime.MooRuntime;
+import moo.world.WorldTxn;
 
 /** The concrete blocking socket server for the first managed vertical slice. */
-public final class MooServer implements AutoCloseable {
+public final class MooServer implements AutoCloseable, ListenerControl {
   private final MooRuntime runtime;
-  private final ServerSocket listener;
+  private final InetAddress listenAddress;
+  private final ServerSocket primaryListener;
+  private final Listener primary;
+  private final int primaryPort;
+  private final Map<Integer, Listener> listeners = new ConcurrentHashMap<>();
   private final Set<Socket> connections = ConcurrentHashMap.newKeySet();
   private final AtomicBoolean serving = new AtomicBoolean();
   private final AtomicBoolean closed = new AtomicBoolean();
-  private long nextConnectionId = -2;
+  private final AtomicLong nextConnectionId = new AtomicLong(-2);
 
   /** Binds the configured address and port. Port zero requests an ephemeral test port. */
-  public MooServer(String address, int port, MooRuntime runtime) throws IOException {
-    this.runtime = Objects.requireNonNull(runtime, "runtime");
-    listener = new ServerSocket();
-    listener.bind(new InetSocketAddress(InetAddress.getByName(address), port));
+  public MooServer(String address, int port, WorldTxn world) throws IOException {
+    listenAddress = InetAddress.getByName(address);
+    primaryListener = new ServerSocket();
+    primaryListener.bind(new InetSocketAddress(listenAddress, port));
+    primaryPort = primaryListener.getLocalPort();
+    primary = new Listener(primaryListener, 0, true);
+    listeners.put(primaryPort, primary);
+    runtime = new MooRuntime(Objects.requireNonNull(world, "world"), this);
   }
 
   /** Returns the bound port, including the assigned ephemeral port in tests. */
   public int port() {
-    return listener.getLocalPort();
+    return primaryPort;
   }
 
   /** Accepts connections until the server is closed. */
@@ -46,34 +58,39 @@ public final class MooServer implements AutoCloseable {
       throw new IllegalStateException("server is already serving");
     }
     try {
-      while (!closed.get()) {
-        Socket socket;
-        try {
-          socket = listener.accept();
-        } catch (SocketException error) {
-          if (closed.get()) {
-            return;
-          }
-          throw new UncheckedIOException(error);
-        } catch (IOException error) {
-          throw new UncheckedIOException(error);
-        }
-
-        long connectionId = nextConnectionId--;
-        connections.add(socket);
-        if (closed.get()) {
-          closeSocket(socket);
-          connections.remove(socket);
-          return;
-        }
-        Thread.startVirtualThread(() -> handleConnection(socket, connectionId));
-      }
+      acceptConnections(primary);
     } finally {
       serving.set(false);
     }
   }
 
-  private void handleConnection(Socket socket, long connectionId) {
+  private void acceptConnections(Listener listener) {
+    while (!closed.get()
+        && Objects.equals(listeners.get(listener.socket.getLocalPort()), listener)) {
+      Socket socket;
+      try {
+        socket = listener.socket.accept();
+      } catch (SocketException error) {
+        if (closed.get() || listener.socket.isClosed()) {
+          return;
+        }
+        throw new UncheckedIOException(error);
+      } catch (IOException error) {
+        throw new UncheckedIOException(error);
+      }
+
+      long connectionId = nextConnectionId.getAndDecrement();
+      connections.add(socket);
+      if (closed.get()) {
+        closeSocket(socket);
+        connections.remove(socket);
+        return;
+      }
+      Thread.startVirtualThread(() -> handleConnection(socket, connectionId, listener));
+    }
+  }
+
+  private void handleConnection(Socket socket, long connectionId, Listener listener) {
     boolean opened = false;
     try (socket;
         BufferedReader input =
@@ -82,8 +99,10 @@ public final class MooServer implements AutoCloseable {
         BufferedWriter output =
             new BufferedWriter(
                 new OutputStreamWriter(socket.getOutputStream(), StandardCharsets.ISO_8859_1))) {
-      writeLines(output, runtime.openConnection(connectionId));
+      List<String> initialOutput =
+          runtime.openConnection(connectionId, listener.handler, listener.printMessages);
       opened = true;
+      writeLines(output, initialOutput);
       String line;
       while ((line = input.readLine()) != null) {
         writeLines(output, runtime.executeLine(connectionId, line));
@@ -108,19 +127,74 @@ public final class MooServer implements AutoCloseable {
     output.flush();
   }
 
+  /** Binds and starts a dynamic listener owned by one MOO object. */
+  @Override
+  public synchronized int listen(long handler, int port, boolean printMessages) throws IOException {
+    if (closed.get()) {
+      throw new IllegalArgumentException("server is closed");
+    }
+    if (listeners.containsKey(port)) {
+      throw new IllegalArgumentException("listener already exists on port " + port);
+    }
+    ServerSocket socket = new ServerSocket();
+    try {
+      socket.bind(new InetSocketAddress(listenAddress, port));
+      Listener listener = new Listener(socket, handler, printMessages);
+      int descriptor = socket.getLocalPort();
+      if (listeners.putIfAbsent(descriptor, listener) != null) {
+        throw new IllegalArgumentException("listener already exists on port " + descriptor);
+      }
+      Thread.startVirtualThread(() -> acceptConnections(listener));
+      return descriptor;
+    } catch (IOException | RuntimeException error) {
+      try {
+        socket.close();
+      } catch (IOException closeError) {
+        error.addSuppressed(closeError);
+      }
+      throw error;
+    }
+  }
+
+  /** Closes one dynamic listener without closing its accepted connections. */
+  @Override
+  public synchronized boolean unlisten(int port) {
+    if (port == primaryPort) {
+      return false;
+    }
+    Listener listener = listeners.get(port);
+    if (listener == null) {
+      return false;
+    }
+    try {
+      listener.socket.close();
+      listeners.remove(port, listener);
+      return true;
+    } catch (IOException error) {
+      return false;
+    }
+  }
+
   /** Closes the listener and every accepted socket. */
   @Override
-  public void close() throws IOException {
+  public synchronized void close() throws IOException {
     if (!closed.compareAndSet(false, true)) {
       return;
     }
 
     IOException failure = null;
-    try {
-      listener.close();
-    } catch (IOException error) {
-      failure = error;
+    for (Listener listener : listeners.values()) {
+      try {
+        listener.socket.close();
+      } catch (IOException error) {
+        if (failure == null) {
+          failure = error;
+        } else {
+          failure.addSuppressed(error);
+        }
+      }
     }
+    listeners.clear();
     for (Socket connection : connections) {
       try {
         connection.close();
@@ -142,6 +216,12 @@ public final class MooServer implements AutoCloseable {
       socket.close();
     } catch (IOException ignored) {
       // The server is already closing; there is no remaining socket state to preserve.
+    }
+  }
+
+  private record Listener(ServerSocket socket, long handler, boolean printMessages) {
+    private Listener {
+      Objects.requireNonNull(socket, "socket");
     }
   }
 }
