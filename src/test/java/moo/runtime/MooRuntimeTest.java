@@ -166,6 +166,56 @@ final class MooRuntimeTest {
   }
 
   @Test
+  void clearsCanonicalTrustedProxyPreludeBeforeLoginDispatch() throws Exception {
+    WorldTxn world = new LambdaMooV4Reader().read(FIXTURE);
+    MooRuntime runtime = new MooRuntime(world);
+    long primaryConnection = -47;
+
+    assertEquals(List.of(), runtime.openConnection(primaryConnection));
+    assertEquals(
+        List.of("*** Connected ***"), runtime.executeLine(primaryConnection, "connect Wizard"));
+    runtime.executeLine(
+        primaryConnection,
+        """
+        ; add_property(#0, "audit_proxy_seen", {}, {#0, "rw"});
+        try
+          add_property(#6, "trusted_proxies", {}, {#0, "rw"});
+        except (E_INVARG)
+        endtry
+        #6.trusted_proxies = {"127.0.0.1"};
+        try
+          add_verb(#0, {player, "rxd", "do_login_command"}, {"this", "none", "this"});
+        except (E_INVARG)
+        endtry
+        set_verb_info(#0, "do_login_command", {player, "rxd", "do_login_command"});
+        set_verb_args(#0, "do_login_command", {"this", "none", "this"});
+        set_verb_code(#0, "do_login_command", {
+          "#0.audit_proxy_seen = {args, argstr};",
+          "return 0;"
+        });
+        return 1;
+        """);
+
+    StringValue destinationIp = new StringValue("127.0.0.1".getBytes(StandardCharsets.ISO_8859_1));
+    MapValue connectionInfo =
+        new MapValue(
+            Map.of(
+                new StringValue("destination_ip".getBytes(StandardCharsets.ISO_8859_1)),
+                destinationIp));
+    long dynamicConnection = -48;
+    try {
+      assertEquals(List.of(), runtime.openConnection(dynamicConnection, 0, false, connectionInfo));
+      assertEquals(
+          List.of(),
+          runtime.executeLine(dynamicConnection, "PROXY TCP4 127.0.0.1 198.51.100.9 4242 7777"));
+      assertEquals(
+          "{{}, \"\"}", world.property(0, "audit_proxy_seen").orElseThrow().value().toLiteral());
+    } finally {
+      runtime.closeConnection(dynamicConnection);
+    }
+  }
+
+  @Test
   void tokenizesBackslashEscapesForAStoredPlayerCommandVerb() throws Exception {
     WorldTxn world = new LambdaMooV4Reader().read(FIXTURE);
     MooRuntime runtime = new MooRuntime(world);

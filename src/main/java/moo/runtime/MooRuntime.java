@@ -591,55 +591,60 @@ public final class MooRuntime {
 
   private List<String> executeLogin(long connectionId, String line) {
     ConnectionState connection = requireConnection(connectionId);
-    if (line.isEmpty()) {
-      MooValue serverOptions =
-          world.readObjectProperty(connection.listenerHandler, "server_options").orElse(null);
-      if (serverOptions == null && connection.listenerHandler != 0) {
-        serverOptions = world.readObjectProperty(0, "server_options").orElse(null);
-      }
-      MooValue trustedProxies =
-          serverOptions instanceof ObjectValue options
-              ? world.readObjectProperty(options.value(), "trusted_proxies").orElse(null)
-              : null;
-      MooValue destinationIp =
-          world
-              .connectionInfo(connectionId)
-              .flatMap(info -> info.get(encode("destination_ip")))
-              .orElse(null);
-      boolean trusted = false;
-      if (destinationIp instanceof StringValue && trustedProxies instanceof ListValue proxyList) {
-        for (MooValue proxy : proxyList.elements()) {
-          if (proxy instanceof StringValue && proxy.equals(destinationIp)) {
-            trusted = true;
-            break;
-          }
+    MooValue serverOptions =
+        world.readObjectProperty(connection.listenerHandler, "server_options").orElse(null);
+    if (serverOptions == null && connection.listenerHandler != 0) {
+      serverOptions = world.readObjectProperty(0, "server_options").orElse(null);
+    }
+    MooValue trustedProxies =
+        serverOptions instanceof ObjectValue options
+            ? world.readObjectProperty(options.value(), "trusted_proxies").orElse(null)
+            : null;
+    MooValue destinationIp =
+        world
+            .connectionInfo(connectionId)
+            .flatMap(info -> info.get(encode("destination_ip")))
+            .orElse(null);
+    boolean trusted = false;
+    if (destinationIp instanceof StringValue && trustedProxies instanceof ListValue proxyList) {
+      for (MooValue proxy : proxyList.elements()) {
+        if (proxy instanceof StringValue && proxy.equals(destinationIp)) {
+          trusted = true;
+          break;
         }
       }
-      if (trusted) {
-        Optional<WorldVerb> blank = world.verb(connection.listenerHandler, "do_blank_command");
-        if (blank.isEmpty()) {
-          return List.of();
-        }
-        VmState blankState =
-            executeStored(
-                blank.orElseThrow(),
-                verbLocals(
-                    connection.listenerHandler,
-                    connectionId,
-                    connectionId,
-                    "do_blank_command",
-                    new ListValue(List.of()),
-                    line));
-        if (blankState.returnValue().isEmpty()
-            || !blankState.returnValue().orElseThrow().isTruthy()) {
-          return blankState.output();
-        }
+    }
+    if (trusted && line.isEmpty()) {
+      Optional<WorldVerb> blank = world.verb(connection.listenerHandler, "do_blank_command");
+      if (blank.isEmpty()) {
+        return List.of();
+      }
+      VmState blankState =
+          executeStored(
+              blank.orElseThrow(),
+              verbLocals(
+                  connection.listenerHandler,
+                  connectionId,
+                  connectionId,
+                  "do_blank_command",
+                  new ListValue(List.of()),
+                  line));
+      if (blankState.returnValue().isEmpty()
+          || !blankState.returnValue().orElseThrow().isTruthy()) {
+        return blankState.output();
+      }
+    }
+    String loginLine = line;
+    if (trusted && line.startsWith("PROXY")) {
+      StringTokenizer proxyFields = new StringTokenizer(line, " ");
+      if (proxyFields.countTokens() == 6) {
+        loginLine = "";
       }
     }
     WorldVerb login = world.verb(connection.listenerHandler, "do_login_command").orElseThrow();
     List<MooValue> arguments = new ArrayList<>();
-    if (!line.isBlank()) {
-      StringTokenizer words = new StringTokenizer(line);
+    if (!loginLine.isBlank()) {
+      StringTokenizer words = new StringTokenizer(loginLine);
       while (words.hasMoreTokens()) {
         arguments.add(encode(words.nextToken()));
       }
@@ -651,7 +656,7 @@ public final class MooRuntime {
             connectionId,
             "do_login_command",
             new ListValue(arguments),
-            line);
+            loginLine);
     VmState state = executeStored(login, locals);
     OptionalLong authenticatedPlayer = state.switchedPlayer();
     if (authenticatedPlayer.isEmpty()

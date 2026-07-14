@@ -410,3 +410,13 @@ reaches the intended PROXY assertion: the recorder contains all six PROXY words
 and the original line instead of remaining empty. This is a kept reduction.
 The setter prerequisite is committed before the rejected PROXY experiment is
 reintroduced under its already-frozen row-four authority.
+
+From committed prerequisite baseline `da73a7b`, the focused PROXY regression
+fails with the exact six words and original input, then passes after the owned
+`MooRuntime.executeLogin` change supplies one local effective empty line to the
+existing login path. The complete Java 25 `check installDist` gate passes. The
+exact managed row passes with one selected and 11,503 deselected in 5.12
+seconds. The targeted family fail-fast receipt is four passing rows followed by
+`audit_user_connected_hook_on_first_login`, with 11,481 deselected in 21.70
+seconds. Row four is accepted; exact convergence continues on row five after
+this slice is committed.
