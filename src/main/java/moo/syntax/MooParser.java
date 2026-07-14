@@ -203,6 +203,19 @@ public final class MooParser {
           throw error(token, "invalid integer literal", exception);
         }
       }
+      case FLOAT -> {
+        advance();
+        try {
+          double value = Double.parseDouble(token.lexeme());
+          if (!Double.isFinite(value)) {
+            throw error(
+                token, "non-finite float literal", new NumberFormatException(token.lexeme()));
+          }
+          yield new Ast.FloatLiteral(value);
+        } catch (NumberFormatException exception) {
+          throw error(token, "invalid float literal", exception);
+        }
+      }
       case STRING -> {
         advance();
         yield new Ast.StringLiteral(token.lexeme());

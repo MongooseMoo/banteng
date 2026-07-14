@@ -128,7 +128,13 @@ public final class MooCompiler {
         enter,
         new Instruction(
             new HandlerSpec(
-                catchTarget, catchVariable, catchesAny, caughtErrors, finallyTarget, endTarget)));
+                catchTarget,
+                catchVariable,
+                catchesAny,
+                caughtErrors,
+                catchTarget >= 0,
+                finallyTarget,
+                endTarget)));
   }
 
   private void compileStatements(List<Ast.Statement> statements, List<Instruction> instructions) {
@@ -140,6 +146,11 @@ public final class MooCompiler {
   private void compileExpression(Ast.Expression expression, List<Instruction> instructions) {
     if (expression instanceof Ast.IntegerLiteral integer) {
       instructions.add(new Instruction(Opcode.PUSH_INTEGER, integer.value()));
+      return;
+    }
+    if (expression instanceof Ast.FloatLiteral floating) {
+      instructions.add(
+          new Instruction(Opcode.PUSH_FLOAT, Double.doubleToRawLongBits(floating.value())));
       return;
     }
     if (expression instanceof Ast.StringLiteral string) {
@@ -265,7 +276,13 @@ public final class MooCompiler {
         enter,
         new Instruction(
             new HandlerSpec(
-                catchTarget, Optional.of(caughtLocal), catchesAny, caughtErrors, -1, endTarget)));
+                catchTarget,
+                Optional.of(caughtLocal),
+                catchesAny,
+                caughtErrors,
+                false,
+                -1,
+                endTarget)));
   }
 
   private static Opcode binaryOpcode(Ast.BinaryOperator operator) {

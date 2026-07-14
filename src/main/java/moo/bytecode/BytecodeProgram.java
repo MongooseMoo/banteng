@@ -29,6 +29,7 @@ public record BytecodeProgram(List<Instruction> instructions) {
   /** Opcodes implemented by the first executable source slice. */
   public enum Opcode {
     PUSH_INTEGER,
+    PUSH_FLOAT,
     PUSH_STRING,
     PUSH_OBJECT,
     PUSH_ERROR,
@@ -73,6 +74,7 @@ public record BytecodeProgram(List<Instruction> instructions) {
       boolean numberRequired =
           switch (opcode) {
             case PUSH_INTEGER,
+                PUSH_FLOAT,
                 PUSH_OBJECT,
                 BUILD_LIST,
                 CALL,
@@ -138,6 +140,7 @@ public record BytecodeProgram(List<Instruction> instructions) {
       Optional<String> catchVariable,
       boolean catchesAny,
       List<String> caughtErrors,
+      boolean structuredCatchBinding,
       int finallyTarget,
       int endTarget) {
     public HandlerSpec {
@@ -150,6 +153,9 @@ public record BytecodeProgram(List<Instruction> instructions) {
           != (catchVariable.isEmpty() && caughtErrors.isEmpty() && !catchesAny)) {
         throw new IllegalArgumentException("invalid catch metadata");
       }
+      if (catchTarget == -1 && structuredCatchBinding) {
+        throw new IllegalArgumentException("catch binding requires a catch target");
+      }
     }
 
     String disassemble() {
@@ -160,6 +166,8 @@ public record BytecodeProgram(List<Instruction> instructions) {
           + catchVariable.orElse("-")
           + ":"
           + caught
+          + ",binding="
+          + (catchTarget < 0 ? "NONE" : structuredCatchBinding ? "STRUCTURED" : "ERROR")
           + ",finally="
           + finallyTarget
           + ",end="

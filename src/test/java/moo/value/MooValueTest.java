@@ -12,6 +12,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
 import moo.value.MooValue.ErrorValue;
+import moo.value.MooValue.FloatValue;
 import moo.value.MooValue.IntegerValue;
 import moo.value.MooValue.ListValue;
 import moo.value.MooValue.ObjectValue;
@@ -20,19 +21,47 @@ import org.junit.jupiter.api.Test;
 
 final class MooValueTest {
   @Test
-  void familyIsClosedOverExactlyTheFiveAuthorizedValues() {
+  void familyIsClosedOverExactlyTheSixAuthorizedValues() {
     assertTrue(MooValue.class.isSealed());
     assertEquals(
         Set.of(
             IntegerValue.class,
+            FloatValue.class,
             StringValue.class,
             ObjectValue.class,
             ErrorValue.class,
             ListValue.class),
         Set.of(MooValue.class.getPermittedSubclasses()));
     assertEquals(
-        List.of(0, 1, 2, 3, 4),
+        List.of(0, 1, 2, 3, 4, 9),
         List.of(MooValue.Type.values()).stream().map(MooValue.Type::code).toList());
+  }
+
+  @Test
+  void floatsPreserveNumericIdentityTruthHashingAndToastLiteralForm() {
+    FloatValue positiveZero = new FloatValue(0.0);
+    FloatValue negativeZero = new FloatValue(-0.0);
+    FloatValue one = new FloatValue(1.0);
+    FloatValue adjacent = new FloatValue(Math.nextUp(1.0));
+
+    assertEquals(MooValue.Type.FLOAT, one.type());
+    assertFalse(positiveZero.isTruthy());
+    assertFalse(negativeZero.isTruthy());
+    assertTrue(one.isTruthy());
+    assertEquals(positiveZero, negativeZero);
+    assertEquals(positiveZero.hashCode(), negativeZero.hashCode());
+    assertNotEquals(one, adjacent);
+    assertNotEquals(one.hashCode(), adjacent.hashCode());
+    assertEquals("0.0", negativeZero.toLiteral());
+    assertEquals("11.0", new FloatValue(11.0).toLiteral());
+    assertEquals("1.4142135623731", new FloatValue(Math.sqrt(2.0)).toLiteral());
+    assertEquals("0.333333333333333", new FloatValue(1.0 / 3.0).toLiteral());
+    assertEquals("3.33333333333333", new FloatValue(10.0 / 3.0).toLiteral());
+    assertEquals("0.3", new FloatValue(0.1 + 0.2).toLiteral());
+    assertEquals("2.71828182845905", new FloatValue(Math.E).toLiteral());
+    assertEquals("123456789012345.0", new FloatValue(123456789012345.0).toLiteral());
+    assertEquals("1.23456789012346e+15", new FloatValue(1234567890123456.0).toLiteral());
+    assertEquals("10000000000.0", new FloatValue(1.0e10).toLiteral());
   }
 
   @Test

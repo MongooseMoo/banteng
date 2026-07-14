@@ -2,6 +2,7 @@ package moo.bytecode;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.nio.file.Path;
 import moo.persistence.LambdaMooV4Reader;
@@ -30,6 +31,36 @@ final class MooCompilerTest {
         3 RETURN""",
         first.disassemble());
     assertEquals(first.disassemble(), second.disassemble());
+  }
+
+  @Test
+  void lowersFloatLiteralsToExplicitRawBitPushes() {
+    Ast.Program syntax = MooParser.parse("return 11.0 - 5.5;");
+    MooCompiler compiler = new MooCompiler();
+
+    BytecodeProgram first = compiler.compile(syntax);
+    BytecodeProgram second = compiler.compile(syntax);
+
+    assertEquals(first, second);
+    assertEquals(
+        "0 PUSH_FLOAT "
+            + Double.doubleToRawLongBits(11.0)
+            + "\n1 PUSH_FLOAT "
+            + Double.doubleToRawLongBits(5.5)
+            + "\n2 SUBTRACT\n3 RETURN",
+        first.disassemble());
+    assertEquals(first.disassemble(), second.disassemble());
+  }
+
+  @Test
+  void encodesStatementAndExpressionCatchBindingModesExplicitly() {
+    MooCompiler compiler = new MooCompiler();
+    BytecodeProgram statement =
+        compiler.compile(MooParser.parse("try return 1; except error (ANY) return error; endtry"));
+    BytecodeProgram expression = compiler.compile(MooParser.parse("return `missing ! ANY';"));
+
+    assertTrue(statement.disassemble().contains("binding=STRUCTURED"));
+    assertTrue(expression.disassemble().contains("binding=ERROR"));
   }
 
   @Test

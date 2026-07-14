@@ -56,6 +56,27 @@ final class MooRuntimeTest {
         runtime.executeLine(connectionId, "; return 1 + 1;"));
   }
 
+  @Test
+  void evalRuntimeErrorUnwindsIntoPersistedCallerExceptAndFinally() throws Exception {
+    WorldTxn world = new LambdaMooV4Reader().read(FIXTURE);
+    MooRuntime runtime = new MooRuntime(world);
+    long connectionId = -47;
+
+    assertEquals(List.of(), runtime.openConnection(connectionId));
+    assertEquals(List.of("*** Connected ***"), runtime.executeLine(connectionId, "connect Wizard"));
+    assertEquals(List.of(), runtime.executeLine(connectionId, "PREFIX " + CONNECTION_PREFIX));
+    assertEquals(List.of(), runtime.executeLine(connectionId, "SUFFIX " + CONNECTION_SUFFIX));
+
+    assertEquals(
+        List.of(
+            CONNECTION_PREFIX,
+            CONNECTION_PREFIX,
+            "{2, {E_TYPE}}",
+            CONNECTION_SUFFIX,
+            CONNECTION_SUFFIX),
+        runtime.executeLine(connectionId, "; return 1.0 + 1;"));
+  }
+
   private static void executeSetup(
       MooRuntime runtime, long connectionId, String name, String value) {
     String source =

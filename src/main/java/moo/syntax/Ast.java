@@ -82,6 +82,7 @@ public sealed interface Ast
   sealed interface Expression extends Ast
       permits Identifier,
           IntegerLiteral,
+          FloatLiteral,
           StringLiteral,
           ObjectLiteral,
           ErrorLiteral,
@@ -97,6 +98,8 @@ public sealed interface Ast
   record Identifier(String name) implements Expression {}
 
   record IntegerLiteral(long value) implements Expression {}
+
+  record FloatLiteral(double value) implements Expression {}
 
   record StringLiteral(String value) implements Expression {}
 

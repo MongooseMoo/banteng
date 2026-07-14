@@ -2,11 +2,13 @@ package moo.value;
 
 import java.util.Arrays;
 import java.util.List;
+import java.util.Locale;
 import java.util.Optional;
 
 /** The closed value family required by the first server slice. */
 public sealed interface MooValue
     permits MooValue.IntegerValue,
+        MooValue.FloatValue,
         MooValue.StringValue,
         MooValue.ObjectValue,
         MooValue.ErrorValue,
@@ -27,7 +29,8 @@ public sealed interface MooValue
     OBJECT(1),
     STRING(2),
     ERROR(3),
-    LIST(4);
+    LIST(4),
+    FLOAT(9);
 
     private final int code;
 
@@ -56,6 +59,70 @@ public sealed interface MooValue
     @Override
     public String toLiteral() {
       return Long.toString(value);
+    }
+
+    @Override
+    public String toString() {
+      return toLiteral();
+    }
+  }
+
+  /** An immutable IEEE-754 binary64 MOO float. */
+  final class FloatValue implements MooValue {
+    private final double value;
+
+    public FloatValue(double value) {
+      this.value = value;
+    }
+
+    /** Returns the primitive binary64 payload. */
+    public double value() {
+      return value;
+    }
+
+    @Override
+    public Type type() {
+      return Type.FLOAT;
+    }
+
+    @Override
+    public boolean isTruthy() {
+      return value != 0.0;
+    }
+
+    @Override
+    public String toLiteral() {
+      if (value == 0.0) {
+        return "0.0";
+      }
+      String formatted = String.format(Locale.ROOT, "%.15g", value);
+      int exponent = Math.max(formatted.indexOf('e'), formatted.indexOf('E'));
+      String significand = exponent < 0 ? formatted : formatted.substring(0, exponent);
+      String suffix = exponent < 0 ? "" : formatted.substring(exponent);
+      if (significand.indexOf('.') >= 0) {
+        int end = significand.length();
+        while (end > 0 && significand.charAt(end - 1) == '0') {
+          end--;
+        }
+        if (end > 0 && significand.charAt(end - 1) == '.') {
+          end--;
+        }
+        significand = significand.substring(0, end);
+      }
+      if (significand.indexOf('.') < 0 && suffix.isEmpty()) {
+        significand += ".0";
+      }
+      return significand + suffix;
+    }
+
+    @Override
+    public boolean equals(Object other) {
+      return this == other || (other instanceof FloatValue floating && value == floating.value);
+    }
+
+    @Override
+    public int hashCode() {
+      return Double.hashCode(value == 0.0 ? 0.0 : value);
     }
 
     @Override

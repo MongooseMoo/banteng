@@ -116,6 +116,14 @@ public final class VmState {
         .push(new ListValue(List.of(new moo.value.MooValue.IntegerValue(1), value)));
   }
 
+  boolean unwindEvalFrame() {
+    if (currentFrame().returnMode != ReturnMode.EVAL) {
+      return false;
+    }
+    frames.removeFirst();
+    return true;
+  }
+
   void beginError(ErrorValue error) {
     pendingError = Optional.of(error);
   }

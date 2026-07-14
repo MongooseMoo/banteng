@@ -47,6 +47,22 @@ final class MooParserTest {
     assertEquals(new Ast.IntegerLiteral(1), addition.right());
   }
 
+  @Test
+  void parsesToastFloatLiteralForms() {
+    Map<String, Double> forms =
+        Map.of(".5", 0.5, "1.", 1.0, "1e2", 100.0, "1E+2", 100.0, "11.0", 11.0);
+
+    forms.forEach(
+        (source, expected) -> {
+          Ast.Program program = MooParser.parse("return " + source + ";");
+          Ast.Return returnStatement =
+              assertInstanceOf(Ast.Return.class, program.statements().getFirst());
+          Ast.FloatLiteral literal =
+              assertInstanceOf(Ast.FloatLiteral.class, returnStatement.value().orElseThrow());
+          assertEquals(expected, literal.value(), source);
+        });
+  }
+
   private static Map<String, String> exactFixturePrograms(List<String> lines) {
     Map<String, String> programs = new LinkedHashMap<>();
     int lineIndex = 0;

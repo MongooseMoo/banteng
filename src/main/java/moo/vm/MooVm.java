@@ -11,6 +11,7 @@ import moo.bytecode.BytecodeProgram.Instruction;
 import moo.syntax.MooParser;
 import moo.value.MooValue;
 import moo.value.MooValue.ErrorValue;
+import moo.value.MooValue.FloatValue;
 import moo.value.MooValue.IntegerValue;
 import moo.value.MooValue.ListValue;
 import moo.value.MooValue.ObjectValue;
@@ -51,6 +52,11 @@ public final class MooVm {
     switch (instruction.opcode()) {
       case PUSH_INTEGER -> {
         frame.operandStack.push(new IntegerValue(instruction.operand().orElseThrow()));
+        frame.instructionPointer++;
+      }
+      case PUSH_FLOAT -> {
+        frame.operandStack.push(
+            new FloatValue(Double.longBitsToDouble(instruction.operand().orElseThrow())));
         frame.instructionPointer++;
       }
       case PUSH_STRING -> {
@@ -219,39 +225,103 @@ public final class MooVm {
 
   private static void unaryNegate(Frame frame, VmState state) {
     MooValue operand = frame.operandStack.pop();
-    if (!(operand instanceof IntegerValue integer)) {
-      raiseError(state, ErrorValue.E_TYPE);
+    if (operand instanceof IntegerValue integer) {
+      frame.operandStack.push(new IntegerValue(-integer.value()));
+      frame.instructionPointer++;
       return;
     }
-    frame.operandStack.push(new IntegerValue(-integer.value()));
-    frame.instructionPointer++;
+    if (operand instanceof FloatValue floating) {
+      double result = -floating.value();
+      if (!Double.isFinite(result)) {
+        raiseError(state, ErrorValue.E_FLOAT);
+        return;
+      }
+      frame.operandStack.push(new FloatValue(result));
+      frame.instructionPointer++;
+      return;
+    }
+    raiseError(state, ErrorValue.E_TYPE);
   }
 
   private static void arithmetic(Instruction instruction, Frame frame, VmState state) {
     MooValue rightValue = frame.operandStack.pop();
     MooValue leftValue = frame.operandStack.pop();
-    if (!(leftValue instanceof IntegerValue left) || !(rightValue instanceof IntegerValue right)) {
-      raiseError(state, ErrorValue.E_TYPE);
+    if (leftValue instanceof IntegerValue left && rightValue instanceof IntegerValue right) {
+      if ((instruction.opcode() == BytecodeProgram.Opcode.DIVIDE
+              || instruction.opcode() == BytecodeProgram.Opcode.REMAINDER)
+          && right.value() == 0) {
+        raiseError(state, ErrorValue.E_DIV);
+        return;
+      }
+      long result =
+          switch (instruction.opcode()) {
+            case ADD -> left.value() + right.value();
+            case SUBTRACT -> left.value() - right.value();
+            case MULTIPLY -> left.value() * right.value();
+            case DIVIDE -> left.value() / right.value();
+            case REMAINDER -> left.value() % right.value();
+            case POWER -> integerPower(left.value(), right.value());
+            default -> throw new AssertionError(instruction.opcode());
+          };
+      frame.operandStack.push(new IntegerValue(result));
+      frame.instructionPointer++;
       return;
     }
-    if ((instruction.opcode() == BytecodeProgram.Opcode.DIVIDE
-            || instruction.opcode() == BytecodeProgram.Opcode.REMAINDER)
-        && right.value() == 0) {
-      raiseError(state, ErrorValue.E_DIV);
+    if (instruction.opcode() == BytecodeProgram.Opcode.POWER
+        && leftValue instanceof FloatValue left
+        && rightValue instanceof IntegerValue right) {
+      if (left.value() == 0.0 && right.value() < 0) {
+        raiseError(state, ErrorValue.E_DIV);
+        return;
+      }
+      double result = Math.pow(left.value(), (double) right.value());
+      if (!Double.isFinite(result)) {
+        raiseError(state, ErrorValue.E_FLOAT);
+        return;
+      }
+      frame.operandStack.push(new FloatValue(result));
+      frame.instructionPointer++;
       return;
     }
-    long result =
-        switch (instruction.opcode()) {
-          case ADD -> left.value() + right.value();
-          case SUBTRACT -> left.value() - right.value();
-          case MULTIPLY -> left.value() * right.value();
-          case DIVIDE -> left.value() / right.value();
-          case REMAINDER -> left.value() % right.value();
-          case POWER -> integerPower(left.value(), right.value());
-          default -> throw new AssertionError(instruction.opcode());
-        };
-    frame.operandStack.push(new IntegerValue(result));
-    frame.instructionPointer++;
+    if (leftValue instanceof FloatValue left && rightValue instanceof FloatValue right) {
+      if ((instruction.opcode() == BytecodeProgram.Opcode.DIVIDE
+              || instruction.opcode() == BytecodeProgram.Opcode.REMAINDER)
+          && right.value() == 0.0) {
+        raiseError(state, ErrorValue.E_DIV);
+        return;
+      }
+      if (instruction.opcode() == BytecodeProgram.Opcode.POWER
+          && left.value() == 0.0
+          && right.value() < 0.0) {
+        raiseError(state, ErrorValue.E_DIV);
+        return;
+      }
+      double result =
+          switch (instruction.opcode()) {
+            case ADD -> left.value() + right.value();
+            case SUBTRACT -> left.value() - right.value();
+            case MULTIPLY -> left.value() * right.value();
+            case DIVIDE -> left.value() / right.value();
+            case REMAINDER -> {
+              double remainder = left.value() % right.value();
+              if (remainder != 0.0
+                  && Math.copySign(1.0, remainder) != Math.copySign(1.0, right.value())) {
+                remainder += right.value();
+              }
+              yield remainder == 0.0 ? Math.copySign(0.0, right.value()) : remainder;
+            }
+            case POWER -> Math.pow(left.value(), right.value());
+            default -> throw new AssertionError(instruction.opcode());
+          };
+      if (!Double.isFinite(result)) {
+        raiseError(state, ErrorValue.E_FLOAT);
+        return;
+      }
+      frame.operandStack.push(new FloatValue(result));
+      frame.instructionPointer++;
+      return;
+    }
+    raiseError(state, ErrorValue.E_TYPE);
   }
 
   private static long integerPower(long base, long exponent) {
@@ -285,20 +355,33 @@ public final class MooVm {
   private static void comparison(Instruction instruction, Frame frame, VmState state) {
     MooValue rightValue = frame.operandStack.pop();
     MooValue leftValue = frame.operandStack.pop();
-    if (!(leftValue instanceof IntegerValue left) || !(rightValue instanceof IntegerValue right)) {
-      raiseError(state, ErrorValue.E_TYPE);
+    if (leftValue instanceof IntegerValue left && rightValue instanceof IntegerValue right) {
+      boolean result =
+          switch (instruction.opcode()) {
+            case LESS_THAN -> left.value() < right.value();
+            case LESS_THAN_OR_EQUAL -> left.value() <= right.value();
+            case GREATER_THAN -> left.value() > right.value();
+            case GREATER_THAN_OR_EQUAL -> left.value() >= right.value();
+            default -> throw new AssertionError(instruction.opcode());
+          };
+      frame.operandStack.push(new IntegerValue(result ? 1 : 0));
+      frame.instructionPointer++;
       return;
     }
-    boolean result =
-        switch (instruction.opcode()) {
-          case LESS_THAN -> left.value() < right.value();
-          case LESS_THAN_OR_EQUAL -> left.value() <= right.value();
-          case GREATER_THAN -> left.value() > right.value();
-          case GREATER_THAN_OR_EQUAL -> left.value() >= right.value();
-          default -> throw new AssertionError(instruction.opcode());
-        };
-    frame.operandStack.push(new IntegerValue(result ? 1 : 0));
-    frame.instructionPointer++;
+    if (leftValue instanceof FloatValue left && rightValue instanceof FloatValue right) {
+      boolean result =
+          switch (instruction.opcode()) {
+            case LESS_THAN -> left.value() < right.value();
+            case LESS_THAN_OR_EQUAL -> left.value() <= right.value();
+            case GREATER_THAN -> left.value() > right.value();
+            case GREATER_THAN_OR_EQUAL -> left.value() >= right.value();
+            default -> throw new AssertionError(instruction.opcode());
+          };
+      frame.operandStack.push(new IntegerValue(result ? 1 : 0));
+      frame.instructionPointer++;
+      return;
+    }
+    raiseError(state, ErrorValue.E_TYPE);
   }
 
   private static void conditionalJump(Instruction instruction, Frame frame, boolean truth) {
@@ -396,32 +479,46 @@ public final class MooVm {
 
   private static void raiseError(VmState state, ErrorValue error) {
     state.beginError(error);
-    Frame frame = state.currentFrame();
-    while (!frame.handlers.isEmpty()) {
-      ActiveHandler handler = frame.handlers.getFirst();
-      if (handler.phase == HandlerPhase.TRY
-          && handler.specification.catchTarget() >= 0
-          && catches(handler, error)) {
-        handler.phase = HandlerPhase.CATCH;
-        handler.specification.catchVariable().ifPresent(name -> frame.locals.put(name, error));
-        state.clearPendingError();
-        frame.instructionPointer = handler.specification.catchTarget();
-        return;
+    while (true) {
+      Frame frame = state.currentFrame();
+      while (!frame.handlers.isEmpty()) {
+        ActiveHandler handler = frame.handlers.getFirst();
+        if (handler.phase == HandlerPhase.TRY
+            && handler.specification.catchTarget() >= 0
+            && catches(handler, error)) {
+          handler.phase = HandlerPhase.CATCH;
+          handler
+              .specification
+              .catchVariable()
+              .ifPresent(
+                  name ->
+                      frame.locals.put(
+                          name,
+                          handler.specification.structuredCatchBinding()
+                              ? new ListValue(List.of(error))
+                              : error));
+          state.clearPendingError();
+          frame.instructionPointer = handler.specification.catchTarget();
+          return;
+        }
+        frame.handlers.pop();
+        if (handler.specification.finallyTarget() >= 0) {
+          frame.finallyContinuations.push(
+              new FinallyContinuation(
+                  ContinuationKind.ERROR,
+                  -1,
+                  java.util.Optional.empty(),
+                  java.util.Optional.of(error)));
+          state.clearPendingError();
+          frame.instructionPointer = handler.specification.finallyTarget();
+          return;
+        }
       }
-      frame.handlers.pop();
-      if (handler.specification.finallyTarget() >= 0) {
-        frame.finallyContinuations.push(
-            new FinallyContinuation(
-                ContinuationKind.ERROR,
-                -1,
-                java.util.Optional.empty(),
-                java.util.Optional.of(error)));
-        state.clearPendingError();
-        frame.instructionPointer = handler.specification.finallyTarget();
+      if (!state.unwindEvalFrame()) {
+        state.failUncaught(error);
         return;
       }
     }
-    state.failUncaught(error);
   }
 
   private static boolean catches(ActiveHandler handler, ErrorValue error) {

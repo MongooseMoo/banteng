@@ -8,6 +8,7 @@ final class MooLexer {
     EOF,
     IDENTIFIER,
     INTEGER,
+    FLOAT,
     STRING,
     OBJECT,
     ERROR,
@@ -86,7 +87,10 @@ final class MooLexer {
       case ']' -> token(TokenKind.RIGHT_BRACKET, tokenLine, tokenColumn);
       case ',' -> token(TokenKind.COMMA, tokenLine, tokenColumn);
       case ';' -> token(TokenKind.SEMICOLON, tokenLine, tokenColumn);
-      case '.' -> token(TokenKind.DOT, tokenLine, tokenColumn);
+      case '.' ->
+          !atEnd() && isDigit(peek()) && (offset < 2 || source.charAt(offset - 2) != '.')
+              ? number(tokenLine, tokenColumn, true)
+              : token(TokenKind.DOT, tokenLine, tokenColumn);
       case '$' -> token(TokenKind.DOLLAR, tokenLine, tokenColumn);
       case '`' -> token(TokenKind.BACKTICK, tokenLine, tokenColumn);
       case '\'' -> token(TokenKind.APOSTROPHE, tokenLine, tokenColumn);
@@ -126,7 +130,7 @@ final class MooLexer {
       case '#' -> object(tokenLine, tokenColumn);
       default -> {
         if (isDigit(current)) {
-          yield integer(tokenLine, tokenColumn);
+          yield number(tokenLine, tokenColumn, false);
         }
         if (isIdentifierStart(current)) {
           yield identifier(tokenLine, tokenColumn);
@@ -136,11 +140,36 @@ final class MooLexer {
     };
   }
 
-  private Token integer(int tokenLine, int tokenColumn) {
+  private Token number(int tokenLine, int tokenColumn, boolean leadingDot) {
     while (!atEnd() && isDigit(peek())) {
       advance();
     }
-    return token(TokenKind.INTEGER, tokenLine, tokenColumn);
+    boolean floating = leadingDot;
+    if (!leadingDot && !atEnd() && peek() == '.' && peekNext() != '.') {
+      floating = true;
+      advance();
+      while (!atEnd() && isDigit(peek())) {
+        advance();
+      }
+    }
+    if (!atEnd() && (peek() == 'e' || peek() == 'E')) {
+      int exponentDigit = offset + 1;
+      if (exponentDigit < source.length()
+          && (source.charAt(exponentDigit) == '+' || source.charAt(exponentDigit) == '-')) {
+        exponentDigit++;
+      }
+      if (exponentDigit < source.length() && isDigit(source.charAt(exponentDigit))) {
+        floating = true;
+        advance();
+        if (!atEnd() && (peek() == '+' || peek() == '-')) {
+          advance();
+        }
+        while (!atEnd() && isDigit(peek())) {
+          advance();
+        }
+      }
+    }
+    return token(floating ? TokenKind.FLOAT : TokenKind.INTEGER, tokenLine, tokenColumn);
   }
 
   private Token object(int tokenLine, int tokenColumn) {
