@@ -446,12 +446,52 @@ Final gates:
 
 ## Immediate next action
 
-Run `/goal` against this plan and resume at the first unchecked Phase 0 item:
-audit Barn `spec/tasks.md`, `spec/go-design.md`, `spec/vm.md`,
-`spec/database.md`, and `spec/README.md` against the current Barn implementation
-and current Toast implementation/evidence, then correct the contradicted Barn
-passages and stale paths with direct evidence. Commit Barn documentation and
-Banteng documentation separately. Continue through the remaining Phase 0 and
+Run `/goal` against this plan and resume at the first unchecked Phase 0 item.
+The next slice is one bounded Barn documentation correction, not a concurrent
+survey or implementation effort across Barn subsystems. Do not edit production
+code. Do not inspect a different document's subsystem while the current
+document remains uncorrected.
+
+Process the five named Barn documents in this exact order, completing the edit
+for one before reading implementation details for the next:
+
+1. `spec/tasks.md`: correct the task/concurrency claims and authority paths.
+   Check only claims already made by this document, including queue selection,
+   task-ID allocation, fork timing, suspension/resumption, `yin()`,
+   `queued_tasks()`, task-local storage, permissions, and default-limit source
+   paths. Use direct current Barn and verified Toast source for each changed
+   claim.
+2. `spec/go-design.md`: reconcile only its current-package and ownership map
+   with tracked Barn source, and keep it explicitly non-normative. Do not turn
+   it into a new architecture proposal.
+3. `spec/vm.md`: separate current Barn implementation documentation from MOO
+   semantics; delete or correct historical pseudo-code, opcode tables, and
+   state descriptions that do not match tracked Barn. Correct Toast authority
+   paths and cite the direct compiler, opcode, execution, and task-state
+   owners. Do not design a Banteng VM here.
+4. `spec/database.md`: correct only its existing v4/v17 format, section-order,
+   value, object, task-persistence, and current Barn implementation claims
+   against direct Toast and tracked Barn codec sources. Correct stale authority
+   and reference paths. Do not design Banteng persistence here.
+5. `spec/README.md`: make its status, source links, authority order, and managed
+   conformance instructions agree with the four corrected documents and the
+   already-verified Toast identity record.
+
+For each document, before every source read, name the exact existing passage
+whose keep/edit/delete decision the read can change. Once direct evidence
+decides that passage, edit the document immediately; another adjacent source
+read is forbidden until an identified passage still lacks decision-changing
+evidence. Broad package inventories, exhaustive subsystem traces, unrelated
+behavior discovery, and speculative follow-up audits are outside this slice.
+The later implementation-slice authority gate does not authorize expanding
+this documentation correction beyond claims already present in these five
+files.
+
+After all five documents are corrected, run the applicable Barn documentation
+checks and `git diff --check`, then commit exactly those five Barn paths as one
+Barn documentation slice. Only after that commit, update this Banteng plan's
+Phase 0 ledger with the completed Barn commit and commit the Banteng plan change
+separately. Reread this plan and continue through the remaining Phase 0 and
 Phase 1 checkboxes; a passing bootstrap is not permission to skip them.
 
 Before the first Phase 2 semantic edit, create and commit the primitive-type
