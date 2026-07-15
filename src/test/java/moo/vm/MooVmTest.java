@@ -55,6 +55,21 @@ final class MooVmTest {
   }
 
   @Test
+  void resolvesIntegerAndStringTypeConstantsAfterLocalLookup() {
+    BytecodeProgram program =
+        new MooCompiler()
+            .compile(MooParser.parse("return {typeof(1) == INT, typeof(\"x\") == STR};"));
+    VmState state = new VmState();
+
+    new MooVm().execute(program, state);
+
+    assertEquals(VmState.Outcome.RETURNED, state.outcome());
+    assertEquals(
+        new ListValue(List.of(new IntegerValue(1), new IntegerValue(1))),
+        state.returnValue().orElseThrow());
+  }
+
+  @Test
   void concatenatesZeroOrMoreTostrArgumentsAcrossTheClosedValueFamily() {
     BytecodeProgram program =
         new MooCompiler()

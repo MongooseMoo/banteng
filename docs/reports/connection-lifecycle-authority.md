@@ -1980,3 +1980,101 @@ category then passed rows 1 through 19 and stopped first at row 20,
 11,482 deselected, in 44.62 seconds. Row 19 is therefore the kept frontier;
 row 20 remains a separate unchecked slice. The final Java 25
 `clean check installDist` gate passed in 13 seconds.
+
+## Twentieth row: connection metadata and predefined type constants
+
+The active durable row is `audit_connection_info_source_fields` at
+`../moo-conformance-tests/src/moo_conformance/_tests/audit/connection_lifecycle_toast_oracle.yaml:1770`.
+Wizard calls `connection_info(player)`, requires the presence of the eight
+canonical source, destination, protocol, and direction keys, and checks that
+`source_address` is `STR` while both observed ports are `INT`. The row passed
+pinned WSL Toast commit `aecc51e9449c6e7c95272f0f044b5ba38948459e`:
+one selected, 11,504 deselected, in 3.31 seconds.
+
+The earlier premise that committed Banteng lacked connection metadata was
+wrong. `MooServer` already creates all eight keys from the actual local and
+remote socket endpoints, `WorldTxn.connectionInfo` resolves them by connection
+or attached player, and `BuiltinCatalog.connection_info` already enforces the
+Toast lookup and permission order before returning that map. Earlier lifecycle
+rows successfully index `destination_ip` and `source_port`. Row 20 instead
+reaches its final type predicate and raises `E_VARNF` on the predefined
+identifier `STR`; `INT` would fail next. The independent durable
+`types::constant_STR_value` row reproduces the same `E_VARNF` on committed
+Banteng `35102ee`.
+
+Barn's relevant normative text is incomplete and partly stale.
+`../barn/spec/server.md:264-279` correctly assigns `source_port` to the accepting
+listener, destination fields to the peer, and `protocol` to the IP family.
+`../barn/spec/builtins/network.md:46-60` instead documents unrelated telemetry
+keys such as `connected_at` and byte counts. No Barn normative section defines
+the runtime predefined type constants; the database type-tag table in
+`../barn/spec/database.md:82-105` supplies the corresponding numeric tags but
+does not define identifier lookup.
+
+Barn registers `connection_info` as exactly one object argument in
+`../barn/builtins/function_signatures_generated.go:33`. Its implementation at
+`../barn/builtins/network.go:1161-1221`, through the connection owners in
+`../barn/server/connection.go` and `connection_manager.go`, returns the same
+eight keys with the active row's value categories. It diverges from Toast by
+omitting the wizard-or-self permission check and by using a loopback fallback
+for inbound source address rather than the actual bound interface. Neither
+divergence is observed by this Wizard, type-and-presence-only row.
+
+Barn's runtime-constant owner is `NewEnvironment` at
+`../barn/vm/environment.go:12-32`. It prepopulates `INT` with integer zero and
+`STR` with integer two, matching `typeof`, along with the other predefined type
+identifiers. Those bindings are available through the ordinary environment
+lookup before user code executes.
+
+Pinned Toast registers `connection_info(OBJ)` at
+`/root/src/toaststunt/src/server.cc:3300`. `bf_connection_info` at lines
+3031-3074 rejects a missing or disconnecting handle with `E_INVARG`, then a
+connected other-player lookup by a nonwizard with `E_PERM`, and constructs the
+eight-key map at lines 3045-3067. TLS builds may add a ninth key, so the durable
+row correctly requires presence rather than exact key equality. The endpoint
+accessors at `/root/src/toaststunt/src/network.cc:1574-1679` own the saved peer
+name, numeric addresses, ports, and `IPv4`/`IPv6` protocol strings.
+
+Toast's builtin-name owner at `/root/src/toaststunt/src/sym_table.cc:80-116`
+assigns the identifiers `STR` and `INT` to runtime environment slots. The
+semantic owner `fill_in_rt_consts` at
+`/root/src/toaststunt/src/eval_env.cc:75-120` fills those slots with integer
+`_TYPE_STR` and `TYPE_INT` respectively. The durable rows
+`types::constant_INT_value` and `types::constant_STR_value` at
+`../moo-conformance-tests/src/moo_conformance/_tests/basic/types.yaml:80-103`
+passed the pinned live Toast oracle together: two selected, 11,503 deselected,
+in 3.51 seconds. They freeze `INT == 0` and `STR == 2` independently of the
+connection row.
+
+Generated `connection_info` rows freeze the one-object signature and
+`E_ARGS`/`E_TYPE`. `builtins/server_admin.yaml` covers the map, the eight keys,
+field types, inbound direction, invalid-player `E_INVARG`, and programmer self
+access. `builtins/network_matrix.yaml` covers the same key family for outbound
+connections. No change to those durable rows is needed.
+
+Banteng's `MooCompiler` compiles every identifier as the existing `LOAD_LOCAL`
+operation. `MooVm.loadLocal` first checks the frame locals, then already handles
+predefined `LIST`, and otherwise raises `E_VARNF`. The smallest representation
+for the active causal dependency is to extend that existing local-miss fallback
+with `INT -> MooValue.Type.INTEGER.code()` and
+`STR -> MooValue.Type.STRING.code()`, preserving local-first lookup and the
+existing integer value representation. A focused VM regression will execute
+`return {typeof(1) == INT, typeof("x") == STR};`, prove the current `E_VARNF`
+red, and expect `{1, 1}`. No server, world, builtin, compiler, parser, helper,
+interface, adapter, or new environment owner is required. Other predefined
+type constants remain separate unchecked surfaces.
+
+### Twentieth-row verification receipt
+
+The focused VM regression was red before implementation: it expected a returned
+`{1, 1}` and observed the VM's error outcome at the first missing predefined
+constant. After the two local-miss branches were added, that same regression
+passed on Java 25 in three seconds.
+
+Managed Banteng then passed the exact durable connection row with the current
+distribution: one selected, 11,504 deselected, in 3.35 seconds. The complete
+managed lifecycle category passed rows 1 through 20 and stopped first at row
+21, `audit_do_login_command_argstr_original`: 20 passed, one failed, 11,482
+deselected, in 45.83 seconds. Row 20 is therefore the kept frontier. Row 21's
+backslash-sensitive login word parsing remains a separate unchecked slice. The
+final Java 25 `clean check installDist` gate passed in 13 seconds.

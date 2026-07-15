@@ -288,6 +288,16 @@ public final class MooVm {
   private static void loadLocal(Frame frame, String name, VmState state, WorldTxn world) {
     MooValue value = frame.locals.get(normalize(name));
     if (value == null) {
+      if (name.equalsIgnoreCase("INT")) {
+        frame.operandStack.push(new IntegerValue(MooValue.Type.INTEGER.code()));
+        frame.instructionPointer++;
+        return;
+      }
+      if (name.equalsIgnoreCase("STR")) {
+        frame.operandStack.push(new IntegerValue(MooValue.Type.STRING.code()));
+        frame.instructionPointer++;
+        return;
+      }
       if (name.equalsIgnoreCase("LIST")) {
         frame.operandStack.push(new IntegerValue(MooValue.Type.LIST.code()));
         frame.instructionPointer++;
