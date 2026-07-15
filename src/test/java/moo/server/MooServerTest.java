@@ -7,6 +7,7 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import java.io.BufferedReader;
 import java.io.BufferedWriter;
 import java.io.InputStreamReader;
+import java.io.OutputStream;
 import java.io.OutputStreamWriter;
 import java.net.InetAddress;
 import java.net.ServerSocket;
@@ -16,6 +17,7 @@ import java.nio.file.Path;
 import java.time.Duration;
 import java.util.List;
 import moo.persistence.LambdaMooV4Reader;
+import moo.world.WorldTxn;
 import org.junit.jupiter.api.Test;
 
 final class MooServerTest {
@@ -162,6 +164,69 @@ final class MooServerTest {
           List.of(
               CONNECTION_PREFIX, CONNECTION_PREFIX, "{1, 1}", CONNECTION_SUFFIX, CONNECTION_SUFFIX),
           readLines(primaryInput, 5));
+    } finally {
+      server.close();
+      serving.join(Duration.ofSeconds(5));
+      assertFalse(serving.isAlive());
+    }
+  }
+
+  @Test
+  void stripsEscapedIacSplitAcrossReadsFromLoginInput() throws Exception {
+    WorldTxn world = new LambdaMooV4Reader().read(TEST_DATABASE);
+    MooServer server = new MooServer("127.0.0.1", 0, world);
+    Thread serving = Thread.startVirtualThread(server::serve);
+    try (Socket control = new Socket(InetAddress.getLoopbackAddress(), server.port());
+        BufferedReader controlInput =
+            new BufferedReader(
+                new InputStreamReader(control.getInputStream(), StandardCharsets.ISO_8859_1));
+        BufferedWriter controlOutput =
+            new BufferedWriter(
+                new OutputStreamWriter(control.getOutputStream(), StandardCharsets.ISO_8859_1))) {
+      control.setSoTimeout((int) Duration.ofSeconds(5).toMillis());
+      writeLine(controlOutput, "connect Wizard");
+      assertEquals("*** Connected ***", controlInput.readLine());
+      writeLine(controlOutput, "PREFIX " + CONNECTION_PREFIX);
+      writeLine(controlOutput, "SUFFIX " + CONNECTION_SUFFIX);
+
+      writeLine(
+          controlOutput,
+          "; add_property(#0, \"audit_telnet_literal_seen\", {}, {#0, \"rw\"});"
+              + " try add_verb(#0, {player, \"rxd\", \"do_login_command\"}, {\"this\", \"none\", \"this\"}); except (E_INVARG) endtry"
+              + " set_verb_info(#0, \"do_login_command\", {player, \"rxd\", \"do_login_command\"});"
+              + " set_verb_args(#0, \"do_login_command\", {\"this\", \"none\", \"this\"});"
+              + " set_verb_code(#0, \"do_login_command\", {"
+              + "\"#0.audit_telnet_literal_seen = {args, argstr};\","
+              + "\"notify(player, \\\"DONE\\\");\","
+              + "\"return 0;\"});"
+              + " return 1;");
+      assertEquals(
+          List.of(
+              CONNECTION_PREFIX, CONNECTION_PREFIX, "{1, 1}", CONNECTION_SUFFIX, CONNECTION_SUFFIX),
+          readLines(controlInput, 5));
+
+      try (Socket target = new Socket(InetAddress.getLoopbackAddress(), server.port());
+          BufferedReader targetInput =
+              new BufferedReader(
+                  new InputStreamReader(target.getInputStream(), StandardCharsets.ISO_8859_1))) {
+        target.setSoTimeout((int) Duration.ofSeconds(5).toMillis());
+        OutputStream targetOutput = target.getOutputStream();
+        assertEquals("DONE", targetInput.readLine());
+
+        targetOutput.write("iac-".getBytes(StandardCharsets.ISO_8859_1));
+        targetOutput.flush();
+        targetOutput.write(0xFF);
+        targetOutput.flush();
+        targetOutput.write(0xFF);
+        targetOutput.flush();
+        targetOutput.write("-login\r\n".getBytes(StandardCharsets.ISO_8859_1));
+        targetOutput.flush();
+
+        assertEquals("DONE", targetInput.readLine());
+        assertEquals(
+            "{{\"iac--login\"}, \"iac--login\"}",
+            world.property(0, "audit_telnet_literal_seen").orElseThrow().value().toLiteral());
+      }
     } finally {
       server.close();
       serving.join(Duration.ofSeconds(5));

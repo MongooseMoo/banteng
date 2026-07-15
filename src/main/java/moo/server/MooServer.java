@@ -1,9 +1,9 @@
 package moo.server;
 
-import java.io.BufferedReader;
 import java.io.BufferedWriter;
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
-import java.io.InputStreamReader;
+import java.io.InputStream;
 import java.io.OutputStreamWriter;
 import java.io.UncheckedIOException;
 import java.net.InetAddress;
@@ -98,9 +98,7 @@ public final class MooServer implements AutoCloseable, ListenerControl {
   private void handleConnection(Socket socket, long connectionId, Listener listener) {
     boolean opened = false;
     try (socket;
-        BufferedReader input =
-            new BufferedReader(
-                new InputStreamReader(socket.getInputStream(), StandardCharsets.ISO_8859_1));
+        InputStream input = socket.getInputStream();
         BufferedWriter output =
             new BufferedWriter(
                 new OutputStreamWriter(socket.getOutputStream(), StandardCharsets.ISO_8859_1))) {
@@ -123,9 +121,52 @@ public final class MooServer implements AutoCloseable, ListenerControl {
               connectionId, listener.handler, listener.printMessages, new MapValue(connectionInfo));
       opened = true;
       writeLines(output, initialOutput);
-      String line;
-      while ((line = input.readLine()) != null) {
-        writeLines(output, runtime.executeLine(connectionId, line));
+      ByteArrayOutputStream line = new ByteArrayOutputStream();
+      boolean afterCarriageReturn = false;
+      boolean afterIac = false;
+      boolean afterNegotiation = false;
+      int inputByte;
+      while ((inputByte = input.read()) != -1) {
+        if (afterNegotiation) {
+          afterNegotiation = false;
+          continue;
+        }
+        if (afterIac) {
+          afterIac = false;
+          if (inputByte >= 0xFB && inputByte <= 0xFE) {
+            afterNegotiation = true;
+          }
+          continue;
+        }
+        if (inputByte == 0xFF) {
+          afterIac = true;
+          continue;
+        }
+        if (inputByte == '\r') {
+          writeLines(
+              output,
+              runtime.executeLine(connectionId, line.toString(StandardCharsets.ISO_8859_1)));
+          line.reset();
+          afterCarriageReturn = true;
+          continue;
+        }
+        if (inputByte == '\n') {
+          if (afterCarriageReturn) {
+            afterCarriageReturn = false;
+            continue;
+          }
+          writeLines(
+              output,
+              runtime.executeLine(connectionId, line.toString(StandardCharsets.ISO_8859_1)));
+          line.reset();
+          continue;
+        }
+        afterCarriageReturn = false;
+        line.write(inputByte);
+      }
+      if (line.size() > 0) {
+        writeLines(
+            output, runtime.executeLine(connectionId, line.toString(StandardCharsets.ISO_8859_1)));
       }
     } catch (IOException error) {
       if (!closed.get() && !socket.isClosed()) {
