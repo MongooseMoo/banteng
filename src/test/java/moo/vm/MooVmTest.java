@@ -44,6 +44,30 @@ final class MooVmTest {
   }
 
   @Test
+  void exposesTheLiveForegroundTickRemainderAndRejectsArguments() {
+    BytecodeProgram program =
+        new MooCompiler().compile(MooParser.parse("return {ticks_left(), ticks_left()};"));
+    VmState state = new VmState();
+
+    new MooVm().execute(program, state);
+
+    assertTrue(
+        state.uncaughtError().isEmpty(), () -> "unexpected MOO error: " + state.uncaughtError());
+    assertEquals(VmState.Outcome.RETURNED, state.outcome());
+    assertEquals(
+        new ListValue(List.of(new IntegerValue(59_999), new IntegerValue(59_997))),
+        state.returnValue().orElseThrow());
+
+    VmState invalid = new VmState();
+    new MooVm()
+        .execute(new MooCompiler().compile(MooParser.parse("return ticks_left(1);")), invalid);
+
+    assertEquals(VmState.Outcome.ERRORED, invalid.outcome());
+    assertEquals(ErrorValue.E_ARGS, invalid.uncaughtError().orElseThrow());
+    assertEquals(BuiltinCatalog.EffectClass.PURE, new BuiltinCatalog().effectClass("ticks_left"));
+  }
+
+  @Test
   void evaluatesExactSqliteTypePrerequisiteExpression() {
     BytecodeProgram program =
         new MooCompiler().compile(MooParser.parse("return typeof({}) == LIST;"));

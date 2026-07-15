@@ -57,6 +57,9 @@ public final class MooVm {
   private static void executeInstruction(
       Instruction instruction, VmState state, WorldTxn world, BuiltinCatalog builtins) {
     Frame frame = state.currentFrame();
+    if (isCountedInstruction(instruction, frame)) {
+      state.decrementRemainingTicks();
+    }
     switch (instruction.opcode()) {
       case PUSH_INTEGER -> {
         frame.operandStack.push(new IntegerValue(instruction.operand().orElseThrow()));
@@ -296,6 +299,51 @@ public final class MooVm {
     }
   }
 
+  private static boolean isCountedInstruction(Instruction instruction, Frame frame) {
+    return switch (instruction.opcode()) {
+      case LIST_APPEND -> {
+        var operands = frame.operandStack.iterator();
+        if (operands.hasNext()) {
+          operands.next();
+        }
+        yield operands.hasNext()
+            && operands.next() instanceof ListValue list
+            && list.elements().isEmpty();
+      }
+      case LIST_EXTEND,
+          STORE_LOCAL,
+          GET_PROPERTY,
+          SET_PROPERTY,
+          INDEX,
+          SET_INDEX_LOCAL,
+          CALL,
+          CALL_VERB,
+          NEGATE,
+          NOT,
+          ADD,
+          SUBTRACT,
+          MULTIPLY,
+          DIVIDE,
+          REMAINDER,
+          POWER,
+          EQUAL,
+          NOT_EQUAL,
+          LESS_THAN,
+          LESS_THAN_OR_EQUAL,
+          GREATER_THAN,
+          GREATER_THAN_OR_EQUAL,
+          IN,
+          FORK,
+          JUMP_IF_FALSE,
+          JUMP_IF_TRUE,
+          ENTER_HANDLER,
+          ITERATE,
+          SCATTER ->
+          true;
+      default -> false;
+    };
+  }
+
   private static void buildList(Frame frame, int count) {
     List<MooValue> elements = new ArrayList<>(count);
     for (int index = 0; index < count; index++) {
@@ -515,6 +563,7 @@ public final class MooVm {
             world,
             state.programmer(),
             state.taskLocal(),
+            state.remainingTicks(),
             frame.receiver,
             state.callerProgrammer(),
             state.callers());

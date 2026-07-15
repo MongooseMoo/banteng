@@ -24,6 +24,8 @@ import moo.value.MooValue.StringValue;
 
 /** Explicit heap state for one MOO bytecode execution. */
 public final class VmState {
+  private static final long DEFAULT_FOREGROUND_TICKS = 60_000;
+
   private final Deque<Frame> frames = new ArrayDeque<>();
   private final Map<String, MooValue> initialLocals;
   private final List<String> output = new ArrayList<>();
@@ -39,6 +41,7 @@ public final class VmState {
   private OptionalDouble suspensionDelaySeconds = OptionalDouble.empty();
   private Optional<CompletableFuture<MooValue>> hostResult = Optional.empty();
   private MooValue taskLocal = new MapValue(Map.of());
+  private long remainingTicks = DEFAULT_FOREGROUND_TICKS;
   private final long initialProgrammer;
   private final ObjectValue initialVerbLocation;
 
@@ -131,6 +134,14 @@ public final class VmState {
 
   void setTaskLocal(MooValue value) {
     taskLocal = value;
+  }
+
+  long remainingTicks() {
+    return remainingTicks;
+  }
+
+  void decrementRemainingTicks() {
+    remainingTicks--;
   }
 
   void ensureRoot(BytecodeProgram program) {

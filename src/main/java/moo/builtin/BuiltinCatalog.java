@@ -61,6 +61,7 @@ public final class BuiltinCatalog {
       WorldTxn world,
       long programmer,
       MooValue taskLocal,
+      long remainingTicks,
       MooValue receiver,
       long callerProgrammer,
       ListValue callers) {
@@ -380,6 +381,10 @@ public final class BuiltinCatalog {
       case "callers" ->
           arguments.isEmpty() ? Result.value(callers) : Result.error(ErrorValue.E_ARGS);
       case "set_task_perms" -> setTaskPerms(arguments);
+      case "ticks_left" ->
+          arguments.isEmpty()
+              ? Result.value(new IntegerValue(remainingTicks))
+              : Result.error(ErrorValue.E_ARGS);
       case "task_local" -> {
         if (!arguments.isEmpty()) {
           yield Result.error(ErrorValue.E_ARGS);
@@ -489,7 +494,14 @@ public final class BuiltinCatalog {
       case "suspend" -> suspend(arguments);
       case "call_function" ->
           callFunction(
-              arguments, world, programmer, taskLocal, receiver, callerProgrammer, callers);
+              arguments,
+              world,
+              programmer,
+              taskLocal,
+              remainingTicks,
+              receiver,
+              callerProgrammer,
+              callers);
       case "sqlite_open" -> sqliteOpen(arguments, world, programmer);
       case "sqlite_close" -> sqliteClose(arguments, world, programmer);
       case "sqlite_handles" -> sqliteHandles(arguments, world, programmer);
@@ -527,6 +539,7 @@ public final class BuiltinCatalog {
           "caller_perms",
           "new_waif",
           "callers",
+          "ticks_left",
           "task_local",
           "typeof",
           "function_info" ->
@@ -1570,6 +1583,7 @@ public final class BuiltinCatalog {
       WorldTxn world,
       long programmer,
       MooValue taskLocal,
+      long remainingTicks,
       MooValue receiver,
       long callerProgrammer,
       ListValue callers) {
@@ -1585,6 +1599,7 @@ public final class BuiltinCatalog {
         world,
         programmer,
         taskLocal,
+        remainingTicks,
         receiver,
         callerProgrammer,
         callers);
