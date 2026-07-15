@@ -860,6 +860,53 @@ final class MooRuntimeTest {
   }
 
   @Test
+  void appliesTheConfiguredMaximumStackDepthToNewForegroundTasks() throws Exception {
+    WorldTxn world = new LambdaMooV4Reader().read(FIXTURE);
+    MooRuntime runtime = new MooRuntime(world);
+    long connectionId = -47;
+
+    assertEquals(List.of(), runtime.openConnection(connectionId));
+    assertEquals(List.of("*** Connected ***"), runtime.executeLine(connectionId, "connect Wizard"));
+
+    assertEquals(
+        List.of(CONNECTION_PREFIX, "{1, 1}", CONNECTION_SUFFIX),
+        runtime.executeLine(
+            connectionId,
+            """
+            ; try
+              add_property(#6, "max_stack_depth", 80, {player, "r"});
+            except (E_INVARG)
+              #6.max_stack_depth = 80;
+            endtry
+            try
+              add_property(#0, "audit_max_stack_object", #-1, {#0, "rw"});
+            except (E_INVARG)
+            endtry
+            object = create($nothing);
+            #0.audit_max_stack_object = object;
+            add_verb(object, {player, "rxd", "audit_depth"}, {"this", "none", "this"});
+            set_verb_code(object, "audit_depth", {
+              "if (args[1] <= 0)",
+              "  return 1;",
+              "endif",
+              "return 1 + this:audit_depth(args[1] - 1);"
+            });
+            return 1;
+            """));
+
+    assertEquals(
+        List.of(CONNECTION_PREFIX, "{1, 1}", CONNECTION_SUFFIX),
+        runtime.executeLine(
+            connectionId, "; return #0.audit_max_stack_object:audit_depth(60) == 61;"));
+    assertEquals(
+        List.of(CONNECTION_PREFIX, "{1, 1}", CONNECTION_SUFFIX),
+        runtime.executeLine(
+            connectionId,
+            "; try #0.audit_max_stack_object:audit_depth(90); return 0; "
+                + "except (E_MAXREC) return 1; endtry;"));
+  }
+
+  @Test
   void startsNewBackgroundTaskWithTheConfiguredTickBudget() throws Exception {
     WorldTxn world = new LambdaMooV4Reader().read(FIXTURE);
     MooRuntime runtime = new MooRuntime(world);

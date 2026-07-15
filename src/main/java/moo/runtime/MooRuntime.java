@@ -39,6 +39,7 @@ public final class MooRuntime {
   private static final long DEFAULT_FOREGROUND_SECONDS = 5;
   private static final long DEFAULT_BACKGROUND_TICKS = 30_000;
   private static final long DEFAULT_BACKGROUND_SECONDS = 3;
+  private static final long DEFAULT_MAX_STACK_DEPTH = 50;
 
   private final WorldTxn world;
   private final MooCompiler compiler = new MooCompiler();
@@ -1096,6 +1097,7 @@ public final class MooRuntime {
     MooValue serverOptions = world.readObjectProperty(0, "server_options").orElse(null);
     long foregroundTicks = DEFAULT_FOREGROUND_TICKS;
     long foregroundSeconds = DEFAULT_FOREGROUND_SECONDS;
+    long maxStackDepth = DEFAULT_MAX_STACK_DEPTH;
     if (serverOptions instanceof ObjectValue options) {
       if (world.readObjectProperty(options.value(), "fg_ticks").orElse(null)
           instanceof IntegerValue ticks) {
@@ -1105,9 +1107,14 @@ public final class MooRuntime {
           instanceof IntegerValue seconds) {
         foregroundSeconds = Math.max(1L, seconds.value());
       }
+      if (world.readObjectProperty(options.value(), "max_stack_depth").orElse(null)
+          instanceof IntegerValue depth) {
+        maxStackDepth = Math.max(DEFAULT_MAX_STACK_DEPTH, depth.value());
+      }
     }
     VmState root =
-        new VmState(locals, verb.owner(), verbLocation, foregroundTicks, foregroundSeconds);
+        new VmState(
+            locals, verb.owner(), verbLocation, foregroundTicks, foregroundSeconds, maxStackDepth);
     long taskPlayer =
         locals.get("player") instanceof ObjectValue player ? player.value() : Long.MIN_VALUE;
     Map<VmState, BytecodeProgram> programs = new LinkedHashMap<>();
@@ -1127,6 +1134,7 @@ public final class MooRuntime {
           programs.remove(task);
           long backgroundTicks = DEFAULT_BACKGROUND_TICKS;
           long backgroundSeconds = DEFAULT_BACKGROUND_SECONDS;
+          long backgroundMaxStackDepth = DEFAULT_MAX_STACK_DEPTH;
           MooValue options = world.readObjectProperty(0, "server_options").orElse(null);
           if (options instanceof ObjectValue optionObject) {
             if (world.readObjectProperty(optionObject.value(), "bg_ticks").orElse(null)
@@ -1137,6 +1145,10 @@ public final class MooRuntime {
                 instanceof IntegerValue seconds) {
               backgroundSeconds = Math.max(1L, seconds.value());
             }
+            if (world.readObjectProperty(optionObject.value(), "max_stack_depth").orElse(null)
+                instanceof IntegerValue depth) {
+              backgroundMaxStackDepth = Math.max(DEFAULT_MAX_STACK_DEPTH, depth.value());
+            }
           }
           task =
               new VmState(
@@ -1144,7 +1156,8 @@ public final class MooRuntime {
                   pendingFork.programmer(),
                   pendingFork.verbLocation(),
                   backgroundTicks,
-                  backgroundSeconds);
+                  backgroundSeconds,
+                  backgroundMaxStackDepth);
           programs.put(task, pendingFork.program());
         }
         BytecodeProgram taskProgram = programs.get(task);

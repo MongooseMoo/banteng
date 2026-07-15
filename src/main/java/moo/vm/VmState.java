@@ -27,6 +27,7 @@ import moo.value.MooValue.StringValue;
 public final class VmState {
   private static final long DEFAULT_FOREGROUND_TICKS = 60_000;
   private static final long DEFAULT_FOREGROUND_SECONDS = 5;
+  private static final long DEFAULT_MAX_STACK_DEPTH = 50;
 
   private final Deque<Frame> frames = new ArrayDeque<>();
   private final Map<String, MooValue> initialLocals;
@@ -45,6 +46,7 @@ public final class VmState {
   private MooValue taskLocal = new MapValue(Map.of());
   private long remainingTicks;
   private final long secondsLimit;
+  private final long maxStackDepth;
   private long processCpuAnchorNanos;
   private final long initialProgrammer;
   private final ObjectValue initialVerbLocation;
@@ -87,11 +89,23 @@ public final class VmState {
       ObjectValue verbLocation,
       long remainingTicks,
       long secondsLimit) {
+    this(locals, programmer, verbLocation, remainingTicks, secondsLimit, DEFAULT_MAX_STACK_DEPTH);
+  }
+
+  /** Creates a state with explicit root metadata and all execution limits. */
+  public VmState(
+      Map<String, MooValue> locals,
+      long programmer,
+      ObjectValue verbLocation,
+      long remainingTicks,
+      long secondsLimit,
+      long maxStackDepth) {
     initialLocals = normalizedLocals(locals);
     initialProgrammer = programmer;
     initialVerbLocation = verbLocation;
     this.remainingTicks = remainingTicks;
     this.secondsLimit = secondsLimit;
+    this.maxStackDepth = maxStackDepth;
   }
 
   /** Returns the next instruction index in the active frame. */
@@ -209,7 +223,10 @@ public final class VmState {
     return frame;
   }
 
-  void pushEvalFrame(BytecodeProgram program) {
+  boolean pushEvalFrame(BytecodeProgram program) {
+    if (frames.size() >= maxStackDepth) {
+      return false;
+    }
     Frame caller = currentFrame();
     frames.push(
         new Frame(
@@ -222,9 +239,10 @@ public final class VmState {
             OptionalLong.empty(),
             OptionalLong.empty(),
             OptionalLong.empty()));
+    return true;
   }
 
-  void pushVerbFrame(
+  boolean pushVerbFrame(
       BytecodeProgram program,
       Map<String, MooValue> locals,
       long programmer,
@@ -233,6 +251,9 @@ public final class VmState {
       OptionalLong recycleTarget,
       OptionalLong moveObject,
       OptionalLong moveDestination) {
+    if (frames.size() >= maxStackDepth) {
+      return false;
+    }
     frames.push(
         new Frame(
             program,
@@ -244,6 +265,7 @@ public final class VmState {
             recycleTarget,
             moveObject,
             moveDestination));
+    return true;
   }
 
   long callerProgrammer() {

@@ -184,7 +184,7 @@ public final class MooVm {
           Map<String, MooValue> locals = new LinkedHashMap<>(frame.locals);
           locals.put("caller", receiver);
           locals.put("args", arguments);
-          state.pushVerbFrame(
+          if (!state.pushVerbFrame(
               targetProgram,
               locals,
               target.owner(),
@@ -192,7 +192,10 @@ public final class MooVm {
               new ObjectValue(targetDefiningObject.id()),
               OptionalLong.empty(),
               OptionalLong.empty(),
-              OptionalLong.empty());
+              OptionalLong.empty())) {
+            raiseError(state, ErrorValue.E_MAXREC, world);
+            return;
+          }
         }
       }
       case CALL_VERB -> {
@@ -256,7 +259,7 @@ public final class MooVm {
         locals.put("verb", encode(lookupName));
         locals.put("args", arguments);
         locals.put("argstr", encode(""));
-        state.pushVerbFrame(
+        if (!state.pushVerbFrame(
             verbProgram,
             locals,
             verb.owner(),
@@ -264,7 +267,10 @@ public final class MooVm {
             new ObjectValue(definingObject.id()),
             OptionalLong.empty(),
             OptionalLong.empty(),
-            OptionalLong.empty());
+            OptionalLong.empty())) {
+          raiseError(state, ErrorValue.E_MAXREC, world);
+          return;
+        }
       }
       case NEGATE -> unaryNegate(frame, state, world);
       case NOT -> {
@@ -594,7 +600,9 @@ public final class MooVm {
         BytecodeProgram dynamicProgram =
             new moo.bytecode.MooCompiler()
                 .compile(MooParser.parse(result.dynamicSource().orElseThrow()));
-        state.pushEvalFrame(dynamicProgram);
+        if (!state.pushEvalFrame(dynamicProgram)) {
+          raiseError(state, ErrorValue.E_MAXREC, world);
+        }
       } catch (MooParser.ParseException error) {
         raiseError(state, ErrorValue.E_INVARG, world);
       }
@@ -631,7 +639,7 @@ public final class MooVm {
       locals.put("verb", encode("accept"));
       locals.put("args", new ListValue(List.of(new ObjectValue(moveObject))));
       locals.put("argstr", encode(""));
-      state.pushVerbFrame(
+      if (!state.pushVerbFrame(
           hookProgram,
           locals,
           hook.owner(),
@@ -639,7 +647,9 @@ public final class MooVm {
           destination,
           OptionalLong.empty(),
           OptionalLong.of(moveObject),
-          OptionalLong.of(moveDestination));
+          OptionalLong.of(moveDestination))) {
+        raiseError(state, ErrorValue.E_MAXREC, world);
+      }
       return;
     }
     if (result.recycleTarget().isPresent()) {
@@ -681,7 +691,7 @@ public final class MooVm {
           ancestor = candidate.parent();
         }
       }
-      state.pushVerbFrame(
+      if (!state.pushVerbFrame(
           hookProgram,
           locals,
           hook.owner(),
@@ -689,7 +699,9 @@ public final class MooVm {
           new ObjectValue(definingObject == null ? recycleTarget : definingObject.id()),
           OptionalLong.of(recycleTarget),
           OptionalLong.empty(),
-          OptionalLong.empty());
+          OptionalLong.empty())) {
+        raiseError(state, ErrorValue.E_MAXREC, world);
+      }
       return;
     }
     frame.operandStack.push(result.value().orElseThrow());
