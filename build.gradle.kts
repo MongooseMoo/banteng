@@ -37,6 +37,7 @@ dependencies {
     testImplementation("org.junit.jupiter:junit-jupiter")
     testImplementation("org.junit.platform:junit-platform-launcher")
     testImplementation("com.tngtech.archunit:archunit-junit5:1.4.2")
+    testImplementation("org.jetbrains:jetCheck:0.3.0")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
 }
 
