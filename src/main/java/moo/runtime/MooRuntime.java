@@ -19,6 +19,7 @@ import moo.bytecode.BytecodeProgram;
 import moo.bytecode.MooCompiler;
 import moo.syntax.MooParser;
 import moo.value.MooValue;
+import moo.value.MooValue.IntegerValue;
 import moo.value.MooValue.ListValue;
 import moo.value.MooValue.MapValue;
 import moo.value.MooValue.ObjectValue;
@@ -64,9 +65,14 @@ public final class MooRuntime {
   public synchronized List<String> openConnection(
       long connectionId, long listenerHandler, boolean printMessages, MapValue connectionInfo) {
     world.openConnection(connectionId, connectionInfo);
-    connections.put(connectionId, new ConnectionState(listenerHandler, printMessages));
+    ConnectionState connection = new ConnectionState(listenerHandler, printMessages);
+    connections.put(connectionId, connection);
     try {
-      return executeLogin(connectionId, "");
+      List<String> output = executeLogin(connectionId, "");
+      Thread.ofVirtual()
+          .name("moo-connect-timeout-" + connectionId)
+          .start(() -> monitorUnauthenticatedConnection(connectionId, connection));
+      return output;
     } catch (RuntimeException | Error failure) {
       connections.remove(connectionId);
       world.closeConnection(connectionId);
@@ -106,6 +112,7 @@ public final class MooRuntime {
     ConnectionState connection = requireConnection(connectionId);
     long player = world.connectionPlayer(connectionId).orElseThrow();
     if (player < 0) {
+      connection.lastActivityNanos = System.nanoTime();
       return executeLogin(connectionId, line);
     }
 
@@ -730,6 +737,65 @@ public final class MooRuntime {
     return state.output();
   }
 
+  private void monitorUnauthenticatedConnection(
+      long connectionId, ConnectionState openedConnection) {
+    while (true) {
+      try {
+        TimeUnit.MILLISECONDS.sleep(100);
+      } catch (InterruptedException ignored) {
+        Thread.currentThread().interrupt();
+        return;
+      }
+      synchronized (this) {
+        ConnectionState connection = connections.get(connectionId);
+        if (connection != openedConnection || world.connectionPlayer(connectionId).orElse(0) >= 0) {
+          return;
+        }
+
+        MooValue serverOptions =
+            world.readObjectProperty(connection.listenerHandler, "server_options").orElse(null);
+        if (serverOptions == null && connection.listenerHandler != 0) {
+          serverOptions = world.readObjectProperty(0, "server_options").orElse(null);
+        }
+        MooValue configuredTimeout =
+            serverOptions instanceof ObjectValue options
+                ? world.readObjectProperty(options.value(), "connect_timeout").orElse(null)
+                : null;
+        long timeoutSeconds;
+        if (configuredTimeout == null) {
+          timeoutSeconds = 300;
+        } else if (configuredTimeout instanceof IntegerValue timeout && timeout.value() > 0) {
+          timeoutSeconds = timeout.value();
+        } else {
+          continue;
+        }
+
+        long idleSeconds =
+            TimeUnit.NANOSECONDS.toSeconds(System.nanoTime() - connection.lastActivityNanos);
+        if (idleSeconds <= timeoutSeconds) {
+          continue;
+        }
+
+        world
+            .verb(connection.listenerHandler, "user_disconnected")
+            .ifPresent(
+                disconnected ->
+                    executeStored(
+                        disconnected,
+                        verbLocals(
+                            connection.listenerHandler,
+                            connectionId,
+                            -1,
+                            "user_disconnected",
+                            new ListValue(List.of(new ObjectValue(connectionId))),
+                            "")));
+        connections.remove(connectionId);
+        world.closeConnection(connectionId);
+        return;
+      }
+    }
+  }
+
   private VmState executeStored(WorldVerb verb, Map<String, MooValue> locals) {
     BytecodeProgram program = compiler.compile(MooParser.parse(verb.programSource()));
     VmState root = new VmState(locals, verb.owner());
@@ -881,6 +947,7 @@ public final class MooRuntime {
   private static final class ConnectionState {
     private final long listenerHandler;
     private final boolean printMessages;
+    private long lastActivityNanos = System.nanoTime();
     private Optional<String> prefix = Optional.empty();
     private Optional<String> suffix = Optional.empty();
     private long programmingObject = -1;

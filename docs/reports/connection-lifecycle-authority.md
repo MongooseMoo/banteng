@@ -1037,6 +1037,123 @@ Managed `audit_user_reconnected_cross_listener_hooks` passes in isolation with
 one selected and 11,504 deselected in 6.47 seconds. The complete
 `connection_lifecycle_toast_oracle` fail-fast run then passes the first ten rows
 and reaches `audit_connect_timeout_server_option`. That row expects
-`typeof(#0.audit_timeout_seconds) == 1`, but Banteng returns type code four.
+`typeof(#0.audit_timeout_seen) == 1`, but Banteng returns type code four.
 Row ten is accepted; the `connect_timeout` server option is the next causally
 relevant unchecked lifecycle target.
+
+## Eleventh row: unauthenticated connect timeout
+
+The active durable row is `audit_connect_timeout_server_option` at
+`../moo-conformance-tests/src/moo_conformance/_tests/audit/connection_lifecycle_toast_oracle.yaml:1093-1208`.
+Its original form set `$server_options.connect_timeout = 1`, opened one
+unauthenticated connection, waited 2.5 seconds, and asserted only that
+`user_disconnected` stored an object-typed argument. It did not freeze idle
+reset, listener routing, the root frame, or once-only delivery.
+
+The corrected row was introduced as `c3ccfbc` and finalized through
+`d21cbca`, `2b0400e`, and `39db818`. The follow-up corrections remove
+dependencies on the predefined `OBJ` symbol, the unrelated `index` builtin,
+and object relational ordering, and widen the timing margin after a live WSL
+schedule exposed the 600-millisecond probe as flaky. The final row sets a
+three-second timeout, records append-only full frames, observes no hook after
+1.5 seconds, sends one ordinary unauthenticated line, observes no hook 2.5
+seconds later past the original connection deadline, then waits two seconds
+and requires exactly one frame. The frame requires `this == #0`, an
+object-typed `player` distinct from `#-1`, `caller == #-1`,
+`args == {player}`, and empty `argstr`. A final wait proves the observation
+remains exactly once.
+Physical socket closure, timeout output, default and invalid option values,
+listener-specific override precedence, authenticated and outbound exclusions,
+and exact boundary timing remain outside this row.
+
+The final row passes pinned WSL Toast with one selected and 11,504 deselected
+in 11.25 seconds. Its semantic predecessor is red on committed Banteng
+`baec58c`: both pre-timeout empty checks pass, but the final exact-frame
+assertion returns scalar zero because the observation remains empty. The final
+row changes only independent assertion spellings and timing margins; the
+missing Banteng observation is unchanged.
+
+Barn's `../barn/spec/login.md:64-71` says an unlogged connection times out after
+`connect_timeout`, calls `#0:user_disconnected(connection)` if
+`do_login_command` ran, closes the connection, and sends an
+implementation-defined message. `../barn/spec/server.md:145-170` records an
+integer option with default 300 seconds and the same unauthenticated lifecycle.
+The spec is stale or incomplete about the actual listener receiver, frame,
+message order, and activity reset.
+
+Current Barn enters through
+`../barn/server/connection_manager.go:308-377` and
+`../barn/server/input_processor.go:65-145`. It reads the global option, accepts
+only a positive integer over its five-minute fallback, applies a fresh read
+deadline before each unauthenticated read, sends the timeout message, calls the
+accepting listener's `user_disconnected` with the negative connection object,
+and returns so deferred cleanup closes the transport. Its notifier at
+`../barn/server/input_login.go:202-224` supplies one object argument, but
+`../barn/scheduler/task_factory.go:63-105` incorrectly sets the root caller to
+the negative connection instead of `#-1`.
+
+Pinned Toast defines `DEFAULT_CONNECT_TIMEOUT == 300` in
+`src/include/options.h:234-248`. `src/server.cc:530-542` dynamically resolves
+`listener.server_options` first and falls back to `#0.server_options` only when
+the listener lacks its own options object. `src/server.cc:1496-1516` initializes
+an inbound unauthenticated handle with a negative object player and current
+`last_activity_time`; `src/server.cc:1577-1582` refreshes that time on each
+received line. Successful authentication sets `connection_time` and excludes
+the handle from this timeout.
+
+The timeout scan at `src/server.cc:903-934` applies only to inbound handles
+whose `connection_time == 0`. A missing option uses 300 seconds. A present
+value enables timeout only when it is a positive integer; zero, negative, or a
+wrong type disables it without falling back. The scan uses whole seconds and
+strictly requires `now - last_activity_time > timeout`. It calls the accepting
+listener's `user_disconnected` before logging, optional `timeout_msg`, network
+close, and handle release. `src/server.cc:518-527` supplies exactly the negative
+player argument, and the server-task root established through
+`src/tasks.cc:1825` and `src/execute.cc:3279-3336` supplies the frozen
+`this`, `player`, `caller`, `args`, and `argstr` values. Hook outcomes do not
+prevent the subsequent close path.
+
+Committed Banteng has no timeout owner. `MooServer.handleConnection` blocks in
+`BufferedReader.readLine`, while `MooRuntime.openConnection` stores only the
+listener and print-message flag. `MooRuntime.executeLogin` resolves
+`server_options` only for `trusted_proxies`; `executeLine` records no activity
+time; and `closeConnection` calls only authenticated
+`user_client_disconnected`. Therefore an idle negative connection remains
+present indefinitely and the row's sentinel stays `{}`.
+
+The smallest representation remains inside concrete `MooRuntime` and its
+existing `ConnectionState`. The state gains a monotonic last-activity time.
+`openConnection` starts one virtual timeout monitor for the negative
+connection after the initial login task; `executeLine` refreshes activity
+before processing an unauthenticated line. The monitor repeatedly resolves the
+same listener-first dynamic option, applies the source-backed missing and
+invalid-value rules, and compares floored monotonic seconds with the strict
+greater-than boundary. If the same connection is still present and negative,
+it invokes the accepting handler's optional `user_disconnected` through the
+existing exact server-task path, then removes the logical runtime/world
+connection so a later socket-finally close cannot repeat the hook. It exits
+without notification once the connection closes or authenticates.
+
+This slice does not add an interface, helper abstraction, sender, adapter,
+world mutator, scheduler framework, or socket callback. Physical socket close
+and timeout-message delivery remain excluded because `MooServer` owns sockets
+in an unkeyed set and the corrected row deliberately does not freeze those
+surfaces.
+
+## Eleventh-row Banteng receipt
+
+The focused Java regression is red before the production change at the absent
+eventual timeout frame. The accepted implementation changes only
+`MooRuntime` and its existing `ConnectionState`: it records monotonic activity,
+starts the virtual timeout monitor after initial login processing, refreshes
+activity on unauthenticated input, dynamically applies the listener-first
+option contract, invokes the exact `user_disconnected` frame, and removes the
+logical connection once. The focused regression, five adjacent lifecycle
+regressions, formatting, and the Java 25 `check installDist` gate pass.
+
+Managed `audit_connect_timeout_server_option` passes in isolation with one
+selected and 11,504 deselected in 12.04 seconds. The complete
+`connection_lifecycle_toast_oracle` fail-fast run then passes the first eleven
+rows and reaches `audit_flush_command_flushes_pending_input`. That row expects
+`{\"\"}` but observes `{}`. Row eleven is accepted; flush-command pending-input
+semantics are the next causally relevant unchecked lifecycle target.

@@ -361,6 +361,58 @@ final class MooRuntimeTest {
   }
 
   @Test
+  void timesOutAnIdleUnauthenticatedConnectionOnceAfterActivityReset() throws Exception {
+    WorldTxn world = new LambdaMooV4Reader().read(FIXTURE);
+    MooRuntime runtime = new MooRuntime(world);
+    long primaryConnection = -47;
+
+    assertEquals(List.of(), runtime.openConnection(primaryConnection));
+    assertEquals(
+        List.of("*** Connected ***"), runtime.executeLine(primaryConnection, "connect Wizard"));
+    runtime.executeLine(
+        primaryConnection,
+        """
+        ; add_property(#0, "audit_timeout_seen", {}, {#0, "rw"});
+        try
+          add_property(#6, "connect_timeout", 1, {#0, "rw"});
+        except (E_INVARG)
+          #6.connect_timeout = 1;
+        endtry
+        try
+          add_verb(#0, {player, "rxd", "user_disconnected"}, {"this", "none", "this"});
+        except (E_INVARG)
+        endtry
+        set_verb_info(#0, "user_disconnected", {player, "rxd", "user_disconnected"});
+        set_verb_args(#0, "user_disconnected", {"this", "none", "this"});
+        set_verb_code(#0, "user_disconnected", {
+          "#0.audit_timeout_seen = {@#0.audit_timeout_seen, {this, player, caller, args, argstr}};",
+          "return 1;"
+        });
+        return 1;
+        """);
+
+    long timedConnection = -48;
+    assertEquals(List.of(), runtime.openConnection(timedConnection, 0, false));
+    Thread.sleep(1200);
+    assertEquals("{}", world.property(0, "audit_timeout_seen").orElseThrow().value().toLiteral());
+
+    assertEquals(List.of(), runtime.executeLine(timedConnection, "activity reset"));
+    Thread.sleep(1200);
+    assertEquals("{}", world.property(0, "audit_timeout_seen").orElseThrow().value().toLiteral());
+
+    Thread.sleep(1200);
+    String expectedFrame =
+        "{{#0, #" + timedConnection + ", #-1, {#" + timedConnection + "}, \"\"}}";
+    assertEquals(
+        expectedFrame, world.property(0, "audit_timeout_seen").orElseThrow().value().toLiteral());
+    assertTrue(world.connectionPlayer(timedConnection).isEmpty());
+
+    Thread.sleep(1200);
+    assertEquals(
+        expectedFrame, world.property(0, "audit_timeout_seen").orElseThrow().value().toLiteral());
+  }
+
+  @Test
   void runsZeroDelayUserConnectedForkAfterParentWithCapturedLocals() throws Exception {
     WorldTxn world = new LambdaMooV4Reader().read(FIXTURE);
     MooRuntime runtime = new MooRuntime(world);
