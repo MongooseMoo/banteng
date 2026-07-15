@@ -198,3 +198,25 @@ decide `.f` readback, setting `.f` true, nonwizard `.f` permissions,
 non-integer truth values, protected objects, anonymous objects, invalid
 objects, or any other intrinsic flag property. Those surfaces require their
 own durable rows and authority gates.
+
+## Focused red and smallest Banteng representation
+
+The focused runtime regression
+`MooRuntimeTest.writesIntrinsicFertileFlagAsIntegerZero` executes one logged-in
+Wizard task that creates an ordinary object and returns the value of
+`object.f = 0`. Java separately observes that the fresh object's existing flag
+bits have bit 128 clear. On committed Banteng the state assertion passes, but
+the task returns `{2, {E_PROPNF}}` instead of successful `{1, 0}`. This is a
+valid red for intrinsic assignment recognition, with no `.f` readback and no
+`chparent` call.
+
+The smallest row-only implementation remains in the existing
+`WorldTxn.writeObjectProperty` owner. After its current `w` intrinsic branch,
+recognize normalized name `f`, require the active row's `IntegerValue`, call
+the existing `replaceFlags` mutation with bit 128 and `enabled.isTruthy()`,
+and return true. A different value type continues to fall through unchanged.
+
+This representation adds no helper, interface, adapter, request, VM branch,
+read path, permission owner, alternate mutation path, or `chparent` change.
+It does not introduce a general flag-property implementation beyond the one
+durable write asserted by the active row.
