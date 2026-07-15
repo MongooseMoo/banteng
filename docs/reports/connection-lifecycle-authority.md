@@ -1282,3 +1282,42 @@ output where Toast requires `I couldn't understand that.` after the suppressed
 listener connect message. The flush slice is accepted; listener
 `print-messages` command output is the next causally relevant unchecked
 lifecycle target.
+
+## Thirteenth row: corrected listener print-messages proof
+
+The original `audit_listener_print_messages_suppresses_connect_msg` row did
+not observe the behavior named in its description. Its listener
+`do_login_command` returned a player for Toast's automatic initial blank input,
+so authentication and any `connect_msg` occurred during `new_connection`.
+The harness drains and discards connection-open output before the first
+assertion. The later expected `I couldn't understand that.` therefore tested
+only post-login unknown-command fallback; a server that incorrectly printed
+the connect message could still pass.
+
+Pinned WSL Toast source identity was reverified as
+`aecc51e9449c6e7c95272f0f044b5ba38948459e`. In `src/server.cc`,
+`bf_listen` at lines 3090-3165 defaults `print_messages` to false and enables
+it for a MOO-truthy `print-messages` option. `new_slistener` stores the flag;
+`server_new_connection` at lines 1455-1492 copies it to the accepted
+connection and queues the initial blank input. `player_connected` at lines
+1658-1724 emits `connect_msg`, defaulting to `*** Connected ***`, only when
+that accepted connection's flag is true.
+
+Conformance commit `e3d8dbd` replaces the invalid observation with paired
+controls in the same isolated row. The handler returns zero for the automatic
+blank input and authenticates only on each observed nonblank send. The false
+listener must produce exact empty output; the true listener must produce exact
+`*** Connected ***` output. Both sends record their exact `argstr`, proving the
+assertions belong to the inputs that authenticated the two connections.
+
+The corrected row passes pinned WSL Toast with one selected and 11,504
+deselected in 5.38 seconds. It also passes committed Banteng `3b70123`
+unchanged, with one selected and 11,504 deselected in 5.17 seconds. The earlier
+Banteng failure was a test-authority defect, not a `print-messages` production
+defect; no Java change is kept for this row.
+
+The complete managed `connection_lifecycle_toast_oracle` family then passes
+the first thirteen rows and stops at `audit_boot_player_messages`: after
+`boot_player`, Toast requires `*** Disconnected ***` on the booted connection,
+while Banteng returns no output. Boot-player messaging is the next causally
+relevant unchecked lifecycle target.
