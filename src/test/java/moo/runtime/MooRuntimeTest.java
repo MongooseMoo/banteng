@@ -803,6 +803,35 @@ final class MooRuntimeTest {
   }
 
   @Test
+  void startsNewForegroundTaskWithTheConfiguredTickBudget() throws Exception {
+    WorldTxn world = new LambdaMooV4Reader().read(FIXTURE);
+    MooRuntime runtime = new MooRuntime(world);
+    long connectionId = -47;
+
+    assertEquals(List.of(), runtime.openConnection(connectionId));
+    assertEquals(List.of("*** Connected ***"), runtime.executeLine(connectionId, "connect Wizard"));
+
+    assertEquals(
+        List.of(CONNECTION_PREFIX, "{1, 1}", CONNECTION_SUFFIX),
+        runtime.executeLine(
+            connectionId,
+            """
+            ; try
+              add_property(#6, "fg_ticks", 12345, {player, "r"});
+            except (E_INVARG)
+              #6.fg_ticks = 12345;
+            endtry
+            return 1;
+            """));
+    assertEquals(new IntegerValue(12_345), world.property(6, "fg_ticks").orElseThrow().value());
+
+    assertEquals(
+        List.of(CONNECTION_PREFIX, "{1, 1}", CONNECTION_SUFFIX),
+        runtime.executeLine(
+            connectionId, "; return ticks_left() <= 12345 && ticks_left() > 12000;"));
+  }
+
+  @Test
   void preservesWaifThisAndVerbLocationInCallers() throws Exception {
     WorldTxn world = new LambdaMooV4Reader().read(FIXTURE);
     MooRuntime runtime = new MooRuntime(world);

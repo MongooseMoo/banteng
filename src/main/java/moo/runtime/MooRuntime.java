@@ -1090,7 +1090,15 @@ public final class MooRuntime {
       }
       ancestor = candidate.parent();
     }
-    VmState root = new VmState(locals, verb.owner(), verbLocation);
+    MooValue serverOptions = world.readObjectProperty(0, "server_options").orElse(null);
+    VmState root;
+    if (serverOptions instanceof ObjectValue options
+        && world.readObjectProperty(options.value(), "fg_ticks").orElse(null)
+            instanceof IntegerValue ticks) {
+      root = new VmState(locals, verb.owner(), verbLocation, Math.max(100L, ticks.value()));
+    } else {
+      root = new VmState(locals, verb.owner(), verbLocation);
+    }
     long taskPlayer =
         locals.get("player") instanceof ObjectValue player ? player.value() : Long.MIN_VALUE;
     Map<VmState, BytecodeProgram> programs = new LinkedHashMap<>();
