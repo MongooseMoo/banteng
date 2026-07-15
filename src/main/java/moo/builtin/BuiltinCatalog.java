@@ -551,6 +551,7 @@ public final class BuiltinCatalog {
           case "hold-input" -> ConnectionOption.HOLD_INPUT;
           case "flush-command" -> ConnectionOption.FLUSH_COMMAND;
           case "disable-oob" -> ConnectionOption.DISABLE_OOB;
+          case "binary" -> ConnectionOption.BINARY;
           default -> null;
         };
     if (option == null) {
@@ -1920,6 +1921,9 @@ public final class BuiltinCatalog {
 
     /** Writes final lines and closes one accepted connection selected by runtime ID. */
     void bootConnection(long connectionId, List<String> lines);
+
+    /** Selects delimiter-free binary reads for one accepted connection. */
+    void setConnectionBinary(long connectionId, boolean binary);
   }
 
   /** Observable effect class for the explicitly enabled catalog. */
@@ -1944,7 +1948,8 @@ public final class BuiltinCatalog {
   public enum ConnectionOption {
     HOLD_INPUT,
     FLUSH_COMMAND,
-    DISABLE_OOB
+    DISABLE_OOB,
+    BINARY
   }
 
   /** One explicit builtin value, MOO error, dynamic call, or staged effect. */

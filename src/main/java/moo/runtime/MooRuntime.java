@@ -1226,6 +1226,10 @@ public final class MooRuntime {
         }
       } else if (request.option() == ConnectionOption.DISABLE_OOB) {
         connection.disableOob = request.value().isTruthy();
+      } else if (request.option() == ConnectionOption.BINARY) {
+        long binaryConnectionId = connectionId;
+        listenerControl.ifPresent(
+            control -> control.setConnectionBinary(binaryConnectionId, request.value().isTruthy()));
       } else if (request.value() instanceof StringValue command && command.length() > 0) {
         connection.flushCommand =
             Optional.of(new String(command.bytes(), StandardCharsets.ISO_8859_1));

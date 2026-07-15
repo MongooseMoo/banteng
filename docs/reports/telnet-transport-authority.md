@@ -461,6 +461,121 @@ by PID, and followed by an empty Banteng inventory.
 
 The final Java 25 `clean check installDist` gate passed in 19 seconds.
 
+## Logged-in binary-mode chunk dispatch
+
+The active durable row is
+`../moo-conformance-tests/src/moo_conformance/_tests/audit/gap_followups_toast_oracle.yaml:572-663`,
+`audit_binary_mode_dispatches_raw_chunk_without_newline`. It creates and logs
+in a fresh player with a zero-argument `auditbin` verb, enables
+`set_connection_option(player, "binary", 1)`, writes ASCII `auditbin` without
+CR or LF, waits 500 ms, and requires the verb to have appended exactly one
+empty `argstr`, producing `{\"\"}`. The row does not assert arbitrary binary
+bytes, `args`, task locals, or a guaranteed TCP write-to-read boundary.
+
+Barn's normative `../barn/spec/server.md:156-177,193-200` describes login and
+ordinary command dispatch, and
+`../barn/spec/builtins/network.md:222-235` recognizes a 0/1 `binary`
+connection option but defines it only as binary mode. The Barn spec does not
+define TCP binary chunk sizes, read boundaries, buffering, byte encoding,
+CR/LF or Telnet treatment, reader wake behavior, or ordinary-command routing.
+It also says `set_connection_option` returns none while current Barn returns
+integer zero; this row ignores that result.
+
+Barn recognizes and stores player-keyed binary state at
+`../barn/builtins/network.go:101-106,169-225,1251-1316`. Enabling it wakes a
+blocked input reader at lines 1305-1309 through
+`../barn/server/connection.go:146-153`. The logged-in reader retries after
+that wake and selects `BinaryTransport.ReadChunk` at
+`../barn/server/input_processor.go:104-160`. `ReadChunk` at
+`../barn/server/transport.go:43-45,194-209` blocks for one byte, drains bytes
+already buffered, and returns the raw string without waiting for CR or LF or
+performing Telnet parsing or byte conversion.
+
+Barn queues that raw chunk as ordinary in-band input and routes it through the
+logged-in command path at `../barn/server/input_processor.go:151-159,196-229,480-550`.
+`../barn/command/command.go:153-206` parses ASCII `auditbin` as the verb name
+with no command arguments and empty `argstr`.
+`../barn/command/verbs.go:96-125,165-192` selects the player-local verb, and
+`../barn/scheduler/task_runtime.go:124-188,422-475` executes it with the logged-in
+player as `this`, `player`, and `caller`, empty `args`, and empty `argstr`.
+
+Pinned Toast enables binary state through
+`/root/src/toaststunt/src/server.cc:965-977,2973-2995,3294-3299` and applies it
+directly to the network handle through
+`/root/src/toaststunt/src/network.cc:1719-1725`. On the next successful
+`read` or `SSL_read`, `pull_input` at lines 472-570 passes the complete
+up-to-1024-byte read through
+`/root/src/toaststunt/src/utils.cc:671-684` and immediately calls
+`server_receive_line` without CR or LF. Printable ASCII `auditbin` is
+unchanged. `/root/src/toaststunt/src/server.cc:1535-1541` and
+`/root/src/toaststunt/src/tasks.cc:1075-1122,1171-1179` classify the input as a
+binary task.
+
+With no pending `read()`, Toast routes that task through ordinary command
+dispatch at `/root/src/toaststunt/src/tasks.cc:1673-1770`. The optional
+listener `do_command` receives the complete chunk, after which
+`/root/src/toaststunt/src/parse_cmd.cc:126-237` parses `auditbin` with zero
+arguments and empty `argstr`. `/root/src/toaststunt/src/execute.cc:3339-3371`
+runs the player verb with the logged-in player as `this`, `player`, and
+`caller`, empty `args`, and empty `argstr`.
+
+Barn and Toast agree on every asserted observation: logged-in player keyed
+binary enablement, no CR/LF wait, immediate ordinary command lookup for the
+ASCII chunk, one player-verb invocation, and empty `argstr`. They disagree
+outside the row on read boundaries, maximum chunk size, inbound binary
+escaping, special binary-task handling, and pending-`read()` semantics. Neither
+implementation treats one TCP write as a guaranteed protocol message.
+
+Committed Banteng `85bc14f` rejects `binary` in
+`BuiltinCatalog.setConnectionOption`, has no binary option or connection
+state, and accumulates the row's bytes in `MooServer.handleConnection` until a
+line delimiter or EOF that never arrives. `MooRuntime.executeLine` already
+produces the asserted zero-argument verb frame and empty `argstr` once given
+`auditbin`. The pinned managed Toast row must now pass before a Java boundary,
+buffering choice, or focused regression is frozen.
+
+The exact managed row passed pinned WSL Toast commit
+`aecc51e9449c6e7c95272f0f044b5ba38948459e`: one selected, 11,504
+deselected, in 5.39 seconds. Immediate delimiter-free dispatch for this ASCII
+chunk and the resulting empty `argstr` are therefore frozen before Java
+design. Process inventory found no process from this managed run; the
+unrelated July 13 `/tmp/td.db` process was again left untouched.
+
+The smallest Java boundary extends the existing closed
+`ConnectionOptionRequest` with `BINARY` and applies it through the existing
+concrete `ListenerControl`, whose only implementation is `MooServer`.
+`MooServer` retains the binary flag per connection because it already owns
+socket-byte framing. Its existing connection loop reads up to Toast's
+1024-byte buffer size; after each successful read it checks the current flag,
+immediately passes the whole binary-mode chunk as an ISO-8859-1 string to the
+already-correct `MooRuntime.executeLine`, or otherwise feeds the same bytes
+through the existing Telnet/line state machine. Checking after the blocking
+read means the row's option change is observed when the later client send
+arrives without a separate reader-wake operation. Closing a connection clears
+the retained flag. This adds one method to the existing host-control boundary
+but no new interface, helper, adapter, sender, alternate command path, binary
+task model, or non-ASCII behavior beyond this row.
+
+The focused real-socket regression performed the row's actual login, enabled
+binary mode through MOO, kept the target socket open, wrote ASCII `auditbin`
+without CR or LF, and inspected the one recorded empty `argstr`. Committed
+production was red at the final property assertion. After the closed option,
+existing host-control application, and buffered server read were added, the
+focused regression passed under Java 25 in 8 seconds.
+
+The exact managed Banteng row passed with one selected and 11,504 deselected
+in 5.21 seconds. Its disposable process was identified by exact temp-database
+command line, stopped by PID, and followed by an empty Banteng inventory. The
+full `gap_followups_toast_oracle` fail-fast run then passed the first eight
+selected rows and stopped at the next independent contract, output ordering
+during `boot_player`, after 27.78 seconds. That row expected
+`audit-before-boot` followed by `*** Disconnected ***` but observed only the
+disconnect message; it remains a separate slice. The targeted-run disposable
+process was likewise identified by exact temp-database command line, stopped
+by PID, and followed by an empty Banteng inventory.
+
+The final Java 25 `clean check installDist` gate passed in 20 seconds.
+
 ## Two-byte IAC command split across reads
 
 The next durable row is

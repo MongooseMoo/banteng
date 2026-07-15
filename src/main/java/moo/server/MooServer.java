@@ -37,6 +37,7 @@ public final class MooServer implements AutoCloseable, ListenerControl {
   private final Map<Integer, Listener> listeners = new ConcurrentHashMap<>();
   private final Map<Long, Socket> connections = new ConcurrentHashMap<>();
   private final Map<Long, BufferedWriter> outputs = new ConcurrentHashMap<>();
+  private final Map<Long, Boolean> binaryConnections = new ConcurrentHashMap<>();
   private final AtomicBoolean serving = new AtomicBoolean();
   private final AtomicBoolean closed = new AtomicBoolean();
   private final AtomicLong nextConnectionId = new AtomicLong(-2);
@@ -127,80 +128,92 @@ public final class MooServer implements AutoCloseable, ListenerControl {
       int negotiationCommand = -1;
       ByteArrayOutputStream subnegotiation = null;
       boolean afterSubnegotiationIac = false;
-      int inputByte;
-      while ((inputByte = input.read()) != -1) {
-        if (subnegotiation != null) {
-          subnegotiation.write(inputByte);
-          if (afterSubnegotiationIac) {
-            afterSubnegotiationIac = false;
-            if (inputByte == 0xF0) {
-              StringBuilder encodedCommand = new StringBuilder();
-              for (byte commandByte : subnegotiation.toByteArray()) {
-                int unsignedByte = Byte.toUnsignedInt(commandByte);
-                if (unsignedByte != '~'
-                    && (unsignedByte == ' ' || (unsignedByte >= 33 && unsignedByte <= 126))) {
-                  encodedCommand.append((char) unsignedByte);
-                } else {
-                  encodedCommand.append("~%02X".formatted(unsignedByte));
+      byte[] inputBuffer = new byte[1024];
+      int inputCount;
+      while ((inputCount = input.read(inputBuffer)) != -1) {
+        if (binaryConnections.containsKey(connectionId)) {
+          writeLines(
+              output,
+              runtime.executeLine(
+                  connectionId,
+                  new String(inputBuffer, 0, inputCount, StandardCharsets.ISO_8859_1)));
+          continue;
+        }
+        for (int inputIndex = 0; inputIndex < inputCount; inputIndex++) {
+          int inputByte = Byte.toUnsignedInt(inputBuffer[inputIndex]);
+          if (subnegotiation != null) {
+            subnegotiation.write(inputByte);
+            if (afterSubnegotiationIac) {
+              afterSubnegotiationIac = false;
+              if (inputByte == 0xF0) {
+                StringBuilder encodedCommand = new StringBuilder();
+                for (byte commandByte : subnegotiation.toByteArray()) {
+                  int unsignedByte = Byte.toUnsignedInt(commandByte);
+                  if (unsignedByte != '~'
+                      && (unsignedByte == ' ' || (unsignedByte >= 33 && unsignedByte <= 126))) {
+                    encodedCommand.append((char) unsignedByte);
+                  } else {
+                    encodedCommand.append("~%02X".formatted(unsignedByte));
+                  }
                 }
+                subnegotiation = null;
+                writeLines(
+                    output,
+                    runtime.executeTransportOutOfBand(connectionId, encodedCommand.toString()));
               }
-              subnegotiation = null;
-              writeLines(
-                  output,
-                  runtime.executeTransportOutOfBand(connectionId, encodedCommand.toString()));
+            } else if (inputByte == 0xFF) {
+              afterSubnegotiationIac = true;
             }
-          } else if (inputByte == 0xFF) {
-            afterSubnegotiationIac = true;
-          }
-          continue;
-        }
-        if (negotiationCommand >= 0) {
-          int completedCommand = negotiationCommand;
-          negotiationCommand = -1;
-          writeLines(
-              output,
-              runtime.executeTransportOutOfBand(
-                  connectionId, "~FF~%02X~%02X".formatted(completedCommand, inputByte)));
-          continue;
-        }
-        if (afterIac) {
-          afterIac = false;
-          if (inputByte >= 0xFB && inputByte <= 0xFE) {
-            negotiationCommand = inputByte;
-          } else if (inputByte == 0xFA) {
-            subnegotiation = new ByteArrayOutputStream();
-            subnegotiation.write(0xFF);
-            subnegotiation.write(0xFA);
-          } else if (inputByte == 0xF1) {
-            writeLines(output, runtime.executeTransportOutOfBand(connectionId, "~FF~F1"));
-          }
-          continue;
-        }
-        if (inputByte == 0xFF) {
-          afterIac = true;
-          continue;
-        }
-        if (inputByte == '\r') {
-          writeLines(
-              output,
-              runtime.executeLine(connectionId, line.toString(StandardCharsets.ISO_8859_1)));
-          line.reset();
-          afterCarriageReturn = true;
-          continue;
-        }
-        if (inputByte == '\n') {
-          if (afterCarriageReturn) {
-            afterCarriageReturn = false;
             continue;
           }
-          writeLines(
-              output,
-              runtime.executeLine(connectionId, line.toString(StandardCharsets.ISO_8859_1)));
-          line.reset();
-          continue;
+          if (negotiationCommand >= 0) {
+            int completedCommand = negotiationCommand;
+            negotiationCommand = -1;
+            writeLines(
+                output,
+                runtime.executeTransportOutOfBand(
+                    connectionId, "~FF~%02X~%02X".formatted(completedCommand, inputByte)));
+            continue;
+          }
+          if (afterIac) {
+            afterIac = false;
+            if (inputByte >= 0xFB && inputByte <= 0xFE) {
+              negotiationCommand = inputByte;
+            } else if (inputByte == 0xFA) {
+              subnegotiation = new ByteArrayOutputStream();
+              subnegotiation.write(0xFF);
+              subnegotiation.write(0xFA);
+            } else if (inputByte == 0xF1) {
+              writeLines(output, runtime.executeTransportOutOfBand(connectionId, "~FF~F1"));
+            }
+            continue;
+          }
+          if (inputByte == 0xFF) {
+            afterIac = true;
+            continue;
+          }
+          if (inputByte == '\r') {
+            writeLines(
+                output,
+                runtime.executeLine(connectionId, line.toString(StandardCharsets.ISO_8859_1)));
+            line.reset();
+            afterCarriageReturn = true;
+            continue;
+          }
+          if (inputByte == '\n') {
+            if (afterCarriageReturn) {
+              afterCarriageReturn = false;
+              continue;
+            }
+            writeLines(
+                output,
+                runtime.executeLine(connectionId, line.toString(StandardCharsets.ISO_8859_1)));
+            line.reset();
+            continue;
+          }
+          afterCarriageReturn = false;
+          line.write(inputByte);
         }
-        afterCarriageReturn = false;
-        line.write(inputByte);
       }
       if (line.size() > 0) {
         writeLines(
@@ -215,6 +228,7 @@ public final class MooServer implements AutoCloseable, ListenerControl {
         runtime.closeConnection(connectionId);
       }
       outputs.remove(connectionId);
+      binaryConnections.remove(connectionId);
       connections.remove(connectionId, socket);
     }
   }
@@ -311,6 +325,16 @@ public final class MooServer implements AutoCloseable, ListenerControl {
       // The logical connection is already gone; closing the socket completes the boot.
     } finally {
       closeSocket(socket);
+    }
+  }
+
+  /** Selects delimiter-free binary reads for one accepted socket. */
+  @Override
+  public void setConnectionBinary(long connectionId, boolean binary) {
+    if (binary) {
+      binaryConnections.put(connectionId, Boolean.TRUE);
+    } else {
+      binaryConnections.remove(connectionId);
     }
   }
 

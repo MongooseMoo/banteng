@@ -396,6 +396,75 @@ final class MooServerTest {
   }
 
   @Test
+  void dispatchesBinaryModeChunkWithoutLineTerminator() throws Exception {
+    WorldTxn world = new LambdaMooV4Reader().read(TEST_DATABASE);
+    MooServer server = new MooServer("127.0.0.1", 0, world);
+    Thread serving = Thread.startVirtualThread(server::serve);
+    try (Socket control = new Socket(InetAddress.getLoopbackAddress(), server.port());
+        BufferedReader controlInput =
+            new BufferedReader(
+                new InputStreamReader(control.getInputStream(), StandardCharsets.ISO_8859_1));
+        BufferedWriter controlOutput =
+            new BufferedWriter(
+                new OutputStreamWriter(control.getOutputStream(), StandardCharsets.ISO_8859_1))) {
+      control.setSoTimeout((int) Duration.ofSeconds(5).toMillis());
+      writeLine(controlOutput, "connect Wizard");
+      assertEquals("*** Connected ***", controlInput.readLine());
+      writeLine(controlOutput, "PREFIX " + CONNECTION_PREFIX);
+      writeLine(controlOutput, "SUFFIX " + CONNECTION_SUFFIX);
+
+      writeLine(
+          controlOutput,
+          "; add_property(#0, \"audit_binary_player\", {}, {#0, \"rw\"});"
+              + " add_property(#0, \"audit_binary_seen\", {}, {#0, \"rw\"});"
+              + " login_player = create($nothing);"
+              + " set_player_flag(login_player, 1);"
+              + " #0.audit_binary_player = login_player;"
+              + " #0.audit_binary_seen = {};"
+              + " add_verb(login_player, {player, \"rxd\", \"auditbin\"}, {\"none\", \"none\", \"none\"});"
+              + " set_verb_code(login_player, \"auditbin\", {"
+              + "\"#0.audit_binary_seen = {@#0.audit_binary_seen, argstr};\","
+              + "\"return 1;\"});"
+              + " try add_verb(#0, {player, \"rxd\", \"do_login_command\"}, {\"this\", \"none\", \"this\"}); except (E_INVARG) endtry"
+              + " set_verb_info(#0, \"do_login_command\", {player, \"rxd\", \"do_login_command\"});"
+              + " set_verb_args(#0, \"do_login_command\", {\"this\", \"none\", \"this\"});"
+              + " set_verb_code(#0, \"do_login_command\", {\"return #0.audit_binary_player;\"});"
+              + " return 1;");
+      assertEquals(
+          List.of(
+              CONNECTION_PREFIX, CONNECTION_PREFIX, "{1, 1}", CONNECTION_SUFFIX, CONNECTION_SUFFIX),
+          readLines(controlInput, 5));
+
+      try (Socket target = new Socket(InetAddress.getLoopbackAddress(), server.port());
+          BufferedReader targetInput =
+              new BufferedReader(
+                  new InputStreamReader(target.getInputStream(), StandardCharsets.ISO_8859_1))) {
+        target.setSoTimeout((int) Duration.ofSeconds(5).toMillis());
+        OutputStream targetOutput = target.getOutputStream();
+        targetOutput.write("login-binary-mode\r\n".getBytes(StandardCharsets.ISO_8859_1));
+        targetOutput.flush();
+        assertEquals("*** Connected ***", targetInput.readLine());
+
+        writeLine(
+            controlOutput,
+            "; set_connection_option(#0.audit_binary_player, \"binary\", 1); return 1;");
+        readLines(controlInput, 5);
+
+        targetOutput.write("auditbin".getBytes(StandardCharsets.ISO_8859_1));
+        targetOutput.flush();
+        Thread.sleep(Duration.ofMillis(500));
+
+        assertEquals(
+            "{\"\"}", world.property(0, "audit_binary_seen").orElseThrow().value().toLiteral());
+      }
+    } finally {
+      server.close();
+      serving.join(Duration.ofSeconds(5));
+      assertFalse(serving.isAlive());
+    }
+  }
+
+  @Test
   void bootsAnActivePlayerAfterLogicalDisconnectWithDefaultMessage() throws Exception {
     MooServer server = new MooServer("127.0.0.1", 0, new LambdaMooV4Reader().read(TEST_DATABASE));
     Thread serving = Thread.startVirtualThread(server::serve);
