@@ -153,3 +153,46 @@ after 63 passes. Its second step expected integer `1` but received
   selected row. Design and implementation are intentionally not authorized by
   this record until the evidence commit is complete and the focused Banteng
   red is reproduced.
+
+## Frozen Java design
+
+The evidence record was committed as `99963ce`, then the sole managed Banteng
+row was rerun at that base. It selected one row and failed on the expected
+boundary: `ticks_left()` returned `E_VERBNF`. The managed server was stopped
+and a follow-up process inventory was empty.
+
+Implement the first foreground budget directly in the existing owners:
+
+- Add a mutable remaining-tick value to `VmState`, initialized to the frozen
+  60,000 foreground default by its existing root constructors. Expose only
+  package-private read and decrement operations needed by `MooVm`. Do not add
+  a task-limit interface, record, context adapter, scheduler API, or public
+  constructor solely for future background options.
+- Before dispatch, `MooVm` decrements the state for Banteng instructions that
+  correspond to Toast counted opcodes: property/index access and mutation,
+  builtin and verb calls, arithmetic/comparison/unary operations, assignments,
+  conditional control flow, forks, iteration, handler/scatter entry, power,
+  splice validation, and the first element that turns an empty list into a
+  singleton. Literal pushes, variable reads, later list tails, map assembly,
+  unconditional jumps, returns, pops, and handler exits remain uncounted.
+  This mapping is explicit in `MooVm`; do not use one tick per Java instruction.
+- Pass the current primitive remainder through the existing
+  `BuiltinCatalog.invoke` call. Add `ticks_left` directly to its switch,
+  require zero arguments, and return that remainder as an `IntegerValue`.
+  Thread the same primitive through the existing internal `call_function`
+  recursion so it does not create a second semantic path.
+- Classify `ticks_left` with the catalog's existing pure/task-local-read group,
+  matching the current treatment of `task_local`; do not add an effect class
+  for this slice.
+- Add a focused `MooVmTest` that executes two `ticks_left()` calls inside one
+  program and asserts the exact live values produced by the call and first-list
+  opcode charges. Add the zero-argument contract assertion by proving one
+  supplied argument raises `E_ARGS`.
+
+This slice deliberately does not select a 30,000 background budget, read a
+runtime `fg_ticks` property, reset limits after suspension, abort at zero,
+persist task limits, or implement `seconds_left`. Those are distinct managed
+rows in the same family and remain the next exact-convergence targets. The
+kept slice must pass the focused JUnit regression, the exact managed row, the
+substantial `task_scheduling_toast_oracle` family frontier, the full Java 25
+gate, and then be committed before another family begins.
