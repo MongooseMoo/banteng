@@ -1010,3 +1010,116 @@ target: one failed, 14 passed, and 11,488 deselected in 29.86 seconds. Family
 PID 4880 for `moo_conformance_b3hfmlme/Test.db` was stopped and inventory again
 proved empty. The final `gradlew clean check installDist` gate passed all 148
 JUnit tests, formatting, checks, and application distribution in 15 seconds.
+
+## WAIF values and caller frames
+
+The next durable row is
+`../moo-conformance-tests/src/moo_conformance/_tests/audit/gap_followups_toast_oracle.yaml:854-882`,
+`audit_waif_callers_preserve_this_and_verb_location`, introduced by
+conformance commit `64e3ba3d`. It creates a child of `$waif`, installs three
+colon methods, constructs one WAIF through the inherited `new` verb, and
+requires `callers()` to report concrete WAIF `this` values while reporting the
+WAIF class as each frame's verb location. The expected result is
+`{{":audit_b", 1, 1}, {":audit_c", 1, 1}}`.
+
+The normative Barn surface is incomplete. `../barn/spec/tasks.md:318-343`
+defines caller frame shape, excludes the current activation, and orders the
+immediate caller first. `../barn/spec/objects.md:428-454`,
+`../barn/spec/types.md:223-237`, and
+`../barn/spec/builtins/objects.md:542-563` describe WAIF class inheritance and
+construction broadly. `../barn/spec/database.md:82-111` assigns runtime tag 13
+and defines creation and reference records for identity-preserving v17
+serialization. `../barn/spec/operators.md:841-849` only names WAIF property
+access. These sections do not freeze the cross-section caller rule, identity,
+formatting, map keys, mutation permissions, direct indexing, or most error
+behavior. The general truth table in `../barn/spec/types.md:217-219` makes a
+WAIF true, while current Barn and pinned Toast make it false.
+
+Current Barn uses a distinct reference allocation with immutable class and
+owner plus shared mutable local properties in
+`../barn/types/value.go:11-44` and `../barn/types/waif.go:8-87`.
+`../barn/builtins/objects_misc.go:53-90` constructs a zero-argument WAIF from
+the current receiver and programmer. `../barn/vm/op_verb.go:68-125,164-204`
+looks up colon methods on the class while retaining the concrete WAIF as
+`this`; `../barn/task/task.go:59-93` and
+`../barn/builtins/tasks.go:267-343` expose that receiver through `callers()`.
+`../barn/vm/op_property.go:15-42,86-135,225-246` owns intrinsic and local
+property access. Barn agrees on type code 13, false truth, identity equality,
+shared alias mutation, recursive-containment `E_RECMOVE`, caller metadata, and
+`sort()` rejection. It disagrees with pinned Toast on relational operators,
+formatting, map-key admission, and portions of property and direct-index
+behavior. Its writer at `../barn/db/format/writer.go:210-236,
+306-398` also always emits a creation record, so it does not preserve alias
+identity and is not persistence authority.
+
+Pinned Toast source identity
+`aecc51e9449c6e7c95272f0f044b5ba38948459e` owns the complete reference
+contract. `/root/src/toaststunt/src/waif.cc:86-138,228-267,297-349,598-608,
+645-827` owns construction metadata, colon properties, identity-preserving
+mutation, permission checks, recursive-containment rejection, and WAIF
+lifetime. `/root/src/toaststunt/src/execute.cc` dispatches colon methods by the
+class while placing the concrete WAIF in activation `this` and the defining
+class in `vloc`. `/root/src/toaststunt/src/tasks.cc` implements `callers()` as
+prior activations newest-first. `/root/src/toaststunt/src/utils.cc:380-493`
+owns false truth and pointer-identity equality/comparison.
+`/root/src/toaststunt/src/execute.cc:1175-1214,1312-1375,1594-1622` owns
+WAIF indexed assignment, the relational default-zero result, and indexed read.
+`/root/src/toaststunt/src/list.cc:375-427,480-520,945-976` owns exact string and
+literal forms and rejects WAIF sorting. `/root/src/toaststunt/src/map.cc:85-87`
+admits WAIF keys through the scalar comparator. Finally,
+`/root/src/toaststunt/src/db_io.cc:153-221,360-400` and
+`/root/src/toaststunt/src/waif.cc:850-1085` define v17 creation/reference
+records and restore later references as the exact same WAIF allocation.
+
+The managed oracle resolved every source disagreement. The first relational
+candidate was wrong: pinned Toast does not raise `E_TYPE` for WAIF/WAIF
+relational operators. Its opcode default produces `< 0`, `<= 1`, `> 0`, and
+`>= 1`, while `sort()` still raises `E_TYPE`. A WAIF is false; `tostr()` is
+`[[waif]]`; `toliteral()` is `[[class = #N, owner = #N]]`; equality and map
+keys use allocation identity; aliases share property mutation; and recursive
+self-containment through a direct value, list, or map raises `E_RECMOVE`.
+
+Direct indexing is enabled for a valid Wizard-owned class. `waif[key]` calls
+`:_index(key)`; `waif[key] = value` calls `:_set_index(key, value)`. Indexed
+assignment writes that handler's return value back into the base, so a mutating
+handler returns `this` to preserve the WAIF local. A missing handler or a
+non-Wizard-owned class raises `E_TYPE`; an invalid class raises `E_INVIND`.
+Intrinsic `.class` and `.owner` return objects, `.wizard` and `.programmer`
+return zero, and assigning the intrinsic fields raises `E_PERM`.
+
+These contracts are durable in
+`../moo-conformance-tests/src/moo_conformance/_tests/language/waif_authority.yaml`
+and
+`../moo-conformance-tests/src/moo_conformance/_tests/server/waif_dump_persistence.yaml`.
+Together with the original caller row, all 15 selected tests passed the managed
+pinned WSL Toast oracle in 7.10 seconds. The v17 row proved that two references
+to one WAIF reload as the same identity after dump and managed restart, retain
+their class, and share subsequent property mutation. The rows were committed
+separately in the conformance repository as
+`e790d04 test: freeze Toast WAIF semantics`. Contradicted and incomplete Barn
+passages were then corrected and committed separately as
+`c87229f docs: correct WAIF semantics against Toast`.
+
+The smallest Java representation for the row is one new permitted final nested
+`MooValue.WaifValue`, not a record. It stores final `ObjectValue` class and
+owner fields, uses Java object identity by deliberately not overriding
+`equals()` or `hashCode()`, returns false from `isTruthy()`, and adds
+`WAIF(13)` to the existing nested type enum. `toString()` returns `[[waif]]`
+while `toLiteral()` returns the exact class/owner form. Existing `MapValue`
+already rejects only LIST and MAP keys, so the identity value works as a map
+key without a new map owner or hashing helper. Local WAIF properties, direct
+index dispatch, and v17 writing are frozen for their later rows but are not
+added ahead of this caller slice.
+
+The exact row extends only current concrete owners. The VM frame's receiver
+becomes `MooValue` rather than object-only and gains its defining object as verb
+location. Object calls retain current behavior. WAIF calls look up the
+colon-prefixed name on the WAIF class, retain the concrete WAIF as frame `this`,
+and record the defining class/object as verb location. Existing property access
+recognizes the WAIF `.class` intrinsic required by the row. The existing
+catalog adds exact `caller_perms`, `new_waif`, and `callers` cases using the
+current/previous frame metadata supplied by the VM; it does not gain an
+interface, adapter, helper owner, alternate dispatcher, or world mutation
+path. The focused runtime regression must execute the durable row body and
+first fail on committed Banteng's current `caller_perms()` `E_VERBNF` before
+any production edit.
