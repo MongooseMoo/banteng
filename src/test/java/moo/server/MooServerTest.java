@@ -546,6 +546,71 @@ final class MooServerTest {
   }
 
   @Test
+  void writesStagedCommandOutputBeforeSelfBootMessage() throws Exception {
+    MooServer server = new MooServer("127.0.0.1", 0, new LambdaMooV4Reader().read(TEST_DATABASE));
+    Thread serving = Thread.startVirtualThread(server::serve);
+    try (Socket control = new Socket(InetAddress.getLoopbackAddress(), server.port());
+        BufferedReader controlInput =
+            new BufferedReader(
+                new InputStreamReader(control.getInputStream(), StandardCharsets.ISO_8859_1));
+        BufferedWriter controlOutput =
+            new BufferedWriter(
+                new OutputStreamWriter(control.getOutputStream(), StandardCharsets.ISO_8859_1))) {
+      control.setSoTimeout((int) Duration.ofSeconds(5).toMillis());
+      writeLine(controlOutput, "connect Wizard");
+      assertEquals("*** Connected ***", controlInput.readLine());
+      writeLine(controlOutput, "PREFIX " + CONNECTION_PREFIX);
+      writeLine(controlOutput, "SUFFIX " + CONNECTION_SUFFIX);
+
+      writeLine(
+          controlOutput,
+          "; add_property(#0, \"audit_order_player\", {}, {#0, \"rw\"});"
+              + " login_player = create($nothing);"
+              + " set_player_flag(login_player, 1);"
+              + " #0.audit_order_player = login_player;"
+              + " add_verb(login_player, {player, \"rxd\", \"auditbye\"}, {\"none\", \"none\", \"none\"});"
+              + " set_verb_code(login_player, \"auditbye\", {"
+              + "\"notify(player, \\\"audit-before-boot\\\");\","
+              + "\"boot_player(player);\","
+              + "\"return 1;\"});"
+              + " try add_verb(#0, {player, \"rxd\", \"do_login_command\"}, {\"this\", \"none\", \"this\"}); except (E_INVARG) endtry"
+              + " set_verb_info(#0, \"do_login_command\", {player, \"rxd\", \"do_login_command\"});"
+              + " set_verb_args(#0, \"do_login_command\", {\"this\", \"none\", \"this\"});"
+              + " set_verb_code(#0, \"do_login_command\", {\"return #0.audit_order_player;\"});"
+              + " return 1;");
+      assertEquals(
+          List.of(
+              CONNECTION_PREFIX, CONNECTION_PREFIX, "{1, 1}", CONNECTION_SUFFIX, CONNECTION_SUFFIX),
+          readLines(controlInput, 5));
+
+      try (Socket target = new Socket(InetAddress.getLoopbackAddress(), server.port());
+          BufferedReader targetInput =
+              new BufferedReader(
+                  new InputStreamReader(target.getInputStream(), StandardCharsets.ISO_8859_1));
+          BufferedWriter targetOutput =
+              new BufferedWriter(
+                  new OutputStreamWriter(target.getOutputStream(), StandardCharsets.ISO_8859_1))) {
+        target.setSoTimeout((int) Duration.ofSeconds(5).toMillis());
+        writeLine(targetOutput, "login-output-order");
+        assertEquals("*** Connected ***", targetInput.readLine());
+        Thread.sleep(Duration.ofMillis(500));
+        while (targetInput.ready()) {
+          targetInput.readLine();
+        }
+
+        writeLine(targetOutput, "auditbye");
+        assertEquals("audit-before-boot", targetInput.readLine());
+        assertEquals("*** Disconnected ***", targetInput.readLine());
+        assertNull(targetInput.readLine());
+      }
+    } finally {
+      server.close();
+      serving.join(Duration.ofSeconds(5));
+      assertFalse(serving.isAlive());
+    }
+  }
+
+  @Test
   void recyclesAnActivePlayerWithDefaultMessage() throws Exception {
     MooServer server = new MooServer("127.0.0.1", 0, new LambdaMooV4Reader().read(TEST_DATABASE));
     Thread serving = Thread.startVirtualThread(server::serve);

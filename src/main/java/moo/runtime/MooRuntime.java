@@ -650,7 +650,10 @@ public final class MooRuntime {
         locals.put("iobjstr", encode(indirectObjectString));
         locals.put("dobj", new ObjectValue(directObject));
         locals.put("iobj", new ObjectValue(indirectObject));
-        output.addAll(executeStored(selectedVerb, locals).output());
+        VmState state = executeStored(selectedVerb, locals);
+        if (connections.containsKey(connectionId)) {
+          output.addAll(state.output());
+        }
       } else {
         output.add("I couldn't understand that.");
       }
@@ -1071,6 +1074,8 @@ public final class MooRuntime {
   private VmState executeStored(WorldVerb verb, Map<String, MooValue> locals) {
     BytecodeProgram program = compiler.compile(MooParser.parse(verb.programSource()));
     VmState root = new VmState(locals, verb.owner());
+    long taskPlayer =
+        locals.get("player") instanceof ObjectValue player ? player.value() : Long.MIN_VALUE;
     Map<VmState, BytecodeProgram> programs = new LinkedHashMap<>();
     Map<VmState, Long> timedTasks = new LinkedHashMap<>();
     Map<VmState, CompletableFuture<MooValue>> hostTasks = new LinkedHashMap<>();
@@ -1089,7 +1094,7 @@ public final class MooRuntime {
         vm.execute(taskProgram, task, world, builtins);
         applyConnectionOptionRequests(task);
         applyForcedInputRequests(task);
-        applyBootPlayerTargets(task);
+        applyBootPlayerTargets(task, taskPlayer);
         closeRecycledPlayerConnections();
         while (task.outcome() == VmState.Outcome.FORKED) {
           VmState.ForkRequest request = task.forkRequest().orElseThrow();
@@ -1105,7 +1110,7 @@ public final class MooRuntime {
           vm.execute(taskProgram, task, world, builtins);
           applyConnectionOptionRequests(task);
           applyForcedInputRequests(task);
-          applyBootPlayerTargets(task);
+          applyBootPlayerTargets(task, taskPlayer);
           closeRecycledPlayerConnections();
         }
         if (task.outcome() == VmState.Outcome.SUSPENDED) {
@@ -1259,7 +1264,7 @@ public final class MooRuntime {
     }
   }
 
-  private void applyBootPlayerTargets(VmState task) {
+  private void applyBootPlayerTargets(VmState task, long taskPlayer) {
     for (long target : task.drainBootPlayerTargets()) {
       long connectionId = target;
       ConnectionState connection = connections.get(connectionId);
@@ -1277,6 +1282,11 @@ public final class MooRuntime {
       }
 
       long disconnectedPlayer = world.connectionPlayer(connectionId).orElse(target);
+      if (disconnectedPlayer == taskPlayer) {
+        long outputConnectionId = connectionId;
+        listenerControl.ifPresent(
+            control -> control.writeConnection(outputConnectionId, task.output()));
+      }
       connections.remove(connectionId);
       world.closeConnection(connectionId);
       long listenerHandler = connection.listenerHandler;

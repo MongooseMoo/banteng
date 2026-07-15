@@ -576,6 +576,158 @@ by PID, and followed by an empty Banteng inventory.
 
 The final Java 25 `clean check installDist` gate passed in 20 seconds.
 
+## Output ordering during `boot_player`
+
+The active durable row is
+`../moo-conformance-tests/src/moo_conformance/_tests/audit/gap_followups_toast_oracle.yaml:665-748`,
+`audit_output_order_disconnect`. It creates and logs in a fresh player whose
+`auditbye` verb calls `notify(player, "audit-before-boot")`, then
+`boot_player(player)`, then returns. Sending that command must produce exact
+ordered lines `audit-before-boot` and `*** Disconnected ***`. The row uses the
+default two-argument `notify`; despite its description, it does not set
+`no_flush` and does not assert behavior under output backpressure, queue
+overflow, TLS retry, a customized `boot_msg`, or output from
+`user_disconnected`.
+
+Barn's normative documents do not freeze this ordering and disagree with one
+another. `../barn/spec/login.md:181-226` says output is buffered until task
+end, a limit, or explicit flush, then lists boot as banner, disconnect hook,
+close. `../barn/spec/server.md:169-185` says logged-in output uses `notify` but
+pending output is discarded when a connection closes.
+`../barn/spec/builtins/network.md:67-99` defines only that `boot_player`
+disconnects and that true `no_flush` buffers notify output.
+`../barn/spec/builtins/server.md:254-299` instead lists the disconnect hook,
+close, then banner. `../barn/spec/builtins/tasks.md:489-516` adds no ordering
+contract. The exact row therefore requires implementation and live-oracle
+evidence rather than an inferred reconciliation of those passages.
+
+Current Barn registers the two public builtins directly at
+`../barn/builtins/registry.go:189-203`. Default `builtinNotify` at
+`../barn/builtins/network.go:833-871` resolves the connection and calls
+`Connection.Send`; only truthy `no_flush` calls `Buffer`.
+`../barn/server/connection.go:72-99` forwards that send immediately, and
+`../barn/server/transport.go:212-226` serializes it under the transport mutex,
+writes the line plus CRLF, and synchronously flushes.
+
+`builtinBootPlayer` at `../barn/builtins/network.go:1053-1077` then delegates
+to the connection manager after its permission and connected-target checks.
+`../barn/server/connection_manager.go:550-562` synchronously sends
+`*** Disconnected ***` through the same path and only then closes the
+connection. `../barn/server/connection.go:116-120` cancels the connection and
+closes its transport. Later disconnect processing at
+`../barn/server/input_processor.go:315-366` removes mappings and invokes the
+disconnect hook, but cannot reorder the two already-flushed lines. Barn thus
+agrees with the row on a healthy TCP connection, although its ignored send and
+close errors do not guarantee delivery on failure.
+
+Pinned Toast source is freshly identified as
+`aecc51e9449c6e7c95272f0f044b5ba38948459e`. Plaintext command ingress flows
+from `/root/src/toaststunt/src/network.cc:385-418,472-567` through
+`/root/src/toaststunt/src/server.cc:1534-1541` into the in-band task queue.
+`/root/src/toaststunt/src/tasks.cc:812-869,1074-1095,1628-1769` parses and
+runs the logged-in command, and
+`/root/src/toaststunt/src/execute.cc:3340-3371` establishes the fresh player as
+the command player and the owner-programmer required by both builtin
+permission checks.
+
+Default `bf_notify` at `/root/src/toaststunt/src/server.cc:2919-2957` calls
+`network_send_line` with flushing and newline permitted. Contrary to Barn's
+immediate transport flush, `/root/src/toaststunt/src/network.cc:1336-1404`
+copies the line into a `text_block` and appends it at the connection's FIFO
+`output_tail`. The following `bf_boot_player` at
+`/root/src/toaststunt/src/server.cc:2959-2970` calls
+`boot_player` at lines 1792-1799, which only marks `disconnect_me`; it neither
+emits, flushes, closes, suspends, nor forks.
+
+Toast's main-loop order at `/root/src/toaststunt/src/server.cc:800-925` runs
+ready tasks before checking marked connections. That later cleanup calls
+`user_disconnected`, appends the configured or default boot message through
+`send_message` at lines 518-568, then calls `network_close`. Both visible lines
+therefore enter the same FIFO in verb order. `network_close` at
+`/root/src/toaststunt/src/network.cc:1852-1856` releases the final handle;
+refcount disposal at lines 1564-1571 calls `close_nhandle` at lines 643-674,
+which invokes `push_output` at lines 315-383 before closing the file
+descriptor. That drain consumes `output_head` blocks in FIFO order.
+`/root/src/toaststunt/src/include/network.h:214-230,370-378` limits the claim:
+close flushes as much pending output as possible, and queue pressure may drop
+older output when flushing is allowed. Those failure and backpressure cases
+are outside the two-short-line row.
+
+Barn and Toast agree on the asserted observation: the notify line precedes the
+disconnect banner and the connection closes only after both have entered the
+same ordered output path. They differ internally: Barn flushes each line
+synchronously and closes immediately inside `boot_player`, while Toast queues
+notify output, makes `boot_player` a mark-only operation, and performs the
+hook, banner, best-effort FIFO drain, and close after the task. The Barn spec
+conflicts and the implementations' failure-delivery details remain outside
+the row. The stock database's hook and `boot_msg` configuration remain a live
+profile fact rather than a source-only assumption.
+
+Committed Banteng `67183df` stages the notify line and boot target in the same
+VM result at `src/main/java/moo/vm/MooVm.java:399-423`. However,
+`src/main/java/moo/runtime/MooRuntime.java:1071-1093,1195` invokes
+`applyBootPlayerTargets` before returning the staged command output.
+That method removes the logical connection, runs `user_disconnected`, builds
+the banner, and calls the existing host control at lines 1279-1324.
+`src/main/java/moo/server/MooServer.java:312-328` writes and flushes the banner
+and closes the socket. Only afterward does `executeLine` return the staged
+notify line through `MooRuntime.java:640-659` to
+`MooServer.java:195-225`; its write reaches the already-closed socket and the
+resulting close-path exception is ignored. This is the observed omission, not
+a parser, lookup, or transport-order failure.
+
+The exact managed row passed pinned WSL Toast commit
+`aecc51e9449c6e7c95272f0f044b5ba38948459e`: one selected, 11,504
+deselected, in 4.82 seconds. Exact notify-before-banner ordering for this
+healthy stock-profile connection is therefore frozen. Process inventory found
+only the unrelated July 13 `/tmp/td.db` process, which was left untouched. No
+Java design was selected by the source trace alone.
+
+The smallest Java change keeps the existing VM result, concrete runtime, and
+host-control boundaries. `executeStored` derives the root task's existing
+`player` local and supplies that identity when applying its already-staged
+boot targets. When the resolved disconnected player is that task player,
+`applyBootPlayerTargets` first publishes the task's already-staged output
+synchronously through the existing `ListenerControl.writeConnection` method.
+It then performs the unchanged logical removal, disconnect hook, boot-message
+construction, `bootConnection` write, and socket close. This gives the same
+accepted-socket writer the notify line before the banner without inventing a
+new effect representation.
+
+The selected player-command branch retains the returned `VmState`, but adds
+its output to the ordinary `executeLine` result only if that connection remains
+registered after execution. A self-boot therefore does not retry the same
+lines against the socket that the boot effect just closed; a command that
+boots some other player still returns its output normally. This adds no class,
+interface, helper, adapter, sender, queue, alternate output path, or general
+recipient-aware notify model. Customized hook output, cross-player notify,
+`no_flush`, backpressure, and broader effect interleaving remain outside this
+row.
+
+The focused real-socket regression used the row's fresh player, stored login
+hook, 500 ms login wait, and harness-equivalent draining of the login send
+step before issuing `auditbye`. After that boundary correction, committed
+production was red with `*** Disconnected ***` where `audit-before-boot` was
+required. The initial undrained attempt had failed earlier on unrelated login
+step output and was not accepted as regression evidence. After the existing
+runtime write/boot ordering was changed, the focused regression passed under
+Java 25 in 6 seconds.
+
+The exact managed Banteng row passed with one selected and 11,504 deselected
+in 5.17 seconds. Its disposable process was identified by exact
+`moo_conformance_byevac2n` temp-database command line, stopped as PID 381904,
+and followed by an empty Banteng process inventory.
+
+The full `gap_followups_toast_oracle` fail-fast run then passed the first nine
+selected rows and stopped at the next independent contract, property-flag
+permission enforcement, after 28.57 seconds. That row expected `E_PERM` for a
+non-owner property read but observed `E_TYPE`; it remains a separate slice.
+The targeted-run process was identified by exact `moo_conformance_7hl0ltrn`
+temp-database command line, stopped as PID 358292, and followed by an empty
+Banteng process inventory.
+
+The final Java 25 `clean check installDist` gate passed in 16 seconds.
+
 ## Two-byte IAC command split across reads
 
 The next durable row is
