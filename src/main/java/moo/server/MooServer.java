@@ -124,17 +124,22 @@ public final class MooServer implements AutoCloseable, ListenerControl {
       ByteArrayOutputStream line = new ByteArrayOutputStream();
       boolean afterCarriageReturn = false;
       boolean afterIac = false;
-      boolean afterNegotiation = false;
+      int negotiationCommand = -1;
       int inputByte;
       while ((inputByte = input.read()) != -1) {
-        if (afterNegotiation) {
-          afterNegotiation = false;
+        if (negotiationCommand >= 0) {
+          int completedCommand = negotiationCommand;
+          negotiationCommand = -1;
+          writeLines(
+              output,
+              runtime.executeTransportOutOfBand(
+                  connectionId, "~FF~%02X~%02X".formatted(completedCommand, inputByte)));
           continue;
         }
         if (afterIac) {
           afterIac = false;
           if (inputByte >= 0xFB && inputByte <= 0xFE) {
-            afterNegotiation = true;
+            negotiationCommand = inputByte;
           } else if (inputByte == 0xF1) {
             writeLines(output, runtime.executeTransportOutOfBand(connectionId, "~FF~F1"));
           }

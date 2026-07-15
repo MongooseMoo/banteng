@@ -143,6 +143,106 @@ separate slice rather than being folded into escaped-IAC handling.
 
 The final Java 25 `clean check installDist` gate passed in 13 seconds.
 
+## IAC negotiation command split across reads
+
+The active durable row is
+`../moo-conformance-tests/src/moo_conformance/_tests/audit/gap_followups_toast_oracle.yaml:308-371`,
+`audit_telnet_iac_delivered_as_oob_command`. It sends `FF`, waits, then sends
+`FB 01` without a line terminator. The accepting listener records
+`do_out_of_band_command` and must observe
+`{{"~FF~FB~01"}, "~FF~FB~01"}`.
+
+Barn's normative `../barn/spec/server.md:193-200` says only that TCP/TLS use
+Telnet-style input; it does not define IAC negotiation, split-read state,
+binary rendering, OOB delivery, or hook context.
+
+Barn constructs one `TCPTransport` per socket at
+`../barn/server/connection_manager.go:309-324`, and its connection-local
+`tState` and `tCommand` live at `../barn/server/transport.go:51-61`.
+`ReadInput` at lines 88-161 appends `FF` and enters IAC state, later appends
+`FB` and enters command state without emitting, then appends option `01`,
+formats all three retained bytes, resets state, and returns OOB immediately.
+`formatTelnetCommand` at lines 190-192 deliberately returns the raw byte
+string. Barn's focused unit at `../barn/server/transport_test.go:95-119`
+expects raw `{FF,FB,01}` OOB but does not delay the writes.
+
+The connection reader queues one OOB event at
+`../barn/server/input_processor.go:119-193`. OOB processing precedes held input,
+`read()`, and pre-login routing at lines 196-229; fresh connections have
+`disable-oob = 0` at `../barn/builtins/network.go:189-212`.
+`processOutOfBand` at `../barn/server/input_processor.go:232-257` resolves the
+accepting listener, tokenizes the raw bytes as one word through
+`../barn/command/command.go:114-165`, and calls `do_out_of_band_command` with
+the raw command as both argument and `argstr`. The negative player mapping is
+created at `../barn/server/connection_manager.go:63-75,390-400`.
+`../barn/scheduler/call_verb.go:25-134` supplies listener `this`, negative
+connection `player` and `caller`, and hook-owner permissions. Raw strings and
+lists render the observable uppercase `~FF~FB~01` through
+`../barn/types/str.go:97-125`, `../barn/types/value.go:162-187`, and
+`../barn/scheduler/eval.go:184-203`.
+
+Pinned Toast retains `telnet_state` and `command_stream` on the connection at
+`/root/src/toaststunt/src/network.cc:81-124`. `process_telnet_byte` stores `FF`
+and enters IAC state at lines 403-406, stores later `FB` and enters command
+state without emission at lines 420-430, then stores option `01`, emits the
+complete command, and returns to normal at lines 439-445. `pull_input` at lines
+471-565 uses a per-read OOB stream but the persistent handle, so the first read
+emits nothing and completion emits once. `/root/src/toaststunt/src/utils.cc:671-684`
+encodes the three nonprintable bytes as exact uppercase ASCII `~FF~FB~01`.
+
+Toast hands that OOB string through
+`/root/src/toaststunt/src/server.cc:1452-1475,1534-1541` and classifies and
+dispatches it directly at `/root/src/toaststunt/src/tasks.cc:431-475,969-974,986-998,1074-1095,1650-1690`.
+`/root/src/toaststunt/src/parse_cmd.cc:33-79,108-124` yields the one-element
+argument list. Root task setup at `/root/src/toaststunt/src/execute.cc:3278-3336`
+supplies listener `this`, negative connection `player`, `caller = #-1`, exact
+ASCII argument and `argstr`, and hook-owner permissions.
+
+Barn and Toast agree on all asserted behavior: connection-persistent state,
+no emission after `FF` or `FF FB`, immediate single OOB emission when option
+`01` arrives, accepting-listener ownership, negative connection `player`, and
+observable `~FF~FB~01` argument and `argstr`. As in the preceding row, they
+disagree outside the assertion on escape timing and `caller`.
+
+Committed Banteng `a2ae743` retains only a boolean `afterNegotiation`. After
+`FF FB`, option `01` clears that boolean and is discarded, so the already
+correct `MooRuntime.executeTransportOutOfBand` is never called and the targeted
+family observed `{}`. The pinned managed Toast row must now be rerun before
+freezing how the existing local state retains the negotiation command. No Java
+design is frozen by this source trace.
+
+The exact managed row passed pinned WSL Toast commit
+`aecc51e9449c6e7c95272f0f044b5ba38948459e`: one selected, 11,504
+deselected, in 5.69 seconds. Third-byte completion and exact
+`~FF~FB~01` OOB delivery are therefore frozen before Java design.
+
+The smallest Java representation changes only existing local state in
+`MooServer.handleConnection`: replace the negotiation boolean with an integer
+holding the `FB` through `FE` command byte, initialized to `-1`. When the next
+option byte arrives, capture and reset that integer, format retained IAC,
+command, and option as uppercase `~FF~%02X~%02X`, and immediately call the
+already-committed `MooRuntime.executeTransportOutOfBand` operation. This
+preserves `FF FF` omission and the two-byte `FF F1` branch while adding no
+runtime method, class, interface, helper, adapter, sender, subnegotiation state,
+or egress behavior.
+
+The focused real-socket regression retained the accepting listener's OOB
+recorder, flushed `FF`, waited 100 ms, flushed `FB 01`, waited 500 ms, and
+inspected the retained world property. Committed production was red with `{}`
+instead of `{{"~FF~FB~01"}, "~FF~FB~01"}`. Retaining the negotiation command
+byte across reads made the focused regression pass under Java 25 in 3 seconds.
+
+The exact managed Banteng row passed with one selected and 11,504 deselected
+in 5.59 seconds. Its disposable process was identified by exact temp-database
+command line, stopped by PID, and followed by an empty Banteng inventory. The
+full `gap_followups_toast_oracle` fail-fast run then passed the first five
+selected rows and stopped at the next independent contract, split-read Telnet
+subnegotiation delivery, after 20.73 seconds. That row expected
+`{{"~FF~FA~1F~00P~00~18~FF~F0"}, "~FF~FA~1F~00P~00~18~FF~F0"}` and observed
+no hook call; it remains a separate slice.
+
+The final Java 25 `clean check installDist` gate passed in 14 seconds.
+
 ## Two-byte IAC command split across reads
 
 The next durable row is
