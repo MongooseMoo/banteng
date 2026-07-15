@@ -2078,3 +2078,100 @@ managed lifecycle category passed rows 1 through 20 and stopped first at row
 deselected, in 45.83 seconds. Row 20 is therefore the kept frontier. Row 21's
 backslash-sensitive login word parsing remains a separate unchecked slice. The
 final Java 25 `clean check installDist` gate passed in 13 seconds.
+
+## Twenty-first row: login word list and original `argstr`
+
+The active durable row is `audit_do_login_command_argstr_original` at
+`../moo-conformance-tests/src/moo_conformance/_tests/audit/connection_lifecycle_toast_oracle.yaml:1786`.
+It installs `do_login_command` on the accepting listener, sends the literal
+line `auditlogin foo\ bar  baz`, and requires `args` to be
+`{"auditlogin", "foo bar", "baz"}` while `argstr` remains the byte-for-byte
+original line, including the backslash and doubled space. The exact row passed
+pinned WSL Toast commit `aecc51e9449c6e7c95272f0f044b5ba38948459e`:
+one selected, 11,504 deselected, in 4.60 seconds.
+
+Barn has no normative word-list contract for login input.
+`../barn/spec/login.md:29-43` and `../barn/spec/server.md:165-170` instead
+describe `do_login_command(connection, line)` as though those were its explicit
+arguments. Generic context passages in `../barn/spec/login.md:163-177`,
+`../barn/spec/objects.md:258-274`, and
+`../barn/spec/builtins/verbs.md:317-333` call `argstr` the original argument
+string but do not define escape removal, quote handling, space collapsing, or
+the login hook's actual `args`. That prose is incomplete and disagrees with
+both Barn's implementation and Toast for the active row.
+
+Barn's public login dispatch at
+`../barn/server/input_processor.go:423-464`, with synchronous fallback at
+`../barn/server/input_login.go:37-64`, targets the accepting listener, parses
+the line with `command.CommandWordList`, converts the words to strings, and
+passes the untouched line separately as `argstr`. The task frame in
+`../barn/scheduler/task_factory.go:124-153` uses the negative connection object
+as `player`, the listener as `this`, the calling player as `caller`, and the
+verb owner as programmer.
+
+Barn's parser at `../barn/command/command.go:114-166` removes a backslash and
+copies the following byte, omits quote delimiters, retains spaces inside quotes,
+and collapses separating whitespace. It agrees on the active input. Outside
+this row it treats a trailing backslash differently from Toast, accepts a
+broader Unicode-whitespace set, and special-cases leading quote, colon, and
+semicolon characters. Those differences remain unresolved by this row and are
+not part of this slice.
+
+Pinned Toast receives the unchanged line in
+`/root/src/toaststunt/src/server.cc:1534-1540` and queues it through the
+pre-login task path. `do_login_task` at
+`/root/src/toaststunt/src/tasks.cc:878-916` passes
+`parse_into_wordlist(command)` as `args` and the unchanged `command` separately
+as `argstr` to `do_login_command` on the accepting listener. The pre-login
+player is the negative connection object; the handler is the accepting
+listener.
+
+Toast's semantic word-list owner is
+`/root/src/toaststunt/src/parse_cmd.cc:34-78,109-123`. It skips leading and
+repeated ASCII spaces, removes a backslash and copies the next byte into the
+current word, omits double-quote delimiters while retaining quoted spaces, and
+drops a trailing backslash. Its copy is mutated for word parsing; the distinct
+original command passed as `argstr` remains unchanged. The active line
+therefore deterministically yields the three expected words and the exact
+original `argstr`.
+
+Related durable rows include
+`audit_do_command_receives_quoted_backslash_wordlist` in
+`audit/command_parser_toast_oracle.yaml`, the accepting-listener login frame at
+the start of `connection_lifecycle_toast_oracle.yaml`, and OOB rows using the
+same Toast parser. Prefix shortcuts, non-ASCII or tab whitespace, quotes,
+unbalanced quotes, trailing backslashes, authenticated commands, and OOB input
+remain separate observable surfaces.
+
+Committed Banteng `039fda1` preserves the original login line in
+`MooRuntime.executeLogin` and passes it unchanged as `argstr`. Its `args` path,
+however, uses Java `StringTokenizer`, so the active line becomes
+`{"auditlogin", "foo\\", "bar", "baz"}`. The complete lifecycle gate recorded
+that exact discrepancy after 20 preceding rows passed.
+
+The smallest active-row representation stays inside `executeLogin`: replace
+only its `StringTokenizer` word loop with an inline Toast-shaped scan that
+handles backslash, quotes, and ASCII-space word boundaries, while continuing to
+pass the untouched `loginLine` as `argstr`. A focused runtime regression will
+install a listener login hook, submit the exact active line, and prove both the
+parsed words and original string red before production changes. No parser,
+compiler, server, world, builtin, helper, interface, adapter, or new tokenizer
+owner is required.
+
+The focused Java 25 regression
+`MooRuntimeTest.tokenizesEscapedLoginWordsWhilePreservingOriginalArgstr` first
+failed on committed Banteng `039fda1` with the intended discrepancy: expected
+`{{"auditlogin", "foo bar", "baz"}, "auditlogin foo\\ bar  baz"}` but received
+`{{"auditlogin", "foo\\", "bar", "baz"}, "auditlogin foo\\ bar  baz"}`. This
+proved that only the word list was wrong and that the original `argstr` was
+already preserved. After the in-place `executeLogin` scanner change, the same
+regression passed.
+
+The exact managed Banteng row then passed under Java 25: one selected, 11,504
+deselected, in 4.59 seconds. The complete managed lifecycle category passed
+rows 1 through 21 and stopped first at row 22,
+`audit_connection_hold_and_oob_options`, with 21 passed, 11,482 deselected, in
+46.09 seconds. Row 21 is therefore the kept frontier; row 22's `E_VERBNF`
+failure remains a separate unchecked slice.
+
+The final Java 25 `clean check installDist` gate passed in 15 seconds.

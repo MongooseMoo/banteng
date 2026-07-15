@@ -712,11 +712,27 @@ public final class MooRuntime {
     }
     WorldVerb login = world.verb(connection.listenerHandler, "do_login_command").orElseThrow();
     List<MooValue> arguments = new ArrayList<>();
-    if (!loginLine.isBlank()) {
-      StringTokenizer words = new StringTokenizer(loginLine);
-      while (words.hasMoreTokens()) {
-        arguments.add(encode(words.nextToken()));
+    StringBuilder word = new StringBuilder();
+    boolean quoted = false;
+    for (int index = 0; index < loginLine.length(); index++) {
+      char character = loginLine.charAt(index);
+      if (character == '\\') {
+        if (index + 1 < loginLine.length()) {
+          word.append(loginLine.charAt(++index));
+        }
+      } else if (character == '"') {
+        quoted = !quoted;
+      } else if (character == ' ' && !quoted) {
+        if (!word.isEmpty()) {
+          arguments.add(encode(word.toString()));
+          word.setLength(0);
+        }
+      } else {
+        word.append(character);
       }
+    }
+    if (!word.isEmpty()) {
+      arguments.add(encode(word.toString()));
     }
     Map<String, MooValue> locals =
         verbLocals(

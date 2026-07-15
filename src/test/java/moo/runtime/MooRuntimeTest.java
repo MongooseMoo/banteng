@@ -773,6 +773,45 @@ final class MooRuntimeTest {
   }
 
   @Test
+  void tokenizesEscapedLoginWordsWhilePreservingOriginalArgstr() throws Exception {
+    WorldTxn world = new LambdaMooV4Reader().read(FIXTURE);
+    MooRuntime runtime = new MooRuntime(world);
+    long primaryConnection = -47;
+
+    assertEquals(List.of(), runtime.openConnection(primaryConnection));
+    assertEquals(
+        List.of("*** Connected ***"), runtime.executeLine(primaryConnection, "connect Wizard"));
+    long handler = world.objectCount();
+    runtime.executeLine(
+        primaryConnection,
+        """
+        ; add_property(#0, "audit_login_words", {}, {#0, "rw"});
+        handler = create($nothing);
+        add_verb(handler, {player, "rxd", "do_login_command"}, {"this", "none", "this"});
+        set_verb_code(handler, "do_login_command", {
+          "#0.audit_login_words = {args, argstr};",
+          "return 0;"
+        });
+        return handler;
+        """);
+    assertTrue(world.object(handler).isPresent());
+
+    long dynamicConnection = -48;
+    try {
+      assertEquals(List.of(), runtime.openConnection(dynamicConnection, handler, false));
+      assertEquals(List.of(), runtime.executeLine(dynamicConnection, "auditlogin foo\\ bar  baz"));
+      assertEquals(
+          "{{\"auditlogin\", \"foo bar\", \"baz\"}, \"auditlogin foo\\\\ bar  baz\"}",
+          world.property(0, "audit_login_words").orElseThrow().value().toLiteral());
+    } finally {
+      runtime.closeConnection(dynamicConnection);
+      runtime.executeLine(
+          primaryConnection,
+          "; delete_property(#0, \"audit_login_words\"); recycle(#" + handler + "); return 1;");
+    }
+  }
+
+  @Test
   void tokenizesBackslashEscapesForAStoredPlayerCommandVerb() throws Exception {
     WorldTxn world = new LambdaMooV4Reader().read(FIXTURE);
     MooRuntime runtime = new MooRuntime(world);
