@@ -564,6 +564,7 @@ public final class MooVm {
             state.programmer(),
             state.taskLocal(),
             state.remainingTicks(),
+            state.remainingSeconds(),
             frame.receiver,
             state.callerProgrammer(),
             state.callers());

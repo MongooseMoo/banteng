@@ -11,6 +11,7 @@ import java.util.Optional;
 import java.util.OptionalDouble;
 import java.util.OptionalLong;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
 import moo.builtin.BuiltinCatalog.ConnectionOptionRequest;
 import moo.builtin.BuiltinCatalog.ForcedInputRequest;
 import moo.bytecode.BytecodeProgram;
@@ -25,6 +26,7 @@ import moo.value.MooValue.StringValue;
 /** Explicit heap state for one MOO bytecode execution. */
 public final class VmState {
   private static final long DEFAULT_FOREGROUND_TICKS = 60_000;
+  private static final long DEFAULT_FOREGROUND_SECONDS = 5;
 
   private final Deque<Frame> frames = new ArrayDeque<>();
   private final Map<String, MooValue> initialLocals;
@@ -42,6 +44,8 @@ public final class VmState {
   private Optional<CompletableFuture<MooValue>> hostResult = Optional.empty();
   private MooValue taskLocal = new MapValue(Map.of());
   private long remainingTicks;
+  private final long secondsLimit;
+  private long processCpuAnchorNanos;
   private final long initialProgrammer;
   private final ObjectValue initialVerbLocation;
 
@@ -58,12 +62,13 @@ public final class VmState {
         normalizedLocals(locals).get("this") instanceof ObjectValue object
             ? object
             : new ObjectValue(-1),
-        DEFAULT_FOREGROUND_TICKS);
+        DEFAULT_FOREGROUND_TICKS,
+        DEFAULT_FOREGROUND_SECONDS);
   }
 
   /** Creates a state with explicit root verb metadata. */
   public VmState(Map<String, MooValue> locals, long programmer, ObjectValue verbLocation) {
-    this(locals, programmer, verbLocation, DEFAULT_FOREGROUND_TICKS);
+    this(locals, programmer, verbLocation, DEFAULT_FOREGROUND_TICKS, DEFAULT_FOREGROUND_SECONDS);
   }
 
   /** Creates a state with explicit root metadata and remaining ticks. */
@@ -72,10 +77,21 @@ public final class VmState {
       long programmer,
       ObjectValue verbLocation,
       long remainingTicks) {
+    this(locals, programmer, verbLocation, remainingTicks, 0);
+  }
+
+  /** Creates a state with explicit root metadata and execution limits. */
+  public VmState(
+      Map<String, MooValue> locals,
+      long programmer,
+      ObjectValue verbLocation,
+      long remainingTicks,
+      long secondsLimit) {
     initialLocals = normalizedLocals(locals);
     initialProgrammer = programmer;
     initialVerbLocation = verbLocation;
     this.remainingTicks = remainingTicks;
+    this.secondsLimit = secondsLimit;
   }
 
   /** Returns the next instruction index in the active frame. */
@@ -153,12 +169,23 @@ public final class VmState {
     return remainingTicks;
   }
 
+  long remainingSeconds() {
+    long limitNanos = Math.max(0L, TimeUnit.SECONDS.toNanos(secondsLimit));
+    long currentProcessCpuNanos =
+        ProcessHandle.current().info().totalCpuDuration().orElseThrow().toNanos();
+    long elapsedNanos = Math.max(0L, currentProcessCpuNanos - processCpuAnchorNanos);
+    long remainingNanos = Math.max(0L, limitNanos - Math.min(limitNanos, elapsedNanos));
+    return TimeUnit.NANOSECONDS.toSeconds(remainingNanos);
+  }
+
   void decrementRemainingTicks() {
     remainingTicks--;
   }
 
   void ensureRoot(BytecodeProgram program) {
     if (frames.isEmpty()) {
+      processCpuAnchorNanos =
+          ProcessHandle.current().info().totalCpuDuration().orElseThrow().toNanos();
       MooValue receiver = initialLocals.getOrDefault("this", new ObjectValue(-1));
       frames.push(
           new Frame(

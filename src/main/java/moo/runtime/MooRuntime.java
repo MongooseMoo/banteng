@@ -35,6 +35,8 @@ import moo.world.WorldVerb;
 
 /** The concrete serialized runtime owner used by the first server connection slice. */
 public final class MooRuntime {
+  private static final long DEFAULT_FOREGROUND_TICKS = 60_000;
+  private static final long DEFAULT_FOREGROUND_SECONDS = 5;
   private static final long DEFAULT_BACKGROUND_TICKS = 30_000;
 
   private final WorldTxn world;
@@ -1091,14 +1093,20 @@ public final class MooRuntime {
       ancestor = candidate.parent();
     }
     MooValue serverOptions = world.readObjectProperty(0, "server_options").orElse(null);
-    VmState root;
-    if (serverOptions instanceof ObjectValue options
-        && world.readObjectProperty(options.value(), "fg_ticks").orElse(null)
-            instanceof IntegerValue ticks) {
-      root = new VmState(locals, verb.owner(), verbLocation, Math.max(100L, ticks.value()));
-    } else {
-      root = new VmState(locals, verb.owner(), verbLocation);
+    long foregroundTicks = DEFAULT_FOREGROUND_TICKS;
+    long foregroundSeconds = DEFAULT_FOREGROUND_SECONDS;
+    if (serverOptions instanceof ObjectValue options) {
+      if (world.readObjectProperty(options.value(), "fg_ticks").orElse(null)
+          instanceof IntegerValue ticks) {
+        foregroundTicks = Math.max(100L, ticks.value());
+      }
+      if (world.readObjectProperty(options.value(), "fg_seconds").orElse(null)
+          instanceof IntegerValue seconds) {
+        foregroundSeconds = Math.max(1L, seconds.value());
+      }
     }
+    VmState root =
+        new VmState(locals, verb.owner(), verbLocation, foregroundTicks, foregroundSeconds);
     long taskPlayer =
         locals.get("player") instanceof ObjectValue player ? player.value() : Long.MIN_VALUE;
     Map<VmState, BytecodeProgram> programs = new LinkedHashMap<>();

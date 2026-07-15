@@ -62,6 +62,7 @@ public final class BuiltinCatalog {
       long programmer,
       MooValue taskLocal,
       long remainingTicks,
+      long remainingSeconds,
       MooValue receiver,
       long callerProgrammer,
       ListValue callers) {
@@ -385,6 +386,10 @@ public final class BuiltinCatalog {
           arguments.isEmpty()
               ? Result.value(new IntegerValue(remainingTicks))
               : Result.error(ErrorValue.E_ARGS);
+      case "seconds_left" ->
+          arguments.isEmpty()
+              ? Result.value(new IntegerValue(remainingSeconds))
+              : Result.error(ErrorValue.E_ARGS);
       case "task_local" -> {
         if (!arguments.isEmpty()) {
           yield Result.error(ErrorValue.E_ARGS);
@@ -499,6 +504,7 @@ public final class BuiltinCatalog {
               programmer,
               taskLocal,
               remainingTicks,
+              remainingSeconds,
               receiver,
               callerProgrammer,
               callers);
@@ -540,6 +546,7 @@ public final class BuiltinCatalog {
           "new_waif",
           "callers",
           "ticks_left",
+          "seconds_left",
           "task_local",
           "typeof",
           "function_info" ->
@@ -1584,6 +1591,7 @@ public final class BuiltinCatalog {
       long programmer,
       MooValue taskLocal,
       long remainingTicks,
+      long remainingSeconds,
       MooValue receiver,
       long callerProgrammer,
       ListValue callers) {
@@ -1600,6 +1608,7 @@ public final class BuiltinCatalog {
         programmer,
         taskLocal,
         remainingTicks,
+        remainingSeconds,
         receiver,
         callerProgrammer,
         callers);

@@ -832,6 +832,34 @@ final class MooRuntimeTest {
   }
 
   @Test
+  void startsNewForegroundTaskWithTheConfiguredSecondsLimit() throws Exception {
+    WorldTxn world = new LambdaMooV4Reader().read(FIXTURE);
+    MooRuntime runtime = new MooRuntime(world);
+    long connectionId = -47;
+
+    assertEquals(List.of(), runtime.openConnection(connectionId));
+    assertEquals(List.of("*** Connected ***"), runtime.executeLine(connectionId, "connect Wizard"));
+
+    assertEquals(
+        List.of(CONNECTION_PREFIX, "{1, 1}", CONNECTION_SUFFIX),
+        runtime.executeLine(
+            connectionId,
+            """
+            ; try
+              add_property(#6, "fg_seconds", 12, {player, "r"});
+            except (E_INVARG)
+              #6.fg_seconds = 12;
+            endtry
+            return 1;
+            """));
+    assertEquals(new IntegerValue(12), world.property(6, "fg_seconds").orElseThrow().value());
+
+    assertEquals(
+        List.of(CONNECTION_PREFIX, "{1, 1}", CONNECTION_SUFFIX),
+        runtime.executeLine(connectionId, "; return seconds_left() <= 12 && seconds_left() > 8;"));
+  }
+
+  @Test
   void startsNewBackgroundTaskWithTheConfiguredTickBudget() throws Exception {
     WorldTxn world = new LambdaMooV4Reader().read(FIXTURE);
     MooRuntime runtime = new MooRuntime(world);

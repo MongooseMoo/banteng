@@ -68,6 +68,37 @@ final class MooVmTest {
   }
 
   @Test
+  void exposesTheLiveForegroundSecondsRemainderAndRejectsArguments() {
+    BytecodeProgram program =
+        new MooCompiler()
+            .compile(MooParser.parse("return {seconds_left(), call_function(\"seconds_left\")};"));
+    VmState state = new VmState();
+
+    new MooVm().execute(program, state);
+
+    assertTrue(
+        state.uncaughtError().isEmpty(), () -> "unexpected MOO error: " + state.uncaughtError());
+    assertEquals(VmState.Outcome.RETURNED, state.outcome());
+    ListValue values = (ListValue) state.returnValue().orElseThrow();
+    assertEquals(2, values.elements().size());
+    assertTrue(values.elements().get(0) instanceof IntegerValue);
+    assertTrue(values.elements().get(1) instanceof IntegerValue);
+    long direct = ((IntegerValue) values.elements().get(0)).value();
+    long indirect = ((IntegerValue) values.elements().get(1)).value();
+    assertTrue(direct >= 0 && direct <= 5);
+    assertTrue(indirect >= 0 && indirect <= 5);
+    assertTrue(indirect <= direct);
+
+    VmState invalid = new VmState();
+    new MooVm()
+        .execute(new MooCompiler().compile(MooParser.parse("return seconds_left(1);")), invalid);
+
+    assertEquals(VmState.Outcome.ERRORED, invalid.outcome());
+    assertEquals(ErrorValue.E_ARGS, invalid.uncaughtError().orElseThrow());
+    assertEquals(BuiltinCatalog.EffectClass.PURE, new BuiltinCatalog().effectClass("seconds_left"));
+  }
+
+  @Test
   void evaluatesExactSqliteTypePrerequisiteExpression() {
     BytecodeProgram program =
         new MooCompiler().compile(MooParser.parse("return typeof({}) == LIST;"));
