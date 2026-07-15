@@ -18,6 +18,7 @@ public sealed interface MooValue
         MooValue.FloatValue,
         MooValue.StringValue,
         MooValue.ObjectValue,
+        MooValue.WaifValue,
         MooValue.ErrorValue,
         MooValue.ListValue,
         MooValue.MapValue {
@@ -39,7 +40,8 @@ public sealed interface MooValue
     ERROR(3),
     LIST(4),
     FLOAT(9),
-    MAP(10);
+    MAP(10),
+    WAIF(13);
 
     private final int code;
 
@@ -277,6 +279,47 @@ public sealed interface MooValue
     @Override
     public String toString() {
       return toLiteral();
+    }
+  }
+
+  /** A MOO WAIF with identity semantics and immutable class and owner references. */
+  final class WaifValue implements MooValue {
+    private final ObjectValue classObject;
+    private final ObjectValue owner;
+
+    public WaifValue(ObjectValue classObject, ObjectValue owner) {
+      this.classObject = classObject;
+      this.owner = owner;
+    }
+
+    /** Returns this WAIF's class object. */
+    public ObjectValue classObject() {
+      return classObject;
+    }
+
+    /** Returns this WAIF's owner. */
+    public ObjectValue owner() {
+      return owner;
+    }
+
+    @Override
+    public Type type() {
+      return Type.WAIF;
+    }
+
+    @Override
+    public boolean isTruthy() {
+      return false;
+    }
+
+    @Override
+    public String toLiteral() {
+      return "[[class = " + classObject + ", owner = " + owner + "]]";
+    }
+
+    @Override
+    public String toString() {
+      return "[[waif]]";
     }
   }
 

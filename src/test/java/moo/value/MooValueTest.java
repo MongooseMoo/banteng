@@ -20,11 +20,12 @@ import moo.value.MooValue.ListValue;
 import moo.value.MooValue.MapValue;
 import moo.value.MooValue.ObjectValue;
 import moo.value.MooValue.StringValue;
+import moo.value.MooValue.WaifValue;
 import org.junit.jupiter.api.Test;
 
 final class MooValueTest {
   @Test
-  void familyIsClosedOverExactlyTheSevenAuthorizedValues() {
+  void familyIsClosedOverExactlyTheEightAuthorizedValues() {
     assertTrue(MooValue.class.isSealed());
     assertEquals(
         Set.of(
@@ -32,12 +33,13 @@ final class MooValueTest {
             FloatValue.class,
             StringValue.class,
             ObjectValue.class,
+            WaifValue.class,
             ErrorValue.class,
             ListValue.class,
             MapValue.class),
         Set.of(MooValue.class.getPermittedSubclasses()));
     assertEquals(
-        List.of(0, 1, 2, 3, 4, 9, 10),
+        List.of(0, 1, 2, 3, 4, 9, 10, 13),
         List.of(MooValue.Type.values()).stream().map(MooValue.Type::code).toList());
   }
 

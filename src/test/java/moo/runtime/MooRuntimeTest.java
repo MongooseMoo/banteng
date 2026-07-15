@@ -770,6 +770,105 @@ final class MooRuntimeTest {
   }
 
   @Test
+  void preservesWaifThisAndVerbLocationInCallers() throws Exception {
+    WorldTxn world = new LambdaMooV4Reader().read(FIXTURE);
+    MooRuntime runtime = new MooRuntime(world);
+    long connectionId = -47;
+
+    assertEquals(List.of(), runtime.openConnection(connectionId));
+    assertEquals(List.of("*** Connected ***"), runtime.executeLine(connectionId, "connect Wizard"));
+    long waifSubclass = world.objectCount();
+
+    try {
+      assertEquals(
+          List.of(CONNECTION_PREFIX, "{1, #" + waifSubclass + "}", CONNECTION_SUFFIX),
+          runtime.executeLine(
+              connectionId,
+              """
+              ; obj = create($waif);
+              add_verb(obj, {player, "xd", ":audit_a"}, {"this", "none", "this"});
+              set_verb_code(obj, ":audit_a", {"return callers();"});
+              add_verb(obj, {player, "xd", ":audit_b"}, {"this", "none", "this"});
+              set_verb_code(obj, ":audit_b", {"return this:audit_a();"});
+              add_verb(obj, {player, "xd", ":audit_c"}, {"this", "none", "this"});
+              set_verb_code(obj, ":audit_c", {
+                "c = this:audit_b();",
+                "return {{c[1][2], typeof(c[1][1]) == WAIF, c[1][4] == this.class}, {c[2][2], typeof(c[2][1]) == WAIF, c[2][4] == this.class}};"
+              });
+              return obj;
+              """));
+      assertEquals(3, world.object(waifSubclass).orElseThrow().verbs().size());
+      assertTrue(world.verb(waifSubclass, "new").isPresent());
+
+      assertEquals(
+          List.of(
+              CONNECTION_PREFIX,
+              "{1, {{\":audit_b\", 1, 1}, {\":audit_c\", 1, 1}}}",
+              CONNECTION_SUFFIX),
+          runtime.executeLine(
+              connectionId,
+              "; obj = #"
+                  + waifSubclass
+                  + "; waif = obj:new();\n"
+                  + "result = waif:audit_c();\n"
+                  + "recycle(obj);\n"
+                  + "return result;"));
+    } finally {
+      if (world.object(waifSubclass).isPresent()) {
+        runtime.executeLine(connectionId, "; recycle(#" + waifSubclass + "); return 1;");
+      }
+    }
+  }
+
+  @Test
+  void recordsDefiningObjectForInheritedRootVerbCallerFrame() throws Exception {
+    WorldTxn world = new LambdaMooV4Reader().read(FIXTURE);
+    MooRuntime runtime = new MooRuntime(world);
+    long primaryConnection = -47;
+
+    assertEquals(List.of(), runtime.openConnection(primaryConnection));
+    assertEquals(
+        List.of("*** Connected ***"), runtime.executeLine(primaryConnection, "connect Wizard"));
+    long definingParent = world.objectCount();
+    long childHandler = definingParent + 1;
+    long loginPlayer = childHandler + 1;
+
+    runtime.executeLine(
+        primaryConnection,
+        """
+        ; add_property(#0, "audit_root_verb_location", #-1, {#0, "rw"});
+        add_property(#0, "audit_root_login_player", #-1, {#0, "rw"});
+        parent = create($nothing);
+        child = create(parent);
+        login_player = create($nothing);
+        set_player_flag(login_player, 1);
+        #0.audit_root_login_player = login_player;
+        add_verb(parent, {player, "rxd", "audit_root_location"}, {"this", "none", "this"});
+        set_verb_code(parent, "audit_root_location", {
+          "#0.audit_root_verb_location = callers()[1][4];",
+          "return 1;"
+        });
+        add_verb(parent, {player, "rxd", "do_login_command"}, {"this", "none", "this"});
+        set_verb_code(parent, "do_login_command", {
+          "this:audit_root_location();",
+          "return #0.audit_root_login_player;"
+        });
+        return 1;
+        """);
+
+    long inheritedConnection = -48;
+    try {
+      assertEquals(List.of(), runtime.openConnection(inheritedConnection, childHandler, false));
+      assertEquals(loginPlayer, world.connectionPlayer(inheritedConnection).orElseThrow());
+      assertEquals(
+          new ObjectValue(definingParent),
+          world.property(0, "audit_root_verb_location").orElseThrow().value());
+    } finally {
+      runtime.closeConnection(inheritedConnection);
+    }
+  }
+
+  @Test
   void continuesUserConnectedConfuncsAfterForkSuspendAndTaskPermissionChange() throws Exception {
     WorldTxn world = new LambdaMooV4Reader().read(FIXTURE);
     MooRuntime runtime = new MooRuntime(world);

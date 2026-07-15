@@ -19,6 +19,8 @@ import moo.value.MooValue;
 import moo.value.MooValue.ErrorValue;
 import moo.value.MooValue.ListValue;
 import moo.value.MooValue.MapValue;
+import moo.value.MooValue.ObjectValue;
+import moo.value.MooValue.StringValue;
 
 /** Explicit heap state for one MOO bytecode execution. */
 public final class VmState {
@@ -38,16 +40,26 @@ public final class VmState {
   private Optional<CompletableFuture<MooValue>> hostResult = Optional.empty();
   private MooValue taskLocal = new MapValue(Map.of());
   private final long initialProgrammer;
+  private final ObjectValue initialVerbLocation;
 
   /** Creates an empty state for a pure root program. */
   public VmState() {
-    this(Map.of(), 0);
+    this(Map.of(), 0, new ObjectValue(-1));
   }
 
   /** Creates a state with explicit verb locals and task permissions. */
   public VmState(Map<String, MooValue> locals, long programmer) {
     initialLocals = normalizedLocals(locals);
     initialProgrammer = programmer;
+    initialVerbLocation =
+        initialLocals.get("this") instanceof ObjectValue object ? object : new ObjectValue(-1);
+  }
+
+  /** Creates a state with explicit root verb metadata. */
+  public VmState(Map<String, MooValue> locals, long programmer, ObjectValue verbLocation) {
+    initialLocals = normalizedLocals(locals);
+    initialProgrammer = programmer;
+    initialVerbLocation = verbLocation;
   }
 
   /** Returns the next instruction index in the active frame. */
@@ -123,9 +135,16 @@ public final class VmState {
 
   void ensureRoot(BytecodeProgram program) {
     if (frames.isEmpty()) {
+      MooValue receiver = initialLocals.getOrDefault("this", new ObjectValue(-1));
       frames.push(
           new Frame(
-              program, initialLocals, ReturnMode.ROOT, initialProgrammer, OptionalLong.empty()));
+              program,
+              initialLocals,
+              ReturnMode.ROOT,
+              initialProgrammer,
+              receiver,
+              initialVerbLocation,
+              OptionalLong.empty()));
     }
   }
 
@@ -141,15 +160,57 @@ public final class VmState {
     Frame caller = currentFrame();
     frames.push(
         new Frame(
-            program, caller.locals, ReturnMode.EVAL, caller.programmer, OptionalLong.empty()));
+            program,
+            caller.locals,
+            ReturnMode.EVAL,
+            caller.programmer,
+            caller.receiver,
+            caller.verbLocation,
+            OptionalLong.empty()));
   }
 
   void pushVerbFrame(
       BytecodeProgram program,
       Map<String, MooValue> locals,
       long programmer,
+      MooValue receiver,
+      ObjectValue verbLocation,
       OptionalLong recycleTarget) {
-    frames.push(new Frame(program, locals, ReturnMode.VERB, programmer, recycleTarget));
+    frames.push(
+        new Frame(
+            program, locals, ReturnMode.VERB, programmer, receiver, verbLocation, recycleTarget));
+  }
+
+  long callerProgrammer() {
+    boolean current = true;
+    for (Frame frame : frames) {
+      if (current) {
+        current = false;
+      } else {
+        return frame.programmer;
+      }
+    }
+    return programmer();
+  }
+
+  ListValue callers() {
+    List<MooValue> callers = new ArrayList<>();
+    boolean current = true;
+    for (Frame frame : frames) {
+      if (current) {
+        current = false;
+        continue;
+      }
+      callers.add(
+          new ListValue(
+              List.of(
+                  frame.receiver,
+                  frame.locals.getOrDefault("verb", new StringValue(new byte[0])),
+                  new ObjectValue(frame.programmer),
+                  frame.verbLocation,
+                  frame.locals.getOrDefault("player", new ObjectValue(-1)))));
+    }
+    return new ListValue(callers);
   }
 
   void finishFrame(MooValue value) {
@@ -239,7 +300,9 @@ public final class VmState {
   void requestFork(BytecodeProgram program, double delaySeconds) {
     Frame frame = currentFrame();
     forkRequest =
-        Optional.of(new ForkRequest(program, frame.locals, frame.programmer, delaySeconds));
+        Optional.of(
+            new ForkRequest(
+                program, frame.locals, frame.programmer, frame.verbLocation, delaySeconds));
     outcome = Outcome.FORKED;
   }
 
@@ -286,6 +349,8 @@ public final class VmState {
     final Deque<FinallyContinuation> finallyContinuations = new ArrayDeque<>();
     final Map<Integer, LoopCursor> loops = new LinkedHashMap<>();
     final ReturnMode returnMode;
+    final MooValue receiver;
+    final ObjectValue verbLocation;
     final OptionalLong recycleTarget;
     long programmer;
     int instructionPointer;
@@ -295,11 +360,15 @@ public final class VmState {
         Map<String, MooValue> locals,
         ReturnMode returnMode,
         long programmer,
+        MooValue receiver,
+        ObjectValue verbLocation,
         OptionalLong recycleTarget) {
       this.program = program;
       this.locals = normalizedLocals(locals);
       this.returnMode = returnMode;
       this.programmer = programmer;
+      this.receiver = receiver;
+      this.verbLocation = verbLocation;
       this.recycleTarget = recycleTarget;
     }
   }
@@ -323,7 +392,11 @@ public final class VmState {
 
   /** Immutable child state captured when a fork instruction queues work. */
   public record ForkRequest(
-      BytecodeProgram program, Map<String, MooValue> locals, long programmer, double delaySeconds) {
+      BytecodeProgram program,
+      Map<String, MooValue> locals,
+      long programmer,
+      ObjectValue verbLocation,
+      double delaySeconds) {
     public ForkRequest {
       locals = Map.copyOf(locals);
     }

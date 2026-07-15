@@ -20,6 +20,7 @@ import moo.value.MooValue.ListValue;
 import moo.value.MooValue.MapValue;
 import moo.value.MooValue.ObjectValue;
 import moo.value.MooValue.StringValue;
+import moo.value.MooValue.WaifValue;
 import moo.vm.VmState.ActiveHandler;
 import moo.vm.VmState.ContinuationKind;
 import moo.vm.VmState.FinallyContinuation;
@@ -149,6 +150,24 @@ public final class MooVm {
             raiseError(state, ErrorValue.E_VERBNF, world);
             return;
           }
+          WorldObject targetDefiningObject = null;
+          ancestor = definingObject.parent();
+          while (ancestor != -1 && targetDefiningObject == null) {
+            WorldObject candidate = world.object(ancestor).orElse(null);
+            if (candidate == null) {
+              raiseError(state, ErrorValue.E_VERBNF, world);
+              return;
+            }
+            if (candidate.verbs().contains(target)) {
+              targetDefiningObject = candidate;
+            } else {
+              ancestor = candidate.parent();
+            }
+          }
+          if (targetDefiningObject == null) {
+            raiseError(state, ErrorValue.E_VERBNF, world);
+            return;
+          }
           BytecodeProgram targetProgram;
           try {
             targetProgram =
@@ -162,7 +181,13 @@ public final class MooVm {
           Map<String, MooValue> locals = new LinkedHashMap<>(frame.locals);
           locals.put("caller", receiver);
           locals.put("args", arguments);
-          state.pushVerbFrame(targetProgram, locals, target.owner(), OptionalLong.empty());
+          state.pushVerbFrame(
+              targetProgram,
+              locals,
+              target.owner(),
+              receiver,
+              new ObjectValue(targetDefiningObject.id()),
+              OptionalLong.empty());
         }
       }
       case CALL_VERB -> {
@@ -170,14 +195,43 @@ public final class MooVm {
         MooValue nameValue = frame.operandStack.pop();
         MooValue receiverValue = frame.operandStack.pop();
         if (!(argumentsValue instanceof ListValue arguments)
-            || !(nameValue instanceof StringValue name)
-            || !(receiverValue instanceof ObjectValue receiver)) {
+            || !(nameValue instanceof StringValue name)) {
           raiseError(state, ErrorValue.E_TYPE, world);
           return;
         }
         String verbName = new String(name.bytes(), StandardCharsets.ISO_8859_1);
-        WorldVerb verb = world.verb(receiver.value(), verbName).orElse(null);
+        long lookupObject;
+        String lookupName;
+        if (receiverValue instanceof ObjectValue receiver) {
+          lookupObject = receiver.value();
+          lookupName = verbName;
+        } else if (receiverValue instanceof WaifValue waif) {
+          lookupObject = waif.classObject().value();
+          lookupName = verbName.startsWith(":") ? verbName : ":" + verbName;
+        } else {
+          raiseError(state, ErrorValue.E_TYPE, world);
+          return;
+        }
+        WorldVerb verb = world.verb(lookupObject, lookupName).orElse(null);
         if (verb == null) {
+          raiseError(state, ErrorValue.E_VERBNF, world);
+          return;
+        }
+        WorldObject definingObject = null;
+        long ancestor = lookupObject;
+        while (ancestor != -1 && definingObject == null) {
+          WorldObject candidate = world.object(ancestor).orElse(null);
+          if (candidate == null) {
+            raiseError(state, ErrorValue.E_VERBNF, world);
+            return;
+          }
+          if (candidate.verbs().contains(verb)) {
+            definingObject = candidate;
+          } else {
+            ancestor = candidate.parent();
+          }
+        }
+        if (definingObject == null) {
           raiseError(state, ErrorValue.E_VERBNF, world);
           return;
         }
@@ -191,13 +245,19 @@ public final class MooVm {
         }
         frame.instructionPointer++;
         Map<String, MooValue> locals = new LinkedHashMap<>();
-        locals.put("this", receiver);
+        locals.put("this", receiverValue);
         locals.put("player", frame.locals.getOrDefault("player", new ObjectValue(-1)));
-        locals.put("caller", frame.locals.getOrDefault("this", new ObjectValue(-1)));
-        locals.put("verb", name);
+        locals.put("caller", frame.receiver);
+        locals.put("verb", encode(lookupName));
         locals.put("args", arguments);
         locals.put("argstr", encode(""));
-        state.pushVerbFrame(verbProgram, locals, verb.owner(), OptionalLong.empty());
+        state.pushVerbFrame(
+            verbProgram,
+            locals,
+            verb.owner(),
+            receiverValue,
+            new ObjectValue(definingObject.id()),
+            OptionalLong.empty());
       }
       case NEGATE -> unaryNegate(frame, state, world);
       case NOT -> {
@@ -304,6 +364,11 @@ public final class MooVm {
         frame.instructionPointer++;
         return;
       }
+      if (name.equalsIgnoreCase("WAIF")) {
+        frame.operandStack.push(new IntegerValue(MooValue.Type.WAIF.code()));
+        frame.instructionPointer++;
+        return;
+      }
       raiseError(state, ErrorValue.E_VARNF, world);
       return;
     }
@@ -314,11 +379,24 @@ public final class MooVm {
   private static void getProperty(Frame frame, VmState state, WorldTxn world) {
     MooValue name = frame.operandStack.pop();
     MooValue receiver = frame.operandStack.pop();
-    if (!(receiver instanceof ObjectValue object) || !(name instanceof StringValue propertyName)) {
+    if (!(name instanceof StringValue propertyName)) {
       raiseError(state, ErrorValue.E_TYPE, world);
       return;
     }
     String nameText = new String(propertyName.bytes(), StandardCharsets.ISO_8859_1);
+    if (receiver instanceof WaifValue waif) {
+      if (nameText.equalsIgnoreCase("class")) {
+        frame.operandStack.push(waif.classObject());
+        frame.instructionPointer++;
+      } else {
+        raiseError(state, ErrorValue.E_PROPNF, world);
+      }
+      return;
+    }
+    if (!(receiver instanceof ObjectValue object)) {
+      raiseError(state, ErrorValue.E_TYPE, world);
+      return;
+    }
     WorldProperty property = world.property(object.value(), nameText).orElse(null);
     if (property != null) {
       long programmer = state.programmer();
@@ -432,7 +510,10 @@ public final class MooVm {
             arguments.elements(),
             world,
             state.programmer(),
-            state.taskLocal());
+            state.taskLocal(),
+            frame.receiver,
+            state.callerProgrammer(),
+            state.callers());
     if (result.error().isPresent()) {
       raiseError(state, result.error().orElseThrow(), world);
       return;
@@ -491,7 +572,26 @@ public final class MooVm {
       locals.put("verb", encode("recycle"));
       locals.put("args", new ListValue(List.of()));
       locals.put("argstr", encode(""));
-      state.pushVerbFrame(hookProgram, locals, hook.owner(), OptionalLong.of(recycleTarget));
+      WorldObject definingObject = null;
+      long ancestor = recycleTarget;
+      while (ancestor != -1 && definingObject == null) {
+        WorldObject candidate = world.object(ancestor).orElse(null);
+        if (candidate == null) {
+          break;
+        }
+        if (candidate.verbs().contains(hook)) {
+          definingObject = candidate;
+        } else {
+          ancestor = candidate.parent();
+        }
+      }
+      state.pushVerbFrame(
+          hookProgram,
+          locals,
+          hook.owner(),
+          target,
+          new ObjectValue(definingObject == null ? recycleTarget : definingObject.id()),
+          OptionalLong.of(recycleTarget));
       return;
     }
     frame.operandStack.push(result.value().orElseThrow());

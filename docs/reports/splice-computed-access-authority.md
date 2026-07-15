@@ -1123,3 +1123,40 @@ interface, adapter, helper owner, alternate dispatcher, or world mutation
 path. The focused runtime regression must execute the durable row body and
 first fail on committed Banteng's current `caller_perms()` `E_VERBNF` before
 any production edit.
+
+### WAIF caller-frame implementation receipt
+
+The focused runtime regression first proved committed production red only
+after subclass creation, installation of all three colon verbs, and inherited
+`new` lookup had passed. The exact execution returned `{2, {E_VERBNF}}`
+instead of `{1, {{":audit_b", 1, 1}, {":audit_c", 1, 1}}}`, isolating
+`caller_perms()` inside `$waif:new` as the first missing semantic.
+
+The kept implementation adds the identity `WaifValue` to the existing closed
+value family, records concrete receivers and defining-object locations in the
+existing VM frames, extends the existing call path for class-based colon
+dispatch, exposes only the required `.class` intrinsic, and adds
+`caller_perms`, `new_waif`, and `callers` to the existing catalog. The first
+post-edit run reached the row's `WAIF` type constant and returned `E_VARNF`;
+adding code 13 beside the existing predefined type constants made the focused
+Java 25 regression pass in six seconds.
+
+Precommit review then exposed one caller-frame path not reached by that row:
+an initial stored verb inherited from an ancestor used its concrete receiver
+as `verb_location`. A focused listener regression proved the mismatch red as
+defining parent `#9` versus child receiver `#10`. The existing
+`MooRuntime.executeStored` path now resolves the supplied verb's defining
+object inline, supplies it to the root `VmState`, and preserves it through a
+fork request into the child state. The inherited-root regression passed, and
+both focused row-36 regressions then passed together on Java 25.
+
+The refreshed exact managed Banteng row passed with one selected and 11,518
+deselected in 3.53 seconds. The refreshed substantial fail-fast
+`gap_followups_toast_oracle` run passed the first 15 selected rows in 29.84
+seconds and stopped at the next independent row,
+`audit_move_wizard_calls_accept_but_overrides_false`, where `[0, 1]` differed
+from `[1, 1]`; row 36 is therefore the kept frontier. Both managed-run
+processes were identified from their exact temporary database command lines,
+stopped by PID, and followed by empty Banteng JVM inventories. The final Java
+25 `clean check installDist` gate passed all 150 tests, formatting, checks, and
+the application distribution in 23 seconds.

@@ -1073,7 +1073,22 @@ public final class MooRuntime {
 
   private VmState executeStored(WorldVerb verb, Map<String, MooValue> locals) {
     BytecodeProgram program = compiler.compile(MooParser.parse(verb.programSource()));
-    VmState root = new VmState(locals, verb.owner());
+    ObjectValue receiver =
+        locals.get("this") instanceof ObjectValue object ? object : new ObjectValue(-1);
+    ObjectValue verbLocation = receiver;
+    long ancestor = receiver.value();
+    while (ancestor != -1) {
+      WorldObject candidate = world.object(ancestor).orElse(null);
+      if (candidate == null) {
+        break;
+      }
+      if (candidate.verbs().contains(verb)) {
+        verbLocation = new ObjectValue(candidate.id());
+        break;
+      }
+      ancestor = candidate.parent();
+    }
+    VmState root = new VmState(locals, verb.owner(), verbLocation);
     long taskPlayer =
         locals.get("player") instanceof ObjectValue player ? player.value() : Long.MIN_VALUE;
     Map<VmState, BytecodeProgram> programs = new LinkedHashMap<>();
@@ -1098,7 +1113,8 @@ public final class MooRuntime {
         closeRecycledPlayerConnections();
         while (task.outcome() == VmState.Outcome.FORKED) {
           VmState.ForkRequest request = task.forkRequest().orElseThrow();
-          VmState child = new VmState(request.locals(), request.programmer());
+          VmState child =
+              new VmState(request.locals(), request.programmer(), request.verbLocation());
           programs.put(child, request.program());
           if (request.delaySeconds() == 0.0) {
             runnable.add(child);

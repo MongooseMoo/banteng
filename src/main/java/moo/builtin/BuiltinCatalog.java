@@ -30,6 +30,7 @@ import moo.value.MooValue.ListValue;
 import moo.value.MooValue.MapValue;
 import moo.value.MooValue.ObjectValue;
 import moo.value.MooValue.StringValue;
+import moo.value.MooValue.WaifValue;
 import moo.world.WorldObject;
 import moo.world.WorldTxn;
 import moo.world.WorldVerb;
@@ -55,7 +56,14 @@ public final class BuiltinCatalog {
 
   /** Invokes one named builtin without reflection or hidden world access. */
   public Result invoke(
-      String name, List<MooValue> arguments, WorldTxn world, long programmer, MooValue taskLocal) {
+      String name,
+      List<MooValue> arguments,
+      WorldTxn world,
+      long programmer,
+      MooValue taskLocal,
+      MooValue receiver,
+      long callerProgrammer,
+      ListValue callers) {
     return switch (name.toLowerCase(Locale.ROOT)) {
       case "length" -> length(arguments);
       case "listappend" -> {
@@ -350,6 +358,27 @@ public final class BuiltinCatalog {
           arguments.isEmpty()
               ? Result.value(new ObjectValue(programmer))
               : Result.error(ErrorValue.E_ARGS);
+      case "caller_perms" ->
+          arguments.isEmpty()
+              ? Result.value(new ObjectValue(callerProgrammer))
+              : Result.error(ErrorValue.E_ARGS);
+      case "new_waif" -> {
+        if (!arguments.isEmpty()) {
+          yield Result.error(ErrorValue.E_ARGS);
+        }
+        if (!(receiver instanceof ObjectValue classObject)) {
+          yield Result.error(ErrorValue.E_TYPE);
+        }
+        if (classObject.value() < 0) {
+          yield Result.error(ErrorValue.E_INVARG);
+        }
+        if (world.object(classObject.value()).isEmpty()) {
+          yield Result.error(ErrorValue.E_INVIND);
+        }
+        yield Result.value(new WaifValue(classObject, new ObjectValue(programmer)));
+      }
+      case "callers" ->
+          arguments.isEmpty() ? Result.value(callers) : Result.error(ErrorValue.E_ARGS);
       case "set_task_perms" -> setTaskPerms(arguments);
       case "task_local" -> {
         if (!arguments.isEmpty()) {
@@ -381,6 +410,7 @@ public final class BuiltinCatalog {
                 case IntegerValue integer -> Long.toString(integer.value());
                 case FloatValue floating -> floating.toLiteral();
                 case ObjectValue object -> object.toLiteral();
+                case WaifValue waif -> waif.toString();
                 case ErrorValue error ->
                     switch (error) {
                       case E_NONE -> "No error";
@@ -457,7 +487,9 @@ public final class BuiltinCatalog {
         yield Result.value(new ListValue(List.of()));
       }
       case "suspend" -> suspend(arguments);
-      case "call_function" -> callFunction(arguments, world, programmer, taskLocal);
+      case "call_function" ->
+          callFunction(
+              arguments, world, programmer, taskLocal, receiver, callerProgrammer, callers);
       case "sqlite_open" -> sqliteOpen(arguments, world, programmer);
       case "sqlite_close" -> sqliteClose(arguments, world, programmer);
       case "sqlite_handles" -> sqliteHandles(arguments, world, programmer);
@@ -492,6 +524,9 @@ public final class BuiltinCatalog {
           "eval",
           "raise",
           "task_perms",
+          "caller_perms",
+          "new_waif",
+          "callers",
           "task_local",
           "typeof",
           "function_info" ->
@@ -1524,7 +1559,13 @@ public final class BuiltinCatalog {
   }
 
   private Result callFunction(
-      List<MooValue> arguments, WorldTxn world, long programmer, MooValue taskLocal) {
+      List<MooValue> arguments,
+      WorldTxn world,
+      long programmer,
+      MooValue taskLocal,
+      MooValue receiver,
+      long callerProgrammer,
+      ListValue callers) {
     if (arguments.isEmpty()) {
       return Result.error(ErrorValue.E_ARGS);
     }
@@ -1536,7 +1577,10 @@ public final class BuiltinCatalog {
         List.copyOf(arguments.subList(1, arguments.size())),
         world,
         programmer,
-        taskLocal);
+        taskLocal,
+        receiver,
+        callerProgrammer,
+        callers);
   }
 
   private Result sqliteOpen(List<MooValue> arguments, WorldTxn world, long programmer) {
