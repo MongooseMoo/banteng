@@ -37,6 +37,7 @@ dependencies {
     testImplementation("org.junit.jupiter:junit-jupiter")
     testImplementation("org.junit.platform:junit-platform-launcher")
     testImplementation("com.tngtech.archunit:archunit-junit5:1.4.2")
+    testImplementation("com.code-intelligence:jazzer-junit:0.30.0")
     testImplementation("org.jetbrains:jetCheck:0.3.0")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
 }
@@ -54,6 +55,23 @@ tasks.withType<JavaCompile>().configureEach {
 
 tasks.withType<Test>().configureEach {
     useJUnitPlatform()
+}
+
+tasks.named<Test>("test") {
+    environment("JAZZER_FUZZ", "0")
+}
+
+tasks.register<Test>("fuzzTest") {
+    description = "Runs the bounded coverage-guided Jazzer target"
+    group = "verification"
+    testClassesDirs = sourceSets.test.get().output.classesDirs
+    classpath = sourceSets.test.get().runtimeClasspath
+    filter {
+        includeTestsMatching("moo.syntax.MooParserFuzzTest.parsesArbitraryLatin1")
+    }
+    environment("JAZZER_FUZZ", "1")
+    maxParallelForks = 1
+    outputs.upToDateWhen { false }
 }
 
 spotless {

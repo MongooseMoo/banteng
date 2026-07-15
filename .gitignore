@@ -1,4 +1,5 @@
 .gradle/
+.cifuzz-corpus/
 build/
 out/
 *.class

@@ -2,6 +2,9 @@
 # Manual edits can break the build and are not advised.
 # This file is expected to be part of source control.
 # To regenerate this file, run: ./gradlew :dependencies --write-locks
+com.code-intelligence:jazzer-api:0.30.0=testCompileClasspath,testRuntimeClasspath
+com.code-intelligence:jazzer-junit:0.30.0=testCompileClasspath,testRuntimeClasspath
+com.code-intelligence:jazzer:0.30.0=testCompileClasspath,testRuntimeClasspath
 com.github.ben-manes.caffeine:caffeine:3.0.5=annotationProcessor,testAnnotationProcessor
 com.github.kevinstern:software-and-algorithms:1.0=annotationProcessor,testAnnotationProcessor
 com.google.auto.service:auto-service-annotations:1.0.1=annotationProcessor,testAnnotationProcessor
