@@ -1311,6 +1311,32 @@ final class MooRuntimeTest {
   }
 
   @Test
+  void parsesTransportOutOfBandWordsWithoutChangingArgstr() throws Exception {
+    WorldTxn world = new LambdaMooV4Reader().read(FIXTURE);
+    MooRuntime runtime = new MooRuntime(world);
+    long connectionId = -47;
+
+    assertEquals(List.of(), runtime.openConnection(connectionId));
+    assertEquals(List.of("*** Connected ***"), runtime.executeLine(connectionId, "connect Wizard"));
+    runtime.executeLine(
+        connectionId,
+        "; add_property(#0, \"audit_transport_oob_frame\", {}, {#0, \"rw\"});"
+            + " add_verb(#0, {#0, \"rxd\", \"do_out_of_band_command\"}, {\"this\", \"none\", \"this\"});"
+            + " set_verb_code(#0, \"do_out_of_band_command\","
+            + " {\"#0.audit_transport_oob_frame = {args, argstr};\"});"
+            + " return 1;");
+
+    assertEquals(
+        List.of(),
+        runtime.executeTransportOutOfBand(
+            connectionId, "~FF~FA~C9Core.Hello {\"client\":\"audit\"}~FF~F0"));
+    assertEquals(
+        "{{\"~FF~FA~C9Core.Hello\", \"{client:audit}~FF~F0\"},"
+            + " \"~FF~FA~C9Core.Hello {\\\"client\\\":\\\"audit\\\"}~FF~F0\"}",
+        world.readObjectProperty(0, "audit_transport_oob_frame").orElseThrow().toLiteral());
+  }
+
+  @Test
   void passesTheFullWordListToTruthyDoCommandBeforeNormalDispatch() throws Exception {
     WorldTxn world = new LambdaMooV4Reader().read(FIXTURE);
     MooRuntime runtime = new MooRuntime(world);

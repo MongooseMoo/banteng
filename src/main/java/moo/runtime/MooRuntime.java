@@ -670,6 +670,37 @@ public final class MooRuntime {
     if (outOfBand.isEmpty()) {
       return List.of();
     }
+    List<MooValue> arguments = new ArrayList<>();
+    StringBuilder currentWord = new StringBuilder();
+    boolean inQuotes = false;
+    int inputIndex = 0;
+    while (inputIndex < command.length()) {
+      char character = command.charAt(inputIndex);
+      if (character == '\\') {
+        if (inputIndex + 1 < command.length()) {
+          currentWord.append(command.charAt(inputIndex + 1));
+          inputIndex += 2;
+        } else {
+          currentWord.append(character);
+          inputIndex++;
+        }
+      } else if (character == '"') {
+        inQuotes = !inQuotes;
+        inputIndex++;
+      } else if (Character.isWhitespace(character) && !inQuotes) {
+        if (!currentWord.isEmpty()) {
+          arguments.add(encode(currentWord.toString()));
+          currentWord.setLength(0);
+        }
+        inputIndex++;
+      } else {
+        currentWord.append(character);
+        inputIndex++;
+      }
+    }
+    if (!currentWord.isEmpty()) {
+      arguments.add(encode(currentWord.toString()));
+    }
     return executeStored(
             outOfBand.orElseThrow(),
             verbLocals(
@@ -677,7 +708,7 @@ public final class MooRuntime {
                 player,
                 -1,
                 "do_out_of_band_command",
-                new ListValue(List.of(encode(command))),
+                new ListValue(arguments),
                 command))
         .output();
   }

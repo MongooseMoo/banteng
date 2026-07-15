@@ -366,6 +366,101 @@ by an empty Banteng inventory.
 
 The final Java 25 `clean check installDist` gate passed in 14 seconds.
 
+## GMCP OOB word parsing
+
+The active durable row is
+`../moo-conformance-tests/src/moo_conformance/_tests/audit/gap_followups_toast_oracle.yaml:490-570`,
+`audit_gmcp_subnegotiation_delivered_across_reads`. It sends one option-201
+subnegotiation in five separately flushed writes: `FF`, `FA C9`,
+`Core.Hello {"client":"audit"}`, `FF`, and `F0`. The required call frame is
+two arguments, `~FF~FA~C9Core.Hello` and `{client:audit}~FF~F0`, plus unchanged
+`argstr` `~FF~FA~C9Core.Hello {"client":"audit"}~FF~F0`.
+
+Barn's normative `../barn/spec/server.md:193-200` specifies only Telnet-style
+line input, `../barn/spec/builtins/network.md:222-235` specifies the
+`disable-oob` option, and `../barn/spec/objects.md:258-269` describes `args`
+and `argstr` generally. The Barn spec does not define GMCP, option 201,
+subnegotiation framing, `do_out_of_band_command`, or its word parsing.
+
+Barn's already-recorded transport path retains the complete raw frame across
+reads and returns it as OOB at `../barn/server/transport.go:51-70,88-192`.
+`../barn/server/input_processor.go:119-158,196-248` routes it before login,
+passes the untouched raw frame as `argstr`, and builds `args` with
+`command.CommandWordList`. `../barn/command/command.go:114-165` splits on
+whitespace outside quotes, discards double quotes while preserving their
+contents, and consumes backslash escapes. This is generic command-word
+tokenization, not JSON parsing. The raw words are therefore
+`FF FA C9 Core.Hello` and `{client:audit} FF F0`, while the raw `argstr` still
+contains the JSON quotes. `../barn/scheduler/call_verb.go:25-133` supplies the
+listener as `this` and the negative connection as both `player` and `caller`.
+Barn renders the nonprintable raw bytes as uppercase `~XX` only when the
+returned MOO values are displayed through `../barn/types/str.go:97-129`,
+`../barn/types/value.go:162-185`, and `../barn/scheduler/eval.go:190-203`.
+
+Pinned Toast retains and completes the frame at
+`/root/src/toaststunt/src/network.cc:81-124,402-467,472-565` and renders the
+raw bytes to exact escaped ASCII before task creation through
+`/root/src/toaststunt/src/utils.cc:671-684`. OOB queueing and dispatch at
+`/root/src/toaststunt/src/server.cc:1452-1475,1535-1541` and
+`/root/src/toaststunt/src/tasks.cc:969-974,1075-1122,1683-1690` pass
+`parse_into_wordlist(command)` as `args` and the unchanged escaped command as
+`argstr`. `/root/src/toaststunt/src/parse_cmd.cc:33-79,108-124` splits spaces
+outside quotes, removes quotes, and consumes backslash escapes. It therefore
+produces exact arguments `~FF~FA~C9Core.Hello` and
+`{client:audit}~FF~F0`, while preserving the quoted JSON in `argstr`. Root task
+setup at `/root/src/toaststunt/src/execute.cc:3279-3336` supplies listener
+`this`, negative connection `player`, `caller = #-1`, and hook-owner
+permissions.
+
+Barn and Toast agree on the asserted word boundaries, quote removal,
+backslash handling, two argument strings, unchanged `argstr`, listener, and
+negative player. They disagree outside the row on raw versus already-escaped
+internal command strings and on negative-player versus `#-1` caller.
+
+Committed Banteng `81bc3bb` already produces the exact completed escaped
+command and exact `argstr`. The mismatch is solely
+`MooRuntime.executeTransportOutOfBand`, which hard-codes `args` as a singleton
+containing the entire command. `MooRuntime.executeLine` already contains the
+same quote-aware, backslash-aware word scan required by Barn and Toast, but no
+Java representation or reuse decision is frozen until the exact managed row
+passes pinned Toast.
+
+The exact managed row passed pinned WSL Toast commit
+`aecc51e9449c6e7c95272f0f044b5ba38948459e`: one selected, 11,504
+deselected, in 7.23 seconds. The exact two-word `args` and unchanged quoted
+`argstr` are therefore frozen before Java design. Process inventory found no
+process from this managed run; the unrelated July 13 `/tmp/td.db` process was
+again left untouched.
+
+The smallest Java change is confined to
+`MooRuntime.executeTransportOutOfBand`. Replace its singleton argument
+construction with the same inline scan already owned by `MooRuntime` for
+ordinary command words: split whitespace outside quotes, omit quote
+characters, consume a character following backslash, and retain all other
+characters. Encode those local words into the existing `ListValue` while
+passing the original command unchanged as `argstr`. This changes no transport
+state, line dispatch, generic locals construction, verb lookup, task context,
+or egress, and adds no method, class, interface, helper, parser abstraction,
+adapter, or sender.
+
+The focused runtime regression called the concrete transport-OOB operation
+with the exact escaped GMCP command and inspected only recorded `args` and
+`argstr`. Committed production was red at the exact assertion. After the local
+word scan replaced the singleton argument, the focused regression passed under
+Java 25 in 3 seconds.
+
+The exact managed Banteng row passed with one selected and 11,504 deselected
+in 7.02 seconds. Its disposable process was identified by exact temp-database
+command line, stopped by PID, and followed by an empty Banteng inventory. The
+full `gap_followups_toast_oracle` fail-fast run then passed the first seven
+selected rows and stopped at the next independent contract, binary-mode chunk
+dispatch without a newline, after 26.62 seconds. That row expected `{\"\"}`
+and observed `{}`; it remains a separate slice. The targeted-run disposable
+process was likewise identified by exact temp-database command line, stopped
+by PID, and followed by an empty Banteng inventory.
+
+The final Java 25 `clean check installDist` gate passed in 19 seconds.
+
 ## Two-byte IAC command split across reads
 
 The next durable row is
