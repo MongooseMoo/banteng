@@ -50,6 +50,15 @@ public final class WorldTxn {
     return world.objects().size();
   }
 
+  /** Returns the greatest live object number, or {@code -1} when the world is empty. */
+  public long maximumObjectId() {
+    long maximum = -1;
+    for (long objectId : world.objects().keySet()) {
+      maximum = Math.max(maximum, objectId);
+    }
+    return maximum;
+  }
+
   /** Registers one negative pre-login connection object. */
   public void openConnection(long connectionId) {
     openConnection(connectionId, new MapValue(Map.of()));

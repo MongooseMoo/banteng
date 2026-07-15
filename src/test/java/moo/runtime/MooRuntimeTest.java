@@ -197,6 +197,79 @@ final class MooRuntimeTest {
   }
 
   @Test
+  void callsUserCreatedAfterAssociatingNewReturnedPlayerAndBeforeUserConnected() throws Exception {
+    WorldTxn world = new LambdaMooV4Reader().read(FIXTURE);
+    MooRuntime runtime = new MooRuntime(world);
+    long primaryConnection = -47;
+
+    assertEquals(List.of(), runtime.openConnection(primaryConnection));
+    assertEquals(
+        List.of("*** Connected ***"), runtime.executeLine(primaryConnection, "connect Wizard"));
+    runtime.executeLine(
+        primaryConnection,
+        """
+        ; add_property(#0, "audit_created_handler", {}, {#0, "rw"});
+          add_property(#0, "audit_created_player", {}, {#0, "rw"});
+          add_property(#0, "audit_created_seen", {}, {#0, "rw"});
+          add_property(#0, "audit_created_order", {}, {#0, "rw"});
+          handler = create($nothing);
+          #0.audit_created_handler = handler;
+          add_verb(handler, {player, "rxd", "do_login_command"}, {"this", "none", "this"});
+          set_verb_code(handler, "do_login_command", {
+            "login_player = create($nothing);",
+            "set_player_flag(login_player, 1);",
+            "#0.audit_created_player = login_player;",
+            "return login_player;"
+          });
+          add_verb(handler, {player, "rxd", "user_created"}, {"this", "none", "this"});
+          set_verb_code(handler, "user_created", {
+            "info = connection_info(args[1]);",
+            "#0.audit_created_seen = {this, player, caller, args, argstr, info[\\\"source_port\\\"]};",
+            "#0.audit_created_order = {@#0.audit_created_order, \\\"created\\\"};",
+            "return 1;"
+          });
+          add_verb(handler, {player, "rxd", "user_connected"}, {"this", "none", "this"});
+          set_verb_code(handler, "user_connected", {
+            "#0.audit_created_order = {@#0.audit_created_order, \\\"connected\\\"};",
+            "return 1;"
+          });
+          return handler;
+        """);
+    long handler =
+        ((ObjectValue) world.property(0, "audit_created_handler").orElseThrow().value()).value();
+    assertTrue(world.object(handler).isPresent());
+
+    StringValue sourcePortKey =
+        new StringValue("source_port".getBytes(StandardCharsets.ISO_8859_1));
+    int sourcePort = 41003;
+    MapValue connectionInfo = new MapValue(Map.of(sourcePortKey, new IntegerValue(sourcePort)));
+    long dynamicConnection = -48;
+    try {
+      assertEquals(
+          List.of(), runtime.openConnection(dynamicConnection, handler, false, connectionInfo));
+      long loginPlayer =
+          ((ObjectValue) world.property(0, "audit_created_player").orElseThrow().value()).value();
+      assertEquals(loginPlayer, world.connectionPlayer(dynamicConnection).orElseThrow());
+      assertEquals(
+          "{#"
+              + handler
+              + ", #"
+              + loginPlayer
+              + ", #-1, {#"
+              + loginPlayer
+              + "}, \"\", "
+              + sourcePort
+              + "}",
+          world.property(0, "audit_created_seen").orElseThrow().value().toLiteral());
+      assertEquals(
+          "{\"created\", \"connected\"}",
+          world.property(0, "audit_created_order").orElseThrow().value().toLiteral());
+    } finally {
+      runtime.closeConnection(dynamicConnection);
+    }
+  }
+
+  @Test
   void callsUserConnectedOnAcceptingHandlerAfterFreshReturnedPlayerLogin() throws Exception {
     WorldTxn world = new LambdaMooV4Reader().read(FIXTURE);
     MooRuntime runtime = new MooRuntime(world);

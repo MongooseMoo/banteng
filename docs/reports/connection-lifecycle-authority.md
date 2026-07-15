@@ -2378,3 +2378,113 @@ deselected, in 47.03 seconds. Row 22 is therefore the kept frontier; row 23's
 `[4, 1, 0]` result remains a separate unchecked slice.
 
 The final Java 25 `clean check installDist` gate passed in 13 seconds.
+
+## Twenty-third row: `user_created` for a returned new player
+
+The active durable row is `audit_user_created_hook_for_new_login_object` at
+`../moo-conformance-tests/src/moo_conformance/_tests/audit/connection_lifecycle_toast_oracle.yaml:2019-2130`.
+Its listener `do_login_command` creates an object, sets its player flag, stores
+it, and returns it. The same listener's `user_created` stores `args[1]`. The row
+requires both stored values to be objects and to be the same object.
+
+Barn does not normatively define `user_created`. `../barn/spec/login.md:29-43,75-140`
+describes return-based association and `user_connected`, while
+`../barn/spec/server.md:129-139,157-177` and
+`../barn/spec/objects.md:491-516` omit `user_created` from their hook lists.
+Generic context and permission passages at `../barn/spec/login.md:163-177`,
+`../barn/spec/objects.md:250-274,453-484`, and
+`../barn/spec/tasks.md:371-395` do not bind this hook's trigger, handler,
+metadata, permissions, association ordering, message ordering, or relationship
+to `user_connected`. The claim that lifecycle hooks live on `#0` also disagrees
+with Barn's listener-owned implementation.
+
+Barn login dispatch at `../barn/server/input_processor.go:368-464` snapshots
+`store.MaxObject()` before running the listener's `do_login_command`. The login
+task context is built at `../barn/scheduler/task_factory.go:124-153`. Return
+acceptance at `../barn/server/input_login.go:80-93,118-130` requires a positive
+player/user object; the alternative `switch_player` path is distinct. Barn
+classifies the return as new solely when its object number exceeds the
+pre-login maximum, at `../barn/server/input_processor.go:431-460`.
+
+Barn's `loginPlayer` at `../barn/server/input_login.go:237-313` removes the
+negative mapping, associates the returned player, records the login, sends the
+connect message, invokes `user_created` when classified new, and then invokes
+`user_connected`. `callUserHook` at
+`../barn/server/input_login.go:202-224` targets the listener with the returned
+player as its only argument. The task path at
+`../barn/scheduler/task_factory.go:61-105` and
+`../barn/scheduler/task_runtime.go:124-185` supplies listener `this`, new-player
+`player` and `caller`, `{new player}` as `args`, empty `argstr`, and hook-owner
+permissions. Missing hooks are ignored; other errors do not undo association
+or prevent Barn's next lifecycle hook.
+
+Pinned Toast creates the negative connection and records its listener at
+`/root/src/toaststunt/src/server.cc:1454-1492`, queues the unchanged line at
+`src/server.cc:1534-1541`, and selects the login task at
+`src/tasks.cc:1762-1769`. `do_login_task` at `src/tasks.cc:878-958` snapshots
+`db_last_used_objid()` before `do_login_command`, then accepts a returned value
+only if the connection remains open, the queue still has its negative player,
+the value is exactly `TYPE_OBJ`, and `is_user` is true. It classifies the player
+as new solely when the returned object number exceeds the snapshot, then
+rebinds the task queue before calling `player_connected`.
+
+Toast's `set_player_flag` path at `src/objects.cc:1002-1023` and
+`src/db_objects.cc:1251-1265,1288-1292` sets and tests the user flag, so the
+active row satisfies return acceptance. `player_connected` at
+`src/server.cc:1658-1724` associates the network handle, sets connection time,
+logs creation, queues `create_msg`, and synchronously invokes listener
+`user_created`. It does not also invoke `user_connected` on this newly-created
+branch.
+
+Toast's `call_notifier` at `src/server.cc:518-527` calls `run_server_task` with
+the returned player, listener, verb name `user_created`, `{returned player}` as
+arguments, and empty `argstr`. `src/execute.cc:3278-3336` establishes listener
+`this`, exact returned-object `player`, `caller = #-1`, hook-owner task
+permissions, and inherited callable-verb lookup. Association and queued
+`create_msg` precede the hook at `src/server.cc:1714-1723` and
+`src/network.cc:1400-1404`. A missing hook is harmless. Hook failure or
+suspension does not undo association; a suspended hook may resume later, and
+there is no chained `user_connected` on Toast's new-player path.
+
+Barn and Toast agree on the active assertion: snapshot the object-number high
+water mark before login, accept the returned player, associate it, and invoke
+the accepting listener's `user_created` with that exact object as `args[1]`.
+They disagree outside this row: Toast accepts only ordinary objects, uses
+`caller = #-1`, queues `create_msg`, and invokes no subsequent
+`user_connected`; Barn admits its anonymous-object form, uses the player as
+caller, sends its connect message, and then invokes `user_connected`.
+
+Deferred adjacent behavior includes `switch_player`, hook metadata beyond
+`args[1]`, configured messages, inherited hook ownership, hook errors or
+suspension, existing-player redirection, recycled IDs, and the false-provenance
+case where a login returns some other object allocated after the snapshot.
+
+The exact managed row passed pinned WSL Toast commit
+`aecc51e9449c6e7c95272f0f044b5ba38948459e`: one selected, 11,504
+deselected, in 4.18 seconds. The active `args[1]` contract is therefore frozen
+before Java design.
+
+Banteng's committed pre-slice lifecycle run failed this row with `[4, 1, 0]`:
+the returned user was an object, but the hook-observation property retained its
+initial list because `MooRuntime.executeLogin` had no `user_created` dispatch.
+`WorldTxn.objectCount()` could not serve as the pre-login high-water mark:
+recycling removes live map entries, while allocation selects one above the
+greatest live object number. The kept Java representation therefore adds only
+`WorldTxn.maximumObjectId()`, snapshots it immediately before executing
+`do_login_command`, and directly invokes listener `user_created` after fresh
+association when the returned player exceeds that snapshot. The hook receives
+listener `this`, returned-player `player`, `caller = #-1`, the returned player
+as its only argument, and empty `argstr`; existing Banteng `user_connected`
+behavior remains the recorded out-of-row divergence.
+
+The focused JUnit regression creates and flags the returned player inside
+`do_login_command`, observes `connection_info(args[1])` from `user_created`,
+checks the hook locals, and checks Banteng's `user_created`-then-`user_connected`
+ordering. It passed under Java 25 in 3 seconds. The exact managed Banteng row
+then passed with one selected and 11,504 deselected in 4.30 seconds. The full
+managed lifecycle category passed all 23 selected rows with 11,482 deselected
+in 46.89 seconds. Both managed runs used disposable databases; their remaining
+Banteng processes were identified by exact temp-database command lines, stopped
+by PID, and followed by empty Banteng process inventories.
+
+The final Java 25 `clean check installDist` gate passed in 13 seconds.

@@ -743,6 +743,7 @@ public final class MooRuntime {
             "do_login_command",
             new ListValue(arguments),
             loginLine);
+    long maximumObjectIdBeforeLogin = world.maximumObjectId();
     VmState state = executeStored(login, locals);
     OptionalLong authenticatedPlayer = state.switchedPlayer();
     boolean returnedPlayerAssociation = false;
@@ -893,6 +894,21 @@ public final class MooRuntime {
         throw new IllegalStateException("stored login switched to a missing player");
       }
       if (returnedPlayerAssociation) {
+        if (switchedPlayer > maximumObjectIdBeforeLogin) {
+          world
+              .verb(connection.listenerHandler, "user_created")
+              .ifPresent(
+                  userCreated ->
+                      executeStored(
+                          userCreated,
+                          verbLocals(
+                              connection.listenerHandler,
+                              switchedPlayer,
+                              -1,
+                              "user_created",
+                              new ListValue(List.of(new ObjectValue(switchedPlayer))),
+                              "")));
+        }
         world
             .verb(connection.listenerHandler, "user_connected")
             .ifPresent(
