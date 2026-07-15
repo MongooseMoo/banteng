@@ -350,7 +350,7 @@ public final class BuiltinCatalog {
       case "set_verb_args" -> setVerbArgs(arguments, world, programmer);
       case "set_verb_code" -> setVerbCode(arguments, world, programmer);
       case "set_player_flag" -> setPlayerFlag(arguments, world);
-      case "move" -> move(arguments, world);
+      case "move" -> move(arguments, world, programmer);
       case "switch_player" -> switchPlayer(arguments);
       case "add_property" -> addProperty(arguments, world);
       case "delete_property" -> deleteProperty(arguments, world, programmer);
@@ -1433,11 +1433,18 @@ public final class BuiltinCatalog {
     return Result.value(new ListValue(List.of()));
   }
 
-  private static Result move(List<MooValue> arguments, WorldTxn world) {
+  private static Result move(List<MooValue> arguments, WorldTxn world, long programmer) {
     if (arguments.size() != 2
         || !(arguments.get(0) instanceof ObjectValue object)
         || !(arguments.get(1) instanceof ObjectValue destination)) {
       return Result.error(ErrorValue.E_ARGS);
+    }
+    if (world.object(object.value()).isEmpty() || world.object(destination.value()).isEmpty()) {
+      return Result.error(ErrorValue.E_INVARG);
+    }
+    WorldObject programmerObject = world.object(programmer).orElse(null);
+    if (programmerObject != null && (programmerObject.flags() & 4) != 0) {
+      return Result.move(object.value(), destination.value());
     }
     return world.move(object.value(), destination.value())
         ? Result.zero()
@@ -2087,7 +2094,9 @@ public final class BuiltinCatalog {
       Optional<ConnectionOptionRequest> connectionOptionRequest,
       OptionalLong bootPlayerTarget,
       Optional<ForcedInputRequest> forcedInputRequest,
-      Optional<MooValue> taskLocal) {
+      Optional<MooValue> taskLocal,
+      OptionalLong moveObject,
+      OptionalLong moveDestination) {
     private Result(
         Optional<MooValue> value,
         Optional<ErrorValue> error,
@@ -2114,7 +2123,9 @@ public final class BuiltinCatalog {
           connectionOptionRequest,
           bootPlayerTarget,
           forcedInputRequest,
-          Optional.empty());
+          Optional.empty(),
+          OptionalLong.empty(),
+          OptionalLong.empty());
     }
 
     static Result value(MooValue value) {
@@ -2151,7 +2162,9 @@ public final class BuiltinCatalog {
           Optional.empty(),
           OptionalLong.empty(),
           Optional.empty(),
-          Optional.of(value));
+          Optional.of(value),
+          OptionalLong.empty(),
+          OptionalLong.empty());
     }
 
     static Result error(ErrorValue error) {
@@ -2248,6 +2261,25 @@ public final class BuiltinCatalog {
           Optional.empty(),
           OptionalLong.empty(),
           Optional.empty());
+    }
+
+    static Result move(long object, long destination) {
+      return new Result(
+          Optional.empty(),
+          Optional.empty(),
+          Optional.empty(),
+          Optional.empty(),
+          OptionalLong.empty(),
+          OptionalLong.empty(),
+          OptionalLong.empty(),
+          OptionalDouble.empty(),
+          Optional.empty(),
+          Optional.empty(),
+          OptionalLong.empty(),
+          Optional.empty(),
+          Optional.empty(),
+          OptionalLong.of(object),
+          OptionalLong.of(destination));
     }
 
     static Result delay(double seconds) {

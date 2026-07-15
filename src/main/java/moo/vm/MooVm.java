@@ -187,6 +187,8 @@ public final class MooVm {
               target.owner(),
               receiver,
               new ObjectValue(targetDefiningObject.id()),
+              OptionalLong.empty(),
+              OptionalLong.empty(),
               OptionalLong.empty());
         }
       }
@@ -257,6 +259,8 @@ public final class MooVm {
             verb.owner(),
             receiverValue,
             new ObjectValue(definingObject.id()),
+            OptionalLong.empty(),
+            OptionalLong.empty(),
             OptionalLong.empty());
       }
       case NEGATE -> unaryNegate(frame, state, world);
@@ -546,6 +550,48 @@ public final class MooVm {
       }
       return;
     }
+    if (result.moveObject().isPresent() != result.moveDestination().isPresent()) {
+      raiseError(state, ErrorValue.E_INVARG, world);
+      return;
+    }
+    if (result.moveObject().isPresent()) {
+      long moveObject = result.moveObject().orElseThrow();
+      long moveDestination = result.moveDestination().orElseThrow();
+      WorldVerb hook = world.verb(moveDestination, "accept").orElse(null);
+      if (hook == null) {
+        if (!world.move(moveObject, moveDestination)) {
+          raiseError(state, ErrorValue.E_INVARG, world);
+          return;
+        }
+        frame.operandStack.push(new IntegerValue(0));
+        return;
+      }
+      BytecodeProgram hookProgram;
+      try {
+        hookProgram = new moo.bytecode.MooCompiler().compile(MooParser.parse(hook.programSource()));
+      } catch (MooParser.ParseException error) {
+        raiseError(state, ErrorValue.E_INVARG, world);
+        return;
+      }
+      Map<String, MooValue> locals = new LinkedHashMap<>();
+      ObjectValue destination = new ObjectValue(moveDestination);
+      locals.put("this", destination);
+      locals.put("player", frame.locals.getOrDefault("player", new ObjectValue(-1)));
+      locals.put("caller", frame.receiver);
+      locals.put("verb", encode("accept"));
+      locals.put("args", new ListValue(List.of(new ObjectValue(moveObject))));
+      locals.put("argstr", encode(""));
+      state.pushVerbFrame(
+          hookProgram,
+          locals,
+          hook.owner(),
+          destination,
+          destination,
+          OptionalLong.empty(),
+          OptionalLong.of(moveObject),
+          OptionalLong.of(moveDestination));
+      return;
+    }
     if (result.recycleTarget().isPresent()) {
       long recycleTarget = result.recycleTarget().orElseThrow();
       WorldVerb hook = world.verb(recycleTarget, "recycle").orElse(null);
@@ -591,7 +637,9 @@ public final class MooVm {
           hook.owner(),
           target,
           new ObjectValue(definingObject == null ? recycleTarget : definingObject.id()),
-          OptionalLong.of(recycleTarget));
+          OptionalLong.of(recycleTarget),
+          OptionalLong.empty(),
+          OptionalLong.empty());
       return;
     }
     frame.operandStack.push(result.value().orElseThrow());
@@ -908,6 +956,17 @@ public final class MooVm {
       long recycleTarget = frame.recycleTarget.orElseThrow();
       state.unwindChildFrame();
       if (!world.recycleObject(recycleTarget)) {
+        raiseError(state, ErrorValue.E_INVARG, world);
+        return;
+      }
+      state.currentFrame().operandStack.push(new IntegerValue(0));
+      return;
+    }
+    if (frame.moveObject.isPresent() && frame.moveDestination.isPresent()) {
+      long moveObject = frame.moveObject.orElseThrow();
+      long moveDestination = frame.moveDestination.orElseThrow();
+      state.unwindChildFrame();
+      if (!world.move(moveObject, moveDestination)) {
         raiseError(state, ErrorValue.E_INVARG, world);
         return;
       }

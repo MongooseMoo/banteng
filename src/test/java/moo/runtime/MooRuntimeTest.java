@@ -821,6 +821,44 @@ final class MooRuntimeTest {
   }
 
   @Test
+  void invokesDestinationAcceptWhenMoveReturnsFalse() throws Exception {
+    WorldTxn world = new LambdaMooV4Reader().read(FIXTURE);
+    MooRuntime runtime = new MooRuntime(world);
+    long connectionId = -47;
+
+    assertEquals(List.of(), runtime.openConnection(connectionId));
+    assertEquals(List.of("*** Connected ***"), runtime.executeLine(connectionId, "connect Wizard"));
+    long thing = world.objectCount();
+    long destination = thing + 1;
+
+    try {
+      assertEquals(
+          List.of(CONNECTION_PREFIX, "{1, {1, 1}}", CONNECTION_SUFFIX),
+          runtime.executeLine(
+              connectionId,
+              """
+              ; thing = create($nothing);
+              destination = create($nothing);
+              add_property(destination, "accept_seen", #-1, {player, "rw"});
+              add_verb(destination, {player, "xd", "accept"}, {"this", "none", "this"});
+              set_verb_code(destination, "accept", {
+                "this.accept_seen = args[1];",
+                "return 0;"
+              });
+              move(thing, destination);
+              return {destination.accept_seen == thing, thing.location == destination};
+              """));
+    } finally {
+      if (world.object(thing).isPresent()) {
+        runtime.executeLine(connectionId, "; recycle(#" + thing + "); return 1;");
+      }
+      if (world.object(destination).isPresent()) {
+        runtime.executeLine(connectionId, "; recycle(#" + destination + "); return 1;");
+      }
+    }
+  }
+
+  @Test
   void recordsDefiningObjectForInheritedRootVerbCallerFrame() throws Exception {
     WorldTxn world = new LambdaMooV4Reader().read(FIXTURE);
     MooRuntime runtime = new MooRuntime(world);

@@ -144,6 +144,8 @@ public final class VmState {
               initialProgrammer,
               receiver,
               initialVerbLocation,
+              OptionalLong.empty(),
+              OptionalLong.empty(),
               OptionalLong.empty()));
     }
   }
@@ -166,6 +168,8 @@ public final class VmState {
             caller.programmer,
             caller.receiver,
             caller.verbLocation,
+            OptionalLong.empty(),
+            OptionalLong.empty(),
             OptionalLong.empty()));
   }
 
@@ -175,10 +179,20 @@ public final class VmState {
       long programmer,
       MooValue receiver,
       ObjectValue verbLocation,
-      OptionalLong recycleTarget) {
+      OptionalLong recycleTarget,
+      OptionalLong moveObject,
+      OptionalLong moveDestination) {
     frames.push(
         new Frame(
-            program, locals, ReturnMode.VERB, programmer, receiver, verbLocation, recycleTarget));
+            program,
+            locals,
+            ReturnMode.VERB,
+            programmer,
+            receiver,
+            verbLocation,
+            recycleTarget,
+            moveObject,
+            moveDestination));
   }
 
   long callerProgrammer() {
@@ -352,6 +366,8 @@ public final class VmState {
     final MooValue receiver;
     final ObjectValue verbLocation;
     final OptionalLong recycleTarget;
+    final OptionalLong moveObject;
+    final OptionalLong moveDestination;
     long programmer;
     int instructionPointer;
 
@@ -362,7 +378,9 @@ public final class VmState {
         long programmer,
         MooValue receiver,
         ObjectValue verbLocation,
-        OptionalLong recycleTarget) {
+        OptionalLong recycleTarget,
+        OptionalLong moveObject,
+        OptionalLong moveDestination) {
       this.program = program;
       this.locals = normalizedLocals(locals);
       this.returnMode = returnMode;
@@ -370,6 +388,8 @@ public final class VmState {
       this.receiver = receiver;
       this.verbLocation = verbLocation;
       this.recycleTarget = recycleTarget;
+      this.moveObject = moveObject;
+      this.moveDestination = moveDestination;
     }
   }
 

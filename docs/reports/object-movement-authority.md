@@ -178,3 +178,26 @@ adds no request record, interface, helper owner, adapter, alternate builtin
 dispatcher, world method, or mutation path. The focused runtime regression
 must execute the durable row body and first observe `{0, 1}` on committed
 Banteng before any production edit.
+
+## Banteng implementation receipts
+
+The focused Java regression
+`MooRuntimeTest.invokesDestinationAcceptWhenMoveReturnsFalse` was added before
+the production edit and proved the committed behavior red: the setup and
+relocation succeeded, but the observed result was `{1, {0, 1}}` instead of
+`{1, {1, 1}}`. After the implementation, the same regression passed under
+Java 25, including after the pinned formatter was applied.
+
+The exact managed Banteng row was then run against the rebuilt application
+distribution with the same durable selector used for Toast. It passed one
+selected row with 11,518 deselected in 3.56 seconds. The substantial
+fail-fast `gap_followups_toast_oracle` category passed its first 16 rows,
+including this movement row, and stopped at the next separately owned row,
+`audit_chparent_nonwizard_requires_fertile_parent`, where Banteng returned
+`E_TYPE` instead of the expected `E_PERM`. Both managed Banteng processes were
+identified by their exact temporary database paths, stopped, and followed by
+empty Banteng process inventories.
+
+Finally, the Java 25 `clean check installDist` gate passed in 17 seconds. The
+kept source slice changes only the existing builtin result, VM frame, VM
+continuation path, and focused runtime regression described above.
