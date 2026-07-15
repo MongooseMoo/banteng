@@ -16,6 +16,7 @@ import moo.value.MooValue.ErrorValue;
 import moo.value.MooValue.FloatValue;
 import moo.value.MooValue.IntegerValue;
 import moo.value.MooValue.ListValue;
+import moo.value.MooValue.MapValue;
 import moo.value.MooValue.ObjectValue;
 import moo.value.MooValue.StringValue;
 import moo.world.WorldObject;
@@ -794,6 +795,49 @@ final class MooVmTest {
     assertEquals(ErrorValue.E_PERM, write.uncaughtError().orElseThrow());
     assertEquals(
         new IntegerValue(10), world.property(object.value(), "audit_secret").orElseThrow().value());
+  }
+
+  @Test
+  void roundTripsIntrinsicCommandConnectionOptionWithinOneTask() {
+    WorldObject wizard =
+        new WorldObject(3, "Wizard", 7, 3, -1, -1, List.of(), List.of(), List.of(), List.of());
+    WorldTxn world = new WorldTxn(List.of(3L), List.of(wizard));
+    world.openConnection(-47, new MapValue(Map.of()));
+    assertTrue(world.switchConnectionPlayer(-47, 3));
+    VmState state = new VmState(Map.of("player", new ObjectValue(3)), 3);
+
+    new MooVm()
+        .execute(
+            new MooCompiler()
+                .compile(
+                    MooParser.parse(
+                        "before = connection_options(player, \"intrinsic-commands\"); "
+                            + "set_connection_option(player, \"intrinsic-commands\", "
+                            + "{\"PREFIX\", \"SUFFIX\"}); "
+                            + "subset = connection_options(player, \"intrinsic-commands\"); "
+                            + "set_connection_option(player, \"intrinsic-commands\", 1); "
+                            + "restored = connection_options(player, \"intrinsic-commands\"); "
+                            + "return {before, subset, restored};")),
+            state,
+            world,
+            new BuiltinCatalog());
+
+    ListValue all =
+        new ListValue(
+            List.of(
+                new StringValue(".program".getBytes(StandardCharsets.ISO_8859_1)),
+                new StringValue("PREFIX".getBytes(StandardCharsets.ISO_8859_1)),
+                new StringValue("SUFFIX".getBytes(StandardCharsets.ISO_8859_1)),
+                new StringValue("OUTPUTPREFIX".getBytes(StandardCharsets.ISO_8859_1)),
+                new StringValue("OUTPUTSUFFIX".getBytes(StandardCharsets.ISO_8859_1))));
+    ListValue subset =
+        new ListValue(
+            List.of(
+                new StringValue("PREFIX".getBytes(StandardCharsets.ISO_8859_1)),
+                new StringValue("SUFFIX".getBytes(StandardCharsets.ISO_8859_1))));
+
+    assertEquals(VmState.Outcome.RETURNED, state.outcome());
+    assertEquals(new ListValue(List.of(all, subset, all)), state.returnValue().orElseThrow());
   }
 
   @Test

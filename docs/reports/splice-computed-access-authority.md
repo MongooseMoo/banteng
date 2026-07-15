@@ -531,3 +531,162 @@ and advanced to the next unchecked row,
 `E_VERBNF` from `connection_options(...)`. The final
 `gradlew clean check installDist` gate passed all 144 JUnit tests, formatting,
 checks, and the application distribution in 15 seconds.
+
+## Intrinsic command connection-option round trip
+
+The active durable row is
+`../moo-conformance-tests/src/moo_conformance/_tests/audit/gap_followups_toast_oracle.yaml:772-802`,
+`audit_intrinsic_command_table_roundtrip`. On one connected Wizard session it
+queries `connection_options(player, "intrinsic-commands")`, sets the option to
+`{"PREFIX", "SUFFIX"}`, queries it again in the same task, sets integer `1`,
+and queries once more. It requires the exact three values
+`{{".program", "PREFIX", "SUFFIX", "OUTPUTPREFIX", "OUTPUTSUFFIX"},
+{"PREFIX", "SUFFIX"}, {".program", "PREFIX", "SUFFIX", "OUTPUTPREFIX",
+"OUTPUTSUFFIX"}}`. Conformance commit
+`019bc6944c05d5eef2ca4ee847a385bc1b5ea5c0` added this and the separate
+unknown-name row as “Toast oracles” on May 5, 2026, but its commit contains no
+live receipt; the managed pinned Toast run remains required below.
+
+Barn's complete normative network builtin document at
+`../barn/spec/builtins/network.md:224-244,265-272` is incomplete and wrong for
+this exact surface. It omits `intrinsic-commands`, the accepted value forms,
+canonical order/case, and reset behavior; it documents only a one-argument
+`connection_options(player) -> MAP`. `../barn/spec/go-design.md:19-32` merely
+assigns intrinsic command classification to package `command`. Neither text
+defines the row contract.
+
+Current Barn registers the plural reader and setter at
+`../barn/builtins/registry.go:189-204`; generated signatures at
+`../barn/builtins/function_signatures_generated.go:36,171` specify
+`connection_options(OBJ [, STR])` and `set_connection_option(OBJ, STR, ANY)`.
+The plural reader at `../barn/builtins/signatures.go:606-652` enforces self or
+Wizard access and a live connection, then returns the stored bare value for a
+named option. Its one-argument form returns a sorted LIST of `{name, value}`
+pairs, not the spec's MAP, but that form is outside this row.
+
+Barn's option state at `../barn/builtins/network.go:101-225` is a synchronous
+process-global per-player map. `defaultIntrinsicCommands` at lines 179-187
+constructs the exact five strings in row order and case. The setter at lines
+1252-1317 validates the connection, permission, option, and supplied list,
+stores the value immediately, and returns integer zero. A truthy non-LIST,
+including this row's integer `1`, becomes the full default list; a truthy LIST
+must contain only exact strings from the five-name set. The following getter
+in the same MOO task therefore sees the write. Barn agrees with every asserted
+row value.
+
+Barn differs from pinned Toast outside this row. Its truthy-non-LIST branch
+accepts value kinds Toast rejects, and option-name matching is case-sensitive.
+Also, Barn's actual intrinsic classifier and dispatch at
+`../barn/command/intrinsic.go:22-53` and
+`../barn/server/input_processor.go:570-587` do not consume the stored table.
+The durable row proves only state round-trip behavior; those differences must
+not broaden this slice.
+
+Pinned Toast source identity is
+`aecc51e9449c6e7c95272f0f044b5ba38948459e` at
+`/root/src/toaststunt`. `/root/src/toaststunt/src/server.cc:3296-3299`
+registers exactly `set_connection_option(OBJ, STR, ANY)` and
+`connection_options(OBJ [, STR])`; generic dispatch at
+`/root/src/toaststunt/src/functions.cc:219-275` supplies `E_ARGS` and `E_TYPE`
+for signature failures. The setter at
+`/root/src/toaststunt/src/server.cc:2974-2995` authorizes self or Wizard,
+resolves the live connection, and routes the option to server, task-queue, or
+network state. The reader at lines 2998-3029 returns one bare option value when
+given a name. Option names are matched case-insensitively by
+`/root/src/toaststunt/src/include/server.h:296-318,345-372`.
+
+The semantic owner is the live task queue's `icmds` mask in
+`/root/src/toaststunt/src/tasks.cc`. Its enumeration at lines 114-123 and
+table at lines 263-345 define exactly `.program`, `PREFIX`, `SUFFIX`,
+`OUTPUTPREFIX`, and `OUTPUTSUFFIX`. `icmd_list` emits enabled mask bits in
+that declaration order and canonical spelling. `icmd_set_flags` accepts an
+integer, where zero disables all and any nonzero integer enables all, or a
+LIST whose elements must all be valid intrinsic strings; it validates into a
+new mask before replacing the old mask. Integer `1` therefore restores all
+five. `TASK_CO_TABLE` at lines 1015-1070 makes setter and getter access that
+same mask synchronously.
+
+Toast initializes every new task queue to the all-command mask at
+`/root/src/toaststunt/src/tasks.cc:431-475`. Its command path at lines
+770-797,812-858 consults that mask before ordinary `do_command` and verb
+lookup, so unlike Barn the state controls dispatch. The mask lives with the
+physical connection/task queue, persists across tasks and player switches,
+and is not checkpointed. The active row observes only the fresh/current mask,
+immediate subset, and integer restore.
+
+Pinned Toast accepts exact uppercase delimiter names and the documented
+case-insensitive `.pr*ogram` abbreviations inside LIST values; invalid names
+or non-string list elements produce `E_INVARG` atomically. Top-level values
+other than INT or LIST also produce `E_INVARG`. Those rejection and dispatch
+surfaces are outside this row; the adjacent
+`audit_intrinsic_command_table_rejects_unknown` row separately covers one of
+them and remains the next slice.
+
+Committed Banteng `0317673` fails before any option semantics:
+`src/main/java/moo/builtin/BuiltinCatalog.java` has no `connection_options`
+dispatch case, so the first query returns `E_VERBNF`. Its existing
+`setConnectionOption` at lines 533-562 recognizes only hold-input,
+flush-command, disable-oob, and binary. Those changes are represented by a
+`ConnectionOptionRequest` and applied by
+`src/main/java/moo/runtime/MooRuntime.java:1208-1252` only after VM execution,
+so that path cannot provide the row's same-task read-your-write behavior.
+
+`src/main/java/moo/world/WorldTxn.java:65-116` already owns active connection
+identity, network metadata, and resolution by negative connection object or
+attached player. `MooRuntime.ConnectionState` owns the actual input controls
+and direct `.program`, `PREFIX`, and `SUFFIX` handling. No Java design is
+frozen yet: the exact managed pinned Toast row must pass first. Any design must
+keep immediate per-live-connection state, use the existing concrete owners,
+and add no interface, callback, adapter, or alternate connection lookup.
+
+The exact durable row passed the managed pinned WSL Toast oracle at source
+identity `aecc51e9449c6e7c95272f0f044b5ba38948459e`: one selected, 11,504
+deselected, in 3.59 seconds. Post-run process inventory found only the
+unrelated July 13 `/tmp/td.db` Toast process, which was left untouched. This
+freezes the fresh five-name default, canonical getter order/case, immediate
+valid LIST round trip, and integer-`1` restore for this slice.
+
+The smallest Java design extends the existing concrete live-connection state
+in `WorldTxn`, keyed by its physical negative connection ID. Opening a
+connection initializes the exact five-name `ListValue`; closing removes it;
+reads and writes resolve either that connection object or its currently
+attached player through the same existing connection map. This preserves the
+Toast-observed lifetime across tasks and player switches without creating a
+second connection lookup owner.
+
+`BuiltinCatalog` adds only the named two-argument `connection_options` path
+required by this row. It reuses the existing self-or-Wizard and live-connection
+checks, requires `"intrinsic-commands"`, and returns the existing world list.
+The existing `setConnectionOption` recognizes this option before constructing
+a deferred runtime request: a valid LIST is stored synchronously and a
+truthy integer stores the exact full list, so later bytecode in the same VM
+task reads the new value. Other connection options remain on their current
+deferred-effect path.
+
+The adjacent unknown-name row is deliberately not implemented in this slice:
+row 32 supplies only valid exact string members. Invalid member rejection,
+integer zero, other value kinds, one-argument option enumeration, and actual
+command-dispatch filtering remain separate observable surfaces. The focused
+regression must reproduce this row through parser, compiler, VM, builtin, and
+one `WorldTxn`; it must first fail with current `E_VERBNF`, then prove all
+three exact lists. No new interface, helper class, callback, adapter, result
+variant, or `MooRuntime.ConnectionState` field is authorized.
+
+The first focused test invocation exposed only a missing existing `MapValue`
+test import and was rejected as a behavioral red. After correcting that
+test-only import, the same regression compiled and failed with VM outcome
+`ERRORED` instead of `RETURNED`; the absent catalog case produced the expected
+first-operation `E_VERBNF`. With the concrete world state and two builtin
+branches implemented, the focused same-task regression passed in 8 seconds.
+
+The exact managed Banteng row then passed with one selected and 11,504
+deselected in 3.51 seconds. Its process used temp database
+`moo_conformance_ve4deee1/Test.db`; exact PID 196804 was stopped and the
+managed Banteng inventory was empty afterward. The substantial
+`gap_followups_toast_oracle` category passed its first 11 rows and stopped at
+the separate unknown-name row, where Banteng intentionally returned zero
+instead of the required `E_INVARG`. That receipt proves row 32 advanced the
+kept prefix without absorbing row 33. Family temp PID 248836 for
+`moo_conformance_8ipy7id8/Test.db` was stopped and inventory again proved
+empty. The final `gradlew clean check installDist` gate passed all 145 JUnit
+tests, formatting, checks, and application distribution in 20 seconds.

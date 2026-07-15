@@ -12,6 +12,7 @@ import java.util.OptionalLong;
 import java.util.StringTokenizer;
 import moo.value.MooValue;
 import moo.value.MooValue.IntegerValue;
+import moo.value.MooValue.ListValue;
 import moo.value.MooValue.MapValue;
 import moo.value.MooValue.ObjectValue;
 import moo.value.MooValue.StringValue;
@@ -21,9 +22,18 @@ public final class WorldTxn {
   private static final int PLAYER_FLAG = 1;
   private static final int PROGRAMMER_FLAG = 2;
   private static final int WIZARD_FLAG = 4;
+  private static final ListValue DEFAULT_INTRINSIC_COMMANDS =
+      new ListValue(
+          List.of(
+              new StringValue(".program".getBytes(StandardCharsets.ISO_8859_1)),
+              new StringValue("PREFIX".getBytes(StandardCharsets.ISO_8859_1)),
+              new StringValue("SUFFIX".getBytes(StandardCharsets.ISO_8859_1)),
+              new StringValue("OUTPUTPREFIX".getBytes(StandardCharsets.ISO_8859_1)),
+              new StringValue("OUTPUTSUFFIX".getBytes(StandardCharsets.ISO_8859_1))));
 
   private final Map<Long, Long> connections = new LinkedHashMap<>();
   private final Map<Long, MapValue> connectionInfo = new LinkedHashMap<>();
+  private final Map<Long, ListValue> intrinsicCommands = new LinkedHashMap<>();
   private World world;
 
   /** Creates a transaction over immutable snapshots of the supplied records. */
@@ -73,12 +83,14 @@ public final class WorldTxn {
       throw new IllegalArgumentException("duplicate connection #" + connectionId);
     }
     connectionInfo.put(connectionId, Objects.requireNonNull(info, "info"));
+    intrinsicCommands.put(connectionId, DEFAULT_INTRINSIC_COMMANDS);
   }
 
   /** Removes one connection record. */
   public void closeConnection(long connectionId) {
     connections.remove(connectionId);
     connectionInfo.remove(connectionId);
+    intrinsicCommands.remove(connectionId);
   }
 
   /** Returns the player currently attached to a connection. */
@@ -109,6 +121,40 @@ public final class WorldTxn {
       }
     }
     return Optional.empty();
+  }
+
+  /** Returns the enabled intrinsic command table for a live connection or attached player. */
+  public Optional<ListValue> intrinsicCommands(long objectId) {
+    if (connections.containsKey(objectId)) {
+      return Optional.ofNullable(intrinsicCommands.get(objectId));
+    }
+    for (Map.Entry<Long, Long> connection : connections.entrySet()) {
+      if (connection.getValue() == objectId) {
+        return Optional.ofNullable(intrinsicCommands.get(connection.getKey()));
+      }
+    }
+    return Optional.empty();
+  }
+
+  /** Replaces the intrinsic command table for a live connection or attached player. */
+  public boolean setIntrinsicCommands(long objectId, ListValue commands) {
+    Objects.requireNonNull(commands, "commands");
+    if (connections.containsKey(objectId)) {
+      intrinsicCommands.put(objectId, commands);
+      return true;
+    }
+    for (Map.Entry<Long, Long> connection : connections.entrySet()) {
+      if (connection.getValue() == objectId) {
+        intrinsicCommands.put(connection.getKey(), commands);
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /** Restores every intrinsic command for a live connection or attached player. */
+  public boolean restoreIntrinsicCommands(long objectId) {
+    return setIntrinsicCommands(objectId, DEFAULT_INTRINSIC_COMMANDS);
   }
 
   /** Stages a player switch on an existing connection. */

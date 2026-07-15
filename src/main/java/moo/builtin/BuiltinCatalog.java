@@ -300,6 +300,7 @@ public final class BuiltinCatalog {
                     + "], port "
                     + destinationPort.value()));
       }
+      case "connection_options" -> connectionOptions(arguments, world, programmer);
       case "set_connection_option" -> setConnectionOption(arguments, world, programmer);
       case "boot_player" -> bootPlayer(arguments, world, programmer);
       case "force_input" -> forceInput(arguments, world, programmer);
@@ -477,6 +478,7 @@ public final class BuiltinCatalog {
       case "connected_players",
           "connection_info",
           "connection_name",
+          "connection_options",
           "queued_tasks",
           "sqlite_handles",
           "sqlite_info",
@@ -546,8 +548,28 @@ public final class BuiltinCatalog {
     if (world.connectionInfo(target.value()).isEmpty()) {
       return Result.error(ErrorValue.E_INVARG);
     }
+    String normalizedName = decode(optionName).toLowerCase(Locale.ROOT);
+    if (normalizedName.equals("intrinsic-commands")) {
+      MooValue value = arguments.get(2);
+      if (value instanceof ListValue commands) {
+        for (MooValue command : commands.elements()) {
+          if (!(command instanceof StringValue)) {
+            return Result.error(ErrorValue.E_INVARG);
+          }
+        }
+        return world.setIntrinsicCommands(target.value(), commands)
+            ? Result.zero()
+            : Result.error(ErrorValue.E_INVARG);
+      }
+      if (value instanceof IntegerValue enabled && enabled.isTruthy()) {
+        return world.restoreIntrinsicCommands(target.value())
+            ? Result.zero()
+            : Result.error(ErrorValue.E_INVARG);
+      }
+      return Result.error(ErrorValue.E_INVARG);
+    }
     ConnectionOption option =
-        switch (decode(optionName).toLowerCase(Locale.ROOT)) {
+        switch (normalizedName) {
           case "hold-input" -> ConnectionOption.HOLD_INPUT;
           case "flush-command" -> ConnectionOption.FLUSH_COMMAND;
           case "disable-oob" -> ConnectionOption.DISABLE_OOB;
@@ -559,6 +581,29 @@ public final class BuiltinCatalog {
     }
     return Result.connectionOption(
         new ConnectionOptionRequest(target.value(), option, arguments.get(2)));
+  }
+
+  private static Result connectionOptions(
+      List<MooValue> arguments, WorldTxn world, long programmer) {
+    if (arguments.size() != 2) {
+      return Result.error(ErrorValue.E_ARGS);
+    }
+    if (!(arguments.get(0) instanceof ObjectValue target)
+        || !(arguments.get(1) instanceof StringValue optionName)) {
+      return Result.error(ErrorValue.E_TYPE);
+    }
+    ListValue commands = world.intrinsicCommands(target.value()).orElse(null);
+    if (commands == null) {
+      return Result.error(ErrorValue.E_INVARG);
+    }
+    WorldObject permissions = world.object(programmer).orElse(null);
+    if (target.value() != programmer && (permissions == null || (permissions.flags() & 4) == 0)) {
+      return Result.error(ErrorValue.E_PERM);
+    }
+    if (!decode(optionName).equalsIgnoreCase("intrinsic-commands")) {
+      return Result.error(ErrorValue.E_INVARG);
+    }
+    return Result.value(commands);
   }
 
   private static Result forceInput(List<MooValue> arguments, WorldTxn world, long programmer) {
