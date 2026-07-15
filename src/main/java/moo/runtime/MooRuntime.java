@@ -35,6 +35,8 @@ import moo.world.WorldVerb;
 
 /** The concrete serialized runtime owner used by the first server connection slice. */
 public final class MooRuntime {
+  private static final long DEFAULT_BACKGROUND_TICKS = 30_000;
+
   private final WorldTxn world;
   private final MooCompiler compiler = new MooCompiler();
   private final BuiltinCatalog builtins;
@@ -1114,7 +1116,11 @@ public final class MooRuntime {
         while (task.outcome() == VmState.Outcome.FORKED) {
           VmState.ForkRequest request = task.forkRequest().orElseThrow();
           VmState child =
-              new VmState(request.locals(), request.programmer(), request.verbLocation());
+              new VmState(
+                  request.locals(),
+                  request.programmer(),
+                  request.verbLocation(),
+                  DEFAULT_BACKGROUND_TICKS);
           programs.put(child, request.program());
           if (request.delaySeconds() == 0.0) {
             runnable.add(child);

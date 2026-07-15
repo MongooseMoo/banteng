@@ -770,6 +770,39 @@ final class MooRuntimeTest {
   }
 
   @Test
+  void startsForkedTaskWithTheBackgroundTickBudget() throws Exception {
+    WorldTxn world = new LambdaMooV4Reader().read(FIXTURE);
+    MooRuntime runtime = new MooRuntime(world);
+    long connectionId = -47;
+
+    assertEquals(List.of(), runtime.openConnection(connectionId));
+    assertEquals(List.of("*** Connected ***"), runtime.executeLine(connectionId, "connect Wizard"));
+
+    try {
+      assertEquals(
+          List.of(CONNECTION_PREFIX, "{1, 29999}", CONNECTION_SUFFIX),
+          runtime.executeLine(
+              connectionId,
+              """
+              ; try
+                add_property(#0, "audit_background_ticks", 0, {#0, "rw"});
+              except (E_INVARG)
+              endtry
+              fork (0)
+                #0.audit_background_ticks = ticks_left();
+              endfork
+              suspend(0);
+              return #0.audit_background_ticks;
+              """));
+      assertEquals(
+          "29999", world.property(0, "audit_background_ticks").orElseThrow().value().toLiteral());
+    } finally {
+      runtime.executeLine(
+          connectionId, "; return delete_property(#0, " + "\"audit_background_ticks\");");
+    }
+  }
+
+  @Test
   void preservesWaifThisAndVerbLocationInCallers() throws Exception {
     WorldTxn world = new LambdaMooV4Reader().read(FIXTURE);
     MooRuntime runtime = new MooRuntime(world);

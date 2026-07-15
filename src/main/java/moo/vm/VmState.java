@@ -41,7 +41,7 @@ public final class VmState {
   private OptionalDouble suspensionDelaySeconds = OptionalDouble.empty();
   private Optional<CompletableFuture<MooValue>> hostResult = Optional.empty();
   private MooValue taskLocal = new MapValue(Map.of());
-  private long remainingTicks = DEFAULT_FOREGROUND_TICKS;
+  private long remainingTicks;
   private final long initialProgrammer;
   private final ObjectValue initialVerbLocation;
 
@@ -52,17 +52,30 @@ public final class VmState {
 
   /** Creates a state with explicit verb locals and task permissions. */
   public VmState(Map<String, MooValue> locals, long programmer) {
-    initialLocals = normalizedLocals(locals);
-    initialProgrammer = programmer;
-    initialVerbLocation =
-        initialLocals.get("this") instanceof ObjectValue object ? object : new ObjectValue(-1);
+    this(
+        locals,
+        programmer,
+        normalizedLocals(locals).get("this") instanceof ObjectValue object
+            ? object
+            : new ObjectValue(-1),
+        DEFAULT_FOREGROUND_TICKS);
   }
 
   /** Creates a state with explicit root verb metadata. */
   public VmState(Map<String, MooValue> locals, long programmer, ObjectValue verbLocation) {
+    this(locals, programmer, verbLocation, DEFAULT_FOREGROUND_TICKS);
+  }
+
+  /** Creates a state with explicit root metadata and remaining ticks. */
+  public VmState(
+      Map<String, MooValue> locals,
+      long programmer,
+      ObjectValue verbLocation,
+      long remainingTicks) {
     initialLocals = normalizedLocals(locals);
     initialProgrammer = programmer;
     initialVerbLocation = verbLocation;
+    this.remainingTicks = remainingTicks;
   }
 
   /** Returns the next instruction index in the active frame. */
