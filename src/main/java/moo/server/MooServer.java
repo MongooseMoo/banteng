@@ -125,8 +125,35 @@ public final class MooServer implements AutoCloseable, ListenerControl {
       boolean afterCarriageReturn = false;
       boolean afterIac = false;
       int negotiationCommand = -1;
+      ByteArrayOutputStream subnegotiation = null;
+      boolean afterSubnegotiationIac = false;
       int inputByte;
       while ((inputByte = input.read()) != -1) {
+        if (subnegotiation != null) {
+          subnegotiation.write(inputByte);
+          if (afterSubnegotiationIac) {
+            afterSubnegotiationIac = false;
+            if (inputByte == 0xF0) {
+              StringBuilder encodedCommand = new StringBuilder();
+              for (byte commandByte : subnegotiation.toByteArray()) {
+                int unsignedByte = Byte.toUnsignedInt(commandByte);
+                if (unsignedByte != '~'
+                    && (unsignedByte == ' ' || (unsignedByte >= 33 && unsignedByte <= 126))) {
+                  encodedCommand.append((char) unsignedByte);
+                } else {
+                  encodedCommand.append("~%02X".formatted(unsignedByte));
+                }
+              }
+              subnegotiation = null;
+              writeLines(
+                  output,
+                  runtime.executeTransportOutOfBand(connectionId, encodedCommand.toString()));
+            }
+          } else if (inputByte == 0xFF) {
+            afterSubnegotiationIac = true;
+          }
+          continue;
+        }
         if (negotiationCommand >= 0) {
           int completedCommand = negotiationCommand;
           negotiationCommand = -1;
@@ -140,6 +167,10 @@ public final class MooServer implements AutoCloseable, ListenerControl {
           afterIac = false;
           if (inputByte >= 0xFB && inputByte <= 0xFE) {
             negotiationCommand = inputByte;
+          } else if (inputByte == 0xFA) {
+            subnegotiation = new ByteArrayOutputStream();
+            subnegotiation.write(0xFF);
+            subnegotiation.write(0xFA);
           } else if (inputByte == 0xF1) {
             writeLines(output, runtime.executeTransportOutOfBand(connectionId, "~FF~F1"));
           }
