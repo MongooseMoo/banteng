@@ -877,3 +877,136 @@ passed, and 11,488 deselected in 29.56 seconds. Family PID 102420 for
 `moo_conformance_ff7ypbbf/Test.db` was stopped and inventory again proved
 empty. The final `gradlew clean check installDist` gate passed all 147 JUnit
 tests, formatting, checks, and application distribution in 15 seconds.
+
+## Forked task-local state
+
+The next durable row is
+`../moo-conformance-tests/src/moo_conformance/_tests/audit/gap_followups_toast_oracle.yaml:831-852`,
+`audit_task_local_not_inherited_by_fork`, introduced by conformance commit
+`4c4423799c4505f06f52a587568c7013e77b9c76`. As Wizard it stores
+`{"parent", 7}` in the foreground task, forks a zero-delay child that yields
+and writes its own `task_local()` into a property, then yields the parent twice
+and requires the property to contain an empty map.
+
+The authoritative Barn task specification agrees. At
+`../barn/spec/tasks.md:347-367`, each foreground task and forked child starts
+with an empty map, task-local state survives suspension of the same task, and
+a forked child does not inherit its parent's value. The fork environment and
+zero-delay queueing rules appear at lines 87-120. The general fork statement
+spec at `../barn/spec/statements.md:403-438` is silent on task-local state.
+However, the unaudited builtin page disagrees at
+`../barn/spec/builtins/tasks.md:358-389`: it correctly describes one
+Wizard-only arbitrary value but incorrectly says an unset task returns integer
+zero instead of an empty map.
+
+Current Barn follows the authoritative task specification.
+`../barn/builtins/system.go:62-116` reads and replaces the current `Task`'s
+value. `../barn/task/task.go:110-176,191-248,348-360` owns that value and
+initializes every new task to `types.NewEmptyMap()`. Fork execution snapshots
+ordinary VM locals and verb context through
+`../barn/vm/control.go:24-117` and `../barn/types/result.go:22-36`, whose
+`ForkInfo` has no task-local field. `CreateForkedTask` at
+`../barn/scheduler/task_factory.go:197-281` copies the required execution
+context but explicitly assigns a fresh empty map at line 256.
+
+Barn's scheduling also makes the row deterministic. `suspend(0)` queues an
+immediate resume through `../barn/builtins/tasks.go:104-148` and
+`../barn/task/manager.go:147-164`. Ready time plus FIFO sequence ordering in
+`../barn/scheduler/task_factory.go:31-45` and
+`../barn/scheduler/task_queue.go:21-38` puts the already-created child ahead of
+the subsequently suspended parent. The child later preserves its own empty
+task-local value across its suspension.
+
+Pinned Toast source identity
+`aecc51e9449c6e7c95272f0f044b5ba38948459e` defines the same contract.
+`bf_set_task_local` and `bf_task_local` replace and read `current_local` at
+`/root/src/toaststunt/src/tasks.cc:2917-2946`. The fork opcode reaches
+`enqueue_forked_task2` through `/root/src/toaststunt/src/execute.cc:2084-2113`;
+fork queue records at `/root/src/toaststunt/src/tasks.cc:1207-1232,1257-1292`
+copy activation and runtime environment but deliberately omit task-local
+state. When a `TASK_FORKED` becomes current, lines 1772-1783 unconditionally
+set `current_local = new_map()` before executing it.
+
+Suspension preserves the current task's value instead:
+`/root/src/toaststunt/src/execute.cc:221-238` captures
+`var_ref(current_local)` in the VM, `/root/src/toaststunt/src/eval_vm.cc:33-42`
+stores it, and `/root/src/toaststunt/src/tasks.cc:1786-1795` restores it on a
+suspended-task resume. Time-sorted waiting tasks feed the FIFO ready queue at
+`/root/src/toaststunt/src/tasks.cc:1182-1205,1628-1646,505-526`. The row first
+queues the child, then suspends the parent; the child and parent yields ensure
+the child resumes, writes its preserved empty map, and only then the parent
+reads the property.
+
+Committed Banteng `ec0321a` fails earlier than fork scheduling. Generic calls
+reach `BuiltinCatalog.invoke`, but
+`src/main/java/moo/builtin/BuiltinCatalog.java` has neither `set_task_local`
+nor `task_local`; its default dispatch returns `E_VERBNF`, so the row stops at
+the first call. Its effect classifier also marks both names unimplemented.
+`src/main/java/moo/vm/VmState.java` has no task-local field. Existing fork
+support captures ordinary frame locals and programmer state in `ForkRequest`,
+and `src/main/java/moo/runtime/MooRuntime.java:1074-1152` creates a fresh child
+`VmState`, schedules the parent before the zero-delay child, and already owns
+timed suspension/resumption. Existing property assignment and suspend support
+are not the observed failure. No Java design is frozen until the exact managed
+pinned Toast row passes and the contradicted Barn builtin sentence is
+corrected.
+
+The exact row passed the managed pinned WSL Toast oracle at the stated source
+identity: one selected, 11,504 deselected, in 3.80 seconds. Post-run WSL
+inventory found only unrelated July 13 PID 19 for `/tmp/td.db`, which was left
+untouched. The contradicted unset-default sentence was then corrected and
+committed separately in Barn as
+`b06e048 docs: correct task local default`.
+
+Toast's two builtin bodies at `/root/src/toaststunt/src/tasks.cc:2917-2946`
+also freeze the remaining local contract: both require Wizard permissions;
+`set_task_local` takes one arbitrary value, replaces the current value
+immediately, and returns no value, represented as integer zero by Banteng;
+`task_local` takes no arguments and returns the current value. Current Barn's
+`../barn/builtins/system.go:62-116` agrees on arity, `E_PERM`, arbitrary value,
+empty-map fallback, immediate replacement, and zero setter result.
+
+The smallest Java representation adds one `MooValue` directly to the existing
+`VmState`, initialized to `MapValue(Map.of())`. Package-owned accessors let the
+VM supply its current value to `BuiltinCatalog.invoke` and apply an optional
+replacement carried by the existing `BuiltinCatalog.Result`. The catalog
+remains the semantic owner: it enforces exact arity and Wizard permission,
+returns the current value for `task_local`, and returns zero plus the requested
+replacement for `set_task_local`. The getter is classified with the existing
+pure task-state reads such as `task_perms`; the setter is classified with the
+existing immediate task-state effects such as `set_task_perms`.
+
+This field naturally survives suspension because the same `VmState` resumes.
+`MooRuntime` already constructs a distinct child `VmState` from only the
+`ForkRequest` program, ordinary locals, and programmer, so the child naturally
+receives the empty-map initializer and no runtime scheduling change is needed.
+No task-local wrapper, keyed store, interface, callback, helper class, fork
+field, runtime map, or world record is authorized.
+
+The focused regression runs the durable row body through the existing logged-in
+Wizard runtime seam and requires both a successful empty-map return and the
+property value `{}` after the child and parent suspensions. It must first fail
+on the current `set_task_local` `E_VERBNF`; a catalog-only test would not prove
+fork isolation or same-task suspension preservation.
+
+The focused runtime regression first failed on the intended boundary: the
+fixture eval returned `{2, {E_VERBNF}}` at `set_task_local` instead of a
+successful empty map. The first implementation compile found that the existing
+`call_function` recursion also needed the current task-local argument; that
+plumbing was added without changing its dispatch semantics. The next focused
+run returned the correct empty map inside the fixture's standard `{1, value}`
+success wrapper, so the test-only wire expectation was corrected from `[]` to
+`{1, []}` while retaining the stored-property assertion. The focused
+regression then passed in 5 seconds.
+
+The exact managed Banteng row passed with one selected and 11,504 deselected
+in 3.62 seconds. Its process used temp database
+`moo_conformance_fi_ajv29/Test.db`; exact PID 339684 was stopped and the
+managed Banteng inventory was empty afterward. The substantial
+`gap_followups_toast_oracle` category then passed its first 14 rows and stopped
+at the separate WAIF callers row, where Banteng returned `E_VERBNF`. That
+receipt proves row 35 advanced the kept prefix without absorbing the next
+target: one failed, 14 passed, and 11,488 deselected in 29.86 seconds. Family
+PID 4880 for `moo_conformance_b3hfmlme/Test.db` was stopped and inventory again
+proved empty. The final `gradlew clean check installDist` gate passed all 148
+JUnit tests, formatting, checks, and application distribution in 15 seconds.

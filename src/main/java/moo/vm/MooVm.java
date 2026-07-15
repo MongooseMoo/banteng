@@ -428,11 +428,16 @@ public final class MooVm {
     frame.instructionPointer++;
     Result result =
         builtins.invoke(
-            instruction.text().orElseThrow(), arguments.elements(), world, state.programmer());
+            instruction.text().orElseThrow(),
+            arguments.elements(),
+            world,
+            state.programmer(),
+            state.taskLocal());
     if (result.error().isPresent()) {
       raiseError(state, result.error().orElseThrow(), world);
       return;
     }
+    result.taskLocal().ifPresent(state::setTaskLocal);
     result.output().ifPresent(state::stageOutput);
     result.connectionOptionRequest().ifPresent(state::stageConnectionOptionRequest);
     result.forcedInputRequest().ifPresent(state::stageForcedInputRequest);

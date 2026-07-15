@@ -18,6 +18,7 @@ import moo.bytecode.BytecodeProgram.HandlerSpec;
 import moo.value.MooValue;
 import moo.value.MooValue.ErrorValue;
 import moo.value.MooValue.ListValue;
+import moo.value.MooValue.MapValue;
 
 /** Explicit heap state for one MOO bytecode execution. */
 public final class VmState {
@@ -35,6 +36,7 @@ public final class VmState {
   private Optional<ForkRequest> forkRequest = Optional.empty();
   private OptionalDouble suspensionDelaySeconds = OptionalDouble.empty();
   private Optional<CompletableFuture<MooValue>> hostResult = Optional.empty();
+  private MooValue taskLocal = new MapValue(Map.of());
   private final long initialProgrammer;
 
   /** Creates an empty state for a pure root program. */
@@ -109,6 +111,14 @@ public final class VmState {
   public long programmer() {
     Frame frame = frames.peekFirst();
     return frame == null ? initialProgrammer : frame.programmer;
+  }
+
+  MooValue taskLocal() {
+    return taskLocal;
+  }
+
+  void setTaskLocal(MooValue value) {
+    taskLocal = value;
   }
 
   void ensureRoot(BytecodeProgram program) {

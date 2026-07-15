@@ -54,7 +54,8 @@ public final class BuiltinCatalog {
   }
 
   /** Invokes one named builtin without reflection or hidden world access. */
-  public Result invoke(String name, List<MooValue> arguments, WorldTxn world, long programmer) {
+  public Result invoke(
+      String name, List<MooValue> arguments, WorldTxn world, long programmer, MooValue taskLocal) {
     return switch (name.toLowerCase(Locale.ROOT)) {
       case "length" -> length(arguments);
       case "listappend" -> {
@@ -350,6 +351,26 @@ public final class BuiltinCatalog {
               ? Result.value(new ObjectValue(programmer))
               : Result.error(ErrorValue.E_ARGS);
       case "set_task_perms" -> setTaskPerms(arguments);
+      case "task_local" -> {
+        if (!arguments.isEmpty()) {
+          yield Result.error(ErrorValue.E_ARGS);
+        }
+        WorldObject permissions = world.object(programmer).orElse(null);
+        if (permissions == null || (permissions.flags() & 4) == 0) {
+          yield Result.error(ErrorValue.E_PERM);
+        }
+        yield Result.value(taskLocal);
+      }
+      case "set_task_local" -> {
+        if (arguments.size() != 1) {
+          yield Result.error(ErrorValue.E_ARGS);
+        }
+        WorldObject permissions = world.object(programmer).orElse(null);
+        if (permissions == null || (permissions.flags() & 4) == 0) {
+          yield Result.error(ErrorValue.E_PERM);
+        }
+        yield Result.taskLocal(arguments.getFirst());
+      }
       case "notify" -> notifyLine(arguments);
       case "tostr" -> {
         StringBuilder text = new StringBuilder();
@@ -436,7 +457,7 @@ public final class BuiltinCatalog {
         yield Result.value(new ListValue(List.of()));
       }
       case "suspend" -> suspend(arguments);
-      case "call_function" -> callFunction(arguments, world, programmer);
+      case "call_function" -> callFunction(arguments, world, programmer, taskLocal);
       case "sqlite_open" -> sqliteOpen(arguments, world, programmer);
       case "sqlite_close" -> sqliteClose(arguments, world, programmer);
       case "sqlite_handles" -> sqliteHandles(arguments, world, programmer);
@@ -471,6 +492,7 @@ public final class BuiltinCatalog {
           "eval",
           "raise",
           "task_perms",
+          "task_local",
           "typeof",
           "function_info" ->
           EffectClass.PURE;
@@ -509,6 +531,7 @@ public final class BuiltinCatalog {
       case "notify",
           "switch_player",
           "set_task_perms",
+          "set_task_local",
           "suspend",
           "set_connection_option",
           "boot_player",
@@ -1500,7 +1523,8 @@ public final class BuiltinCatalog {
     return Result.delay(seconds);
   }
 
-  private Result callFunction(List<MooValue> arguments, WorldTxn world, long programmer) {
+  private Result callFunction(
+      List<MooValue> arguments, WorldTxn world, long programmer, MooValue taskLocal) {
     if (arguments.isEmpty()) {
       return Result.error(ErrorValue.E_ARGS);
     }
@@ -1511,7 +1535,8 @@ public final class BuiltinCatalog {
         decode(functionName),
         List.copyOf(arguments.subList(1, arguments.size())),
         world,
-        programmer);
+        programmer,
+        taskLocal);
   }
 
   private Result sqliteOpen(List<MooValue> arguments, WorldTxn world, long programmer) {
@@ -2017,7 +2042,37 @@ public final class BuiltinCatalog {
       Optional<CompletableFuture<MooValue>> hostResult,
       Optional<ConnectionOptionRequest> connectionOptionRequest,
       OptionalLong bootPlayerTarget,
-      Optional<ForcedInputRequest> forcedInputRequest) {
+      Optional<ForcedInputRequest> forcedInputRequest,
+      Optional<MooValue> taskLocal) {
+    private Result(
+        Optional<MooValue> value,
+        Optional<ErrorValue> error,
+        Optional<String> dynamicSource,
+        Optional<String> output,
+        OptionalLong switchedPlayer,
+        OptionalLong programmer,
+        OptionalLong recycleTarget,
+        OptionalDouble delaySeconds,
+        Optional<CompletableFuture<MooValue>> hostResult,
+        Optional<ConnectionOptionRequest> connectionOptionRequest,
+        OptionalLong bootPlayerTarget,
+        Optional<ForcedInputRequest> forcedInputRequest) {
+      this(
+          value,
+          error,
+          dynamicSource,
+          output,
+          switchedPlayer,
+          programmer,
+          recycleTarget,
+          delaySeconds,
+          hostResult,
+          connectionOptionRequest,
+          bootPlayerTarget,
+          forcedInputRequest,
+          Optional.empty());
+    }
+
     static Result value(MooValue value) {
       return new Result(
           Optional.of(value),
@@ -2036,6 +2091,23 @@ public final class BuiltinCatalog {
 
     static Result zero() {
       return value(new IntegerValue(0));
+    }
+
+    static Result taskLocal(MooValue value) {
+      return new Result(
+          Optional.of(new IntegerValue(0)),
+          Optional.empty(),
+          Optional.empty(),
+          Optional.empty(),
+          OptionalLong.empty(),
+          OptionalLong.empty(),
+          OptionalLong.empty(),
+          OptionalDouble.empty(),
+          Optional.empty(),
+          Optional.empty(),
+          OptionalLong.empty(),
+          Optional.empty(),
+          Optional.of(value));
     }
 
     static Result error(ErrorValue error) {

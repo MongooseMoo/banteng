@@ -734,6 +734,42 @@ final class MooRuntimeTest {
   }
 
   @Test
+  void startsForkedTaskWithEmptyTaskLocalState() throws Exception {
+    WorldTxn world = new LambdaMooV4Reader().read(FIXTURE);
+    MooRuntime runtime = new MooRuntime(world);
+    long connectionId = -47;
+
+    assertEquals(List.of(), runtime.openConnection(connectionId));
+    assertEquals(List.of("*** Connected ***"), runtime.executeLine(connectionId, "connect Wizard"));
+
+    try {
+      assertEquals(
+          List.of(CONNECTION_PREFIX, "{1, []}", CONNECTION_SUFFIX),
+          runtime.executeLine(
+              connectionId,
+              """
+              ; try
+                add_property(#0, "audit_task_local_value", {}, {#0, "rw"});
+              except (E_INVARG)
+              endtry
+              set_task_local({"parent", 7});
+              fork (0)
+                suspend(0);
+                #0.audit_task_local_value = task_local();
+              endfork
+              suspend(0);
+              suspend(0);
+              return #0.audit_task_local_value;
+              """));
+      assertEquals(
+          "[]", world.property(0, "audit_task_local_value").orElseThrow().value().toLiteral());
+    } finally {
+      runtime.executeLine(
+          connectionId, "; return delete_property(#0, \"audit_task_local_value\");");
+    }
+  }
+
+  @Test
   void continuesUserConnectedConfuncsAfterForkSuspendAndTaskPermissionChange() throws Exception {
     WorldTxn world = new LambdaMooV4Reader().read(FIXTURE);
     MooRuntime runtime = new MooRuntime(world);
