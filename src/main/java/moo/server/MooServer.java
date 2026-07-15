@@ -16,7 +16,6 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
-import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
@@ -36,7 +35,8 @@ public final class MooServer implements AutoCloseable, ListenerControl {
   private final Listener primary;
   private final int primaryPort;
   private final Map<Integer, Listener> listeners = new ConcurrentHashMap<>();
-  private final Set<Socket> connections = ConcurrentHashMap.newKeySet();
+  private final Map<Long, Socket> connections = new ConcurrentHashMap<>();
+  private final Map<Long, BufferedWriter> outputs = new ConcurrentHashMap<>();
   private final AtomicBoolean serving = new AtomicBoolean();
   private final AtomicBoolean closed = new AtomicBoolean();
   private final AtomicLong nextConnectionId = new AtomicLong(-2);
@@ -85,10 +85,10 @@ public final class MooServer implements AutoCloseable, ListenerControl {
       }
 
       long connectionId = nextConnectionId.getAndDecrement();
-      connections.add(socket);
+      connections.put(connectionId, socket);
       if (closed.get()) {
         closeSocket(socket);
-        connections.remove(socket);
+        connections.remove(connectionId, socket);
         return;
       }
       Thread.startVirtualThread(() -> handleConnection(socket, connectionId, listener));
@@ -104,6 +104,7 @@ public final class MooServer implements AutoCloseable, ListenerControl {
         BufferedWriter output =
             new BufferedWriter(
                 new OutputStreamWriter(socket.getOutputStream(), StandardCharsets.ISO_8859_1))) {
+      outputs.put(connectionId, output);
       Map<MooValue, MooValue> connectionInfo = new LinkedHashMap<>();
       String sourceAddress = socket.getLocalAddress().getHostAddress();
       String destinationAddress = socket.getInetAddress().getHostAddress();
@@ -134,16 +135,19 @@ public final class MooServer implements AutoCloseable, ListenerControl {
       if (opened) {
         runtime.closeConnection(connectionId);
       }
-      connections.remove(socket);
+      outputs.remove(connectionId);
+      connections.remove(connectionId, socket);
     }
   }
 
   private static void writeLines(BufferedWriter output, List<String> lines) throws IOException {
-    for (String line : lines) {
-      output.write(line);
-      output.write("\r\n");
+    synchronized (output) {
+      for (String line : lines) {
+        output.write(line);
+        output.write("\r\n");
+      }
+      output.flush();
     }
-    output.flush();
   }
 
   private static StringValue encode(String value) {
@@ -198,6 +202,25 @@ public final class MooServer implements AutoCloseable, ListenerControl {
     }
   }
 
+  /** Writes the final boot message and closes one accepted socket. */
+  @Override
+  public void bootConnection(long connectionId, List<String> lines) {
+    Socket socket = connections.get(connectionId);
+    BufferedWriter output = outputs.get(connectionId);
+    if (socket == null) {
+      return;
+    }
+    try {
+      if (output != null) {
+        writeLines(output, lines);
+      }
+    } catch (IOException ignored) {
+      // The logical connection is already gone; closing the socket completes the boot.
+    } finally {
+      closeSocket(socket);
+    }
+  }
+
   /** Closes the listener and every accepted socket. */
   @Override
   public synchronized void close() throws IOException {
@@ -218,7 +241,7 @@ public final class MooServer implements AutoCloseable, ListenerControl {
       }
     }
     listeners.clear();
-    for (Socket connection : connections) {
+    for (Socket connection : connections.values()) {
       try {
         connection.close();
       } catch (IOException error) {

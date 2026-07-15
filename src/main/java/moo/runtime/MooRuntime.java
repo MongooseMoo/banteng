@@ -37,19 +37,22 @@ public final class MooRuntime {
   private final WorldTxn world;
   private final MooCompiler compiler = new MooCompiler();
   private final BuiltinCatalog builtins;
+  private final Optional<ListenerControl> listenerControl;
   private final MooVm vm = new MooVm();
   private final Map<Long, ConnectionState> connections = new LinkedHashMap<>();
 
   /** Creates a runtime over the one concrete world transaction. */
   public MooRuntime(WorldTxn world) {
     this.world = Objects.requireNonNull(world, "world");
+    listenerControl = Optional.empty();
     builtins = new BuiltinCatalog();
   }
 
   /** Creates the production runtime with the concrete server listener owner. */
   public MooRuntime(WorldTxn world, ListenerControl listenerControl) {
     this.world = Objects.requireNonNull(world, "world");
-    builtins = new BuiltinCatalog(Objects.requireNonNull(listenerControl, "listenerControl"));
+    this.listenerControl = Optional.of(Objects.requireNonNull(listenerControl, "listenerControl"));
+    builtins = new BuiltinCatalog(listenerControl);
   }
 
   /** Registers a negative connection and executes its initial empty login input. */
@@ -835,6 +838,7 @@ public final class MooRuntime {
         }
         vm.execute(taskProgram, task, world, builtins);
         applyConnectionOptionRequests(task);
+        applyBootPlayerTargets(task);
         while (task.outcome() == VmState.Outcome.FORKED) {
           VmState.ForkRequest request = task.forkRequest().orElseThrow();
           VmState child = new VmState(request.locals(), request.programmer());
@@ -848,6 +852,7 @@ public final class MooRuntime {
           task.continueAfterFork();
           vm.execute(taskProgram, task, world, builtins);
           applyConnectionOptionRequests(task);
+          applyBootPlayerTargets(task);
         }
         if (task.outcome() == VmState.Outcome.SUSPENDED) {
           if (task.suspensionDelaySeconds().isPresent()) {
@@ -958,6 +963,72 @@ public final class MooRuntime {
       } else {
         connection.flushCommand = Optional.empty();
       }
+    }
+  }
+
+  private void applyBootPlayerTargets(VmState task) {
+    for (long target : task.drainBootPlayerTargets()) {
+      long connectionId = target;
+      ConnectionState connection = connections.get(connectionId);
+      if (connection == null) {
+        for (Map.Entry<Long, ConnectionState> entry : connections.entrySet()) {
+          if (world.connectionPlayer(entry.getKey()).orElse(Long.MIN_VALUE) == target) {
+            connectionId = entry.getKey();
+            connection = entry.getValue();
+            break;
+          }
+        }
+      }
+      if (connection == null) {
+        continue;
+      }
+
+      long disconnectedPlayer = world.connectionPlayer(connectionId).orElse(target);
+      connections.remove(connectionId);
+      world.closeConnection(connectionId);
+      long listenerHandler = connection.listenerHandler;
+      world
+          .verb(listenerHandler, "user_disconnected")
+          .ifPresent(
+              disconnected ->
+                  executeStored(
+                      disconnected,
+                      verbLocals(
+                          listenerHandler,
+                          disconnectedPlayer,
+                          -1,
+                          "user_disconnected",
+                          new ListValue(List.of(new ObjectValue(disconnectedPlayer))),
+                          "")));
+
+      List<String> lines = new ArrayList<>();
+      if (connection.printMessages) {
+        MooValue message = null;
+        MooValue listenerOptions =
+            world.readObjectProperty(listenerHandler, "server_options").orElse(null);
+        if (listenerOptions instanceof ObjectValue options) {
+          message = world.readObjectProperty(options.value(), "boot_msg").orElse(null);
+        }
+        if (message == null && listenerHandler != 0) {
+          MooValue rootOptions = world.readObjectProperty(0, "server_options").orElse(null);
+          if (rootOptions instanceof ObjectValue options) {
+            message = world.readObjectProperty(options.value(), "boot_msg").orElse(null);
+          }
+        }
+        if (message == null) {
+          lines.add("*** Disconnected ***");
+        } else if (message instanceof StringValue string) {
+          lines.add(new String(string.bytes(), StandardCharsets.ISO_8859_1));
+        } else if (message instanceof ListValue list) {
+          for (MooValue element : list.elements()) {
+            if (element instanceof StringValue string) {
+              lines.add(new String(string.bytes(), StandardCharsets.ISO_8859_1));
+            }
+          }
+        }
+      }
+      long bootedConnectionId = connectionId;
+      listenerControl.ifPresent(control -> control.bootConnection(bootedConnectionId, lines));
     }
   }
 

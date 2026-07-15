@@ -220,6 +220,7 @@ public final class BuiltinCatalog {
         yield Result.value(info);
       }
       case "set_connection_option" -> setConnectionOption(arguments, world, programmer);
+      case "boot_player" -> bootPlayer(arguments, world, programmer);
       case "create" -> create(arguments, world, programmer);
       case "recycle" -> {
         if (arguments.size() != 1) {
@@ -416,10 +417,29 @@ public final class BuiltinCatalog {
           "add_property",
           "chparent" ->
           EffectClass.TRANSACTION_WRITE;
-      case "notify", "switch_player", "set_task_perms", "suspend", "set_connection_option" ->
+      case "notify",
+          "switch_player",
+          "set_task_perms",
+          "suspend",
+          "set_connection_option",
+          "boot_player" ->
           EffectClass.DEFERRED_EFFECT;
       default -> EffectClass.UNIMPLEMENTED;
     };
+  }
+
+  private static Result bootPlayer(List<MooValue> arguments, WorldTxn world, long programmer) {
+    if (arguments.size() != 1) {
+      return Result.error(ErrorValue.E_ARGS);
+    }
+    if (!(arguments.getFirst() instanceof ObjectValue target)) {
+      return Result.error(ErrorValue.E_TYPE);
+    }
+    WorldObject permissions = world.object(programmer).orElse(null);
+    if (target.value() != programmer && (permissions == null || (permissions.flags() & 4) == 0)) {
+      return Result.error(ErrorValue.E_PERM);
+    }
+    return Result.bootPlayer(target.value());
   }
 
   private static Result setConnectionOption(
@@ -1768,6 +1788,9 @@ public final class BuiltinCatalog {
 
     /** Closes one dynamic listener selected by its integer descriptor. */
     boolean unlisten(int port);
+
+    /** Writes final lines and closes one accepted connection selected by runtime ID. */
+    void bootConnection(long connectionId, List<String> lines);
   }
 
   /** Observable effect class for the explicitly enabled catalog. */
@@ -1802,7 +1825,8 @@ public final class BuiltinCatalog {
       OptionalLong recycleTarget,
       OptionalDouble delaySeconds,
       Optional<CompletableFuture<MooValue>> hostResult,
-      Optional<ConnectionOptionRequest> connectionOptionRequest) {
+      Optional<ConnectionOptionRequest> connectionOptionRequest,
+      OptionalLong bootPlayerTarget) {
     static Result value(MooValue value) {
       return new Result(
           Optional.of(value),
@@ -1814,7 +1838,8 @@ public final class BuiltinCatalog {
           OptionalLong.empty(),
           OptionalDouble.empty(),
           Optional.empty(),
-          Optional.empty());
+          Optional.empty(),
+          OptionalLong.empty());
     }
 
     static Result zero() {
@@ -1832,7 +1857,8 @@ public final class BuiltinCatalog {
           OptionalLong.empty(),
           OptionalDouble.empty(),
           Optional.empty(),
-          Optional.empty());
+          Optional.empty(),
+          OptionalLong.empty());
     }
 
     static Result dynamicEval(String source) {
@@ -1846,7 +1872,8 @@ public final class BuiltinCatalog {
           OptionalLong.empty(),
           OptionalDouble.empty(),
           Optional.empty(),
-          Optional.empty());
+          Optional.empty(),
+          OptionalLong.empty());
     }
 
     static Result output(String line) {
@@ -1860,7 +1887,8 @@ public final class BuiltinCatalog {
           OptionalLong.empty(),
           OptionalDouble.empty(),
           Optional.empty(),
-          Optional.empty());
+          Optional.empty(),
+          OptionalLong.empty());
     }
 
     static Result switchPlayer(long player) {
@@ -1874,7 +1902,8 @@ public final class BuiltinCatalog {
           OptionalLong.empty(),
           OptionalDouble.empty(),
           Optional.empty(),
-          Optional.empty());
+          Optional.empty(),
+          OptionalLong.empty());
     }
 
     static Result programmer(long programmer) {
@@ -1888,7 +1917,8 @@ public final class BuiltinCatalog {
           OptionalLong.empty(),
           OptionalDouble.empty(),
           Optional.empty(),
-          Optional.empty());
+          Optional.empty(),
+          OptionalLong.empty());
     }
 
     static Result recycle(long target) {
@@ -1902,7 +1932,8 @@ public final class BuiltinCatalog {
           OptionalLong.of(target),
           OptionalDouble.empty(),
           Optional.empty(),
-          Optional.empty());
+          Optional.empty(),
+          OptionalLong.empty());
     }
 
     static Result delay(double seconds) {
@@ -1916,7 +1947,8 @@ public final class BuiltinCatalog {
           OptionalLong.empty(),
           OptionalDouble.of(seconds),
           Optional.empty(),
-          Optional.empty());
+          Optional.empty(),
+          OptionalLong.empty());
     }
 
     static Result hostResult(CompletableFuture<MooValue> future) {
@@ -1930,7 +1962,8 @@ public final class BuiltinCatalog {
           OptionalLong.empty(),
           OptionalDouble.empty(),
           Optional.of(future),
-          Optional.empty());
+          Optional.empty(),
+          OptionalLong.empty());
     }
 
     static Result connectionOption(ConnectionOptionRequest request) {
@@ -1944,7 +1977,23 @@ public final class BuiltinCatalog {
           OptionalLong.empty(),
           OptionalDouble.empty(),
           Optional.empty(),
-          Optional.of(request));
+          Optional.of(request),
+          OptionalLong.empty());
+    }
+
+    static Result bootPlayer(long target) {
+      return new Result(
+          Optional.of(new IntegerValue(0)),
+          Optional.empty(),
+          Optional.empty(),
+          Optional.empty(),
+          OptionalLong.empty(),
+          OptionalLong.empty(),
+          OptionalLong.empty(),
+          OptionalDouble.empty(),
+          Optional.empty(),
+          Optional.empty(),
+          OptionalLong.of(target));
     }
   }
 }

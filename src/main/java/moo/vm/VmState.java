@@ -24,6 +24,7 @@ public final class VmState {
   private final Map<String, MooValue> initialLocals;
   private final List<String> output = new ArrayList<>();
   private final List<ConnectionOptionRequest> connectionOptionRequests = new ArrayList<>();
+  private final List<Long> bootPlayerTargets = new ArrayList<>();
   private Outcome outcome = Outcome.RUNNING;
   private Optional<MooValue> returnValue = Optional.empty();
   private Optional<ErrorValue> pendingError = Optional.empty();
@@ -191,6 +192,17 @@ public final class VmState {
     List<ConnectionOptionRequest> requests = List.copyOf(connectionOptionRequests);
     connectionOptionRequests.clear();
     return requests;
+  }
+
+  void stageBootPlayerTarget(long target) {
+    bootPlayerTargets.add(target);
+  }
+
+  /** Removes and returns boot-player targets in their task execution order. */
+  public List<Long> drainBootPlayerTargets() {
+    List<Long> targets = List.copyOf(bootPlayerTargets);
+    bootPlayerTargets.clear();
+    return targets;
   }
 
   void switchPlayer(long player) {

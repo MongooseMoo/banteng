@@ -1321,3 +1321,80 @@ the first thirteen rows and stops at `audit_boot_player_messages`: after
 `boot_player`, Toast requires `*** Disconnected ***` on the booted connection,
 while Banteng returns no output. Boot-player messaging is the next causally
 relevant unchecked lifecycle target.
+
+## Fourteenth row: boot one live player connection
+
+The active durable row is `audit_boot_player_messages`. Conformance commit
+`f97de48` requires the controlling `boot_player()` task to complete before it
+observes the booted connection. The corrected row passes pinned WSL Toast with
+one selected and 11,504 deselected in 4.90 seconds. Committed Banteng
+`9787106` fails the same row because the builtin is absent and returns
+`E_VERBNF`; that is the production baseline for this slice.
+
+Pinned Toast registers `boot_player(OBJ)` in `src/server.cc`. `bf_boot_player`
+at lines 2960-2970 accepts exactly one object, permits the target player or a
+wizard programmer, calls `boot_player`, and returns zero. `boot_player` at
+lines 1793-1799 marks an existing network handle for disconnection and treats
+an absent or already disconnected target as a successful no-op. The sweep at
+lines 904-916 first invokes the accepting listener's `user_disconnected`, then
+uses `send_message` for the boot message when the accepted connection's
+`print_messages` flag is true, and finally closes the network handle.
+
+Toast's `send_message` at lines 545-563 resolves the accepting listener's
+`server_options` before falling back to #0. A string `boot_msg` emits one line;
+a list emits its string elements in order and ignores nonstrings; a present
+wrong-typed value emits nothing; an absent value emits the default
+`*** Disconnected ***`. A connection marked for disconnection is already
+treated as disconnected by connection queries and notification before the
+listener hook runs.
+
+Barn agrees on self-or-wizard permission and an absent-target no-op, but its
+current implementation hardcodes an unconditional disconnect message and does
+not route the exact listener hook and option lookup. Its written specifications
+also disagree about permission, event order, and missing-target behavior.
+Pinned Toast therefore decides all three conflicts for Banteng.
+
+The smallest Banteng representation extends only existing concrete owners.
+`BuiltinCatalog.Result` gains one optional boot-player target after exact
+arity/type/permission validation. `MooVm` stages ordered target IDs on
+`VmState`, and
+`MooRuntime.executeStored` applies it in task order through the same explicit
+effect path already used for connection options. The runtime resolves the
+target through its existing live-connection map, removes the logical/world
+connection before invoking the accepting listener's `user_disconnected`,
+resolves the exact boot-message option, and asks the existing
+`ListenerControl` owner to write those lines and close that connection ID.
+`MooServer` indexes its existing socket and writer ownership by connection ID;
+the connection thread's eventual `closeConnection` becomes a no-op because the
+logical runtime entry is already gone.
+
+This slice does not add a new interface, sender, adapter, helper layer, generic
+effect framework, world mutation, or alternate connection registry. The
+durable row freezes builtin completion and the default message on a primary
+`print-messages` listener. Focused Java coverage additionally freezes logical
+removal before the listener hook and physical EOF. Custom `boot_msg` strings
+and lists, wrong-typed options, `print-messages = false`, missing targets, and
+the permission matrix remain outside this exact row.
+
+## Fourteenth-row Banteng receipt
+
+The kept Banteng slice extends the existing explicit builtin-result effect
+path with one optional boot target and ordered VM staging. `MooRuntime` removes
+the target connection from runtime and world state before invoking the
+accepting listener's `user_disconnected`, resolves the Toast-compatible
+message, and uses the existing `ListenerControl` boundary. `MooServer` now
+indexes its existing socket and writer ownership by connection ID, serializes
+the final write, and closes exactly that target. No new interface, request
+record, sender, adapter, or generic effect framework was added.
+
+The focused real-socket Java regression passes after formatting and proves the
+controlling task returns, the hook observes prior logical disassociation, the
+target receives `*** Disconnected ***`, and EOF follows. The corrected managed
+row passes with one selected and 11,504 deselected in 5.22 seconds. The full
+Java 25 `clean check installDist` gate passes.
+
+The complete managed `connection_lifecycle_toast_oracle` fail-fast run passes
+the first fourteen rows and stops at `audit_recycle_active_player_message`:
+Banteng emits no output where Toast requires `*** Recycled ***`. The boot slice
+is accepted; recycling one active player is the next causally relevant
+unchecked lifecycle target.

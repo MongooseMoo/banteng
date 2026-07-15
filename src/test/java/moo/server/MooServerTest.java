@@ -2,6 +2,7 @@ package moo.server;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 
 import java.io.BufferedReader;
 import java.io.BufferedWriter;
@@ -161,6 +162,87 @@ final class MooServerTest {
           List.of(
               CONNECTION_PREFIX, CONNECTION_PREFIX, "{1, 1}", CONNECTION_SUFFIX, CONNECTION_SUFFIX),
           readLines(primaryInput, 5));
+    } finally {
+      server.close();
+      serving.join(Duration.ofSeconds(5));
+      assertFalse(serving.isAlive());
+    }
+  }
+
+  @Test
+  void bootsAnActivePlayerAfterLogicalDisconnectWithDefaultMessage() throws Exception {
+    MooServer server = new MooServer("127.0.0.1", 0, new LambdaMooV4Reader().read(TEST_DATABASE));
+    Thread serving = Thread.startVirtualThread(server::serve);
+    try (Socket control = new Socket(InetAddress.getLoopbackAddress(), server.port());
+        BufferedReader controlInput =
+            new BufferedReader(
+                new InputStreamReader(control.getInputStream(), StandardCharsets.ISO_8859_1));
+        BufferedWriter controlOutput =
+            new BufferedWriter(
+                new OutputStreamWriter(control.getOutputStream(), StandardCharsets.ISO_8859_1))) {
+      control.setSoTimeout((int) Duration.ofSeconds(5).toMillis());
+      writeLine(controlOutput, "connect Wizard");
+      assertEquals("*** Connected ***", controlInput.readLine());
+      writeLine(controlOutput, "PREFIX " + CONNECTION_PREFIX);
+      writeLine(controlOutput, "SUFFIX " + CONNECTION_SUFFIX);
+
+      writeLine(
+          controlOutput,
+          "; add_property(#0, \"audit_boot_player\", {}, {#0, \"rw\"});"
+              + " add_property(#0, \"audit_boot_disconnected\", {}, {#0, \"rw\"});"
+              + " login_player = create($nothing);"
+              + " set_player_flag(login_player, 1);"
+              + " #0.audit_boot_player = login_player;"
+              + " try add_verb(#0, {player, \"rxd\", \"do_login_command\"}, {\"this\", \"none\", \"this\"}); except (E_INVARG) endtry"
+              + " set_verb_info(#0, \"do_login_command\", {player, \"rxd\", \"do_login_command\"});"
+              + " set_verb_args(#0, \"do_login_command\", {\"this\", \"none\", \"this\"});"
+              + " set_verb_code(#0, \"do_login_command\", {\"return #0.audit_boot_player;\"});"
+              + " try add_verb(#0, {player, \"rxd\", \"user_disconnected\"}, {\"this\", \"none\", \"this\"}); except (E_INVARG) endtry"
+              + " set_verb_info(#0, \"user_disconnected\", {player, \"rxd\", \"user_disconnected\"});"
+              + " set_verb_args(#0, \"user_disconnected\", {\"this\", \"none\", \"this\"});"
+              + " set_verb_code(#0, \"user_disconnected\", {"
+              + "\"connection_info_succeeds = 1;\","
+              + "\"try connection_info(player); except (E_INVARG) connection_info_succeeds = 0; endtry\","
+              + "\"#0.audit_boot_disconnected = {this, player, caller, args, argstr, connection_info_succeeds};\"});"
+              + " return 1;");
+      assertEquals(
+          List.of(
+              CONNECTION_PREFIX, CONNECTION_PREFIX, "{1, 1}", CONNECTION_SUFFIX, CONNECTION_SUFFIX),
+          readLines(controlInput, 5));
+
+      try (Socket target = new Socket(InetAddress.getLoopbackAddress(), server.port());
+          BufferedReader targetInput =
+              new BufferedReader(
+                  new InputStreamReader(target.getInputStream(), StandardCharsets.ISO_8859_1))) {
+        target.setSoTimeout((int) Duration.ofSeconds(5).toMillis());
+        assertEquals("*** Connected ***", targetInput.readLine());
+
+        writeLine(controlOutput, "; boot_player(#0.audit_boot_player); return 1;");
+        assertEquals(
+            List.of(
+                CONNECTION_PREFIX,
+                CONNECTION_PREFIX,
+                "{1, 1}",
+                CONNECTION_SUFFIX,
+                CONNECTION_SUFFIX),
+            readLines(controlInput, 5));
+        assertEquals("*** Disconnected ***", targetInput.readLine());
+        assertNull(targetInput.readLine());
+      }
+
+      writeLine(
+          controlOutput,
+          "; seen = #0.audit_boot_disconnected;"
+              + " return {seen[1] == #0, seen[2] == #0.audit_boot_player, seen[3] == #-1,"
+              + " seen[4] == {#0.audit_boot_player}, seen[5] == \"\", seen[6] == 0};");
+      assertEquals(
+          List.of(
+              CONNECTION_PREFIX,
+              CONNECTION_PREFIX,
+              "{1, {1, 1, 1, 1, 1, 1}}",
+              CONNECTION_SUFFIX,
+              CONNECTION_SUFFIX),
+          readLines(controlInput, 5));
     } finally {
       server.close();
       serving.join(Duration.ofSeconds(5));
