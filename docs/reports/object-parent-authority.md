@@ -138,3 +138,63 @@ surfaces `E_TYPE` despite `BuiltinCatalog`'s direct two-object `chparent` path
 already ending in a wizard-only `E_PERM` check. A focused Banteng regression
 must reproduce the durable row's setup and prove the exact failing boundary
 before the smallest Java change is chosen.
+
+## Corrected failing boundary: intrinsic fertile flag assignment
+
+The earlier attribution of Banteng's `E_TYPE` to `chparent` was wrong. A
+focused trace of the durable row proved that execution fails during its first
+Wizard setup step at `parent_obj.f = 0`; the later Programmer `chparent` call
+is never reached with two object references. No misleading `chparent`
+regression or production edit was made.
+
+The current Banteng source confirms the boundary.
+`src/main/java/moo/vm/MooVm.java:423-447` routes object property assignment to
+`WorldTxn.writeObjectProperty`. The owner at
+`src/main/java/moo/world/WorldTxn.java:244-335` recognizes intrinsic writes
+for `programmer`, `wizard`, and `w`, but not `f`. The missing name falls
+through to ordinary-property lookup and returns false, which the VM surfaces
+as a property error. Fresh objects already have flag bits zero, so omitting
+the assignment makes the existing direct `chparent` path return the expected
+`E_PERM`; that would not reproduce the durable row's actual failure.
+
+### Barn fertile-property authority
+
+`../barn/spec/objects.md:198-215` defines `.f` as a writable integer built-in
+property and states that flag properties treat any nonzero integer as true
+and only zero as false. The active row uses integer zero.
+
+Barn's direct-property entry is
+`../barn/vm/op_property.go:128-223`. It checks for a built-in assignment
+before ordinary property lookup and delegates to `setBuiltinProperty` at
+lines 352-439. The `f` case at lines 427-430 accepts an integer and calls
+`Store.SetObjectFlag` with `FlagFertile` and `value.Int() != 0`.
+`../barn/db/store/store_core.go:182-196` owns the flag mutation, and
+`../barn/db/store/object.go:230-239` assigns `FlagFertile` bit 128.
+
+### Toast fertile-property authority
+
+At the pinned Toast identity already recorded above, object assignment enters
+`OP_PUT_PROP` at `/root/src/toaststunt/src/execute.cc:1959-2080`. For built-in
+`BP_F`, lines 2045-2055 permit a wizard or an unprotected owner and then call
+`db_set_property_value`. The active setup caller is Wizard.
+
+`/root/src/toaststunt/src/db_properties.cc:620-685` maps `BP_F` to
+`FLAG_FERTILE` and clears the bit when the assigned value is false.
+`src/include/db.h:252-262` defines that permanent flag. Toast accepts general
+falsey values for this built-in, while Barn's current implementation accepts
+only integers. The active row assigns integer zero, so the row does not
+resolve that broader disagreement.
+
+### Corrected frozen contract and exclusions
+
+For the setup surface covered by the durable row, a Wizard assignment
+`object.f = 0` on a valid ordinary object must succeed, evaluate to the
+assigned integer zero, and leave the object's fertile flag clear. It must not
+fall through to ordinary-property lookup or raise a property/type error.
+
+This corrected slice does not authorize changing `chparent`: its active
+nonwizard denial is already correct once setup succeeds. It also does not
+decide `.f` readback, setting `.f` true, nonwizard `.f` permissions,
+non-integer truth values, protected objects, anonymous objects, invalid
+objects, or any other intrinsic flag property. Those surfaces require their
+own durable rows and authority gates.
