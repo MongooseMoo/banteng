@@ -351,6 +351,94 @@ final class MooServerTest {
     }
   }
 
+  @Test
+  void redirectsSamePlayerLoginToReplacementConnection() throws Exception {
+    MooServer server = new MooServer("127.0.0.1", 0, new LambdaMooV4Reader().read(TEST_DATABASE));
+    Thread serving = Thread.startVirtualThread(server::serve);
+    try (Socket control = new Socket(InetAddress.getLoopbackAddress(), server.port());
+        BufferedReader controlInput =
+            new BufferedReader(
+                new InputStreamReader(control.getInputStream(), StandardCharsets.ISO_8859_1));
+        BufferedWriter controlOutput =
+            new BufferedWriter(
+                new OutputStreamWriter(control.getOutputStream(), StandardCharsets.ISO_8859_1))) {
+      control.setSoTimeout((int) Duration.ofSeconds(5).toMillis());
+      writeLine(controlOutput, "connect Wizard");
+      assertEquals("*** Connected ***", controlInput.readLine());
+      writeLine(controlOutput, "PREFIX " + CONNECTION_PREFIX);
+      writeLine(controlOutput, "SUFFIX " + CONNECTION_SUFFIX);
+
+      writeLine(
+          controlOutput,
+          "; for prop in ({\"audit_redirect_player\", \"audit_redirect_ports\", \"audit_redirect_reconnected\"})"
+              + " try add_property(#0, prop, {}, {#0, \"rw\"}); except (E_INVARG) endtry endfor"
+              + " login_player = create($nothing); set_player_flag(login_player, 1);"
+              + " #0.audit_redirect_player = login_player; #0.audit_redirect_ports = {};"
+              + " try add_verb(#0, {player, \"rxd\", \"do_login_command\"}, {\"this\", \"none\", \"this\"}); except (E_INVARG) endtry"
+              + " set_verb_info(#0, \"do_login_command\", {player, \"rxd\", \"do_login_command\"});"
+              + " set_verb_args(#0, \"do_login_command\", {\"this\", \"none\", \"this\"});"
+              + " set_verb_code(#0, \"do_login_command\", {\"#0.audit_redirect_ports = {@#0.audit_redirect_ports, connection_info(player)[\\\"source_port\\\"]};\", \"return #0.audit_redirect_player;\"});"
+              + " try add_verb(#0, {player, \"rxd\", \"user_reconnected\"}, {\"this\", \"none\", \"this\"}); except (E_INVARG) endtry"
+              + " set_verb_info(#0, \"user_reconnected\", {player, \"rxd\", \"user_reconnected\"});"
+              + " set_verb_args(#0, \"user_reconnected\", {\"this\", \"none\", \"this\"});"
+              + " set_verb_code(#0, \"user_reconnected\", {\"#0.audit_redirect_reconnected = {this, player, caller, args, argstr, connection_info(player)[\\\"source_port\\\"]};\"});"
+              + " return 1;");
+      assertEquals(
+          List.of(
+              CONNECTION_PREFIX, CONNECTION_PREFIX, "{1, 1}", CONNECTION_SUFFIX, CONNECTION_SUFFIX),
+          readLines(controlInput, 5));
+
+      try (Socket oldConnection = new Socket(InetAddress.getLoopbackAddress(), server.port());
+          BufferedReader oldInput =
+              new BufferedReader(
+                  new InputStreamReader(
+                      oldConnection.getInputStream(), StandardCharsets.ISO_8859_1))) {
+        oldConnection.setSoTimeout((int) Duration.ofSeconds(5).toMillis());
+        assertEquals("*** Connected ***", oldInput.readLine());
+
+        try (Socket replacement = new Socket(InetAddress.getLoopbackAddress(), server.port());
+            BufferedReader replacementInput =
+                new BufferedReader(
+                    new InputStreamReader(
+                        replacement.getInputStream(), StandardCharsets.ISO_8859_1));
+            BufferedWriter replacementOutput =
+                new BufferedWriter(
+                    new OutputStreamWriter(
+                        replacement.getOutputStream(), StandardCharsets.ISO_8859_1))) {
+          replacement.setSoTimeout((int) Duration.ofSeconds(5).toMillis());
+          assertEquals(
+              "*** Redirecting old connection to this port ***", replacementInput.readLine());
+          assertEquals("*** Redirecting connection to new port ***", oldInput.readLine());
+          assertNull(oldInput.readLine());
+
+          writeLine(replacementOutput, "redirect-new-command");
+          assertEquals("I couldn't understand that.", replacementInput.readLine());
+
+          writeLine(
+              controlOutput,
+              "; seen = #0.audit_redirect_reconnected; count = 0;"
+                  + " for candidate in (connected_players(1))"
+                  + " if (candidate == #0.audit_redirect_player) count = count + 1; endif endfor"
+                  + " return {{seen[1] == #0, seen[2] == #0.audit_redirect_player,"
+                  + " seen[3] == #-1, seen[4] == {#0.audit_redirect_player}, seen[5] == \"\","
+                  + " seen[6] == #0.audit_redirect_ports[2]}, count};");
+          assertEquals(
+              List.of(
+                  CONNECTION_PREFIX,
+                  CONNECTION_PREFIX,
+                  "{1, {{1, 1, 1, 1, 1, 1}, 1}}",
+                  CONNECTION_SUFFIX,
+                  CONNECTION_SUFFIX),
+              readLines(controlInput, 5));
+        }
+      }
+    } finally {
+      server.close();
+      serving.join(Duration.ofSeconds(5));
+      assertFalse(serving.isAlive());
+    }
+  }
+
   private static void executeSetup(
       BufferedWriter output, BufferedReader input, String name, String value) throws Exception {
     writeLine(

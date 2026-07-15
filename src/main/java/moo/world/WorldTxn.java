@@ -78,6 +78,17 @@ public final class WorldTxn {
     return player == null ? OptionalLong.empty() : OptionalLong.of(player);
   }
 
+  /** Returns attached players in newest-connection-first order. */
+  public List<Long> connectedPlayers(boolean showAll) {
+    List<Long> players = new ArrayList<>();
+    for (long player : connections.values()) {
+      if (showAll || player >= 0) {
+        players.addFirst(player);
+      }
+    }
+    return List.copyOf(players);
+  }
+
   /** Returns network metadata for a connection object or its attached player. */
   public Optional<MapValue> connectionInfo(long objectId) {
     if (connections.containsKey(objectId)) {
@@ -529,6 +540,23 @@ public final class WorldTxn {
     }
     List<WorldProperty> properties = new ArrayList<>(object.properties());
     properties.add(new WorldProperty(name, value, owner, permissions));
+    replaceObject(
+        copyObject(object, object.flags(), object.owner(), object.location(), properties));
+    return true;
+  }
+
+  /** Deletes one property definition local to the exact object. */
+  public boolean deleteProperty(long objectId, String name) {
+    Objects.requireNonNull(name, "name");
+    WorldObject object = object(objectId).orElse(null);
+    if (object == null) {
+      return false;
+    }
+    List<WorldProperty> properties = new ArrayList<>(object.properties());
+    boolean removed = properties.removeIf(property -> property.name().equalsIgnoreCase(name));
+    if (!removed) {
+      return false;
+    }
     replaceObject(
         copyObject(object, object.flags(), object.owner(), object.location(), properties));
     return true;

@@ -146,7 +146,9 @@ final class MooRuntimeTest {
     try {
       assertEquals(List.of(), runtime.openConnection(dynamicConnection, handler, false));
       assertEquals(loginPlayer, world.connectionPlayer(dynamicConnection).orElseThrow());
-      assertEquals(List.of(), runtime.executeLine(dynamicConnection, "postlogin alpha beta"));
+      assertEquals(
+          List.of("I couldn't understand that."),
+          runtime.executeLine(dynamicConnection, "postlogin alpha beta"));
       assertEquals(
           "{#"
               + handler
@@ -1017,6 +1019,29 @@ final class MooRuntimeTest {
               + "delete_property(player, \"audit_old_name\"); "
               + "delete_verb(player, \"auditlook\"); return 1;");
     }
+  }
+
+  @Test
+  void deletesLocalPropertyDefinitions() throws Exception {
+    WorldTxn world = new LambdaMooV4Reader().read(FIXTURE);
+    MooRuntime runtime = new MooRuntime(world);
+    long connectionId = -47;
+
+    assertEquals(List.of(), runtime.openConnection(connectionId));
+    assertEquals(List.of("*** Connected ***"), runtime.executeLine(connectionId, "connect Wizard"));
+    long player = world.connectionPlayer(connectionId).orElseThrow();
+    runtime.executeLine(
+        connectionId,
+        "; add_property(player, \"audit_delete_local\", 1, {player, \"rw\"}); return 1;");
+    assertTrue(world.readObjectProperty(player, "audit_delete_local").isPresent());
+
+    runtime.executeLine(
+        connectionId, "; delete_property(player, \"audit_delete_local\"); return 1;");
+
+    assertTrue(world.readObjectProperty(player, "audit_delete_local").isEmpty());
+    assertEquals(
+        BuiltinCatalog.EffectClass.TRANSACTION_WRITE,
+        new BuiltinCatalog().effectClass("delete_property"));
   }
 
   @Test

@@ -615,6 +615,7 @@ public final class MooRuntime {
           thisObject = room;
         }
         if (selectedVerb == null) {
+          output.add("I couldn't understand that.");
           connection.suffix.ifPresent(output::add);
           return List.copyOf(output);
         }
@@ -632,6 +633,8 @@ public final class MooRuntime {
         locals.put("dobj", new ObjectValue(directObject));
         locals.put("iobj", new ObjectValue(indirectObject));
         output.addAll(executeStored(selectedVerb, locals).output());
+      } else {
+        output.add("I couldn't understand that.");
       }
     }
     connection.suffix.ifPresent(output::add);
@@ -717,29 +720,145 @@ public final class MooRuntime {
     }
     if (authenticatedPlayer.isPresent()) {
       long switchedPlayer = authenticatedPlayer.orElseThrow();
-      OptionalLong crossListenerConnection = OptionalLong.empty();
+      long existingConnectionId = Long.MIN_VALUE;
+      ConnectionState existingConnection = null;
       if (returnedPlayerAssociation) {
         for (Map.Entry<Long, ConnectionState> entry : connections.entrySet()) {
-          long existingConnectionId = entry.getKey();
-          if (existingConnectionId != connectionId
-              && world.connectionPlayer(existingConnectionId).orElse(Long.MIN_VALUE)
+          long candidateConnectionId = entry.getKey();
+          if (candidateConnectionId != connectionId
+              && world.connectionPlayer(candidateConnectionId).orElse(Long.MIN_VALUE)
                   == switchedPlayer) {
-            if (entry.getValue().listenerHandler != connection.listenerHandler) {
-              crossListenerConnection = OptionalLong.of(existingConnectionId);
-            }
+            existingConnectionId = candidateConnectionId;
+            existingConnection = entry.getValue();
             break;
           }
         }
       }
-      boolean freshReturnedPlayerAssociation =
-          returnedPlayerAssociation && world.connectionInfo(switchedPlayer).isEmpty();
-      if (crossListenerConnection.isPresent()) {
-        closeConnection(crossListenerConnection.orElseThrow());
+      if (existingConnection != null) {
+        ConnectionState redirectedConnection = existingConnection;
+        boolean sameListener = redirectedConnection.listenerHandler == connection.listenerHandler;
+        if (sameListener && !world.switchConnectionPlayer(connectionId, switchedPlayer)) {
+          throw new IllegalStateException("stored login switched to a missing player");
+        }
+        List<String> oldLines = new ArrayList<>();
+        if (redirectedConnection.printMessages) {
+          MooValue message = null;
+          MooValue listenerOptions =
+              world
+                  .readObjectProperty(redirectedConnection.listenerHandler, "server_options")
+                  .orElse(null);
+          if (listenerOptions instanceof ObjectValue options) {
+            message = world.readObjectProperty(options.value(), "redirect_from_msg").orElse(null);
+          }
+          if (message == null && redirectedConnection.listenerHandler != 0) {
+            MooValue rootOptions = world.readObjectProperty(0, "server_options").orElse(null);
+            if (rootOptions instanceof ObjectValue options) {
+              message = world.readObjectProperty(options.value(), "redirect_from_msg").orElse(null);
+            }
+          }
+          if (message == null) {
+            oldLines.add("*** Redirecting connection to new port ***");
+          } else if (message instanceof StringValue string) {
+            oldLines.add(new String(string.bytes(), StandardCharsets.ISO_8859_1));
+          } else if (message instanceof ListValue list) {
+            for (MooValue element : list.elements()) {
+              if (element instanceof StringValue string) {
+                oldLines.add(new String(string.bytes(), StandardCharsets.ISO_8859_1));
+              }
+            }
+          }
+        }
+
+        List<String> newLines = new ArrayList<>();
+        if (connection.printMessages) {
+          MooValue message = null;
+          MooValue listenerOptions =
+              world.readObjectProperty(connection.listenerHandler, "server_options").orElse(null);
+          if (listenerOptions instanceof ObjectValue options) {
+            message = world.readObjectProperty(options.value(), "redirect_to_msg").orElse(null);
+          }
+          if (message == null && connection.listenerHandler != 0) {
+            MooValue rootOptions = world.readObjectProperty(0, "server_options").orElse(null);
+            if (rootOptions instanceof ObjectValue options) {
+              message = world.readObjectProperty(options.value(), "redirect_to_msg").orElse(null);
+            }
+          }
+          if (message == null) {
+            newLines.add("*** Redirecting old connection to this port ***");
+          } else if (message instanceof StringValue string) {
+            newLines.add(new String(string.bytes(), StandardCharsets.ISO_8859_1));
+          } else if (message instanceof ListValue list) {
+            for (MooValue element : list.elements()) {
+              if (element instanceof StringValue string) {
+                newLines.add(new String(string.bytes(), StandardCharsets.ISO_8859_1));
+              }
+            }
+          }
+        }
+
+        long redirectedConnectionId = existingConnectionId;
+        boolean wroteRedirects = listenerControl.isPresent();
+        listenerControl.ifPresent(
+            control -> {
+              control.writeConnection(redirectedConnectionId, oldLines);
+              control.writeConnection(connectionId, newLines);
+              control.bootConnection(redirectedConnectionId, List.of());
+            });
+        connections.remove(existingConnectionId);
+        world.closeConnection(existingConnectionId);
+
+        if (sameListener) {
+          world
+              .verb(connection.listenerHandler, "user_reconnected")
+              .ifPresent(
+                  userReconnected ->
+                      executeStored(
+                          userReconnected,
+                          verbLocals(
+                              connection.listenerHandler,
+                              switchedPlayer,
+                              -1,
+                              "user_reconnected",
+                              new ListValue(List.of(new ObjectValue(switchedPlayer))),
+                              "")));
+        } else {
+          world
+              .verb(redirectedConnection.listenerHandler, "user_client_disconnected")
+              .ifPresent(
+                  userDisconnected ->
+                      executeStored(
+                          userDisconnected,
+                          verbLocals(
+                              redirectedConnection.listenerHandler,
+                              switchedPlayer,
+                              -1,
+                              "user_client_disconnected",
+                              new ListValue(List.of(new ObjectValue(switchedPlayer))),
+                              "")));
+          if (!world.switchConnectionPlayer(connectionId, switchedPlayer)) {
+            throw new IllegalStateException("stored login switched to a missing player");
+          }
+          world
+              .verb(connection.listenerHandler, "user_connected")
+              .ifPresent(
+                  userConnected ->
+                      executeStored(
+                          userConnected,
+                          verbLocals(
+                              connection.listenerHandler,
+                              switchedPlayer,
+                              -1,
+                              "user_connected",
+                              new ListValue(List.of(new ObjectValue(switchedPlayer))),
+                              "")));
+        }
+        return wroteRedirects ? List.of() : List.copyOf(newLines);
       }
+
       if (!world.switchConnectionPlayer(connectionId, switchedPlayer)) {
         throw new IllegalStateException("stored login switched to a missing player");
       }
-      if (freshReturnedPlayerAssociation || crossListenerConnection.isPresent()) {
+      if (returnedPlayerAssociation) {
         world
             .verb(connection.listenerHandler, "user_connected")
             .ifPresent(

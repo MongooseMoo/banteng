@@ -201,6 +201,17 @@ public final class BuiltinCatalog {
             ? Result.zero()
             : Result.error(ErrorValue.E_INVARG);
       }
+      case "connected_players" -> {
+        if (arguments.size() > 1) {
+          yield Result.error(ErrorValue.E_ARGS);
+        }
+        boolean showAll = !arguments.isEmpty() && arguments.getFirst().isTruthy();
+        List<MooValue> players = new ArrayList<>();
+        for (long player : world.connectedPlayers(showAll)) {
+          players.add(new ObjectValue(player));
+        }
+        yield Result.value(new ListValue(players));
+      }
       case "connection_info" -> {
         if (arguments.size() != 1) {
           yield Result.error(ErrorValue.E_ARGS);
@@ -261,6 +272,7 @@ public final class BuiltinCatalog {
       case "move" -> move(arguments, world);
       case "switch_player" -> switchPlayer(arguments);
       case "add_property" -> addProperty(arguments, world);
+      case "delete_property" -> deleteProperty(arguments, world, programmer);
       case "task_perms" ->
           arguments.isEmpty()
               ? Result.value(new ObjectValue(programmer))
@@ -390,7 +402,8 @@ public final class BuiltinCatalog {
           "function_info" ->
           EffectClass.PURE;
       case "valid", "parent", "verb_info", "verb_args", "verb_code" -> EffectClass.TRANSACTION_READ;
-      case "connection_info",
+      case "connected_players",
+          "connection_info",
           "queued_tasks",
           "sqlite_handles",
           "sqlite_info",
@@ -415,6 +428,7 @@ public final class BuiltinCatalog {
           "set_player_flag",
           "move",
           "add_property",
+          "delete_property",
           "chparent" ->
           EffectClass.TRANSACTION_WRITE;
       case "notify",
@@ -1266,6 +1280,28 @@ public final class BuiltinCatalog {
         : Result.error(ErrorValue.E_INVARG);
   }
 
+  private static Result deleteProperty(List<MooValue> arguments, WorldTxn world, long programmer) {
+    if (arguments.size() != 2) {
+      return Result.error(ErrorValue.E_ARGS);
+    }
+    if (!(arguments.get(0) instanceof ObjectValue object)
+        || !(arguments.get(1) instanceof StringValue name)) {
+      return Result.error(ErrorValue.E_TYPE);
+    }
+    WorldObject target = world.object(object.value()).orElse(null);
+    if (target == null) {
+      return Result.error(ErrorValue.E_INVARG);
+    }
+    WorldObject programmerObject = world.object(programmer).orElse(null);
+    boolean wizard = programmerObject != null && (programmerObject.flags() & 4) != 0;
+    if (target.owner() != programmer && !wizard && (target.flags() & 32) == 0) {
+      return Result.error(ErrorValue.E_PERM);
+    }
+    return world.deleteProperty(object.value(), decode(name))
+        ? Result.zero()
+        : Result.error(ErrorValue.E_PROPNF);
+  }
+
   private static Result setTaskPerms(List<MooValue> arguments) {
     if (arguments.size() != 1 || !(arguments.getFirst() instanceof ObjectValue programmer)) {
       return Result.error(ErrorValue.E_ARGS);
@@ -1788,6 +1824,9 @@ public final class BuiltinCatalog {
 
     /** Closes one dynamic listener selected by its integer descriptor. */
     boolean unlisten(int port);
+
+    /** Writes ordered lines to one accepted connection selected by runtime ID. */
+    void writeConnection(long connectionId, List<String> lines);
 
     /** Writes final lines and closes one accepted connection selected by runtime ID. */
     void bootConnection(long connectionId, List<String> lines);

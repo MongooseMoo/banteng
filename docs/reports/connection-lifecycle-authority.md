@@ -1571,3 +1571,240 @@ the first sixteen rows and stops at `audit_redirect_messages`: its final
 observation receives `E_VERBNF` instead of the Toast-proven redirect outputs.
 The timeout slice is accepted; redirect messaging is the next causally
 relevant unchecked lifecycle target.
+
+## Seventeenth row: same-listener login redirect
+
+The active durable row is `audit_redirect_messages`. It installs a primary-
+listener `do_login_command` that always returns one newly created player, then
+opens two connections. The row is red on committed Banteng `9a55019`: the
+complete lifecycle run passes the first sixteen rows, but its final observation
+returns `E_VERBNF`. It passes pinned WSL Toast at source commit
+`aecc51e9449c6e7c95272f0f044b5ba38948459e` with one selected and 11,504
+deselected in 5.68 seconds.
+
+The row is valid but narrower than its description. Harness
+`TestConnection.connect` and `open_connection` in
+`src/moo_conformance/transport.py:114-165,358-362` drain initial output from
+each new socket. Both connections therefore authenticate during their
+automatic blank input. The later explicit sends are ordinary invalid player
+commands. The row freezes the new connection's exact
+`I couldn't understand that.` response and absence of subsequent output, the
+old connection's exact default
+`*** Redirecting connection to new port ***` line, and membership of the
+player in `connected_players(1)`.
+
+The harness discards the new connection's initial redirect output. The row
+therefore does not freeze `redirect_to_msg`, EOF or continued usability on the
+old socket, message option lookup or print suppression, hook choice/frame/
+order, cross-listener behavior, close timing, or uniqueness of the remaining
+player connection. A server can omit the new-side message, leave the old
+socket open, or call the wrong hook and still pass this row.
+
+Barn `spec/login.md:77-123,230-237` says a reconnect boots the old connection,
+associates the new one, calls `user_reconnected`, and enters the command loop.
+`spec/server.md:129-154` also names that hook. The written contract does not
+define accepting-listener ownership, the two redirect options and defaults,
+their value types, independent print suppression, or exact hook frame and
+ordering. Its high-level old-close and same-listener reconnection result agrees
+with Toast, but it is incomplete authority for observable details.
+
+Barn's public path runs from `server/input_processor.go` through
+`processPreLogin` and `dispatchLoginCommand`, then
+`scheduler/task_factory.go:CreateLoginHookTask`, and finally
+`server/input_login.go:loginPlayer`. On reconnect `loginPlayer` replaces the
+player map with the new connection, sends a hardcoded unconditional old-side
+default, calls old-listener `user_client_disconnected`, sends the new side's
+ordinary `connect_msg`, and calls new-listener `user_connected`. It neither
+closes nor marks the old socket disconnected in this path. Barn therefore
+passes this narrow row while diverging on old-socket lifetime, same-listener
+hook, new-side message, option lookup, print suppression, and hook frame.
+
+Barn implements `connected_players([show_all])` in
+`builtins/network.go:966-995`. It returns attached players from the connection
+manager, includes unauthenticated connection objects for a truthy argument,
+and deduplicates values. The normative network-builtin spec documents the
+zero-or-one-argument surface but does not define order or duplicate behavior.
+Toast, rather than Barn's deduplication, decides those unresolved details.
+
+Pinned Toast creates a negative connection identity and queues initial blank
+input in `src/server.cc:1438-1492`. `do_login_task` in
+`src/tasks.cc:878-966` runs the accepting listener's `do_login_command`,
+transfers task ownership when it returns a player, and calls
+`player_connected(old_negative_id, player, newly_created)`. The semantic owner
+is `src/server.cc:1658-1724`.
+
+For this same-listener redirect, Toast first attaches the new handle to the
+positive player. It conditionally sends old-listener `redirect_from_msg` with
+default `*** Redirecting connection to new port ***`, then new-listener
+`redirect_to_msg` with default
+`*** Redirecting old connection to this port ***`. It closes and frees the old
+handle immediately when its network reference count permits, otherwise marks
+it for deferred disconnection. Only after that close decision does it invoke
+new-listener `user_reconnected`.
+
+The shared message owner at `src/server.cc:518-567` applies each endpoint's
+`print_messages` flag independently and resolves that accepting listener's
+`server_options` before #0 fallback. An absent named option uses the supplied
+default; a string sends one line, including an empty string; a list sends only
+its string members in order; and any other present type suppresses output.
+The same-listener notifier frame has the new listener as `this`, the positive
+player as task player and sole argument, `caller = #-1`, and empty `argstr`.
+
+Toast registers `connected_players` for zero or one argument in
+`src/server.cc:3288-3289`; `bf_connected_players` at lines 2752-2780 returns
+authenticated handles by default and every live handle for a truthy argument,
+excluding handles marked for disconnection. It enumerates handles in live
+server order without Barn's player deduplication. After this redirect, only the
+replacement handle contributes the positive player.
+
+The reported Banteng `E_VERBNF` is specifically the absent
+`connected_players` builtin, propagated from `BuiltinCatalog` through the VM.
+A separate same-listener redirect defect is masked: `MooRuntime.executeLogin`
+detects an existing returned-player connection only when its listener differs,
+so it currently keeps both logical mappings, emits no redirect messages,
+leaves the old socket open, and omits `user_reconnected`.
+
+The smallest row-completing representation stays in existing concrete owners.
+`WorldTxn` exposes the currently attached connection values in live order;
+`BuiltinCatalog` implements the zero-or-one-argument external read; and
+`MooRuntime.executeLogin` handles an existing returned-player connection by
+resolving both endpoint messages, using the existing serialized final-lines-
+plus-close transport operation for the old socket, removing its logical
+mapping, and invoking the existing stored-verb path with the Toast notifier
+frame. The new-side message remains the normal return from `executeLogin`.
+
+One real-socket regression will freeze the two default messages, old-side EOF,
+same-listener hook frame after old logical removal, later command behavior, and
+`connected_players(1)` membership. The existing cross-listener runtime
+regression remains authoritative for that separate branch. This slice adds no
+new interface, helper, sender, adapter, effect/request record, or server
+production method.
+
+The regression exposed one further behavior already asserted by the durable
+row but previously masked by its final `E_VERBNF`: after redirect, the new
+authenticated connection's unmatched command must emit exact output
+`I couldn't understand that.`. Barn has no normative command-dispatch passage
+for this fallback. Its current owner in
+`server/input_processor.go:482-549` runs listener `do_command`, searches player
+and location command verbs, optionally selects a `huh` verb according to
+`player_huh`, and otherwise sends that hardcoded line before the output suffix.
+
+Pinned Toast owns the same decision in `do_command_task` at
+`src/tasks.cc:801-869`. After the intrinsic and listener `do_command` paths, it
+searches the player, location, direct object, and indirect object for a command
+verb, then the location or player `huh` selected by `player_huh`. If all paths
+decline, it notifies the player with exact
+`I couldn't understand that.`, clears the last input task ID, and then emits
+the output suffix. The active row's newly created player has no matching
+command or usable `huh`, so this hardcoded final branch is the relevant frozen
+surface. Banteng's existing selected-verb-null branch already owns that point
+and currently returns only prefix/earlier output plus suffix; adding this one
+line there requires no new owner or API.
+
+The isolated managed Banteng row initially passed after the return-path
+implementation, but the complete lifecycle family exposed a real ordering
+defect: the new-side redirect was returned to `MooServer` only after
+`user_reconnected` completed, so under the broader run it arrived after the
+harness's initial `new_connection` drain. The subsequent explicit send then
+captured `*** Redirecting old connection to this port ***` instead of the
+unknown-command line. The row therefore does freeze one aspect of new-side
+timing: any such output must complete early enough that no redirect line
+remains for the next input.
+
+That evidence disproves the earlier claim that the return value alone is a
+sufficient representation. Toast sends both endpoint messages before closing
+the old handle and before the notifier. Banteng already registers both socket
+writers before `MooRuntime.openConnection`, but its existing
+`ListenerControl` capability exposes only final-lines-plus-close. The smallest
+ordering-correct transport change is one additional write-only operation on
+that same existing capability, implemented by `MooServer` through its existing
+connection-ID writer map and serialized `writeLines`. The runtime can then
+write old lines, write new lines, close the old socket, remove its logical
+mapping, and invoke the notifier in Toast order. This adds no new interface,
+helper, sender object, adapter, registry, or server owner; the broader managed
+failure is the proof that the existing capability needs this one operation.
+
+## Redirect-family cleanup dependency: `delete_property`
+
+The full lifecycle gate failed after the focused redirect row passed. A
+managed bisection isolated the causal predecessor to
+`audit_listener_handler_do_blank_command`: that row temporarily adds
+`trusted_proxies` to `#6` and removes it in cleanup with
+`delete_property(#6, "trusted_proxies")`. Banteng did not implement that
+builtin, so the cleanup caught `E_VERBNF` and left the option active. The next
+row's initial blank inputs were consequently treated as trusted; because #0
+has no `do_blank_command`, login returned before `do_login_command`. Its later
+explicit input performed the login and emitted the redirect, explaining both
+the late redirect line and the absent unknown-command response. The two-row
+managed reproduction makes property deletion a causal dependency of this
+lifecycle slice rather than unrelated builtin expansion.
+
+Barn's general object table in `../barn/spec/objects.md:184-194` names
+`delete_property`. Its detailed description in
+`../barn/spec/builtins/properties.md:146-172` says an inherited-only property
+is a successful no-op and that deletion of an override restores inheritance.
+Those statements disagree with Toast. Barn's implementation at
+`../barn/builtins/properties.go:327-371`, through
+`../barn/db/store/store_properties.go:363-381,492-514,619-644`, instead
+requires a definition local to the exact target. It nevertheless diverges
+from Toast by accepting anonymous objects, returning `E_INVIND` for a
+never-existing object, omitting the permission check, and not traversing
+anonymous descendants when removing stored slots.
+
+Pinned WSL Toast commit `aecc51e9449c6e7c95272f0f044b5ba38948459e`
+registers `delete_property` for exactly two arguments with a string second
+argument in `src/property.cc:343-344`. `bf_delete_prop` at lines 239-259
+requires an ordinary object, returns `E_INVARG` for an invalid or recycled
+object, applies `db_object_allows(obj, progr, FLAG_WRITE)`, and calls
+`db_delete_propdef(obj, pname)`. The owner in
+`src/db_properties.cc:351-407` deletes only a property definition local to
+that object and recursively removes its value slots from permanent and
+anonymous descendants. An inherited property, a child value override, or a
+built-in property is therefore `E_PROPNF`, not a successful no-op. Object
+write authority is owner, wizard, or the object's public-write flag; property
+ownership and flags do not decide deletion. Names match case-insensitively.
+Success returns integer zero through `src/functions.cc:392-405`.
+
+The durable row
+`../moo-conformance-tests/src/moo_conformance/_tests/builtins/properties.yaml:275`
+(`delete_property_works`) passed the pinned live Toast oracle on 2026-07-15:
+one selected, 11,504 deselected, in 3.55 seconds. The same file contains
+recycled, missing, built-in, nominal public-write/wizard, definition-order,
+parent-propagation, and inherited-child rows. Its only negative permission row
+is skipped, and its nominal permission rows execute as the target owner, so
+they do not independently freeze permission precedence. Generated call-shape
+rows cover arity and the string argument. No current durable row isolates
+anonymous rejection or cleanup, a never-allocated object, or a child override.
+
+Banteng's current representation needs no additional abstraction for the
+proven local-deletion path. A `WorldObject` already owns its local immutable
+`WorldProperty` list, inherited lookup is dynamic, and no separate descendant
+override slots exist yet. `WorldTxn` can remove the case-insensitive local
+entry; descendants then stop resolving that definition automatically.
+`BuiltinCatalog` applies the Toast object-write check, returns `E_PROPNF` when
+no local entry was removed, and classifies the builtin as a transaction write.
+This adds no interface, helper, adapter, or alternate mutation path.
+
+## Seventeenth-row verification receipt
+
+The pinned WSL Toast redirect row passed before implementation: one selected,
+11,504 deselected, in 5.68 seconds. The initial Banteng regression was red on
+the replacement-side default; the direct-write ordering regression and the
+unknown-command regression then passed locally. The isolated managed redirect
+row passed in 5.49 seconds after transport ordering was corrected.
+
+The first complete lifecycle run exposed the cleanup-dependent failure above.
+After the `delete_property` authority gate, its focused Java regression was
+red because the local definition remained. The implemented regression and the
+existing property-cleanup consumer then passed together. The exact managed
+predecessor pair (`audit_listener_handler_do_blank_command` followed by
+`audit_redirect_messages`) passed two selected rows in 7.25 seconds, and
+Banteng's managed `delete_property_works` row passed in 3.44 seconds.
+
+The complete managed lifecycle category then passed rows 1 through 17 and
+stopped first at row 18,
+`audit_oob_prefix_dispatches_do_out_of_band_command`: 17 passed, one failed,
+11,482 deselected, in 41.56 seconds. The final Java 25
+`clean check installDist` gate passed in 17 seconds after applying the pinned
+formatter. Row 17 is therefore the kept frontier; row 18 remains a separate
+unchecked slice.

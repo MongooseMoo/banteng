@@ -202,6 +202,20 @@ public final class MooServer implements AutoCloseable, ListenerControl {
     }
   }
 
+  /** Writes ordered lines to one accepted socket without closing it. */
+  @Override
+  public void writeConnection(long connectionId, List<String> lines) {
+    BufferedWriter output = outputs.get(connectionId);
+    if (output == null) {
+      return;
+    }
+    try {
+      writeLines(output, lines);
+    } catch (IOException ignored) {
+      // The connection reader owns physical cleanup after a failed write.
+    }
+  }
+
   /** Writes the final boot message and closes one accepted socket. */
   @Override
   public void bootConnection(long connectionId, List<String> lines) {
