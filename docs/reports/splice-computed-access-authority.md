@@ -372,3 +372,162 @@ bytecode, VM, handler, and stored runtime seams. The kept slice must pass those
 focused tests, `gradlew check`, `installDist`, the managed 25-row `splice::`
 family, the two focused recycle rows, a read-only review, and a fresh plan
 reread before commit.
+
+## Object `.w` setup and ordinary property permission enforcement
+
+The active durable row is
+`../moo-conformance-tests/src/moo_conformance/_tests/audit/gap_followups_toast_oracle.yaml:750-770`,
+`audit_property_flags_deny_nonowner_read_and_write`. Wizard creates an object,
+clears its built-in public-write flag with `obj.w = 0`, and adds direct ordinary
+property `audit_secret` with value 10 and metadata `{#0, ""}`. The harness then
+logs in as Programmer and requires both a read and a write of that existing
+property to raise `E_PERM`. The row covers two distinct flag domains: built-in
+object `.w` is causally required setup, while the later denial uses the
+ordinary property's owner and `w` permission bit.
+
+Barn's `../barn/spec/objects.md:139-170,197-220,451-485` defines property
+syntax, ordinary `r`/`w` permission bits, built-in integer `.w`, zero as clear,
+owner-or-flag read/write access, and Wizard bypass.
+`../barn/spec/operators.md:53-88,813-840` and
+`../barn/spec/errors.md:117-168` put type and validity errors before lookup,
+`E_PROPNF` on absence, and `E_PERM` on a present but denied property.
+`../barn/spec/builtins/properties.md:51-92,121-142,250-310` defines
+`{owner, perms}`, empty permissions, and the add-property form. Its prose
+sometimes says object owner where current Barn and Toast use the defining
+property owner; source and live evidence, not that imprecise phrase, control
+this row.
+
+Current Barn lowers public property read and assignment at
+`../barn/bytecode/compiler.go:966-988,1481-1506` and dispatches their opcodes at
+`../barn/vm/vm.go:461-465`. `../barn/vm/op_property.go:15-83,137-222` validates
+the property name and receiver, validates the object, resolves the direct or
+inherited property, and only then checks read or write permission before
+exposure or mutation. Its permission owners at lines 248-282 allow a Wizard,
+the `PropertyView.Owner`, or the corresponding `PropRead`/`PropWrite` bit;
+otherwise they return `E_PERM`.
+
+Barn's built-in-property path at
+`../barn/vm/op_property.go:300-337,359-427` maps `.w` to
+`dbstore.FlagWrite`, accepts this row's integer zero, and clears the bit before
+returning the assignment value. `../barn/db/store/object.go:226-252` assigns
+that object flag value 32. That flag is separate from ordinary-property
+`PropWrite` at lines 256-267. `../barn/builtins/properties.go:197-322,518-534`
+stores explicit owner `#0` with zero property permission bits for the empty
+string, and `../barn/db/store/store_properties.go:68-122,346-360,429-455`
+retains those metadata through lookup and mutation. Managed eval supplies the
+authenticated player as programmer through `../barn/scheduler/eval.go:55-79`
+and derives Wizard status from the object flag at
+`../barn/scheduler/scheduler.go:250-252`.
+
+Pinned Toast source is
+`aecc51e9449c6e7c95272f0f044b5ba38948459e`. The stock Test database and
+harness identify Wizard as `#3` with Wizard status and Programmer as `#4`
+without it. The stock eval command calls `set_task_perms(player)`; pinned Toast
+`/root/src/toaststunt/src/execute.cc:3694-3706,3386-3425` and
+`/root/src/toaststunt/src/verbs.cc:604-652` therefore execute the tested
+expressions with the authenticated activation programmer, `#3` during setup
+and `#4` during the assertions.
+
+For setup, `/root/src/toaststunt/src/code_gen.cc:893-906` emits `OP_PUT_PROP`.
+`/root/src/toaststunt/src/execute.cc:1959-1999,2048-2077` validates operands,
+validity, and lookup before the built-in `BP_W` permission branch. Wizard `#3`
+bypasses the object-owner/protection check. The mutation owner at
+`/root/src/toaststunt/src/db_properties.cc:638-694` maps `BP_W` to
+`FLAG_WRITE`, treats this row's integer zero as false, clears the object flag,
+and returns the original zero assignment value. This built-in branch never
+uses ordinary `PF_WRITE`.
+
+`/root/src/toaststunt/src/property.cc:108-148,207-235` validates and installs
+the row's ordinary property with owner `#0` and flags zero; Wizard setup may
+select that different owner even after clearing object `.w`. Ordinary reads
+compile through `/root/src/toaststunt/src/code_gen.cc:707-714` and execute at
+`/root/src/toaststunt/src/execute.cc:1855-1911`. Ordinary writes use
+`OP_PUT_PROP` at lines 1959-2082. Both paths validate operand types, object
+validity, and property existence before calling
+`db_property_allows` for `PF_READ` or `PF_WRITE`; a false result becomes
+`E_PERM` before the value is exposed or changed.
+`/root/src/toaststunt/src/include/db.h:314-318` defines the ordinary property
+bits, and `/root/src/toaststunt/src/db_properties.cc:494-607,697-751` owns
+case-insensitive lookup, defining-property owner/flags, and the exact
+flag-or-owner-or-Wizard predicate. For programmer `#4`, owner `#0`, and flags
+zero, both checks are false.
+
+Barn and Toast agree on every asserted observation: Wizard may clear this
+object's built-in public-write flag; integer zero clears it; Wizard may then
+add a property owned by `#0` with no permissions; authenticated Programmer is
+neither Wizard nor property owner; the present-property read and write each
+raise `E_PERM` before exposure or mutation. They also agree that object
+`FLAG_WRITE` and ordinary property `PF_WRITE` are independent. Barn's current
+built-in setter accepts only integer values while Toast applies general truth
+to `BP_W`; cross-type assignments are outside this row.
+
+Committed Banteng `5160457` fails earlier than the displayed managed symptom.
+`src/main/java/moo/world/WorldTxn.java:193-274` omits built-in `.w`, so setup
+assignment returns false and `src/main/java/moo/vm/MooVm.java:333-345` raises
+`E_PROPNF`. The conformance runner captures that failed setup result at
+`../moo-conformance-tests/src/moo_conformance/runner.py:420-450,506-523` and
+substitutes it as `obj`; the later read is effectively
+`E_PROPNF.audit_secret`, whose non-object receiver produces the observed
+secondary `E_TYPE` at `MooVm.java:313-319`. The earlier interpretation of that
+`E_TYPE` as the direct permission result was wrong.
+
+After that setup barrier, Banteng has a second independent disagreement:
+`WorldTxn.readObjectProperty` exposes ordinary values and
+`writeObjectProperty` changes them without an active programmer or the stored
+`WorldProperty.owner/permissions`. `MooVm` therefore has no branch that can
+produce the required `E_PERM`. The parser and compiler already emit the
+correct property operations at
+`src/main/java/moo/syntax/MooParser.java:380-407` and
+`src/main/java/moo/bytecode/MooCompiler.java:263-266,304-308`.
+
+The exact managed row passed pinned WSL Toast commit
+`aecc51e9449c6e7c95272f0f044b5ba38948459e`: one selected, 11,504
+deselected, in 3.90 seconds. The causally prior `.w` clear and both exact
+`E_PERM` results are therefore frozen. Process inventory found only the
+unrelated July 13 `/tmp/td.db` process, which was left untouched.
+
+The smallest Java change keeps every existing concrete owner and signature.
+`WorldTxn.writeObjectProperty` recognizes built-in `.w` before ordinary local
+slots, requires this row's existing `IntegerValue`, and calls its existing
+`replaceFlags` with object flag 32 and integer truth. The row does not read
+`.w`, assign another value kind, or test a non-Wizard setter, so those surfaces
+are not added here.
+
+For ordinary properties, the existing VM GET and SET operations already have
+the active `VmState` and therefore its current `programmer()`. Each operation
+uses the existing `WorldTxn.property(object, name)` once to obtain the direct
+or inherited `WorldProperty` metadata. When metadata exists, it checks the
+current programmer's existing object flag 4 for Wizard status, exact property
+ownership, and existing permission bit 1 for read or bit 2 for write. A failed
+check raises existing `E_PERM` before `readObjectProperty` or
+`writeObjectProperty`; otherwise the unchanged world operation supplies or
+mutates the value. Built-in properties continue through their existing world
+path because `WorldTxn.property` returns only ordinary property metadata.
+
+This adds no class, record, interface, helper, adapter, permission service,
+result wrapper, alternate property lookup, or `WorldTxn` signature change.
+Wrong-type `.w`, built-in flag authorization beyond this Wizard setup,
+invalid-object precedence, and inherited/clear metadata subtleties remain
+separate observable surfaces outside this row.
+
+The first clean full-suite gate exposed one existing representation defect in
+this same permission surface. `BuiltinCatalog.addProperty` recognized `r` and
+`c` but omitted the already-authorized ordinary `w` bit. Consequently an
+existing runtime regression that creates `{#0, "rw"}` properties and later
+changes task permissions began receiving correct `E_PERM` denials because the
+stored metadata was accidentally read-only. The established Barn and Toast
+sources above both assign ordinary write permission bit 2, so the kept change
+also maps `w` to bit 2 in the existing inline parser. The exact runtime
+regression then passed without changing its fixture or weakening the VM check.
+
+The focused JUnit regression first failed during setup (`RETURNED` expected,
+`ERRORED` actual). After adding `.w`, it advanced to the programmer read and
+failed with `ERRORED` expected but `RETURNED` actual. After the inline VM
+permission checks, the complete regression passed. The exact managed Banteng
+row passed with one selected and 11,504 deselected in 3.73 seconds. The
+substantial `gap_followups_toast_oracle` family then passed its first ten rows
+and advanced to the next unchecked row,
+`audit_intrinsic_command_table_roundtrip`, which fails independently with
+`E_VERBNF` from `connection_options(...)`. The final
+`gradlew clean check installDist` gate passed all 144 JUnit tests, formatting,
+checks, and the application distribution in 15 seconds.

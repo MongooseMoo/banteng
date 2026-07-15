@@ -1362,6 +1362,9 @@ public final class BuiltinCatalog {
     if (permissionText.contains("r")) {
       permissionBits |= 1;
     }
+    if (permissionText.contains("w")) {
+      permissionBits |= 2;
+    }
     if (permissionText.contains("c")) {
       permissionBits |= 4;
     }

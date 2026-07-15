@@ -27,6 +27,7 @@ import moo.vm.VmState.Frame;
 import moo.vm.VmState.HandlerPhase;
 import moo.vm.VmState.LoopCursor;
 import moo.world.WorldObject;
+import moo.world.WorldProperty;
 import moo.world.WorldTxn;
 import moo.world.WorldVerb;
 
@@ -317,11 +318,18 @@ public final class MooVm {
       raiseError(state, ErrorValue.E_TYPE, world);
       return;
     }
-    MooValue value =
-        world
-            .readObjectProperty(
-                object.value(), new String(propertyName.bytes(), StandardCharsets.ISO_8859_1))
-            .orElse(null);
+    String nameText = new String(propertyName.bytes(), StandardCharsets.ISO_8859_1);
+    WorldProperty property = world.property(object.value(), nameText).orElse(null);
+    if (property != null) {
+      long programmer = state.programmer();
+      WorldObject programmerObject = world.object(programmer).orElse(null);
+      boolean wizard = programmerObject != null && (programmerObject.flags() & 4) != 0;
+      if (property.owner() != programmer && !wizard && (property.permissions() & 1) == 0) {
+        raiseError(state, ErrorValue.E_PERM, world);
+        return;
+      }
+    }
+    MooValue value = world.readObjectProperty(object.value(), nameText).orElse(null);
     if (value == null) {
       raiseError(state, ErrorValue.E_PROPNF, world);
       return;
@@ -338,8 +346,18 @@ public final class MooVm {
       raiseError(state, ErrorValue.E_TYPE, world);
       return;
     }
-    if (!world.writeObjectProperty(
-        object.value(), new String(propertyName.bytes(), StandardCharsets.ISO_8859_1), value)) {
+    String nameText = new String(propertyName.bytes(), StandardCharsets.ISO_8859_1);
+    WorldProperty property = world.property(object.value(), nameText).orElse(null);
+    if (property != null) {
+      long programmer = state.programmer();
+      WorldObject programmerObject = world.object(programmer).orElse(null);
+      boolean wizard = programmerObject != null && (programmerObject.flags() & 4) != 0;
+      if (property.owner() != programmer && !wizard && (property.permissions() & 2) == 0) {
+        raiseError(state, ErrorValue.E_PERM, world);
+        return;
+      }
+    }
+    if (!world.writeObjectProperty(object.value(), nameText, value)) {
       raiseError(state, ErrorValue.E_PROPNF, world);
       return;
     }

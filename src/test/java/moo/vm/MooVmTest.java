@@ -741,6 +741,62 @@ final class MooVmTest {
   }
 
   @Test
+  void clearsObjectWriteFlagThenDeniesUnpermittedPropertyAccess() {
+    WorldObject system =
+        new WorldObject(0, "System", 7, 0, -1, -1, List.of(), List.of(), List.of(), List.of());
+    WorldObject wizard =
+        new WorldObject(3, "Wizard", 7, 3, -1, -1, List.of(), List.of(), List.of(), List.of());
+    WorldObject programmer =
+        new WorldObject(4, "Programmer", 3, 4, -1, -1, List.of(), List.of(), List.of(), List.of());
+    WorldTxn world = new WorldTxn(List.of(3L, 4L), List.of(system, wizard, programmer));
+    VmState setup = new VmState(Map.of("player", new ObjectValue(3)), 3);
+
+    new MooVm()
+        .execute(
+            new MooCompiler()
+                .compile(
+                    MooParser.parse(
+                        "obj = create(#-1); obj.w = 0; "
+                            + "add_property(obj, \"audit_secret\", 10, {#0, \"\"}); "
+                            + "return obj;")),
+            setup,
+            world,
+            new BuiltinCatalog());
+
+    assertEquals(VmState.Outcome.RETURNED, setup.outcome());
+    ObjectValue object = (ObjectValue) setup.returnValue().orElseThrow();
+    assertEquals(0, world.object(object.value()).orElseThrow().flags() & 32);
+    assertEquals(0, world.property(object.value(), "audit_secret").orElseThrow().owner());
+    assertEquals(0, world.property(object.value(), "audit_secret").orElseThrow().permissions());
+
+    VmState read = new VmState(Map.of("player", new ObjectValue(4)), 4);
+    new MooVm()
+        .execute(
+            new MooCompiler()
+                .compile(MooParser.parse("return #" + object.value() + ".audit_secret;")),
+            read,
+            world,
+            new BuiltinCatalog());
+
+    assertEquals(VmState.Outcome.ERRORED, read.outcome());
+    assertEquals(ErrorValue.E_PERM, read.uncaughtError().orElseThrow());
+
+    VmState write = new VmState(Map.of("player", new ObjectValue(4)), 4);
+    new MooVm()
+        .execute(
+            new MooCompiler()
+                .compile(MooParser.parse("#" + object.value() + ".audit_secret = 11;")),
+            write,
+            world,
+            new BuiltinCatalog());
+
+    assertEquals(VmState.Outcome.ERRORED, write.outcome());
+    assertEquals(ErrorValue.E_PERM, write.uncaughtError().orElseThrow());
+    assertEquals(
+        new IntegerValue(10), world.property(object.value(), "audit_secret").orElseThrow().value());
+  }
+
+  @Test
   void maxPreservesHomogeneousNumericKindsAndRejectsEveryFrozenError() {
     String[] successes = {"return max(1, 9, 3);", "return max(1.5, 9.25, 3.0);"};
     MooValue[] values = {new IntegerValue(9), new FloatValue(9.25)};
