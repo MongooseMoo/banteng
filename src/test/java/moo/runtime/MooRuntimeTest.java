@@ -1045,6 +1045,33 @@ final class MooRuntimeTest {
   }
 
   @Test
+  void dispatchesTextualOutOfBandInputToTheConnectionListener() throws Exception {
+    WorldTxn world = new LambdaMooV4Reader().read(FIXTURE);
+    MooRuntime runtime = new MooRuntime(world);
+    long connectionId = -47;
+
+    assertEquals(List.of(), runtime.openConnection(connectionId));
+    assertEquals(List.of("*** Connected ***"), runtime.executeLine(connectionId, "connect Wizard"));
+    long player = world.connectionPlayer(connectionId).orElseThrow();
+    runtime.executeLine(
+        connectionId,
+        "; add_property(#0, \"audit_oob_frame\", {}, {#0, \"rw\"});"
+            + " add_verb(#0, {#0, \"rxd\", \"do_out_of_band_command\"}, {\"this\", \"none\", \"this\"});"
+            + " set_verb_code(#0, \"do_out_of_band_command\","
+            + " {\"#0.audit_oob_frame = {this, player, caller, verb, args, argstr};\"});"
+            + " return 1;");
+
+    assertEquals(List.of(), runtime.executeLine(connectionId, "#$#audit-oob alpha beta"));
+    assertEquals(
+        "{#0, #"
+            + player
+            + ", #-1, \"do_out_of_band_command\","
+            + " {\"#$#audit-oob\", \"alpha\", \"beta\"},"
+            + " \"#$#audit-oob alpha beta\"}",
+        world.readObjectProperty(0, "audit_oob_frame").orElseThrow().toLiteral());
+  }
+
+  @Test
   void passesTheFullWordListToTruthyDoCommandBeforeNormalDispatch() throws Exception {
     WorldTxn world = new LambdaMooV4Reader().read(FIXTURE);
     MooRuntime runtime = new MooRuntime(world);

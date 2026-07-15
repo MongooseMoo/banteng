@@ -1808,3 +1808,82 @@ stopped first at row 18,
 `clean check installDist` gate passed in 17 seconds after applying the pinned
 formatter. Row 17 is therefore the kept frontier; row 18 remains a separate
 unchecked slice.
+
+## Eighteenth row: textual out-of-band dispatch
+
+The active durable row is
+`audit_oob_prefix_dispatches_do_out_of_band_command` at
+`../moo-conformance-tests/src/moo_conformance/_tests/audit/connection_lifecycle_toast_oracle.yaml:1727`.
+It installs `#0:do_out_of_band_command`, sends exact input
+`#$#audit-oob alpha beta`, and observes only that the verb received string
+arguments `{"#$#audit-oob", "alpha", "beta"}`. The harness sends the command
+unchanged as UTF-8 followed by bare LF; it does not assert the handler's output
+or return value. The row passed pinned WSL Toast commit
+`aecc51e9449c6e7c95272f0f044b5ba38948459e`: one selected, 11,504 deselected,
+in 6.59 seconds. Committed Banteng `1bbce66` passes the preceding 17 lifecycle
+rows and leaves the observed argument property empty at this row.
+
+Barn's normative surface is incomplete. `../barn/spec/server.md:321-323` says
+`#$#` lines are application text on WebSockets, and
+`../barn/spec/builtins/network.md:224-235` lists `disable-oob`; neither defines
+text-prefix recognition, word parsing, accepting-listener ownership, the verb
+frame, error handling, or output. Current Barn detects an exact case-sensitive
+position-zero prefix in `../barn/server/input_processor.go:196-248`. Its OOB
+path bypasses held input, a pending `read()`, and normal command dispatch;
+targets the connection's accepting listener; tokenizes through
+`../barn/command/command.go:120-165`; supplies the original line as `argstr`;
+discards an ordinary return; ignores `E_VERBNF`; and reports other exceptions.
+Barn agrees on this row's three words but splits a broader Unicode-whitespace
+set. It also constructs server hooks with `caller = player`, which disagrees
+with Toast outside this row's observation.
+
+Pinned Toast defines `OUT_OF_BAND_PREFIX` as exact `#$#` in
+`src/include/options.h:78-97`. `src/server.cc:1534-1540` forwards each line and
+transport OOB flag to `new_input_task`; `src/tasks.cc:1074-1093` selects
+`TASK_OOB` for a position-zero textual prefix, and lines 1683-1689 dispatch
+that task before ordinary input. `do_out_of_band_command` at lines 969-974
+calls the server-task owner with the current player, the connection's accepting
+listener handler, `parse_into_wordlist(command)`, and the exact command as
+`argstr`, while passing a null result slot so an ordinary return is discarded.
+`src/parse_cmd.cc:33-79,108-124` removes quotes, honors backslash escaping,
+and splits literal ASCII spaces; that yields the row's exact three strings.
+
+The server-task path at `src/tasks.cc:1825-1870` treats a missing handler verb
+as an empty successful verb. `src/execute.cc:3279-3335` fixes the frame:
+`this` is the accepting listener, `player` is the connected player,
+`programmer` is the verb owner, `caller = #-1`, `args` and `argstr` are as
+above, direct and indirect objects are `#-1`, and object/preposition strings
+are empty. Tracebacks are enabled for an uncaught handler error.
+
+Banteng's `MooServer` already forwards the exact socket line to
+`MooRuntime.executeLine`. The runtime has no OOB branch: it builds the existing
+command word list, invokes listener `do_command`, and then enters normal
+command lookup. The smallest row-owned change is a position-zero `#$#` branch
+immediately after that existing word-list construction and before
+`do_command`. It resolves `do_out_of_band_command` on the existing connection
+listener, executes it through `executeStored` and `verbLocals` with Toast's
+server-task frame, returns only emitted output, and treats a missing verb as
+no output. No interface, helper, server method, VM operation, world method, or
+builtin is required.
+
+This row does not authorize the separate `disable-oob`, held-input/read bypass,
+OOB quote prefix, forced-input queueing, Telnet parser, or binary-escaped OOB
+surfaces. Those already have later durable rows, including
+`audit_connection_hold_and_oob_options` and the gap-followup Telnet cases, and
+remain separate targets.
+
+### Eighteenth-row verification receipt
+
+The focused Java regression was red before implementation because the OOB line
+fell through to the normal unknown-command response and the handler frame was
+never stored. After the single runtime branch, that regression passed in three
+seconds and froze Toast's `caller = #-1` server-task frame in addition to the
+row's argument list.
+
+Managed Banteng then passed the exact durable row: one selected, 11,504
+deselected, in 6.57 seconds. The complete lifecycle category passed rows 1
+through 18 and stopped first at row 19,
+`audit_connection_name_method0_hostname`: 18 passed, one failed, 11,482
+deselected, in 44.71 seconds. The final Java 25 `clean check installDist` gate
+passed in 15 seconds after applying the pinned formatter. Row 18 is therefore
+the kept frontier; `connection_name` remains a separate unchecked slice.

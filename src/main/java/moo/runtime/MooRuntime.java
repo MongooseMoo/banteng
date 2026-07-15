@@ -236,6 +236,23 @@ public final class MooRuntime {
     for (String word : words) {
       commandWords.add(encode(word));
     }
+    if (line.startsWith("#$#")) {
+      Optional<WorldVerb> outOfBand =
+          world.verb(connection.listenerHandler, "do_out_of_band_command");
+      if (outOfBand.isEmpty()) {
+        return List.of();
+      }
+      return executeStored(
+              outOfBand.orElseThrow(),
+              verbLocals(
+                  connection.listenerHandler,
+                  player,
+                  -1,
+                  "do_out_of_band_command",
+                  new ListValue(commandWords),
+                  line))
+          .output();
+    }
     List<String> doCommandOutput = List.of();
     boolean handled = false;
     Optional<WorldVerb> doCommand = world.verb(connection.listenerHandler, "do_command");
