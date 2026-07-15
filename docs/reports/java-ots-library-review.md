@@ -67,20 +67,20 @@ do not preserve momentum by building a Banteng property framework.
 
 ## Static analysis
 
-Start with `javac -Xlint:all -Werror`, explicit suppressions, and ArchUnit. In
-Phase 1, separately prove Error Prone 2.50.0 on the pinned Java 25/Gradle
-toolchain and keep it if it adds no compiler fragility. Error Prone currently
-requires JDK 21+ and hooks javac internals.
+Keep `javac -Xlint:all -Werror`, explicit suppressions, and ArchUnit. Phase 1
+proved Error Prone 2.50.0 on the pinned Java 25/Gradle toolchain and retained it
+as a blocking check. Error Prone currently requires JDK 21+ and hooks javac
+internals.
 <https://errorprone.info/docs/installation>
 <https://central.sonatype.com/artifact/com.google.errorprone/error_prone_core/versions>
 
-JSpecify 1.0.0 annotations plus NullAway 0.13.7 are a candidate, not yet a mandate.
-NullAway's JSpecify generic/nullness support is still described as in progress.
-Run a representative sealed-types/records/generics spike before making it a
-blocking gate. Do not introduce `Optional` for every nullable internal field as
-a substitute for a proven nullness policy. The spike must also prove that the
-exact Error Prone/NullAway artifacts resolve coherently; a release tag is not a
-verified dependency graph. <https://github.com/jspecify/jspecify/releases>
+JSpecify 1.0.0 annotations plus NullAway 0.13.7 are retained as a blocking gate
+after representative Java 25 compilation of sealed types, records, nested
+generics, package annotations, and explicit nullable fields. NullAway's broader
+JSpecify support remains in progress, so this approval applies only to the
+pinned graph and observed Banteng surface. Do not introduce `Optional` for
+every nullable internal field. The exact decision and proof are recorded in
+`java25-static-analysis-decision.md`. <https://github.com/jspecify/jspecify/releases>
 <https://github.com/uber/NullAway/releases/latest>
 
 ## Production dependencies by boundary
