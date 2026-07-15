@@ -349,8 +349,8 @@ public final class MooRuntime {
       }
 
       long room = world.object(player).orElseThrow().location();
-      Optional<WorldVerb> playerCommandVerb = world.verb(player, words.getFirst());
-      Optional<WorldVerb> roomCommandVerb = world.verb(room, words.getFirst());
+      Optional<WorldVerb> playerCommandVerb = world.verb(player, words.getFirst(), false);
+      Optional<WorldVerb> roomCommandVerb = world.verb(room, words.getFirst(), false);
       if (roomCommandVerb.isEmpty() && words.getFirst().equalsIgnoreCase("eval")) {
         Optional<WorldVerb> fixtureEval = world.verb(room, 0);
         if (fixtureEval.isPresent()

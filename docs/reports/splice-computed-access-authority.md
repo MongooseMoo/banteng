@@ -760,3 +760,120 @@ understand that.` where the row requires `EXECUTED`. That receipt proves row
 `moo_conformance_rr74_y_j/Test.db` was stopped and inventory again proved
 empty. The final `gradlew clean check installDist` gate passed all 146 JUnit
 tests, formatting, checks, and application distribution in 15 seconds.
+
+## Parsed command dispatch and the execute flag
+
+The next durable row is
+`../moo-conformance-tests/src/moo_conformance/_tests/audit/gap_followups_toast_oracle.yaml:815-829`,
+`audit_command_dispatch_ignores_execute_flag`, introduced by conformance
+commit `4c4423799c4505f06f52a587568c7013e77b9c76`. As Wizard it adds a player
+command verb named `auditnoexec` with permissions `d` but not `x`, installs a
+body that notifies `EXECUTED`, and requires an ordinary input line containing
+the verb name to produce that output.
+
+The normative Barn command-dispatch specification disagrees. At
+`../barn/spec/objects.md:250-256`, its dispatch sequence says to check execute
+permission after name and argument matching. The general direct-call language
+at `../barn/spec/builtins/verbs.md:337-345` also says a verb is callable only
+for its owner, a Wizard, or when it has `x`; that is valid for a programmed
+verb call but overbroad if read as parsed-command behavior. The dispatch
+summary at `../barn/spec/server.md:172-177` does not resolve the flag. Barn's
+own authority preamble in `../barn/spec/README.md:3-13,31-33,58-64,75-95`
+places verified Toast and proven conformance rows above this unaudited
+passage and requires correcting a contradicted specification.
+
+Current Barn already separates the two lookup modes. Network input passes
+through `../barn/server/input_processor.go:65-230`; ordinary logged-in input
+reaches `processCommand` at lines 480-551, tries the listener `do_command`,
+and falls through to `command.FindVerb`. The dispatch lookup in
+`../barn/command/verbs.go:146-193` and candidate enumeration in
+`../barn/db/store/store_verbs.go:120-147` match names, ancestry, and argument
+specifications without reading verb permissions. The selected verb runs
+through `../barn/scheduler/task_runtime.go:422-477` without an execute check.
+By contrast, programmed calls in `../barn/vm/op_verb.go:112-125` use
+`FindCallableVerb`; `../barn/db/store/store_verbs.go:168-263` then requires
+`VerbExecute`. Barn's source therefore agrees with the durable row and
+disagrees only with its stale normative dispatch step.
+
+Pinned Toast source identity
+`aecc51e9449c6e7c95272f0f044b5ba38948459e` owns the same separation.
+`server_receive_line` enters `new_input_task` at
+`/root/src/toaststunt/src/server.cc:1534-1541`; ordinary input becomes
+`TASK_INBAND` in `/root/src/toaststunt/src/tasks.cc:1074-1095,1170-1180`, and
+`run_ready_tasks` routes it to `do_command_task` at lines 1648-1769.
+`do_command_task` uses `find_verb_on` and then `do_input_task` at lines
+751-871. Its `db_find_command_verb` owner at
+`/root/src/toaststunt/src/db_verbs.cc:302-343` matches name plus direct-object,
+preposition, and indirect-object specifications without checking `VF_EXEC`;
+`do_input_task` at `/root/src/toaststunt/src/execute.cc:3339-3372` reads only
+`VF_DEBUG` before execution. In contrast, `VF_EXEC` is bit 04 at
+`/root/src/toaststunt/src/include/db.h:486-491`, and callable lookup explicitly
+requires it through `find_verbdef_by_name(..., 1)` at
+`/root/src/toaststunt/src/db_verbs.cc:227-238,473-668`.
+
+Committed Banteng `07eddbf` conflates those lookup modes.
+`src/main/java/moo/runtime/MooRuntime.java:352-353` asks
+`WorldTxn.verb(object, name)` for player and room command candidates. That
+method's exact-name and inheritance scan at
+`src/main/java/moo/world/WorldTxn.java:184-218` returns a match only when its
+permissions contain bit 4. The row's permissions are only bit 8, so both
+command candidates are absent and `MooRuntime.java:631-638` emits
+`I couldn't understand that.`. Direct VM calls and `pass()` also use the same
+lookup; `src/test/java/moo/vm/MooVmTest.java:987-1034` durably proves they must
+skip a nearer non-executable match. A global removal of the filter would
+therefore be wrong. The exact managed pinned Toast row remains required before
+correcting the Barn specification or freezing the Java design.
+
+The exact row passed the managed pinned WSL Toast oracle at the stated source
+identity: one selected, 11,504 deselected, in 3.67 seconds. Post-run WSL
+inventory found only unrelated July 13 PID 19 for `/tmp/td.db`, which was left
+untouched. The contradicted normative dispatch step was then corrected and
+committed separately in Barn as
+`6c031a7 docs: correct command verb execute semantics`.
+
+The smallest Java representation keeps `WorldTxn` as the single named-verb
+lookup owner and extends that existing lookup with a `requireExecutable` mode.
+Its current two-argument entry point retains executable-only behavior for VM
+calls, `pass()`, listener hooks, and every existing caller. Only the normal
+player and room command-candidate lookups in `MooRuntime.executeLine` request
+the mode that ignores bit 4. The scan must otherwise preserve its current
+name-pattern, slot-order, and inheritance behavior, so a matching non-`x`
+command verb shadows later candidates exactly as Toast's command lookup does.
+The `huh` fallback and all other hook paths remain unchanged in this slice.
+
+The focused regression belongs in the existing `MooRuntimeTest` normal-command
+dispatch group. It creates the row's exact player verb with `d` permissions,
+installs its notify body, confirms the persisted bit value through the existing
+indexed lookup, sends ordinary input, and requires only `EXECUTED`. It must
+first fail with the current fallback text before the lookup mode is added. No
+new interface, adapter, helper class, lookup service, state field, or verb
+record is authorized.
+
+The first focused regression setup was rejected because it attempted to
+install code through the separately executable-filtered named
+`set_verb_code` path; the command verb therefore did not exist and the test
+failed before dispatch. The replacement setup used the existing indexed
+`WorldTxn` operations. Its first invocation exposed their documented index
+conventions and was corrected to convert the one-based result of `addVerb` to
+the zero-based `setVerbCode` index. Only then did the focused regression
+produce the valid red: expected `[EXECUTED]`, actual
+`[I couldn't understand that.]`.
+
+After implementing the frozen mode on the existing owner and changing only
+the two normal command-candidate calls, the focused regression passed in 8
+seconds. The first managed Banteng attempt was not a semantic gate: an
+unexported launcher environment selected Java 17 and rejected Java 25 class
+version 69 before the server listened; it left no managed Banteng process.
+With Java 25 explicitly exported in the managed command, the exact row passed
+with one selected and 11,504 deselected in 3.43 seconds. Its process used temp
+database `moo_conformance_wjvs3_0e/Test.db`; exact PID 387192 was stopped and
+the managed Banteng inventory was empty afterward.
+
+The substantial `gap_followups_toast_oracle` category then passed its first
+13 rows and stopped at the separate task-local fork row, where Banteng returned
+`E_VERBNF` instead of the required empty map. That receipt proves row 34
+advanced the kept prefix without absorbing the next target: one failed, 13
+passed, and 11,488 deselected in 29.56 seconds. Family PID 102420 for
+`moo_conformance_ff7ypbbf/Test.db` was stopped and inventory again proved
+empty. The final `gradlew clean check installDist` gate passed all 147 JUnit
+tests, formatting, checks, and application distribution in 15 seconds.

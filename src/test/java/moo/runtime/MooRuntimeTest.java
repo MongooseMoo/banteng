@@ -1379,6 +1379,24 @@ final class MooRuntimeTest {
   }
 
   @Test
+  void dispatchesMatchingCommandVerbWithoutExecutePermission() throws Exception {
+    WorldTxn world = new LambdaMooV4Reader().read(FIXTURE);
+    MooRuntime runtime = new MooRuntime(world);
+    long connectionId = -47;
+
+    assertEquals(List.of(), runtime.openConnection(connectionId));
+    assertEquals(List.of("*** Connected ***"), runtime.executeLine(connectionId, "connect Wizard"));
+    long player = world.connectionPlayer(connectionId).orElseThrow();
+    int verbNumber = world.addVerb(player, "auditnoexec", player, 8, -1);
+    assertTrue(verbNumber > 0);
+    int verbIndex = verbNumber - 1;
+    assertTrue(world.setVerbCode(player, verbIndex, "notify(player, \"EXECUTED\");"));
+    assertEquals(8, world.verb(player, verbIndex).orElseThrow().permissions());
+
+    assertEquals(List.of("EXECUTED"), runtime.executeLine(connectionId, "auditnoexec"));
+  }
+
+  @Test
   void runsRoomHuhAfterStoredCommandArgspecMismatch() throws Exception {
     WorldTxn world = new LambdaMooV4Reader().read(FIXTURE);
     MooRuntime runtime = new MooRuntime(world);

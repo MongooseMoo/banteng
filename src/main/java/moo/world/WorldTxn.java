@@ -182,6 +182,11 @@ public final class WorldTxn {
 
   /** Finds a named verb locally and then through the parent chain. */
   public Optional<WorldVerb> verb(long objectId, String verbName) {
+    return verb(objectId, verbName, true);
+  }
+
+  /** Finds a named verb, optionally requiring its executable permission. */
+  public Optional<WorldVerb> verb(long objectId, String verbName, boolean requireExecutable) {
     Objects.requireNonNull(verbName, "verbName");
     String requestedName = verbName.toLowerCase(Locale.ROOT);
     long current = objectId;
@@ -208,7 +213,7 @@ public final class WorldTxn {
             matches =
                 requestedName.startsWith(requiredPrefix) && fullName.startsWith(requestedName);
           }
-          if (matches && (verb.permissions() & 4) != 0) {
+          if (matches && (!requireExecutable || (verb.permissions() & 4) != 0)) {
             return Optional.of(verb);
           }
         }
