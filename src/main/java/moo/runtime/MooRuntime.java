@@ -659,6 +659,29 @@ public final class MooRuntime {
     return List.copyOf(output);
   }
 
+  /** Executes one transport-level out-of-band command on an existing connection. */
+  public synchronized List<String> executeTransportOutOfBand(long connectionId, String command) {
+    Objects.requireNonNull(command, "command");
+    ConnectionState connection = requireConnection(connectionId);
+    connection.lastActivityNanos = System.nanoTime();
+    long player = world.connectionPlayer(connectionId).orElseThrow();
+    Optional<WorldVerb> outOfBand =
+        world.verb(connection.listenerHandler, "do_out_of_band_command");
+    if (outOfBand.isEmpty()) {
+      return List.of();
+    }
+    return executeStored(
+            outOfBand.orElseThrow(),
+            verbLocals(
+                connection.listenerHandler,
+                player,
+                -1,
+                "do_out_of_band_command",
+                new ListValue(List.of(encode(command))),
+                command))
+        .output();
+  }
+
   private List<String> executeLogin(long connectionId, String line) {
     ConnectionState connection = requireConnection(connectionId);
     MooValue serverOptions =

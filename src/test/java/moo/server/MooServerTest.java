@@ -235,6 +235,58 @@ final class MooServerTest {
   }
 
   @Test
+  void dispatchesTwoByteTelnetCommandSplitAcrossReadsAsOutOfBandInput() throws Exception {
+    WorldTxn world = new LambdaMooV4Reader().read(TEST_DATABASE);
+    MooServer server = new MooServer("127.0.0.1", 0, world);
+    Thread serving = Thread.startVirtualThread(server::serve);
+    try (Socket control = new Socket(InetAddress.getLoopbackAddress(), server.port());
+        BufferedReader controlInput =
+            new BufferedReader(
+                new InputStreamReader(control.getInputStream(), StandardCharsets.ISO_8859_1));
+        BufferedWriter controlOutput =
+            new BufferedWriter(
+                new OutputStreamWriter(control.getOutputStream(), StandardCharsets.ISO_8859_1))) {
+      control.setSoTimeout((int) Duration.ofSeconds(5).toMillis());
+      writeLine(controlOutput, "connect Wizard");
+      assertEquals("*** Connected ***", controlInput.readLine());
+      writeLine(controlOutput, "PREFIX " + CONNECTION_PREFIX);
+      writeLine(controlOutput, "SUFFIX " + CONNECTION_SUFFIX);
+
+      writeLine(
+          controlOutput,
+          "; add_property(#0, \"audit_telnet_nop_seen\", {}, {#0, \"rw\"});"
+              + " try add_verb(#0, {#0, \"rxd\", \"do_out_of_band_command\"}, {\"this\", \"none\", \"this\"}); except (E_INVARG) endtry"
+              + " set_verb_info(#0, \"do_out_of_band_command\", {#0, \"rxd\", \"do_out_of_band_command\"});"
+              + " set_verb_args(#0, \"do_out_of_band_command\", {\"this\", \"none\", \"this\"});"
+              + " set_verb_code(#0, \"do_out_of_band_command\", {"
+              + "\"#0.audit_telnet_nop_seen = {args, argstr};\","
+              + "\"return 1;\"});"
+              + " return 1;");
+      assertEquals(
+          List.of(
+              CONNECTION_PREFIX, CONNECTION_PREFIX, "{1, 1}", CONNECTION_SUFFIX, CONNECTION_SUFFIX),
+          readLines(controlInput, 5));
+
+      try (Socket target = new Socket(InetAddress.getLoopbackAddress(), server.port())) {
+        OutputStream targetOutput = target.getOutputStream();
+        targetOutput.write(0xFF);
+        targetOutput.flush();
+        targetOutput.write(0xF1);
+        targetOutput.flush();
+
+        Thread.sleep(Duration.ofMillis(500));
+        assertEquals(
+            "{{\"~FF~F1\"}, \"~FF~F1\"}",
+            world.property(0, "audit_telnet_nop_seen").orElseThrow().value().toLiteral());
+      }
+    } finally {
+      server.close();
+      serving.join(Duration.ofSeconds(5));
+      assertFalse(serving.isAlive());
+    }
+  }
+
+  @Test
   void bootsAnActivePlayerAfterLogicalDisconnectWithDefaultMessage() throws Exception {
     MooServer server = new MooServer("127.0.0.1", 0, new LambdaMooV4Reader().read(TEST_DATABASE));
     Thread serving = Thread.startVirtualThread(server::serve);

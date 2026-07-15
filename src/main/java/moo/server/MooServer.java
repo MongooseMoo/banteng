@@ -135,6 +135,8 @@ public final class MooServer implements AutoCloseable, ListenerControl {
           afterIac = false;
           if (inputByte >= 0xFB && inputByte <= 0xFE) {
             afterNegotiation = true;
+          } else if (inputByte == 0xF1) {
+            writeLines(output, runtime.executeTransportOutOfBand(connectionId, "~FF~F1"));
           }
           continue;
         }
