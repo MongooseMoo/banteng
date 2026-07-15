@@ -27,7 +27,7 @@ choose a correct FLOAT representation.
   `../moo-conformance-tests` at
   `81a27ce85e775a6601cf7df69a7844b90f2a2dc0`.
 - Stock profile:
-  `../barn/profiles/toast/stock-wsl-testdb.json`, including
+  `profiles/toast/stock-wsl-testdb.json`, including
   `option.PROMOTE_NUMBERS: false`.
 
 ## Normative Barn specification

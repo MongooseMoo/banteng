@@ -27,7 +27,7 @@ the existing concrete owners.
 - Durable conformance authority after the focused additions and corrections:
   `../moo-conformance-tests` at
   `4de57abc69614ccac71ae8fb0848a0771fde4ea2`.
-- Stock profile: `../barn/profiles/toast/stock-wsl-testdb.json`.
+- Stock profile: `profiles/toast/stock-wsl-testdb.json`.
 
 ## Normative Barn specification
 

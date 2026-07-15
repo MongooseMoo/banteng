@@ -11,14 +11,15 @@ What language and runtime architecture should Banteng use to become an idiomatic
 - Banteng has no commits and no implementation. Its only existing entry is the unrelated untracked `pyghidra_mcp_projects/` directory.
 - Barn `master` is 22 commits ahead of `origin/master` and has extensive unrelated untracked material. Its tracked `AGENTS.md` is already modified. Any Barn documentation correction must therefore be exact-path scoped.
 - `moo-conformance-tests` supplies a managed TCP lifecycle and a bundled `Test.db`; its README identifies ToastStunt as the reference implementation (`../moo-conformance-tests/README.md:96-160`). Recent Barn MVCC reports observed roughly 4,000 passing cases, not a small toy suite.
-- Barn's current canonical Toast authority is the managed WSL flow in
-  `../barn/plans/barn-toast-mongoose-convergence-100-line.md`, the pinned
-  `../barn/profiles/toast/stock-wsl-testdb.json`, and
-  `../barn/scripts/run_toast_wsl.sh`. They pin
+- Banteng's current operational Toast authority is the managed WSL flow in
+  `profiles/toast/stock-wsl-testdb.json` and
+  `scripts/run_toast_wsl.sh`, snapshotted from the earlier Barn authority.
+  They pin
   `/root/src/toaststunt/build-release/moo` at
   `aecc51e9449c6e7c95272f0f044b5ba38948459e` and forbid substituting a Windows
-  Toast binary. The exact Windows-to-WSL managed command is recorded in
-  `../barn/plans/barn-toast-mongoose-convergence-workstreams.md`.
+  Toast binary. Current managed commands are recorded in
+  `docs/reports/toast-oracle-identity-2026-07-14.md` and
+  `docs/reports/toastcore-oracle-identity-2026-07-15.md`.
 - `lambdamoo-db-py` is useful as a structural/differential oracle, not as polished documentation: its README is essentially empty, but its writer emits format 17 and handles the terminating anonymous-object batch (`../../src/lambdamoo-db-py/lambdamoo_db/writer.py:261-323`).
 - `moo_interp` is a useful parser/compiler/VM comparison surface. Its iteration log records 910/910 live Toast differential cases for the exercised core, while also recording a large builtin namespace delta (`../moo_interp/reports/iteration-log.md:45-105`). It is not a complete server authority.
 

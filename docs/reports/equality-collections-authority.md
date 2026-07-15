@@ -27,7 +27,7 @@ families.
   additions:
   `../moo-conformance-tests` at
   `13de65fa1d65d35b61926b15343c90d2fd2531f2`.
-- Stock profile: `../barn/profiles/toast/stock-wsl-testdb.json`, including
+- Stock profile: `profiles/toast/stock-wsl-testdb.json`, including
   `option.PROMOTE_NUMBERS: false`.
 
 ## Normative Barn specification

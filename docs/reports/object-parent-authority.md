@@ -102,10 +102,10 @@ The exact durable row was rerun against the pinned stock-Toast profile:
 $wslIp=(wsl -d Debian -u root -e hostname -I).Trim()
 uv run --project C:\Users\Q\code\moo-conformance-tests moo-conformance `
   --moo-host $wslIp `
-  --server-command "wsl -d Debian -u root -e env TOAST_MOO=/root/src/toaststunt/build-release/moo bash /mnt/c/Users/Q/code/barn/scripts/run_toast_wsl.sh {db} {port}" `
+  --server-command "wsl -d Debian -u root -e env TOAST_MOO=/root/src/toaststunt/build-release/moo bash /mnt/c/Users/Q/code/banteng/scripts/run_toast_wsl.sh {db} {port}" `
   --server-db C:/Users/Q/code/moo-conformance-tests/src/moo_conformance/_db/Test.db `
-  --oracle-profile-manifest C:/Users/Q/code/barn/profiles/toast/stock-wsl-testdb.json `
-  --target-profile-manifest C:/Users/Q/code/barn/profiles/toast/stock-wsl-testdb.json `
+  --oracle-profile-manifest C:/Users/Q/code/banteng/profiles/toast/stock-wsl-testdb.json `
+  --target-profile-manifest C:/Users/Q/code/banteng/profiles/toast/stock-wsl-testdb.json `
   -k "audit_chparent_nonwizard_requires_fertile_parent"
 ```
 
