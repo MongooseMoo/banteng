@@ -140,3 +140,41 @@ revalidation, `exitfunc`, `enterfunc`, last-move metadata, or any other error
 path. Those surfaces require their own durable rows and authority gates. No
 Banteng Java representation or production edit is authorized by this report
 beyond the active row until the existing Banteng owner is traced.
+
+## Banteng owner trace and smallest representation
+
+Committed Banteng dispatches `move` from
+`src/main/java/moo/builtin/BuiltinCatalog.java:353` to the direct catalog
+method at lines 1436-1444. That method validates exactly two object arguments
+and immediately calls `WorldTxn.move`, returning zero or `E_INVARG`.
+`src/main/java/moo/world/WorldTxn.java:579-598` already performs the physical
+relocation by updating old contents, destination contents, and object
+location. The missing behavior is therefore the pre-move verb activation, not
+topology mutation.
+
+The existing concrete builtin-to-verb continuation is recycle.
+`BuiltinCatalog.Result` carries a `recycleTarget`; `MooVm.invokeBuiltin` finds
+and compiles the hook, creates the verb locals, and pushes an ordinary verb
+frame; `MooVm.routeReturn` performs the mutation only after that frame returns.
+An error unwinds the hook frame without performing the normal-return action.
+
+The smallest row-only representation extends those exact owners with two
+explicit optional IDs: moved object and destination. `BuiltinCatalog.move`
+keeps its existing argument and object validation. For a wizard programmer it
+returns those IDs without mutating the world; the existing VM builtin result
+path then looks up destination `accept`. Missing `accept` preserves Banteng's
+current immediate successful move. A present verb is compiled and pushed as
+an ordinary frame with destination `this`, the moved object as the sole
+argument, inherited player, original receiver as caller, verb owner as
+programmer, and the destination as the row's direct defining object. On a
+normal return, the continuation ignores the value and invokes the existing
+`WorldTxn.move`; an error unwinds without relocation.
+
+Only the wizard path receives this continuation in the active slice. The
+current nonwizard path remains unchanged because false-result refusal and
+missing-verb behavior are explicitly outside the durable row. The existing
+`move` transaction-write effect classification remains correct. This design
+adds no request record, interface, helper owner, adapter, alternate builtin
+dispatcher, world method, or mutation path. The focused runtime regression
+must execute the durable row body and first observe `{0, 1}` on committed
+Banteng before any production edit.
