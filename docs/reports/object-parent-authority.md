@@ -220,3 +220,21 @@ This representation adds no helper, interface, adapter, request, VM branch,
 read path, permission owner, alternate mutation path, or `chparent` change.
 It does not introduce a general flag-property implementation beyond the one
 durable write asserted by the active row.
+
+## Banteng implementation receipts
+
+After the one-branch implementation, the focused Java 25 regression passed
+before and after the pinned formatter. The rebuilt managed distribution then
+passed `audit_chparent_nonwizard_requires_fertile_parent`: one selected row,
+11,518 deselected, in 4.04 seconds.
+
+The substantial fail-fast `gap_followups_toast_oracle` category passed all 17
+selected rows with 11,502 deselected in 30.31 seconds, closing the entire
+currently selected family. The exact managed Banteng processes for both runs
+were identified by their temporary database paths, stopped, and followed by
+empty Banteng process inventories.
+
+Finally, the Java 25 `clean check installDist` gate passed in 16 seconds,
+including formatting checks and the full test suite. The kept implementation
+changes only the existing `WorldTxn` intrinsic-write owner and the focused
+runtime regression.

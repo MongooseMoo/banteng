@@ -317,6 +317,13 @@ public final class WorldTxn {
       replaceFlags(object, 32, enabled.isTruthy());
       return true;
     }
+    if (normalizedName.equals("f")) {
+      if (!(value instanceof IntegerValue enabled)) {
+        return false;
+      }
+      replaceFlags(object, 128, enabled.isTruthy());
+      return true;
+    }
     List<WorldProperty> properties = new ArrayList<>(object.properties());
     for (int index = 0; index < properties.size(); index++) {
       WorldProperty property = properties.get(index);

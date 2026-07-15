@@ -859,6 +859,34 @@ final class MooRuntimeTest {
   }
 
   @Test
+  void writesIntrinsicFertileFlagAsIntegerZero() throws Exception {
+    WorldTxn world = new LambdaMooV4Reader().read(FIXTURE);
+    MooRuntime runtime = new MooRuntime(world);
+    long connectionId = -47;
+
+    assertEquals(List.of(), runtime.openConnection(connectionId));
+    assertEquals(List.of("*** Connected ***"), runtime.executeLine(connectionId, "connect Wizard"));
+    long object = world.objectCount();
+
+    try {
+      List<String> output =
+          runtime.executeLine(
+              connectionId,
+              """
+              ; object = create(#-1);
+              return object.f = 0;
+              """);
+
+      assertEquals(0, world.object(object).orElseThrow().flags() & 128);
+      assertEquals(List.of(CONNECTION_PREFIX, "{1, 0}", CONNECTION_SUFFIX), output);
+    } finally {
+      if (world.object(object).isPresent()) {
+        runtime.executeLine(connectionId, "; recycle(#" + object + "); return 1;");
+      }
+    }
+  }
+
+  @Test
   void recordsDefiningObjectForInheritedRootVerbCallerFrame() throws Exception {
     WorldTxn world = new LambdaMooV4Reader().read(FIXTURE);
     MooRuntime runtime = new MooRuntime(world);
