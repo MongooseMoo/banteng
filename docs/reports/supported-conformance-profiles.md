@@ -14,20 +14,26 @@ selected-profile set used by every later reference to a "selected profile" in
 `docs/reports/banteng-implementation-plan.md`. A target not listed here is out
 of the first release until the user explicitly changes this record's scope.
 
+Banteng owns the operational profile manifests and managed WSL launcher under
+`profiles/toast/` and `scripts/`. Barn remains a semantic reference, but its
+live worktree is not an executable dependency of Banteng's conformance gates.
+The stock and Mongoose artifacts were snapshotted from Barn `master` commit
+`41b904c34b1aee2e6d118f564985feec046055e3` before this ownership transfer.
+
 ## Selected targets
 
 | Target | Status | Oracle/profile authority | Fixture identity |
 | --- | --- | --- | --- |
-| Stock Test.db | In | `../barn/profiles/toast/stock-wsl-testdb.json` | `../moo-conformance-tests/src/moo_conformance/_db/Test.db`, SHA-256 `1a3f23ebb549e02ccf5341668425118fcdc935b977096add87bc2a8ef29d408e` |
-| Mongoose PROMOTE_NUMBERS | In | `../barn/profiles/toast/mongoose-wsl-mongoose.json` | manifest fixture `mongoose`, SHA-256 `33201970097d3d2d2bfc0d5f875f087d587601bf8255ef31ef19b416d65ac925` |
-| ToastCore | In | dedicated manifest is required and not yet present | `../barn/toastcore.db`, v17, SHA-256 `da1c3ea32e57857855be94999efba930eaf8d1f5f3cbd04c16165ce7f54fd483` |
+| Stock Test.db | In | `profiles/toast/stock-wsl-testdb.json` | `../moo-conformance-tests/src/moo_conformance/_db/Test.db`, SHA-256 `1a3f23ebb549e02ccf5341668425118fcdc935b977096add87bc2a8ef29d408e` |
+| Mongoose PROMOTE_NUMBERS | In | `profiles/toast/mongoose-wsl-mongoose.json` | manifest fixture `mongoose`, SHA-256 `33201970097d3d2d2bfc0d5f875f087d587601bf8255ef31ef19b416d65ac925` |
+| ToastCore | In | `profiles/toast/stock-wsl-toastcore.json` | `/root/src/toastcore/toastcore.db` at upstream commit `1887eacd591d97fdc55d258a76e2167899b1951d`, v17, SHA-256 `8013b703c61a9894866f836f2b934eada7118cdf0b3cd56181e4bf9205b2f557` |
 
 ## Stock Test.db profile
 
 The primary release gate remains the stock profile required by the plan.
 
 - Profile ID: `toast-stock-wsl-testdb`
-- Manifest: `../barn/profiles/toast/stock-wsl-testdb.json`
+- Manifest: `profiles/toast/stock-wsl-testdb.json`
 - Toast source: `aecc51e9449c6e7c95272f0f044b5ba38948459e`
 - WSL binary: `/root/src/toaststunt/build-release/moo`
 - Runtime: Debian WSL, 64-bit
@@ -35,10 +41,10 @@ The primary release gate remains the stock profile required by the plan.
 - `PROMOTE_NUMBERS`: disabled
 - Fixture: bundled disposable copy of `Test.db`
 
-The managed wrapper and identity procedure remain those recorded in
-`docs/reports/toast-oracle-identity-2026-07-14.md`. A direct Toast process,
-`moo --version`, a Windows executable, or a tracked fixture run does not
-replace the managed WSL gate.
+The managed wrapper is `scripts/run_toast_wsl.sh`; the identity procedure is
+recorded in `docs/reports/toast-oracle-identity-2026-07-14.md`. A direct Toast
+process, `moo --version`, a Windows executable, or a tracked fixture run does
+not replace the managed WSL gate.
 
 ## Mongoose PROMOTE_NUMBERS profile
 
@@ -46,7 +52,7 @@ Mongoose numeric-promotion behavior is release-required, not an optional
 comparison.
 
 - Profile ID: `toast-mongoose-wsl-mongoose`
-- Manifest: `../barn/profiles/toast/mongoose-wsl-mongoose.json`
+- Manifest: `profiles/toast/mongoose-wsl-mongoose.json`
 - Toast source: `72e3c7f96ce7a41fdeba793aef8818dc4408072e`
 - WSL binary: `/root/src/toaststunt-mongoose/build-release/moo`
 - Runtime: Debian WSL, 64-bit
@@ -63,17 +69,19 @@ managed target gate in addition to the stock gate.
 
 ToastCore is a selected real-core release target.
 
-The current fixture is `../barn/toastcore.db`, whose first line identifies
-LambdaMOO database format version 17 and whose SHA-256 is
-`da1c3ea32e57857855be94999efba930eaf8d1f5f3cbd04c16165ce7f54fd483`.
+The canonical fixture is `/root/src/toastcore/toastcore.db` from the clean
+upstream checkout of `https://github.com/lisdude/toastcore.git` at commit
+`1887eacd591d97fdc55d258a76e2167899b1951d`. Its first line identifies
+LambdaMOO database format version 17 and its SHA-256 is
+`8013b703c61a9894866f836f2b934eada7118cdf0b3cd56181e4bf9205b2f557`.
+The upstream `README.md` specifies `connect wizard` for the primary fresh-core
+login.
 
-There is currently no dedicated checked-in ToastCore profile manifest. This
-is an incomplete Phase 0 artifact, not permission to reuse the stock Test.db
-manifest or to treat a manual ToastCore boot as a release gate. Before any
-ToastCore behavioral or pass/fail claim, the exact oracle source, executable,
-configuration, feature flags, fixture checksum, disposable-fixture command,
-login mechanism, and managed target command must be frozen in a dedicated
-manifest and identity record.
+The dedicated manifest is `profiles/toast/stock-wsl-toastcore.json`. Before
+any ToastCore behavioral or pass/fail claim, the exact oracle source,
+executable, configuration, feature flags, fixture checksum,
+disposable-fixture command, README-mandated login mechanism, and managed target
+command must also be proven and frozen in its identity record.
 
 ## Required gates
 
@@ -96,6 +104,7 @@ full release gates.
 
 ## Immediate Phase 0 consequence
 
-The next profile artifact is the missing ToastCore manifest and its matching
-managed-oracle identity record. No semantic implementation or Phase 8
-conformance work is authorized by this selection record.
+The next profile artifact is the managed-oracle identity record proving the
+ToastCore manifest against the actual upstream fixture. No semantic
+implementation or Phase 8 conformance work is authorized by this selection
+record.
