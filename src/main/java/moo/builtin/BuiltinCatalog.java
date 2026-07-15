@@ -553,7 +553,11 @@ public final class BuiltinCatalog {
       MooValue value = arguments.get(2);
       if (value instanceof ListValue commands) {
         for (MooValue command : commands.elements()) {
-          if (!(command instanceof StringValue)) {
+          if (!(command instanceof StringValue commandName)
+              || switch (decode(commandName)) {
+                case ".program", "PREFIX", "SUFFIX", "OUTPUTPREFIX", "OUTPUTSUFFIX" -> false;
+                default -> true;
+              }) {
             return Result.error(ErrorValue.E_INVARG);
           }
         }

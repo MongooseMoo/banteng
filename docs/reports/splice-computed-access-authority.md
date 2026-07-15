@@ -690,3 +690,73 @@ kept prefix without absorbing row 33. Family temp PID 248836 for
 `moo_conformance_8ipy7id8/Test.db` was stopped and inventory again proved
 empty. The final `gradlew clean check installDist` gate passed all 145 JUnit
 tests, formatting, checks, and application distribution in 20 seconds.
+
+## Intrinsic command table unknown-name rejection
+
+The next durable row is
+`../moo-conformance-tests/src/moo_conformance/_tests/audit/gap_followups_toast_oracle.yaml:804-813`,
+`audit_intrinsic_command_table_rejects_unknown`. As connected Wizard it calls
+`set_connection_option(player, "intrinsic-commands", {"PREFIX",
+"NOT_A_TOAST_INTRINSIC"})` and requires `E_INVARG`; cleanup restores all
+intrinsics with integer `1`. This row was added by the same conformance commit
+`019bc6944c05d5eef2ca4ee847a385bc1b5ea5c0` as the preceding round-trip row.
+
+The normative Barn spec remains silent on intrinsic-command member validation.
+Current Barn validates a truthy LIST at
+`../barn/builtins/network.go:1283-1303`: every element must be a STR and an
+exact member of its five-name map, otherwise the builtin returns `E_INVARG`
+before `setConnectionOption` at line 1305. Barn therefore agrees with this
+row and leaves its prior option value unchanged.
+
+Pinned Toast owns this decision in
+`/root/src/toaststunt/src/tasks.cc:263-345`. `icmd_set_flags` accumulates into
+local `newflags`; each LIST element must be a STR whose `icmd_index` is
+nonzero. `"PREFIX"` resolves, `"NOT_A_TOAST_INTRINSIC"` does not, so the
+function returns zero before assigning `tq->icmds`. `TASK_CO_TABLE` at lines
+1015-1070 propagates that failure; `bf_set_connection_option` at
+`/root/src/toaststunt/src/server.cc:2974-2995` exhausts the option owners and
+returns `E_INVARG`. The mutation is atomic because `tq->icmds = newflags`
+occurs only after every element validates.
+
+Committed Banteng `4f40393` deliberately validates only that LIST elements
+are strings and then stores the list, so the substantial family receipt shows
+success value zero instead of `E_INVARG`. No Java design is frozen until this
+exact row passes the managed pinned Toast oracle. The smallest prospective
+change is an inline membership check in the existing
+`BuiltinCatalog.setConnectionOption` LIST loop; no new state, helper, table,
+interface, or result path is needed because `WorldTxn` already owns the
+canonical full list and the current setter stores only after its loop.
+
+The exact row passed the managed pinned WSL Toast oracle at source identity
+`aecc51e9449c6e7c95272f0f044b5ba38948459e`: one selected, 11,504
+deselected, in 3.53 seconds. Post-run inventory again found only unrelated
+July 13 PID 19 for `/tmp/td.db`, which was left untouched. The semantic
+contract is therefore frozen to `E_INVARG` before mutation for this unknown
+string member.
+
+The Java change is one inline condition in the existing LIST loop. Each
+`StringValue` must decode to one of `.program`, `PREFIX`, `SUFFIX`,
+`OUTPUTPREFIX`, or `OUTPUTSUFFIX`; this row's unknown value fails and returns
+existing `E_INVARG`. The existing world store remains after the loop, so no
+partial state can escape. Case variants, `.program` abbreviations, duplicate
+members, non-string elements, and other top-level value kinds remain outside
+this row. No new constant, collection, helper method, interface, state field,
+or rollback path is authorized.
+
+The focused regression first failed on the intended behavioral boundary:
+the VM returned success instead of the required `E_INVARG`. After adding only
+the frozen inline membership condition, the focused regression passed in 4
+seconds and also proved that the canonical table remained unchanged after the
+rejected call.
+
+The exact managed Banteng row passed with one selected and 11,504 deselected
+in 3.52 seconds. Its process used temp database
+`moo_conformance_a03x69m4/Test.db`; exact PID 389852 was stopped and the
+managed Banteng inventory was empty afterward. The substantial
+`gap_followups_toast_oracle` category then passed its first 12 rows and stopped
+at the separate execute-flag dispatch row: Banteng produced `I couldn't
+understand that.` where the row requires `EXECUTED`. That receipt proves row
+33 advanced the kept prefix without absorbing row 34. Family PID 357360 for
+`moo_conformance_rr74_y_j/Test.db` was stopped and inventory again proved
+empty. The final `gradlew clean check installDist` gate passed all 146 JUnit
+tests, formatting, checks, and application distribution in 15 seconds.

@@ -841,6 +841,39 @@ final class MooVmTest {
   }
 
   @Test
+  void rejectsUnknownIntrinsicCommandWithoutChangingTable() {
+    WorldObject wizard =
+        new WorldObject(3, "Wizard", 7, 3, -1, -1, List.of(), List.of(), List.of(), List.of());
+    WorldTxn world = new WorldTxn(List.of(3L), List.of(wizard));
+    world.openConnection(-47, new MapValue(Map.of()));
+    assertTrue(world.switchConnectionPlayer(-47, 3));
+    VmState state = new VmState(Map.of("player", new ObjectValue(3)), 3);
+
+    new MooVm()
+        .execute(
+            new MooCompiler()
+                .compile(
+                    MooParser.parse(
+                        "return set_connection_option(player, \"intrinsic-commands\", "
+                            + "{\"PREFIX\", \"NOT_A_TOAST_INTRINSIC\"});")),
+            state,
+            world,
+            new BuiltinCatalog());
+
+    assertEquals(VmState.Outcome.ERRORED, state.outcome());
+    assertEquals(ErrorValue.E_INVARG, state.uncaughtError().orElseThrow());
+    assertEquals(
+        new ListValue(
+            List.of(
+                new StringValue(".program".getBytes(StandardCharsets.ISO_8859_1)),
+                new StringValue("PREFIX".getBytes(StandardCharsets.ISO_8859_1)),
+                new StringValue("SUFFIX".getBytes(StandardCharsets.ISO_8859_1)),
+                new StringValue("OUTPUTPREFIX".getBytes(StandardCharsets.ISO_8859_1)),
+                new StringValue("OUTPUTSUFFIX".getBytes(StandardCharsets.ISO_8859_1)))),
+        world.intrinsicCommands(3).orElseThrow());
+  }
+
+  @Test
   void maxPreservesHomogeneousNumericKindsAndRejectsEveryFrozenError() {
     String[] successes = {"return max(1, 9, 3);", "return max(1.5, 9.25, 3.0);"};
     MooValue[] values = {new IntegerValue(9), new FloatValue(9.25)};
