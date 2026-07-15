@@ -94,8 +94,11 @@ The current expected red is final result `{1, 0}` instead of `{1, 1}`.
 ### Zero-delay activation sample
 
 Start with `bg_seconds = 9`, create a zero-delay fork, mutate the property to
-`7` before yielding, and assert the child result is at most 7 and safely above
-the tiny-task floor. This proves the limit was not captured at fork creation.
+`7` before yielding, and assert
+`#0.audit_bg_seconds <= 7 && #0.audit_bg_seconds > 3`. The upper bound proves
+the limit was not captured at fork creation; the lower bound distinguishes
+the configured limit from the default of 3 while retaining four seconds of
+timer-resolution and execution slack.
 
 The current expected red is again the final integer predicate, not setup.
 
@@ -103,8 +106,8 @@ The current expected red is again the final integer predicate, not setup.
 
 Start with `bg_seconds = 9`, create a delayed fork, yield, change the property
 to `7` before the child wake time, wait for the child, and assert the same
-configured range. This proves queued delay does not consume or freeze the
-child's execution limit.
+exact predicate, `#0.audit_bg_seconds <= 7 && #0.audit_bg_seconds > 3`. This
+proves queued delay does not consume or freeze the child's execution limit.
 
 Use range predicates rather than exact immediate values because Toast and
 Banteng expose a live whole-second process-CPU remainder.
