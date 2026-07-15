@@ -25,6 +25,15 @@ application {
     mainClass = "moo.app.Banteng"
 }
 
+val jcstress = sourceSets.create("jcstress") {
+    compileClasspath += sourceSets.main.get().output
+    runtimeClasspath += sourceSets.main.get().output
+}
+
+configurations[jcstress.implementationConfigurationName].extendsFrom(configurations.implementation.get())
+configurations[jcstress.runtimeOnlyConfigurationName].extendsFrom(configurations.runtimeOnly.get())
+configurations[jcstress.annotationProcessorConfigurationName].setExtendsFrom(emptyList())
+
 dependencies {
     implementation("info.picocli:picocli:4.7.7")
     implementation("org.jspecify:jspecify:1.0.0")
@@ -40,6 +49,12 @@ dependencies {
     testImplementation("com.code-intelligence:jazzer-junit:0.30.0")
     testImplementation("org.jetbrains:jetCheck:0.3.0")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
+
+    add(jcstress.implementationConfigurationName, "org.openjdk.jcstress:jcstress-core:0.16")
+    add(
+        jcstress.annotationProcessorConfigurationName,
+        "org.openjdk.jcstress:jcstress-core:0.16",
+    )
 }
 
 tasks.withType<JavaCompile>().configureEach {
@@ -51,6 +66,11 @@ tasks.withType<JavaCompile>().configureEach {
         option("NullAway:OnlyNullMarked", "true")
         option("NullAway:JSpecifyMode", "true")
     }
+}
+
+tasks.named<JavaCompile>(jcstress.compileJavaTaskName) {
+    // jcstress 0.16 generates harness code that fails Error Prone checks; javac lint remains strict.
+    options.errorprone.enabled.set(false)
 }
 
 tasks.withType<Test>().configureEach {
@@ -71,6 +91,42 @@ tasks.register<Test>("fuzzTest") {
     }
     environment("JAZZER_FUZZ", "1")
     maxParallelForks = 1
+    outputs.upToDateWhen { false }
+}
+
+val jcstressJar = tasks.register<Jar>("jcstressJar") {
+    archiveClassifier = "jcstress"
+    from(sourceSets.main.get().output)
+    from(jcstress.output)
+    isPreserveFileTimestamps = false
+    isReproducibleFileOrder = true
+}
+
+tasks.register<JavaExec>("jcstress") {
+    description = "Runs the jcstress publication smoke test"
+    group = "verification"
+    dependsOn(jcstressJar)
+    classpath =
+        files(
+            jcstressJar.flatMap { it.archiveFile },
+            configurations[jcstress.runtimeClasspathConfigurationName],
+        )
+    mainClass = "org.openjdk.jcstress.Main"
+    javaLauncher = javaToolchains.launcherFor {
+        languageVersion = JavaLanguageVersion.of(25)
+    }
+    jvmArgs("--enable-native-access=ALL-UNNAMED")
+    workingDir(layout.buildDirectory.get().asFile)
+    args(
+        "-t",
+        "^moo\\.jcstress\\.VolatilePublicationTest$",
+        "-m",
+        "quick",
+        "-f",
+        "1",
+        "-r",
+        layout.buildDirectory.dir("reports/jcstress").get().asFile.absolutePath,
+    )
     outputs.upToDateWhen { false }
 }
 
