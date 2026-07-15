@@ -11,6 +11,7 @@ import java.util.Optional;
 import java.util.OptionalDouble;
 import java.util.OptionalLong;
 import java.util.concurrent.CompletableFuture;
+import moo.builtin.BuiltinCatalog.ConnectionOptionRequest;
 import moo.bytecode.BytecodeProgram;
 import moo.bytecode.BytecodeProgram.HandlerSpec;
 import moo.value.MooValue;
@@ -22,6 +23,7 @@ public final class VmState {
   private final Deque<Frame> frames = new ArrayDeque<>();
   private final Map<String, MooValue> initialLocals;
   private final List<String> output = new ArrayList<>();
+  private final List<ConnectionOptionRequest> connectionOptionRequests = new ArrayList<>();
   private Outcome outcome = Outcome.RUNNING;
   private Optional<MooValue> returnValue = Optional.empty();
   private Optional<ErrorValue> pendingError = Optional.empty();
@@ -178,6 +180,17 @@ public final class VmState {
 
   void stageOutput(String line) {
     output.add(line);
+  }
+
+  void stageConnectionOptionRequest(ConnectionOptionRequest request) {
+    connectionOptionRequests.add(request);
+  }
+
+  /** Removes and returns connection-option requests in their task execution order. */
+  public List<ConnectionOptionRequest> drainConnectionOptionRequests() {
+    List<ConnectionOptionRequest> requests = List.copyOf(connectionOptionRequests);
+    connectionOptionRequests.clear();
+    return requests;
   }
 
   void switchPlayer(long player) {

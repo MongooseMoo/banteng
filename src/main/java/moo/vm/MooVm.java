@@ -406,6 +406,7 @@ public final class MooVm {
       return;
     }
     result.output().ifPresent(state::stageOutput);
+    result.connectionOptionRequest().ifPresent(state::stageConnectionOptionRequest);
     if (result.switchedPlayer().isPresent()) {
       state.switchPlayer(result.switchedPlayer().orElseThrow());
     }

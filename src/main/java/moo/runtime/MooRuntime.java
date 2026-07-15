@@ -14,6 +14,8 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import moo.builtin.BuiltinCatalog;
+import moo.builtin.BuiltinCatalog.ConnectionOption;
+import moo.builtin.BuiltinCatalog.ConnectionOptionRequest;
 import moo.builtin.BuiltinCatalog.ListenerControl;
 import moo.bytecode.BytecodeProgram;
 import moo.bytecode.MooCompiler;
@@ -114,6 +116,23 @@ public final class MooRuntime {
     if (player < 0) {
       connection.lastActivityNanos = System.nanoTime();
       return executeLogin(connectionId, line);
+    }
+
+    if (connection.flushCommand.isPresent()
+        && !connection.flushCommand.orElseThrow().isEmpty()
+        && connection.flushCommand.orElseThrow().equalsIgnoreCase(line)) {
+      List<String> output = new ArrayList<>();
+      output.add(">> Flushing the following pending input:");
+      for (String pendingLine : connection.pendingInput) {
+        output.add(">>     " + pendingLine);
+      }
+      output.add(">> (Done flushing)");
+      connection.pendingInput.clear();
+      return List.copyOf(output);
+    }
+    if (connection.holdInput) {
+      connection.pendingInput.add(line);
+      return List.of();
     }
 
     if (connection.programmingObject >= 0) {
@@ -815,6 +834,7 @@ public final class MooRuntime {
           throw new IllegalStateException("runnable task has no program");
         }
         vm.execute(taskProgram, task, world, builtins);
+        applyConnectionOptionRequests(task);
         while (task.outcome() == VmState.Outcome.FORKED) {
           VmState.ForkRequest request = task.forkRequest().orElseThrow();
           VmState child = new VmState(request.locals(), request.programmer());
@@ -827,6 +847,7 @@ public final class MooRuntime {
           }
           task.continueAfterFork();
           vm.execute(taskProgram, task, world, builtins);
+          applyConnectionOptionRequests(task);
         }
         if (task.outcome() == VmState.Outcome.SUSPENDED) {
           if (task.suspensionDelaySeconds().isPresent()) {
@@ -915,6 +936,31 @@ public final class MooRuntime {
     return root;
   }
 
+  private void applyConnectionOptionRequests(VmState task) {
+    for (ConnectionOptionRequest request : task.drainConnectionOptionRequests()) {
+      ConnectionState connection = connections.get(request.target());
+      if (connection == null) {
+        for (Map.Entry<Long, ConnectionState> entry : connections.entrySet()) {
+          if (world.connectionPlayer(entry.getKey()).orElse(Long.MIN_VALUE) == request.target()) {
+            connection = entry.getValue();
+            break;
+          }
+        }
+      }
+      if (connection == null) {
+        continue;
+      }
+      if (request.option() == ConnectionOption.HOLD_INPUT) {
+        connection.holdInput = request.value().isTruthy();
+      } else if (request.value() instanceof StringValue command && command.length() > 0) {
+        connection.flushCommand =
+            Optional.of(new String(command.bytes(), StandardCharsets.ISO_8859_1));
+      } else {
+        connection.flushCommand = Optional.empty();
+      }
+    }
+  }
+
   private static Map<String, MooValue> verbLocals(
       long thisObject,
       long player,
@@ -948,6 +994,9 @@ public final class MooRuntime {
     private final long listenerHandler;
     private final boolean printMessages;
     private long lastActivityNanos = System.nanoTime();
+    private boolean holdInput;
+    private Optional<String> flushCommand = Optional.empty();
+    private final List<String> pendingInput = new ArrayList<>();
     private Optional<String> prefix = Optional.empty();
     private Optional<String> suffix = Optional.empty();
     private long programmingObject = -1;

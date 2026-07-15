@@ -1157,3 +1157,128 @@ selected and 11,504 deselected in 12.04 seconds. The complete
 rows and reaches `audit_flush_command_flushes_pending_input`. That row expects
 `{\"\"}` but observes `{}`. Row eleven is accepted; flush-command pending-input
 semantics are the next causally relevant unchecked lifecycle target.
+
+## Twelfth row: flush held pending input
+
+The active durable row is `audit_flush_command_flushes_pending_input` at
+`../moo-conformance-tests/src/moo_conformance/_tests/audit/connection_lifecycle_toast_oracle.yaml:1209-1326`.
+Its original form enabled `hold-input`, set `flush-command` to `.flush`, sent
+two identical commands, sent the flush token, released hold, sent one fresh
+command, and required the execution record to equal `{\"\"}`. A server that
+discarded every held line without ever owning a pending queue could pass.
+
+The corrected row is committed in the conformance repository as `0f52393`.
+It sends distinct `auditflush first` and `auditflush second` lines while held,
+then sends mixed-case `.FlUsH`. It requires exact client output, in order:
+
+1. `>> Flushing the following pending input:`
+2. `>>     auditflush first`
+3. `>>     auditflush second`
+4. `>> (Done flushing)`
+
+After releasing hold it retains the original final assertion that one fresh
+`auditflush` executes with empty `argstr`. The strengthened row therefore
+freezes queue presence, FIFO reporting and removal, case-insensitive exact
+flush-token matching, consumption of the flush line, no resurrection on
+release, and continued ordinary dispatch afterward. It passes pinned WSL
+Toast with one selected and 11,504 deselected in 8.00 seconds.
+
+The corrected row is red on committed Banteng `f68cebc`: the flush send
+returns no output instead of the four exact lines. Banteng then also retains
+the earlier final `{}` observation because the connection-option calls have no
+implemented effect.
+
+Barn's `../barn/spec/server.md:325-328` says WebSocket and stream transports
+share held-input flush behavior. `../barn/spec/builtins/network.md:224-243`
+documents `set_connection_option` and `connection_options`, but omits
+`flush-command`; the normative option surface is incomplete.
+
+Current Barn enters through
+`../barn/server/input_processor.go:65-229`. It serializes transport input and
+calls `builtins.HandleHeldInput` before read delivery or command dispatch.
+`../barn/builtins/network.go:108-239,561-615` owns per-player connection
+options and a held-command queue. Barn agrees that an explicitly configured
+flush token is consumed before normal dispatch and that release normally
+reinjects remaining held commands. It diverges by defaulting the token to the
+empty string, comparing case-sensitively, emitting no flush feedback, and
+clearing only its command queue while leaving its duplicate HTTP held-input
+buffer populated.
+
+Pinned Toast has one authoritative pending-input owner,
+`tqueue.first_input`, and one per-queue `flush_cmd` at
+`src/tasks.cc:168-184`. New queues read
+`$server_options.default_flush_command` and default to `.flush` at
+`src/tasks.cc:423-428,447-468`. The task connection-option table at
+`src/tasks.cc:995-1057` handles option names case-insensitively:
+`flush-command` stores a nonempty string and otherwise disables the token;
+`hold-input` stores MOO truth and makes remaining input runnable when released.
+
+Raw Telnet line construction preserves spaces and tabs through
+`src/network.cc:386-415`. `src/server.cc:1535-1540` refreshes activity and
+passes the full normalized line to `new_input_task`. At
+`src/tasks.cc:1171-1180`, that owner uses `strcasecmp` for an otherwise exact
+match. A matching line calls `flush_input` and is never enqueued, assigned a
+task ID, or given a MOO frame. `src/tasks.cc:1144-1168` dequeues every existing
+input-kind task in FIFO order, frees it, and emits the exact header, one line
+per removed input, and completion message through direct network notification.
+It preserves already-running, forked, suspended, waiting, and later input.
+
+The public builtin is registered at `src/server.cc:3385-3388` as
+`set_connection_option(OBJ, STR, ANY)`. Its body at
+`src/server.cc:3063-3083` returns `E_PERM` when the target differs from a
+nonwizard programmer, `E_INVARG` for a missing/disconnecting target or unknown
+option, and zero on success. The task table accepts any value for recognized
+options: nonempty strings enable `flush-command`; other values disable it;
+MOO truth controls `hold-input`.
+
+Committed Banteng has none of this vertical surface. `MooServer` correctly
+continues reading and forwards every line to serialized
+`MooRuntime.executeLine`, but `ConnectionState` has no hold flag, flush token,
+or pending FIFO. `BuiltinCatalog` has no `set_connection_option`; invocation
+falls through to `E_VERBNF` and its effect class is unimplemented. There is no
+runtime connection-option request to bridge a MOO task to ephemeral connection
+state.
+
+The smallest representation extends the existing explicit effect channel,
+not package ownership. `BuiltinCatalog.Result` gains one closed
+`ConnectionOptionRequest` value after validating arity, types, target
+connection, permission, and the two row-required option names. `MooVm` stages
+the request on `VmState`; `MooRuntime.executeStored` applies staged requests in
+task order. Concrete `ConnectionState` alone owns `holdInput`, `flushCommand`,
+and a FIFO of raw lines. `executeLine` compares a nonempty flush token with the
+raw line case-insensitively before hold or normal dispatch, returns exact FIFO
+feedback, clears the queue, consumes the flush line, queues other input while
+held, and otherwise follows the existing dispatch path. `hold-input = 0`
+updates the flag; this row proves the pending queue is already empty at that
+point.
+
+This slice does not add an interface, callback, sender, adapter, alternate
+queue, server mutation, world record, generic effect framework, or physical
+socket behavior. Default flush-command initialization, whitespace variants,
+empty-queue feedback, non-inband input kinds, `force_input`, an active
+`read()`, releasing a nonempty queue, and `connection_options` queries remain
+excluded.
+
+## Twelfth-row Banteng receipt
+
+The strengthened conformance row was corrected once more in commit `c7ec8ca`
+to replace its incidental `listappend()` dependency with MOO list expansion.
+That change preserves the distinct held lines, mixed-case flush token, exact
+four-line FIFO feedback, and final singleton empty `argstr` assertion. The
+corrected row passes pinned WSL Toast with one selected and 11,504 deselected
+in 8.07 seconds.
+
+The Banteng slice adds only the closed `ConnectionOptionRequest` data record to
+the existing builtin-result effect path, ordered staging on `VmState`, concrete
+application by `MooRuntime`, and per-connection hold, flush-token, and raw-line
+FIFO state. The focused Java regression and the complete Java 25
+`check installDist` gate pass. The corrected managed row passes with one
+selected and 11,504 deselected in 8.42 seconds.
+
+The complete managed `connection_lifecycle_toast_oracle` family passes the
+first twelve rows and stops at
+`audit_listener_print_messages_suppresses_connect_msg`: Banteng returns no
+output where Toast requires `I couldn't understand that.` after the suppressed
+listener connect message. The flush slice is accepted; listener
+`print-messages` command output is the next causally relevant unchecked
+lifecycle target.

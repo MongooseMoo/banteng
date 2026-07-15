@@ -413,6 +413,63 @@ final class MooRuntimeTest {
   }
 
   @Test
+  void flushesHeldPendingInputWithExactFifoFeedbackBeforeRelease() throws Exception {
+    WorldTxn world = new LambdaMooV4Reader().read(FIXTURE);
+    MooRuntime runtime = new MooRuntime(world);
+    long primaryConnection = -47;
+
+    assertEquals(List.of(), runtime.openConnection(primaryConnection));
+    assertEquals(
+        List.of("*** Connected ***"), runtime.executeLine(primaryConnection, "connect Wizard"));
+    runtime.executeLine(
+        primaryConnection,
+        """
+        ; add_property(#0, "audit_flush_player", {}, {#0, "rw"});
+        add_property(#0, "audit_flush_seen", {}, {#0, "rw"});
+        login_player = create($nothing);
+        set_player_flag(login_player, 1);
+        #0.audit_flush_player = login_player;
+        add_verb(login_player, {player, "rxd", "auditflush"}, {"none", "none", "none"});
+        set_verb_code(login_player, "auditflush", {
+          "#0.audit_flush_seen = {@#0.audit_flush_seen, argstr};",
+          "return 1;"
+        });
+        try
+          add_verb(#0, {player, "rxd", "do_login_command"}, {"this", "none", "this"});
+        except (E_INVARG)
+        endtry
+        set_verb_info(#0, "do_login_command", {player, "rxd", "do_login_command"});
+        set_verb_args(#0, "do_login_command", {"this", "none", "this"});
+        set_verb_code(#0, "do_login_command", {"return #0.audit_flush_player;"});
+        return 1;
+        """);
+
+    long heldConnection = -48;
+    assertEquals(List.of(), runtime.openConnection(heldConnection, 0, false));
+    runtime.executeLine(
+        primaryConnection,
+        "; set_connection_option(#0.audit_flush_player, \"hold-input\", 1);"
+            + " set_connection_option(#0.audit_flush_player, \"flush-command\", \".flush\");"
+            + " return 1;");
+
+    assertEquals(List.of(), runtime.executeLine(heldConnection, "auditflush first"));
+    assertEquals(List.of(), runtime.executeLine(heldConnection, "auditflush second"));
+    assertEquals(
+        List.of(
+            ">> Flushing the following pending input:",
+            ">>     auditflush first",
+            ">>     auditflush second",
+            ">> (Done flushing)"),
+        runtime.executeLine(heldConnection, ".FlUsH"));
+
+    runtime.executeLine(
+        primaryConnection,
+        "; set_connection_option(#0.audit_flush_player, \"hold-input\", 0); return 1;");
+    assertEquals(List.of(), runtime.executeLine(heldConnection, "auditflush"));
+    assertEquals("{\"\"}", world.property(0, "audit_flush_seen").orElseThrow().value().toLiteral());
+  }
+
+  @Test
   void runsZeroDelayUserConnectedForkAfterParentWithCapturedLocals() throws Exception {
     WorldTxn world = new LambdaMooV4Reader().read(FIXTURE);
     MooRuntime runtime = new MooRuntime(world);

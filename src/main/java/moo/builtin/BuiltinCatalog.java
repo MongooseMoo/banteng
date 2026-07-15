@@ -219,6 +219,7 @@ public final class BuiltinCatalog {
         }
         yield Result.value(info);
       }
+      case "set_connection_option" -> setConnectionOption(arguments, world, programmer);
       case "create" -> create(arguments, world, programmer);
       case "recycle" -> {
         if (arguments.size() != 1) {
@@ -415,9 +416,39 @@ public final class BuiltinCatalog {
           "add_property",
           "chparent" ->
           EffectClass.TRANSACTION_WRITE;
-      case "notify", "switch_player", "set_task_perms", "suspend" -> EffectClass.DEFERRED_EFFECT;
+      case "notify", "switch_player", "set_task_perms", "suspend", "set_connection_option" ->
+          EffectClass.DEFERRED_EFFECT;
       default -> EffectClass.UNIMPLEMENTED;
     };
+  }
+
+  private static Result setConnectionOption(
+      List<MooValue> arguments, WorldTxn world, long programmer) {
+    if (arguments.size() != 3) {
+      return Result.error(ErrorValue.E_ARGS);
+    }
+    if (!(arguments.get(0) instanceof ObjectValue target)
+        || !(arguments.get(1) instanceof StringValue optionName)) {
+      return Result.error(ErrorValue.E_TYPE);
+    }
+    WorldObject permissions = world.object(programmer).orElse(null);
+    if (target.value() != programmer && (permissions == null || (permissions.flags() & 4) == 0)) {
+      return Result.error(ErrorValue.E_PERM);
+    }
+    if (world.connectionInfo(target.value()).isEmpty()) {
+      return Result.error(ErrorValue.E_INVARG);
+    }
+    ConnectionOption option =
+        switch (decode(optionName).toLowerCase(Locale.ROOT)) {
+          case "hold-input" -> ConnectionOption.HOLD_INPUT;
+          case "flush-command" -> ConnectionOption.FLUSH_COMMAND;
+          default -> null;
+        };
+    if (option == null) {
+      return Result.error(ErrorValue.E_INVARG);
+    }
+    return Result.connectionOption(
+        new ConnectionOptionRequest(target.value(), option, arguments.get(2)));
   }
 
   private static Result length(List<MooValue> arguments) {
@@ -1751,6 +1782,15 @@ public final class BuiltinCatalog {
     UNIMPLEMENTED
   }
 
+  /** One validated mutation of the closed connection-option surface. */
+  public record ConnectionOptionRequest(long target, ConnectionOption option, MooValue value) {}
+
+  /** The connection options authorized by the held-input slice. */
+  public enum ConnectionOption {
+    HOLD_INPUT,
+    FLUSH_COMMAND
+  }
+
   /** One explicit builtin value, MOO error, dynamic call, or staged effect. */
   public record Result(
       Optional<MooValue> value,
@@ -1761,7 +1801,8 @@ public final class BuiltinCatalog {
       OptionalLong programmer,
       OptionalLong recycleTarget,
       OptionalDouble delaySeconds,
-      Optional<CompletableFuture<MooValue>> hostResult) {
+      Optional<CompletableFuture<MooValue>> hostResult,
+      Optional<ConnectionOptionRequest> connectionOptionRequest) {
     static Result value(MooValue value) {
       return new Result(
           Optional.of(value),
@@ -1772,6 +1813,7 @@ public final class BuiltinCatalog {
           OptionalLong.empty(),
           OptionalLong.empty(),
           OptionalDouble.empty(),
+          Optional.empty(),
           Optional.empty());
     }
 
@@ -1789,6 +1831,7 @@ public final class BuiltinCatalog {
           OptionalLong.empty(),
           OptionalLong.empty(),
           OptionalDouble.empty(),
+          Optional.empty(),
           Optional.empty());
     }
 
@@ -1802,6 +1845,7 @@ public final class BuiltinCatalog {
           OptionalLong.empty(),
           OptionalLong.empty(),
           OptionalDouble.empty(),
+          Optional.empty(),
           Optional.empty());
     }
 
@@ -1815,6 +1859,7 @@ public final class BuiltinCatalog {
           OptionalLong.empty(),
           OptionalLong.empty(),
           OptionalDouble.empty(),
+          Optional.empty(),
           Optional.empty());
     }
 
@@ -1828,6 +1873,7 @@ public final class BuiltinCatalog {
           OptionalLong.empty(),
           OptionalLong.empty(),
           OptionalDouble.empty(),
+          Optional.empty(),
           Optional.empty());
     }
 
@@ -1841,6 +1887,7 @@ public final class BuiltinCatalog {
           OptionalLong.of(programmer),
           OptionalLong.empty(),
           OptionalDouble.empty(),
+          Optional.empty(),
           Optional.empty());
     }
 
@@ -1854,6 +1901,7 @@ public final class BuiltinCatalog {
           OptionalLong.empty(),
           OptionalLong.of(target),
           OptionalDouble.empty(),
+          Optional.empty(),
           Optional.empty());
     }
 
@@ -1867,6 +1915,7 @@ public final class BuiltinCatalog {
           OptionalLong.empty(),
           OptionalLong.empty(),
           OptionalDouble.of(seconds),
+          Optional.empty(),
           Optional.empty());
     }
 
@@ -1880,7 +1929,22 @@ public final class BuiltinCatalog {
           OptionalLong.empty(),
           OptionalLong.empty(),
           OptionalDouble.empty(),
-          Optional.of(future));
+          Optional.of(future),
+          Optional.empty());
+    }
+
+    static Result connectionOption(ConnectionOptionRequest request) {
+      return new Result(
+          Optional.of(new IntegerValue(0)),
+          Optional.empty(),
+          Optional.empty(),
+          Optional.empty(),
+          OptionalLong.empty(),
+          OptionalLong.empty(),
+          OptionalLong.empty(),
+          OptionalDouble.empty(),
+          Optional.empty(),
+          Optional.of(request));
     }
   }
 }
