@@ -839,6 +839,7 @@ public final class MooRuntime {
         vm.execute(taskProgram, task, world, builtins);
         applyConnectionOptionRequests(task);
         applyBootPlayerTargets(task);
+        closeRecycledPlayerConnections();
         while (task.outcome() == VmState.Outcome.FORKED) {
           VmState.ForkRequest request = task.forkRequest().orElseThrow();
           VmState child = new VmState(request.locals(), request.programmer());
@@ -853,6 +854,7 @@ public final class MooRuntime {
           vm.execute(taskProgram, task, world, builtins);
           applyConnectionOptionRequests(task);
           applyBootPlayerTargets(task);
+          closeRecycledPlayerConnections();
         }
         if (task.outcome() == VmState.Outcome.SUSPENDED) {
           if (task.suspensionDelaySeconds().isPresent()) {
@@ -1029,6 +1031,47 @@ public final class MooRuntime {
       }
       long bootedConnectionId = connectionId;
       listenerControl.ifPresent(control -> control.bootConnection(bootedConnectionId, lines));
+    }
+  }
+
+  private void closeRecycledPlayerConnections() {
+    for (Map.Entry<Long, ConnectionState> entry : new ArrayList<>(connections.entrySet())) {
+      long connectionId = entry.getKey();
+      long player = world.connectionPlayer(connectionId).orElse(Long.MIN_VALUE);
+      if (player < 0 || world.object(player).isPresent()) {
+        continue;
+      }
+
+      ConnectionState connection = entry.getValue();
+      connections.remove(connectionId);
+      world.closeConnection(connectionId);
+      List<String> lines = new ArrayList<>();
+      if (connection.printMessages) {
+        MooValue message = null;
+        MooValue listenerOptions =
+            world.readObjectProperty(connection.listenerHandler, "server_options").orElse(null);
+        if (listenerOptions instanceof ObjectValue options) {
+          message = world.readObjectProperty(options.value(), "recycle_msg").orElse(null);
+        }
+        if (message == null && connection.listenerHandler != 0) {
+          MooValue rootOptions = world.readObjectProperty(0, "server_options").orElse(null);
+          if (rootOptions instanceof ObjectValue options) {
+            message = world.readObjectProperty(options.value(), "recycle_msg").orElse(null);
+          }
+        }
+        if (message == null) {
+          lines.add("*** Recycled ***");
+        } else if (message instanceof StringValue string) {
+          lines.add(new String(string.bytes(), StandardCharsets.ISO_8859_1));
+        } else if (message instanceof ListValue list) {
+          for (MooValue element : list.elements()) {
+            if (element instanceof StringValue string) {
+              lines.add(new String(string.bytes(), StandardCharsets.ISO_8859_1));
+            }
+          }
+        }
+      }
+      listenerControl.ifPresent(control -> control.bootConnection(connectionId, lines));
     }
   }
 

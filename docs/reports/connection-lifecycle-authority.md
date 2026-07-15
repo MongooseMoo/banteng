@@ -1398,3 +1398,82 @@ the first fourteen rows and stops at `audit_recycle_active_player_message`:
 Banteng emits no output where Toast requires `*** Recycled ***`. The boot slice
 is accepted; recycling one active player is the next causally relevant
 unchecked lifecycle target.
+
+## Fifteenth row: recycle one active player
+
+The active durable row is `audit_recycle_active_player_message`. It creates a
+fresh player, authenticates one primary-listener connection as that player,
+runs `recycle(player)` as wizard, and requires exact target output
+`*** Recycled ***`. The row is red on committed Banteng `eb374f1`: one
+selected and 11,504 deselected, expected the banner and observed no output in
+5.81 seconds. It passes pinned WSL Toast at source commit
+`aecc51e9449c6e7c95272f0f044b5ba38948459e` with one selected and 11,504
+deselected in 4.91 seconds.
+
+Barn `spec/objects.md:309-327` specifies the object lifecycle only: call the
+target's `recycle` verb, detach its relationships, and mark its slot recycled.
+It does not specify what happens to an active connection. The generic close
+claim in `spec/server.md:179-185` says any close calls `user_disconnected`,
+which conflicts with Toast's dedicated recycle branch.
+
+Barn implements the public path in `builtins/objects.go:305-381`: after the
+target lifecycle verb and store recycle it calls
+`ConnManager.RecyclePlayer`. `server/connection_manager.go:565-576` hardcodes
+`*** Recycled ***`, sends it, and closes the socket. Barn therefore agrees
+with the row's default banner-before-close behavior, but it ignores listener
+`printMessages` and configurable message options. Its normal reader cleanup
+then reaches `user_client_disconnected`, another Toast divergence.
+
+Pinned Toast `src/objects.cc:788-926` validates one object, applies
+owner-or-wizard control, runs the target object's `recycle` verb, detaches its
+contents and hierarchy, destroys the object, and completes the builtin.
+`src/db_objects.cc:313-370` removes a destroyed player from the player set and
+makes the object invalid. In the next main-loop connection sweep,
+`src/server.cc:893-903` recognizes an authenticated handle whose player is no
+longer valid, conditionally sends `recycle_msg` with default
+`*** Recycled ***`, then closes and frees the handle. This branch invokes
+neither `user_disconnected` nor `user_client_disconnected`; those belong to
+different close causes.
+
+Toast's shared message path at `src/server.cc:529-567` resolves the accepting
+listener's `server_options` before #0 fallback. A string `recycle_msg` emits
+one line; a list emits only its string elements in order; a present unsupported
+type emits nothing; an absent option emits the default. The entire message is
+suppressed when that accepted listener's `print_messages` flag is false.
+
+The smallest Banteng representation changes no builtin, world, VM, interface,
+sender, adapter, or effect record. After each existing VM execution boundary,
+`MooRuntime` reconciles its concrete live connections: a positive attached
+player absent from the current world is recycled. It removes that logical and
+world connection without invoking either disconnect hook, resolves the exact
+recycle message, and uses the existing concrete final-lines-plus-close method
+on `ListenerControl`. `MooServer` already serializes that write and closes the
+selected connection ID.
+
+The durable row freezes wizard recycling of an active player and the default
+banner on a primary `print-messages` listener. Focused Java coverage also
+freezes successful controlling-task completion and EOF after the banner.
+Owner permissions, target `recycle`-verb behavior, custom/list/wrong-type
+`recycle_msg`, print suppression, and exact logical-visibility timing remain
+outside this row.
+
+## Fifteenth-row Banteng receipt
+
+The kept Banteng slice changes only `MooRuntime` and one real-socket regression.
+After each existing VM execution boundary, the runtime reconciles live positive
+player attachments against the current world, removes an attachment whose
+player was recycled without invoking a disconnect hook, resolves the exact
+listener/#0 `recycle_msg`, and reuses the existing serialized final-lines-plus-
+close transport operation. No builtin, VM, world, server, interface, sender,
+adapter, or effect record was added or changed.
+
+The focused Java regression passes after formatting and proves successful
+controlling-task completion, the exact default recycle banner, and EOF. The
+managed Banteng row passes with one selected and 11,504 deselected in 5.10
+seconds. The full Java 25 `clean check installDist` gate passes.
+
+The complete managed `connection_lifecycle_toast_oracle` fail-fast run passes
+the first fifteen rows and stops at `audit_login_timeout_message`: Banteng
+emits no output where Toast requires
+`*** Timed-out waiting for login. ***`. The recycle slice is accepted; login
+timeout messaging is the next causally relevant unchecked lifecycle target.
