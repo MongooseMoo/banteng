@@ -12,6 +12,7 @@ import java.util.OptionalDouble;
 import java.util.OptionalLong;
 import java.util.concurrent.CompletableFuture;
 import moo.builtin.BuiltinCatalog.ConnectionOptionRequest;
+import moo.builtin.BuiltinCatalog.ForcedInputRequest;
 import moo.bytecode.BytecodeProgram;
 import moo.bytecode.BytecodeProgram.HandlerSpec;
 import moo.value.MooValue;
@@ -25,6 +26,7 @@ public final class VmState {
   private final List<String> output = new ArrayList<>();
   private final List<ConnectionOptionRequest> connectionOptionRequests = new ArrayList<>();
   private final List<Long> bootPlayerTargets = new ArrayList<>();
+  private final List<ForcedInputRequest> forcedInputRequests = new ArrayList<>();
   private Outcome outcome = Outcome.RUNNING;
   private Optional<MooValue> returnValue = Optional.empty();
   private Optional<ErrorValue> pendingError = Optional.empty();
@@ -203,6 +205,17 @@ public final class VmState {
     List<Long> targets = List.copyOf(bootPlayerTargets);
     bootPlayerTargets.clear();
     return targets;
+  }
+
+  void stageForcedInputRequest(ForcedInputRequest request) {
+    forcedInputRequests.add(request);
+  }
+
+  /** Removes and returns forced-input requests in their task execution order. */
+  public List<ForcedInputRequest> drainForcedInputRequests() {
+    List<ForcedInputRequest> requests = List.copyOf(forcedInputRequests);
+    forcedInputRequests.clear();
+    return requests;
   }
 
   void switchPlayer(long player) {

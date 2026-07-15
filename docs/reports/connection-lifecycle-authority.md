@@ -2175,3 +2175,206 @@ rows 1 through 21 and stopped first at row 22,
 failure remains a separate unchecked slice.
 
 The final Java 25 `clean check installDist` gate passed in 15 seconds.
+
+## Twenty-second row: held input and disabled OOB
+
+The active durable row is `audit_connection_hold_and_oob_options` at
+`../moo-conformance-tests/src/moo_conformance/_tests/audit/connection_lifecycle_toast_oracle.yaml:1860-2017`.
+It logs a newly created player in through a forced line, then combines
+`force_input`, `set_connection_option`, and `suspend(0)` to require
+`{1, 1, 1, 1, 0}`: ordinary input is blocked while held and executes after
+release; enabled OOB bypasses hold; disabled OOB remains blocked; and after
+release while OOB is still disabled, that line is not dispatched as OOB.
+
+Barn's normative surface is incomplete. `../barn/spec/builtins/network.md:120-135`
+defines `force_input` and `flush_input` only at a high level, while
+`../barn/spec/builtins/network.md:224-243` names `set_connection_option`,
+`hold-input`, `disable-oob`, and `connection_options`.
+`../barn/spec/builtins/tasks.md:172-213,519-545` describes suspension and
+duplicates the high-level input builtins. `../barn/spec/tasks.md:401-418` says
+runnable input precedes background work unless input is held, and
+`../barn/spec/server.md:310-329` discusses application text and
+`flush-command`. No Barn specification section defines negative pre-login
+targets, forced login dispatch, OOB bypass of held input, disabled-OOB
+disposition, held-queue release, the exact `force_input`/`suspend(0)` ordering,
+or `do_out_of_band_command`.
+
+Barn registers the relevant builtins at `../barn/builtins/registry.go:197-208`
+and validates forced input at `../barn/builtins/signatures.go:550-575`. The
+concrete option and held-command owners are
+`../barn/builtins/network.go:169-248,561-619,1252-1348`. Clearing `hold-input`
+stores false, drains held lines in order, and re-injects them. Negative live
+connections are mapped and resolved at
+`../barn/server/connection_manager.go:399-445`; forced input enters at
+`../barn/server/input_processor.go:269-314`; and login dispatch and association
+run through `../barn/server/input_processor.go:368-478`,
+`../barn/scheduler/task_factory.go:108-177`, and
+`../barn/server/input_login.go:239-300`. OOB is classified before held ordinary
+input at `../barn/server/input_processor.go:196-258`. The zero-duration
+suspension path through `../barn/task/manager.go:148-165`,
+`../barn/scheduler/task_runtime.go:231-252`, and
+`../barn/server/input_processor.go:163-193` requeues the caller while pending
+input is serviced. Barn's implementation therefore derives the row's five
+expected values.
+
+Pinned Toast owns queue kinds, per-connection state, and option defaults at
+`/root/src/toaststunt/src/tasks.cc:55-64,142-219,423-475`. Its
+`force_input` builtin at `src/tasks.cc:2880-2897` targets the live queue and
+enqueues text. `src/tasks.cc:1074-1130` classifies binary, transport OOB,
+quoted, textual `#$#` OOB, and ordinary input; the exact prefixes are in
+`src/include/options.h:78-97`. Held ordinary input is not activated, but
+enabled OOB is.
+
+Toast's `set_connection_option` entry point is
+`src/server.cc:2973-2995`. `src/tasks.cc:1015-1058` owns `flush-command`,
+`hold-input`, and `disable-oob`, and clearing hold reactivates queued input.
+Option names compare case-insensitively at `src/include/server.h:345-360`.
+Dequeue at `src/tasks.cc:532-596` returns no OOB-only task while OOB is disabled
+and converts a subsequently dequeued OOB task to in-band. Ready selection and
+dispatch at `src/tasks.cc:1628-1811` sends OOB to the listener hook and in-band
+to login or ordinary command handling. `do_out_of_band_command` receives parsed
+words and the exact input as `argstr` at `src/tasks.cc:969-974`.
+
+For the row's initial forced login, `src/tasks.cc:877-966` runs
+`do_login_command` for the negative queue identity; `src/server.cc:933-945,1657-1725`
+reassociates the same queue and shandle to the returned player.
+`connected_players(1)` includes negative pre-login handles at
+`src/server.cc:2751-2778`. `suspend(0)` snapshots and blocks the VM at
+`src/execute.cc:221-239,330-359,3520-3539`; its immediately due continuation
+enters the background queue through `src/tasks.cc:1182-1205,1295-1321,1628-1646`.
+The active-queue ordering at `src/tasks.cc:382-420` exposes each pending input
+effect before the yielded audit task resumes.
+
+The resulting Toast sequence is unambiguous. The forced login line associates
+the new player. Held `auditq` stays queued, then executes with empty `argstr`
+after release. Enabled `#$#audit-oob-free` bypasses hold. With both hold and
+disable-OOB set, `#$#audit-oob-held` remains queued; clearing hold while OOB is
+still disabled converts it to ordinary in-band input, so the OOB hook remains
+empty. This yields exactly `{1, 1, 1, 1, 0}` and agrees with both the durable
+row and Barn's implementation.
+
+Adjacent behavior remains outside this slice: transport or quoted OOB,
+`force_input` front insertion, multiple alternating queued lines, option
+persistence across login, option-name case and invalid values, getter/list
+shape, `flush-command`, and the eventual ordinary-command side effect of the
+disabled OOB line. Barn additionally differs outside the active row by ignoring
+front insertion for ordinary live input and dropping disabled transport OOB
+where Toast converts it to in-band.
+
+The exact managed row passed pinned WSL Toast commit
+`aecc51e9449c6e7c95272f0f044b5ba38948459e`: one selected, 11,504
+deselected, in 3.66 seconds. The active semantic contract is therefore frozen
+before Java design.
+
+Committed Banteng `9ccf880` already registers `set_connection_option` in
+`BuiltinCatalog.invoke`, but its option owner accepts only `hold-input` and
+`flush-command`. The row's first `E_VERBNF` is instead `force_input`, which has
+no builtin case or effect classification. `MooRuntime.ConnectionState` already
+owns `pendingInput`, `holdInput`, and `flushCommand`; a second input queue is
+neither necessary nor authorized. Current input handling checks hold before
+OOB dispatch, and clearing hold changes the flag without replaying the FIFO.
+
+The smallest Java representation extends the existing deferred-effect path
+with a concrete forced-input request, staged in the existing VM state and
+applied by `MooRuntime` at the existing VM boundary before a zero-duration
+suspension resumes. Runtime target resolution uses the existing negative
+connection IDs and positive attached-player mapping, invokes the existing
+`executeLine` path, and publishes any returned lines through the existing
+listener control. The existing connection option enum and connection state gain
+`disable-oob`; enabled textual OOB is classified before held ordinary input,
+while disabled OOB follows the held/ordinary path. Clearing `hold-input`
+snapshots, clears, and replays the existing FIFO through `executeLine` while
+the disabled-OOB state remains active.
+
+Only the row's two-argument `force_input(target, line)` contract is in scope.
+Front insertion, a generic input effect framework, a second queue, and any new
+helper, interface, adapter, or sender remain outside this slice. A focused
+runtime regression will combine the existing held-input and OOB seams and must
+fail at the initial `force_input` before production changes.
+
+The first connection implementation reduced the managed result from
+`E_VERBNF` to `{1, 0, 0, 1, 0}`. Runtime-boundary diagnostics, removed after
+use, proved that target resolution, held FIFO release, enabled-OOB bypass,
+disabled-OOB handling, listener selection, and player-verb selection were all
+correct. The two selected audit verbs both stopped at their existing
+`listappend(list, argstr)` calls. The initial focused regression had masked
+this dependency by using list-splice syntax; it was corrected and then
+reproduced the managed `{1, 0, 0, 1, 0}` result exactly.
+
+### Required two-argument `listappend` dependency
+
+Barn specifies `listappend(list, value [, index])` at
+`../barn/spec/builtins/lists.md:1-5,30-59`. For the active two-argument form,
+the first argument is a list, the second is any value, and the result contains
+the original elements followed by that value. `../barn/spec/types.md:149-180,436-460`
+defines heterogeneous shallow copy-on-write lists: the returned outer list is
+logically independent while nested values may remain shared. Wrong arity and
+optional-index type errors are omitted locally but supplied by Barn's generic
+signature rules; list-size overflow is globally `E_QUOTA`.
+
+Barn registers and validates the builtin through
+`../barn/builtins/registry.go:87-98,349-378,399-435`,
+`../barn/builtins/function_signatures_generated.go:104`, and
+`../barn/builtins/signatures.go:55-62,85-125`. The semantic owner at
+`../barn/builtins/lists.go:15-51` defaults the missing index to the current
+length, inserts after it, checks the list-size quota, and returns the result.
+`../barn/types/list.go:188-202` allocates and copies the top-level elements, so
+the source list is unchanged. No permission check, suspension, or deferred
+effect is involved.
+
+Pinned Toast registers the same `LIST, ANY, INT` two-to-three-argument shape at
+`/root/src/toaststunt/src/list.cc:1755-1771`; generic validation at
+`src/functions.cc:239-275` supplies `E_ARGS` and `E_TYPE`. The builtin owner at
+`src/list.cc:695-729` selects `length + 1` for two arguments and delegates to
+`doinsert` at `src/list.cc:196-250`. Existing elements retain order and the new
+value becomes last. Toast may physically reuse a uniquely owned temporary, but
+otherwise allocates a new outer list and retains nested references through
+`src/include/utils.h:52-68` and `src/utils.cc:267-347`; this is observably the
+same shallow copy-on-write contract as Barn. The operation is one synchronous
+builtin-call tick through `src/include/opcode.h:46-74,128-130` and
+`src/execute.cc:972-988,2224-2281`, with no intrinsic permission or host
+effect.
+
+Barn and Toast agree completely on the active normal-size two-argument call.
+They differ outside this slice on oversized results: Toast's
+`src/list.cc:615-627,714-720` yields `E_QUOTA` only when
+`max_concat_catchable` is enabled and otherwise aborts as out-of-seconds. The
+optional-index clamp and all limit behavior remain owned by their dedicated
+rows. Related durable coverage is `basic/list.yaml:listappend_to_end`, the
+two-argument cases in `builtins/listappend_call_shapes.yaml`, signature/error
+cases in `generated_builtins/listappend.yaml`, and the separate
+`server/limits.yaml` rows.
+
+The direct managed `listappend_to_end` row passed pinned WSL Toast commit
+`aecc51e9449c6e7c95272f0f044b5ba38948459e`: one selected, 11,504
+deselected, in 3.51 seconds. The active normal-size two-argument contract is
+therefore frozen before Java implementation.
+
+Banteng's existing `MooValue.ListValue` constructor already takes an immutable
+snapshot of its supplied outer elements. The smallest active representation is
+therefore one inline `BuiltinCatalog.invoke` case: require exactly two
+arguments, require a `ListValue` first argument, copy its elements into a local
+list, append the second value, and return a new `ListValue`. Add `listappend` to
+the existing pure effect classification. No value-owner change, permission,
+effect request, helper, interface, adapter, or optional-index implementation is
+required for this row.
+
+Committed Banteng `9ccf880` first failed the exact lifecycle row with
+`E_VERBNF`; the focused runtime regression stored and reproduced that exact
+error before production changes. After the forced-input and connection-option
+path was implemented, the focused test initially passed only because its audit
+verbs used list splicing. Correcting them to the durable row's exact
+`listappend` source made the local result `{1, 0, 0, 1, 0}`, identical to the
+managed result. The direct `listappend_to_end` row then failed Banteng with
+`E_VERBNF` before the inline pure builtin was added.
+
+After both owned changes, the corrected focused Java 25 lifecycle regression
+passed. The direct managed Banteng `listappend_to_end` row passed with one
+selected and 11,504 deselected in 3.47 seconds. The exact managed lifecycle row
+passed with one selected and 11,504 deselected in 3.73 seconds. The complete
+managed lifecycle category passed rows 1 through 22 and stopped first at row
+23, `audit_user_created_hook_for_new_login_object`, with 22 passed, 11,482
+deselected, in 47.03 seconds. Row 22 is therefore the kept frontier; row 23's
+`[4, 1, 0]` result remains a separate unchecked slice.
+
+The final Java 25 `clean check installDist` gate passed in 13 seconds.

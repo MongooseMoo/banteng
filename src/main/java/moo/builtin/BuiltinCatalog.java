@@ -57,6 +57,17 @@ public final class BuiltinCatalog {
   public Result invoke(String name, List<MooValue> arguments, WorldTxn world, long programmer) {
     return switch (name.toLowerCase(Locale.ROOT)) {
       case "length" -> length(arguments);
+      case "listappend" -> {
+        if (arguments.size() != 2) {
+          yield Result.error(ErrorValue.E_ARGS);
+        }
+        if (!(arguments.getFirst() instanceof ListValue list)) {
+          yield Result.error(ErrorValue.E_TYPE);
+        }
+        List<MooValue> elements = new ArrayList<>(list.elements());
+        elements.add(arguments.get(1));
+        yield Result.value(new ListValue(elements));
+      }
       case "mapkeys" -> mapKeys(arguments);
       case "max" -> {
         if (arguments.isEmpty()) {
@@ -291,6 +302,7 @@ public final class BuiltinCatalog {
       }
       case "set_connection_option" -> setConnectionOption(arguments, world, programmer);
       case "boot_player" -> bootPlayer(arguments, world, programmer);
+      case "force_input" -> forceInput(arguments, world, programmer);
       case "create" -> create(arguments, world, programmer);
       case "recycle" -> {
         if (arguments.size() != 1) {
@@ -450,6 +462,7 @@ public final class BuiltinCatalog {
   public EffectClass effectClass(String name) {
     return switch (name.toLowerCase(Locale.ROOT)) {
       case "length",
+          "listappend",
           "mapkeys",
           "max",
           "tostr",
@@ -496,7 +509,8 @@ public final class BuiltinCatalog {
           "set_task_perms",
           "suspend",
           "set_connection_option",
-          "boot_player" ->
+          "boot_player",
+          "force_input" ->
           EffectClass.DEFERRED_EFFECT;
       default -> EffectClass.UNIMPLEMENTED;
     };
@@ -536,6 +550,7 @@ public final class BuiltinCatalog {
         switch (decode(optionName).toLowerCase(Locale.ROOT)) {
           case "hold-input" -> ConnectionOption.HOLD_INPUT;
           case "flush-command" -> ConnectionOption.FLUSH_COMMAND;
+          case "disable-oob" -> ConnectionOption.DISABLE_OOB;
           default -> null;
         };
     if (option == null) {
@@ -543,6 +558,21 @@ public final class BuiltinCatalog {
     }
     return Result.connectionOption(
         new ConnectionOptionRequest(target.value(), option, arguments.get(2)));
+  }
+
+  private static Result forceInput(List<MooValue> arguments, WorldTxn world, long programmer) {
+    if (arguments.size() != 2) {
+      return Result.error(ErrorValue.E_ARGS);
+    }
+    if (!(arguments.get(0) instanceof ObjectValue target)
+        || !(arguments.get(1) instanceof StringValue line)) {
+      return Result.error(ErrorValue.E_TYPE);
+    }
+    WorldObject permissions = world.object(programmer).orElse(null);
+    if (permissions == null || (permissions.flags() & 4) == 0) {
+      return Result.error(ErrorValue.E_PERM);
+    }
+    return Result.forcedInput(new ForcedInputRequest(target.value(), decode(line)));
   }
 
   private static Result length(List<MooValue> arguments) {
@@ -1907,10 +1937,14 @@ public final class BuiltinCatalog {
   /** One validated mutation of the closed connection-option surface. */
   public record ConnectionOptionRequest(long target, ConnectionOption option, MooValue value) {}
 
+  /** One validated line to inject into a live connection's input stream. */
+  public record ForcedInputRequest(long target, String line) {}
+
   /** The connection options authorized by the held-input slice. */
   public enum ConnectionOption {
     HOLD_INPUT,
-    FLUSH_COMMAND
+    FLUSH_COMMAND,
+    DISABLE_OOB
   }
 
   /** One explicit builtin value, MOO error, dynamic call, or staged effect. */
@@ -1925,7 +1959,8 @@ public final class BuiltinCatalog {
       OptionalDouble delaySeconds,
       Optional<CompletableFuture<MooValue>> hostResult,
       Optional<ConnectionOptionRequest> connectionOptionRequest,
-      OptionalLong bootPlayerTarget) {
+      OptionalLong bootPlayerTarget,
+      Optional<ForcedInputRequest> forcedInputRequest) {
     static Result value(MooValue value) {
       return new Result(
           Optional.of(value),
@@ -1938,7 +1973,8 @@ public final class BuiltinCatalog {
           OptionalDouble.empty(),
           Optional.empty(),
           Optional.empty(),
-          OptionalLong.empty());
+          OptionalLong.empty(),
+          Optional.empty());
     }
 
     static Result zero() {
@@ -1957,7 +1993,8 @@ public final class BuiltinCatalog {
           OptionalDouble.empty(),
           Optional.empty(),
           Optional.empty(),
-          OptionalLong.empty());
+          OptionalLong.empty(),
+          Optional.empty());
     }
 
     static Result dynamicEval(String source) {
@@ -1972,7 +2009,8 @@ public final class BuiltinCatalog {
           OptionalDouble.empty(),
           Optional.empty(),
           Optional.empty(),
-          OptionalLong.empty());
+          OptionalLong.empty(),
+          Optional.empty());
     }
 
     static Result output(String line) {
@@ -1987,7 +2025,8 @@ public final class BuiltinCatalog {
           OptionalDouble.empty(),
           Optional.empty(),
           Optional.empty(),
-          OptionalLong.empty());
+          OptionalLong.empty(),
+          Optional.empty());
     }
 
     static Result switchPlayer(long player) {
@@ -2002,7 +2041,8 @@ public final class BuiltinCatalog {
           OptionalDouble.empty(),
           Optional.empty(),
           Optional.empty(),
-          OptionalLong.empty());
+          OptionalLong.empty(),
+          Optional.empty());
     }
 
     static Result programmer(long programmer) {
@@ -2017,7 +2057,8 @@ public final class BuiltinCatalog {
           OptionalDouble.empty(),
           Optional.empty(),
           Optional.empty(),
-          OptionalLong.empty());
+          OptionalLong.empty(),
+          Optional.empty());
     }
 
     static Result recycle(long target) {
@@ -2032,7 +2073,8 @@ public final class BuiltinCatalog {
           OptionalDouble.empty(),
           Optional.empty(),
           Optional.empty(),
-          OptionalLong.empty());
+          OptionalLong.empty(),
+          Optional.empty());
     }
 
     static Result delay(double seconds) {
@@ -2047,7 +2089,8 @@ public final class BuiltinCatalog {
           OptionalDouble.of(seconds),
           Optional.empty(),
           Optional.empty(),
-          OptionalLong.empty());
+          OptionalLong.empty(),
+          Optional.empty());
     }
 
     static Result hostResult(CompletableFuture<MooValue> future) {
@@ -2062,7 +2105,8 @@ public final class BuiltinCatalog {
           OptionalDouble.empty(),
           Optional.of(future),
           Optional.empty(),
-          OptionalLong.empty());
+          OptionalLong.empty(),
+          Optional.empty());
     }
 
     static Result connectionOption(ConnectionOptionRequest request) {
@@ -2077,7 +2121,8 @@ public final class BuiltinCatalog {
           OptionalDouble.empty(),
           Optional.empty(),
           Optional.of(request),
-          OptionalLong.empty());
+          OptionalLong.empty(),
+          Optional.empty());
     }
 
     static Result bootPlayer(long target) {
@@ -2092,7 +2137,24 @@ public final class BuiltinCatalog {
           OptionalDouble.empty(),
           Optional.empty(),
           Optional.empty(),
-          OptionalLong.of(target));
+          OptionalLong.of(target),
+          Optional.empty());
+    }
+
+    static Result forcedInput(ForcedInputRequest request) {
+      return new Result(
+          Optional.of(new IntegerValue(0)),
+          Optional.empty(),
+          Optional.empty(),
+          Optional.empty(),
+          OptionalLong.empty(),
+          OptionalLong.empty(),
+          OptionalLong.empty(),
+          OptionalDouble.empty(),
+          Optional.empty(),
+          Optional.empty(),
+          OptionalLong.empty(),
+          Optional.of(request));
     }
   }
 }

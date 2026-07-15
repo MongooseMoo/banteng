@@ -16,6 +16,7 @@ import java.util.concurrent.TimeoutException;
 import moo.builtin.BuiltinCatalog;
 import moo.builtin.BuiltinCatalog.ConnectionOption;
 import moo.builtin.BuiltinCatalog.ConnectionOptionRequest;
+import moo.builtin.BuiltinCatalog.ForcedInputRequest;
 import moo.builtin.BuiltinCatalog.ListenerControl;
 import moo.bytecode.BytecodeProgram;
 import moo.bytecode.MooCompiler;
@@ -133,7 +134,7 @@ public final class MooRuntime {
       connection.pendingInput.clear();
       return List.copyOf(output);
     }
-    if (connection.holdInput) {
+    if (connection.holdInput && (connection.disableOob || !line.startsWith("#$#"))) {
       connection.pendingInput.add(line);
       return List.of();
     }
@@ -236,7 +237,7 @@ public final class MooRuntime {
     for (String word : words) {
       commandWords.add(encode(word));
     }
-    if (line.startsWith("#$#")) {
+    if (line.startsWith("#$#") && !connection.disableOob) {
       Optional<WorldVerb> outOfBand =
           world.verb(connection.listenerHandler, "do_out_of_band_command");
       if (outOfBand.isEmpty()) {
@@ -1017,6 +1018,7 @@ public final class MooRuntime {
         }
         vm.execute(taskProgram, task, world, builtins);
         applyConnectionOptionRequests(task);
+        applyForcedInputRequests(task);
         applyBootPlayerTargets(task);
         closeRecycledPlayerConnections();
         while (task.outcome() == VmState.Outcome.FORKED) {
@@ -1032,6 +1034,7 @@ public final class MooRuntime {
           task.continueAfterFork();
           vm.execute(taskProgram, task, world, builtins);
           applyConnectionOptionRequests(task);
+          applyForcedInputRequests(task);
           applyBootPlayerTargets(task);
           closeRecycledPlayerConnections();
         }
@@ -1124,10 +1127,12 @@ public final class MooRuntime {
 
   private void applyConnectionOptionRequests(VmState task) {
     for (ConnectionOptionRequest request : task.drainConnectionOptionRequests()) {
+      long connectionId = request.target();
       ConnectionState connection = connections.get(request.target());
       if (connection == null) {
         for (Map.Entry<Long, ConnectionState> entry : connections.entrySet()) {
           if (world.connectionPlayer(entry.getKey()).orElse(Long.MIN_VALUE) == request.target()) {
+            connectionId = entry.getKey();
             connection = entry.getValue();
             break;
           }
@@ -1137,13 +1142,46 @@ public final class MooRuntime {
         continue;
       }
       if (request.option() == ConnectionOption.HOLD_INPUT) {
+        boolean release = connection.holdInput && !request.value().isTruthy();
         connection.holdInput = request.value().isTruthy();
+        if (release) {
+          List<String> pendingInput = List.copyOf(connection.pendingInput);
+          connection.pendingInput.clear();
+          for (String line : pendingInput) {
+            List<String> output = executeLine(connectionId, line);
+            long releasedConnectionId = connectionId;
+            listenerControl.ifPresent(
+                control -> control.writeConnection(releasedConnectionId, output));
+          }
+        }
+      } else if (request.option() == ConnectionOption.DISABLE_OOB) {
+        connection.disableOob = request.value().isTruthy();
       } else if (request.value() instanceof StringValue command && command.length() > 0) {
         connection.flushCommand =
             Optional.of(new String(command.bytes(), StandardCharsets.ISO_8859_1));
       } else {
         connection.flushCommand = Optional.empty();
       }
+    }
+  }
+
+  private void applyForcedInputRequests(VmState task) {
+    for (ForcedInputRequest request : task.drainForcedInputRequests()) {
+      long connectionId = request.target();
+      if (!connections.containsKey(connectionId)) {
+        for (Map.Entry<Long, ConnectionState> entry : connections.entrySet()) {
+          if (world.connectionPlayer(entry.getKey()).orElse(Long.MIN_VALUE) == request.target()) {
+            connectionId = entry.getKey();
+            break;
+          }
+        }
+      }
+      if (!connections.containsKey(connectionId)) {
+        continue;
+      }
+      List<String> output = executeLine(connectionId, request.line());
+      long targetConnectionId = connectionId;
+      listenerControl.ifPresent(control -> control.writeConnection(targetConnectionId, output));
     }
   }
 
@@ -1288,6 +1326,7 @@ public final class MooRuntime {
     private final boolean printMessages;
     private long lastActivityNanos = System.nanoTime();
     private boolean holdInput;
+    private boolean disableOob;
     private Optional<String> flushCommand = Optional.empty();
     private final List<String> pendingInput = new ArrayList<>();
     private Optional<String> prefix = Optional.empty();

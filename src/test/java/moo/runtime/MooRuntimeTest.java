@@ -507,6 +507,98 @@ final class MooRuntimeTest {
   }
 
   @Test
+  void holdsForcedInputAndReleasesDisabledOutOfBandInputAsInBand() throws Exception {
+    WorldTxn world = new LambdaMooV4Reader().read(FIXTURE);
+    MooRuntime runtime = new MooRuntime(world);
+    long primaryConnection = -47;
+
+    assertEquals(List.of(), runtime.openConnection(primaryConnection));
+    assertEquals(
+        List.of("*** Connected ***"), runtime.executeLine(primaryConnection, "connect Wizard"));
+    runtime.executeLine(
+        primaryConnection,
+        """
+        ; for prop in ({"audit_queue_seen", "audit_queue_oob", "audit_queue_player", "audit_queue_login_seen", "audit_queue_result"})
+            add_property(#0, prop, {}, {#0, "rw"});
+          endfor
+          login_player = create($nothing);
+          set_player_flag(login_player, 1);
+          #0.audit_queue_player = login_player;
+          add_verb(login_player, {#0, "rxd", "auditq"}, {"none", "none", "none"});
+          set_verb_code(login_player, "auditq", {
+            "#0.audit_queue_seen = listappend(#0.audit_queue_seen, argstr);",
+            "return 1;"
+          });
+          try
+            add_verb(#0, {#0, "rxd", "do_login_command"}, {"this", "none", "this"});
+          except (E_INVARG)
+          endtry
+          set_verb_info(#0, "do_login_command", {#0, "rxd", "do_login_command"});
+          set_verb_args(#0, "do_login_command", {"this", "none", "this"});
+          set_verb_code(#0, "do_login_command", {"return #0.audit_queue_player;"});
+          try
+            add_verb(#0, {#0, "rxd", "do_out_of_band_command"}, {"this", "none", "this"});
+          except (E_INVARG)
+          endtry
+          set_verb_info(#0, "do_out_of_band_command", {#0, "rxd", "do_out_of_band_command"});
+          set_verb_args(#0, "do_out_of_band_command", {"this", "none", "this"});
+          set_verb_code(#0, "do_out_of_band_command", {
+            "#0.audit_queue_oob = listappend(#0.audit_queue_oob, argstr);",
+            "return 1;"
+          });
+          return 1;
+        """);
+
+    long forcedConnection = -48;
+    assertEquals(List.of(), runtime.openConnection(forcedConnection, 0, false));
+    runtime.executeLine(
+        primaryConnection,
+        """
+        ; try
+            force_input(#-48, "audit-queue-login");
+          except (E_VERBNF)
+            #0.audit_queue_result = E_VERBNF;
+            return 0;
+          endtry
+          suspend(0);
+          #0.audit_queue_login_seen = (#0.audit_queue_player in connected_players(1)) > 0;
+          p = #0.audit_queue_player;
+
+          #0.audit_queue_seen = {};
+          set_connection_option(p, "hold-input", 1);
+          force_input(p, "auditq");
+          suspend(0);
+          held_blocked = (#0.audit_queue_seen == {});
+          set_connection_option(p, "hold-input", 0);
+          suspend(0);
+          held_released = (#0.audit_queue_seen == {""});
+
+          #0.audit_queue_oob = {};
+          set_connection_option(p, "hold-input", 1);
+          force_input(p, "#$#audit-oob-free");
+          suspend(0);
+          oob_bypassed_hold = (#0.audit_queue_oob == {"#$#audit-oob-free"});
+
+          #0.audit_queue_oob = {};
+          set_connection_option(p, "disable-oob", 1);
+          force_input(p, "#$#audit-oob-held");
+          suspend(0);
+          disabled_oob_blocked = (#0.audit_queue_oob == {});
+          set_connection_option(p, "hold-input", 0);
+          suspend(0);
+          disabled_oob_released_as_oob = (#0.audit_queue_oob != {});
+          #0.audit_queue_result = {held_blocked, held_released, oob_bypassed_hold, disabled_oob_blocked, disabled_oob_released_as_oob};
+          return 1;
+        """);
+
+    assertEquals(
+        "{1, 1, 1, 1, 0}",
+        world.property(0, "audit_queue_result").orElseThrow().value().toLiteral());
+    assertEquals(
+        "1", world.property(0, "audit_queue_login_seen").orElseThrow().value().toLiteral());
+  }
+
+  @Test
   void runsZeroDelayUserConnectedForkAfterParentWithCapturedLocals() throws Exception {
     WorldTxn world = new LambdaMooV4Reader().read(FIXTURE);
     MooRuntime runtime = new MooRuntime(world);
