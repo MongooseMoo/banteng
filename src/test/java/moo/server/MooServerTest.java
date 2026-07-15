@@ -309,6 +309,48 @@ final class MooServerTest {
     }
   }
 
+  @Test
+  void timesOutUnauthenticatedConnectionWithDefaultMessage() throws Exception {
+    MooServer server = new MooServer("127.0.0.1", 0, new LambdaMooV4Reader().read(TEST_DATABASE));
+    Thread serving = Thread.startVirtualThread(server::serve);
+    try (Socket control = new Socket(InetAddress.getLoopbackAddress(), server.port());
+        BufferedReader controlInput =
+            new BufferedReader(
+                new InputStreamReader(control.getInputStream(), StandardCharsets.ISO_8859_1));
+        BufferedWriter controlOutput =
+            new BufferedWriter(
+                new OutputStreamWriter(control.getOutputStream(), StandardCharsets.ISO_8859_1))) {
+      control.setSoTimeout((int) Duration.ofSeconds(5).toMillis());
+      writeLine(controlOutput, "connect Wizard");
+      assertEquals("*** Connected ***", controlInput.readLine());
+      writeLine(controlOutput, "PREFIX " + CONNECTION_PREFIX);
+      writeLine(controlOutput, "SUFFIX " + CONNECTION_SUFFIX);
+
+      writeLine(
+          controlOutput,
+          "; try add_property($server_options, \"connect_timeout\", 1, {player, \"r\"});"
+              + " except (E_INVARG) endtry"
+              + " $server_options.connect_timeout = 1; return 1;");
+      assertEquals(
+          List.of(
+              CONNECTION_PREFIX, CONNECTION_PREFIX, "{1, 1}", CONNECTION_SUFFIX, CONNECTION_SUFFIX),
+          readLines(controlInput, 5));
+
+      try (Socket target = new Socket(InetAddress.getLoopbackAddress(), server.port());
+          BufferedReader targetInput =
+              new BufferedReader(
+                  new InputStreamReader(target.getInputStream(), StandardCharsets.ISO_8859_1))) {
+        target.setSoTimeout((int) Duration.ofSeconds(5).toMillis());
+        assertEquals("*** Timed-out waiting for login. ***", targetInput.readLine());
+        assertNull(targetInput.readLine());
+      }
+    } finally {
+      server.close();
+      serving.join(Duration.ofSeconds(5));
+      assertFalse(serving.isAlive());
+    }
+  }
+
   private static void executeSetup(
       BufferedWriter output, BufferedReader input, String name, String value) throws Exception {
     writeLine(

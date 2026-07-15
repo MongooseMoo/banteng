@@ -811,6 +811,33 @@ public final class MooRuntime {
                             "user_disconnected",
                             new ListValue(List.of(new ObjectValue(connectionId))),
                             "")));
+        List<String> lines = new ArrayList<>();
+        if (connection.printMessages) {
+          MooValue message = null;
+          MooValue listenerOptions =
+              world.readObjectProperty(connection.listenerHandler, "server_options").orElse(null);
+          if (listenerOptions instanceof ObjectValue options) {
+            message = world.readObjectProperty(options.value(), "timeout_msg").orElse(null);
+          }
+          if (message == null && connection.listenerHandler != 0) {
+            MooValue rootOptions = world.readObjectProperty(0, "server_options").orElse(null);
+            if (rootOptions instanceof ObjectValue options) {
+              message = world.readObjectProperty(options.value(), "timeout_msg").orElse(null);
+            }
+          }
+          if (message == null) {
+            lines.add("*** Timed-out waiting for login. ***");
+          } else if (message instanceof StringValue string) {
+            lines.add(new String(string.bytes(), StandardCharsets.ISO_8859_1));
+          } else if (message instanceof ListValue list) {
+            for (MooValue element : list.elements()) {
+              if (element instanceof StringValue string) {
+                lines.add(new String(string.bytes(), StandardCharsets.ISO_8859_1));
+              }
+            }
+          }
+        }
+        listenerControl.ifPresent(control -> control.bootConnection(connectionId, lines));
         connections.remove(connectionId);
         world.closeConnection(connectionId);
         return;

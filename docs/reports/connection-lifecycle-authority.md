@@ -1477,3 +1477,97 @@ the first fifteen rows and stops at `audit_login_timeout_message`: Banteng
 emits no output where Toast requires
 `*** Timed-out waiting for login. ***`. The recycle slice is accepted; login
 timeout messaging is the next causally relevant unchecked lifecycle target.
+
+## Sixteenth row: unauthenticated login timeout message
+
+The active durable row is `audit_login_timeout_message`. It sets
+`$server_options.connect_timeout` to one second, opens a primary-listener
+connection without authenticating it, waits 2.5 seconds, and requires exact
+output `*** Timed-out waiting for login. ***`. The complete lifecycle run is
+red on committed Banteng `cf24822`: the first fifteen rows pass, then this row
+expects the banner and observes no output. The isolated row passes pinned WSL
+Toast with one selected and 11,504 deselected in 6.57 seconds.
+
+Barn `spec/server.md:151-170` says that an unlogged connection times out after
+`connect_timeout`, and `spec/server.md:179-185` gives a generic
+`user_disconnected` claim for connection close. It does not specify the
+negative unauthenticated connection object, timeout hook frame, message option
+lookup, print suppression, or timeout action ordering. The connection-loss
+sequence in `spec/login.md:221-226` does not fill those timeout-specific gaps.
+
+Barn's public connection path is `server/input_processor.go:63-158`.
+`HandleConnection` selects a positive integer timeout, applies it as a read
+deadline while unauthenticated, and on timeout sends the hardcoded default
+banner before calling the accepting listener's `user_disconnected` with the
+negative connection ID. Its deferred generic cleanup reaches
+`processDisconnect` at lines 314-366, which removes the connection maps before
+any hook and calls `user_client_disconnected` only for an authenticated
+connection. Barn therefore agrees only on the default banner and positive
+`connect_timeout`; its message-before-hook order, fixed message, and cleanup
+path diverge from Toast.
+
+Pinned WSL Toast source identity was reverified as
+`aecc51e9449c6e7c95272f0f044b5ba38948459e`. `server_new_connection` in
+`src/server.cc:1456-1480` creates an unauthenticated handle with
+`connection_time = 0`, the current activity time, a distinct negative player
+object, the accepting listener, and that listener's `print_messages` flag.
+The main-loop sweep at `src/server.cc:861-892` applies timeout only to a
+non-outbound never-authenticated handle whose network reference count permits
+cleanup. A present `connect_timeout` must be a positive integer and elapsed
+time must be strictly greater than it; an absent option uses the default, and
+a present zero, negative, or wrong-typed value disables this timeout branch.
+
+On timeout Toast synchronously invokes the accepting listener's
+`user_disconnected` first. `call_notifier` at `src/server.cc:513-527` runs the
+server task with the negative connection object as task player and sole
+argument, the listener as receiver, and empty `argstr`; `run_server_task` at
+`src/tasks.cc:1826-1838` completes that task synchronously. Toast then emits
+the timeout message when `print_messages` is true, closes the network handle,
+and finally frees the logical server handle.
+
+The shared option path at `src/server.cc:529-567` resolves the accepting
+listener's `server_options` before falling back to #0. A string `timeout_msg`
+emits one line; a list emits only its string elements in order; a present
+unsupported type emits nothing; and an absent option emits the default
+`*** Timed-out waiting for login. ***`. The durable row freezes only the
+primary listener's default message after elapsed timeout. It does not freeze
+the hook frame, strict boundary, activity reset, outbound/refcount exclusions,
+custom/list/wrong-type messages, print suppression, EOF, or physical-versus-
+logical close ordering.
+
+The smallest Banteng representation changes only the existing timeout owner.
+`MooRuntime.monitorUnauthenticatedConnection` already owns activity tracking,
+listener-first timeout lookup, strict whole-second expiry, the exact
+`user_disconnected` frame, and once-only logical cleanup. After its existing
+synchronous hook it can resolve `timeout_msg` with the frozen Toast rules, use
+the existing concrete `ListenerControl.bootConnection` final-lines-plus-close
+operation, then remove the runtime/world connection. One real-socket
+`MooServerTest` will freeze the default banner followed by EOF; the existing
+runtime regression continues to freeze activity reset, hook frame, and
+once-only removal.
+
+This slice adds no interface, helper, sender, adapter, request/effect record,
+builtin, VM, world mutation surface, or server production change. The
+different Windows Toast checkout at `e8a3536` is explicitly excluded; all
+Toast claims above come from the pinned WSL source used by the passing managed
+oracle run.
+
+## Sixteenth-row Banteng receipt
+
+The focused real-socket regression was red before production with a target
+read timeout, then passed after the runtime-only implementation. It proves the
+exact default timeout banner followed by EOF. The existing runtime regression
+continues to prove activity reset, the negative-ID hook frame, and once-only
+logical removal.
+
+The managed Banteng row passes with one selected and 11,504 deselected in
+6.53 seconds. A preceding launch under the restarted process's inherited Java
+17 failed before Banteng loaded and is excluded from semantic evidence; the
+passing run used the required Java 25 environment. The full Java 25
+`clean check installDist` gate passes in 13 seconds.
+
+The complete managed `connection_lifecycle_toast_oracle` fail-fast run passes
+the first sixteen rows and stops at `audit_redirect_messages`: its final
+observation receives `E_VERBNF` instead of the Toast-proven redirect outputs.
+The timeout slice is accepted; redirect messaging is the next causally
+relevant unchecked lifecycle target.
