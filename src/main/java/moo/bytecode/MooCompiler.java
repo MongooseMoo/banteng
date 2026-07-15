@@ -7,10 +7,16 @@ import moo.bytecode.BytecodeProgram.HandlerSpec;
 import moo.bytecode.BytecodeProgram.Instruction;
 import moo.bytecode.BytecodeProgram.Opcode;
 import moo.syntax.Ast;
+import moo.syntax.MooParser;
 
 /** Lowers the authorized syntax slice directly into executable bytecode. */
 public final class MooCompiler {
   private int catchSequence;
+
+  /** Parses and compiles one MOO verb body. */
+  public BytecodeProgram compile(String source) {
+    return compile(MooParser.parse(source));
+  }
 
   /** Compiles one parsed MOO verb body. */
   public BytecodeProgram compile(Ast.Program program) {

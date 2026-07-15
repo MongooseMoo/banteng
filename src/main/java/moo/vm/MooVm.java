@@ -11,7 +11,7 @@ import moo.builtin.BuiltinCatalog;
 import moo.builtin.BuiltinCatalog.Result;
 import moo.bytecode.BytecodeProgram;
 import moo.bytecode.BytecodeProgram.Instruction;
-import moo.syntax.MooParser;
+import moo.bytecode.MooCompiler;
 import moo.value.MooValue;
 import moo.value.MooValue.ErrorValue;
 import moo.value.MooValue.FloatValue;
@@ -173,9 +173,8 @@ public final class MooVm {
           }
           BytecodeProgram targetProgram;
           try {
-            targetProgram =
-                new moo.bytecode.MooCompiler().compile(MooParser.parse(target.programSource()));
-          } catch (MooParser.ParseException error) {
+            targetProgram = new MooCompiler().compile(target.programSource());
+          } catch (IllegalArgumentException error) {
             raiseError(state, ErrorValue.E_INVARG, world);
             return;
           }
@@ -245,9 +244,8 @@ public final class MooVm {
         }
         BytecodeProgram verbProgram;
         try {
-          verbProgram =
-              new moo.bytecode.MooCompiler().compile(MooParser.parse(verb.programSource()));
-        } catch (MooParser.ParseException error) {
+          verbProgram = new MooCompiler().compile(verb.programSource());
+        } catch (IllegalArgumentException error) {
           raiseError(state, ErrorValue.E_INVARG, world);
           return;
         }
@@ -598,12 +596,11 @@ public final class MooVm {
     if (result.dynamicSource().isPresent()) {
       try {
         BytecodeProgram dynamicProgram =
-            new moo.bytecode.MooCompiler()
-                .compile(MooParser.parse(result.dynamicSource().orElseThrow()));
+            new MooCompiler().compile(result.dynamicSource().orElseThrow());
         if (!state.pushEvalFrame(dynamicProgram)) {
           raiseError(state, ErrorValue.E_MAXREC, world);
         }
-      } catch (MooParser.ParseException error) {
+      } catch (IllegalArgumentException error) {
         raiseError(state, ErrorValue.E_INVARG, world);
       }
       return;
@@ -626,8 +623,8 @@ public final class MooVm {
       }
       BytecodeProgram hookProgram;
       try {
-        hookProgram = new moo.bytecode.MooCompiler().compile(MooParser.parse(hook.programSource()));
-      } catch (MooParser.ParseException error) {
+        hookProgram = new MooCompiler().compile(hook.programSource());
+      } catch (IllegalArgumentException error) {
         raiseError(state, ErrorValue.E_INVARG, world);
         return;
       }
@@ -665,8 +662,8 @@ public final class MooVm {
       }
       BytecodeProgram hookProgram;
       try {
-        hookProgram = new moo.bytecode.MooCompiler().compile(MooParser.parse(hook.programSource()));
-      } catch (MooParser.ParseException error) {
+        hookProgram = new MooCompiler().compile(hook.programSource());
+      } catch (IllegalArgumentException error) {
         raiseError(state, ErrorValue.E_INVARG, world);
         return;
       }

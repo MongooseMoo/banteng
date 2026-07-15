@@ -20,7 +20,6 @@ import moo.builtin.BuiltinCatalog.ForcedInputRequest;
 import moo.builtin.BuiltinCatalog.ListenerControl;
 import moo.bytecode.BytecodeProgram;
 import moo.bytecode.MooCompiler;
-import moo.syntax.MooParser;
 import moo.value.MooValue;
 import moo.value.MooValue.IntegerValue;
 import moo.value.MooValue.ListValue;
@@ -152,7 +151,7 @@ public final class MooRuntime {
       }
       String source = connection.programmingSource.toString();
       try {
-        compiler.compile(MooParser.parse(source));
+        compiler.compile(source);
         world.setVerbCode(connection.programmingObject, connection.programmingVerbIndex, source);
       } catch (IllegalArgumentException ignored) {
         // The active conformance row does not observe programming diagnostics.
@@ -1078,7 +1077,7 @@ public final class MooRuntime {
   }
 
   private VmState executeStored(WorldVerb verb, Map<String, MooValue> locals) {
-    BytecodeProgram program = compiler.compile(MooParser.parse(verb.programSource()));
+    BytecodeProgram program = compiler.compile(verb.programSource());
     ObjectValue receiver =
         locals.get("this") instanceof ObjectValue object ? object : new ObjectValue(-1);
     ObjectValue verbLocation = receiver;
