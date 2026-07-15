@@ -832,6 +832,132 @@ final class MooRuntimeTest {
   }
 
   @Test
+  void startsNewBackgroundTaskWithTheConfiguredTickBudget() throws Exception {
+    WorldTxn world = new LambdaMooV4Reader().read(FIXTURE);
+    MooRuntime runtime = new MooRuntime(world);
+    long connectionId = -47;
+
+    assertEquals(List.of(), runtime.openConnection(connectionId));
+    assertEquals(List.of("*** Connected ***"), runtime.executeLine(connectionId, "connect Wizard"));
+
+    assertEquals(
+        List.of(CONNECTION_PREFIX, "{1, 1}", CONNECTION_SUFFIX),
+        runtime.executeLine(
+            connectionId,
+            """
+            ; try
+              add_property(#6, "bg_ticks", 23456, {player, "r"});
+            except (E_INVARG)
+              #6.bg_ticks = 23456;
+            endtry
+            try
+              add_property(#0, "audit_bg_ticks", 0, {#0, "rw"});
+            except (E_INVARG)
+            endtry
+            return 1;
+            """));
+    assertEquals(new IntegerValue(23_456), world.property(6, "bg_ticks").orElseThrow().value());
+    assertEquals(new IntegerValue(0), world.property(0, "audit_bg_ticks").orElseThrow().value());
+
+    assertEquals(
+        List.of(CONNECTION_PREFIX, "{1, 1}", CONNECTION_SUFFIX),
+        runtime.executeLine(
+            connectionId,
+            """
+            ; fork (0)
+              #0.audit_bg_ticks = ticks_left();
+            endfork
+            suspend(0);
+            return #0.audit_bg_ticks <= 23456 && #0.audit_bg_ticks > 23000;
+            """));
+  }
+
+  @Test
+  void samplesBackgroundTickBudgetAfterParentMutationBeforeYield() throws Exception {
+    WorldTxn world = new LambdaMooV4Reader().read(FIXTURE);
+    MooRuntime runtime = new MooRuntime(world);
+    long connectionId = -47;
+
+    assertEquals(List.of(), runtime.openConnection(connectionId));
+    assertEquals(List.of("*** Connected ***"), runtime.executeLine(connectionId, "connect Wizard"));
+
+    assertEquals(
+        List.of(CONNECTION_PREFIX, "{1, 1}", CONNECTION_SUFFIX),
+        runtime.executeLine(
+            connectionId,
+            """
+            ; try
+              add_property(#6, "bg_ticks", 23456, {player, "r"});
+            except (E_INVARG)
+              #6.bg_ticks = 23456;
+            endtry
+            try
+              add_property(#0, "audit_bg_ticks", 0, {#0, "rw"});
+            except (E_INVARG)
+            endtry
+            return 1;
+            """));
+    assertEquals(new IntegerValue(23_456), world.property(6, "bg_ticks").orElseThrow().value());
+    assertEquals(new IntegerValue(0), world.property(0, "audit_bg_ticks").orElseThrow().value());
+
+    assertEquals(
+        List.of(CONNECTION_PREFIX, "{1, 1}", CONNECTION_SUFFIX),
+        runtime.executeLine(
+            connectionId,
+            """
+            ; fork (0)
+              #0.audit_bg_ticks = ticks_left();
+            endfork
+            #6.bg_ticks = 12345;
+            suspend(0);
+            return #0.audit_bg_ticks <= 12345 && #0.audit_bg_ticks > 12000;
+            """));
+  }
+
+  @Test
+  void samplesBackgroundTickBudgetWhenDelayedChildStarts() throws Exception {
+    WorldTxn world = new LambdaMooV4Reader().read(FIXTURE);
+    MooRuntime runtime = new MooRuntime(world);
+    long connectionId = -47;
+
+    assertEquals(List.of(), runtime.openConnection(connectionId));
+    assertEquals(List.of("*** Connected ***"), runtime.executeLine(connectionId, "connect Wizard"));
+
+    assertEquals(
+        List.of(CONNECTION_PREFIX, "{1, 1}", CONNECTION_SUFFIX),
+        runtime.executeLine(
+            connectionId,
+            """
+            ; try
+              add_property(#6, "bg_ticks", 23456, {player, "r"});
+            except (E_INVARG)
+              #6.bg_ticks = 23456;
+            endtry
+            try
+              add_property(#0, "audit_bg_ticks", 0, {#0, "rw"});
+            except (E_INVARG)
+            endtry
+            return 1;
+            """));
+    assertEquals(new IntegerValue(23_456), world.property(6, "bg_ticks").orElseThrow().value());
+    assertEquals(new IntegerValue(0), world.property(0, "audit_bg_ticks").orElseThrow().value());
+
+    assertEquals(
+        List.of(CONNECTION_PREFIX, "{1, 1}", CONNECTION_SUFFIX),
+        runtime.executeLine(
+            connectionId,
+            """
+            ; fork (1)
+              #0.audit_bg_ticks = ticks_left();
+            endfork
+            suspend(0);
+            #6.bg_ticks = 12345;
+            suspend(2);
+            return #0.audit_bg_ticks <= 12345 && #0.audit_bg_ticks > 12000;
+            """));
+  }
+
+  @Test
   void preservesWaifThisAndVerbLocationInCallers() throws Exception {
     WorldTxn world = new LambdaMooV4Reader().read(FIXTURE);
     MooRuntime runtime = new MooRuntime(world);

@@ -1104,6 +1104,7 @@ public final class MooRuntime {
     Map<VmState, BytecodeProgram> programs = new LinkedHashMap<>();
     Map<VmState, Long> timedTasks = new LinkedHashMap<>();
     Map<VmState, CompletableFuture<MooValue>> hostTasks = new LinkedHashMap<>();
+    Map<VmState, VmState.ForkRequest> pendingForks = new LinkedHashMap<>();
     List<VmState> runnable = new ArrayList<>();
     programs.put(root, program);
     runnable.add(root);
@@ -1112,6 +1113,24 @@ public final class MooRuntime {
         && root.outcome() != VmState.Outcome.ERRORED) {
       while (!runnable.isEmpty()) {
         VmState task = runnable.removeFirst();
+        VmState.ForkRequest pendingFork = pendingForks.remove(task);
+        if (pendingFork != null) {
+          programs.remove(task);
+          long backgroundTicks = DEFAULT_BACKGROUND_TICKS;
+          MooValue options = world.readObjectProperty(0, "server_options").orElse(null);
+          if (options instanceof ObjectValue optionObject
+              && world.readObjectProperty(optionObject.value(), "bg_ticks").orElse(null)
+                  instanceof IntegerValue ticks) {
+            backgroundTicks = Math.max(100L, ticks.value());
+          }
+          task =
+              new VmState(
+                  pendingFork.locals(),
+                  pendingFork.programmer(),
+                  pendingFork.verbLocation(),
+                  backgroundTicks);
+          programs.put(task, pendingFork.program());
+        }
         BytecodeProgram taskProgram = programs.get(task);
         if (taskProgram == null) {
           throw new IllegalStateException("runnable task has no program");
@@ -1130,6 +1149,7 @@ public final class MooRuntime {
                   request.verbLocation(),
                   DEFAULT_BACKGROUND_TICKS);
           programs.put(child, request.program());
+          pendingForks.put(child, request);
           if (request.delaySeconds() == 0.0) {
             runnable.add(child);
           } else {
