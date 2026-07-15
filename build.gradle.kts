@@ -30,9 +30,17 @@ val jcstress = sourceSets.create("jcstress") {
     runtimeClasspath += sourceSets.main.get().output
 }
 
+val jmh = sourceSets.create("jmh") {
+    compileClasspath += sourceSets.main.get().output
+    runtimeClasspath += sourceSets.main.get().output
+}
+
 configurations[jcstress.implementationConfigurationName].extendsFrom(configurations.implementation.get())
 configurations[jcstress.runtimeOnlyConfigurationName].extendsFrom(configurations.runtimeOnly.get())
 configurations[jcstress.annotationProcessorConfigurationName].setExtendsFrom(emptyList())
+configurations[jmh.implementationConfigurationName].extendsFrom(configurations.implementation.get())
+configurations[jmh.runtimeOnlyConfigurationName].extendsFrom(configurations.runtimeOnly.get())
+configurations[jmh.annotationProcessorConfigurationName].setExtendsFrom(emptyList())
 
 dependencies {
     implementation("info.picocli:picocli:4.7.7")
@@ -55,6 +63,11 @@ dependencies {
         jcstress.annotationProcessorConfigurationName,
         "org.openjdk.jcstress:jcstress-core:0.16",
     )
+    add(jmh.implementationConfigurationName, "org.openjdk.jmh:jmh-core:1.37")
+    add(
+        jmh.annotationProcessorConfigurationName,
+        "org.openjdk.jmh:jmh-generator-annprocess:1.37",
+    )
 }
 
 tasks.withType<JavaCompile>().configureEach {
@@ -70,6 +83,11 @@ tasks.withType<JavaCompile>().configureEach {
 
 tasks.named<JavaCompile>(jcstress.compileJavaTaskName) {
     // jcstress 0.16 generates harness code that fails Error Prone checks; javac lint remains strict.
+    options.errorprone.enabled.set(false)
+}
+
+tasks.named<JavaCompile>(jmh.compileJavaTaskName) {
+    // JMH 1.37 does not mark generated harness code as generated; javac lint remains strict.
     options.errorprone.enabled.set(false)
 }
 
@@ -126,6 +144,48 @@ tasks.register<JavaExec>("jcstress") {
         "1",
         "-r",
         layout.buildDirectory.dir("reports/jcstress").get().asFile.absolutePath,
+    )
+    outputs.upToDateWhen { false }
+}
+
+val jmhJar = tasks.register<Jar>("jmhJar") {
+    archiveClassifier = "jmh"
+    from(sourceSets.main.get().output)
+    from(jmh.output)
+    isPreserveFileTimestamps = false
+    isReproducibleFileOrder = true
+}
+
+tasks.register<JavaExec>("jmh") {
+    description = "Runs the forked JMH parser benchmark"
+    group = "verification"
+    dependsOn(jmhJar)
+    classpath =
+        files(
+            jmhJar.flatMap { it.archiveFile },
+            configurations[jmh.runtimeClasspathConfigurationName],
+        )
+    mainClass = "org.openjdk.jmh.Main"
+    javaLauncher = javaToolchains.launcherFor {
+        languageVersion = JavaLanguageVersion.of(25)
+    }
+    workingDir(layout.buildDirectory.get().asFile)
+    args(
+        "^moo\\.benchmark\\.ParserBenchmark\\.parse$",
+        "-f",
+        "1",
+        "-wi",
+        "1",
+        "-i",
+        "1",
+        "-w",
+        "100ms",
+        "-r",
+        "100ms",
+        "-to",
+        "5s",
+        "-foe",
+        "true",
     )
     outputs.upToDateWhen { false }
 }
