@@ -145,3 +145,38 @@ The family fail-fast run first passed `audit_default_fg_ticks`, then stopped on
 - No uncertainty remains for the compiled default selected by this exact row.
   Design and production changes remain unauthorized until this evidence record
   is committed and the focused Banteng red is reproduced.
+
+## Frozen Java design
+
+The authority record was committed as `13ee846`, then the sole managed Banteng
+row was rerun at that base. It selected one row and failed at the intended
+boundary: setup and child execution succeeded, but the final background-budget
+predicate returned integer zero. The managed server was stopped and the
+follow-up inventory was empty.
+
+Implement only the compiled fork-child default through the existing owners:
+
+- Keep the existing `VmState` constructors as foreground constructors. Add one
+  overload taking an explicit primitive remaining-tick value alongside the
+  existing locals, programmer, and verb location. The existing constructors
+  delegate to it with 60,000; do not add a task-limit interface, context
+  record, factory, adapter, task-kind enum, setter, or scheduler abstraction.
+- In `MooRuntime`, define the compiled 30,000 background default as a private
+  constant next to the existing concrete runtime owner. Use the explicit
+  `VmState` constructor only when materializing a child from the existing
+  `ForkRequest`. Root construction remains unchanged.
+- This constructor receives only the compiled constant. It does not read,
+  cache, or snapshot `$server_options.bg_ticks`; therefore it does not freeze
+  Barn's creation-time override behavior into Banteng. The later runtime-option
+  slice must follow Toast and select an override when interpreter execution
+  starts.
+- Add a focused `MooRuntimeTest` beside the existing fork/task-local regression.
+  It creates a temporary `#0` property, forks a zero-delay child that writes
+  `ticks_left()`, yields the parent once, and asserts the exact stored/evaluated
+  value 29,999. Clean up the property in `finally`.
+
+No builtin, compiler, opcode-charge table, fork request, queue ordering,
+suspension, server-option, timeout, persistence, or seconds behavior changes in
+this slice. The kept slice must prove the focused runtime regression green,
+rebuild `installDist`, pass the exact managed row, reach the next family
+frontier, pass the full Java 25 gate, and be committed before the next row.
