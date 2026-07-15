@@ -96,7 +96,14 @@ tasks.withType<Test>().configureEach {
 }
 
 tasks.named<Test>("test") {
+    dependsOn(tasks.installDist)
     environment("JAZZER_FUZZ", "0")
+    val executableName =
+        if (System.getProperty("os.name").startsWith("Windows")) "banteng.bat" else "banteng"
+    systemProperty(
+        "banteng.executable",
+        layout.buildDirectory.file("install/banteng/bin/$executableName").get().asFile.absolutePath,
+    )
 }
 
 tasks.register<Test>("fuzzTest") {
