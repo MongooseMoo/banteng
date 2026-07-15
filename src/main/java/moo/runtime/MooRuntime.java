@@ -38,6 +38,7 @@ public final class MooRuntime {
   private static final long DEFAULT_FOREGROUND_TICKS = 60_000;
   private static final long DEFAULT_FOREGROUND_SECONDS = 5;
   private static final long DEFAULT_BACKGROUND_TICKS = 30_000;
+  private static final long DEFAULT_BACKGROUND_SECONDS = 3;
 
   private final WorldTxn world;
   private final MooCompiler compiler = new MooCompiler();
@@ -1125,18 +1126,25 @@ public final class MooRuntime {
         if (pendingFork != null) {
           programs.remove(task);
           long backgroundTicks = DEFAULT_BACKGROUND_TICKS;
+          long backgroundSeconds = DEFAULT_BACKGROUND_SECONDS;
           MooValue options = world.readObjectProperty(0, "server_options").orElse(null);
-          if (options instanceof ObjectValue optionObject
-              && world.readObjectProperty(optionObject.value(), "bg_ticks").orElse(null)
-                  instanceof IntegerValue ticks) {
-            backgroundTicks = Math.max(100L, ticks.value());
+          if (options instanceof ObjectValue optionObject) {
+            if (world.readObjectProperty(optionObject.value(), "bg_ticks").orElse(null)
+                instanceof IntegerValue ticks) {
+              backgroundTicks = Math.max(100L, ticks.value());
+            }
+            if (world.readObjectProperty(optionObject.value(), "bg_seconds").orElse(null)
+                instanceof IntegerValue seconds) {
+              backgroundSeconds = Math.max(1L, seconds.value());
+            }
           }
           task =
               new VmState(
                   pendingFork.locals(),
                   pendingFork.programmer(),
                   pendingFork.verbLocation(),
-                  backgroundTicks);
+                  backgroundTicks,
+                  backgroundSeconds);
           programs.put(task, pendingFork.program());
         }
         BytecodeProgram taskProgram = programs.get(task);

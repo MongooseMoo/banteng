@@ -986,6 +986,132 @@ final class MooRuntimeTest {
   }
 
   @Test
+  void startsNewBackgroundTaskWithTheConfiguredSecondsLimit() throws Exception {
+    WorldTxn world = new LambdaMooV4Reader().read(FIXTURE);
+    MooRuntime runtime = new MooRuntime(world);
+    long connectionId = -47;
+
+    assertEquals(List.of(), runtime.openConnection(connectionId));
+    assertEquals(List.of("*** Connected ***"), runtime.executeLine(connectionId, "connect Wizard"));
+
+    assertEquals(
+        List.of(CONNECTION_PREFIX, "{1, 1}", CONNECTION_SUFFIX),
+        runtime.executeLine(
+            connectionId,
+            """
+            ; try
+              add_property(#6, "bg_seconds", 9, {player, "r"});
+            except (E_INVARG)
+              #6.bg_seconds = 9;
+            endtry
+            try
+              add_property(#0, "audit_bg_seconds", 0, {#0, "rw"});
+            except (E_INVARG)
+            endtry
+            return 1;
+            """));
+    assertEquals(new IntegerValue(9), world.property(6, "bg_seconds").orElseThrow().value());
+    assertEquals(new IntegerValue(0), world.property(0, "audit_bg_seconds").orElseThrow().value());
+
+    assertEquals(
+        List.of(CONNECTION_PREFIX, "{1, 1}", CONNECTION_SUFFIX),
+        runtime.executeLine(
+            connectionId,
+            """
+            ; fork (0)
+              #0.audit_bg_seconds = seconds_left();
+            endfork
+            suspend(0);
+            return #0.audit_bg_seconds <= 9 && #0.audit_bg_seconds > 5;
+            """));
+  }
+
+  @Test
+  void samplesBackgroundSecondsLimitAfterParentMutationBeforeYield() throws Exception {
+    WorldTxn world = new LambdaMooV4Reader().read(FIXTURE);
+    MooRuntime runtime = new MooRuntime(world);
+    long connectionId = -47;
+
+    assertEquals(List.of(), runtime.openConnection(connectionId));
+    assertEquals(List.of("*** Connected ***"), runtime.executeLine(connectionId, "connect Wizard"));
+
+    assertEquals(
+        List.of(CONNECTION_PREFIX, "{1, 1}", CONNECTION_SUFFIX),
+        runtime.executeLine(
+            connectionId,
+            """
+            ; try
+              add_property(#6, "bg_seconds", 9, {player, "r"});
+            except (E_INVARG)
+              #6.bg_seconds = 9;
+            endtry
+            try
+              add_property(#0, "audit_bg_seconds", 0, {#0, "rw"});
+            except (E_INVARG)
+            endtry
+            return 1;
+            """));
+    assertEquals(new IntegerValue(9), world.property(6, "bg_seconds").orElseThrow().value());
+    assertEquals(new IntegerValue(0), world.property(0, "audit_bg_seconds").orElseThrow().value());
+
+    assertEquals(
+        List.of(CONNECTION_PREFIX, "{1, 1}", CONNECTION_SUFFIX),
+        runtime.executeLine(
+            connectionId,
+            """
+            ; fork (0)
+              #0.audit_bg_seconds = seconds_left();
+            endfork
+            #6.bg_seconds = 7;
+            suspend(0);
+            return #0.audit_bg_seconds <= 7 && #0.audit_bg_seconds > 3;
+            """));
+  }
+
+  @Test
+  void samplesBackgroundSecondsLimitWhenDelayedChildStarts() throws Exception {
+    WorldTxn world = new LambdaMooV4Reader().read(FIXTURE);
+    MooRuntime runtime = new MooRuntime(world);
+    long connectionId = -47;
+
+    assertEquals(List.of(), runtime.openConnection(connectionId));
+    assertEquals(List.of("*** Connected ***"), runtime.executeLine(connectionId, "connect Wizard"));
+
+    assertEquals(
+        List.of(CONNECTION_PREFIX, "{1, 1}", CONNECTION_SUFFIX),
+        runtime.executeLine(
+            connectionId,
+            """
+            ; try
+              add_property(#6, "bg_seconds", 9, {player, "r"});
+            except (E_INVARG)
+              #6.bg_seconds = 9;
+            endtry
+            try
+              add_property(#0, "audit_bg_seconds", 0, {#0, "rw"});
+            except (E_INVARG)
+            endtry
+            return 1;
+            """));
+    assertEquals(new IntegerValue(9), world.property(6, "bg_seconds").orElseThrow().value());
+    assertEquals(new IntegerValue(0), world.property(0, "audit_bg_seconds").orElseThrow().value());
+
+    assertEquals(
+        List.of(CONNECTION_PREFIX, "{1, 1}", CONNECTION_SUFFIX),
+        runtime.executeLine(
+            connectionId,
+            """
+            ; fork (1)
+              #0.audit_bg_seconds = seconds_left();
+            endfork
+            suspend(0);
+            #6.bg_seconds = 7;
+            suspend(2);
+            return #0.audit_bg_seconds <= 7 && #0.audit_bg_seconds > 3;
+            """));
+  }
+
+  @Test
   void preservesWaifThisAndVerbLocationInCallers() throws Exception {
     WorldTxn world = new LambdaMooV4Reader().read(FIXTURE);
     MooRuntime runtime = new MooRuntime(world);
