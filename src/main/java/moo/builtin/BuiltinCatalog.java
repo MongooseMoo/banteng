@@ -230,6 +230,65 @@ public final class BuiltinCatalog {
         }
         yield Result.value(info);
       }
+      case "connection_name" -> {
+        if (arguments.isEmpty() || arguments.size() > 2) {
+          yield Result.error(ErrorValue.E_ARGS);
+        }
+        if (!(arguments.getFirst() instanceof ObjectValue connection)) {
+          yield Result.error(ErrorValue.E_TYPE);
+        }
+        IntegerValue method = null;
+        if (arguments.size() == 2) {
+          if (!(arguments.get(1) instanceof IntegerValue requestedMethod)) {
+            yield Result.error(ErrorValue.E_TYPE);
+          }
+          method = requestedMethod;
+        }
+        MapValue info = world.connectionInfo(connection.value()).orElse(null);
+        if (info == null) {
+          yield Result.error(ErrorValue.E_INVARG);
+        }
+        WorldObject permissions = world.object(programmer).orElse(null);
+        if (connection.value() != programmer
+            && (permissions == null || (permissions.flags() & 4) == 0)) {
+          yield Result.error(ErrorValue.E_PERM);
+        }
+        MooValue ipValue = info.get(encode("destination_ip")).orElse(null);
+        if (!(ipValue instanceof StringValue destinationIp)) {
+          yield Result.error(ErrorValue.E_INVARG);
+        }
+        MooValue nameValue = info.get(encode("destination_address")).orElse(destinationIp);
+        if (!(nameValue instanceof StringValue destinationName)) {
+          yield Result.error(ErrorValue.E_INVARG);
+        }
+        if (method == null) {
+          yield Result.value(destinationName);
+        }
+        if (method.value() == 1) {
+          yield Result.value(destinationIp);
+        }
+        MooValue sourcePortValue = info.get(encode("source_port")).orElse(null);
+        MooValue destinationPortValue = info.get(encode("destination_port")).orElse(null);
+        if (!(sourcePortValue instanceof IntegerValue sourcePort)
+            || !(destinationPortValue instanceof IntegerValue destinationPort)) {
+          yield Result.error(ErrorValue.E_INVARG);
+        }
+        MooValue outboundValue = info.get(encode("outbound")).orElse(new IntegerValue(0));
+        String direction =
+            outboundValue instanceof IntegerValue outbound && outbound.value() != 0 ? "to" : "from";
+        yield Result.value(
+            encode(
+                "port "
+                    + sourcePort.value()
+                    + " "
+                    + direction
+                    + " "
+                    + decode(destinationName)
+                    + " ["
+                    + decode(destinationIp)
+                    + "], port "
+                    + destinationPort.value()));
+      }
       case "set_connection_option" -> setConnectionOption(arguments, world, programmer);
       case "boot_player" -> bootPlayer(arguments, world, programmer);
       case "create" -> create(arguments, world, programmer);
@@ -404,6 +463,7 @@ public final class BuiltinCatalog {
       case "valid", "parent", "verb_info", "verb_args", "verb_code" -> EffectClass.TRANSACTION_READ;
       case "connected_players",
           "connection_info",
+          "connection_name",
           "queued_tasks",
           "sqlite_handles",
           "sqlite_info",

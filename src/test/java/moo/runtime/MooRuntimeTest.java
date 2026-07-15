@@ -67,6 +67,41 @@ final class MooRuntimeTest {
   }
 
   @Test
+  void formatsLegacyConnectionNameFromAttachedPlayerMetadata() throws Exception {
+    WorldTxn world = new LambdaMooV4Reader().read(FIXTURE);
+    MooRuntime runtime = new MooRuntime(world);
+    long connectionId = -47;
+    MapValue connectionInfo =
+        new MapValue(
+            Map.of(
+                new StringValue("source_port".getBytes(StandardCharsets.ISO_8859_1)),
+                new IntegerValue(7777),
+                new StringValue("destination_address".getBytes(StandardCharsets.ISO_8859_1)),
+                new StringValue("client.example".getBytes(StandardCharsets.ISO_8859_1)),
+                new StringValue("destination_ip".getBytes(StandardCharsets.ISO_8859_1)),
+                new StringValue("198.51.100.7".getBytes(StandardCharsets.ISO_8859_1)),
+                new StringValue("destination_port".getBytes(StandardCharsets.ISO_8859_1)),
+                new IntegerValue(4567)));
+
+    assertEquals(List.of(), runtime.openConnection(connectionId, 0, true, connectionInfo));
+    assertEquals(List.of("*** Connected ***"), runtime.executeLine(connectionId, "connect Wizard"));
+    assertEquals(List.of(), runtime.executeLine(connectionId, "PREFIX " + CONNECTION_PREFIX));
+    assertEquals(List.of(), runtime.executeLine(connectionId, "SUFFIX " + CONNECTION_SUFFIX));
+
+    assertEquals(
+        List.of(
+            CONNECTION_PREFIX,
+            CONNECTION_PREFIX,
+            "{1, \"port 7777 from client.example [198.51.100.7], port 4567\"}",
+            CONNECTION_SUFFIX,
+            CONNECTION_SUFFIX),
+        runtime.executeLine(connectionId, "; return connection_name(player, 0);"));
+    assertEquals(
+        BuiltinCatalog.EffectClass.EXTERNAL_READ,
+        new BuiltinCatalog().effectClass("connection_name"));
+  }
+
+  @Test
   void readsAndRestoresCanonicalLocalVerbMetadata() throws Exception {
     WorldTxn world = new LambdaMooV4Reader().read(FIXTURE);
     MooRuntime runtime = new MooRuntime(world);

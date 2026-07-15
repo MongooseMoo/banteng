@@ -1887,3 +1887,96 @@ through 18 and stopped first at row 19,
 deselected, in 44.71 seconds. The final Java 25 `clean check installDist` gate
 passed in 15 seconds after applying the pinned formatter. Row 18 is therefore
 the kept frontier; `connection_name` remains a separate unchecked slice.
+
+## Nineteenth row: `connection_name(player, 0)`
+
+The active durable row is `audit_connection_name_method0_hostname` at
+`../moo-conformance-tests/src/moo_conformance/_tests/audit/connection_lifecycle_toast_oracle.yaml:1759`.
+It runs as Wizard, calls `connection_name(player, 0)`, and asserts only that the
+result is a nonempty string: `{typeof(name), length(name) > 0} == {2, 1}`. Its
+description is imprecise. An explicit method `0` requests Toast's full legacy
+connection string, not the bare saved hostname. The exact row passed pinned WSL
+Toast commit `aecc51e9449c6e7c95272f0f044b5ba38948459e`: one selected, 11,504
+deselected, in 3.27 seconds. Committed Banteng `27eb88c` reaches the builtin
+dispatcher without a `connection_name` entry and returns `E_VERBNF`.
+
+Barn's normative documents disagree with one another. The WebSocket metadata
+passage in `../barn/spec/server.md:264-279` identifies method `0` as the legacy
+form, although its abbreviated example omits the numeric address in brackets.
+`../barn/spec/builtins/network.md:25-41` instead documents string-valued method
+names such as `"legacy"` and `"ip-address"`; that is stale and contradicts both
+the registered integer signature and Toast. The other builtin summaries do not
+freeze the permission rule. These documents therefore do not independently
+supply the active contract.
+
+Barn's public signature table at
+`../barn/builtins/function_signatures_generated.go:34` registers one required
+object and one optional integer. `builtinConnectionName` at
+`../barn/builtins/network.go:998-1051` resolves the active connection, returns
+the saved resolved name or remote host when the method is omitted, returns the
+numeric remote host for method `1`, and formats every other integer, including
+`0`, as `port <listen-port> from <name> [<ip>], port <remote-port>`. That agrees
+with the active inbound Wizard row. Outside this row, Barn diverges by omitting
+Toast's wizard-or-self permission check, always spelling the direction `from`,
+and allowing an internal connection-target fallback broader than the public
+object signature.
+
+Pinned Toast owns the public builtin in `bf_connection_name` at
+`/root/src/toaststunt/src/server.cc:2819-2850` and registers it at line 3293 as
+`connection_name(OBJ [, INT])`. With no second argument it returns
+`network_connection_name`; with method `1` it returns `network_ip_address`;
+every other integer, including `0`, calls
+`full_network_connection_name(handle, true)`. The semantic owner at
+`/root/src/toaststunt/src/network.cc:1573-1633` formats the legacy value as
+`port <source-port> <to|from> <saved-name> [<destination-ip>], port
+<destination-port>`. The active accepted socket is inbound, so its direction is
+`from`. The saved name is the peer's resolved name or its numeric address when
+name lookup is unavailable or disabled.
+
+Toast's signature gate supplies `E_ARGS` and `E_TYPE`. After attempting the
+connection lookup, `bf_connection_name` permits only a wizard or the queried
+player itself; another programmer receives `E_PERM`. A wizard or self querying
+a missing or disconnecting connection receives `E_INVARG`. The permission test
+precedes the final missing-result test. Barn does not currently agree on that
+permission behavior, but the active row runs as Wizard against a live player
+and leaves the disagreement unobserved.
+
+The broader durable contract is recorded by
+`../moo-conformance-tests/src/moo_conformance/_tests/builtins/connection_name_semantics.yaml`,
+which covers the omitted method, method `1`, several legacy-method integers,
+legacy-string shape, and self access. Generated builtin rows cover the public
+arity and object/integer types; connection call-shape and server-admin rows
+cover invalid-connection and string-result cases. No current durable row
+isolates another-player `E_PERM`, and the active slice does not widen to that
+missing coverage or to outbound `to` formatting.
+
+Banteng already stores the required inbound fields in `MooServer`: listener
+port as `source_port`, peer address as both `destination_address` and
+`destination_ip`, and peer port as `destination_port`. `WorldTxn.connectionInfo`
+already resolves that map by either connection object or attached player. The
+smallest Java representation is therefore one `connection_name` dispatcher
+case beside `connection_info`, using that existing lookup and value types. For
+method `0` it formats the four existing fields as
+`port <source_port> from <destination_address> [<destination_ip>], port
+<destination_port>`, applies the existing wizard-or-self check, returns
+`E_INVARG` for no active connection, and is classified with the existing
+external connection reads. A focused runtime regression will seed synthetic
+metadata, attach the connection to Wizard, and prove that exact string red
+before the production edit. No interface, helper, adapter, sender, metadata
+owner, server method, world method, or VM operation is required.
+
+### Nineteenth-row verification receipt
+
+The focused runtime regression first failed at the committed production
+frontier with exact eval result `{2, {E_VERBNF}}`. After the single catalog
+case and effect classification were added, the same regression passed on Java
+25 in six seconds and froze the exact synthetic legacy string
+`port 7777 from client.example [198.51.100.7], port 4567`.
+
+The managed Banteng row passed with the current Java 25 distribution: one
+selected, 11,504 deselected, in 3.35 seconds. The complete managed lifecycle
+category then passed rows 1 through 19 and stopped first at row 20,
+`audit_connection_info_source_fields`, with `E_VARNF`: 19 passed, one failed,
+11,482 deselected, in 44.62 seconds. Row 19 is therefore the kept frontier;
+row 20 remains a separate unchecked slice. The final Java 25
+`clean check installDist` gate passed in 13 seconds.
