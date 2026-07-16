@@ -2,16 +2,15 @@
 
 ## Scope
 
-This is the Phase 2 mandatory authority record for the public OBJ value family
-before its remaining managed-oracle rows are added. It covers representation
+This record completes the Phase 2 mandatory authority gate for the public OBJ
+value family. It covers representation
 limits, source construction, conversion, equality, ordering, map-key identity,
 truth, indexing, mutation/copy behavior, literal formatting, v4/v17
 serialization, overflow, encoding, and error behavior.
 
 This record does not choose or approve a Java representation, authorize a value
-hierarchy, or permit a production edit. The OBJ gate remains open until the
-boundary, comparison/map-identity, scalar-indexing, and restart decisions are
-durable and proven against pinned Toast.
+hierarchy, or permit a production edit. The complete primitive-type matrix
+remains required before any further Java value representation is designed.
 
 ## Verified identities
 
@@ -22,8 +21,8 @@ durable and proven against pinned Toast.
   `/root/src/toaststunt` at
   `aecc51e9449c6e7c95272f0f044b5ba38948459e`, executable
   `/root/src/toaststunt/build-release/moo`.
-- Existing durable conformance authority: `../moo-conformance-tests` commit
-  `cd27e2e` plus its ancestors.
+- Durable conformance authority after this slice: `../moo-conformance-tests`
+  commit `276376e` plus its ancestors.
 - Managed oracle authority: Banteng's owned
   `profiles/toast/stock-wsl-testdb.json` and `scripts/run_toast_wsl.sh`, using
   the bundled disposable `Test.db` fixture.
@@ -136,14 +135,14 @@ comparator do not reproduce Toast's unchecked boundary and narrowing paths.
 
 | Surface | Barn | Pinned Toast | Authority decision before final rows |
 | --- | --- | --- | --- |
-| Width and nominal limits | Full signed 64-bit | `int64_t` with asymmetric nominal MINOBJ | Storage is signed 64-bit; source and conversion boundary behavior remains oracle-owned. |
-| Source overflow | Checked compile failure | Unchecked signed accumulation | Pinned executable must settle exact boundary and neighbor results without generalizing portable overflow semantics. |
-| Truth | Every OBJ false in code; spec says otherwise | Every OBJ false | Implementation agreement controls; managed row already proves `#0` and the boundary row must prove nonzero/negative cases. |
-| Conversion | Broad scalar matrix; checked string parsing | Broad scalar matrix; unchecked string overflow | Existing ordinary rows control; boundary strings remain unresolved. |
-| Relational order | Numeric by ID in code; spec excludes OBJ | Numeric by ID | Managed row must correct the stale spec surface. |
-| Map identity | Equality-consistent typed ID | Comparator can narrow a 64-bit difference to zero | Managed row must freeze the observable collision separately from ordinary equality. |
-| Indexing | OBJ is MAP key; scalar-base/position misuse E_TYPE | Same | One focused scalar-base read/write row is the missing family-specific proof. |
-| v17 syntax | Tag 1 plus bare signed decimal | Tag 1 plus bare signed decimal | Managed restart must prove exact type/value/literal preservation at representable edges. |
+| Width and nominal limits | Full signed 64-bit | `int64_t` with asymmetric nominal MINOBJ | Observable OBJ values occupy the full signed 64-bit range; nominal MINOBJ is not the storage boundary. |
+| Source overflow | Checked compile failure | Unchecked signed accumulation | The managed row freezes only the pinned executable's exact wrap observations; no portable overflow law is inferred. |
+| Truth | Every OBJ false in code; spec says otherwise | Every OBJ false | Every OBJ is false, including nonzero and negative boundary IDs. |
+| Conversion | Broad scalar matrix; checked string parsing | Broad scalar matrix; unchecked string overflow | Existing ordinary rows control; the managed boundary row freezes native positive/negative overflow clamping. |
+| Relational order | Numeric by ID in code; spec excludes OBJ | Numeric by ID | Same-type OBJ uses signed numeric order; the normative operator passage is stale. |
+| Map identity | Equality-consistent typed ID | Comparator can narrow a 64-bit difference to zero | Ordinary equality remains exact, but pinned Toast collapses `#0` and `#4294967296` as map keys. |
+| Indexing | OBJ is MAP key; scalar-base/position misuse E_TYPE | Same | OBJ scalar indexed read/write raises E_TYPE. |
+| v17 syntax | Tag 1 plus bare signed decimal | Tag 1 plus bare signed decimal | Boundary and invalid references preserve type, ID, literal, and observed map behavior through restart. |
 
 ## Existing durable conformance authority
 
@@ -164,45 +163,50 @@ duplicated under new names:
 - Object lifecycle, property, verb, and validity rows exercise dereference and
   E_INVIND separately. They do not change the scalar OBJ value contract.
 
-## Provisional observable contract
+## Frozen observable contract
 
-| Dimension | OBJ contract before final oracle rows | Authority |
+| Dimension | OBJ contract | Authority |
 | --- | --- | --- |
-| Representation limits | Signed 64-bit scalar payload. Nominal MINOBJ is not assumed to be the storage boundary. | Barn/Toast owners; boundary row pending |
-| Construction | `#` plus signed decimal. Exact out-of-range behavior belongs only to the pinned executable profile. | Parser owners; boundary row pending |
-| Conversion | Existing broad scalar matrix; malformed text becomes `#0`; unsupported collections E_TYPE; exact overflow result pending. | Existing rows; conversion-boundary row pending |
+| Representation limits | Signed 64-bit scalar payload, including actual INT64_MIN. Nominal MINOBJ is not the storage boundary. | Barn/Toast owners; `object_authority::object_literal_boundaries_follow_pinned_64_bit_lexer` |
+| Construction | `#` plus signed decimal. Positive `2^63` and negative `-2^63` both produce actual INT64_MIN; the two next out-of-range neighbors wrap to nominal MINOBJ and MAXOBJ as observed. No general portable-overflow law is inferred. | Managed boundary row; Toast parser owner |
+| Conversion | Existing broad scalar matrix; malformed text becomes `#0`; unsupported collections E_TYPE; `toobj()` string overflow clamps positive to MAXOBJ and negative to actual INT64_MIN. | Existing rows; `object_authority::toobj_string_boundaries_clamp_on_native_overflow` |
 | Equality | Same OBJ type and same signed ID only; validity is irrelevant. | Existing equality rows; Barn/Toast owners |
-| Ordering | Same-type OBJ compares numerically by signed ID and returns INT truth values. | Barn/Toast implementations; focused row pending because spec disagrees |
-| Hashing/map identity | Ordinary keys use typed ID identity. Pinned Toast's large-difference narrowing collision is observable but not yet frozen. | Existing map rows; collision row pending |
-| Truth | Every OBJ is falsy, including nonzero, negative, invalid, and valid references. | Barn/Toast owners; existing `#0` row; boundary row pending |
-| Indexing | OBJ is a valid MAP key, not a LIST/STR position or indexed scalar base; misuse E_TYPE and absent key E_RANGE. | Existing position rows; scalar-base row pending |
-| Mutation/copy | Pointer-free scalar; assignment/copy preserves type and signed ID without alias-visible mutation. | Barn/Toast owners; focused scalar row pending |
-| Literal formatting | Canonical `#` plus signed base-10 ID for valid and invalid references. | Existing rows; boundary/restart rows pending |
-| Serialization | v4/v17 read tag 1 plus signed decimal; v17 writes tag 1 plus bare signed decimal. | Barn/Toast DB owners; managed v17 restart pending |
-| Overflow | No general law is inferred from Toast's unchecked C++ parser or conversion paths. Only focused pinned-executable observations become contract. | Boundary rows pending |
+| Ordering | Same-type OBJ compares numerically by signed ID and returns INT truth values. | `object_authority::scalar_equality_order_and_narrowed_map_comparator_are_distinct` |
+| Hashing/map identity | Ordinary IDs use typed identity, but pinned Toast's narrowed comparator makes `#0` and `#4294967296` one map key; the later value replaces the former and both lookups return it. | Managed scalar/map row and restart row |
+| Truth | Every OBJ is falsy, including nonzero, negative, invalid, and valid references. | Existing `#0` row; managed boundary row |
+| Indexing | OBJ is a valid MAP key, not a LIST/STR position or indexed scalar base; misuse E_TYPE and absent key E_RANGE. | Existing position rows; managed scalar-base read/write rows |
+| Mutation/copy | Pointer-free scalar; assignment/copy preserves type and signed ID without alias-visible mutation. | Barn/Toast owners; managed scalar row |
+| Literal formatting | Canonical `#` plus signed base-10 ID for valid and invalid references. | Existing rows; managed boundary/restart rows |
+| Serialization | v4/v17 read tag 1 plus signed decimal; v17 writes tag 1 plus bare signed decimal. Nominal minimum, actual minimum, ordinary invalid refs, comparator-collision IDs, and maximum survive managed restart. | Barn/Toast DB owners; `object_dump_persistence::boundary_and_invalid_object_references_survive_dump_and_restart` |
+| Overflow | Only the exact managed literal wrap and conversion clamp observations are contract; no general rule is inferred from unchecked C++ arithmetic. | Managed boundary rows |
 | Encoding | OBJ source, display, and persistence use ASCII punctuation/digits; no separate character-encoding decision exists. | Barn/Toast formatting and DB owners |
-| Error behavior | Compile failure or observed profile result at source overflow; E_TYPE for unsupported conversion/indexing; E_RANGE for absent map key; E_INVIND only on invalid dereference. | Existing rows and owners; boundary/index rows pending |
+| Error behavior | E_TYPE for unsupported conversion/indexing; E_RANGE for absent map key; E_INVIND only on invalid dereference. Pinned boundary literals produce the observed OBJ values rather than compile errors. | Existing rows; managed boundary/index rows |
 
-## Unresolved managed-oracle questions
+## Durable conformance evidence and oracle result
 
-Exactly four decision groups remain after deduplication:
+Conformance commit `276376e` adds exactly two focused OBJ files:
 
-1. What do the nominal minimum, actual signed minimum, maximum, and their
-   out-of-range source neighbors do on the pinned executable, and how do the
-   same boundary strings behave through `toobj()`?
-2. Do ordinary equality and signed relational order remain distinct from the
-   map-key comparator for `#0` and `#4294967296`, and what exact map length and
-   lookup results expose the comparator narrowing?
-3. Do indexed read and indexed assignment on an OBJ scalar raise E_TYPE?
-4. Do nominal minimum, actual signed minimum if constructible, zero, maximum,
-   and invalid-but-representable OBJ values preserve exact type, equality,
-   literal form, and map behavior through managed v17 dump/restart?
+- `language/object_authority.yaml` proves source and `toobj()` boundaries,
+  all-OBJ false truth at nonzero/negative edges, exact scalar copy/equality,
+  signed relational order, the `#0`/`#4294967296` narrowed map collision, and
+  OBJ-scalar indexed read/write E_TYPE.
+- `server/object_dump_persistence.yaml` proves nominal minimum, actual signed
+  minimum, ordinary invalid references, both collision IDs, and maximum retain
+  OBJ type, exact signed ID, canonical literal form, and the observed map
+  collision through a managed v17 dump/restart.
 
-The smallest durable additions are one language authority file covering the
-first three groups and one managed restart row covering the fourth. The
-language row must distinguish compile outcomes from runtime values instead of
-assuming unchecked C++ overflow semantics. Both files must pass through
-Banteng's owned stock profile and WSL launcher against pinned Toast.
+The first complete selection exposed one harness-shape error: the multi-line
+scalar/map body used `code:` and was therefore wrapped as `return small = #0;`,
+returning before its assertions. Changing only that field to `statement:` made
+the exact row pass. The complete intended selection then passed against pinned
+Toast `aecc51e9449c6e7c95272f0f044b5ba38948459e`:
+
+```text
+6 passed, 11530 deselected in 6.28s
+```
+
+The run used Banteng's owned stock profile and WSL launcher against a disposable
+copy of the bundled `Test.db` fixture.
 
 A new legacy-v4 fixture is not added in this slice. Barn and Toast route v4 OBJ
 values through the same signed tag-1 reader used by later versions, and there
@@ -211,8 +215,7 @@ v4 fixture migration remains part of the ordered persistence phase.
 
 ## Gate status
 
-Steps 1 through 4 of the mandatory authority gate are complete for OBJ. Step 5
-is open only for the language authority and v17 restart rows above. No Java API,
-record, value helper, comparator, map adapter, parser representation, or
-production implementation is authorized until those rows pass and this record
-is updated with their durable conformance commit and managed result.
+The OBJ semantic contract is frozen. No Java API, record, value helper,
+comparator, map adapter, parser representation, or production implementation
+is authorized by this record alone. The primitive-type matrix remains blocked
+on the other family-specific authority gaps, beginning with ERR.
