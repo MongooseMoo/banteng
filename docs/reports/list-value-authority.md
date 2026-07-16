@@ -2,16 +2,16 @@
 
 ## Scope
 
-This is the Phase 2 mandatory authority record for the public LIST value family
-before its remaining managed-oracle rows are added. It covers representation
-and configured limits, construction and splicing, conversion, equality,
-ordering, map-key validity, truth, indexing and ranges, mutation/copy behavior,
-literal formatting, v4/v17 serialization, encoding, quotas, and errors.
+This is the Phase 2 mandatory authority record for the public LIST value family.
+It covers representation and configured limits, construction and splicing,
+conversion, equality, ordering, map-key validity, truth, indexing and ranges,
+mutation/copy behavior, literal formatting, v4/v17 serialization, encoding,
+quotas, and errors.
 
 This record does not choose or approve a Java representation, authorize a value
-hierarchy, or permit a production edit. The LIST gate remains open until the
-position-clamping, LIST-plus quota, and nested restart decisions are durable and
-proven against pinned Toast.
+hierarchy, or permit a production edit. The LIST semantic contract is frozen by
+the durable managed evidence below, while the primitive-type matrix remains
+incomplete.
 
 ## Verified identities
 
@@ -23,7 +23,7 @@ proven against pinned Toast.
   `aecc51e9449c6e7c95272f0f044b5ba38948459e`, executable
   `/root/src/toaststunt/build-release/moo`.
 - Existing durable conformance authority: `../moo-conformance-tests` commit
-  `cc1871e` plus its ancestors.
+  `5a9d9e5` plus its ancestors.
 - Managed oracle authority: Banteng's owned
   `profiles/toast/stock-wsl-testdb.json` and `scripts/run_toast_wsl.sh`, using
   the bundled disposable `Test.db` fixture.
@@ -122,15 +122,15 @@ behavior require managed observations.
 
 ## Agreements and disagreements
 
-| Surface | Barn | Pinned Toast | Authority decision before final rows |
+| Surface | Barn | Pinned Toast | Frozen authority decision |
 | --- | --- | --- | --- |
 | Storage/COW | Watermark slice | Refcounted array | Observable value isolation controls; neither mechanism is prescribed. |
 | Literal/splice quota | Enforced | Enforced | Existing limit rows control. |
-| LIST `+` quota | Not enforced | Not enforced | Managed row must freeze the exception to the general producer limit. |
-| Explicit append/insert position | Clamped | Clamped | Managed row must settle the underspecified boundary behavior. |
+| LIST `+` quota | Not enforced | Not enforced | Both scalar append and LIST concatenation bypass the configured ceiling. |
+| Explicit append/insert position | Clamped | Clamped | Positions clamp to the first or final legal insertion point. |
 | Equality | Recursive; ordinary/case-sensitive modes | Same | Existing nested/equal rows control. |
 | Map key | LIST rejected | LIST rejected | Existing construction/lookup/update rows control; multi-key `mapdelete` is separate. |
-| Persistence | Recursive tag 4 | Recursive tag 4 | Nested heterogeneous values and post-restart value isolation need one row. |
+| Persistence | Recursive tag 4 | Recursive tag 4 | Nested heterogeneous values and post-restart value isolation are preserved. |
 
 ## Existing durable conformance authority
 
@@ -156,12 +156,12 @@ behavior require managed observations.
 - Binary/JSON rows already cover LIST as an encoding container where those
   later builtin contracts apply.
 
-## Provisional observable contract
+## Frozen observable contract
 
-| Dimension | LIST contract before final oracle rows | Authority |
+| Dimension | LIST contract | Authority |
 | --- | --- | --- |
-| Representation limits | Ordered heterogeneous value sequence; configured recursive value-byte ceiling applies to named producers, not storage width. | Barn/Toast owners; existing limit rows; LIST-plus exception pending |
-| Construction | `{...}` with LIST-only `@` splice; non-LIST splice E_TYPE; explicit append/insert positions clamp. | Existing splice rows; boundary row pending |
+| Representation limits | Ordered heterogeneous value sequence; configured recursive value-byte ceiling applies to named checked producers, while LIST `+` append/concatenation bypasses it. | Barn/Toast owners; existing limit rows; managed LIST-plus row |
+| Construction | `{...}` with LIST-only `@` splice; non-LIST splice E_TYPE; explicit append/insert positions clamp to the first or final legal insertion point. | Existing splice rows; `list_authority::explicit_append_and_insert_positions_clamp` |
 | Conversion | Generic `tostr` is `{list}`; `toliteral` recursively emits source-like `{...}`. Unsupported numeric/object conversions raise E_TYPE. | Existing value/types rows |
 | Equality | Recursive structural equality; ordinary nested strings are case-insensitive, `equal()` mode is case-sensitive. | Existing equality rows; Barn/Toast owners |
 | Ordering | Relational LIST comparison raises E_TYPE. | Barn/Toast owners |
@@ -170,27 +170,36 @@ behavior require managed observations.
 | Indexing | One-based; inclusive ranges; `^ == 1`, `$ == length`; strict E_RANGE/E_TYPE except proven inverted-range behavior. | Existing index/range rows |
 | Mutation/copy | Public value semantics with recursive alias isolation; storage may share until a visible update. | Existing collection-improvement rows |
 | Literal formatting | Recursive `{...}` with element literal forms; generic display remains `{list}`. | Existing value/types rows |
-| Serialization | v4/v17 read tag 4/count/elements; v17 writes the same. Nested heterogeneous restart and post-load isolation remain pending. | Barn/Toast DB owners; restart row pending |
-| Overflow/quotas | Checked producers raise E_QUOTA at configured recursive byte limit; LIST `+` behavior is unresolved despite source agreement on bypass. | Existing limit rows; focused plus row pending |
+| Serialization | v4/v17 read tag 4/count/elements; v17 writes the same. Nested heterogeneous values preserve exact recursive type/value/literal behavior and post-load isolation. | Barn/Toast DB owners; `list_dump_persistence::nested_heterogeneous_lists_survive_dump_and_restart` |
+| Overflow/quotas | Checked producers raise E_QUOTA at the configured recursive byte limit; LIST `+` scalar append and LIST concatenation are explicit unchecked exceptions. | Existing limit rows; `limits::list_plus_bypasses_max_list_value_bytes` |
 | Encoding | LIST is the byte-list container for explicit binary APIs; ordinary persistence recursively encodes element values. | Existing binary rows; DB owners |
-| Error behavior | E_TYPE for invalid splice/key/type/relational use, E_RANGE for invalid positions, E_QUOTA for checked producers. Explicit insert/append positions may clamp instead of E_RANGE. | Existing rows; position row pending |
+| Error behavior | E_TYPE for invalid splice/key/type/relational use, E_RANGE for invalid indexing/ranges, and E_QUOTA for checked producers. Explicit insert/append positions clamp instead of raising E_RANGE. | Existing rows; managed position row |
 
-## Unresolved managed-oracle questions
+## Durable conformance evidence and oracle result
 
-Exactly three decision groups remain after deduplication:
+Conformance commit `5a9d9e5` adds exactly the three focused LIST changes:
 
-1. What exact results do `listappend` and `listinsert` produce for positions
-   below zero, zero, at the ends, and beyond the list length?
-2. When `max_list_value_bytes` is below the produced value size, do LIST plus
-   scalar append and LIST plus LIST concatenation still succeed?
-3. Does a nested heterogeneous LIST preserve exact recursive values and
-   literal form through v17 restart, and do duplicated nested values retain
-   isolation under a post-restart deep update?
+- `language/list_authority.yaml` proves all 12 `listappend` and `listinsert`
+  position results below zero, at zero, within the list, at the final insertion
+  point, and beyond the list.
+- `server/limits.yaml::list_plus_bypasses_max_list_value_bytes` proves that both
+  scalar append and LIST concatenation succeed with results larger than the
+  temporarily configured list value-byte ceiling, then restores that option.
+- `server/list_dump_persistence.yaml` proves exact nested heterogeneous LIST
+  types, values, literal form, case-insensitive MAP access, equality, and
+  copy-on-write isolation after a managed v17 dump/restart.
 
-The smallest durable additions are one language boundary row, one focused
-addition to the existing managed limit suite, and one managed restart row. No
-new truth, formatting, splice, ordinary equality, map-key, indexing, COW, or
-checked-producer quota row is justified.
+The complete intended selection passed without correction against pinned Toast
+`aecc51e9449c6e7c95272f0f044b5ba38948459e`:
+
+```text
+3 passed, 11541 deselected in 6.24s
+```
+
+The run used Banteng's owned stock profile and WSL launcher against a disposable
+copy of the bundled `Test.db` fixture. No new truth, formatting, splice,
+ordinary equality, map-key, indexing, generic COW, or checked-producer quota
+row was added because existing durable rows already settle those decisions.
 
 No new v4 fixture is added in this primitive slice. Both source owners route
 v4 LIST values through the same recursive tag-4 reader, with no LIST-specific
@@ -199,8 +208,7 @@ phase.
 
 ## Gate status
 
-Steps 1 through 4 of the mandatory authority gate are complete for LIST. Step 5
-is open only for the three rows above. No Java API, record, collection owner,
+The LIST semantic contract is frozen. No Java API, record, collection owner,
 copy helper, parser representation, or production implementation is authorized
-until they pass and this record is updated with their durable conformance
-commit and managed result.
+by this record alone. The primitive-type matrix remains blocked on the other
+family-specific authority gaps, beginning with MAP.
