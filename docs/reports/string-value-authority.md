@@ -2,17 +2,15 @@
 
 ## Scope
 
-This is the Phase 2 mandatory authority record for the public STR value family
-before its remaining managed-oracle rows are added. It covers byte
-representation and limits, source construction and escapes, conversion,
-equality, ordering, map-key identity, truth, indexing, mutation/copy behavior,
-literal formatting, v4/v17 serialization, concatenation, encoding, and error
-behavior.
+This record completes the Phase 2 mandatory authority gate for the public STR
+value family. It covers byte representation and limits, source construction and
+escapes, conversion, equality, ordering, map-key identity, truth, indexing,
+mutation/copy behavior, literal formatting, v4/v17 serialization,
+concatenation, encoding, and error behavior.
 
 This record does not choose or approve a Java representation, authorize a value
-hierarchy, or permit a production edit. The STR gate remains open until the
-source-escape and raw-byte restart rows are durable and proven against pinned
-Toast.
+hierarchy, or permit a production edit. The complete primitive-type matrix
+remains required before any further Java value representation is designed.
 
 ## Verified identities
 
@@ -23,8 +21,8 @@ Toast.
   `/root/src/toaststunt` at
   `aecc51e9449c6e7c95272f0f044b5ba38948459e`, executable
   `/root/src/toaststunt/build-release/moo`.
-- Existing durable conformance authority: `../moo-conformance-tests` commit
-  `a0b7bbc` plus its ancestors.
+- Durable conformance authority after this slice: `../moo-conformance-tests`
+  commit `cd27e2e` plus its ancestors.
 - Managed oracle authority: Banteng's owned
   `profiles/toast/stock-wsl-testdb.json` and `scripts/run_toast_wsl.sh`, using
   the bundled disposable `Test.db` fixture.
@@ -178,12 +176,12 @@ be duplicated under new names:
 - Existing parser, list, and mutation rows prove quote/backslash construction
   and value-like assignment behavior.
 
-## Provisional observable contract
+## Frozen observable contract
 
-| Dimension | STR contract before final oracle rows | Authority |
+| Dimension | STR contract | Authority |
 | --- | --- | --- |
 | Representation limits | Immutable sequence of non-NUL bytes; length is byte count. Configured producer limits are semantic quotas, not a representation width. | Barn/Toast owners; raw-byte and limit rows |
-| Construction | Double-quoted source; backslash generically quotes the next byte. Literal newline/EOF before close is invalid. | Barn/Toast parser owners; generic-escape row pending |
+| Construction | Double-quoted source; backslash generically quotes the next byte. `\n`, `\t`, `\r`, and `\x41` produce `n`, `t`, `r`, and `x41`. Literal newline/EOF before close is invalid. | Barn/Toast parser owners; `string_escape_authority::c_style_escape_spellings_are_not_decoded` |
 | Conversion | `tostr(STR)` returns its raw content; `toliteral` quotes it; numeric/object conversions and their failures follow existing focused rows. | Existing value/types rows |
 | Equality | Ordinary `==` is ASCII case-insensitive and type-strict; high bytes are not Unicode-folded. `equal()` is case-sensitive. | Existing comparison and raw-byte rows |
 | Ordering | Ordinary relational ordering is ASCII case-insensitive byte ordering; `strcmp()` is case-sensitive byte ordering. | Existing comparison rows; Toast owner |
@@ -191,29 +189,38 @@ be duplicated under new names:
 | Truth | Empty STR is falsy; every nonempty STR is truthy. | Existing types rows |
 | Indexing | One-based bytes, inclusive ranges, `^ == 1`, `$ == length`; strict bounds E_RANGE; indexed replacement exactly one byte or E_INVARG. | Existing index/range rows |
 | Mutation/copy | Assignment may share immutable storage; every visible indexed/range change returns/rebinds a value without changing prior aliases. | Barn/Toast owners; existing mutation rows |
-| Literal formatting | Quotes around raw bytes; quote and backslash prefixed with backslash; high bytes remain raw. `~XX` belongs only to `encode_binary`. | Existing quote/backslash rows; high-byte restart row pending |
-| Serialization | v4/v17 tag 2 plus one raw database line. Empty, quote/backslash, and high-byte restart behavior remains unresolved. | Barn/Toast DB owners; restart row pending |
+| Literal formatting | Quotes around raw bytes; quote and backslash prefixed with backslash; high bytes remain raw. `~XX` belongs only to `encode_binary`. | Existing quote/backslash rows; `string_dump_persistence::raw_bytes_identity_and_copy_survive_dump_and_restart` |
+| Serialization | v4/v17 tag 2 plus one raw database line. Empty, quote/backslash, and non-NUL high bytes preserve exact value behavior through managed v17 restart. | Barn/Toast DB owners; `string_dump_persistence::raw_bytes_identity_and_copy_survive_dump_and_restart` |
 | Concatenation/limits | STR plus STR concatenates bytes; mixed addition E_TYPE; configured producer limit overflow E_QUOTA. | Existing arithmetic and limit rows |
 | Encoding | Raw STR bytes are not UTF-8 characters; explicit binary encoding maps unsafe/high bytes to uppercase `~XX`. | `chr_raw_bytes.yaml` and binary rows |
 | Error behavior | E_TYPE for unsupported operations/index types, E_RANGE for bounds, E_INVARG for invalid replacement/binary forms, E_QUOTA for configured producer limits. | Existing focused rows |
 
-## Unresolved managed-oracle questions
+## Durable conformance evidence and oracle result
 
-Exactly two observable decisions remain after deduplication:
+Conformance commit `cd27e2e` contains exactly the STR authority correction and
+two focused rows:
 
-1. Do `\n`, `\t`, `\r`, and `\x41` source spellings yield the literal bytes
-   `n`, `t`, `r`, and `x41`, confirming generic backslash quoting rather than
-   the stale C-style spec table?
-2. Do empty, quote/backslash, and raw high-byte STR values preserve exact byte
-   length, equality, Toast literal form, binary encoding, ASCII-case map
-   identity, and copy-then-index mutation behavior across managed v17 restart?
+- `language/string_comparison_case.yaml` now describes its already-proven
+  behavior consistently: ordinary equality and relational comparison are
+  ASCII case-insensitive, while `equal()` and `strcmp()` are case-sensitive.
+  Its executable expectations did not change.
+- `language/string_escape_authority.yaml` proves that `\n`, `\t`, `\r`, and
+  `\x41` use generic backslash quoting and evaluate to `n`, `t`, `r`, and
+  `x41`, not C-style decoded bytes.
+- `server/string_dump_persistence.yaml` proves empty, quote/backslash, and raw
+  0x80/0xC8/0xFE STR values retain exact byte length, equality, Toast literal
+  form, binary form, ASCII-case map-key identity, and copy-before-index-mutation
+  behavior across managed v17 dump/restart.
 
-The smallest durable additions are one language construction row and one
-managed restart row. The existing contradictory introductory sentence in
-`language/string_comparison_case.yaml` must be corrected without changing its
-already-correct expected behavior. All three changes belong to one STR
-conformance slice and must pass through Banteng's owned stock profile and WSL
-launcher against pinned Toast.
+The complete intended selection passed without correction against pinned Toast
+`aecc51e9449c6e7c95272f0f044b5ba38948459e`:
+
+```text
+13 passed, 11517 deselected in 6.17s
+```
+
+The run used Banteng's owned stock profile and WSL launcher against a disposable
+copy of the bundled `Test.db` fixture.
 
 No newline or NUL persistence row is authorized: Toast's ordinary STR storage
 and line-oriented database representation cannot carry those bytes as a normal
@@ -222,9 +229,7 @@ justified.
 
 ## Gate status
 
-Steps 1 through 4 of the mandatory authority gate are complete for STR. Step 5
-is open only for the construction and restart rows plus the contradictory
-description correction above. No Java API, record, byte owner, string helper,
-case-folding adapter, codec, or production implementation is authorized until
-both rows pass and this record is updated with their durable conformance commit
-and managed result.
+The STR semantic contract is frozen. No Java API, record, byte owner, string
+helper, case-folding adapter, codec, or production implementation is authorized
+by this record alone. The primitive-type matrix remains blocked on the other
+family-specific authority gaps, beginning with OBJ.
