@@ -2,16 +2,15 @@
 
 ## Scope
 
-This is the Phase 2 mandatory authority record for the public FLOAT value
-family before its remaining managed-oracle rows are added. It covers
-representation limits, construction, conversion, equality, ordering, map-key
-identity, truth, indexing, mutation/copy behavior, literal formatting, v17
-serialization, overflow, underflow, encoding, and error behavior.
+This record completes the Phase 2 mandatory authority gate for the public FLOAT
+value family. It covers representation limits, construction, conversion,
+equality, ordering, map-key identity, truth, indexing, mutation/copy behavior,
+literal formatting, v17 serialization, overflow, underflow, encoding, and
+error behavior.
 
 This record does not choose or approve a Java representation, authorize a value
-hierarchy, or permit a production edit. The FLOAT gate remains open until the
-two unresolved finite-boundary rows are durable and proven against the pinned
-Toast oracle.
+hierarchy, or permit a production edit. The complete primitive-type matrix
+remains required before any further Java value representation is designed.
 
 ## Verified identities
 
@@ -22,9 +21,9 @@ Toast oracle.
   `/root/src/toaststunt` at
   `aecc51e9449c6e7c95272f0f044b5ba38948459e`, executable
   `/root/src/toaststunt/build-release/moo`.
-- Existing durable conformance authority: `../moo-conformance-tests` commit
-  `845a885` plus its ancestors. The focused FLOAT edge rows landed in ancestor
-  commit `81a27ce`.
+- Durable conformance authority after this slice: `../moo-conformance-tests`
+  commit `a0b7bbc` plus its ancestors. The earlier focused FLOAT edge rows
+  landed in ancestor commit `81a27ce`.
 - Managed oracle authority: Banteng's owned
   `profiles/toast/stock-wsl-testdb.json` and `scripts/run_toast_wsl.sh`, using
   the bundled disposable `Test.db` fixture.
@@ -163,7 +162,7 @@ conversion, or arithmetic construction of NaN or infinity.
 | Map identity | Broken 15-digit string hash | Numeric comparator | Toast-proven numeric identity controls; do not reproduce Barn's hash. |
 | Display | 15 significant digits | 15 significant digits | Existing exact formatting rows control. Display form is not a persistence codec. |
 | v17 persistence | Tag 9 plus 19 digits | Tag 9 plus 19 digits | Adjacent doubles are proven; extreme finite/subnormal boundary remains open. |
-| Underflow | Finite result accepted by arithmetic checks | Finite result accepted by `IS_REAL` | Direct managed row is required for normal-to-subnormal-to-zero observations. |
+| Underflow | Finite result accepted by arithmetic checks | Finite result accepted by `IS_REAL` | The managed normal-to-subnormal-to-zero row controls. |
 
 ## Existing durable conformance authority
 
@@ -196,41 +195,47 @@ The focused managed selection covering the prior FLOAT authority passed 48
 rows against pinned Toast; its three added edge rows landed in conformance
 commit `81a27ce`.
 
-## Provisional observable contract
+## Frozen observable contract
 
-| Dimension | FLOAT contract before final oracle rows | Authority |
+| Dimension | FLOAT contract | Authority |
 | --- | --- | --- |
-| Representation limits | Public ordinary values are finite IEEE-754 binary64, including normals, signed zero, and subnormals. NaN/infinity are rejected by ordinary construction paths. | Barn/Toast source; existing special-value rows; boundary rows pending |
+| Representation limits | Public ordinary values are finite IEEE-754 binary64, including normals, signed zero, and subnormals. NaN/infinity are rejected by ordinary construction paths. | Barn/Toast source; existing special-value rows; `float_boundary_authority::finite_subnormal_results_and_underflow_remain_float` |
 | Construction | Accepted Toast literal grammar and finite results are FLOAT tag 9; non-finite literal results are rejected. | `float_literals.yaml`; Toast parser |
 | Conversion | FLOAT identity; supported numeric/tag inputs convert numerically; finite strings parse; malformed/non-finite strings raise E_INVARG; unsupported families raise E_TYPE. | Existing types and `tofloat_inf_nan.yaml` rows |
 | Equality | Same-type numeric binary64 equality; signed zeroes equal; adjacent finite values distinct; INT/FLOAT unequal in stock profile. | Existing equality rows |
 | Ordering | Same-type numeric ordering; signed zeroes compare equal; mixed INT/FLOAT ordering raises E_TYPE in stock profile. | Existing types/equality rows |
 | Hashing/map identity | Observable key identity follows numeric equality, not bit pattern or 15-digit display. | Existing signed-zero/adjacent row; Toast map owner |
-| Truth | Both zero signs are falsy; every nonzero finite FLOAT, including a nonzero subnormal, is truthy. | Existing zero rows; subnormal row pending |
+| Truth | Both zero signs are falsy; every nonzero finite FLOAT, including a nonzero subnormal, is truthy. | Existing zero rows; `float_boundary_authority::finite_subnormal_results_and_underflow_remain_float` |
 | Indexing | FLOAT is a valid MAP key but not an indexed base or LIST/STR position; unsupported indexed/range read/write raises E_TYPE. | Existing index rows; Toast execution owner |
 | Mutation/copy | FLOAT is a scalar copied by value and has no mutable payload or alias-visible mutation. | Barn/Toast scalar owners |
 | Literal formatting | Canonical 15-significant-digit form, `.0` when required, signed zero canonicalized to `0.0`. | Existing formatting/equality rows |
-| Serialization | v17 tag 9 plus 19-significant-digit text; adjacent values preserve identity. Extreme finite/normal/subnormal restart remains unresolved. | Barn/Toast DB owners; existing adjacent row; boundary row pending |
-| Overflow/underflow | Non-finite arithmetic raises E_FLOAT; zero divisor raises E_DIV. Finite subnormal results and underflow to zero are source-accepted in Toast and require direct managed proof. | Existing overflow/math rows; boundary row pending |
+| Serialization | v17 tag 9 plus 19-significant-digit text; adjacent, maximum finite, minimum normal, and smallest subnormal values preserve numeric and map-key identity through restart. | Barn/Toast DB owners; existing adjacent row; `float_boundary_dump_persistence::maximum_normal_and_subnormal_values_survive_dump_and_restart` |
+| Overflow/underflow | Non-finite arithmetic raises E_FLOAT; zero divisor raises E_DIV. Minimum normal can produce a nonzero subnormal; the smallest subnormal and an underflowing literal become FLOAT zero without error. | Existing overflow/math rows; `float_boundary_authority::finite_subnormal_results_and_underflow_remain_float` |
 | Encoding | Display and v17 use ASCII decimal/exponent characters. Display uses 15 digits; persistence uses 19. | Formatting and DB owners |
 | Error behavior | E_TYPE for mixed/unsupported surfaces, E_DIV for zero division/modulo, E_FLOAT for non-finite arithmetic, E_INVARG for malformed/non-finite string conversion. | Existing focused rows; Barn/Toast source |
 
-## Unresolved managed-oracle questions
+## Durable conformance evidence and oracle result
 
-Exactly two decisions remain after deduplication:
+Conformance commit `a0b7bbc` adds exactly two focused rows:
 
-1. Does the minimum normal value divide to a nonzero subnormal, does the
-   smallest subnormal divide and literal-underflow to zero without E_FLOAT, and
-   what exact FLOAT type, truth, ordering, and literal forms result?
-2. Do maximum finite, minimum normal, and a nonzero subnormal preserve exact
-   numeric equality, canonical literal form, and distinct numeric map-key
-   identity across a managed v17 dump/restart?
+- `language/float_boundary_authority.yaml` proves that minimum normal divided
+  by two is a nonzero, truthy, ordered subnormal; the smallest subnormal is
+  positive and distinct; and arithmetic plus literal underflow produce FLOAT
+  zero with canonical literal `0.0` rather than E_FLOAT.
+- `server/float_boundary_dump_persistence.yaml` proves that maximum finite,
+  minimum normal, and smallest subnormal values preserve exact equality,
+  canonical 15-digit display forms, and three distinct numeric map keys through
+  a managed v17 dump/restart.
 
-The smallest durable additions are one language row for the runtime boundary
-and one managed restart row for the persistence boundary. They must use
-Banteng's owned stock profile and WSL launcher against the pinned Toast
-executable. If either initial expectation is disproved, this record and the row
-must be corrected to the observed result before Java design.
+Both initial expected results passed without correction against pinned Toast
+`aecc51e9449c6e7c95272f0f044b5ba38948459e`:
+
+```text
+2 passed, 11526 deselected in 6.19s
+```
+
+The run used Banteng's owned stock profile and WSL launcher against a disposable
+copy of the bundled `Test.db` fixture.
 
 No ordinary row is added for raw non-finite database ingestion. That requires
 an externally malformed fixture and belongs to the later persistence-input
@@ -238,8 +243,8 @@ acceptance policy, not this ordinary value-construction contract.
 
 ## Gate status
 
-Steps 1 through 4 of the mandatory authority gate are complete for FLOAT. Step
-5 is open only for the runtime and restart boundary rows above. No Java API,
-record, sealed family, hashing strategy, numeric helper, parser representation,
-or production implementation is authorized until both rows pass and this
-record is updated with their durable conformance commit and managed result.
+The FLOAT semantic contract is frozen. No Java API, record, sealed family,
+hashing strategy, numeric helper, parser representation, or production
+implementation is authorized by this record alone. The primitive-type matrix
+remains blocked on the other family-specific authority gaps, beginning with
+STR.
