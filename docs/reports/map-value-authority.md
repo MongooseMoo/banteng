@@ -2,17 +2,16 @@
 
 ## Scope
 
-This is the Phase 2 mandatory authority record for the public MAP value family
-before its remaining managed-oracle decisions are resolved. It covers
-representation and configured limits, construction and evaluation order,
-conversion, equality, ordering and key identity, truth, indexing and ranges,
-mutation/copy behavior, literal formatting, v17 serialization, encoding,
-quotas, and errors.
+This is the Phase 2 mandatory authority record for the public MAP value family.
+It covers representation and configured limits, construction and evaluation
+order, conversion, equality, ordering and key identity, truth, indexing and
+ranges, mutation/copy behavior, literal formatting, v17 serialization,
+encoding, quotas, and errors.
 
 This record does not choose or approve a Java representation, authorize a value
-hierarchy, or permit a production edit. The MAP gate remains open until the
-comparator, key-surface, limit, construction-order, error-detail, and restart
-decisions below are durable and proven against pinned Toast.
+hierarchy, or permit a production edit. The MAP semantic contract is frozen by
+the durable managed evidence below, while the primitive-type matrix remains
+incomplete.
 
 ## Verified identities
 
@@ -23,7 +22,7 @@ decisions below are durable and proven against pinned Toast.
   `aecc51e9449c6e7c95272f0f044b5ba38948459e`, executable
   `/root/src/toaststunt/build-release/moo`.
 - Existing durable conformance authority: `../moo-conformance-tests` commit
-  `5a9d9e5` plus its ancestors.
+  `e5b1e47` plus its ancestors.
 - Managed oracle authority: Banteng's owned
   `profiles/toast/stock-wsl-testdb.json` and `scripts/run_toast_wsl.sh`, using
   the bundled disposable `Test.db` fixture.
@@ -159,31 +158,31 @@ authority.
   reload through ordinary `mapinsert()`.
 - `src/include/server.h:197-217` incorrectly registers
   `SVO_MAX_MAP_VALUE_BYTES` against `max_list_value_bytes`.
-  `src/map.cc:1004-1063:bf_mapdelete` performs no result-size check. The current
-  conformance rows that change `max_map_value_bytes` therefore require live
-  adjudication before they can remain authority.
+  `src/map.cc:1004-1063:bf_mapdelete` contains no local result-size check.
+  Managed Toast nevertheless raises E_QUOTA for `mapdelete` under the active
+  LIST-backed limit, so an enclosing producer path enforces the observable
+  result. MAP literal construction bypasses that same limit.
 
 The comparator is not equivalent to scalar equality or a total order. INT and
 OBJ comparison narrows subtraction to `int`, so INT values and OBJ references
 separated by `2^32` can collapse. Unequal BOOL, WAIF, and ANON values compare
 as positive in both directions, making topology dependent on insertion order.
-INT and FLOAT remain distinct key types. Existing durable rows already freeze
-the OBJ collision, adjacent-float and signed-zero behavior, and BOOL lookup
-anomaly; the analogous INT-width behavior and WAIF/ANON topology are still
-unresolved.
+INT and FLOAT remain distinct key types. Durable rows freeze the analogous INT
+and OBJ collisions, adjacent-float and signed-zero behavior, BOOL lookup
+anomaly, and insertion-dependent BOOL/WAIF/ANON topology.
 
 ## Agreements and disagreements
 
-| Surface | Barn | Pinned Toast | Authority decision before final rows |
+| Surface | Barn | Pinned Toast | Frozen authority decision |
 | --- | --- | --- | --- |
 | Storage/order | Insertion storage, canonically sorted public paths; ranges use insertion positions | Comparator-sorted RB-tree for all storage/public paths | Toast comparator order controls; existing ordinary order/range rows are durable. |
-| Key validity | Assignment permits INT/FLOAT/STR/OBJ/ANON/ERR; `maphaskey`/`mapdelete` additionally reject ANON | VM also accepts BOOL/WAIF/ANON; `maphaskey`/`mapdelete` additionally reject ANON beyond VM-invalid LIST/MAP, while multi-key `mapvalues` accepts ANON | Positive ANON and non-total BOOL/WAIF/ANON behavior need focused rows. |
-| INT comparator | Rendered type/value hash keeps wide INTs distinct | Narrowed subtraction can collapse INT values separated by `2^32` | Managed width row required. |
-| Case replacement | Equal-fold key replaces spelling/value in original slot | Equal-fold comparator replacement stores new spelling/value | Existing equality row freezes new spelling; restart spelling still needs proof. |
-| Equality/truth | Deep equality; empty false | Same for total-comparator keys; non-total-key reverse insertion unresolved | Existing ordinary rows control; focused non-total equality row pending. |
+| Key validity | Assignment permits INT/FLOAT/STR/OBJ/ANON/ERR; `maphaskey`/`mapdelete` additionally reject ANON | VM also accepts BOOL/WAIF/ANON; `maphaskey`/`mapdelete` reject ANON while multi-key `mapvalues` accepts it | Positive ANON VM/`mapvalues` use succeeds; `maphaskey`/`mapdelete` raise E_TYPE. |
+| INT comparator | Rendered type/value hash keeps wide INTs distinct | Narrowed subtraction collapses INT values separated by `2^32` | Keys `0` and `4294967296` collide; later insertion/update supplies the retained key/value. |
+| Case replacement | Equal-fold key replaces spelling/value in original slot | Equal-fold comparator replacement stores new spelling/value | New spelling/value survives v17 restart. |
+| Equality/truth | Deep equality; empty false | Same for total-comparator keys; reverse insertion changes BOOL/WAIF/ANON topology and produces unequal maps | Existing ordinary rows plus managed non-total rows control. |
 | Ranges/markers | Mixed insertion/canonical models | Comparator order throughout | Dense current Toast-derived rows control; no duplicate generic range row. |
-| MAP limit | Checks configured `max_map_value_bytes` on producers | MAP token controls `max_list_value_bytes`; delete has no result check | Existing contradictory limit rows must be adjudicated and corrected. |
-| Persistence | v17 tag 10; writer emits insertion pairs | v17 tag 10; writer emits comparator order, reader reinserts | MAP-focused order/spelling/non-total-key restart proof required. |
+| MAP limit | Checks configured `max_map_value_bytes` on producers | MAP option token uses `max_list_value_bytes`; indexed/ranged mutation and `mapdelete` enforce it, literal construction bypasses it | Corrected managed rows freeze the actual option and producer split. |
+| Persistence | v17 tag 10; writer emits insertion pairs | v17 tag 10; writer emits comparator order and reader reinserts, reversing non-total topology | Managed restart freezes total order, replacement/high-byte preservation, topology reversal, and stable mappings/equality outcomes. |
 
 ## Existing durable conformance authority
 
@@ -218,45 +217,62 @@ Descriptions that call `mapdelete(map, LIST)` a LIST-key test are misleading:
 that syntax invokes the multi-delete overload. Their expected results are not
 used as evidence that LIST is a valid scalar key.
 
-## Provisional observable contract
+## Frozen observable contract
 
-| Dimension | MAP contract before final oracle rows | Authority |
+| Dimension | MAP contract | Authority |
 | --- | --- | --- |
-| Representation limits | Comparator-keyed heterogeneous mapping with recursive value-byte accounting; the actual configured control is unresolved. | Toast owners; current limit rows disputed |
-| Construction | `[...]` evaluates each value before its key, then inserts in source pair order; comparator-equal keys replace. | Toast compiler/source; evaluation-order row pending |
+| Representation limits | Comparator-keyed heterogeneous mapping with recursive value-byte accounting. On pinned Toast, checked MAP producers read `$server_options.max_list_value_bytes`; `$server_options.max_map_value_bytes` does not control them. | Toast owners; corrected managed limit rows |
+| Construction | `[...]` evaluates each value before its key, then inserts in source pair order; comparator-equal keys replace. | Toast compiler/source; `map_authority::map_literal_evaluates_each_value_before_its_key` |
 | Conversion | `tostr` is `[map]`; `toliteral` recursively emits comparator-ordered `[key -> value, ...]`; numeric/object conversions E_TYPE. | Existing value/map rows |
-| Equality | Deep mapping equality ignores insertion history for total-comparator keys; `==` is recursively case-insensitive and `equal()` is case-sensitive. Reverse insertion for non-total BOOL/WAIF/ANON keys remains unresolved. | Existing map/equality rows; non-total row pending |
+| Equality | Deep mapping equality ignores insertion history for total-comparator keys; `==` is recursively case-insensitive and `equal()` is case-sensitive. Reverse-inserted BOOL/WAIF/ANON maps have opposite topology and compare unequal under both modes. | Existing map/equality rows; managed non-total rows |
 | Ordering | MAP relational operators raise E_TYPE; ordering exists only for key topology/traversal. | Toast execution owner; existing rows |
-| Key identity | Ordinary indexing/replacement/deletion and default `maphaskey` compare STR keys case-insensitively; `maphaskey(map, key, 1)` and multi-key `mapvalues(map, keys...)` are case-sensitive. Equal-fold replacement stores new spelling; INT/FLOAT remain distinct; LIST/MAP are invalid; scalar comparator pathologies are observable. | Existing case rows plus pending INT/ANON/non-total rows |
+| Key identity | Ordinary indexing/replacement/deletion and default `maphaskey` compare STR keys case-insensitively; `maphaskey(map, key, 1)` and multi-key `mapvalues(map, keys...)` are case-sensitive. Equal-fold replacement stores new spelling. INT `0` and `4294967296` collide; INT/FLOAT remain distinct; LIST/MAP are invalid; ANON is VM-valid but rejected by `maphaskey`/`mapdelete`. | Existing case/type rows; `language/map_authority.yaml` |
 | Truth | Empty MAP false; every nonempty MAP true. | Existing rows |
 | Indexing/ranges | Key lookup/update and comparator-ordered inclusive ranges; `^`/`$` are comparator minimum/maximum keys. | Existing dense index/range rows |
 | Mutation/copy | Public value semantics with recursive alias isolation; comparator-equal update replaces key/value. | Existing collection/equality rows |
 | Literal formatting | Comparator-ordered recursive literal, independent of ordinary insertion order where the comparator is total. | Existing formatting/order rows |
-| Serialization | v17 tag 10/count/comparator-ordered pairs; reload reinserts through the same comparator. Native MAP is absent from v4. | Toast DB owners; MAP restart row pending |
-| Overflow/quotas | Checked producers fail only above the configured size; with `max_concat_catchable` enabled the result is E_QUOTA, otherwise Toast aborts the task as out-of-seconds. Actual MAP option wiring and delete behavior are unresolved. | Toast source disagreement with current limit rows |
+| Serialization | v17 tag 10/count/comparator-ordered pairs; reload reinserts through the same comparator. Total-key order, replacement spelling, and high bytes survive. BOOL/WAIF/ANON traversal/literal topology reverses, while mappings and equality outcomes remain stable. Native MAP is absent from v4. | Toast DB owners; `map_dump_persistence::ordering_spelling_bytes_and_non_total_topology_round_trip` |
+| Overflow/quotas | Indexed/ranged MAP mutation and `mapdelete` enforce the LIST-backed configured size; MAP literal construction bypasses it. With `max_concat_catchable` enabled a checked failure is E_QUOTA, otherwise Toast aborts the task as out-of-seconds. | Corrected managed limit rows |
 | Encoding | Ordinary database persistence recursively encodes pairs; `value_hash` hashes canonical MAP literal text. JSON and exact hash outcomes belong to later builtin-family gates. | Toast DB/hash owners; existing rows |
-| Error behavior | E_TYPE for invalid scalar-key/type/relational use, E_RANGE for missing keys; ANON and multi-delete builtin details vary by surface. | Existing rows plus focused pending rows |
+| Error behavior | E_TYPE for invalid scalar-key/type/relational use and E_RANGE for missing keys. ANON works in VM/`mapvalues` but raises E_TYPE in `maphaskey`/`mapdelete`. Multi-key deletion reports `E_RANGE`, `Key 99 not found in map`, and raised value `99` for the frozen case. | Existing rows; focused managed authority rows |
 
-## Unresolved managed-oracle decisions
+## Durable conformance evidence and oracle result
 
-After source tracing and row-by-row deduplication, the smallest primitive MAP
-decision groups are:
+Conformance commit `e5b1e47` contains exactly three MAP paths:
 
-1. INT comparator width: store keys `0` and `4294967296`, then observe length,
-   both lookups, canonical keys, and replacement behavior.
-2. ANON and non-total comparator topology: prove positive ANON literal/index
-   use plus `mapvalues` acceptance and `maphaskey`/`mapdelete` rejection, then
-   compare reverse insertion of distinct BOOL, WAIF, and ANON keys through
-   `mapkeys`, `toliteral`, `==`, and `equal()`.
-3. Configured limits: distinguish `max_list_value_bytes` from
-   `max_map_value_bytes`, and adjudicate the existing
-   `mapdelete_fails_if_result_too_large` row, which contradicts pinned source.
-4. Literal operand order: use observable side effects to decide value-before-key
-   evaluation for each `key -> value` pair.
-5. Multi-key deletion failure: freeze the caught error code, message, and raised
-   missing-key value rather than only E_RANGE.
-6. v17 restart: preserve comparator order, replacement key spelling, high-byte
-   STR keys, and non-total scalar-key topology through dump/reload.
+- `language/map_authority.yaml` proves INT `2^32` comparator collision and
+  replacement, ANON surface asymmetry, reverse BOOL/WAIF/ANON topology and
+  inequality, value-before-key literal evaluation, and complete multi-key
+  deletion error detail.
+- `server/limits.yaml` corrects four rows to freeze LIST-backed indexed/ranged
+  mutation and `mapdelete` enforcement plus MAP-literal quota bypass.
+- `server/map_dump_persistence.yaml` proves total mixed-key order, replacement
+  spelling, high-byte identity, non-total topology reversal, stable mappings,
+  and stable equality outcomes through a managed v17 dump/restart.
+
+The first complete source-derived selection produced:
+
+```text
+9 passed, 3 failed, 11540 deselected in 6.42s
+```
+
+Pinned Toast disproved the proposed `mapdelete` bypass and MAP-literal check,
+and disproved unchanged non-total topology across restart. A focused diagnostic
+recorded the exact write/reinsert reversal. After replacing those expectations
+with the observed behavior, the three corrected rows passed:
+
+```text
+3 passed, 11549 deselected in 6.04s
+```
+
+The complete intended selection then passed:
+
+```text
+12 passed, 11540 deselected in 6.29s
+```
+
+All runs used Banteng's owned stock profile and WSL launcher against a
+disposable copy of the bundled `Test.db` fixture.
 
 No new generic truth, formatting, ordinary equality, total-order key,
 LIST/MAP rejection, range, COW, membership, iteration, or basic encoding row is
@@ -267,9 +283,7 @@ Exact nonempty cryptographic hashes remain a later builtin-family decision.
 
 ## Gate status
 
-Steps 1 through 4 of the mandatory authority gate are complete for MAP. Step 5
-is open only for the six managed decision groups above, including correction of
-the two disputed existing limit rows. No Java API, record, collection owner,
-comparator, copy helper, parser representation, or production implementation is
-authorized until they pass and this record is updated with their durable
-conformance commit and managed result.
+The MAP semantic contract is frozen. No Java API, record, collection owner,
+comparator, copy helper, parser representation, or production implementation
+is authorized by this record alone. The primitive-type matrix remains blocked
+on the remaining family-specific authority gap, ANON.
