@@ -2,16 +2,14 @@
 
 ## Scope
 
-This is the Phase 2 mandatory authority record for the public INT value family.
-It records the evidence available before the remaining managed-oracle row is
-added. It covers representation limits, construction, conversion, equality,
-ordering, map-key identity, truth, indexing, mutation/copy behavior, literal
-formatting, v17 serialization, overflow, encoding, and error behavior.
+This record completes the Phase 2 mandatory authority gate for the public INT
+value family. It covers representation limits, construction, conversion,
+equality, ordering, map-key identity, truth, indexing, mutation/copy behavior,
+literal formatting, v17 serialization, overflow, encoding, and error behavior.
 
 This record does not choose or approve a Java representation, authorize a value
-hierarchy, or permit a production edit. The INT gate remains open until the
-unresolved persistence row is durable and proven against the pinned Toast
-oracle.
+hierarchy, or permit a production edit. The complete primitive-type matrix
+remains required before any Java value representation is designed.
 
 ## Verified identities
 
@@ -22,8 +20,8 @@ oracle.
   `/root/src/toaststunt` at
   `aecc51e9449c6e7c95272f0f044b5ba38948459e`, executable
   `/root/src/toaststunt/build-release/moo`.
-- Existing durable conformance authority: `../moo-conformance-tests` at commit
-  `39ec3d8` plus its ancestors.
+- Durable conformance authority after this slice: `../moo-conformance-tests`
+  commit `845a885` plus its ancestors.
 - Managed oracle authority: Banteng's owned
   `profiles/toast/stock-wsl-testdb.json` and `scripts/run_toast_wsl.sh`, using
   the bundled disposable `Test.db` fixture.
@@ -140,8 +138,8 @@ choices that do not match pinned Toast's source at every edge.
   for both string and literal forms.
 - `src/include/version.h:36-90` and
   `src/db_io.cc:76-89,153-183,307-311,346-375` assign v17 tag 0 and read/write a
-  signed decimal line. The source path supports all `int64_t` payload bits, but
-  the full-range managed restart result is not yet a durable row.
+  signed decimal line. The managed restart row proves that the complete signed
+  range survives this path with INT type and exact decimal literal form.
 - `src/json.cc:213-245` decodes a JSON integer token as INT only when native
   conversion succeeds within Toast's nominal MININT/MAXINT bounds; otherwise it
   falls through to FLOAT when possible. JSON is a later builtin-family surface,
@@ -159,7 +157,7 @@ choices that do not match pinned Toast's source at every edge.
 | Modulo sign | Divisor sign | Divisor sign | Existing four-sign matrix controls; Barn spec is stale. |
 | Negative INT exponent | Implemented | Implemented | Existing stock-profile rows control; Barn spec is stale. |
 | INT map key | Typed numeric identity | Typed numeric identity, unsafe extreme comparator | Preserve observable typed identity and ordering results, not subtraction-based comparison. |
-| v17 syntax | Tag 0 plus signed decimal | Tag 0 plus signed decimal | Source agrees; full-range managed restart remains to be proven. |
+| v17 syntax | Tag 0 plus signed decimal | Tag 0 plus signed decimal | Source agrees; the full-range managed restart row controls. |
 
 ## Existing durable conformance authority
 
@@ -186,9 +184,9 @@ INT authority file would otherwise duplicate:
 Because those rows are already durable, adding renamed copies would not change
 an authority decision and is not authorized.
 
-## Provisional observable contract
+## Frozen observable contract
 
-| Dimension | INT contract before final oracle row | Authority |
+| Dimension | INT contract | Authority |
 | --- | --- | --- |
 | Representation limits | Observable values occupy the full signed 64-bit range. Toast's nominal MININT macro is not the storage boundary. | Barn/Toast source plus literal and conversion boundary rows |
 | Construction | Decimal source tokens exhibit the pinned executable's modulo-2^64 behavior, including actual INT64_MIN. This is an observed profile contract, not portable C++ semantics. | `integer_literal_overflow.yaml` |
@@ -200,28 +198,32 @@ an authority decision and is not authorized.
 | Indexing | INT is a one-based LIST/STR index and valid MAP key; invalid positions or missing keys raise E_RANGE; using INT as indexed base raises E_TYPE. | Existing indexing rows; Barn/Toast source |
 | Mutation/copy | INT is scalar and has no mutable payload; assignment copies/rebinds the value. | Barn/Toast source |
 | Literal formatting | Plain canonical signed base-10 decimal, identical for `tostr` and `toliteral`. | Existing value/types rows; Barn/Toast source |
-| Serialization | v17 tag 0 plus signed decimal. Full-range managed restart is unresolved. | Barn/Toast source; new row required |
+| Serialization | v17 tag 0 plus signed decimal; nominal MININT, zero, MAXINT, and actual INT64_MIN preserve exact INT type, value, and decimal literal form through managed restart. | Barn/Toast source; `integer_dump_persistence::full_range_integers_survive_dump_and_restart` |
 | Overflow | Existing managed observations are exact. No general contract is inferred for Toast's unchecked signed C++ arithmetic or casts. | Existing focused rows; source disagreement |
 | Encoding | Source and v17 forms use ASCII decimal characters, a subset of the database's ISO-8859-1 byte contract. JSON belongs to its later builtin slice. | Formatting and database owners |
 | Error behavior | E_DIV for zero division/modulo; E_TYPE for unsupported conversion/indexing/ordering surfaces; E_RANGE for invalid collection positions and absent map keys; E_FLOAT for non-real FLOAT conversion. | Existing focused rows; Barn/Toast source |
 
-## Unresolved managed-oracle question
+## Durable conformance evidence and oracle result
 
-One missing decision remains after deduplication:
+Conformance commit `845a885` adds exactly one focused managed-server row in
+`server/integer_dump_persistence.yaml`. It stores nominal MININT, zero, MAXINT,
+and actual INT64_MIN in one nested property value, dumps v17, restarts the
+managed server, and checks each value's INT tag, exact numeric payload, and
+canonical decimal literal form.
 
-- Do nominal MININT, zero, MAXINT, and actual INT64_MIN preserve exact INT type,
-  value, and decimal literal form across a managed v17 dump/restart when nested
-  in a property value?
+The initial expected result passed without correction against pinned Toast
+`aecc51e9449c6e7c95272f0f044b5ba38948459e`:
 
-The smallest new durable row is one managed restart row covering those four
-values. It must use Banteng's owned stock profile and WSL launcher against the
-pinned Toast executable. If the initial expected result is disproved, this
-record and the row must be corrected to the observed result before Java design.
+```text
+1 passed, 11525 deselected in 5.82s
+```
+
+The run used Banteng's owned stock profile and WSL launcher against a disposable
+copy of the bundled `Test.db` fixture.
 
 ## Gate status
 
-Steps 1 through 4 of the mandatory authority gate are complete for INT. Step 5
-is open only for the full-range v17 managed restart row above. No Java API,
-record, sealed family, hashing strategy, collection helper, numeric adapter, or
-production implementation is authorized until that row passes and this record
-is updated with its durable conformance commit and managed result.
+The INT semantic contract is frozen. No Java API, record, sealed family, hashing
+strategy, collection helper, numeric adapter, or production implementation is
+authorized by this record alone. The primitive-type matrix remains blocked on
+the other family-specific authority gaps, beginning with FLOAT.
