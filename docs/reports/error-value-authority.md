@@ -2,16 +2,15 @@
 
 ## Scope
 
-This is the Phase 2 mandatory authority record for the public ERR value family
-before its remaining managed-oracle rows are added. It covers representation
+This record completes the Phase 2 mandatory authority gate for the public ERR
+value family. It covers representation
 and enumeration limits, source construction, conversion, equality, ordering,
 map-key identity, truth, indexing, mutation/copy behavior, literal formatting,
 v4/v17 serialization, encoding, and error behavior.
 
 This record does not choose or approve a Java representation, authorize a value
-hierarchy, or permit a production edit. The ERR gate remains open until the
-full enumeration, nonzero scalar semantics, map equality, indexed-base errors,
-and restart behavior are durable and proven against pinned Toast.
+hierarchy, or permit a production edit. The complete primitive-type matrix
+remains required before any further Java value representation is designed.
 
 ## Verified identities
 
@@ -22,8 +21,8 @@ and restart behavior are durable and proven against pinned Toast.
   `/root/src/toaststunt` at
   `aecc51e9449c6e7c95272f0f044b5ba38948459e`, executable
   `/root/src/toaststunt/build-release/moo`.
-- Existing durable conformance authority: `../moo-conformance-tests` commit
-  `276376e` plus its ancestors.
+- Durable conformance authority after this slice: `../moo-conformance-tests`
+  commit `cc1871e` plus its ancestors.
 - Managed oracle authority: Banteng's owned
   `profiles/toast/stock-wsl-testdb.json` and `scripts/run_toast_wsl.sh`, using
   the bundled disposable `Test.db` fixture.
@@ -128,13 +127,13 @@ incomplete.
 
 | Surface | Barn | Pinned Toast | Authority decision before final rows |
 | --- | --- | --- | --- |
-| Public enumeration | 0..18 including E_INTRPT; spec stops at 17 | 0..18 including E_INTRPT | The full ordered table needs one durable row. |
-| Truth | Every ERR false; spec says otherwise | Every ERR false | A nonzero managed observation must correct the stale spec rule. |
-| Conversion | ERR ordinal accepted by toint/tofloat/toobj | Same | Existing zero-code rows are insufficient for the nonzero disagreement. |
+| Public enumeration | 0..18 including E_INTRPT; spec stops at 17 | 0..18 including E_INTRPT | The full ordered table and canonical names are frozen by the managed row. |
+| Truth | Every ERR false; spec says otherwise | Every ERR false | Every ERR is false, including nonzero E_TYPE and E_INTRPT. |
+| Conversion | ERR ordinal accepted by toint/tofloat/toobj | Same | Nonzero E_INTRPT converts to 18, 18.0, and #18. |
 | Equality/order | Exact ordinal equality and numeric order | Same | Existing equality and relational rows control. |
-| Map identity/equality | Ordinary keys work; private equal-map comparator is insertion-sensitive | Set-based map equality | Managed reversed-insertion maps must settle the observable result. |
-| Indexing | ERR is MAP key; scalar-base/position misuse E_TYPE | Same | Position and scalar-base decisions require family-specific deduplication. |
-| v17 persistence | Tag 3 plus raw ordinal | Tag 3 plus raw ordinal | All named codes, especially E_INTRPT, need exact restart proof. |
+| Map identity/equality | Ordinary keys work; private equal-map comparator is insertion-sensitive | Set-based map equality | Reversed-insertion maps with the same ERR pairs compare equal under both `==` and `equal()`. |
+| Indexing | ERR is MAP key; scalar-base/position misuse E_TYPE | Same | ERR scalar indexed read/write raises E_TYPE. |
+| v17 persistence | Tag 3 plus raw ordinal | Tag 3 plus raw ordinal | All 19 named codes preserve type, ordinal, literal, and false truth through restart. |
 
 ## Existing durable conformance authority
 
@@ -157,41 +156,46 @@ The following existing rows settle decisions that must not be duplicated:
 - Dedicated JSON-null rows already freeze the later builtin-specific E_NONE
   behavior; it is not part of this primitive slice.
 
-## Provisional observable contract
+## Frozen observable contract
 
-| Dimension | ERR contract before final oracle rows | Authority |
+| Dimension | ERR contract | Authority |
 | --- | --- | --- |
-| Representation limits | Fixed named table 0..18, append-only by database contract; ordinary source cannot construct an unknown code. | Barn/Toast owners; full-table row pending |
+| Representation limits | Fixed named table E_NONE..E_INTRPT == 0..18, append-only by database contract; ordinary source cannot construct an unknown code. | Barn/Toast owners; `error_authority::complete_named_error_table_and_nonzero_scalar_semantics` |
 | Construction | Version-gated `E_*` keywords produce ERR. Unknown names are not ERR literals. | Barn/Toast parser owners |
-| Conversion | `toint`, `tofloat`, and `toobj` expose the ordinal; human `tostr` and symbolic `toliteral` remain distinct. | Existing rows; nonzero conversion row pending |
+| Conversion | `toint`, `tofloat`, and `toobj` expose the ordinal; human `tostr` and symbolic `toliteral` remain distinct. | Existing rows; managed nonzero scalar row |
 | Equality | Same ERR type and ordinal only; a caught code is an ordinary equal ERR value. | Existing equality/exception rows |
 | Ordering | Same-type ordinal order; mixed-type relational comparison E_TYPE. | Existing `error_comparison.yaml` |
-| Hashing/map identity | Named ERR values are distinct scalar keys ordered by ordinal; equal maps must be insertion-order-independent. | Existing map rows; reversed-order equality pending |
-| Truth | Every ERR is false, including nonzero E_TYPE and E_INTRPT. | Barn/Toast owners; nonzero row pending |
-| Indexing | ERR is a valid MAP key, not a LIST/STR position or indexed scalar base; misuse E_TYPE and absent key E_RANGE. | Existing map rows; scalar-base row pending |
-| Mutation/copy | Inline scalar; assignment/copy preserves type and ordinal without alias-visible mutation. | Barn/Toast owners; scalar row pending |
-| Literal formatting | `tostr` is the human description; `toliteral` is the canonical `E_*` name for all named codes. | Existing rows; full-table row pending |
-| Serialization | v4/v17 read tag 3 plus numeric code; v17 writes tag 3 plus raw ordinal. All 19 named values require restart proof. | Barn/Toast DB owners; restart row pending |
+| Hashing/map identity | Named ERR values are distinct scalar keys ordered by ordinal; equal maps are insertion-order-independent. | Existing map rows; `error_authority::reversed_error_key_maps_are_equal` |
+| Truth | Every ERR is false, including nonzero E_TYPE and E_INTRPT. | Managed language and restart rows |
+| Indexing | ERR is a valid MAP key, not a LIST/STR position or indexed scalar base; misuse E_TYPE and absent key E_RANGE. | Existing map rows; managed scalar-base rows |
+| Mutation/copy | Inline scalar; assignment/copy preserves type and ordinal without alias-visible mutation. | Barn/Toast owners; managed E_INTRPT scalar copy |
+| Literal formatting | `tostr` is the human description; `toliteral` is the canonical `E_*` name for all named codes. | Existing rows; managed full-table/restart rows |
+| Serialization | v4/v17 read tag 3 plus numeric code; v17 writes tag 3 plus raw ordinal. All 19 named values preserve exact ERR behavior through restart. | Barn/Toast DB owners; `error_dump_persistence::all_named_errors_survive_dump_and_restart` |
 | Overflow | No language arithmetic constructs ERR codes. Unknown raw database codes are malformed-input policy, not ordinary source overflow. | Barn/Toast construction owners |
 | Encoding | Source/display/persistence names and ordinals are ASCII; `encode_binary(ERR)` raises E_INVARG. | Existing encoding row; Barn/Toast owners |
-| Error behavior | ERR values do not raise merely by existing; unsupported indexing/conversion surfaces use their focused E_TYPE/E_INVARG/E_RANGE rules. | Existing exception and operator rows; index row pending |
+| Error behavior | ERR values do not raise merely by existing; unsupported indexing/conversion surfaces use their focused E_TYPE/E_INVARG/E_RANGE rules. | Existing exception/operator rows; managed scalar-index rows |
 
-## Unresolved managed-oracle questions
+## Durable conformance evidence and oracle result
 
-Exactly three decision groups remain after deduplication:
+Conformance commit `cc1871e` adds exactly two focused ERR files:
 
-1. Does the complete named table remain exactly E_NONE..E_INTRPT == 0..18,
-   with canonical literal names, nonzero false truth, and nonzero ordinal
-   `tofloat`/`toobj` conversions on the pinned executable?
-2. Do reversed-insertion maps with the same ERR key/value pairs compare equal,
-   and do ERR-scalar indexed read and indexed assignment raise E_TYPE?
-3. Do all 19 named ERR values preserve tag, ordinal, canonical literal, and
-   false truth through a managed v17 dump/restart?
+- `language/error_authority.yaml` proves the complete E_NONE..E_INTRPT 0..18
+  table and names, nonzero false truth, E_INTRPT numeric/object conversions,
+  scalar copy, insertion-order-independent ERR map equality, and ERR-scalar
+  indexed read/write E_TYPE.
+- `server/error_dump_persistence.yaml` proves that all 19 named values retain
+  ERR type 3, exact ordinal, canonical literal, and false truth through a
+  managed v17 dump/restart.
 
-The smallest durable additions are one language authority file covering the
-first two groups and one managed restart row covering the third. Both files
-must pass through Banteng's owned stock profile and WSL launcher against pinned
-Toast.
+The complete intended selection passed without correction against pinned Toast
+`aecc51e9449c6e7c95272f0f044b5ba38948459e`:
+
+```text
+5 passed, 11536 deselected in 6.19s
+```
+
+The run used Banteng's owned stock profile and WSL launcher against a disposable
+copy of the bundled `Test.db` fixture.
 
 No malformed raw-code fixture or new v4 fixture is added in this primitive
 slice. Both source owners use the same unvalidated tag-3 reader across v4 and
@@ -201,8 +205,7 @@ persistence phase.
 
 ## Gate status
 
-Steps 1 through 4 of the mandatory authority gate are complete for ERR. Step 5
-is open only for the language authority and v17 restart rows above. No Java API,
-record, enum, value helper, comparator, parser representation, or production
-implementation is authorized until those rows pass and this record is updated
-with their durable conformance commit and managed result.
+The ERR semantic contract is frozen. No Java API, record, enum, value helper,
+comparator, parser representation, or production implementation is authorized
+by this record alone. The primitive-type matrix remains blocked on the other
+family-specific authority gaps, beginning with LIST.
