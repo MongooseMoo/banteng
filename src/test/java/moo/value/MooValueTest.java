@@ -139,9 +139,9 @@ final class MooValueTest {
   }
 
   @Test
-  void errorsExposeTheCanonicalV4CodesAndAreFalse() {
+  void errorsExposeTheSupportedToastCodesAndAreFalse() {
     assertEquals(
-        List.of(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17),
+        List.of(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18),
         List.of(ErrorValue.values()).stream().map(ErrorValue::code).toList());
     for (ErrorValue error : ErrorValue.values()) {
       assertEquals(error, ErrorValue.fromCode(error.code()).orElseThrow());
@@ -150,7 +150,7 @@ final class MooValueTest {
       assertEquals(MooValue.Type.ERROR, error.type());
     }
     assertTrue(ErrorValue.fromCode(-1).isEmpty());
-    assertTrue(ErrorValue.fromCode(18).isEmpty());
+    assertTrue(ErrorValue.fromCode(19).isEmpty());
     assertEquals("E_TYPE", ErrorValue.E_TYPE.toLiteral());
   }
 

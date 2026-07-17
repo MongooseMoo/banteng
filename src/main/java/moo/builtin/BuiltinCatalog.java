@@ -441,6 +441,7 @@ public final class BuiltinCatalog {
                       case E_FLOAT -> "Floating-point arithmetic error";
                       case E_FILE -> "File error";
                       case E_EXEC -> "Exec error";
+                      case E_INTRPT -> "Interrupted";
                     };
                 case ListValue ignored -> "{list}";
                 case MapValue ignored -> "[map]";

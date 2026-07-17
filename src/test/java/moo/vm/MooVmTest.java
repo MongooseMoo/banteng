@@ -2,6 +2,7 @@ package moo.vm;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.nio.charset.StandardCharsets;
@@ -41,6 +42,23 @@ final class MooVmTest {
     assertTrue(state.operandStack().isEmpty());
     assertEquals(VmState.Outcome.RETURNED, state.outcome());
     assertEquals(new IntegerValue(2), state.returnValue().orElseThrow());
+  }
+
+  @Test
+  void returnsInterruptErrorThroughTheCompleteLiteralPipeline() {
+    BytecodeProgram program = new MooCompiler().compile(MooParser.parse("return E_INTRPT;"));
+    VmState state = new VmState();
+
+    assertEquals("0 PUSH_ERROR E_INTRPT\n1 RETURN", program.disassemble());
+
+    new MooVm().execute(program, state);
+
+    MooValue returned = state.returnValue().orElseThrow();
+    assertEquals(VmState.Outcome.RETURNED, state.outcome());
+    assertEquals(MooValue.Type.ERROR, returned.type());
+    assertEquals(18, ((ErrorValue) returned).code());
+    assertEquals("E_INTRPT", returned.toLiteral());
+    assertFalse(returned.isTruthy());
   }
 
   @Test
@@ -131,7 +149,7 @@ final class MooVmTest {
         new MooCompiler()
             .compile(
                 MooParser.parse(
-                    "return {tostr(), tostr(\"value=\", 42, 3.0, #0, E_TYPE, {1}, [\"a\" -> 1])};"));
+                    "return {tostr(), tostr(\"value=\", 42, 3.0, #0, E_TYPE, E_INTRPT, {1}, [\"a\" -> 1])};"));
     VmState state = new VmState();
 
     new MooVm().execute(program, state, new WorldTxn(List.of(), List.of()), new BuiltinCatalog());
@@ -142,7 +160,7 @@ final class MooVmTest {
             List.of(
                 new StringValue(new byte[0]),
                 new StringValue(
-                    "value=423.0#0Type mismatch{list}[map]"
+                    "value=423.0#0Type mismatchInterrupted{list}[map]"
                         .getBytes(StandardCharsets.ISO_8859_1)))),
         state.returnValue().orElseThrow());
     assertEquals(BuiltinCatalog.EffectClass.PURE, new BuiltinCatalog().effectClass("tostr"));

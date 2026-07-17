@@ -26,8 +26,8 @@ import org.jetbrains.jetCheck.PropertyFalsified;
 import org.junit.jupiter.api.Test;
 
 final class JetCheckAcceptanceTest {
-  private static final String RECHECK_TOKEN = "AOudqRMBCgMI";
-  private static final String MINIMAL_COUNTEREXAMPLE = "{10, {E_RECMOVE}}";
+  private static final String RECHECK_TOKEN = "AOudqRMBCgMM";
+  private static final String MINIMAL_COUNTEREXAMPLE = "{10, {E_NACC}}";
 
   @Test
   // JetCheck exposes deterministic seed and replay only through its deprecated diagnostic API.

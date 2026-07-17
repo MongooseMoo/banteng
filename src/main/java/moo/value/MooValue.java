@@ -323,7 +323,7 @@ public sealed interface MooValue
     }
   }
 
-  /** The canonical v4 MOO error values. */
+  /** The supported Toast MOO error values. */
   enum ErrorValue implements MooValue {
     E_NONE(0),
     E_TYPE(1),
@@ -342,7 +342,8 @@ public sealed interface MooValue
     E_QUOTA(14),
     E_FLOAT(15),
     E_FILE(16),
-    E_EXEC(17);
+    E_EXEC(17),
+    E_INTRPT(18);
 
     private final int code;
 
@@ -355,7 +356,7 @@ public sealed interface MooValue
       return code;
     }
 
-    /** Returns the canonical error for {@code code}, if the code is valid in v4. */
+    /** Returns the supported error for {@code code}, if present. */
     public static Optional<ErrorValue> fromCode(long code) {
       for (ErrorValue error : values()) {
         if (error.code == code) {
