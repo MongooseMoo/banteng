@@ -147,6 +147,31 @@ final class MooVmTest {
   }
 
   @Test
+  void returnsLatin1StringThroughTheCompleteLiteralPipeline() {
+    byte[] source = "return \"é\";".getBytes(StandardCharsets.ISO_8859_1);
+    Ast.Program syntax = MooParser.parse(source);
+    Ast.Return returnStatement =
+        assertInstanceOf(Ast.Return.class, syntax.statements().getFirst());
+    Ast.StringLiteral stringLiteral =
+        assertInstanceOf(Ast.StringLiteral.class, returnStatement.value().orElseThrow());
+    assertEquals(new Ast.SourceSpan(0, 11, 1, 1), returnStatement.span().orElseThrow());
+    assertEquals(new Ast.SourceSpan(7, 10, 1, 8), stringLiteral.span().orElseThrow());
+
+    BytecodeProgram program = new MooCompiler().compile(syntax);
+    assertEquals("0 PUSH_STRING é\n1 RETURN", program.disassemble());
+    VmState state = new VmState();
+
+    new MooVm().execute(program, state);
+
+    MooValue returned = state.returnValue().orElseThrow();
+    assertEquals(VmState.Outcome.RETURNED, state.outcome());
+    assertEquals(MooValue.Type.STRING, returned.type());
+    assertEquals("\"é\"", returned.toLiteral());
+    assertTrue(returned.isTruthy());
+    assertArrayEquals(new byte[] {(byte) 0xE9}, ((StringValue) returned).bytes());
+  }
+
+  @Test
   void exposesTheLiveForegroundTickRemainderAndRejectsArguments() {
     BytecodeProgram program =
         new MooCompiler().compile(MooParser.parse("return {ticks_left(), ticks_left()};"));

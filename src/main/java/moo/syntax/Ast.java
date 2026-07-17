@@ -167,7 +167,21 @@ public sealed interface Ast
     }
   }
 
-  record StringLiteral(String value) implements Expression {}
+  record StringLiteral(String value, Optional<SourceSpan> span) implements Expression {
+    public StringLiteral(String value) {
+      this(value, Optional.empty());
+    }
+
+    @Override
+    public boolean equals(Object other) {
+      return this == other || (other instanceof StringLiteral that && value.equals(that.value));
+    }
+
+    @Override
+    public int hashCode() {
+      return Objects.hash(value);
+    }
+  }
 
   record ObjectLiteral(long value, Optional<SourceSpan> span) implements Expression {
     public ObjectLiteral(long value) {

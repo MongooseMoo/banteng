@@ -260,7 +260,14 @@ public final class MooParser {
       }
       case STRING -> {
         advance();
-        yield new Ast.StringLiteral(token.lexeme());
+        yield new Ast.StringLiteral(
+            token.lexeme(),
+            Optional.of(
+                new Ast.SourceSpan(
+                    token.startOffset(),
+                    token.endOffset(),
+                    token.line(),
+                    token.column())));
       }
       case OBJECT -> {
         advance();
