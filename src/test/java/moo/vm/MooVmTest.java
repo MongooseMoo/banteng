@@ -87,6 +87,32 @@ final class MooVmTest {
   }
 
   @Test
+  void comparesReversedErrorKeyMapsThroughOperatorAndBuiltin() {
+    BytecodeProgram program =
+        new MooCompiler()
+            .compile(
+                MooParser.parse(
+                    "forward = [E_TYPE -> \"type\", E_DIV -> \"div\"]; "
+                        + "reversed = [E_DIV -> \"div\", E_TYPE -> \"type\"]; "
+                        + "return {forward == reversed, equal(forward, reversed), "
+                        + "\"Foo\" == \"foo\", equal(\"Foo\", \"foo\")};"));
+    VmState state = new VmState();
+
+    new MooVm().execute(program, state, new WorldTxn(List.of(), List.of()), new BuiltinCatalog());
+
+    assertEquals(VmState.Outcome.RETURNED, state.outcome());
+    assertEquals(
+        new ListValue(
+            List.of(
+                new IntegerValue(1),
+                new IntegerValue(1),
+                new IntegerValue(1),
+                new IntegerValue(0))),
+        state.returnValue().orElseThrow());
+    assertEquals(BuiltinCatalog.EffectClass.PURE, new BuiltinCatalog().effectClass("equal"));
+  }
+
+  @Test
   void exposesTheLiveForegroundTickRemainderAndRejectsArguments() {
     BytecodeProgram program =
         new MooCompiler().compile(MooParser.parse("return {ticks_left(), ticks_left()};"));

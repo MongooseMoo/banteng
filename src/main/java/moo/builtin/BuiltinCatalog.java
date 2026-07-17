@@ -10,6 +10,7 @@ import java.sql.SQLException;
 import java.sql.Statement;
 import java.sql.Types;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -453,6 +454,7 @@ public final class BuiltinCatalog {
       case "toint" -> toInteger(arguments);
       case "toliteral" -> toLiteral(arguments);
       case "toobj" -> toObject(arguments);
+      case "equal" -> equalValues(arguments);
       case "eval" -> dynamicEval(arguments);
       case "typeof" -> typeOf(arguments);
       case "function_info" -> {
@@ -546,6 +548,7 @@ public final class BuiltinCatalog {
           "toint",
           "toliteral",
           "toobj",
+          "equal",
           "eval",
           "raise",
           "task_perms",
@@ -1588,6 +1591,53 @@ public final class BuiltinCatalog {
       return Result.value(new ObjectValue(error.code()));
     }
     return Result.error(ErrorValue.E_TYPE);
+  }
+
+  private static Result equalValues(List<MooValue> arguments) {
+    if (arguments.size() != 2) {
+      return Result.error(ErrorValue.E_ARGS);
+    }
+    return Result.value(
+        new IntegerValue(exactlyEqual(arguments.get(0), arguments.get(1)) ? 1 : 0));
+  }
+
+  private static boolean exactlyEqual(MooValue left, MooValue right) {
+    if (left instanceof StringValue leftString && right instanceof StringValue rightString) {
+      return Arrays.equals(leftString.bytes(), rightString.bytes());
+    }
+    if (left instanceof ListValue leftList && right instanceof ListValue rightList) {
+      if (leftList.size() != rightList.size()) {
+        return false;
+      }
+      for (int index = 0; index < leftList.size(); index++) {
+        if (!exactlyEqual(leftList.elements().get(index), rightList.elements().get(index))) {
+          return false;
+        }
+      }
+      return true;
+    }
+    if (left instanceof MapValue leftMap && right instanceof MapValue rightMap) {
+      if (leftMap.size() != rightMap.size()) {
+        return false;
+      }
+      for (Map.Entry<MooValue, MooValue> leftEntry : leftMap.entries().entrySet()) {
+        boolean matched = false;
+        for (Map.Entry<MooValue, MooValue> rightEntry : rightMap.entries().entrySet()) {
+          if (exactlyEqual(leftEntry.getKey(), rightEntry.getKey())) {
+            if (!exactlyEqual(leftEntry.getValue(), rightEntry.getValue())) {
+              return false;
+            }
+            matched = true;
+            break;
+          }
+        }
+        if (!matched) {
+          return false;
+        }
+      }
+      return true;
+    }
+    return left.equals(right);
   }
 
   private static Result dynamicEval(List<MooValue> arguments) {
