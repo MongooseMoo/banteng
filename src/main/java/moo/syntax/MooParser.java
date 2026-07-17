@@ -275,7 +275,7 @@ public final class MooParser {
         advance();
         try {
           yield new Ast.ObjectLiteral(
-              Long.parseLong(token.lexeme().substring(1)),
+              new BigInteger(token.lexeme().substring(1)).longValue(),
               Optional.of(
                   new Ast.SourceSpan(
                       token.startOffset(),
