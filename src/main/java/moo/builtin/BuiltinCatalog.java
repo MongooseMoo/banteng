@@ -449,7 +449,10 @@ public final class BuiltinCatalog {
         }
         yield Result.value(encode(text.toString()));
       }
+      case "tofloat" -> toFloat(arguments);
+      case "toint" -> toInteger(arguments);
       case "toliteral" -> toLiteral(arguments);
+      case "toobj" -> toObject(arguments);
       case "eval" -> dynamicEval(arguments);
       case "typeof" -> typeOf(arguments);
       case "function_info" -> {
@@ -539,7 +542,10 @@ public final class BuiltinCatalog {
           "mapkeys",
           "max",
           "tostr",
+          "tofloat",
+          "toint",
           "toliteral",
+          "toobj",
           "eval",
           "raise",
           "task_perms",
@@ -1552,6 +1558,36 @@ public final class BuiltinCatalog {
       return Result.error(ErrorValue.E_ARGS);
     }
     return Result.value(encode(arguments.getFirst().toLiteral()));
+  }
+
+  private static Result toFloat(List<MooValue> arguments) {
+    if (arguments.size() != 1) {
+      return Result.error(ErrorValue.E_ARGS);
+    }
+    if (arguments.getFirst() instanceof ErrorValue error) {
+      return Result.value(new FloatValue(error.code()));
+    }
+    return Result.error(ErrorValue.E_TYPE);
+  }
+
+  private static Result toInteger(List<MooValue> arguments) {
+    if (arguments.size() != 1) {
+      return Result.error(ErrorValue.E_ARGS);
+    }
+    if (arguments.getFirst() instanceof ErrorValue error) {
+      return Result.value(new IntegerValue(error.code()));
+    }
+    return Result.error(ErrorValue.E_TYPE);
+  }
+
+  private static Result toObject(List<MooValue> arguments) {
+    if (arguments.size() != 1) {
+      return Result.error(ErrorValue.E_ARGS);
+    }
+    if (arguments.getFirst() instanceof ErrorValue error) {
+      return Result.value(new ObjectValue(error.code()));
+    }
+    return Result.error(ErrorValue.E_TYPE);
   }
 
   private static Result dynamicEval(List<MooValue> arguments) {

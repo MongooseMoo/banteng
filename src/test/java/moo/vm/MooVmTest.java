@@ -62,6 +62,31 @@ final class MooVmTest {
   }
 
   @Test
+  void convertsInterruptErrorAcrossTheToastScalarTargets() {
+    BytecodeProgram program =
+        new MooCompiler()
+            .compile(
+                MooParser.parse(
+                    "return {toint(E_INTRPT), tofloat(E_INTRPT), toliteral(toobj(E_INTRPT))};"));
+    VmState state = new VmState();
+
+    new MooVm().execute(program, state, new WorldTxn(List.of(), List.of()), new BuiltinCatalog());
+
+    assertEquals(VmState.Outcome.RETURNED, state.outcome());
+    assertEquals(
+        new ListValue(
+            List.of(
+                new IntegerValue(18),
+                new FloatValue(18.0),
+                new StringValue("#18".getBytes(StandardCharsets.ISO_8859_1)))),
+        state.returnValue().orElseThrow());
+    BuiltinCatalog catalog = new BuiltinCatalog();
+    assertEquals(BuiltinCatalog.EffectClass.PURE, catalog.effectClass("toint"));
+    assertEquals(BuiltinCatalog.EffectClass.PURE, catalog.effectClass("tofloat"));
+    assertEquals(BuiltinCatalog.EffectClass.PURE, catalog.effectClass("toobj"));
+  }
+
+  @Test
   void exposesTheLiveForegroundTickRemainderAndRejectsArguments() {
     BytecodeProgram program =
         new MooCompiler().compile(MooParser.parse("return {ticks_left(), ticks_left()};"));
