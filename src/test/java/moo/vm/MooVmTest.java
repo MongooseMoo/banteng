@@ -97,6 +97,32 @@ final class MooVmTest {
   }
 
   @Test
+  void returnsFloatThroughTheCompleteLiteralPipeline() {
+    byte[] source = "return 3.5;".getBytes(StandardCharsets.ISO_8859_1);
+    Ast.Program syntax = MooParser.parse(source);
+    Ast.Return returnStatement =
+        assertInstanceOf(Ast.Return.class, syntax.statements().getFirst());
+    Ast.FloatLiteral floatLiteral =
+        assertInstanceOf(Ast.FloatLiteral.class, returnStatement.value().orElseThrow());
+    assertEquals(new Ast.SourceSpan(0, 11, 1, 1), returnStatement.span().orElseThrow());
+    assertEquals(new Ast.SourceSpan(7, 10, 1, 8), floatLiteral.span().orElseThrow());
+
+    BytecodeProgram program = new MooCompiler().compile(syntax);
+    assertEquals(
+        "0 PUSH_FLOAT " + Double.doubleToRawLongBits(3.5) + "\n1 RETURN",
+        program.disassemble());
+    VmState state = new VmState();
+
+    new MooVm().execute(program, state);
+
+    MooValue returned = state.returnValue().orElseThrow();
+    assertEquals(VmState.Outcome.RETURNED, state.outcome());
+    assertEquals(MooValue.Type.FLOAT, returned.type());
+    assertEquals("3.5", returned.toLiteral());
+    assertTrue(returned.isTruthy());
+  }
+
+  @Test
   void exposesTheLiveForegroundTickRemainderAndRejectsArguments() {
     BytecodeProgram program =
         new MooCompiler().compile(MooParser.parse("return {ticks_left(), ticks_left()};"));

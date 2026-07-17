@@ -246,7 +246,14 @@ public final class MooParser {
             throw error(
                 token, "non-finite float literal", new NumberFormatException(token.lexeme()));
           }
-          yield new Ast.FloatLiteral(value);
+          yield new Ast.FloatLiteral(
+              value,
+              Optional.of(
+                  new Ast.SourceSpan(
+                      token.startOffset(),
+                      token.endOffset(),
+                      token.line(),
+                      token.column())));
         } catch (NumberFormatException exception) {
           throw error(token, "invalid float literal", exception);
         }

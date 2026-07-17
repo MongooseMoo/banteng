@@ -149,7 +149,23 @@ public sealed interface Ast
     }
   }
 
-  record FloatLiteral(double value) implements Expression {}
+  record FloatLiteral(double value, Optional<SourceSpan> span) implements Expression {
+    public FloatLiteral(double value) {
+      this(value, Optional.empty());
+    }
+
+    @Override
+    public boolean equals(Object other) {
+      return this == other
+          || (other instanceof FloatLiteral that
+              && Double.doubleToLongBits(value) == Double.doubleToLongBits(that.value));
+    }
+
+    @Override
+    public int hashCode() {
+      return Double.hashCode(value);
+    }
+  }
 
   record StringLiteral(String value) implements Expression {}
 
