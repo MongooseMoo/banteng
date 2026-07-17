@@ -161,6 +161,21 @@ public sealed interface MooValue
       return bytes.length;
     }
 
+    /** Compares two strings by their case-folded unsigned byte contents. */
+    public int compareIgnoringCase(StringValue other) {
+      int commonLength = Math.min(bytes.length, other.bytes.length);
+      for (int index = 0; index < commonLength; index++) {
+        int comparison =
+            Integer.compare(
+                Byte.toUnsignedInt(foldAscii(bytes[index])),
+                Byte.toUnsignedInt(foldAscii(other.bytes[index])));
+        if (comparison != 0) {
+          return comparison;
+        }
+      }
+      return Integer.compare(bytes.length, other.bytes.length);
+    }
+
     @Override
     public Type type() {
       return Type.STRING;

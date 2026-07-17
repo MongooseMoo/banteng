@@ -938,6 +938,20 @@ public final class MooVm {
       frame.instructionPointer++;
       return;
     }
+    if (leftValue instanceof StringValue left && rightValue instanceof StringValue right) {
+      int comparison = left.compareIgnoringCase(right);
+      boolean result =
+          switch (instruction.opcode()) {
+            case LESS_THAN -> comparison < 0;
+            case LESS_THAN_OR_EQUAL -> comparison <= 0;
+            case GREATER_THAN -> comparison > 0;
+            case GREATER_THAN_OR_EQUAL -> comparison >= 0;
+            default -> throw new AssertionError(instruction.opcode());
+          };
+      frame.operandStack.push(new IntegerValue(result ? 1 : 0));
+      frame.instructionPointer++;
+      return;
+    }
     raiseError(state, ErrorValue.E_TYPE, world);
   }
 
