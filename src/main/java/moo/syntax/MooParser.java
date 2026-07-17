@@ -325,6 +325,7 @@ public final class MooParser {
   }
 
   private Ast.ListLiteral parseListLiteral() {
+    Token leftBrace = current;
     advance();
     List<Ast.Expression> elements = new ArrayList<>();
     if (current.kind() != TokenKind.RIGHT_BRACE) {
@@ -334,8 +335,16 @@ public final class MooParser {
         elements.add(splice ? new Ast.Splice(element) : element);
       } while (match(TokenKind.COMMA));
     }
+    Token rightBrace = current;
     expectAndAdvance(TokenKind.RIGHT_BRACE, "'}' after list literal");
-    return new Ast.ListLiteral(elements);
+    return new Ast.ListLiteral(
+        elements,
+        Optional.of(
+            new Ast.SourceSpan(
+                leftBrace.startOffset(),
+                rightBrace.endOffset(),
+                leftBrace.line(),
+                leftBrace.column())));
   }
 
   private Ast.MapLiteral parseMapLiteral() {

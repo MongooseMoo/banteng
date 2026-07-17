@@ -215,9 +215,23 @@ public sealed interface Ast
     }
   }
 
-  record ListLiteral(List<Expression> elements) implements Expression {
+  record ListLiteral(List<Expression> elements, Optional<SourceSpan> span) implements Expression {
     public ListLiteral {
       elements = List.copyOf(elements);
+    }
+
+    public ListLiteral(List<Expression> elements) {
+      this(elements, Optional.empty());
+    }
+
+    @Override
+    public boolean equals(Object other) {
+      return this == other || (other instanceof ListLiteral that && elements.equals(that.elements));
+    }
+
+    @Override
+    public int hashCode() {
+      return Objects.hash(elements);
     }
   }
 
