@@ -285,6 +285,10 @@ public final class MooCompiler {
       instructions.add(new Instruction(Opcode.RANGE));
       return;
     }
+    if (expression instanceof Ast.FirstIndex) {
+      instructions.add(new Instruction(Opcode.FIRST));
+      return;
+    }
     if (expression instanceof Ast.Assignment assignment) {
       compileAssignment(assignment, instructions);
       return;

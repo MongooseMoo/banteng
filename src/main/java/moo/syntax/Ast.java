@@ -172,6 +172,7 @@ public sealed interface Ast
           PropertyAccess,
           IndexAccess,
           RangeAccess,
+          FirstIndex,
           Unary,
           Binary,
           Ternary,
@@ -354,7 +355,25 @@ public sealed interface Ast
 
   record PropertyAccess(Expression object, Expression property) implements Expression {}
 
-  record IndexAccess(Expression collection, Expression index) implements Expression {}
+  record IndexAccess(Expression collection, Expression index, Optional<SourceSpan> span)
+      implements Expression {
+    public IndexAccess(Expression collection, Expression index) {
+      this(collection, index, Optional.empty());
+    }
+
+    @Override
+    public boolean equals(Object other) {
+      return this == other
+          || (other instanceof IndexAccess that
+              && collection.equals(that.collection)
+              && index.equals(that.index));
+    }
+
+    @Override
+    public int hashCode() {
+      return Objects.hash(collection, index);
+    }
+  }
 
   record RangeAccess(
       Expression collection,
@@ -378,6 +397,22 @@ public sealed interface Ast
     @Override
     public int hashCode() {
       return Objects.hash(collection, start, end);
+    }
+  }
+
+  record FirstIndex(Optional<SourceSpan> span) implements Expression {
+    public FirstIndex() {
+      this(Optional.empty());
+    }
+
+    @Override
+    public boolean equals(Object other) {
+      return other instanceof FirstIndex;
+    }
+
+    @Override
+    public int hashCode() {
+      return FirstIndex.class.hashCode();
     }
   }
 

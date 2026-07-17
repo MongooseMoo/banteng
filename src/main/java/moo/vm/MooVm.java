@@ -105,6 +105,7 @@ public final class MooVm {
       case SET_PROPERTY -> setProperty(frame, state, world);
       case INDEX -> index(frame, state, world);
       case RANGE -> range(frame, state, world);
+      case FIRST -> firstIndex(frame, state, world);
       case SET_INDEX_LOCAL ->
           setIndexedLocal(frame, state, world, instruction.text().orElseThrow());
       case CALL -> {
@@ -322,6 +323,7 @@ public final class MooVm {
           SET_PROPERTY,
           INDEX,
           RANGE,
+          FIRST,
           SET_INDEX_LOCAL,
           CALL,
           CALL_VERB,
@@ -542,6 +544,20 @@ public final class MooVm {
       return;
     }
     raiseError(state, ErrorValue.E_TYPE, world);
+  }
+
+  private static void firstIndex(Frame frame, VmState state, WorldTxn world) {
+    MooValue collection = frame.operandStack.getFirst();
+    if (!(collection instanceof MapValue map)) {
+      raiseError(state, ErrorValue.E_TYPE, world);
+      return;
+    }
+    if (map.entries().isEmpty()) {
+      raiseError(state, ErrorValue.E_RANGE, world);
+      return;
+    }
+    frame.operandStack.push(map.entries().keySet().iterator().next());
+    frame.instructionPointer++;
   }
 
   private static void range(Frame frame, VmState state, WorldTxn world) {

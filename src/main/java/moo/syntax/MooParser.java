@@ -24,6 +24,7 @@ public final class MooParser {
   private final MooLexer lexer;
   private Token current;
   private int previousEndOffset;
+  private int indexDepth;
 
   private MooParser(String source) {
     lexer = new MooLexer(source);
@@ -370,6 +371,16 @@ public final class MooParser {
       }
       case LEFT_BRACE -> parseListLiteral();
       case LEFT_BRACKET -> parseMapLiteral();
+      case CARET -> {
+        if (indexDepth == 0) {
+          throw error("'^' is only valid inside an index expression");
+        }
+        advance();
+        yield new Ast.FirstIndex(
+            Optional.of(
+                new Ast.SourceSpan(
+                    token.startOffset(), token.endOffset(), token.line(), token.column())));
+      }
       case MINUS -> {
         advance();
         yield new Ast.Unary(Ast.UnaryOperator.NEGATE, parseExpression(UNARY_PRECEDENCE));
@@ -533,24 +544,38 @@ public final class MooParser {
 
   private Ast.Expression parseIndex(Ast.Expression receiver, Token firstToken) {
     advance();
-    Ast.Expression index = parseExpression(ASSIGNMENT_PRECEDENCE);
-    if (match(TokenKind.RANGE)) {
-      Ast.Expression end = parseExpression(ASSIGNMENT_PRECEDENCE);
+    indexDepth++;
+    try {
+      Ast.Expression index = parseExpression(ASSIGNMENT_PRECEDENCE);
+      if (match(TokenKind.RANGE)) {
+        Ast.Expression end = parseExpression(ASSIGNMENT_PRECEDENCE);
+        Token rightBracket = current;
+        expectAndAdvance(TokenKind.RIGHT_BRACKET, "']' after range");
+        return new Ast.RangeAccess(
+            receiver,
+            index,
+            end,
+            Optional.of(
+                new Ast.SourceSpan(
+                    firstToken.startOffset(),
+                    rightBracket.endOffset(),
+                    firstToken.line(),
+                    firstToken.column())));
+      }
       Token rightBracket = current;
-      expectAndAdvance(TokenKind.RIGHT_BRACKET, "']' after range");
-      return new Ast.RangeAccess(
+      expectAndAdvance(TokenKind.RIGHT_BRACKET, "']' after index");
+      return new Ast.IndexAccess(
           receiver,
           index,
-          end,
           Optional.of(
               new Ast.SourceSpan(
                   firstToken.startOffset(),
                   rightBracket.endOffset(),
                   firstToken.line(),
                   firstToken.column())));
+    } finally {
+      indexDepth--;
     }
-    expectAndAdvance(TokenKind.RIGHT_BRACKET, "']' after index");
-    return new Ast.IndexAccess(receiver, index);
   }
 
   private Ast.AssignmentTarget toAssignmentTarget(Ast.Expression expression) {

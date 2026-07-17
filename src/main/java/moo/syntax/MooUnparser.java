@@ -223,6 +223,8 @@ public final class MooUnparser {
               + ".."
               + expression(range.end(), ASSIGNMENT_PRECEDENCE)
               + "]";
+    } else if (expression instanceof Ast.FirstIndex) {
+      rendered = "^";
     } else if (expression instanceof Ast.Unary unary) {
       rendered =
           (unary.operator() == Ast.UnaryOperator.NEGATE ? "-" : "!")
