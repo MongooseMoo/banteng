@@ -553,7 +553,12 @@ public final class MooVm {
       raiseError(state, ErrorValue.E_TYPE, world);
       return;
     }
-    if (first.value() < 1 || last.value() < first.value() || last.value() > list.size()) {
+    if (last.value() < first.value()) {
+      frame.operandStack.push(new ListValue(List.of()));
+      frame.instructionPointer++;
+      return;
+    }
+    if (first.value() < 1 || last.value() > list.size()) {
       raiseError(state, ErrorValue.E_RANGE, world);
       return;
     }

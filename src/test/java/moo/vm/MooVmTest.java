@@ -363,6 +363,46 @@ final class MooVmTest {
   }
 
   @Test
+  void returnsAnEmptyListForAnInvertedRangeThroughTheCompleteCollectionPipeline() {
+    byte[] source = "return {1, 2, 3}[17..12];".getBytes(StandardCharsets.ISO_8859_1);
+    Ast.Program syntax = MooParser.parse(source);
+    Ast.Return returnStatement =
+        assertInstanceOf(Ast.Return.class, syntax.statements().getFirst());
+    Ast.RangeAccess range =
+        assertInstanceOf(Ast.RangeAccess.class, returnStatement.value().orElseThrow());
+    Ast.ListLiteral list = assertInstanceOf(Ast.ListLiteral.class, range.collection());
+    Ast.IntegerLiteral start = assertInstanceOf(Ast.IntegerLiteral.class, range.start());
+    Ast.IntegerLiteral end = assertInstanceOf(Ast.IntegerLiteral.class, range.end());
+    assertEquals(new Ast.SourceSpan(0, 25, 1, 1), returnStatement.span().orElseThrow());
+    assertEquals(new Ast.SourceSpan(7, 24, 1, 8), range.span().orElseThrow());
+    assertEquals(new Ast.SourceSpan(7, 16, 1, 8), list.span().orElseThrow());
+    assertEquals(new Ast.SourceSpan(17, 19, 1, 18), start.span().orElseThrow());
+    assertEquals(new Ast.SourceSpan(21, 23, 1, 22), end.span().orElseThrow());
+
+    BytecodeProgram program = new MooCompiler().compile(syntax);
+    assertEquals(
+        """
+        0 BUILD_LIST 0
+        1 PUSH_INTEGER 1
+        2 LIST_APPEND
+        3 PUSH_INTEGER 2
+        4 LIST_APPEND
+        5 PUSH_INTEGER 3
+        6 LIST_APPEND
+        7 PUSH_INTEGER 17
+        8 PUSH_INTEGER 12
+        9 RANGE
+        10 RETURN""",
+        program.disassemble());
+    VmState state = new VmState();
+
+    new MooVm().execute(program, state);
+
+    assertEquals(VmState.Outcome.RETURNED, state.outcome());
+    assertEquals(new ListValue(List.of()), state.returnValue().orElseThrow());
+  }
+
+  @Test
   void returnsInterruptErrorThroughTheCompleteLiteralPipeline() {
     byte[] source = "return E_INTRPT;".getBytes(StandardCharsets.ISO_8859_1);
     Ast.Program syntax = MooParser.parse(source);
