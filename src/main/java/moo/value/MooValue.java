@@ -4,6 +4,7 @@ import java.nio.ByteBuffer;
 import java.nio.charset.CharacterCodingException;
 import java.nio.charset.CodingErrorAction;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.LinkedHashMap;
@@ -422,6 +423,14 @@ public sealed interface MooValue
         return Optional.empty();
       }
       return Optional.of(elements.get((int) oneBasedIndex - 1));
+    }
+
+    /** Returns this list followed by every element of {@code other}. */
+    public ListValue concatenate(ListValue other) {
+      List<MooValue> concatenated = new ArrayList<>(elements.size() + other.elements.size());
+      concatenated.addAll(elements);
+      concatenated.addAll(other.elements);
+      return new ListValue(concatenated);
     }
 
     @Override

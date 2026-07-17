@@ -159,6 +159,48 @@ final class MooVmTest {
   }
 
   @Test
+  void concatenatesListsThroughTheCompleteCollectionPipeline() {
+    byte[] source = "return {1, 2} + {3, 4};".getBytes(StandardCharsets.ISO_8859_1);
+    Ast.Program syntax = MooParser.parse(source);
+    Ast.Return returnStatement =
+        assertInstanceOf(Ast.Return.class, syntax.statements().getFirst());
+    Ast.Binary addition =
+        assertInstanceOf(Ast.Binary.class, returnStatement.value().orElseThrow());
+    assertEquals(new Ast.SourceSpan(0, 23, 1, 1), returnStatement.span().orElseThrow());
+    assertEquals(new Ast.SourceSpan(7, 22, 1, 8), addition.span().orElseThrow());
+
+    BytecodeProgram program = new MooCompiler().compile(syntax);
+    assertEquals(
+        """
+        0 BUILD_LIST 0
+        1 PUSH_INTEGER 1
+        2 LIST_APPEND
+        3 PUSH_INTEGER 2
+        4 LIST_APPEND
+        5 BUILD_LIST 0
+        6 PUSH_INTEGER 3
+        7 LIST_APPEND
+        8 PUSH_INTEGER 4
+        9 LIST_APPEND
+        10 ADD
+        11 RETURN""",
+        program.disassemble());
+    VmState state = new VmState();
+
+    new MooVm().execute(program, state);
+
+    assertEquals(VmState.Outcome.RETURNED, state.outcome());
+    assertEquals(
+        new ListValue(
+            List.of(
+                new IntegerValue(1),
+                new IntegerValue(2),
+                new IntegerValue(3),
+                new IntegerValue(4))),
+        state.returnValue().orElseThrow());
+  }
+
+  @Test
   void returnsInterruptErrorThroughTheCompleteLiteralPipeline() {
     byte[] source = "return E_INTRPT;".getBytes(StandardCharsets.ISO_8859_1);
     Ast.Program syntax = MooParser.parse(source);
