@@ -1,6 +1,7 @@
 package moo.syntax;
 
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 
 /** Immutable syntax tree for the MOO source accepted by this server slice. */
@@ -13,7 +14,17 @@ public sealed interface Ast
         Ast.ElseIf,
         Ast.ExceptClause,
         Ast.FinallyClause,
-        Ast.MapEntry {
+        Ast.MapEntry,
+        Ast.SourceSpan {
+
+  /** Half-open source offsets plus the one-based start position. */
+  record SourceSpan(int startOffset, int endOffset, int line, int column) implements Ast {
+    public SourceSpan {
+      if (startOffset < 0 || endOffset < startOffset || line < 1 || column < 1) {
+        throw new IllegalArgumentException("invalid source span");
+      }
+    }
+  }
 
   /** A complete verb body. */
   record Program(List<Statement> statements) implements Ast {
@@ -82,7 +93,21 @@ public sealed interface Ast
     }
   }
 
-  record Return(Optional<Expression> value) implements Statement {}
+  record Return(Optional<Expression> value, Optional<SourceSpan> span) implements Statement {
+    public Return(Optional<Expression> value) {
+      this(value, Optional.empty());
+    }
+
+    @Override
+    public boolean equals(Object other) {
+      return this == other || (other instanceof Return that && value.equals(that.value));
+    }
+
+    @Override
+    public int hashCode() {
+      return Objects.hash(value);
+    }
+  }
 
   record ExpressionStatement(Expression expression) implements Statement {}
 
@@ -116,7 +141,21 @@ public sealed interface Ast
 
   record ObjectLiteral(long value) implements Expression {}
 
-  record ErrorLiteral(String name) implements Expression {}
+  record ErrorLiteral(String name, Optional<SourceSpan> span) implements Expression {
+    public ErrorLiteral(String name) {
+      this(name, Optional.empty());
+    }
+
+    @Override
+    public boolean equals(Object other) {
+      return this == other || (other instanceof ErrorLiteral that && name.equals(that.name));
+    }
+
+    @Override
+    public int hashCode() {
+      return Objects.hash(name);
+    }
+  }
 
   record ListLiteral(List<Expression> elements) implements Expression {
     public ListLiteral {

@@ -159,13 +159,22 @@ public final class MooParser {
   }
 
   private Ast.Return parseReturn() {
+    Token returnToken = current;
     advance();
     Optional<Ast.Expression> value = Optional.empty();
     if (current.kind() != TokenKind.SEMICOLON) {
       value = Optional.of(parseExpression(ASSIGNMENT_PRECEDENCE));
     }
+    Token semicolon = current;
     expectAndAdvance(TokenKind.SEMICOLON, "';' after return");
-    return new Ast.Return(value);
+    return new Ast.Return(
+        value,
+        Optional.of(
+            new Ast.SourceSpan(
+                returnToken.startOffset(),
+                semicolon.endOffset(),
+                returnToken.line(),
+                returnToken.column())));
   }
 
   private Ast.ExpressionStatement parseExpressionStatement() {
@@ -249,7 +258,14 @@ public final class MooParser {
       }
       case ERROR -> {
         advance();
-        yield new Ast.ErrorLiteral(token.lexeme());
+        yield new Ast.ErrorLiteral(
+            token.lexeme(),
+            Optional.of(
+                new Ast.SourceSpan(
+                    token.startOffset(),
+                    token.endOffset(),
+                    token.line(),
+                    token.column())));
       }
       case DOLLAR -> parseSystemProperty();
       case LEFT_PAREN -> {

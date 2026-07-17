@@ -3,6 +3,7 @@ package moo.vm;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.nio.charset.StandardCharsets;
@@ -11,6 +12,7 @@ import java.util.Map;
 import moo.builtin.BuiltinCatalog;
 import moo.bytecode.BytecodeProgram;
 import moo.bytecode.MooCompiler;
+import moo.syntax.Ast;
 import moo.syntax.MooParser;
 import moo.value.MooValue;
 import moo.value.MooValue.ErrorValue;
@@ -47,7 +49,15 @@ final class MooVmTest {
   @Test
   void returnsInterruptErrorThroughTheCompleteLiteralPipeline() {
     byte[] source = "return E_INTRPT;".getBytes(StandardCharsets.ISO_8859_1);
-    BytecodeProgram program = new MooCompiler().compile(MooParser.parse(source));
+    Ast.Program syntax = MooParser.parse(source);
+    Ast.Return returnStatement =
+        assertInstanceOf(Ast.Return.class, syntax.statements().getFirst());
+    Ast.ErrorLiteral errorLiteral =
+        assertInstanceOf(Ast.ErrorLiteral.class, returnStatement.value().orElseThrow());
+    assertEquals(new Ast.SourceSpan(0, 16, 1, 1), returnStatement.span().orElseThrow());
+    assertEquals(new Ast.SourceSpan(7, 15, 1, 8), errorLiteral.span().orElseThrow());
+
+    BytecodeProgram program = new MooCompiler().compile(syntax);
     VmState state = new VmState();
 
     assertEquals("0 PUSH_ERROR E_INTRPT\n1 RETURN", program.disassemble());

@@ -63,7 +63,13 @@ final class MooLexer {
     THIN_ARROW
   }
 
-  record Token(TokenKind kind, String lexeme, int line, int column) {}
+  record Token(
+      TokenKind kind,
+      String lexeme,
+      int line,
+      int column,
+      int startOffset,
+      int endOffset) {}
 
   private final String source;
   private int offset;
@@ -79,7 +85,7 @@ final class MooLexer {
     int tokenLine = line;
     int tokenColumn = column;
     if (atEnd()) {
-      return new Token(TokenKind.EOF, "", tokenLine, tokenColumn);
+      return new Token(TokenKind.EOF, "", tokenLine, tokenColumn, offset, offset);
     }
 
     char current = advance();
@@ -210,7 +216,13 @@ final class MooLexer {
       throw error(tokenLine, tokenColumn, "unterminated string literal");
     }
     advance();
-    return new Token(TokenKind.STRING, decoded.toString(), tokenLine, tokenColumn);
+    return new Token(
+        TokenKind.STRING,
+        decoded.toString(),
+        tokenLine,
+        tokenColumn,
+        tokenStart(tokenLine, tokenColumn),
+        offset);
   }
 
   private Token identifier(int tokenLine, int tokenColumn) {
@@ -240,7 +252,13 @@ final class MooLexer {
           case "any" -> TokenKind.ANY;
           default -> lexeme.startsWith("E_") ? TokenKind.ERROR : TokenKind.IDENTIFIER;
         };
-    return new Token(kind, lexeme, tokenLine, tokenColumn);
+    return new Token(
+        kind,
+        lexeme,
+        tokenLine,
+        tokenColumn,
+        tokenStart(tokenLine, tokenColumn),
+        offset);
   }
 
   private void skipIgnored() {
@@ -262,7 +280,12 @@ final class MooLexer {
 
   private Token token(TokenKind kind, int tokenLine, int tokenColumn) {
     return new Token(
-        kind, source.substring(tokenStart(tokenLine, tokenColumn), offset), tokenLine, tokenColumn);
+        kind,
+        source.substring(tokenStart(tokenLine, tokenColumn), offset),
+        tokenLine,
+        tokenColumn,
+        tokenStart(tokenLine, tokenColumn),
+        offset);
   }
 
   private int tokenStart(int tokenLine, int tokenColumn) {
