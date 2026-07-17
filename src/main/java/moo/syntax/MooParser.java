@@ -180,9 +180,18 @@ public final class MooParser {
   }
 
   private Ast.ExpressionStatement parseExpressionStatement() {
+    Token firstToken = current;
     Ast.Expression expression = parseExpression(ASSIGNMENT_PRECEDENCE);
+    Token semicolon = current;
     expectAndAdvance(TokenKind.SEMICOLON, "';' after expression");
-    return new Ast.ExpressionStatement(expression);
+    return new Ast.ExpressionStatement(
+        expression,
+        Optional.of(
+            new Ast.SourceSpan(
+                firstToken.startOffset(),
+                semicolon.endOffset(),
+                firstToken.line(),
+                firstToken.column())));
   }
 
   private Ast.Expression parseParenthesizedExpression(String owner) {
@@ -193,6 +202,7 @@ public final class MooParser {
   }
 
   private Ast.Expression parseExpression(int minimumPrecedence) {
+    Token firstToken = current;
     Ast.Expression left = parsePrefix();
     while (true) {
       if (isPostfix(current.kind()) && POSTFIX_PRECEDENCE >= minimumPrecedence) {
@@ -202,7 +212,16 @@ public final class MooParser {
       if (current.kind() == TokenKind.EQUAL && ASSIGNMENT_PRECEDENCE >= minimumPrecedence) {
         advance();
         Ast.Expression value = parseExpression(ASSIGNMENT_PRECEDENCE);
-        left = new Ast.Assignment(toAssignmentTarget(left), value);
+        left =
+            new Ast.Assignment(
+                toAssignmentTarget(left),
+                value,
+                Optional.of(
+                    new Ast.SourceSpan(
+                        firstToken.startOffset(),
+                        previousEndOffset,
+                        firstToken.line(),
+                        firstToken.column())));
         continue;
       }
 
@@ -223,7 +242,11 @@ public final class MooParser {
     return switch (token.kind()) {
       case IDENTIFIER -> {
         advance();
-        yield new Ast.Identifier(token.lexeme());
+        yield new Ast.Identifier(
+            token.lexeme(),
+            Optional.of(
+                new Ast.SourceSpan(
+                    token.startOffset(), token.endOffset(), token.line(), token.column())));
       }
       case INTEGER -> {
         advance();

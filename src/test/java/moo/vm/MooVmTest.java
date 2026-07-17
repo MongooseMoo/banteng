@@ -299,6 +299,36 @@ final class MooVmTest {
   }
 
   @Test
+  void assignsAndLoadsLocalThroughTheCompleteVariablePipeline() {
+    byte[] source = "x = 7; return x;".getBytes(StandardCharsets.ISO_8859_1);
+    Ast.Program syntax = MooParser.parse(source);
+    Ast.ExpressionStatement assignmentStatement =
+        assertInstanceOf(Ast.ExpressionStatement.class, syntax.statements().get(0));
+    Ast.Assignment assignment =
+        assertInstanceOf(Ast.Assignment.class, assignmentStatement.expression());
+    Ast.Return returnStatement =
+        assertInstanceOf(Ast.Return.class, syntax.statements().get(1));
+    Ast.Identifier loaded =
+        assertInstanceOf(Ast.Identifier.class, returnStatement.value().orElseThrow());
+    assertEquals(new Ast.SourceSpan(0, 6, 1, 1), assignmentStatement.span().orElseThrow());
+    assertEquals(new Ast.SourceSpan(0, 5, 1, 1), assignment.span().orElseThrow());
+    assertEquals(new Ast.SourceSpan(7, 16, 1, 8), returnStatement.span().orElseThrow());
+    assertEquals(new Ast.SourceSpan(14, 15, 1, 15), loaded.span().orElseThrow());
+
+    BytecodeProgram program = new MooCompiler().compile(syntax);
+    assertEquals(
+        "0 PUSH_INTEGER 7\n1 DUP\n2 STORE_LOCAL x\n3 POP\n4 LOAD_LOCAL x\n5 RETURN",
+        program.disassemble());
+    VmState state = new VmState();
+
+    new MooVm().execute(program, state);
+
+    MooValue returned = state.returnValue().orElseThrow();
+    assertEquals(VmState.Outcome.RETURNED, state.outcome());
+    assertEquals(new IntegerValue(7), returned);
+  }
+
+  @Test
   void exposesTheLiveForegroundTickRemainderAndRejectsArguments() {
     BytecodeProgram program =
         new MooCompiler().compile(MooParser.parse("return {ticks_left(), ticks_left()};"));

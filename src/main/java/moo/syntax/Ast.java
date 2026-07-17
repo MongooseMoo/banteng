@@ -109,7 +109,24 @@ public sealed interface Ast
     }
   }
 
-  record ExpressionStatement(Expression expression) implements Statement {}
+  record ExpressionStatement(Expression expression, Optional<SourceSpan> span)
+      implements Statement {
+    public ExpressionStatement(Expression expression) {
+      this(expression, Optional.empty());
+    }
+
+    @Override
+    public boolean equals(Object other) {
+      return this == other
+          || (other instanceof ExpressionStatement that
+              && expression.equals(that.expression));
+    }
+
+    @Override
+    public int hashCode() {
+      return Objects.hash(expression);
+    }
+  }
 
   /** The closed expression family. */
   sealed interface Expression extends Ast
@@ -131,7 +148,21 @@ public sealed interface Ast
           Binary,
           Catch {}
 
-  record Identifier(String name) implements Expression {}
+  record Identifier(String name, Optional<SourceSpan> span) implements Expression {
+    public Identifier(String name) {
+      this(name, Optional.empty());
+    }
+
+    @Override
+    public boolean equals(Object other) {
+      return this == other || (other instanceof Identifier that && name.equals(that.name));
+    }
+
+    @Override
+    public int hashCode() {
+      return Objects.hash(name);
+    }
+  }
 
   record IntegerLiteral(long value, Optional<SourceSpan> span) implements Expression {
     public IntegerLiteral(long value) {
@@ -272,7 +303,25 @@ public sealed interface Ast
     }
   }
 
-  record Assignment(AssignmentTarget target, Expression value) implements Expression {}
+  record Assignment(AssignmentTarget target, Expression value, Optional<SourceSpan> span)
+      implements Expression {
+    public Assignment(AssignmentTarget target, Expression value) {
+      this(target, value, Optional.empty());
+    }
+
+    @Override
+    public boolean equals(Object other) {
+      return this == other
+          || (other instanceof Assignment that
+              && target.equals(that.target)
+              && value.equals(that.value));
+    }
+
+    @Override
+    public int hashCode() {
+      return Objects.hash(target, value);
+    }
+  }
 
   record PropertyAccess(Expression object, Expression property) implements Expression {}
 
