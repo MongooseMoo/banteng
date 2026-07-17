@@ -2,6 +2,7 @@ package moo.vm;
 
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -547,6 +548,21 @@ public final class MooVm {
     MooValue end = frame.operandStack.pop();
     MooValue start = frame.operandStack.pop();
     MooValue collection = frame.operandStack.pop();
+    if (collection instanceof StringValue string
+        && start instanceof IntegerValue first
+        && end instanceof IntegerValue last) {
+      byte[] bytes = string.bytes();
+      if (first.value() < 1 || last.value() < first.value() || last.value() > bytes.length) {
+        raiseError(state, ErrorValue.E_RANGE, world);
+        return;
+      }
+      frame.operandStack.push(
+          new StringValue(
+              Arrays.copyOfRange(
+                  bytes, Math.toIntExact(first.value() - 1), Math.toIntExact(last.value()))));
+      frame.instructionPointer++;
+      return;
+    }
     if (!(collection instanceof ListValue list)
         || !(start instanceof IntegerValue first)
         || !(end instanceof IntegerValue last)) {
