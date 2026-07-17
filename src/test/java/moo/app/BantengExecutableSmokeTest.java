@@ -17,7 +17,9 @@ final class BantengExecutableSmokeTest {
         requireNonNull(
             System.getProperty("banteng.executable"),
             "Gradle must supply the installed executable");
-    Process process = new ProcessBuilder(executable, "--version").redirectErrorStream(true).start();
+    ProcessBuilder processBuilder = new ProcessBuilder(executable, "--version");
+    processBuilder.environment().put("JAVA_HOME", System.getProperty("java.home"));
+    Process process = processBuilder.redirectErrorStream(true).start();
 
     try {
       assertTrue(process.waitFor(10, SECONDS), "installed executable did not shut down");

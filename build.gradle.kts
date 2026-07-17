@@ -1,10 +1,8 @@
-import com.diffplug.spotless.LineEnding
 import net.ltgt.gradle.errorprone.errorprone
 
 plugins {
     java
     application
-    id("com.diffplug.spotless") version "8.8.0"
     id("net.ltgt.errorprone") version "5.1.0"
 }
 
@@ -197,29 +195,8 @@ tasks.register<JavaExec>("jmh") {
     outputs.upToDateWhen { false }
 }
 
-spotless {
-    lineEndings = LineEnding.UNIX
-    java {
-        googleJavaFormat("1.35.0")
-        importOrder()
-        removeUnusedImports()
-        forbidWildcardImports()
-        trimTrailingWhitespace()
-        endWithNewline()
-    }
-    format("buildFiles") {
-        target("*.gradle.kts", "gradle.properties", ".gitignore")
-        trimTrailingWhitespace()
-        endWithNewline()
-    }
-}
-
 dependencyLocking {
     lockAllConfigurations()
-}
-
-tasks.check {
-    dependsOn(tasks.spotlessCheck)
 }
 
 tasks.wrapper {

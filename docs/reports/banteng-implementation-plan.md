@@ -218,7 +218,6 @@ Deliverables:
 - Package skeleton matching the ownership map.
 - ArchUnit tests enforcing allowed package dependencies and rejecting package cycles.
 - JUnit 6.1.2, a JetCheck 0.3.0 property-test acceptance spike, Jazzer 0.30.0 regression/fuzz tasks, a jcstress 0.16 source set, a forked JMH 1.37 benchmark artifact, and JFR event definitions.
-- Spotless with pinned google-java-format, including import and wildcard-import policy. Use ordinary Javadoc rather than `///` Markdown documentation comments while the formatter's current handling remains unresolved.
 - A Java 25 compatibility decision for Error Prone and for JSpecify plus NullAway, based on representative sealed types, records, generics, and package annotations. `javac -Xlint:all -Werror` remains mandatory regardless of that decision.
 - A JetCheck spike that generates nested MOO values and a stateful `WorldTxn` command sequence, demonstrates automatic minimization, reproduces the failure from the emitted recheck token, and runs through the wrapper with JUnit 6. Reject JetCheck rather than building a local property framework if the spike fails.
 - One executable smoke test that starts, reports its version, and shuts down cleanly without a database.
@@ -227,7 +226,8 @@ Gates:
 
 - A clean checkout builds and tests using only the wrapper.
 - The build compiles with `-Xlint:all` and warnings promoted to errors; any suppression is explicit in code with a stated reason.
-- Formatting, dependency locking, checksum verification, and the application distribution are checked by the wrapper.
+- Dependency locking, checksum verification, and the application distribution
+  are checked by the wrapper.
 - The JetCheck acceptance spike passes on Java 25 and its recorded falsification can be minimized and rechecked exactly. The deliberately failing spike is not left in the normal committed suite.
 - Error Prone and NullAway are each either proven and enabled as blocking checks or explicitly rejected with the observed incompatibility; no partially configured static-analysis gate remains.
 - No framework, backend interface, plugin system, dependency injection container, or reactive networking stack is introduced.
