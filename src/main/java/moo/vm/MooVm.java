@@ -796,6 +796,12 @@ public final class MooVm {
       frame.instructionPointer++;
       return;
     }
+    if (instruction.opcode() == BytecodeProgram.Opcode.ADD
+        && leftValue instanceof ListValue left) {
+      frame.operandStack.push(left.append(rightValue));
+      frame.instructionPointer++;
+      return;
+    }
     if (leftValue instanceof IntegerValue left && rightValue instanceof IntegerValue right) {
       if ((instruction.opcode() == BytecodeProgram.Opcode.DIVIDE
               || instruction.opcode() == BytecodeProgram.Opcode.REMAINDER)

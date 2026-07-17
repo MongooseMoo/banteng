@@ -433,6 +433,14 @@ public sealed interface MooValue
       return new ListValue(concatenated);
     }
 
+    /** Returns this list with {@code value} appended. */
+    public ListValue append(MooValue value) {
+      List<MooValue> appended = new ArrayList<>(elements.size() + 1);
+      appended.addAll(elements);
+      appended.add(value);
+      return new ListValue(appended);
+    }
+
     @Override
     public Type type() {
       return Type.LIST;
