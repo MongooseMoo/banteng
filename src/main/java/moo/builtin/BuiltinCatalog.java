@@ -1586,6 +1586,18 @@ public final class BuiltinCatalog {
     if (arguments.getFirst() instanceof ObjectValue object) {
       return Result.value(new IntegerValue(object.value()));
     }
+    if (arguments.getFirst() instanceof StringValue string) {
+      String text = decode(string).trim();
+      try {
+        return Result.value(new IntegerValue(Long.parseLong(text)));
+      } catch (NumberFormatException notAnInteger) {
+        try {
+          return Result.value(new IntegerValue((long) Double.parseDouble(text)));
+        } catch (NumberFormatException notANumber) {
+          return Result.value(new IntegerValue(0));
+        }
+      }
+    }
     if (arguments.getFirst() instanceof ErrorValue error) {
       return Result.value(new IntegerValue(error.code()));
     }

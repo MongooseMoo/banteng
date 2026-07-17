@@ -120,6 +120,18 @@ final class MooVmTest {
   }
 
   @Test
+  void convertsStringToInteger() {
+    BytecodeProgram program =
+        new MooCompiler().compile(MooParser.parse("return toint(\"-34\");"));
+    VmState state = new VmState();
+
+    new MooVm().execute(program, state, new WorldTxn(List.of(), List.of()), new BuiltinCatalog());
+
+    assertEquals(VmState.Outcome.RETURNED, state.outcome());
+    assertEquals(new IntegerValue(-34), state.returnValue().orElseThrow());
+  }
+
+  @Test
   void comparesReversedErrorKeyMapsThroughOperatorAndBuiltin() {
     BytecodeProgram program =
         new MooCompiler()
