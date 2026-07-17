@@ -21,6 +21,7 @@ public final class MooParser {
 
   private final MooLexer lexer;
   private Token current;
+  private int previousEndOffset;
 
   private MooParser(String source) {
     lexer = new MooLexer(source);
@@ -310,7 +311,13 @@ public final class MooParser {
       }
       case BANG -> {
         advance();
-        yield new Ast.Unary(Ast.UnaryOperator.NOT, parseExpression(UNARY_PRECEDENCE));
+        Ast.Expression operand = parseExpression(UNARY_PRECEDENCE);
+        yield new Ast.Unary(
+            Ast.UnaryOperator.NOT,
+            operand,
+            Optional.of(
+                new Ast.SourceSpan(
+                    token.startOffset(), previousEndOffset, token.line(), token.column())));
       }
       case BACKTICK -> parseCatch();
       default -> throw error("expected expression");
@@ -560,6 +567,7 @@ public final class MooParser {
   }
 
   private void advance() {
+    previousEndOffset = current.endOffset();
     current = lexer.next();
   }
 

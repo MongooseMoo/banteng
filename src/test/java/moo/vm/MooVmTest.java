@@ -222,6 +222,33 @@ final class MooVmTest {
   }
 
   @Test
+  void negatesIntegerTruthThroughTheCompleteLiteralPipeline() {
+    byte[] source = "return !0;".getBytes(StandardCharsets.ISO_8859_1);
+    Ast.Program syntax = MooParser.parse(source);
+    Ast.Return returnStatement =
+        assertInstanceOf(Ast.Return.class, syntax.statements().getFirst());
+    Ast.Unary truth =
+        assertInstanceOf(Ast.Unary.class, returnStatement.value().orElseThrow());
+    Ast.IntegerLiteral integerLiteral =
+        assertInstanceOf(Ast.IntegerLiteral.class, truth.operand());
+    assertEquals(new Ast.SourceSpan(0, 10, 1, 1), returnStatement.span().orElseThrow());
+    assertEquals(new Ast.SourceSpan(7, 9, 1, 8), truth.span().orElseThrow());
+    assertEquals(new Ast.SourceSpan(8, 9, 1, 9), integerLiteral.span().orElseThrow());
+
+    BytecodeProgram program = new MooCompiler().compile(syntax);
+    assertEquals("0 PUSH_INTEGER 0\n1 NOT\n2 RETURN", program.disassemble());
+    VmState state = new VmState();
+
+    new MooVm().execute(program, state);
+
+    MooValue returned = state.returnValue().orElseThrow();
+    assertEquals(VmState.Outcome.RETURNED, state.outcome());
+    assertEquals(MooValue.Type.INTEGER, returned.type());
+    assertEquals("1", returned.toLiteral());
+    assertTrue(returned.isTruthy());
+  }
+
+  @Test
   void exposesTheLiveForegroundTickRemainderAndRejectsArguments() {
     BytecodeProgram program =
         new MooCompiler().compile(MooParser.parse("return {ticks_left(), ticks_left()};"));

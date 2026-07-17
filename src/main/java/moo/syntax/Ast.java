@@ -278,7 +278,25 @@ public sealed interface Ast
 
   record IndexAccess(Expression collection, Expression index) implements Expression {}
 
-  record Unary(UnaryOperator operator, Expression operand) implements Expression {}
+  record Unary(UnaryOperator operator, Expression operand, Optional<SourceSpan> span)
+      implements Expression {
+    public Unary(UnaryOperator operator, Expression operand) {
+      this(operator, operand, Optional.empty());
+    }
+
+    @Override
+    public boolean equals(Object other) {
+      return this == other
+          || (other instanceof Unary that
+              && operator == that.operator
+              && operand.equals(that.operand));
+    }
+
+    @Override
+    public int hashCode() {
+      return Objects.hash(operator, operand);
+    }
+  }
 
   record Binary(Expression left, BinaryOperator operator, Expression right) implements Expression {}
 
