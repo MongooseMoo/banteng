@@ -57,6 +57,29 @@ final class MooVmTest {
   }
 
   @Test
+  void comparesErrorValuesByTheirNumericCodes() {
+    byte[] source = "return E_NONE < E_TYPE;".getBytes(StandardCharsets.ISO_8859_1);
+    Ast.Program syntax = MooParser.parse(source);
+    Ast.Return returnStatement =
+        assertInstanceOf(Ast.Return.class, syntax.statements().getFirst());
+    Ast.Binary comparison =
+        assertInstanceOf(Ast.Binary.class, returnStatement.value().orElseThrow());
+    assertEquals(new Ast.SourceSpan(0, 23, 1, 1), returnStatement.span().orElseThrow());
+    assertEquals(new Ast.SourceSpan(7, 22, 1, 8), comparison.span().orElseThrow());
+
+    BytecodeProgram program = new MooCompiler().compile(syntax);
+    assertEquals(
+        "0 PUSH_ERROR E_NONE\n1 PUSH_ERROR E_TYPE\n2 LESS_THAN\n3 RETURN",
+        program.disassemble());
+    VmState state = new VmState();
+
+    new MooVm().execute(program, state);
+
+    assertEquals(VmState.Outcome.RETURNED, state.outcome());
+    assertEquals(new IntegerValue(1), state.returnValue().orElseThrow());
+  }
+
+  @Test
   void returnsInterruptErrorThroughTheCompleteLiteralPipeline() {
     byte[] source = "return E_INTRPT;".getBytes(StandardCharsets.ISO_8859_1);
     Ast.Program syntax = MooParser.parse(source);

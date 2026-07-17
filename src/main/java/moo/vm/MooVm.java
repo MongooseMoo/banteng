@@ -925,6 +925,19 @@ public final class MooVm {
       frame.instructionPointer++;
       return;
     }
+    if (leftValue instanceof ErrorValue left && rightValue instanceof ErrorValue right) {
+      boolean result =
+          switch (instruction.opcode()) {
+            case LESS_THAN -> left.code() < right.code();
+            case LESS_THAN_OR_EQUAL -> left.code() <= right.code();
+            case GREATER_THAN -> left.code() > right.code();
+            case GREATER_THAN_OR_EQUAL -> left.code() >= right.code();
+            default -> throw new AssertionError(instruction.opcode());
+          };
+      frame.operandStack.push(new IntegerValue(result ? 1 : 0));
+      frame.instructionPointer++;
+      return;
+    }
     raiseError(state, ErrorValue.E_TYPE, world);
   }
 
