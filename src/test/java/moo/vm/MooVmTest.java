@@ -109,6 +109,35 @@ final class MooVmTest {
   }
 
   @Test
+  void executesTernaryThroughTheCompleteControlFlowPipeline() {
+    byte[] source = "return 1 ? 2 | 3;".getBytes(StandardCharsets.ISO_8859_1);
+    Ast.Program syntax = MooParser.parse(source);
+    Ast.Return returnStatement =
+        assertInstanceOf(Ast.Return.class, syntax.statements().getFirst());
+    Ast.Ternary ternary =
+        assertInstanceOf(Ast.Ternary.class, returnStatement.value().orElseThrow());
+    assertEquals(new Ast.SourceSpan(0, 17, 1, 1), returnStatement.span().orElseThrow());
+    assertEquals(new Ast.SourceSpan(7, 16, 1, 8), ternary.span().orElseThrow());
+
+    BytecodeProgram program = new MooCompiler().compile(syntax);
+    assertEquals(
+        """
+        0 PUSH_INTEGER 1
+        1 JUMP_IF_FALSE 4
+        2 PUSH_INTEGER 2
+        3 JUMP 5
+        4 PUSH_INTEGER 3
+        5 RETURN""",
+        program.disassemble());
+    VmState state = new VmState();
+
+    new MooVm().execute(program, state);
+
+    assertEquals(VmState.Outcome.RETURNED, state.outcome());
+    assertEquals(new IntegerValue(2), state.returnValue().orElseThrow());
+  }
+
+  @Test
   void returnsInterruptErrorThroughTheCompleteLiteralPipeline() {
     byte[] source = "return E_INTRPT;".getBytes(StandardCharsets.ISO_8859_1);
     Ast.Program syntax = MooParser.parse(source);

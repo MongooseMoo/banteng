@@ -293,6 +293,10 @@ public final class MooCompiler {
       compileBinary(binary, instructions);
       return;
     }
+    if (expression instanceof Ast.Ternary ternary) {
+      compileTernary(ternary, instructions);
+      return;
+    }
     if (expression instanceof Ast.Catch catchExpression) {
       compileCatch(catchExpression, instructions);
       return;
@@ -348,6 +352,16 @@ public final class MooCompiler {
     }
     compileExpression(binary.right(), instructions);
     instructions.add(new Instruction(binaryOpcode(binary.operator())));
+  }
+
+  private void compileTernary(Ast.Ternary ternary, List<Instruction> instructions) {
+    compileExpression(ternary.condition(), instructions);
+    int falseJump = addJump(Opcode.JUMP_IF_FALSE, instructions);
+    compileExpression(ternary.trueExpression(), instructions);
+    int endJump = addJump(Opcode.JUMP, instructions);
+    patchJump(falseJump, instructions.size(), instructions);
+    compileExpression(ternary.falseExpression(), instructions);
+    patchJump(endJump, instructions.size(), instructions);
   }
 
   private void compileCatch(Ast.Catch expression, List<Instruction> instructions) {

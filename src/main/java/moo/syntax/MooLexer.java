@@ -37,6 +37,8 @@ final class MooLexer {
     RIGHT_BRACKET,
     COMMA,
     SEMICOLON,
+    QUESTION,
+    PIPE,
     DOT,
     COLON,
     AT,
@@ -98,6 +100,7 @@ final class MooLexer {
       case ']' -> token(TokenKind.RIGHT_BRACKET, tokenLine, tokenColumn);
       case ',' -> token(TokenKind.COMMA, tokenLine, tokenColumn);
       case ';' -> token(TokenKind.SEMICOLON, tokenLine, tokenColumn);
+      case '?' -> token(TokenKind.QUESTION, tokenLine, tokenColumn);
       case ':' -> token(TokenKind.COLON, tokenLine, tokenColumn);
       case '.' ->
           !atEnd() && isDigit(peek()) && (offset < 2 || source.charAt(offset - 2) != '.')
@@ -136,10 +139,8 @@ final class MooLexer {
         require('&', tokenLine, tokenColumn);
         yield token(TokenKind.AND_AND, tokenLine, tokenColumn);
       }
-      case '|' -> {
-        require('|', tokenLine, tokenColumn);
-        yield token(TokenKind.OR_OR, tokenLine, tokenColumn);
-      }
+      case '|' ->
+          token(match('|') ? TokenKind.OR_OR : TokenKind.PIPE, tokenLine, tokenColumn);
       case '"' -> string(tokenLine, tokenColumn);
       case '#' -> object(tokenLine, tokenColumn);
       default -> {

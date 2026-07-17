@@ -173,6 +173,7 @@ public sealed interface Ast
           IndexAccess,
           Unary,
           Binary,
+          Ternary,
           Catch {}
 
   record Identifier(String name, Optional<SourceSpan> span) implements Expression {
@@ -393,6 +394,32 @@ public sealed interface Ast
     @Override
     public int hashCode() {
       return Objects.hash(left, operator, right);
+    }
+  }
+
+  record Ternary(
+      Expression condition,
+      Expression trueExpression,
+      Expression falseExpression,
+      Optional<SourceSpan> span)
+      implements Expression {
+    public Ternary(
+        Expression condition, Expression trueExpression, Expression falseExpression) {
+      this(condition, trueExpression, falseExpression, Optional.empty());
+    }
+
+    @Override
+    public boolean equals(Object other) {
+      return this == other
+          || (other instanceof Ternary that
+              && condition.equals(that.condition)
+              && trueExpression.equals(that.trueExpression)
+              && falseExpression.equals(that.falseExpression));
+    }
+
+    @Override
+    public int hashCode() {
+      return Objects.hash(condition, trueExpression, falseExpression);
     }
   }
 

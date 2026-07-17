@@ -11,14 +11,15 @@ import moo.syntax.MooLexer.TokenKind;
 /** Concrete entry point for parsing one MOO verb body. */
 public final class MooParser {
   private static final int ASSIGNMENT_PRECEDENCE = 1;
-  private static final int OR_PRECEDENCE = 2;
-  private static final int AND_PRECEDENCE = 3;
-  private static final int COMPARISON_PRECEDENCE = 4;
-  private static final int ADDITIVE_PRECEDENCE = 5;
-  private static final int MULTIPLICATIVE_PRECEDENCE = 6;
-  private static final int POWER_PRECEDENCE = 7;
-  private static final int UNARY_PRECEDENCE = 8;
-  private static final int POSTFIX_PRECEDENCE = 9;
+  private static final int TERNARY_PRECEDENCE = 2;
+  private static final int OR_PRECEDENCE = 3;
+  private static final int AND_PRECEDENCE = 4;
+  private static final int COMPARISON_PRECEDENCE = 5;
+  private static final int ADDITIVE_PRECEDENCE = 6;
+  private static final int MULTIPLICATIVE_PRECEDENCE = 7;
+  private static final int POWER_PRECEDENCE = 8;
+  private static final int UNARY_PRECEDENCE = 9;
+  private static final int POSTFIX_PRECEDENCE = 10;
 
   private final MooLexer lexer;
   private Token current;
@@ -228,6 +229,24 @@ public final class MooParser {
             new Ast.Assignment(
                 toAssignmentTarget(left),
                 value,
+                Optional.of(
+                    new Ast.SourceSpan(
+                        firstToken.startOffset(),
+                        previousEndOffset,
+                        firstToken.line(),
+                        firstToken.column())));
+        continue;
+      }
+      if (current.kind() == TokenKind.QUESTION && TERNARY_PRECEDENCE >= minimumPrecedence) {
+        advance();
+        Ast.Expression trueExpression = parseExpression(ASSIGNMENT_PRECEDENCE);
+        expectAndAdvance(TokenKind.PIPE, "'|' in ternary expression");
+        Ast.Expression falseExpression = parseExpression(ASSIGNMENT_PRECEDENCE);
+        left =
+            new Ast.Ternary(
+                left,
+                trueExpression,
+                falseExpression,
                 Optional.of(
                     new Ast.SourceSpan(
                         firstToken.startOffset(),

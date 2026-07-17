@@ -9,15 +9,16 @@ import java.util.Set;
 /** Canonically renders the complete MOO syntax tree accepted by {@link MooParser}. */
 public final class MooUnparser {
   private static final int ASSIGNMENT_PRECEDENCE = 1;
-  private static final int OR_PRECEDENCE = 2;
-  private static final int AND_PRECEDENCE = 3;
-  private static final int COMPARISON_PRECEDENCE = 4;
-  private static final int ADDITIVE_PRECEDENCE = 5;
-  private static final int MULTIPLICATIVE_PRECEDENCE = 6;
-  private static final int POWER_PRECEDENCE = 7;
-  private static final int UNARY_PRECEDENCE = 8;
-  private static final int POSTFIX_PRECEDENCE = 9;
-  private static final int PRIMARY_PRECEDENCE = 10;
+  private static final int TERNARY_PRECEDENCE = 2;
+  private static final int OR_PRECEDENCE = 3;
+  private static final int AND_PRECEDENCE = 4;
+  private static final int COMPARISON_PRECEDENCE = 5;
+  private static final int ADDITIVE_PRECEDENCE = 6;
+  private static final int MULTIPLICATIVE_PRECEDENCE = 7;
+  private static final int POWER_PRECEDENCE = 8;
+  private static final int UNARY_PRECEDENCE = 9;
+  private static final int POSTFIX_PRECEDENCE = 10;
+  private static final int PRIMARY_PRECEDENCE = 11;
   private static final Set<String> KEYWORDS =
       Set.of(
           "if",
@@ -227,6 +228,13 @@ public final class MooUnparser {
               + binaryOperator(binary.operator())
               + " "
               + expression(binary.right(), operatorPrecedence + (rightAssociative ? 0 : 1));
+    } else if (expression instanceof Ast.Ternary ternary) {
+      rendered =
+          expression(ternary.condition(), TERNARY_PRECEDENCE + 1)
+              + " ? "
+              + expression(ternary.trueExpression(), ASSIGNMENT_PRECEDENCE)
+              + " | "
+              + expression(ternary.falseExpression(), ASSIGNMENT_PRECEDENCE);
     } else if (expression instanceof Ast.Catch catchExpression) {
       rendered =
           "`"
@@ -315,6 +323,9 @@ public final class MooUnparser {
   private static int precedence(Ast.Expression expression) {
     if (expression instanceof Ast.Assignment) {
       return ASSIGNMENT_PRECEDENCE;
+    }
+    if (expression instanceof Ast.Ternary) {
+      return TERNARY_PRECEDENCE;
     }
     if (expression instanceof Ast.Binary binary) {
       return binaryPrecedence(binary.operator());
