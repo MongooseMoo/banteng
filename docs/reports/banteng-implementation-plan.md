@@ -13,7 +13,9 @@ Build a production-quality Java MOO server that:
 
 This plan remains the control surface until all phases are complete or the user changes it.
 
-Relative citation paths in Banteng documentation resolve from the Banteng repository root: `../barn`, `../moo-conformance-tests`, `../moo_interp`, `../../src/toaststunt`, `../../src/lambdamoo-db-py`. Current Java and OTS dependency research is recorded in `docs/reports/java-ots-library-review.md`.
+Relative citation paths in Banteng documentation resolve from the Banteng
+repository root: `../barn`, `../moo-conformance-tests`, `../moo_interp`,
+`../../src/toaststunt`, `../../src/lambdamoo-db-py`.
 
 ## Chosen architecture
 
@@ -130,84 +132,82 @@ Sealed interfaces are allowed only for closed data families such as values, AST 
 
 ## Source-of-truth order
 
-1. Freshly verified WSL Toast behavior through Barn's managed oracle procedure.
+1. Freshly verified WSL Toast behavior through Banteng's managed oracle
+   procedure (`profiles/toast/stock-wsl-testdb.json` and
+   `scripts/run_toast_wsl.sh`).
 2. Durable `moo-conformance-tests` rows proven against that oracle.
-3. Corrected normative Barn spec sections.
+3. Normative Barn specification as a read-only reference when a live decision
+   is not already covered.
 4. `lambdamoo-db-py` for database structure and differential round trips.
 5. `moo_interp` and Barn as implementation references, never as authority over Toast.
 
-If a focused test, Barn spec passage, or reference implementation disagrees with verified Toast, correct the durable test/spec first, record the oracle evidence, and only then implement Banteng.
+If a focused test, Barn spec passage, or reference implementation disagrees
+with verified Toast, correct the durable conformance row first and only then
+implement Banteng. Do not edit Barn to build or validate Banteng.
 
-## Mandatory authority gate for every implementation slice
+## Decision-bearing authority gate
 
-This gate applies to every semantic or persistence decision in every phase,
-including the first definition of primitive types. It must complete before the
-first production edit for the slice. Build tooling may be established without
-claiming any MOO semantics, but a passing Java test or build never satisfies
-this gate.
+Authority work exists to settle a concrete implementation or test decision. It
+is not a phase of its own and must not delay an executable vertical slice once
+the required decision is already frozen.
 
-For the exact surface being implemented:
+For each semantic or persistence decision actually required by the active
+slice:
 
-1. Read the corresponding normative Barn specification. If no section exists,
-   record that absence; do not fill it from intuition.
-2. Read the corresponding current Barn implementation from public entry point
-   through its semantic owner.
-3. Read the corresponding Toast implementation from public entry point through
-   its semantic owner.
-4. Write a repository-local slice evidence record naming the exact Barn spec
-   sections, Barn files/symbols, Toast files/symbols, agreements,
-   disagreements, unresolved questions, and the conformance rows that cover
-   them.
-5. Resolve every MOO-observable disagreement or uncertainty with the managed
-   WSL Toast oracle. Add or correct a durable `moo-conformance-tests` row and
-   prove that row against Toast before designing the Java API.
-6. Only after the semantic contract is frozen, choose the smallest idiomatic
-   Java representation that implements it without adding observable surface.
-7. Prove the focused row or regression red on Banteng, implement one slice,
-   prove the focused row green, run the named broader gate, and commit the kept
-   slice. Otherwise fully restore it.
+1. Identify the exact observable decision that the production edit depends on.
+2. Use an existing Toast-proven conformance row when it already settles that
+   decision. Do not create a second narrative artifact that restates it.
+3. Only when the decision remains unresolved, trace the corresponding Barn
+   specification and implementation and the pinned Toast implementation. Barn
+   is read-only reference material and its working tree is never a Banteng
+   dependency.
+4. Resolve a real disagreement or uncertainty with the managed WSL Toast
+   oracle, then add or correct the smallest durable `moo-conformance-tests` row
+   that freezes the result.
+5. Choose only the Java representation needed by the active slice, prove the
+   focused behavior red on Banteng, implement the complete vertical path, prove
+   it green, run the named broader gate, and commit the kept slice. Otherwise
+   fully restore it.
 
-The evidence record is a required artifact, not an optional research note.
-Adjacent documentation, earlier Banteng code, deleted patches recovered from
-session transcripts, Java conventions, passing property tests, or a plausible
-design do not replace any step above. If the exact Barn or Toast source path is
-missing, unread, ambiguous, or unavailable, the slice is blocked before Java
-design or code begins.
+Do not create per-type research reports, closure reports, status summaries, or
+separate evidence commits. The durable conformance row, focused Banteng
+regression, production code, and kept source commit are the evidence. A compact
+decision table belongs in this plan only when it directly constrains more than
+one active implementation slice.
 
-For primitive values, this gate applies separately to integers, floats,
-strings, object references, errors, lists, maps, booleans, WAIFs, and anonymous
-objects, including representation limits, construction, conversion, equality,
+Do not audit every behavior of a primitive family before implementing a slice.
+Resolve only the representation limits, construction, conversion, equality,
 ordering, hashing, truth, indexing, mutation/copy behavior, literal formatting,
-serialization, overflow, encoding, and error behavior. No sealed hierarchy,
-record, class, collection owner, or helper API may be chosen before those
-contracts are derived from Barn and Toast and proven by the oracle.
+serialization, overflow, encoding, and error behavior that the active vertical
+slice can actually exercise. Later slices extend that authority just in time.
 
-## Phase 0 - Freeze authority and land the blueprint
+## Phase 0 - Verify the owned oracle and blueprint
 
 Deliverables:
 
-- Commit `jvm-moo-architecture-research.md`, `java-ots-library-review.md`, and this plan as Banteng's first scoped documentation slice.
-- Verify and record the current WSL Toast source identity and executable using
-  `../barn/plans/barn-toast-mongoose-convergence-100-line.md`,
-  `../barn/profiles/toast/stock-wsl-testdb.json`, and
-  `../barn/scripts/run_toast_wsl.sh` before any behavioral claim. Use the exact
-  managed command shape recorded in
-  `../barn/plans/barn-toast-mongoose-convergence-workstreams.md`; do not use a
-  manual Toast process or `moo --version` exit status as a substitute.
-- Audit Barn `spec/tasks.md`, `spec/go-design.md`, `spec/vm.md`, `spec/database.md`, and `spec/README.md` against Toast and current Barn.
-- Correct the contradicted task/concurrency passages. Separate normative MOO semantics from historical Go sketches; do not replace them with Banteng design notes.
-- Fix stale source paths in the spec and add direct Toast source/evidence references.
-- Record license/provenance decisions. Until clarified, use Barn, `moo_interp`, and `lambdamoo-db-py` as behavioral references rather than copied code.
-- Record every approved OTS dependency's owner, version, license, semantic boundary, profile, transitive surface, and removal criterion. Current-version research alone does not approve an upgrade.
-- Fix the supported conformance-profile set explicitly. The primary release gate is the stock WSL Toast profile (`../barn/profiles/toast/stock-wsl-testdb.json`); declare the Mongoose `PROMOTE_NUMBERS` profile and each real-core profile in or out. Every later "selected profile" reference in this plan resolves to that recorded list.
+- Verify the current WSL Toast source identity and executable through
+  Banteng-owned `profiles/toast/stock-wsl-testdb.json` and
+  `scripts/run_toast_wsl.sh` before any behavioral claim. Do not depend on a
+  Barn working-tree script, profile, plan, or generated artifact.
+- Keep Barn, `moo_interp`, and `lambdamoo-db-py` read-only implementation
+  references. Do not copy code from them and do not modify Barn while building
+  Banteng.
+- Pin each production and test dependency in the executable Gradle build. The
+  build files, lock files, and verification metadata are the dependency record;
+  do not create a parallel dependency report.
+- Fix the supported conformance-profile set explicitly. The primary release
+  gate is Banteng's stock WSL Toast profile
+  (`profiles/toast/stock-wsl-testdb.json`); declare the Mongoose
+  `PROMOTE_NUMBERS` profile and each real-core profile in or out. Every later
+  "selected profile" reference in this plan resolves to that recorded list.
 
 Gates:
 
-- Every changed Barn statement has direct Toast or live-oracle evidence.
-- Banteng and Barn documentation changes are committed separately with exact paths.
-- No MOO-semantic production code exists yet. The explicitly recorded
-  non-semantic build and CLI bootstrap does not authorize a semantic API or
-  representation.
+- The managed oracle runs from Banteng-owned files and a pinned Toast
+  executable without reading or changing Barn's working tree.
+- Barn has no Banteng-authored changes.
+- Phase 0 adds no MOO-semantic production code. The non-semantic build and CLI
+  bootstrap do not authorize a semantic API or representation.
 
 ## Phase 1 - Java skeleton and architectural guardrails
 
@@ -234,20 +234,22 @@ Gates:
 
 ## Phase 2 - Values, syntax, bytecode, and pure VM
 
-Begin with a primitive-type authority matrix, not Java type definitions. Apply
-the mandatory authority gate separately to each primitive family and commit
-the evidence plus Toast-proven conformance rows before creating the Java value
-hierarchy. The matrix must distinguish MOO-observable contracts from internal
-representation choices and must explicitly record every behavior for which
-Barn and Toast disagree.
+Begin immediately with the first thin vertical semantic slice. Resolve value
+semantics just in time through the decision-bearing authority gate; do not
+complete an exhaustive primitive-family audit or narrative matrix before
+writing the executable path. Existing Toast-proven conformance rows are the
+starting authority. Add a row only for a decision the active slice requires and
+that existing rows do not settle.
 
-After that evidence is committed, establish only the representation required
-by the first proven semantic slice. Do not infer deep immutability, equality,
-hashing, ordering, byte ownership, character encoding, scalar status, or Java
-record suitability from ordinary Java value-object practice. Those are outputs
-of the authority gate, not premises of the design.
+Establish only the representation required by the active slice. Do not infer
+deep immutability, equality, hashing, ordering, byte ownership, character
+encoding, scalar status, or Java record suitability from ordinary Java
+value-object practice. When a later slice needs another behavior, settle and
+implement it then.
 
-Then implement thin vertical semantic slices. Each kept slice crosses source bytes, lexer and spans, immutable AST, compiler, deterministic disassembler, and explicit-stack VM execution before the next slice begins:
+Each kept slice crosses source bytes, lexer and spans, immutable AST, compiler,
+deterministic disassembler, and explicit-stack VM execution before the next
+slice begins:
 
 1. literals, error values, truth, return, and literal formatting;
 2. variables, arithmetic, comparisons, and control flow;
@@ -256,7 +258,9 @@ Then implement thin vertical semantic slices. Each kept slice crosses source byt
 5. calls, returns, exceptions, and `finally`;
 6. fork bodies, ticks, and wall-clock limits represented as serializable VM state.
 
-Do not complete an entire lexer, parser, compiler, or VM layer ahead of the next executable semantic path. Keep or fully restore each source slice before starting the next.
+Do not complete an entire value hierarchy, lexer, parser, compiler, or VM layer
+ahead of the next executable semantic path. The immediate implementation target
+is slice 1. Keep or fully restore each source slice before starting the next.
 
 Use `moo_interp` for differential generation where it is already proven, but resolve every disagreement through focused WSL Toast evidence and add the result to `moo-conformance-tests` when coverage is missing.
 
@@ -313,10 +317,10 @@ Create an explicit builtin manifest containing name, argument contract, permissi
 3. tasks, server, connections, listeners, output;
 4. crypto, file I/O, SQLite, HTTP/network, exec, and optional extensions.
 
-Before each family, complete the mandatory authority gate using the Barn spec,
-Barn implementation, and Toast implementation, then compare the resulting
-manifest against Toast's registered names and the generated/focused
-conformance rows. Delete accidental extra surface rather than keeping aliases.
+Before each family, apply the decision-bearing authority gate only to builtin
+contracts that existing Toast-proven rows do not settle. Compare the executable
+manifest against Toast's registered names and the focused conformance rows.
+Delete accidental extra surface rather than keeping aliases.
 
 Gates:
 
@@ -383,8 +387,9 @@ Work on one failing conformance family at a time. For each discrepancy:
 4. if generated testing exposed it, minimize it, record the exact replay token, promote the minimal case to a durable regression, and prove that regression red;
 5. implement one owned fix;
 6. prove the focused row and any promoted regression green;
-7. run the substantial targeted category and reread this plan;
-8. keep and commit the slice or fully restore it before the next family.
+7. run the substantial targeted category;
+8. keep and commit the slice or fully restore it before the next family, then
+   continue with the next failing family or incomplete phase.
 
 Final gates:
 
