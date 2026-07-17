@@ -38,12 +38,39 @@ public sealed interface Ast
       permits If, While, For, Fork, Try, Return, ExpressionStatement {}
 
   record If(
-      Expression condition, List<Statement> body, List<ElseIf> elseIfs, List<Statement> elseBody)
+      Expression condition,
+      List<Statement> body,
+      List<ElseIf> elseIfs,
+      List<Statement> elseBody,
+      Optional<SourceSpan> span)
       implements Statement {
     public If {
       body = List.copyOf(body);
       elseIfs = List.copyOf(elseIfs);
       elseBody = List.copyOf(elseBody);
+    }
+
+    public If(
+        Expression condition,
+        List<Statement> body,
+        List<ElseIf> elseIfs,
+        List<Statement> elseBody) {
+      this(condition, body, elseIfs, elseBody, Optional.empty());
+    }
+
+    @Override
+    public boolean equals(Object other) {
+      return this == other
+          || (other instanceof If that
+              && condition.equals(that.condition)
+              && body.equals(that.body)
+              && elseIfs.equals(that.elseIfs)
+              && elseBody.equals(that.elseBody));
+    }
+
+    @Override
+    public int hashCode() {
+      return Objects.hash(condition, body, elseIfs, elseBody);
     }
   }
 

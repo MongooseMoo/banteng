@@ -82,6 +82,7 @@ public final class MooParser {
   }
 
   private Ast.If parseIf() {
+    Token firstToken = current;
     advance();
     Ast.Expression condition = parseParenthesizedExpression("if");
     List<Ast.Statement> body =
@@ -99,8 +100,19 @@ public final class MooParser {
     if (match(TokenKind.ELSE)) {
       elseBody = parseStatementsUntil(TokenKind.ENDIF);
     }
+    Token endIf = current;
     expectAndAdvance(TokenKind.ENDIF, "endif");
-    return new Ast.If(condition, body, elseIfs, elseBody);
+    return new Ast.If(
+        condition,
+        body,
+        elseIfs,
+        elseBody,
+        Optional.of(
+            new Ast.SourceSpan(
+                firstToken.startOffset(),
+                endIf.endOffset(),
+                firstToken.line(),
+                firstToken.column())));
   }
 
   private Ast.While parseWhile() {

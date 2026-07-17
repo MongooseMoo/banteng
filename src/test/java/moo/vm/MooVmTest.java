@@ -80,6 +80,35 @@ final class MooVmTest {
   }
 
   @Test
+  void executesIfBranchThroughTheCompleteControlFlowPipeline() {
+    byte[] source = "if (1) return 2; endif".getBytes(StandardCharsets.ISO_8859_1);
+    Ast.Program syntax = MooParser.parse(source);
+    Ast.If ifStatement = assertInstanceOf(Ast.If.class, syntax.statements().getFirst());
+    Ast.Return returnStatement =
+        assertInstanceOf(Ast.Return.class, ifStatement.body().getFirst());
+    assertEquals(new Ast.SourceSpan(0, 22, 1, 1), ifStatement.span().orElseThrow());
+    assertEquals(new Ast.SourceSpan(7, 16, 1, 8), returnStatement.span().orElseThrow());
+
+    BytecodeProgram program = new MooCompiler().compile(syntax);
+    assertEquals(
+        """
+        0 PUSH_INTEGER 1
+        1 JUMP_IF_FALSE 5
+        2 PUSH_INTEGER 2
+        3 RETURN
+        4 JUMP 5
+        5 PUSH_INTEGER 0
+        6 RETURN""",
+        program.disassemble());
+    VmState state = new VmState();
+
+    new MooVm().execute(program, state);
+
+    assertEquals(VmState.Outcome.RETURNED, state.outcome());
+    assertEquals(new IntegerValue(2), state.returnValue().orElseThrow());
+  }
+
+  @Test
   void returnsInterruptErrorThroughTheCompleteLiteralPipeline() {
     byte[] source = "return E_INTRPT;".getBytes(StandardCharsets.ISO_8859_1);
     Ast.Program syntax = MooParser.parse(source);
