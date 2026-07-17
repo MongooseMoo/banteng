@@ -40,6 +40,7 @@ final class MooLexer {
     QUESTION,
     PIPE,
     DOT,
+    RANGE,
     COLON,
     AT,
     DOLLAR,
@@ -103,9 +104,11 @@ final class MooLexer {
       case '?' -> token(TokenKind.QUESTION, tokenLine, tokenColumn);
       case ':' -> token(TokenKind.COLON, tokenLine, tokenColumn);
       case '.' ->
-          !atEnd() && isDigit(peek()) && (offset < 2 || source.charAt(offset - 2) != '.')
-              ? number(tokenLine, tokenColumn, true)
-              : token(TokenKind.DOT, tokenLine, tokenColumn);
+          match('.')
+              ? token(TokenKind.RANGE, tokenLine, tokenColumn)
+              : !atEnd() && isDigit(peek()) && (offset < 2 || source.charAt(offset - 2) != '.')
+                  ? number(tokenLine, tokenColumn, true)
+                  : token(TokenKind.DOT, tokenLine, tokenColumn);
       case '@' -> token(TokenKind.AT, tokenLine, tokenColumn);
       case '$' -> token(TokenKind.DOLLAR, tokenLine, tokenColumn);
       case '`' -> token(TokenKind.BACKTICK, tokenLine, tokenColumn);

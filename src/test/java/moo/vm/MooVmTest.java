@@ -14,6 +14,7 @@ import moo.bytecode.BytecodeProgram;
 import moo.bytecode.MooCompiler;
 import moo.syntax.Ast;
 import moo.syntax.MooParser;
+import moo.syntax.MooUnparser;
 import moo.value.MooValue;
 import moo.value.MooValue.ErrorValue;
 import moo.value.MooValue.FloatValue;
@@ -312,6 +313,53 @@ final class MooVmTest {
 
     assertEquals(VmState.Outcome.RETURNED, state.outcome());
     assertEquals(new IntegerValue(2), state.returnValue().orElseThrow());
+  }
+
+  @Test
+  void returnsAnInclusiveListRangeThroughTheCompleteCollectionPipeline() {
+    byte[] source =
+        "return {\"one\", \"two\", \"three\"}[3..3];"
+            .getBytes(StandardCharsets.ISO_8859_1);
+    Ast.Program syntax = MooParser.parse(source);
+    Ast.Return returnStatement =
+        assertInstanceOf(Ast.Return.class, syntax.statements().getFirst());
+    Ast.RangeAccess range =
+        assertInstanceOf(Ast.RangeAccess.class, returnStatement.value().orElseThrow());
+    Ast.ListLiteral list = assertInstanceOf(Ast.ListLiteral.class, range.collection());
+    Ast.IntegerLiteral start = assertInstanceOf(Ast.IntegerLiteral.class, range.start());
+    Ast.IntegerLiteral end = assertInstanceOf(Ast.IntegerLiteral.class, range.end());
+    assertEquals(new Ast.SourceSpan(0, 37, 1, 1), returnStatement.span().orElseThrow());
+    assertEquals(new Ast.SourceSpan(7, 36, 1, 8), range.span().orElseThrow());
+    assertEquals(new Ast.SourceSpan(7, 30, 1, 8), list.span().orElseThrow());
+    assertEquals(new Ast.SourceSpan(31, 32, 1, 32), start.span().orElseThrow());
+    assertEquals(new Ast.SourceSpan(34, 35, 1, 35), end.span().orElseThrow());
+    assertEquals(
+        "return {\"one\", \"two\", \"three\"}[3..3];", MooUnparser.unparse(syntax));
+
+    BytecodeProgram program = new MooCompiler().compile(syntax);
+    assertEquals(
+        """
+        0 BUILD_LIST 0
+        1 PUSH_STRING one
+        2 LIST_APPEND
+        3 PUSH_STRING two
+        4 LIST_APPEND
+        5 PUSH_STRING three
+        6 LIST_APPEND
+        7 PUSH_INTEGER 3
+        8 PUSH_INTEGER 3
+        9 RANGE
+        10 RETURN""",
+        program.disassemble());
+    VmState state = new VmState();
+
+    new MooVm().execute(program, state);
+
+    assertEquals(VmState.Outcome.RETURNED, state.outcome());
+    assertEquals(
+        new ListValue(
+            List.of(new StringValue("three".getBytes(StandardCharsets.ISO_8859_1)))),
+        state.returnValue().orElseThrow());
   }
 
   @Test

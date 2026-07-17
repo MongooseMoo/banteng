@@ -219,7 +219,7 @@ public final class MooParser {
     Ast.Expression left = parsePrefix();
     while (true) {
       if (isPostfix(current.kind()) && POSTFIX_PRECEDENCE >= minimumPrecedence) {
-        left = parsePostfix(left);
+        left = parsePostfix(left, firstToken);
         continue;
       }
       if (current.kind() == TokenKind.EQUAL && ASSIGNMENT_PRECEDENCE >= minimumPrecedence) {
@@ -468,7 +468,7 @@ public final class MooParser {
     return new Ast.ErrorList(errors);
   }
 
-  private Ast.Expression parsePostfix(Ast.Expression receiver) {
+  private Ast.Expression parsePostfix(Ast.Expression receiver, Token firstToken) {
     return switch (current.kind()) {
       case LEFT_PAREN -> parseCall(receiver);
       case DOT -> parseProperty(receiver);
@@ -495,7 +495,7 @@ public final class MooParser {
         expectAndAdvance(TokenKind.RIGHT_PAREN, "')' after verb arguments");
         yield new Ast.VerbCall(receiver, name, arguments);
       }
-      case LEFT_BRACKET -> parseIndex(receiver);
+      case LEFT_BRACKET -> parseIndex(receiver, firstToken);
       default -> throw error("expected postfix expression");
     };
   }
@@ -531,9 +531,24 @@ public final class MooParser {
     return new Ast.PropertyAccess(receiver, property);
   }
 
-  private Ast.IndexAccess parseIndex(Ast.Expression receiver) {
+  private Ast.Expression parseIndex(Ast.Expression receiver, Token firstToken) {
     advance();
     Ast.Expression index = parseExpression(ASSIGNMENT_PRECEDENCE);
+    if (match(TokenKind.RANGE)) {
+      Ast.Expression end = parseExpression(ASSIGNMENT_PRECEDENCE);
+      Token rightBracket = current;
+      expectAndAdvance(TokenKind.RIGHT_BRACKET, "']' after range");
+      return new Ast.RangeAccess(
+          receiver,
+          index,
+          end,
+          Optional.of(
+              new Ast.SourceSpan(
+                  firstToken.startOffset(),
+                  rightBracket.endOffset(),
+                  firstToken.line(),
+                  firstToken.column())));
+    }
     expectAndAdvance(TokenKind.RIGHT_BRACKET, "']' after index");
     return new Ast.IndexAccess(receiver, index);
   }

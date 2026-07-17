@@ -215,6 +215,14 @@ public final class MooUnparser {
               + "["
               + expression(index.index(), ASSIGNMENT_PRECEDENCE)
               + "]";
+    } else if (expression instanceof Ast.RangeAccess range) {
+      rendered =
+          expression(range.collection(), POSTFIX_PRECEDENCE)
+              + "["
+              + expression(range.start(), ASSIGNMENT_PRECEDENCE)
+              + ".."
+              + expression(range.end(), ASSIGNMENT_PRECEDENCE)
+              + "]";
     } else if (expression instanceof Ast.Unary unary) {
       rendered =
           (unary.operator() == Ast.UnaryOperator.NEGATE ? "-" : "!")

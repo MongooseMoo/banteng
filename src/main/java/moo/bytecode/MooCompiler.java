@@ -278,6 +278,13 @@ public final class MooCompiler {
       instructions.add(new Instruction(Opcode.INDEX));
       return;
     }
+    if (expression instanceof Ast.RangeAccess range) {
+      compileExpression(range.collection(), instructions);
+      compileExpression(range.start(), instructions);
+      compileExpression(range.end(), instructions);
+      instructions.add(new Instruction(Opcode.RANGE));
+      return;
+    }
     if (expression instanceof Ast.Assignment assignment) {
       compileAssignment(assignment, instructions);
       return;

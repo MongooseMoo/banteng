@@ -103,6 +103,7 @@ public final class MooVm {
       case GET_PROPERTY -> getProperty(frame, state, world);
       case SET_PROPERTY -> setProperty(frame, state, world);
       case INDEX -> index(frame, state, world);
+      case RANGE -> range(frame, state, world);
       case SET_INDEX_LOCAL ->
           setIndexedLocal(frame, state, world, instruction.text().orElseThrow());
       case CALL -> {
@@ -319,6 +320,7 @@ public final class MooVm {
           GET_PROPERTY,
           SET_PROPERTY,
           INDEX,
+          RANGE,
           SET_INDEX_LOCAL,
           CALL,
           CALL_VERB,
@@ -539,6 +541,26 @@ public final class MooVm {
       return;
     }
     raiseError(state, ErrorValue.E_TYPE, world);
+  }
+
+  private static void range(Frame frame, VmState state, WorldTxn world) {
+    MooValue end = frame.operandStack.pop();
+    MooValue start = frame.operandStack.pop();
+    MooValue collection = frame.operandStack.pop();
+    if (!(collection instanceof ListValue list)
+        || !(start instanceof IntegerValue first)
+        || !(end instanceof IntegerValue last)) {
+      raiseError(state, ErrorValue.E_TYPE, world);
+      return;
+    }
+    if (first.value() < 1 || last.value() < first.value() || last.value() > list.size()) {
+      raiseError(state, ErrorValue.E_RANGE, world);
+      return;
+    }
+    frame.operandStack.push(
+        new ListValue(
+            list.elements().subList(Math.toIntExact(first.value() - 1), Math.toIntExact(last.value()))));
+    frame.instructionPointer++;
   }
 
   private static void setIndexedLocal(Frame frame, VmState state, WorldTxn world, String owner) {

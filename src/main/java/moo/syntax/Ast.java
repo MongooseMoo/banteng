@@ -171,6 +171,7 @@ public sealed interface Ast
           Assignment,
           PropertyAccess,
           IndexAccess,
+          RangeAccess,
           Unary,
           Binary,
           Ternary,
@@ -354,6 +355,31 @@ public sealed interface Ast
   record PropertyAccess(Expression object, Expression property) implements Expression {}
 
   record IndexAccess(Expression collection, Expression index) implements Expression {}
+
+  record RangeAccess(
+      Expression collection,
+      Expression start,
+      Expression end,
+      Optional<SourceSpan> span)
+      implements Expression {
+    public RangeAccess(Expression collection, Expression start, Expression end) {
+      this(collection, start, end, Optional.empty());
+    }
+
+    @Override
+    public boolean equals(Object other) {
+      return this == other
+          || (other instanceof RangeAccess that
+              && collection.equals(that.collection)
+              && start.equals(that.start)
+              && end.equals(that.end));
+    }
+
+    @Override
+    public int hashCode() {
+      return Objects.hash(collection, start, end);
+    }
+  }
 
   record Unary(UnaryOperator operator, Expression operand, Optional<SourceSpan> span)
       implements Expression {
