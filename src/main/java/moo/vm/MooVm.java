@@ -420,6 +420,11 @@ public final class MooVm {
         frame.instructionPointer++;
         return;
       }
+      if (name.equalsIgnoreCase("OBJ")) {
+        frame.operandStack.push(new IntegerValue(MooValue.Type.OBJECT.code()));
+        frame.instructionPointer++;
+        return;
+      }
       if (name.equalsIgnoreCase("LIST")) {
         frame.operandStack.push(new IntegerValue(MooValue.Type.LIST.code()));
         frame.instructionPointer++;
