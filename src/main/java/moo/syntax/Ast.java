@@ -133,7 +133,21 @@ public sealed interface Ast
 
   record Identifier(String name) implements Expression {}
 
-  record IntegerLiteral(long value) implements Expression {}
+  record IntegerLiteral(long value, Optional<SourceSpan> span) implements Expression {
+    public IntegerLiteral(long value) {
+      this(value, Optional.empty());
+    }
+
+    @Override
+    public boolean equals(Object other) {
+      return this == other || (other instanceof IntegerLiteral that && value == that.value);
+    }
+
+    @Override
+    public int hashCode() {
+      return Long.hashCode(value);
+    }
+  }
 
   record FloatLiteral(double value) implements Expression {}
 

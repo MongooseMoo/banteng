@@ -226,7 +226,14 @@ public final class MooParser {
       case INTEGER -> {
         advance();
         try {
-          yield new Ast.IntegerLiteral(Long.parseLong(token.lexeme()));
+          yield new Ast.IntegerLiteral(
+              Long.parseLong(token.lexeme()),
+              Optional.of(
+                  new Ast.SourceSpan(
+                      token.startOffset(),
+                      token.endOffset(),
+                      token.line(),
+                      token.column())));
         } catch (NumberFormatException exception) {
           throw error(token, "invalid integer literal", exception);
         }
