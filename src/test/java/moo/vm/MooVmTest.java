@@ -278,6 +278,43 @@ final class MooVmTest {
   }
 
   @Test
+  void findsAValueInAMapThroughTheCompleteCollectionPipeline() {
+    byte[] source =
+        "return 2 in [\"a\" -> 1, \"b\" -> 2, \"c\" -> 3];"
+            .getBytes(StandardCharsets.ISO_8859_1);
+    Ast.Program syntax = MooParser.parse(source);
+    Ast.Return returnStatement =
+        assertInstanceOf(Ast.Return.class, syntax.statements().getFirst());
+    Ast.Binary membership =
+        assertInstanceOf(Ast.Binary.class, returnStatement.value().orElseThrow());
+    Ast.MapLiteral map = assertInstanceOf(Ast.MapLiteral.class, membership.right());
+    assertEquals(new Ast.SourceSpan(0, 43, 1, 1), returnStatement.span().orElseThrow());
+    assertEquals(new Ast.SourceSpan(7, 42, 1, 8), membership.span().orElseThrow());
+    assertEquals(new Ast.SourceSpan(12, 42, 1, 13), map.span().orElseThrow());
+
+    BytecodeProgram program = new MooCompiler().compile(syntax);
+    assertEquals(
+        """
+        0 PUSH_INTEGER 2
+        1 PUSH_INTEGER 1
+        2 PUSH_STRING a
+        3 PUSH_INTEGER 2
+        4 PUSH_STRING b
+        5 PUSH_INTEGER 3
+        6 PUSH_STRING c
+        7 BUILD_MAP 3
+        8 IN
+        9 RETURN""",
+        program.disassemble());
+    VmState state = new VmState();
+
+    new MooVm().execute(program, state);
+
+    assertEquals(VmState.Outcome.RETURNED, state.outcome());
+    assertEquals(new IntegerValue(2), state.returnValue().orElseThrow());
+  }
+
+  @Test
   void returnsInterruptErrorThroughTheCompleteLiteralPipeline() {
     byte[] source = "return E_INTRPT;".getBytes(StandardCharsets.ISO_8859_1);
     Ast.Program syntax = MooParser.parse(source);

@@ -717,6 +717,20 @@ public final class MooVm {
   private static void membership(Frame frame, VmState state, WorldTxn world) {
     MooValue collection = frame.operandStack.pop();
     MooValue requested = frame.operandStack.pop();
+    if (collection instanceof MapValue map) {
+      long position = 0;
+      int index = 0;
+      for (MooValue value : map.entries().values()) {
+        index++;
+        if (requested.equals(value)) {
+          position = index;
+          break;
+        }
+      }
+      frame.operandStack.push(new IntegerValue(position));
+      frame.instructionPointer++;
+      return;
+    }
     if (!(collection instanceof ListValue list)) {
       raiseError(state, ErrorValue.E_TYPE, world);
       return;
