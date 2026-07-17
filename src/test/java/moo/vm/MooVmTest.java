@@ -234,6 +234,50 @@ final class MooVmTest {
   }
 
   @Test
+  void evaluatesMapValuesBeforeKeysThroughTheCompleteCollectionPipeline() {
+    byte[] source =
+        "trace = 0; mapping = [(trace = 1) -> (trace = 2)]; return trace;"
+            .getBytes(StandardCharsets.ISO_8859_1);
+    Ast.Program syntax = MooParser.parse(source);
+    Ast.ExpressionStatement mappingStatement =
+        assertInstanceOf(Ast.ExpressionStatement.class, syntax.statements().get(1));
+    Ast.Assignment mappingAssignment =
+        assertInstanceOf(Ast.Assignment.class, mappingStatement.expression());
+    Ast.MapLiteral map = assertInstanceOf(Ast.MapLiteral.class, mappingAssignment.value());
+    Ast.Return returnStatement =
+        assertInstanceOf(Ast.Return.class, syntax.statements().get(2));
+    assertEquals(new Ast.SourceSpan(21, 49, 1, 22), map.span().orElseThrow());
+    assertEquals(new Ast.SourceSpan(51, 64, 1, 52), returnStatement.span().orElseThrow());
+
+    BytecodeProgram program = new MooCompiler().compile(syntax);
+    assertEquals(
+        """
+        0 PUSH_INTEGER 0
+        1 DUP
+        2 STORE_LOCAL trace
+        3 POP
+        4 PUSH_INTEGER 2
+        5 DUP
+        6 STORE_LOCAL trace
+        7 PUSH_INTEGER 1
+        8 DUP
+        9 STORE_LOCAL trace
+        10 BUILD_MAP 1
+        11 DUP
+        12 STORE_LOCAL mapping
+        13 POP
+        14 LOAD_LOCAL trace
+        15 RETURN""",
+        program.disassemble());
+    VmState state = new VmState();
+
+    new MooVm().execute(program, state);
+
+    assertEquals(VmState.Outcome.RETURNED, state.outcome());
+    assertEquals(new IntegerValue(1), state.returnValue().orElseThrow());
+  }
+
+  @Test
   void returnsInterruptErrorThroughTheCompleteLiteralPipeline() {
     byte[] source = "return E_INTRPT;".getBytes(StandardCharsets.ISO_8859_1);
     Ast.Program syntax = MooParser.parse(source);

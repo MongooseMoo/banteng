@@ -186,8 +186,8 @@ final class MooCompilerTest {
         3 DUP
         4 STORE_LOCAL items
         5 POP
-        6 PUSH_INTEGER 1
-        7 PUSH_INTEGER 2
+        6 PUSH_INTEGER 2
+        7 PUSH_INTEGER 1
         8 BUILD_MAP 1
         9 DUP
         10 STORE_LOCAL m

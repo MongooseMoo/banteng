@@ -387,8 +387,8 @@ public final class MooVm {
     List<MooValue> keys = new ArrayList<>(count);
     List<MooValue> values = new ArrayList<>(count);
     for (int index = 0; index < count; index++) {
-      values.addFirst(frame.operandStack.pop());
       keys.addFirst(frame.operandStack.pop());
+      values.addFirst(frame.operandStack.pop());
     }
     try {
       MapValue map = new MapValue(Map.of());

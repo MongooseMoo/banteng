@@ -230,8 +230,8 @@ public final class MooCompiler {
     }
     if (expression instanceof Ast.MapLiteral map) {
       for (Ast.MapEntry entry : map.entries()) {
-        compileExpression(entry.key(), instructions);
         compileExpression(entry.value(), instructions);
+        compileExpression(entry.key(), instructions);
       }
       instructions.add(new Instruction(Opcode.BUILD_MAP, map.entries().size()));
       return;
