@@ -348,6 +348,7 @@ public final class MooParser {
   }
 
   private Ast.MapLiteral parseMapLiteral() {
+    Token leftBracket = current;
     advance();
     List<Ast.MapEntry> entries = new ArrayList<>();
     if (current.kind() != TokenKind.RIGHT_BRACKET) {
@@ -358,8 +359,16 @@ public final class MooParser {
         entries.add(new Ast.MapEntry(key, value));
       } while (match(TokenKind.COMMA));
     }
+    Token rightBracket = current;
     expectAndAdvance(TokenKind.RIGHT_BRACKET, "']' after map literal");
-    return new Ast.MapLiteral(entries);
+    return new Ast.MapLiteral(
+        entries,
+        Optional.of(
+            new Ast.SourceSpan(
+                leftBracket.startOffset(),
+                rightBracket.endOffset(),
+                leftBracket.line(),
+                leftBracket.column())));
   }
 
   private Ast.Catch parseCatch() {

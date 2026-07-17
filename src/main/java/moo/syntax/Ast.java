@@ -235,9 +235,23 @@ public sealed interface Ast
     }
   }
 
-  record MapLiteral(List<MapEntry> entries) implements Expression {
+  record MapLiteral(List<MapEntry> entries, Optional<SourceSpan> span) implements Expression {
     public MapLiteral {
       entries = List.copyOf(entries);
+    }
+
+    public MapLiteral(List<MapEntry> entries) {
+      this(entries, Optional.empty());
+    }
+
+    @Override
+    public boolean equals(Object other) {
+      return this == other || (other instanceof MapLiteral that && entries.equals(that.entries));
+    }
+
+    @Override
+    public int hashCode() {
+      return Objects.hash(entries);
     }
   }
 
