@@ -552,7 +552,12 @@ public final class MooVm {
         && start instanceof IntegerValue first
         && end instanceof IntegerValue last) {
       byte[] bytes = string.bytes();
-      if (first.value() < 1 || last.value() < first.value() || last.value() > bytes.length) {
+      if (last.value() < first.value()) {
+        frame.operandStack.push(new StringValue(new byte[0]));
+        frame.instructionPointer++;
+        return;
+      }
+      if (first.value() < 1 || last.value() > bytes.length) {
         raiseError(state, ErrorValue.E_RANGE, world);
         return;
       }

@@ -439,6 +439,40 @@ final class MooVmTest {
   }
 
   @Test
+  void returnsAnEmptyStringForAnInvertedRangeThroughTheCompleteCollectionPipeline() {
+    byte[] source = "return \"foobar\"[15..12];".getBytes(StandardCharsets.ISO_8859_1);
+    Ast.Program syntax = MooParser.parse(source);
+    Ast.Return returnStatement =
+        assertInstanceOf(Ast.Return.class, syntax.statements().getFirst());
+    Ast.RangeAccess range =
+        assertInstanceOf(Ast.RangeAccess.class, returnStatement.value().orElseThrow());
+    Ast.StringLiteral string = assertInstanceOf(Ast.StringLiteral.class, range.collection());
+    Ast.IntegerLiteral start = assertInstanceOf(Ast.IntegerLiteral.class, range.start());
+    Ast.IntegerLiteral end = assertInstanceOf(Ast.IntegerLiteral.class, range.end());
+    assertEquals(new Ast.SourceSpan(0, 24, 1, 1), returnStatement.span().orElseThrow());
+    assertEquals(new Ast.SourceSpan(7, 23, 1, 8), range.span().orElseThrow());
+    assertEquals(new Ast.SourceSpan(7, 15, 1, 8), string.span().orElseThrow());
+    assertEquals(new Ast.SourceSpan(16, 18, 1, 17), start.span().orElseThrow());
+    assertEquals(new Ast.SourceSpan(20, 22, 1, 21), end.span().orElseThrow());
+
+    BytecodeProgram program = new MooCompiler().compile(syntax);
+    assertEquals(
+        """
+        0 PUSH_STRING foobar
+        1 PUSH_INTEGER 15
+        2 PUSH_INTEGER 12
+        3 RANGE
+        4 RETURN""",
+        program.disassemble());
+    VmState state = new VmState();
+
+    new MooVm().execute(program, state);
+
+    assertEquals(VmState.Outcome.RETURNED, state.outcome());
+    assertEquals(new StringValue(new byte[0]), state.returnValue().orElseThrow());
+  }
+
+  @Test
   void returnsInterruptErrorThroughTheCompleteLiteralPipeline() {
     byte[] source = "return E_INTRPT;".getBytes(StandardCharsets.ISO_8859_1);
     Ast.Program syntax = MooParser.parse(source);
