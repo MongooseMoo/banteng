@@ -265,7 +265,14 @@ public final class MooParser {
       case OBJECT -> {
         advance();
         try {
-          yield new Ast.ObjectLiteral(Long.parseLong(token.lexeme().substring(1)));
+          yield new Ast.ObjectLiteral(
+              Long.parseLong(token.lexeme().substring(1)),
+              Optional.of(
+                  new Ast.SourceSpan(
+                      token.startOffset(),
+                      token.endOffset(),
+                      token.line(),
+                      token.column())));
         } catch (NumberFormatException exception) {
           throw error(token, "invalid object literal", exception);
         }
