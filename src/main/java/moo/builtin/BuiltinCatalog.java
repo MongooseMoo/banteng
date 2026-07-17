@@ -1577,6 +1577,9 @@ public final class BuiltinCatalog {
     if (arguments.size() != 1) {
       return Result.error(ErrorValue.E_ARGS);
     }
+    if (arguments.getFirst() instanceof IntegerValue integer) {
+      return Result.value(integer);
+    }
     if (arguments.getFirst() instanceof ErrorValue error) {
       return Result.value(new IntegerValue(error.code()));
     }
