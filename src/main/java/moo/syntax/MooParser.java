@@ -1,5 +1,6 @@
 package moo.syntax;
 
+import java.math.BigInteger;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
@@ -228,7 +229,7 @@ public final class MooParser {
         advance();
         try {
           yield new Ast.IntegerLiteral(
-              Long.parseLong(token.lexeme()),
+              new BigInteger(token.lexeme()).longValue(),
               Optional.of(
                   new Ast.SourceSpan(
                       token.startOffset(),
