@@ -347,7 +347,27 @@ public sealed interface Ast
     }
   }
 
-  record Binary(Expression left, BinaryOperator operator, Expression right) implements Expression {}
+  record Binary(
+      Expression left, BinaryOperator operator, Expression right, Optional<SourceSpan> span)
+      implements Expression {
+    public Binary(Expression left, BinaryOperator operator, Expression right) {
+      this(left, operator, right, Optional.empty());
+    }
+
+    @Override
+    public boolean equals(Object other) {
+      return this == other
+          || (other instanceof Binary that
+              && left.equals(that.left)
+              && operator == that.operator
+              && right.equals(that.right));
+    }
+
+    @Override
+    public int hashCode() {
+      return Objects.hash(left, operator, right);
+    }
+  }
 
   record Catch(Expression guarded, ErrorSelector errors, Optional<Expression> fallback)
       implements Expression {}

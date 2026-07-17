@@ -30,9 +30,19 @@ import org.junit.jupiter.api.Test;
 final class MooVmTest {
   @Test
   void executesDynamicSourceThroughParserCompilerAndExplicitVmState() {
-    BytecodeProgram program = new MooCompiler().compile(MooParser.parse("return 1 + 1;"));
+    byte[] source = "return 1 + 1;".getBytes(StandardCharsets.ISO_8859_1);
+    Ast.Program syntax = MooParser.parse(source);
+    Ast.Return returnStatement =
+        assertInstanceOf(Ast.Return.class, syntax.statements().getFirst());
+    Ast.Binary addition =
+        assertInstanceOf(Ast.Binary.class, returnStatement.value().orElseThrow());
+    assertEquals(new Ast.SourceSpan(0, 13, 1, 1), returnStatement.span().orElseThrow());
+    assertEquals(new Ast.SourceSpan(7, 12, 1, 8), addition.span().orElseThrow());
+
+    BytecodeProgram program = new MooCompiler().compile(syntax);
     VmState state = new VmState();
 
+    assertEquals("0 PUSH_INTEGER 1\n1 PUSH_INTEGER 1\n2 ADD\n3 RETURN", program.disassemble());
     assertEquals(0, state.instructionPointer());
     assertTrue(state.operandStack().isEmpty());
     assertEquals(VmState.Outcome.RUNNING, state.outcome());

@@ -233,7 +233,17 @@ public final class MooParser {
       advance();
       int rightPrecedence = operator == TokenKind.CARET ? precedence : Math.addExact(precedence, 1);
       Ast.Expression right = parseExpression(rightPrecedence);
-      left = new Ast.Binary(left, binaryOperator(operator), right);
+      left =
+          new Ast.Binary(
+              left,
+              binaryOperator(operator),
+              right,
+              Optional.of(
+                  new Ast.SourceSpan(
+                      firstToken.startOffset(),
+                      previousEndOffset,
+                      firstToken.line(),
+                      firstToken.column())));
     }
   }
 
