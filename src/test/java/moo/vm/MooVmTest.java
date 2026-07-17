@@ -473,6 +473,42 @@ final class MooVmTest {
   }
 
   @Test
+  void returnsAnEmptyMapForAnInvertedRangeThroughTheCompleteCollectionPipeline() {
+    byte[] source = "return [1 -> 1][6..2];".getBytes(StandardCharsets.ISO_8859_1);
+    Ast.Program syntax = MooParser.parse(source);
+    Ast.Return returnStatement =
+        assertInstanceOf(Ast.Return.class, syntax.statements().getFirst());
+    Ast.RangeAccess range =
+        assertInstanceOf(Ast.RangeAccess.class, returnStatement.value().orElseThrow());
+    Ast.MapLiteral map = assertInstanceOf(Ast.MapLiteral.class, range.collection());
+    Ast.IntegerLiteral start = assertInstanceOf(Ast.IntegerLiteral.class, range.start());
+    Ast.IntegerLiteral end = assertInstanceOf(Ast.IntegerLiteral.class, range.end());
+    assertEquals(new Ast.SourceSpan(0, 22, 1, 1), returnStatement.span().orElseThrow());
+    assertEquals(new Ast.SourceSpan(7, 21, 1, 8), range.span().orElseThrow());
+    assertEquals(new Ast.SourceSpan(7, 15, 1, 8), map.span().orElseThrow());
+    assertEquals(new Ast.SourceSpan(16, 17, 1, 17), start.span().orElseThrow());
+    assertEquals(new Ast.SourceSpan(19, 20, 1, 20), end.span().orElseThrow());
+
+    BytecodeProgram program = new MooCompiler().compile(syntax);
+    assertEquals(
+        """
+        0 PUSH_INTEGER 1
+        1 PUSH_INTEGER 1
+        2 BUILD_MAP 1
+        3 PUSH_INTEGER 6
+        4 PUSH_INTEGER 2
+        5 RANGE
+        6 RETURN""",
+        program.disassemble());
+    VmState state = new VmState();
+
+    new MooVm().execute(program, state);
+
+    assertEquals(VmState.Outcome.RETURNED, state.outcome());
+    assertEquals(new MapValue(Map.of()), state.returnValue().orElseThrow());
+  }
+
+  @Test
   void returnsInterruptErrorThroughTheCompleteLiteralPipeline() {
     byte[] source = "return E_INTRPT;".getBytes(StandardCharsets.ISO_8859_1);
     Ast.Program syntax = MooParser.parse(source);

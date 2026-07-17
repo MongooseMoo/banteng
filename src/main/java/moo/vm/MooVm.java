@@ -568,6 +568,14 @@ public final class MooVm {
       frame.instructionPointer++;
       return;
     }
+    if (collection instanceof MapValue
+        && start instanceof IntegerValue first
+        && end instanceof IntegerValue last
+        && last.value() < first.value()) {
+      frame.operandStack.push(new MapValue(Map.of()));
+      frame.instructionPointer++;
+      return;
+    }
     if (!(collection instanceof ListValue list)
         || !(start instanceof IntegerValue first)
         || !(end instanceof IntegerValue last)) {
