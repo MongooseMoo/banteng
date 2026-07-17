@@ -1583,6 +1583,9 @@ public final class BuiltinCatalog {
     if (arguments.getFirst() instanceof FloatValue floatingPoint) {
       return Result.value(new IntegerValue((long) floatingPoint.value()));
     }
+    if (arguments.getFirst() instanceof ObjectValue object) {
+      return Result.value(new IntegerValue(object.value()));
+    }
     if (arguments.getFirst() instanceof ErrorValue error) {
       return Result.value(new IntegerValue(error.code()));
     }
