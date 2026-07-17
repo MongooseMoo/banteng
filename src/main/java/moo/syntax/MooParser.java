@@ -1,5 +1,6 @@
 package moo.syntax;
 
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
@@ -29,6 +30,11 @@ public final class MooParser {
   /** Parses a complete stored or dynamically compiled MOO verb body. */
   public static Ast.Program parse(String source) {
     return new MooParser(source).parseProgram();
+  }
+
+  /** Parses one ISO-8859-1 MOO source byte sequence. */
+  public static Ast.Program parse(byte[] source) {
+    return parse(new String(source, StandardCharsets.ISO_8859_1));
   }
 
   private Ast.Program parseProgram() {

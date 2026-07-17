@@ -46,7 +46,8 @@ final class MooVmTest {
 
   @Test
   void returnsInterruptErrorThroughTheCompleteLiteralPipeline() {
-    BytecodeProgram program = new MooCompiler().compile(MooParser.parse("return E_INTRPT;"));
+    byte[] source = "return E_INTRPT;".getBytes(StandardCharsets.ISO_8859_1);
+    BytecodeProgram program = new MooCompiler().compile(MooParser.parse(source));
     VmState state = new VmState();
 
     assertEquals("0 PUSH_ERROR E_INTRPT\n1 RETURN", program.disassemble());
