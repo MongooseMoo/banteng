@@ -607,6 +607,15 @@ public final class MooVm {
       frame.instructionPointer++;
       return;
     }
+    if (collection instanceof ListValue list) {
+      if (list.size() == 0) {
+        raiseError(state, ErrorValue.E_RANGE, world);
+        return;
+      }
+      frame.operandStack.push(new IntegerValue(list.size()));
+      frame.instructionPointer++;
+      return;
+    }
     raiseError(state, ErrorValue.E_TYPE, world);
   }
 
