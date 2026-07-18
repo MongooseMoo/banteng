@@ -139,6 +139,67 @@ final class MooVmTest {
   }
 
   @Test
+  void iteratesStringBytesThroughTheCompleteControlFlowPipeline() {
+    byte[] source =
+        """
+        x = {};
+        for i in ("12345")
+          x = {@x, i};
+        endfor
+        return x;"""
+            .getBytes(StandardCharsets.ISO_8859_1);
+    Ast.Program syntax = MooParser.parse(source);
+    Ast.For forStatement = assertInstanceOf(Ast.For.class, syntax.statements().get(1));
+    assertEquals("i", forStatement.variable());
+    assertInstanceOf(Ast.StringLiteral.class, forStatement.iterable());
+    assertInstanceOf(Ast.ExpressionStatement.class, forStatement.body().getFirst());
+    assertEquals(
+        """
+        x = {};
+        for i in ("12345")
+          x = {@x, i};
+        endfor
+        return x;""",
+        MooUnparser.unparse(syntax));
+
+    BytecodeProgram program = new MooCompiler().compile(syntax);
+    assertEquals(
+        """
+        0 BUILD_LIST 0
+        1 DUP
+        2 STORE_LOCAL x
+        3 POP
+        4 PUSH_STRING 12345
+        5 ITERATE 15 i
+        6 BUILD_LIST 0
+        7 LOAD_LOCAL x
+        8 LIST_EXTEND
+        9 LOAD_LOCAL i
+        10 LIST_APPEND
+        11 DUP
+        12 STORE_LOCAL x
+        13 POP
+        14 JUMP 5
+        15 LOAD_LOCAL x
+        16 RETURN""",
+        program.disassemble());
+    VmState state = new VmState();
+
+    new MooVm().execute(program, state);
+
+    assertEquals(VmState.Outcome.RETURNED, state.outcome());
+    assertEquals(
+        new ListValue(
+            List.of(
+                new StringValue(new byte[] {'1'}),
+                new StringValue(new byte[] {'2'}),
+                new StringValue(new byte[] {'3'}),
+                new StringValue(new byte[] {'4'}),
+                new StringValue(new byte[] {'5'}))),
+        state.returnValue().orElseThrow());
+  }
+
+  @Test
   void comparesStringOrderingCaseInsensitively() {
     byte[] source = "return \"a\" < \"B\";".getBytes(StandardCharsets.ISO_8859_1);
     Ast.Program syntax = MooParser.parse(source);

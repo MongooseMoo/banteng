@@ -1410,11 +1410,20 @@ public final class MooVm {
     LoopCursor cursor = frame.loops.get(instructionIndex);
     if (cursor == null) {
       MooValue iterable = frame.operandStack.pop();
-      if (!(iterable instanceof ListValue list)) {
+      ListValue values;
+      if (iterable instanceof ListValue list) {
+        values = list;
+      } else if (iterable instanceof StringValue string) {
+        List<MooValue> characters = new ArrayList<>(string.length());
+        for (byte character : string.bytes()) {
+          characters.add(new StringValue(new byte[] {character}));
+        }
+        values = new ListValue(characters);
+      } else {
         raiseError(state, ErrorValue.E_TYPE, world);
         return;
       }
-      cursor = new LoopCursor(list);
+      cursor = new LoopCursor(values);
       frame.loops.put(instructionIndex, cursor);
     }
     if (cursor.nextIndex >= cursor.values.size()) {
