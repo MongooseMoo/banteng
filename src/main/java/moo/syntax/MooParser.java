@@ -362,7 +362,16 @@ public final class MooParser {
                     token.line(),
                     token.column())));
       }
-      case DOLLAR -> parseSystemProperty();
+      case DOLLAR -> {
+        if (indexDepth == 0) {
+          yield parseSystemProperty();
+        }
+        advance();
+        yield new Ast.LastIndex(
+            Optional.of(
+                new Ast.SourceSpan(
+                    token.startOffset(), token.endOffset(), token.line(), token.column())));
+      }
       case LEFT_PAREN -> {
         advance();
         Ast.Expression expression = parseExpression(ASSIGNMENT_PRECEDENCE);

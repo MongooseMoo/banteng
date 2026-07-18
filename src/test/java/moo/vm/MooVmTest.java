@@ -543,6 +543,56 @@ final class MooVmTest {
   }
 
   @Test
+  void indexesTheLastMapKeyThroughTheCompleteCollectionPipeline() {
+    byte[] source =
+        "return [1 -> 1, 2 -> 2, 3 -> 3, 4 -> 4, 5 -> 5, 6 -> 6, 7 -> 7][$];"
+            .getBytes(StandardCharsets.ISO_8859_1);
+    Ast.Program syntax = MooParser.parse(source);
+    Ast.Return returnStatement =
+        assertInstanceOf(Ast.Return.class, syntax.statements().getFirst());
+    Ast.IndexAccess index =
+        assertInstanceOf(Ast.IndexAccess.class, returnStatement.value().orElseThrow());
+    Ast.MapLiteral map = assertInstanceOf(Ast.MapLiteral.class, index.collection());
+    Ast.LastIndex last = assertInstanceOf(Ast.LastIndex.class, index.index());
+    assertEquals(new Ast.SourceSpan(0, 67, 1, 1), returnStatement.span().orElseThrow());
+    assertEquals(new Ast.SourceSpan(7, 66, 1, 8), index.span().orElseThrow());
+    assertEquals(new Ast.SourceSpan(7, 63, 1, 8), map.span().orElseThrow());
+    assertEquals(new Ast.SourceSpan(64, 65, 1, 65), last.span().orElseThrow());
+    assertEquals(
+        "return [1 -> 1, 2 -> 2, 3 -> 3, 4 -> 4, 5 -> 5, 6 -> 6, 7 -> 7][$];",
+        MooUnparser.unparse(syntax));
+
+    BytecodeProgram program = new MooCompiler().compile(syntax);
+    assertEquals(
+        """
+        0 PUSH_INTEGER 1
+        1 PUSH_INTEGER 1
+        2 PUSH_INTEGER 2
+        3 PUSH_INTEGER 2
+        4 PUSH_INTEGER 3
+        5 PUSH_INTEGER 3
+        6 PUSH_INTEGER 4
+        7 PUSH_INTEGER 4
+        8 PUSH_INTEGER 5
+        9 PUSH_INTEGER 5
+        10 PUSH_INTEGER 6
+        11 PUSH_INTEGER 6
+        12 PUSH_INTEGER 7
+        13 PUSH_INTEGER 7
+        14 BUILD_MAP 7
+        15 LAST
+        16 INDEX
+        17 RETURN""",
+        program.disassemble());
+    VmState state = new VmState();
+
+    new MooVm().execute(program, state);
+
+    assertEquals(VmState.Outcome.RETURNED, state.outcome());
+    assertEquals(new IntegerValue(7), state.returnValue().orElseThrow());
+  }
+
+  @Test
   void indexesTheFirstListValueThroughTheCompleteCollectionPipeline() {
     byte[] source = "return {1, 2, 3}[^];".getBytes(StandardCharsets.ISO_8859_1);
     Ast.Program syntax = MooParser.parse(source);

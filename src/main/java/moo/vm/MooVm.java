@@ -7,6 +7,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.OptionalLong;
 import moo.builtin.BuiltinCatalog;
 import moo.builtin.BuiltinCatalog.Result;
@@ -106,6 +107,7 @@ public final class MooVm {
       case INDEX -> index(frame, state, world);
       case RANGE -> range(frame, state, world);
       case FIRST -> firstIndex(frame, state, world);
+      case LAST -> lastIndex(frame, state, world);
       case SET_INDEX_LOCAL ->
           setIndexedLocal(frame, state, world, instruction.text().orElseThrow());
       case CALL -> {
@@ -324,6 +326,7 @@ public final class MooVm {
           INDEX,
           RANGE,
           FIRST,
+          LAST,
           SET_INDEX_LOCAL,
           CALL,
           CALL_VERB,
@@ -583,6 +586,24 @@ public final class MooVm {
         return;
       }
       frame.operandStack.push(new IntegerValue(1));
+      frame.instructionPointer++;
+      return;
+    }
+    raiseError(state, ErrorValue.E_TYPE, world);
+  }
+
+  private static void lastIndex(Frame frame, VmState state, WorldTxn world) {
+    MooValue collection = frame.operandStack.getFirst();
+    if (collection instanceof MapValue map) {
+      if (map.entries().isEmpty()) {
+        raiseError(state, ErrorValue.E_RANGE, world);
+        return;
+      }
+      MooValue last = null;
+      for (MooValue key : map.entries().keySet()) {
+        last = key;
+      }
+      frame.operandStack.push(Objects.requireNonNull(last));
       frame.instructionPointer++;
       return;
     }

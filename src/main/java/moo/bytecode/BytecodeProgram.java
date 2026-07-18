@@ -59,6 +59,7 @@ public record BytecodeProgram(List<Instruction> instructions, List<BytecodeProgr
     INDEX,
     RANGE,
     FIRST,
+    LAST,
     SET_INDEX_LOCAL,
     CALL,
     CALL_VERB,

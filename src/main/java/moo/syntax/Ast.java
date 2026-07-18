@@ -173,6 +173,7 @@ public sealed interface Ast
           IndexAccess,
           RangeAccess,
           FirstIndex,
+          LastIndex,
           Unary,
           Binary,
           Ternary,
@@ -413,6 +414,22 @@ public sealed interface Ast
     @Override
     public int hashCode() {
       return FirstIndex.class.hashCode();
+    }
+  }
+
+  record LastIndex(Optional<SourceSpan> span) implements Expression {
+    public LastIndex() {
+      this(Optional.empty());
+    }
+
+    @Override
+    public boolean equals(Object other) {
+      return other instanceof LastIndex;
+    }
+
+    @Override
+    public int hashCode() {
+      return LastIndex.class.hashCode();
     }
   }
 

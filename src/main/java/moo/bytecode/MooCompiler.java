@@ -289,6 +289,10 @@ public final class MooCompiler {
       instructions.add(new Instruction(Opcode.FIRST));
       return;
     }
+    if (expression instanceof Ast.LastIndex) {
+      instructions.add(new Instruction(Opcode.LAST));
+      return;
+    }
     if (expression instanceof Ast.Assignment assignment) {
       compileAssignment(assignment, instructions);
       return;
