@@ -3128,6 +3128,28 @@ final class MooVmTest {
   }
 
   @Test
+  void bindsACustomRaiseValueThroughTheCompleteExceptionPipeline() {
+    byte[] source =
+        "try raise(E_INVARG, \"msg\", {1, 2, 3}); "
+            .concat("except error (E_INVARG) return error[3]; endtry")
+            .getBytes(StandardCharsets.ISO_8859_1);
+    Ast.Program syntax = MooParser.parse(source);
+    Ast.Try tryStatement = assertInstanceOf(Ast.Try.class, syntax.statements().getFirst());
+    assertEquals("error", tryStatement.exceptClauses().getFirst().variable().orElseThrow());
+
+    BytecodeProgram program = new MooCompiler().compile(syntax);
+    VmState state = new VmState();
+
+    new MooVm().execute(program, state);
+
+    assertEquals(VmState.Outcome.RETURNED, state.outcome());
+    assertEquals(
+        new ListValue(
+            List.of(new IntegerValue(1), new IntegerValue(2), new IntegerValue(3))),
+        state.returnValue().orElseThrow());
+  }
+
+  @Test
   void exactNineArgumentSqliteOpenPresenceShapeReachesLaterAnyClause() {
     BytecodeProgram program =
         new MooCompiler()

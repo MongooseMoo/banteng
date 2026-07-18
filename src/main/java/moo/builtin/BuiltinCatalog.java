@@ -519,15 +519,18 @@ public final class BuiltinCatalog {
       case "sqlite_limit" -> sqliteLimit(arguments, world, programmer);
       case "sqlite_interrupt" -> sqliteInterrupt(arguments, world, programmer);
       case "raise" -> {
-        if (arguments.isEmpty() || arguments.size() > 2) {
+        if (arguments.isEmpty() || arguments.size() > 3) {
           yield Result.error(ErrorValue.E_ARGS);
         }
         if (!(arguments.getFirst() instanceof ErrorValue error)) {
           yield Result.error(ErrorValue.E_TYPE);
         }
-        if (arguments.size() == 2) {
+        if (arguments.size() >= 2) {
           if (!(arguments.get(1) instanceof StringValue message)) {
             yield Result.error(ErrorValue.E_TYPE);
+          }
+          if (arguments.size() == 3) {
+            yield Result.error(error, new ListValue(List.of(message, arguments.get(2))));
           }
           yield Result.error(error, new ListValue(List.of(message)));
         }
