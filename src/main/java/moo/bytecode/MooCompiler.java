@@ -124,7 +124,7 @@ public final class MooCompiler {
         }
       }
       if (loopIndex < 0) {
-        throw new IllegalArgumentException("unknown loop variable: " + loopVariable);
+        throw new IllegalArgumentException("Invalid loop name: " + loopVariable);
       }
       instructions.add(new Instruction(Opcode.JUMP, activeLoopStarts.get(loopIndex)));
       return;
