@@ -200,6 +200,71 @@ final class MooVmTest {
   }
 
   @Test
+  void bindsStringBytesAndIndexesThroughTheCompleteControlFlowPipeline() {
+    byte[] source =
+        """
+        x = {};
+        for i, j in ("12")
+          x = {@x, {i, j}};
+        endfor
+        return x;"""
+            .getBytes(StandardCharsets.ISO_8859_1);
+    Ast.Program syntax = MooParser.parse(source);
+    Ast.For forStatement = assertInstanceOf(Ast.For.class, syntax.statements().get(1));
+    assertEquals("i", forStatement.variable());
+    assertEquals("j", forStatement.indexVariable().orElseThrow());
+    assertInstanceOf(Ast.StringLiteral.class, forStatement.iterable());
+    assertInstanceOf(Ast.ExpressionStatement.class, forStatement.body().getFirst());
+    assertEquals(
+        """
+        x = {};
+        for i, j in ("12")
+          x = {@x, {i, j}};
+        endfor
+        return x;""",
+        MooUnparser.unparse(syntax));
+
+    BytecodeProgram program = new MooCompiler().compile(syntax);
+    assertEquals(
+        """
+        0 BUILD_LIST 0
+        1 DUP
+        2 STORE_LOCAL x
+        3 POP
+        4 PUSH_STRING 12
+        5 ITERATE 19 i,j
+        6 BUILD_LIST 0
+        7 LOAD_LOCAL x
+        8 LIST_EXTEND
+        9 BUILD_LIST 0
+        10 LOAD_LOCAL i
+        11 LIST_APPEND
+        12 LOAD_LOCAL j
+        13 LIST_APPEND
+        14 LIST_APPEND
+        15 DUP
+        16 STORE_LOCAL x
+        17 POP
+        18 JUMP 5
+        19 LOAD_LOCAL x
+        20 RETURN""",
+        program.disassemble());
+    VmState state = new VmState();
+
+    new MooVm().execute(program, state);
+
+    assertEquals(VmState.Outcome.RETURNED, state.outcome());
+    assertEquals(
+        new ListValue(
+            List.of(
+                new ListValue(
+                    List.of(new StringValue(new byte[] {'1'}), new IntegerValue(1))),
+                new ListValue(
+                    List.of(new StringValue(new byte[] {'2'}), new IntegerValue(2))))),
+        state.returnValue().orElseThrow());
+  }
+
+  @Test
   void comparesStringOrderingCaseInsensitively() {
     byte[] source = "return \"a\" < \"B\";".getBytes(StandardCharsets.ISO_8859_1);
     Ast.Program syntax = MooParser.parse(source);

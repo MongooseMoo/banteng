@@ -65,7 +65,12 @@ public final class MooCompiler {
     if (statement instanceof Ast.For forStatement) {
       compileExpression(forStatement.iterable(), instructions);
       int iterate = instructions.size();
-      instructions.add(new Instruction(Opcode.ITERATE, -1, forStatement.variable()));
+      String variables =
+          forStatement
+              .indexVariable()
+              .map(index -> forStatement.variable() + "," + index)
+              .orElse(forStatement.variable());
+      instructions.add(new Instruction(Opcode.ITERATE, -1, variables));
       compileStatements(forStatement.body(), instructions, forkVectors);
       instructions.add(new Instruction(Opcode.JUMP, iterate));
       patchNumericOperand(iterate, instructions.size(), instructions);

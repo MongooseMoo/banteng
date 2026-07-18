@@ -129,11 +129,16 @@ public final class MooParser {
     advance();
     String variable = expect(TokenKind.IDENTIFIER, "loop variable").lexeme();
     advance();
+    Optional<String> indexVariable = Optional.empty();
+    if (match(TokenKind.COMMA)) {
+      indexVariable = Optional.of(expect(TokenKind.IDENTIFIER, "loop index variable").lexeme());
+      advance();
+    }
     expectAndAdvance(TokenKind.IN, "in");
     Ast.Expression iterable = parseParenthesizedExpression("for");
     List<Ast.Statement> body = parseStatementsUntil(TokenKind.ENDFOR);
     expectAndAdvance(TokenKind.ENDFOR, "endfor");
-    return new Ast.For(variable, iterable, body);
+    return new Ast.For(variable, indexVariable, iterable, body);
   }
 
   private Ast.Fork parseFork() {

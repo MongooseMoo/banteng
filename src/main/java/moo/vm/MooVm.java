@@ -1431,9 +1431,13 @@ public final class MooVm {
       frame.instructionPointer = target(instruction);
       return;
     }
-    frame.locals.put(
-        normalize(instruction.text().orElseThrow()),
-        cursor.values.elements().get(cursor.nextIndex++));
+    String[] variables = instruction.text().orElseThrow().split(",", -1);
+    MooValue value = cursor.values.elements().get(cursor.nextIndex);
+    frame.locals.put(normalize(variables[0]), value);
+    if (variables.length == 2) {
+      frame.locals.put(normalize(variables[1]), new IntegerValue(cursor.nextIndex + 1L));
+    }
+    cursor.nextIndex++;
     frame.instructionPointer++;
   }
 

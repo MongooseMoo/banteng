@@ -104,6 +104,7 @@ public final class MooUnparser {
             indentation,
             "for "
                 + forStatement.variable()
+                + forStatement.indexVariable().map(index -> ", " + index).orElse("")
                 + " in ("
                 + expression(forStatement.iterable(), ASSIGNMENT_PRECEDENCE)
                 + ")");
