@@ -806,6 +806,25 @@ public final class MooVm {
             insertionPoint + inserted.length,
             original.length - insertionPoint);
         updatedCollection = new StringValue(replaced);
+      } else if (last.value() < first.value()
+          && first.value() >= 1
+          && first.value() <= string.length()
+          && last.value() >= 1
+          && last.value() <= string.length()) {
+        byte[] original = string.bytes();
+        byte[] inserted = replacement.bytes();
+        int prefixLength = Math.toIntExact(first.value() - 1);
+        int suffixStart = Math.toIntExact(last.value());
+        byte[] replaced = new byte[prefixLength + inserted.length + original.length - suffixStart];
+        System.arraycopy(original, 0, replaced, 0, prefixLength);
+        System.arraycopy(inserted, 0, replaced, prefixLength, inserted.length);
+        System.arraycopy(
+            original,
+            suffixStart,
+            replaced,
+            prefixLength + inserted.length,
+            original.length - suffixStart);
+        updatedCollection = new StringValue(replaced);
       } else if (first.value() == string.length() + 1L && last.value() >= first.value()) {
         byte[] original = string.bytes();
         byte[] inserted = replacement.bytes();
