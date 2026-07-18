@@ -548,16 +548,25 @@ public final class MooVm {
 
   private static void firstIndex(Frame frame, VmState state, WorldTxn world) {
     MooValue collection = frame.operandStack.getFirst();
-    if (!(collection instanceof MapValue map)) {
-      raiseError(state, ErrorValue.E_TYPE, world);
+    if (collection instanceof MapValue map) {
+      if (map.entries().isEmpty()) {
+        raiseError(state, ErrorValue.E_RANGE, world);
+        return;
+      }
+      frame.operandStack.push(map.entries().keySet().iterator().next());
+      frame.instructionPointer++;
       return;
     }
-    if (map.entries().isEmpty()) {
-      raiseError(state, ErrorValue.E_RANGE, world);
+    if (collection instanceof ListValue list) {
+      if (list.size() == 0) {
+        raiseError(state, ErrorValue.E_RANGE, world);
+        return;
+      }
+      frame.operandStack.push(new IntegerValue(1));
+      frame.instructionPointer++;
       return;
     }
-    frame.operandStack.push(map.entries().keySet().iterator().next());
-    frame.instructionPointer++;
+    raiseError(state, ErrorValue.E_TYPE, world);
   }
 
   private static void range(Frame frame, VmState state, WorldTxn world) {

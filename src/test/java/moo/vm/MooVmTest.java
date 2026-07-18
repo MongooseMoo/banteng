@@ -543,6 +543,44 @@ final class MooVmTest {
   }
 
   @Test
+  void indexesTheFirstListValueThroughTheCompleteCollectionPipeline() {
+    byte[] source = "return {1, 2, 3}[^];".getBytes(StandardCharsets.ISO_8859_1);
+    Ast.Program syntax = MooParser.parse(source);
+    Ast.Return returnStatement =
+        assertInstanceOf(Ast.Return.class, syntax.statements().getFirst());
+    Ast.IndexAccess index =
+        assertInstanceOf(Ast.IndexAccess.class, returnStatement.value().orElseThrow());
+    Ast.ListLiteral list = assertInstanceOf(Ast.ListLiteral.class, index.collection());
+    Ast.FirstIndex first = assertInstanceOf(Ast.FirstIndex.class, index.index());
+    assertEquals(new Ast.SourceSpan(0, 20, 1, 1), returnStatement.span().orElseThrow());
+    assertEquals(new Ast.SourceSpan(7, 19, 1, 8), index.span().orElseThrow());
+    assertEquals(new Ast.SourceSpan(7, 16, 1, 8), list.span().orElseThrow());
+    assertEquals(new Ast.SourceSpan(17, 18, 1, 18), first.span().orElseThrow());
+    assertEquals("return {1, 2, 3}[^];", MooUnparser.unparse(syntax));
+
+    BytecodeProgram program = new MooCompiler().compile(syntax);
+    assertEquals(
+        """
+        0 BUILD_LIST 0
+        1 PUSH_INTEGER 1
+        2 LIST_APPEND
+        3 PUSH_INTEGER 2
+        4 LIST_APPEND
+        5 PUSH_INTEGER 3
+        6 LIST_APPEND
+        7 FIRST
+        8 INDEX
+        9 RETURN""",
+        program.disassemble());
+    VmState state = new VmState();
+
+    new MooVm().execute(program, state);
+
+    assertEquals(VmState.Outcome.RETURNED, state.outcome());
+    assertEquals(new IntegerValue(1), state.returnValue().orElseThrow());
+  }
+
+  @Test
   void returnsInterruptErrorThroughTheCompleteLiteralPipeline() {
     byte[] source = "return E_INTRPT;".getBytes(StandardCharsets.ISO_8859_1);
     Ast.Program syntax = MooParser.parse(source);
