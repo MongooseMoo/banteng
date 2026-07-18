@@ -269,8 +269,7 @@ Deliverables, in order:
    `restart_server`, reconnects as Wizard, evaluates `return 40 + 2;`, and
    requires `42`.
 2. After its schema and CLI tests pass, commit the candidate row by itself in
-   `moo-conformance-tests` so managed runs execute a clean conformance checkout.
-   Prove it green against pinned stock Toast. If its expectation is wrong,
+   `moo-conformance-tests`. Prove it green against pinned stock Toast. If its expectation is wrong,
    correct only that row and amend the same candidate commit before rerunning.
    Then run it against the current Banteng HEAD. If red, amend the conformance
    commit with trailer `Banteng-red: <exact HEAD>` before any Phase 2 corrective
