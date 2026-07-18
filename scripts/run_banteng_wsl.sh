@@ -22,7 +22,14 @@ if [[ ! -f "$manifest" ]]; then
   exit 66
 fi
 
-promote_numbers="$(jq -er '.features["option.PROMOTE_NUMBERS"] | select(type == "boolean")' "$manifest")"
+promote_numbers="$(
+  jq -r '
+    if (.features["option.PROMOTE_NUMBERS"] | type) == "boolean"
+    then .features["option.PROMOTE_NUMBERS"]
+    else error("option.PROMOTE_NUMBERS must be boolean")
+    end
+  ' "$manifest"
+)"
 
 exec /opt/java/25/bin/java \
   -classpath "$distribution_lib/*" \

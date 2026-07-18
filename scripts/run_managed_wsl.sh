@@ -91,7 +91,14 @@ if [[ ${#login_commands[@]} -gt 0 ]]; then
   command+=(--moo-login-script-env BANTENG_MOO_LOGIN_COMMANDS)
 fi
 
-skip_standard_properties="$(jq -er '.skip_standard_properties | select(type == "boolean")' "$target_manifest")"
+skip_standard_properties="$(
+  jq -r '
+    if (.skip_standard_properties | type) == "boolean"
+    then .skip_standard_properties
+    else error("skip_standard_properties must be boolean")
+    end
+  ' "$target_manifest"
+)"
 if [[ "$skip_standard_properties" == "true" ]]; then
   command+=(--moo-skip-standard-properties)
 fi
