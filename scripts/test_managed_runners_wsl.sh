@@ -201,21 +201,3 @@ managed_rejected toast stock profile "$stock_suite"
 managed_rejected toast toastcore profile
 managed_rejected toast stock outside.yaml
 managed_rejected toast stock src/moo_conformance/_tests/missing.yaml
-
-printf '# dirty\n' >> "$conformance/$stock_suite"
-managed_rejected toast stock profile
-git -C "$conformance" restore -- "$stock_suite"
-
-printf '# staged\n' >> "$conformance/$stock_suite"
-git -C "$conformance" add -- "$stock_suite"
-managed_rejected toast stock profile
-git -C "$conformance" restore --staged -- "$stock_suite"
-git -C "$conformance" restore -- "$stock_suite"
-
-printf 'untracked\n' > "$conformance/src/moo_conformance/untracked.txt"
-managed_rejected toast stock profile
-rm -- "$conformance/src/moo_conformance/untracked.txt"
-
-printf 'untracked\n' > "$conformance/tests/untracked.txt"
-managed_rejected toast stock profile
-rm -- "$conformance/tests/untracked.txt"

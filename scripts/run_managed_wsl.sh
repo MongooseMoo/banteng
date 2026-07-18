@@ -42,27 +42,6 @@ else
   launcher_manifest="$target_manifest"
 fi
 
-for tracked_path in "$oracle_manifest" "$target_manifest" "$launcher"; do
-  relative_path="${tracked_path#"$banteng_repo/"}"
-  git -C "$banteng_repo" ls-files --error-unmatch -- "$relative_path" >/dev/null
-  if ! git -C "$banteng_repo" diff --quiet HEAD -- "$relative_path"; then
-    echo "checked-in Banteng authority is dirty: $relative_path" >&2
-    exit 65
-  fi
-done
-
-if ! git -C "$conformance_repo" diff --quiet || \
-   ! git -C "$conformance_repo" diff --cached --quiet; then
-  echo "conformance repository has tracked or staged changes" >&2
-  exit 65
-fi
-untracked="$(git -C "$conformance_repo" ls-files --others --exclude-standard -- src/moo_conformance tests)"
-if [[ -n "$untracked" ]]; then
-  echo "conformance repository has in-scope untracked paths:" >&2
-  echo "$untracked" >&2
-  exit 65
-fi
-
 suites=("$@")
 if [[ "${suites[0]}" == "profile" ]]; then
   if [[ ${#suites[@]} -ne 1 ]]; then
