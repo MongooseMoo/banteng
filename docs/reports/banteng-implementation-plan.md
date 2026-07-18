@@ -172,9 +172,12 @@ Deliverables:
    and target manifests, `--server-db-dir
    src/moo_conformance/_db/startup`, `--fail-on-unexpected-skip`, login commands,
    and standard-property behavior. It rejects every other argument shape,
-   rejects any tracked or staged conformance change and any untracked path below
-   conformance `src/moo_conformance` or `tests`, and
-   is checked in executable. `profile` expands only to the target manifest's
+   rejects any tracked or staged conformance change and any untracked
+   execution input: Python under `src/moo_conformance`, YAML under
+   `src/moo_conformance/_tests`, or any file under
+   `src/moo_conformance/_db` or `src/moo_conformance/_exec_fixtures`. Inert
+   editor and backup files such as `*.bak` and `*.backup` do not fail this gate.
+   The script is checked in executable. `profile` expands only to the target manifest's
    nonempty checked-in `test_suites` array.
 10. Add `scripts/test_verify_toast_profile_wsl.sh`. It must prove the verifier
    returns nonzero for a wrong source HEAD, executable checksum, configuration
@@ -190,8 +193,10 @@ Deliverables:
    launch; Banteng invokes `/opt/java/25/bin/java`; only the target manifest
    controls `PROMOTE_NUMBERS`; every invalid target, profile, and suite shape is
    rejected; `profile` expands only the selected nonempty suite array; login and
-   standard-property options match the selected profile; dirty tracked, staged,
-   and in-scope untracked conformance state is rejected; and
+   standard-property options match the selected profile; dirty tracked and
+   staged state is rejected; untracked Python, selected YAML, database, and
+   executable-fixture inputs are rejected; inert `.bak` and `.backup` files are
+   allowed; and
    `--fail-on-unexpected-skip` is forwarded.
 12. Keep the selected fixtures exact:
    `../moo-conformance-tests/src/moo_conformance/_db/Test.db` at SHA-256
