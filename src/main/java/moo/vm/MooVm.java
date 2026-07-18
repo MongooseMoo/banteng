@@ -894,6 +894,13 @@ public final class MooVm {
         updatedCollection = new ListValue(replaced);
       }
     } else if (collection instanceof MapValue map && value instanceof MapValue replacement) {
+      if (start instanceof ListValue
+          || start instanceof MapValue
+          || end instanceof ListValue
+          || end instanceof MapValue) {
+        raiseError(state, ErrorValue.E_TYPE, world);
+        return;
+      }
       List<MooValue> keys = new ArrayList<>(map.entries().keySet());
       int firstPosition = keys.indexOf(start);
       int lastPosition = keys.indexOf(end);

@@ -1217,6 +1217,60 @@ final class MooVmTest {
   }
 
   @Test
+  void rejectsACollectionValuedMapRangeAssignmentEndThroughTheCompleteCollectionPipeline() {
+    byte[] source =
+        "t = [1 -> 1]; t[1..[]] = [\"1\" -> \"1\"]; return t;"
+            .getBytes(StandardCharsets.ISO_8859_1);
+    Ast.Program syntax = MooParser.parse(source);
+    Ast.ExpressionStatement initialAssignmentStatement =
+        assertInstanceOf(Ast.ExpressionStatement.class, syntax.statements().getFirst());
+    Ast.Assignment initialAssignment =
+        assertInstanceOf(Ast.Assignment.class, initialAssignmentStatement.expression());
+    assertInstanceOf(Ast.MapLiteral.class, initialAssignment.value());
+    Ast.ExpressionStatement rangeAssignmentStatement =
+        assertInstanceOf(Ast.ExpressionStatement.class, syntax.statements().get(1));
+    Ast.Assignment rangeAssignment =
+        assertInstanceOf(Ast.Assignment.class, rangeAssignmentStatement.expression());
+    assertEquals("RangeTarget", rangeAssignment.target().getClass().getSimpleName());
+    assertInstanceOf(Ast.MapLiteral.class, rangeAssignment.value());
+    assertInstanceOf(Ast.Return.class, syntax.statements().get(2));
+    assertEquals(
+        """
+        t = [1 -> 1];
+        t[1..[]] = ["1" -> "1"];
+        return t;""",
+        MooUnparser.unparse(syntax));
+
+    BytecodeProgram program = new MooCompiler().compile(syntax);
+    assertEquals(
+        """
+        0 PUSH_INTEGER 1
+        1 PUSH_INTEGER 1
+        2 BUILD_MAP 1
+        3 DUP
+        4 STORE_LOCAL t
+        5 POP
+        6 LOAD_LOCAL t
+        7 ENTER_INDEX
+        8 PUSH_INTEGER 1
+        9 BUILD_MAP 0
+        10 PUSH_STRING 1
+        11 PUSH_STRING 1
+        12 BUILD_MAP 1
+        13 SET_RANGE_LOCAL t
+        14 POP
+        15 LOAD_LOCAL t
+        16 RETURN""",
+        program.disassemble());
+    VmState state = new VmState();
+
+    new MooVm().execute(program, state);
+
+    assertEquals(VmState.Outcome.ERRORED, state.outcome());
+    assertEquals(ErrorValue.E_TYPE, state.uncaughtError().orElseThrow());
+  }
+
+  @Test
   void appendsAnInvertedMapRangeThroughTheCompleteCollectionPipeline() {
     byte[] source =
         ("t = [1 -> 1, 2 -> 2, 3 -> 3, 4 -> 4, 5 -> 5, 6 -> 6, 7 -> 7]; "
