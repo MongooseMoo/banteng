@@ -790,7 +790,23 @@ public final class MooVm {
         raiseError(state, ErrorValue.E_TYPE, world);
         return;
       }
-      if (first.value() == string.length() + 1L && last.value() >= first.value()) {
+      if (last.value() == first.value() - 1
+          && first.value() >= 1
+          && first.value() <= string.length() + 1L) {
+        byte[] original = string.bytes();
+        byte[] inserted = replacement.bytes();
+        int insertionPoint = Math.toIntExact(first.value() - 1);
+        byte[] replaced = new byte[original.length + inserted.length];
+        System.arraycopy(original, 0, replaced, 0, insertionPoint);
+        System.arraycopy(inserted, 0, replaced, insertionPoint, inserted.length);
+        System.arraycopy(
+            original,
+            insertionPoint,
+            replaced,
+            insertionPoint + inserted.length,
+            original.length - insertionPoint);
+        updatedCollection = new StringValue(replaced);
+      } else if (first.value() == string.length() + 1L && last.value() >= first.value()) {
         byte[] original = string.bytes();
         byte[] inserted = replacement.bytes();
         byte[] appended = Arrays.copyOf(original, original.length + inserted.length);
