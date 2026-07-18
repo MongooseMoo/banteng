@@ -979,7 +979,12 @@ public final class MooVm {
             state.callerProgrammer(),
             state.callers());
     if (result.error().isPresent()) {
-      raiseError(state, result.error().orElseThrow(), world);
+      if (result.errorDetails().isPresent()) {
+        raiseError(
+            state, result.error().orElseThrow(), result.errorDetails().orElseThrow(), world);
+      } else {
+        raiseError(state, result.error().orElseThrow(), world);
+      }
       return;
     }
     result.taskLocal().ifPresent(state::setTaskLocal);
@@ -1581,6 +1586,11 @@ public final class MooVm {
   }
 
   private static void raiseError(VmState state, ErrorValue error, WorldTxn world) {
+    raiseError(state, error, new ListValue(List.of(encode(""))), world);
+  }
+
+  private static void raiseError(
+      VmState state, ErrorValue error, ListValue details, WorldTxn world) {
     state.beginError(error);
     while (true) {
       Frame frame = state.currentFrame();
@@ -1605,16 +1615,18 @@ public final class MooVm {
           } else {
             handler.phase = HandlerPhase.CATCH;
           }
+          MooValue catchValue = error;
+          if (handler.specification.structuredCatchBinding()) {
+            List<MooValue> elements = new ArrayList<>();
+            elements.add(error);
+            elements.addAll(details.elements());
+            catchValue = new ListValue(elements);
+          }
+          MooValue boundValue = catchValue;
           handler
               .specification
               .catchVariable()
-              .ifPresent(
-                  name ->
-                      frame.locals.put(
-                          name,
-                          handler.specification.structuredCatchBinding()
-                              ? new ListValue(List.of(error, encode("")))
-                              : error));
+              .ifPresent(name -> frame.locals.put(name, boundValue));
           state.clearPendingError();
           frame.instructionPointer = handler.specification.catchTarget();
           return;

@@ -519,11 +519,17 @@ public final class BuiltinCatalog {
       case "sqlite_limit" -> sqliteLimit(arguments, world, programmer);
       case "sqlite_interrupt" -> sqliteInterrupt(arguments, world, programmer);
       case "raise" -> {
-        if (arguments.size() != 1) {
+        if (arguments.isEmpty() || arguments.size() > 2) {
           yield Result.error(ErrorValue.E_ARGS);
         }
         if (!(arguments.getFirst() instanceof ErrorValue error)) {
           yield Result.error(ErrorValue.E_TYPE);
+        }
+        if (arguments.size() == 2) {
+          if (!(arguments.get(1) instanceof StringValue message)) {
+            yield Result.error(ErrorValue.E_TYPE);
+          }
+          yield Result.error(error, new ListValue(List.of(message)));
         }
         yield Result.error(error);
       }
@@ -2121,7 +2127,8 @@ public final class BuiltinCatalog {
       Optional<ForcedInputRequest> forcedInputRequest,
       Optional<MooValue> taskLocal,
       OptionalLong moveObject,
-      OptionalLong moveDestination) {
+      OptionalLong moveDestination,
+      Optional<ListValue> errorDetails) {
     private Result(
         Optional<MooValue> value,
         Optional<ErrorValue> error,
@@ -2150,7 +2157,8 @@ public final class BuiltinCatalog {
           forcedInputRequest,
           Optional.empty(),
           OptionalLong.empty(),
-          OptionalLong.empty());
+          OptionalLong.empty(),
+          Optional.empty());
     }
 
     static Result value(MooValue value) {
@@ -2189,7 +2197,8 @@ public final class BuiltinCatalog {
           Optional.empty(),
           Optional.of(value),
           OptionalLong.empty(),
-          OptionalLong.empty());
+          OptionalLong.empty(),
+          Optional.empty());
     }
 
     static Result error(ErrorValue error) {
@@ -2206,6 +2215,26 @@ public final class BuiltinCatalog {
           Optional.empty(),
           OptionalLong.empty(),
           Optional.empty());
+    }
+
+    static Result error(ErrorValue error, ListValue details) {
+      return new Result(
+          Optional.empty(),
+          Optional.of(error),
+          Optional.empty(),
+          Optional.empty(),
+          OptionalLong.empty(),
+          OptionalLong.empty(),
+          OptionalLong.empty(),
+          OptionalDouble.empty(),
+          Optional.empty(),
+          Optional.empty(),
+          OptionalLong.empty(),
+          Optional.empty(),
+          Optional.empty(),
+          OptionalLong.empty(),
+          OptionalLong.empty(),
+          Optional.of(details));
     }
 
     static Result dynamicEval(String source) {
@@ -2304,7 +2333,8 @@ public final class BuiltinCatalog {
           Optional.empty(),
           Optional.empty(),
           OptionalLong.of(object),
-          OptionalLong.of(destination));
+          OptionalLong.of(destination),
+          Optional.empty());
     }
 
     static Result delay(double seconds) {
