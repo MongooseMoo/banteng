@@ -764,6 +764,19 @@ public final class MooVm {
         raiseError(state, ErrorValue.E_TYPE, world);
         return;
       }
+      if (last.value() == first.value() - 1
+          && first.value() >= 1
+          && first.value() <= list.size() + 1L) {
+        int insertionPoint = Math.toIntExact(first.value() - 1);
+        List<MooValue> inserted = new ArrayList<>();
+        inserted.addAll(list.elements().subList(0, insertionPoint));
+        inserted.addAll(replacement.elements());
+        inserted.addAll(list.elements().subList(insertionPoint, list.size()));
+        frame.locals.put(normalize(owner), new ListValue(inserted));
+        frame.operandStack.push(value);
+        frame.instructionPointer++;
+        return;
+      }
       if (first.value() < 1 || last.value() < first.value() || last.value() > list.size()) {
         raiseError(state, ErrorValue.E_RANGE, world);
         return;

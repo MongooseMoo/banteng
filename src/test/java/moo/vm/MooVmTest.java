@@ -483,6 +483,86 @@ final class MooVmTest {
   }
 
   @Test
+  void insertsAtAnInvertedListRangeThroughTheCompleteCollectionPipeline() {
+    byte[] source =
+        "l = {1, 6, 7, 8, 9}; l[2..1] = {10, \"foo\"}; return l;"
+            .getBytes(StandardCharsets.ISO_8859_1);
+    Ast.Program syntax = MooParser.parse(source);
+    Ast.ExpressionStatement initialAssignmentStatement =
+        assertInstanceOf(Ast.ExpressionStatement.class, syntax.statements().getFirst());
+    Ast.Assignment initialAssignment =
+        assertInstanceOf(Ast.Assignment.class, initialAssignmentStatement.expression());
+    Ast.ListLiteral initialList = assertInstanceOf(Ast.ListLiteral.class, initialAssignment.value());
+    Ast.ExpressionStatement rangeAssignmentStatement =
+        assertInstanceOf(Ast.ExpressionStatement.class, syntax.statements().get(1));
+    Ast.Assignment rangeAssignment =
+        assertInstanceOf(Ast.Assignment.class, rangeAssignmentStatement.expression());
+    Ast.ListLiteral replacement = assertInstanceOf(Ast.ListLiteral.class, rangeAssignment.value());
+    Ast.Return returnStatement = assertInstanceOf(Ast.Return.class, syntax.statements().get(2));
+    assertEquals("RangeTarget", rangeAssignment.target().getClass().getSimpleName());
+    assertEquals(new Ast.SourceSpan(4, 19, 1, 5), initialList.span().orElseThrow());
+    assertEquals(
+        new Ast.SourceSpan(21, 43, 1, 22), rangeAssignmentStatement.span().orElseThrow());
+    assertEquals(new Ast.SourceSpan(31, 42, 1, 32), replacement.span().orElseThrow());
+    assertEquals(new Ast.SourceSpan(44, 53, 1, 45), returnStatement.span().orElseThrow());
+    assertEquals(
+        """
+        l = {1, 6, 7, 8, 9};
+        l[2..1] = {10, "foo"};
+        return l;""",
+        MooUnparser.unparse(syntax));
+
+    BytecodeProgram program = new MooCompiler().compile(syntax);
+    assertEquals(
+        """
+        0 BUILD_LIST 0
+        1 PUSH_INTEGER 1
+        2 LIST_APPEND
+        3 PUSH_INTEGER 6
+        4 LIST_APPEND
+        5 PUSH_INTEGER 7
+        6 LIST_APPEND
+        7 PUSH_INTEGER 8
+        8 LIST_APPEND
+        9 PUSH_INTEGER 9
+        10 LIST_APPEND
+        11 DUP
+        12 STORE_LOCAL l
+        13 POP
+        14 LOAD_LOCAL l
+        15 ENTER_INDEX
+        16 PUSH_INTEGER 2
+        17 PUSH_INTEGER 1
+        18 BUILD_LIST 0
+        19 PUSH_INTEGER 10
+        20 LIST_APPEND
+        21 PUSH_STRING foo
+        22 LIST_APPEND
+        23 SET_RANGE_LOCAL l
+        24 POP
+        25 LOAD_LOCAL l
+        26 RETURN""",
+        program.disassemble());
+    VmState state = new VmState();
+
+    new MooVm().execute(program, state);
+
+    assertEquals(VmState.Outcome.RETURNED, state.outcome());
+    assertTrue(state.uncaughtError().isEmpty());
+    assertEquals(
+        new ListValue(
+            List.of(
+                new IntegerValue(1),
+                new IntegerValue(10),
+                new StringValue("foo".getBytes(StandardCharsets.ISO_8859_1)),
+                new IntegerValue(6),
+                new IntegerValue(7),
+                new IntegerValue(8),
+                new IntegerValue(9))),
+        state.returnValue().orElseThrow());
+  }
+
+  @Test
   void returnsAnInclusiveStringRangeThroughTheCompleteCollectionPipeline() {
     byte[] source = "return \"foobar\"[3..3];".getBytes(StandardCharsets.ISO_8859_1);
     Ast.Program syntax = MooParser.parse(source);
