@@ -759,6 +759,24 @@ public final class MooVm {
     MooValue end = frame.operandStack.pop();
     MooValue start = frame.operandStack.pop();
     MooValue collection = frame.operandStack.pop();
+    if (collection instanceof ListValue list && value instanceof ListValue replacement) {
+      if (!(start instanceof IntegerValue first) || !(end instanceof IntegerValue last)) {
+        raiseError(state, ErrorValue.E_TYPE, world);
+        return;
+      }
+      if (first.value() < 1 || last.value() < first.value() || last.value() > list.size()) {
+        raiseError(state, ErrorValue.E_RANGE, world);
+        return;
+      }
+      List<MooValue> replaced = new ArrayList<>();
+      replaced.addAll(list.elements().subList(0, Math.toIntExact(first.value() - 1)));
+      replaced.addAll(replacement.elements());
+      replaced.addAll(list.elements().subList(Math.toIntExact(last.value()), list.size()));
+      frame.locals.put(normalize(owner), new ListValue(replaced));
+      frame.operandStack.push(value);
+      frame.instructionPointer++;
+      return;
+    }
     if (!(collection instanceof MapValue map) || !(value instanceof MapValue replacement)) {
       raiseError(state, ErrorValue.E_TYPE, world);
       return;
