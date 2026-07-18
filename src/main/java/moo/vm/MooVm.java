@@ -660,11 +660,27 @@ public final class MooVm {
       frame.instructionPointer++;
       return;
     }
-    if (collection instanceof MapValue
-        && start instanceof IntegerValue first
-        && end instanceof IntegerValue last
-        && last.value() < first.value()) {
-      frame.operandStack.push(new MapValue(Map.of()));
+    if (collection instanceof MapValue map) {
+      if (start instanceof IntegerValue first
+          && end instanceof IntegerValue last
+          && last.value() < first.value()) {
+        frame.operandStack.push(new MapValue(Map.of()));
+        frame.instructionPointer++;
+        return;
+      }
+      List<MooValue> keys = new ArrayList<>(map.entries().keySet());
+      int firstPosition = keys.indexOf(start);
+      int lastPosition = keys.indexOf(end);
+      if (firstPosition < 0 || lastPosition < 0) {
+        raiseError(state, ErrorValue.E_RANGE, world);
+        return;
+      }
+      Map<MooValue, MooValue> selected = new LinkedHashMap<>();
+      for (int position = firstPosition; position <= lastPosition; position++) {
+        MooValue key = keys.get(position);
+        selected.put(key, map.entries().get(key));
+      }
+      frame.operandStack.push(new MapValue(selected));
       frame.instructionPointer++;
       return;
     }

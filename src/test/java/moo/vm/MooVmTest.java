@@ -477,6 +477,71 @@ final class MooVmTest {
   }
 
   @Test
+  void returnsAFullMapRangeThroughTheCompleteCollectionPipeline() {
+    byte[] source =
+        "return [1 -> 1, 2 -> 2, 3 -> 3, 4 -> 4, 5 -> 5, 6 -> 6, 7 -> 7][^..$];"
+            .getBytes(StandardCharsets.ISO_8859_1);
+    Ast.Program syntax = MooParser.parse(source);
+    Ast.Return returnStatement =
+        assertInstanceOf(Ast.Return.class, syntax.statements().getFirst());
+    Ast.RangeAccess range =
+        assertInstanceOf(Ast.RangeAccess.class, returnStatement.value().orElseThrow());
+    Ast.MapLiteral map = assertInstanceOf(Ast.MapLiteral.class, range.collection());
+    Ast.FirstIndex first = assertInstanceOf(Ast.FirstIndex.class, range.start());
+    Ast.LastIndex last = assertInstanceOf(Ast.LastIndex.class, range.end());
+    assertEquals(new Ast.SourceSpan(0, 70, 1, 1), returnStatement.span().orElseThrow());
+    assertEquals(new Ast.SourceSpan(7, 69, 1, 8), range.span().orElseThrow());
+    assertEquals(new Ast.SourceSpan(7, 63, 1, 8), map.span().orElseThrow());
+    assertEquals(new Ast.SourceSpan(64, 65, 1, 65), first.span().orElseThrow());
+    assertEquals(new Ast.SourceSpan(67, 68, 1, 68), last.span().orElseThrow());
+    assertEquals(
+        "return [1 -> 1, 2 -> 2, 3 -> 3, 4 -> 4, 5 -> 5, 6 -> 6, 7 -> 7][^..$];",
+        MooUnparser.unparse(syntax));
+
+    BytecodeProgram program = new MooCompiler().compile(syntax);
+    assertEquals(
+        """
+        0 PUSH_INTEGER 1
+        1 PUSH_INTEGER 1
+        2 PUSH_INTEGER 2
+        3 PUSH_INTEGER 2
+        4 PUSH_INTEGER 3
+        5 PUSH_INTEGER 3
+        6 PUSH_INTEGER 4
+        7 PUSH_INTEGER 4
+        8 PUSH_INTEGER 5
+        9 PUSH_INTEGER 5
+        10 PUSH_INTEGER 6
+        11 PUSH_INTEGER 6
+        12 PUSH_INTEGER 7
+        13 PUSH_INTEGER 7
+        14 BUILD_MAP 7
+        15 ENTER_INDEX
+        16 FIRST
+        17 LAST
+        18 RANGE
+        19 RETURN""",
+        program.disassemble());
+    VmState state = new VmState();
+
+    new MooVm().execute(program, state);
+
+    assertEquals(VmState.Outcome.RETURNED, state.outcome());
+    assertTrue(state.uncaughtError().isEmpty());
+    assertEquals(
+        new MapValue(
+            Map.of(
+                new IntegerValue(1), new IntegerValue(1),
+                new IntegerValue(2), new IntegerValue(2),
+                new IntegerValue(3), new IntegerValue(3),
+                new IntegerValue(4), new IntegerValue(4),
+                new IntegerValue(5), new IntegerValue(5),
+                new IntegerValue(6), new IntegerValue(6),
+                new IntegerValue(7), new IntegerValue(7))),
+        state.returnValue().orElseThrow());
+  }
+
+  @Test
   void returnsAnEmptyMapForAnInvertedRangeThroughTheCompleteCollectionPipeline() {
     byte[] source = "return [1 -> 1][6..2];".getBytes(StandardCharsets.ISO_8859_1);
     Ast.Program syntax = MooParser.parse(source);
