@@ -2485,6 +2485,25 @@ final class MooRuntimeTest {
   }
 
   @Test
+  void evalCompileErrorReturnsParseDiagnosticThroughStoredCaller() throws Exception {
+    WorldTxn world = new LambdaMooV4Reader().read(FIXTURE);
+    MooRuntime runtime = new MooRuntime(world);
+    long connectionId = -47;
+
+    assertEquals(List.of(), runtime.openConnection(connectionId));
+    assertEquals(List.of("*** Connected ***"), runtime.executeLine(connectionId, "connect Wizard"));
+    assertEquals(List.of(), runtime.executeLine(connectionId, "PREFIX " + CONNECTION_PREFIX));
+    assertEquals(List.of(), runtime.executeLine(connectionId, "SUFFIX " + CONNECTION_SUFFIX));
+
+    List<String> output =
+        runtime.executeLine(
+            connectionId,
+            "; x = {}; for in ({\"1\", \"2\", \"3\", \"4\", \"5\"}) endfor return x;");
+
+    assertTrue(output.stream().anyMatch(line -> line.contains("Parse error")), output::toString);
+  }
+
+  @Test
   void executesEqualityCollectionsThroughStoredEvalRuntime() throws Exception {
     WorldTxn world = new LambdaMooV4Reader().read(FIXTURE);
     MooRuntime runtime = new MooRuntime(world);

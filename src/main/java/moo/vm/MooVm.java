@@ -1007,7 +1007,15 @@ public final class MooVm {
           raiseError(state, ErrorValue.E_MAXREC, world);
         }
       } catch (IllegalArgumentException error) {
-        raiseError(state, ErrorValue.E_INVARG, world);
+        String diagnostic = error.getMessage();
+        if (diagnostic == null) {
+          diagnostic = error.getClass().getSimpleName();
+        }
+        frame.operandStack.push(
+            new ListValue(
+                List.of(
+                    new IntegerValue(0),
+                    new ListValue(List.of(encode("Parse error: " + diagnostic))))));
       }
       return;
     }
