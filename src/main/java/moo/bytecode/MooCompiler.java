@@ -13,6 +13,7 @@ import moo.syntax.MooParser;
 public final class MooCompiler {
   private int catchSequence;
   private final List<String> activeLoopVariables = new ArrayList<>();
+  private final List<Integer> activeLoopStarts = new ArrayList<>();
   private final List<List<Integer>> activeLoopBreaks = new ArrayList<>();
 
   /** Parses and compiles one MOO verb body. */
@@ -26,6 +27,7 @@ public final class MooCompiler {
     List<BytecodeProgram> forkVectors = new ArrayList<>();
     catchSequence = 0;
     activeLoopVariables.clear();
+    activeLoopStarts.clear();
     activeLoopBreaks.clear();
     for (Ast.Statement statement : program.statements()) {
       compileStatement(statement, instructions, forkVectors);
@@ -77,9 +79,11 @@ public final class MooCompiler {
       instructions.add(new Instruction(Opcode.ITERATE, -1, variables));
       List<Integer> breakJumps = new ArrayList<>();
       activeLoopVariables.add(forStatement.variable());
+      activeLoopStarts.add(iterate);
       activeLoopBreaks.add(breakJumps);
       compileStatements(forStatement.body(), instructions, forkVectors);
       activeLoopVariables.removeLast();
+      activeLoopStarts.removeLast();
       activeLoopBreaks.removeLast();
       instructions.add(new Instruction(Opcode.JUMP, iterate));
       int loopExit = instructions.size();
@@ -98,6 +102,15 @@ public final class MooCompiler {
       }
       int breakJump = addJump(Opcode.JUMP, instructions);
       activeLoopBreaks.get(loopIndex).add(breakJump);
+      return;
+    }
+    if (statement instanceof Ast.Continue continueStatement) {
+      String loopVariable = continueStatement.loopVariable().orElseThrow();
+      int loopIndex = activeLoopVariables.lastIndexOf(loopVariable);
+      if (loopIndex < 0) {
+        throw new IllegalArgumentException("unknown loop variable: " + loopVariable);
+      }
+      instructions.add(new Instruction(Opcode.JUMP, activeLoopStarts.get(loopIndex)));
       return;
     }
     if (statement instanceof Ast.Fork forkStatement) {

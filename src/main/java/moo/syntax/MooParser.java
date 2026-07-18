@@ -77,6 +77,7 @@ public final class MooParser {
       case WHILE -> parseWhile();
       case FOR -> parseFor();
       case BREAK -> parseBreak();
+      case CONTINUE -> parseContinue();
       case FORK -> parseFork();
       case TRY -> parseTry();
       case RETURN -> parseReturn();
@@ -151,6 +152,17 @@ public final class MooParser {
     }
     expectAndAdvance(TokenKind.SEMICOLON, "';' after break");
     return new Ast.Break(loopVariable);
+  }
+
+  private Ast.Continue parseContinue() {
+    advance();
+    Optional<String> loopVariable = Optional.empty();
+    if (current.kind() == TokenKind.IDENTIFIER) {
+      loopVariable = Optional.of(current.lexeme());
+      advance();
+    }
+    expectAndAdvance(TokenKind.SEMICOLON, "';' after continue");
+    return new Ast.Continue(loopVariable);
   }
 
   private Ast.Fork parseFork() {

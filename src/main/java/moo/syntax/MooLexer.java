@@ -22,6 +22,7 @@ final class MooLexer {
     IN,
     ENDFOR,
     BREAK,
+    CONTINUE,
     FORK,
     ENDFORK,
     TRY,
@@ -248,6 +249,7 @@ final class MooLexer {
           case "in" -> TokenKind.IN;
           case "endfor" -> TokenKind.ENDFOR;
           case "break" -> TokenKind.BREAK;
+          case "continue" -> TokenKind.CONTINUE;
           case "fork" -> TokenKind.FORK;
           case "endfork" -> TokenKind.ENDFORK;
           case "try" -> TokenKind.TRY;
