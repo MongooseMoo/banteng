@@ -1613,7 +1613,7 @@ public final class MooVm {
                       frame.locals.put(
                           name,
                           handler.specification.structuredCatchBinding()
-                              ? new ListValue(List.of(error))
+                              ? new ListValue(List.of(error, encode("")))
                               : error));
           state.clearPendingError();
           frame.instructionPointer = handler.specification.catchTarget();

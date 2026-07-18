@@ -2478,7 +2478,7 @@ final class MooRuntimeTest {
         List.of(
             CONNECTION_PREFIX,
             CONNECTION_PREFIX,
-            "{2, {E_TYPE}}",
+            "{2, {E_TYPE, \"\"}}",
             CONNECTION_SUFFIX,
             CONNECTION_SUFFIX),
         runtime.executeLine(connectionId, "; return 1.0 + 1;"));

@@ -3089,6 +3089,24 @@ final class MooVmTest {
   }
 
   @Test
+  void bindsAStringMessageInStructuredExceptionsThroughTheCompletePipeline() {
+    byte[] source =
+        "try 1 / 0; except error (E_DIV) return error[2]; endtry"
+            .getBytes(StandardCharsets.ISO_8859_1);
+    Ast.Program syntax = MooParser.parse(source);
+    Ast.Try tryStatement = assertInstanceOf(Ast.Try.class, syntax.statements().getFirst());
+    assertEquals("error", tryStatement.exceptClauses().getFirst().variable().orElseThrow());
+
+    BytecodeProgram program = new MooCompiler().compile(syntax);
+    VmState state = new VmState();
+
+    new MooVm().execute(program, state);
+
+    assertEquals(VmState.Outcome.RETURNED, state.outcome());
+    assertInstanceOf(StringValue.class, state.returnValue().orElseThrow());
+  }
+
+  @Test
   void exactNineArgumentSqliteOpenPresenceShapeReachesLaterAnyClause() {
     BytecodeProgram program =
         new MooCompiler()
