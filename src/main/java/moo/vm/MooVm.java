@@ -766,11 +766,19 @@ public final class MooVm {
     List<MooValue> keys = new ArrayList<>(map.entries().keySet());
     int firstPosition = keys.indexOf(start);
     int lastPosition = keys.indexOf(end);
-    if (firstPosition < 0 || lastPosition < firstPosition) {
+    if (firstPosition < 0 || lastPosition < 0) {
       raiseError(state, ErrorValue.E_RANGE, world);
       return;
     }
     Map<MooValue, MooValue> replaced = new LinkedHashMap<>();
+    if (lastPosition < firstPosition) {
+      replaced.putAll(map.entries());
+      replaced.putAll(replacement.entries());
+      frame.locals.put(normalize(owner), new MapValue(replaced));
+      frame.operandStack.push(value);
+      frame.instructionPointer++;
+      return;
+    }
     for (int position = 0; position < firstPosition; position++) {
       MooValue key = keys.get(position);
       replaced.put(key, map.entries().get(key));
