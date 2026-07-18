@@ -506,13 +506,16 @@ public sealed interface Ast
 
   /** The closed assignment-target family. */
   sealed interface AssignmentTarget extends Ast
-      permits VariableTarget, PropertyTarget, IndexTarget, ScatterTarget {}
+      permits VariableTarget, PropertyTarget, IndexTarget, RangeTarget, ScatterTarget {}
 
   record VariableTarget(String name) implements AssignmentTarget {}
 
   record PropertyTarget(Expression object, Expression property) implements AssignmentTarget {}
 
   record IndexTarget(Expression collection, Expression index) implements AssignmentTarget {}
+
+  record RangeTarget(Expression collection, Expression start, Expression end)
+      implements AssignmentTarget {}
 
   record ScatterTarget(List<String> variables) implements AssignmentTarget {
     public ScatterTarget {

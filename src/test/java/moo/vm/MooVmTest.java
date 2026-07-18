@@ -542,6 +542,96 @@ final class MooVmTest {
   }
 
   @Test
+  void assignsAnExactMapRangeThroughTheCompleteCollectionPipeline() {
+    byte[] source =
+        ("t = [1 -> 1, 2 -> 2, 3 -> 3, 4 -> 4, 5 -> 5, 6 -> 6, 7 -> 7]; "
+                + "t[2..4] = [2 -> \"two\", 3 -> \"three\", 4 -> \"four\"]; return t;")
+            .getBytes(StandardCharsets.ISO_8859_1);
+    Ast.Program syntax = MooParser.parse(source);
+    Ast.ExpressionStatement initialAssignmentStatement =
+        assertInstanceOf(Ast.ExpressionStatement.class, syntax.statements().getFirst());
+    Ast.Assignment initialAssignment =
+        assertInstanceOf(Ast.Assignment.class, initialAssignmentStatement.expression());
+    Ast.MapLiteral initialMap = assertInstanceOf(Ast.MapLiteral.class, initialAssignment.value());
+    Ast.ExpressionStatement rangeAssignmentStatement =
+        assertInstanceOf(Ast.ExpressionStatement.class, syntax.statements().get(1));
+    Ast.Assignment rangeAssignment =
+        assertInstanceOf(Ast.Assignment.class, rangeAssignmentStatement.expression());
+    Ast.MapLiteral replacement = assertInstanceOf(Ast.MapLiteral.class, rangeAssignment.value());
+    Ast.Return returnStatement = assertInstanceOf(Ast.Return.class, syntax.statements().get(2));
+    assertEquals("RangeTarget", rangeAssignment.target().getClass().getSimpleName());
+    assertEquals(new Ast.SourceSpan(4, 60, 1, 5), initialMap.span().orElseThrow());
+    assertEquals(
+        new Ast.SourceSpan(62, 112, 1, 63), rangeAssignmentStatement.span().orElseThrow());
+    assertEquals(new Ast.SourceSpan(72, 111, 1, 73), replacement.span().orElseThrow());
+    assertEquals(new Ast.SourceSpan(113, 122, 1, 114), returnStatement.span().orElseThrow());
+    assertEquals(
+        """
+        t = [1 -> 1, 2 -> 2, 3 -> 3, 4 -> 4, 5 -> 5, 6 -> 6, 7 -> 7];
+        t[2..4] = [2 -> "two", 3 -> "three", 4 -> "four"];
+        return t;""",
+        MooUnparser.unparse(syntax));
+
+    BytecodeProgram program = new MooCompiler().compile(syntax);
+    assertEquals(
+        """
+        0 PUSH_INTEGER 1
+        1 PUSH_INTEGER 1
+        2 PUSH_INTEGER 2
+        3 PUSH_INTEGER 2
+        4 PUSH_INTEGER 3
+        5 PUSH_INTEGER 3
+        6 PUSH_INTEGER 4
+        7 PUSH_INTEGER 4
+        8 PUSH_INTEGER 5
+        9 PUSH_INTEGER 5
+        10 PUSH_INTEGER 6
+        11 PUSH_INTEGER 6
+        12 PUSH_INTEGER 7
+        13 PUSH_INTEGER 7
+        14 BUILD_MAP 7
+        15 DUP
+        16 STORE_LOCAL t
+        17 POP
+        18 LOAD_LOCAL t
+        19 ENTER_INDEX
+        20 PUSH_INTEGER 2
+        21 PUSH_INTEGER 4
+        22 PUSH_STRING two
+        23 PUSH_INTEGER 2
+        24 PUSH_STRING three
+        25 PUSH_INTEGER 3
+        26 PUSH_STRING four
+        27 PUSH_INTEGER 4
+        28 BUILD_MAP 3
+        29 SET_RANGE_LOCAL t
+        30 POP
+        31 LOAD_LOCAL t
+        32 RETURN""",
+        program.disassemble());
+    VmState state = new VmState();
+
+    new MooVm().execute(program, state);
+
+    assertEquals(VmState.Outcome.RETURNED, state.outcome());
+    assertTrue(state.uncaughtError().isEmpty());
+    assertEquals(
+        new MapValue(
+            Map.of(
+                new IntegerValue(1), new IntegerValue(1),
+                new IntegerValue(2),
+                    new StringValue("two".getBytes(StandardCharsets.ISO_8859_1)),
+                new IntegerValue(3),
+                    new StringValue("three".getBytes(StandardCharsets.ISO_8859_1)),
+                new IntegerValue(4),
+                    new StringValue("four".getBytes(StandardCharsets.ISO_8859_1)),
+                new IntegerValue(5), new IntegerValue(5),
+                new IntegerValue(6), new IntegerValue(6),
+                new IntegerValue(7), new IntegerValue(7))),
+        state.returnValue().orElseThrow());
+  }
+
+  @Test
   void returnsAnEmptyMapForAnInvertedRangeThroughTheCompleteCollectionPipeline() {
     byte[] source = "return [1 -> 1][6..2];".getBytes(StandardCharsets.ISO_8859_1);
     Ast.Program syntax = MooParser.parse(source);

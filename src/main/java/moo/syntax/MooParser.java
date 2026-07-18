@@ -597,6 +597,9 @@ public final class MooParser {
     if (expression instanceof Ast.IndexAccess index) {
       return new Ast.IndexTarget(index.collection(), index.index());
     }
+    if (expression instanceof Ast.RangeAccess range) {
+      return new Ast.RangeTarget(range.collection(), range.start(), range.end());
+    }
     if (expression instanceof Ast.ListLiteral list) {
       List<String> variables = new ArrayList<>();
       for (Ast.Expression element : list.elements()) {

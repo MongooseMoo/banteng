@@ -116,6 +116,8 @@ public final class MooVm {
       case LAST -> lastIndex(frame, state, world);
       case SET_INDEX_LOCAL ->
           setIndexedLocal(frame, state, world, instruction.text().orElseThrow());
+      case SET_RANGE_LOCAL ->
+          setRangeLocal(frame, state, world, instruction.text().orElseThrow());
       case CALL -> {
         String callName = instruction.text().orElseThrow();
         if (!callName.equalsIgnoreCase("pass")) {
@@ -334,6 +336,7 @@ public final class MooVm {
           FIRST,
           LAST,
           SET_INDEX_LOCAL,
+          SET_RANGE_LOCAL,
           CALL,
           CALL_VERB,
           NEGATE,
@@ -748,6 +751,38 @@ public final class MooVm {
       return;
     }
     raiseError(state, ErrorValue.E_TYPE, world);
+  }
+
+  private static void setRangeLocal(Frame frame, VmState state, WorldTxn world, String owner) {
+    frame.indexCollections.pop();
+    MooValue value = frame.operandStack.pop();
+    MooValue end = frame.operandStack.pop();
+    MooValue start = frame.operandStack.pop();
+    MooValue collection = frame.operandStack.pop();
+    if (!(collection instanceof MapValue map) || !(value instanceof MapValue replacement)) {
+      raiseError(state, ErrorValue.E_TYPE, world);
+      return;
+    }
+    List<MooValue> keys = new ArrayList<>(map.entries().keySet());
+    int firstPosition = keys.indexOf(start);
+    int lastPosition = keys.indexOf(end);
+    if (firstPosition < 0 || lastPosition < firstPosition) {
+      raiseError(state, ErrorValue.E_RANGE, world);
+      return;
+    }
+    Map<MooValue, MooValue> replaced = new LinkedHashMap<>();
+    for (int position = 0; position < firstPosition; position++) {
+      MooValue key = keys.get(position);
+      replaced.put(key, map.entries().get(key));
+    }
+    replaced.putAll(replacement.entries());
+    for (int position = lastPosition + 1; position < keys.size(); position++) {
+      MooValue key = keys.get(position);
+      replaced.put(key, map.entries().get(key));
+    }
+    frame.locals.put(normalize(owner), new MapValue(replaced));
+    frame.operandStack.push(value);
+    frame.instructionPointer++;
   }
 
   private static void invokeBuiltin(

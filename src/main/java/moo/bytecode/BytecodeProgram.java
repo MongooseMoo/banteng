@@ -62,6 +62,7 @@ public record BytecodeProgram(List<Instruction> instructions, List<BytecodeProgr
     FIRST,
     LAST,
     SET_INDEX_LOCAL,
+    SET_RANGE_LOCAL,
     CALL,
     CALL_VERB,
     NEGATE,
@@ -118,6 +119,7 @@ public record BytecodeProgram(List<Instruction> instructions, List<BytecodeProgr
                 LOAD_LOCAL,
                 STORE_LOCAL,
                 SET_INDEX_LOCAL,
+                SET_RANGE_LOCAL,
                 CALL,
                 ITERATE,
                 SCATTER ->

@@ -346,6 +346,18 @@ public final class MooCompiler {
       instructions.add(new Instruction(Opcode.SET_INDEX_LOCAL, owner.name()));
       return;
     }
+    if (assignment.target() instanceof Ast.RangeTarget range) {
+      if (!(range.collection() instanceof Ast.Identifier owner)) {
+        throw new IllegalArgumentException("range assignment requires a local owner");
+      }
+      instructions.add(new Instruction(Opcode.LOAD_LOCAL, owner.name()));
+      instructions.add(new Instruction(Opcode.ENTER_INDEX));
+      compileExpression(range.start(), instructions);
+      compileExpression(range.end(), instructions);
+      compileExpression(assignment.value(), instructions);
+      instructions.add(new Instruction(Opcode.SET_RANGE_LOCAL, owner.name()));
+      return;
+    }
     if (assignment.target() instanceof Ast.ScatterTarget scatter) {
       compileExpression(assignment.value(), instructions);
       instructions.add(

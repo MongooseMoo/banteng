@@ -282,6 +282,14 @@ public final class MooUnparser {
           + expression(index.index(), ASSIGNMENT_PRECEDENCE)
           + "]";
     }
+    if (target instanceof Ast.RangeTarget range) {
+      return expression(range.collection(), POSTFIX_PRECEDENCE)
+          + "["
+          + expression(range.start(), ASSIGNMENT_PRECEDENCE)
+          + ".."
+          + expression(range.end(), ASSIGNMENT_PRECEDENCE)
+          + "]";
+    }
     if (target instanceof Ast.ScatterTarget scatter) {
       return "{" + String.join(", ", scatter.variables()) + "}";
     }
