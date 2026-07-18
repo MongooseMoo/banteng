@@ -822,6 +822,16 @@ public final class MooVm {
         inserted.addAll(replacement.elements());
         inserted.addAll(list.elements().subList(insertionPoint, list.size()));
         updatedCollection = new ListValue(inserted);
+      } else if (last.value() < first.value()
+          && first.value() >= 1
+          && first.value() <= list.size()
+          && last.value() >= 1
+          && last.value() <= list.size()) {
+        List<MooValue> replaced = new ArrayList<>();
+        replaced.addAll(list.elements().subList(0, Math.toIntExact(first.value() - 1)));
+        replaced.addAll(replacement.elements());
+        replaced.addAll(list.elements().subList(Math.toIntExact(last.value()), list.size()));
+        updatedCollection = new ListValue(replaced);
       } else {
         if (first.value() < 1 || last.value() < first.value() || last.value() > list.size()) {
           raiseError(state, ErrorValue.E_RANGE, world);
