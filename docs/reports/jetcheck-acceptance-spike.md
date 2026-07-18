@@ -11,19 +11,11 @@ test engine or a Banteng-owned property framework.
 
 The temporary red form of `moo.JetCheckAcceptanceTest` generated a recursive
 scalar/list/map `MooValue` payload inside a depth-two list and rejected values
-with nesting depth two or greater. The pinned run used seed `20260715` and
-reported:
-
-```text
-Falsified on {10, {E_RECMOVE}}
-Shrunk in 1 stage, by trying 1 example
-PropertyChecker.customized().rechecking("AOudqRMBCgMI")
-```
-
-The committed test catches the expected `PropertyFalsified`, asserts that exact
-minimal value and shrinking result, extracts the same serialized token, and
-rechecks the identical property with `AOudqRMBCgMI`. The temporary deliberately
-failing form is not part of the normal suite.
+with nesting depth two or greater. The committed `JetCheckAcceptanceTest` is
+the sole authority for the exact minimized value and serialized replay token.
+It catches the expected `PropertyFalsified`, asserts the shrinking result, and
+rechecks the identical property. The temporary deliberately failing form is
+not part of the normal suite.
 
 ## Stateful WorldTxn spike
 
