@@ -56,6 +56,7 @@ public record BytecodeProgram(List<Instruction> instructions, List<BytecodeProgr
     POP,
     GET_PROPERTY,
     SET_PROPERTY,
+    ENTER_INDEX,
     INDEX,
     RANGE,
     FIRST,

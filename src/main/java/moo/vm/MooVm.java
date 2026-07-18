@@ -28,6 +28,7 @@ import moo.vm.VmState.ContinuationKind;
 import moo.vm.VmState.FinallyContinuation;
 import moo.vm.VmState.Frame;
 import moo.vm.VmState.HandlerPhase;
+import moo.vm.VmState.IndexContext;
 import moo.vm.VmState.LoopCursor;
 import moo.world.WorldObject;
 import moo.world.WorldProperty;
@@ -104,6 +105,11 @@ public final class MooVm {
       }
       case GET_PROPERTY -> getProperty(frame, state, world);
       case SET_PROPERTY -> setProperty(frame, state, world);
+      case ENTER_INDEX -> {
+        frame.indexCollections.push(
+            new IndexContext(frame.operandStack.getFirst(), frame.operandStack.size()));
+        frame.instructionPointer++;
+      }
       case INDEX -> index(frame, state, world);
       case RANGE -> range(frame, state, world);
       case FIRST -> firstIndex(frame, state, world);
@@ -518,6 +524,7 @@ public final class MooVm {
   }
 
   private static void index(Frame frame, VmState state, WorldTxn world) {
+    frame.indexCollections.pop();
     MooValue index = frame.operandStack.pop();
     MooValue collection = frame.operandStack.pop();
     if (collection instanceof ListValue list && index instanceof IntegerValue integer) {
@@ -561,7 +568,7 @@ public final class MooVm {
   }
 
   private static void firstIndex(Frame frame, VmState state, WorldTxn world) {
-    MooValue collection = frame.operandStack.getFirst();
+    MooValue collection = frame.indexCollections.getFirst().collection();
     if (collection instanceof MapValue map) {
       if (map.entries().isEmpty()) {
         raiseError(state, ErrorValue.E_RANGE, world);
@@ -593,7 +600,7 @@ public final class MooVm {
   }
 
   private static void lastIndex(Frame frame, VmState state, WorldTxn world) {
-    MooValue collection = frame.operandStack.getFirst();
+    MooValue collection = frame.indexCollections.getFirst().collection();
     if (collection instanceof MapValue map) {
       if (map.entries().isEmpty()) {
         raiseError(state, ErrorValue.E_RANGE, world);
@@ -620,6 +627,7 @@ public final class MooVm {
   }
 
   private static void range(Frame frame, VmState state, WorldTxn world) {
+    frame.indexCollections.pop();
     MooValue end = frame.operandStack.pop();
     MooValue start = frame.operandStack.pop();
     MooValue collection = frame.operandStack.pop();
@@ -673,6 +681,7 @@ public final class MooVm {
   }
 
   private static void setIndexedLocal(Frame frame, VmState state, WorldTxn world, String owner) {
+    frame.indexCollections.pop();
     MooValue value = frame.operandStack.pop();
     MooValue key = frame.operandStack.pop();
     MooValue collection = frame.operandStack.pop();
@@ -1269,6 +1278,10 @@ public final class MooVm {
           while (frame.operandStack.size() > handler.operandDepth) {
             frame.operandStack.pop();
           }
+          while (!frame.indexCollections.isEmpty()
+              && frame.indexCollections.getFirst().operandDepth() > handler.operandDepth) {
+            frame.indexCollections.pop();
+          }
           if (handler.specification.structuredCatchBinding()) {
             frame.handlers.pop();
             while (!frame.handlers.isEmpty()
@@ -1296,6 +1309,10 @@ public final class MooVm {
         if (handler.specification.finallyTarget() >= 0) {
           while (frame.operandStack.size() > handler.operandDepth) {
             frame.operandStack.pop();
+          }
+          while (!frame.indexCollections.isEmpty()
+              && frame.indexCollections.getFirst().operandDepth() > handler.operandDepth) {
+            frame.indexCollections.pop();
           }
           frame.finallyContinuations.push(
               new FinallyContinuation(

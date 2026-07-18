@@ -193,18 +193,20 @@ final class MooCompilerTest {
         10 STORE_LOCAL m
         11 POP
         12 LOAD_LOCAL m
-        13 PUSH_INTEGER 1
-        14 PUSH_INTEGER 3
-        15 SET_INDEX_LOCAL m
-        16 POP
-        17 BUILD_LIST 0
-        18 LOAD_LOCAL items
-        19 LIST_EXTEND
-        20 LOAD_LOCAL m
-        21 PUSH_INTEGER 1
-        22 INDEX
-        23 LIST_APPEND
-        24 RETURN""",
+        13 ENTER_INDEX
+        14 PUSH_INTEGER 1
+        15 PUSH_INTEGER 3
+        16 SET_INDEX_LOCAL m
+        17 POP
+        18 BUILD_LIST 0
+        19 LOAD_LOCAL items
+        20 LIST_EXTEND
+        21 LOAD_LOCAL m
+        22 ENTER_INDEX
+        23 PUSH_INTEGER 1
+        24 INDEX
+        25 LIST_APPEND
+        26 RETURN""",
         program.disassemble());
   }
 

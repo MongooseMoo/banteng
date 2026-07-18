@@ -431,6 +431,7 @@ public final class VmState {
   static final class Frame {
     final BytecodeProgram program;
     final Deque<MooValue> operandStack = new ArrayDeque<>();
+    final Deque<IndexContext> indexCollections = new ArrayDeque<>();
     final Map<String, MooValue> locals;
     final Deque<ActiveHandler> handlers = new ArrayDeque<>();
     final Deque<FinallyContinuation> finallyContinuations = new ArrayDeque<>();
@@ -494,6 +495,8 @@ public final class VmState {
       locals = Map.copyOf(locals);
     }
   }
+
+  record IndexContext(MooValue collection, int operandDepth) {}
 
   static final class LoopCursor {
     final ListValue values;

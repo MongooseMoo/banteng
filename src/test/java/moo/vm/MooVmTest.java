@@ -346,10 +346,11 @@ final class MooVmTest {
         4 LIST_APPEND
         5 PUSH_STRING three
         6 LIST_APPEND
-        7 PUSH_INTEGER 3
+        7 ENTER_INDEX
         8 PUSH_INTEGER 3
-        9 RANGE
-        10 RETURN""",
+        9 PUSH_INTEGER 3
+        10 RANGE
+        11 RETURN""",
         program.disassemble());
     VmState state = new VmState();
 
@@ -389,10 +390,11 @@ final class MooVmTest {
         4 LIST_APPEND
         5 PUSH_INTEGER 3
         6 LIST_APPEND
-        7 PUSH_INTEGER 17
-        8 PUSH_INTEGER 12
-        9 RANGE
-        10 RETURN""",
+        7 ENTER_INDEX
+        8 PUSH_INTEGER 17
+        9 PUSH_INTEGER 12
+        10 RANGE
+        11 RETURN""",
         program.disassemble());
     VmState state = new VmState();
 
@@ -423,10 +425,11 @@ final class MooVmTest {
     assertEquals(
         """
         0 PUSH_STRING foobar
-        1 PUSH_INTEGER 3
+        1 ENTER_INDEX
         2 PUSH_INTEGER 3
-        3 RANGE
-        4 RETURN""",
+        3 PUSH_INTEGER 3
+        4 RANGE
+        5 RETURN""",
         program.disassemble());
     VmState state = new VmState();
 
@@ -459,10 +462,11 @@ final class MooVmTest {
     assertEquals(
         """
         0 PUSH_STRING foobar
-        1 PUSH_INTEGER 15
-        2 PUSH_INTEGER 12
-        3 RANGE
-        4 RETURN""",
+        1 ENTER_INDEX
+        2 PUSH_INTEGER 15
+        3 PUSH_INTEGER 12
+        4 RANGE
+        5 RETURN""",
         program.disassemble());
     VmState state = new VmState();
 
@@ -495,10 +499,11 @@ final class MooVmTest {
         0 PUSH_INTEGER 1
         1 PUSH_INTEGER 1
         2 BUILD_MAP 1
-        3 PUSH_INTEGER 6
-        4 PUSH_INTEGER 2
-        5 RANGE
-        6 RETURN""",
+        3 ENTER_INDEX
+        4 PUSH_INTEGER 6
+        5 PUSH_INTEGER 2
+        6 RANGE
+        7 RETURN""",
         program.disassemble());
     VmState state = new VmState();
 
@@ -530,9 +535,10 @@ final class MooVmTest {
         0 PUSH_INTEGER 1
         1 PUSH_INTEGER 1
         2 BUILD_MAP 1
-        3 FIRST
-        4 INDEX
-        5 RETURN""",
+        3 ENTER_INDEX
+        4 FIRST
+        5 INDEX
+        6 RETURN""",
         program.disassemble());
     VmState state = new VmState();
 
@@ -580,9 +586,10 @@ final class MooVmTest {
         12 PUSH_INTEGER 7
         13 PUSH_INTEGER 7
         14 BUILD_MAP 7
-        15 LAST
-        16 INDEX
-        17 RETURN""",
+        15 ENTER_INDEX
+        16 LAST
+        17 INDEX
+        18 RETURN""",
         program.disassemble());
     VmState state = new VmState();
 
@@ -618,9 +625,10 @@ final class MooVmTest {
         4 LIST_APPEND
         5 PUSH_INTEGER 3
         6 LIST_APPEND
-        7 FIRST
-        8 INDEX
-        9 RETURN""",
+        7 ENTER_INDEX
+        8 FIRST
+        9 INDEX
+        10 RETURN""",
         program.disassemble());
     VmState state = new VmState();
 
@@ -665,9 +673,10 @@ final class MooVmTest {
         12 LIST_APPEND
         13 PUSH_INTEGER 7
         14 LIST_APPEND
-        15 LAST
-        16 INDEX
-        17 RETURN""",
+        15 ENTER_INDEX
+        16 LAST
+        17 INDEX
+        18 RETURN""",
         program.disassemble());
     VmState state = new VmState();
 
@@ -675,6 +684,81 @@ final class MooVmTest {
 
     assertEquals(VmState.Outcome.RETURNED, state.outcome());
     assertEquals(new IntegerValue(7), state.returnValue().orElseThrow());
+  }
+
+  @Test
+  void resolvesTheLastListIndexInsideACallArgument() {
+    byte[] source =
+        "return {1, 2, 3, 4, 5, 6, 7}[max($, 1)];"
+            .getBytes(StandardCharsets.ISO_8859_1);
+    Ast.Program syntax = MooParser.parse(source);
+    Ast.Return returnStatement =
+        assertInstanceOf(Ast.Return.class, syntax.statements().getFirst());
+    Ast.IndexAccess index =
+        assertInstanceOf(Ast.IndexAccess.class, returnStatement.value().orElseThrow());
+    Ast.ListLiteral list = assertInstanceOf(Ast.ListLiteral.class, index.collection());
+    Ast.Call max = assertInstanceOf(Ast.Call.class, index.index());
+    Ast.LastIndex last = assertInstanceOf(Ast.LastIndex.class, max.arguments().getFirst());
+    assertEquals(new Ast.SourceSpan(0, 40, 1, 1), returnStatement.span().orElseThrow());
+    assertEquals(new Ast.SourceSpan(7, 39, 1, 8), index.span().orElseThrow());
+    assertEquals(new Ast.SourceSpan(7, 28, 1, 8), list.span().orElseThrow());
+    assertEquals(new Ast.SourceSpan(33, 34, 1, 34), last.span().orElseThrow());
+    assertEquals("max", max.name());
+    assertEquals(2, max.arguments().size());
+    assertEquals(
+        "return {1, 2, 3, 4, 5, 6, 7}[max($, 1)];", MooUnparser.unparse(syntax));
+
+    BytecodeProgram program = new MooCompiler().compile(syntax);
+    assertEquals(
+        """
+        0 BUILD_LIST 0
+        1 PUSH_INTEGER 1
+        2 LIST_APPEND
+        3 PUSH_INTEGER 2
+        4 LIST_APPEND
+        5 PUSH_INTEGER 3
+        6 LIST_APPEND
+        7 PUSH_INTEGER 4
+        8 LIST_APPEND
+        9 PUSH_INTEGER 5
+        10 LIST_APPEND
+        11 PUSH_INTEGER 6
+        12 LIST_APPEND
+        13 PUSH_INTEGER 7
+        14 LIST_APPEND
+        15 ENTER_INDEX
+        16 BUILD_LIST 0
+        17 LAST
+        18 LIST_APPEND
+        19 PUSH_INTEGER 1
+        20 LIST_APPEND
+        21 CALL max
+        22 INDEX
+        23 RETURN""",
+        program.disassemble());
+    VmState state = new VmState();
+
+    new MooVm().execute(program, state);
+
+    assertEquals(VmState.Outcome.RETURNED, state.outcome());
+    assertTrue(state.uncaughtError().isEmpty());
+    assertEquals(new IntegerValue(7), state.returnValue().orElseThrow());
+  }
+
+  @Test
+  void discardsIndexContextsWhenCaughtErrorAbandonsIndexEvaluation() {
+    BytecodeProgram program =
+        new MooCompiler()
+            .compile(
+                MooParser.parse(
+                    "return `{1, 2}[raise(E_INVARG)] ! E_INVARG => 0';"));
+    VmState state = new VmState();
+
+    new MooVm().execute(program, state);
+
+    assertEquals(VmState.Outcome.RETURNED, state.outcome());
+    assertEquals(new IntegerValue(0), state.returnValue().orElseThrow());
+    assertTrue(state.currentFrame().indexCollections.isEmpty());
   }
 
   @Test
@@ -697,9 +781,10 @@ final class MooVmTest {
     assertEquals(
         """
         0 PUSH_STRING foobar
-        1 FIRST
-        2 INDEX
-        3 RETURN""",
+        1 ENTER_INDEX
+        2 FIRST
+        3 INDEX
+        4 RETURN""",
         program.disassemble());
     VmState state = new VmState();
 
@@ -740,12 +825,13 @@ final class MooVmTest {
         2 STORE_LOCAL s
         3 POP
         4 LOAD_LOCAL s
-        5 FIRST
-        6 PUSH_STRING x
-        7 SET_INDEX_LOCAL s
-        8 POP
-        9 LOAD_LOCAL s
-        10 RETURN""",
+        5 ENTER_INDEX
+        6 FIRST
+        7 PUSH_STRING x
+        8 SET_INDEX_LOCAL s
+        9 POP
+        10 LOAD_LOCAL s
+        11 RETURN""",
         program.disassemble());
     VmState state = new VmState();
 
@@ -792,12 +878,13 @@ final class MooVmTest {
         8 STORE_LOCAL t
         9 POP
         10 LOAD_LOCAL t
-        11 FIRST
-        12 PUSH_INTEGER 9
-        13 SET_INDEX_LOCAL t
-        14 POP
-        15 LOAD_LOCAL t
-        16 RETURN""",
+        11 ENTER_INDEX
+        12 FIRST
+        13 PUSH_INTEGER 9
+        14 SET_INDEX_LOCAL t
+        15 POP
+        16 LOAD_LOCAL t
+        17 RETURN""",
         program.disassemble());
     VmState state = new VmState();
 

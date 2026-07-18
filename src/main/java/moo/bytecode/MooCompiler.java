@@ -274,12 +274,14 @@ public final class MooCompiler {
     }
     if (expression instanceof Ast.IndexAccess index) {
       compileExpression(index.collection(), instructions);
+      instructions.add(new Instruction(Opcode.ENTER_INDEX));
       compileExpression(index.index(), instructions);
       instructions.add(new Instruction(Opcode.INDEX));
       return;
     }
     if (expression instanceof Ast.RangeAccess range) {
       compileExpression(range.collection(), instructions);
+      instructions.add(new Instruction(Opcode.ENTER_INDEX));
       compileExpression(range.start(), instructions);
       compileExpression(range.end(), instructions);
       instructions.add(new Instruction(Opcode.RANGE));
@@ -338,6 +340,7 @@ public final class MooCompiler {
         throw new IllegalArgumentException("indexed assignment requires a local owner");
       }
       instructions.add(new Instruction(Opcode.LOAD_LOCAL, owner.name()));
+      instructions.add(new Instruction(Opcode.ENTER_INDEX));
       compileExpression(index.index(), instructions);
       compileExpression(assignment.value(), instructions);
       instructions.add(new Instruction(Opcode.SET_INDEX_LOCAL, owner.name()));
