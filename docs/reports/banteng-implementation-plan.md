@@ -2,411 +2,743 @@
 
 ## Objective
 
-Build a production-quality Java MOO server that:
+Build a Java 25 MOO server that:
 
-- matches stock WSL Toast for the supported language/server surface;
-- reads LambdaMOO v4 and ToastStunt v17 databases and writes v17;
-- keeps suspended tasks checkpointable;
-- executes independent MOO work on multiple cores while preserving Toast's observable task order;
-- is simpler and more explicit than Barn's retrofit MVCC branch;
-- remains idiomatic Java rather than imitating Go, C++, Kotlin coroutines, or an actor framework.
+- passes every non-excluded row for the three profiles in
+  `docs/reports/supported-conformance-profiles.md`;
+- reads LambdaMOO v4 and ToastStunt v17 databases and writes deterministic
+  ToastStunt v17 databases;
+- restores queued and suspended tasks after checkpoint and restart;
+- runs production VM work through the transaction and publication scheduler
+  defined below; and
+- contains no alternate serial scheduler, mutable-world escape hatch, storage
+  adapter, actor framework, or second durable store.
 
-This plan remains the control surface until all phases are complete or the user changes it.
+This plan is the execution order. A later phase does not authorize work while
+an earlier gate is failing. Existing code may be reused only after it passes the
+gate for the phase that owns it. Every kept source slice ends in a commit; every
+rejected source slice is fully restored before another source slice begins.
 
-Relative citation paths in Banteng documentation resolve from the Banteng
-repository root: `../barn`, `../moo-conformance-tests`, `../moo_interp`,
-`../../src/toaststunt`, `../../src/lambdamoo-db-py`.
+## Exact authorities
 
-## Chosen architecture
+All relative paths resolve from the Banteng repository root:
 
-### Language
+- managed conformance suite: `../moo-conformance-tests`;
+- normative read-only specification: `../barn/spec`;
+- Toast source: `../../src/toaststunt`;
+- ToastCore source and fixture: `../../src/toastcore`;
+- optional read-only implementation references: `../moo_interp` and
+  `../../src/lambdamoo-db-py`.
 
-Use Java 25 without preview features.
+Toast is the behavioral oracle. A conformance row is authoritative only after
+its exact YAML path and test name pass against the profile's pinned Toast
+source, executable, configuration, and disposable fixture. Barn, `moo_interp`,
+and `lambdamoo-db-py` never override a Toast result and are never build or
+runtime dependencies. Do not modify Barn while executing this plan.
 
-Do not use Kotlin, Scala, or Clojure for the production implementation. Kotlin coroutines cannot be checkpointed as MOO VM state and would create a second suspension model beside Loom. Scala adds machinery without a MOO-specific payoff. Clojure STM is useful prior art, but exact tagged-value behavior, low-allocation interpreter loops, explicit persistence, and JFR/JMH integration favor Java.
+Managed conformance and Gradle gates execute in Debian WSL. Java commands use
+`JAVA_HOME=/opt/java/25`. Python commands use `uv`; never use bare Python, pip,
+or pytest. Never run a tracked database fixture in place.
 
-Use Gradle Wrapper and one Java project initially. Pin the wrapper distribution and checksum, select Java 25 through a Gradle toolchain, compile with `--release 25`, lock dependencies, and commit dependency-verification metadata. Use packages and architecture tests for ownership; do not create a multi-module build until a real dependency or build-time boundary requires it.
+## Production architecture
 
-Use JUnit 6.1.2 for example-based and managed integration tests. Use JetCheck 0.3.0 for Hypothesis-style generated data, automatic counterexample minimization, reproducible seeds/recheck tokens, and single-threaded stateful command tests, but keep it only after the Phase 1 acceptance spike proves nested MOO-value and `WorldTxn` generators under the pinned build. Use Jazzer 0.30.0 for explicit or nightly coverage-guided input fuzzing and OpenJDK jcstress 0.16 for low-level Java Memory Model outcomes; neither substitutes for property or conformance tests. Do not use jqwik while its current anti-agent usage clause remains in force.
-
-### Concurrency
-
-Use Loom selectively:
-
-- virtual thread per connection reader;
-- one serialized connection writer, also allowed to block on a virtual thread;
-- virtual threads for opaque host operations that are genuine Toast suspension points;
-- a bounded platform-thread executor for CPU-bound MOO VM segments.
-
-Never equate a Java thread with a durable MOO task. A MOO task is explicit heap data: frames, bytecode positions, stacks, locals, handlers, limits, and task-local state.
+There is one scheduler and one execution path from the first production slice:
 
 ```text
-socket virtual threads
-        |
-        v
-deterministic ready queue -- assigns Toast-order tickets
-        |
-        v
-bounded CPU executor -- runs explicit VM segments speculatively
-        |
-        v
-WorldTxn validation -- waits for ticket publication turn
-        |
-        +-- conflict --> restore segment start state and retry
-        |
-        v
-atomic world publication + ordered effect journal
-        |
-        +-- fork/read/suspend/blocking result --> ready queue
+socket reader -> deterministic ready queue -> publication ticket
+              -> bounded platform-thread VM executor
+              -> WorldTxn validation
+              -> ticket-ordered world and effect publication
+              -> ready queue / socket writer / checkpoint snapshot
 ```
 
-### State and transactions
+- A durable MOO task is explicit heap data: program identity, frames,
+  instruction positions, operand stacks, locals, handlers, limits, task-local
+  values, and pending outcomes. It contains no Java thread, future, socket,
+  continuation, live clock anchor, or Java-stack dependency.
+- The committed world is immutable and versioned. `WorldTxn` is the only
+  production path for runtime-visible reads and writes.
+- Each transaction records exact record reads, writes, and scan predicates,
+  validates against its fixed snapshot, and stages replacement records and
+  effects locally.
+- The ready queue assigns monotonically increasing publication tickets. VM
+  segments may complete in any order; committed world changes, task IDs, PRNG
+  changes, forks, output, and other effects publish in ticket order.
+- A conflict restores the captured segment-start task state and retries through
+  the same production executor. An irrevocable operation reruns only when its
+  ticket owns the publication turn.
+- The CPU executor is a fixed `ThreadPoolExecutor` whose worker count defaults
+  to `max(2, Runtime.getRuntime().availableProcessors())`. Its work queue is an
+  `ArrayBlockingQueue` of `workers * 4`; the scheduler stops dispatching while
+  that queue is full. Virtual threads are used only for blocking socket and
+  host-operation boundaries.
+- Checkpoints hold one committed revision and serialize world and task snapshots
+  to ISO-8859-1 v17 text in a sibling temporary file. The writer calls
+  `FileChannel.force(true)`, closes the file, then calls
+  `Files.move(temp, target, ATOMIC_MOVE, REPLACE_EXISTING)`. If the move throws
+  `AtomicMoveNotSupportedException`, the checkpoint fails, the old target stays
+  unchanged, and the temporary file is deleted. There is no non-atomic fallback.
 
-The committed world is immutable and versioned. `WorldTxn` is the only production path by which the VM or builtins read or change it.
+## Package ownership
 
-- Track exact record reads, writes, and scan predicates.
-- Stage replacement records and effects locally.
-- Publish each successful transaction as one atomic committed revision through the short ticket-ordered publication sequencer. Start with the simplest fixed-snapshot revision mechanism that is correct; commit descriptors and per-record publication machinery require a later kept benchmark result.
-- Publish successful segments in scheduler-ticket order so the result matches Toast's queue order, not merely an arbitrary serializable history.
-- Retry a conflicted segment from an explicit captured start state.
-- Keep older versions only while an active segment or checkpoint can observe them.
+| Package | Owns |
+| --- | --- |
+| `moo.value` | tagged values, equality, ordering, hashing, literals |
+| `moo.syntax` | Latin-1 lexer, spans, parser, immutable AST |
+| `moo.bytecode` | compiler, program format, deterministic disassembly |
+| `moo.vm` | explicit frames, opcodes, errors, limits, segment outcomes |
+| `moo.world` | immutable records, indices, `WorldTxn`, revisions |
+| `moo.runtime` | tasks, tickets, retries, publication, effect journal |
+| `moo.persistence` | streaming v4/v17 input and deterministic v17 output |
+| `moo.builtin` | builtin manifest, contracts, implementations |
+| `moo.server` | sockets, Telnet bytes, sessions, login, command ingress |
+| `moo.app` | picocli options and concrete composition root |
 
-There is no generic store interface, backend adapter, mutable-world escape hatch, or compatibility facade.
+`ArchitectureTest` rejects package cycles. Phase 2 makes the committed `World`
+and revision implementations package-private and adds
+`WorldAccessArchitectureTest`, which rejects production dependencies on those
+implementations from outside `moo.world`; the public immutable snapshot used by
+the v17 writer exposes no mutation operation.
 
-### Effects
+## Builtin contract
 
-Every builtin is classified before it is enabled:
+The builtin manifest begins in Phase 2 and is expanded only by later vertical
+slices. `BuiltinSpec` contains `String name`, `List<CallShape> callShapes`,
+`BuiltinPermissionRule permission`, `BuiltinCostRule tickCost`,
+`EffectClass effect`, `BuiltinOwner owner`, and `BuiltinHandler implementation`.
+Each `CallShape` contains required and optional position lists of allowed
+`ArgType` sets plus an optional variadic allowed-type set. Multiple call shapes
+represent overloads. The permission rule, tick-cost rule, and handler are the
+production callables used directly by dispatch; there is no independent name,
+permission, cost, effect, or dispatch switch. `EffectClass` and `BuiltinOwner`
+are closed enums. `BuiltinPermissionRule.WIZARD_ONLY` is the shared Wizard
+predicate and `BuiltinCostRule.fixed(long)` constructs a fixed dynamic charge.
 
-1. pure;
-2. transaction read/write;
-3. deferred commit effect;
-4. Toast-style suspending host operation;
-5. irrevocable segment operation.
-
-Toast's global PRNG state is a transactional global record, so random calls consume values in publication-ticket order. Task-ID allocation is the same kind of publication-ordered global record: serial and parallel runs must assign identical task IDs. Because a shared PRNG record makes every random-consuming segment conflict with every other, conflict-cause telemetry must attribute PRNG contention separately; a per-segment stream derived deterministically from the seed and publication ticket is a permitted later replacement only with proof that serial and parallel modes stay identical and that no MOO-observable behavior distinguishes it from the shared record. Wall-clock reads and other schedule-sensitive observations are publication-sensitive: if an early speculative attempt reaches one, it stops and reruns when its ticket is current. A retry journal is allowed only for task-local nondeterministic inputs whose contract does not depend on publication order. Deferred effects are invisible until commit. A speculative segment that first reaches an irrevocable operation stops before performing it and reruns in the exclusive publication lane. No compensation scheme is allowed.
-
-Treat object-number allocation and recycling as irrevocable initially, since recycling feeds the same number space. Do not optimize either until an implementation can preserve the exact number observed by code inside the creating segment without leaking aborted allocation behavior.
-
-### Persistence
-
-The Toast v17 text database remains the only durable database contract in the first implementation.
-
-- Stream ISO-8859-1 input and output.
-- Read v4 and v17; write v17.
-- Serialize explicit VM/task state.
-- Capture a committed world revision plus task snapshots for checkpoints. Suspension is a segment boundary, so a suspended task never holds an open transaction; checkpoints therefore capture only segment-boundary task states, and a segment executing during a checkpoint appears in its pre-segment state.
-- Write to a sibling temporary file, flush it, and atomically replace the target.
-- Hold the checkpoint revision through version GC while speculative work continues.
-
-Do not add an internal SQL database, RocksDB, event store, or WAL during initial conformance. Stronger crash durability is a separate future decision.
-
-### Test authority ladder
-
-Use each test tool only for its named proof obligation:
-
-1. JUnit examples for exact local behavior and checked-in regressions.
-2. JetCheck properties and state models for generated semantic invariants.
-3. Managed WSL Toast differential rows for MOO-observable behavior.
-4. Jazzer for malformed and coverage-guided byte/token input exploration.
-5. jcstress for publication visibility and Java Memory Model outcomes.
-6. JMH for forked performance evidence.
-
-A generated failure must report a reproducible seed or recheck token. Minimize it, promote the smallest counterexample to a durable JUnit regression or conformance fixture, prove that regression red, and only then change production code. A narrower tool never replaces a later named gate in this ladder.
-
-## Ownership map
-
-| Package | Owns | Must not own |
-| --- | --- | --- |
-| `moo.value` | tagged values, equality, ordering, hashing, literal form | database or VM access |
-| `moo.syntax` | lexer, parser, AST, source diagnostics | runtime values beyond literal conversion |
-| `moo.bytecode` | compiler, program format, disassembler | task scheduling |
-| `moo.world` | immutable records, inheritance/topology, transactions, version retention | sockets or task lifecycle |
-| `moo.vm` | frames, operand stack, opcodes, errors, ticks, explicit outcomes | direct committed-world mutation |
-| `moo.builtin` | explicit grouped builtin catalog and effect classification | reflection-based discovery or hidden world access |
-| `moo.runtime` | task registry, ready tickets, retries, effect publication | parser or database-file syntax |
-| `moo.persistence` | v4/v17 codec and checkpoint snapshots | alternate mutation paths |
-| `moo.server` | listener, Telnet bytes, sessions, login and command ingress | language semantics |
-| `moo.app` | CLI and concrete composition root | domain logic |
-
-Sealed interfaces are allowed only for closed data families such as values, AST nodes, VM outcomes, and effects. Other owners should begin as concrete final classes or records.
-
-## Source-of-truth order
-
-1. Freshly verified WSL Toast behavior through Banteng's managed oracle
-   procedure (`profiles/toast/stock-wsl-testdb.json` and
-   `scripts/run_toast_wsl.sh`).
-2. Durable `moo-conformance-tests` rows proven against that oracle.
-3. Normative Barn specification as a read-only reference when a live decision
-   is not already covered.
-4. `lambdamoo-db-py` for database structure and differential round trips.
-5. `moo_interp` and Barn as implementation references, never as authority over Toast.
-
-If a focused test, Barn spec passage, or reference implementation disagrees
-with verified Toast, correct the durable conformance row first and only then
-implement Banteng. Do not edit Barn to build or validate Banteng.
-
-## Decision-bearing authority gate
-
-Authority work exists to settle a concrete implementation or test decision. It
-is not a phase of its own and must not delay an executable vertical slice once
-the required decision is already frozen.
-
-For each semantic or persistence decision actually required by the active
-slice:
-
-1. Identify the exact observable decision that the production edit depends on.
-2. Use an existing Toast-proven conformance row when it already settles that
-   decision. Do not create a second narrative artifact that restates it.
-3. Only when the decision remains unresolved, trace the corresponding Barn
-   specification and implementation and the pinned Toast implementation. Barn
-   is read-only reference material and its working tree is never a Banteng
-   dependency.
-4. Resolve a real disagreement or uncertainty with the managed WSL Toast
-   oracle, then add or correct the smallest durable `moo-conformance-tests` row
-   that freezes the result.
-5. Choose only the Java representation needed by the active slice, prove the
-   focused behavior red on Banteng, implement the complete vertical path, prove
-   it green, run the named broader gate, and commit the kept slice. Otherwise
-   fully restore it.
-
-Do not create per-type research reports, closure reports, status summaries, or
-separate evidence commits. The durable conformance row, focused Banteng
-regression, production code, and kept source commit are the evidence. A compact
-decision table belongs in this plan only when it directly constrains more than
-one active implementation slice.
-
-Do not audit every behavior of a primitive family before implementing a slice.
-Resolve only the representation limits, construction, conversion, equality,
-ordering, hashing, truth, indexing, mutation/copy behavior, literal formatting,
-serialization, overflow, encoding, and error behavior that the active vertical
-slice can actually exercise. Later slices extend that authority just in time.
-
-## Phase 0 - Verify the owned oracle and blueprint
+## Phase 0 - Owned, executable authorities
 
 Deliverables:
 
-- Verify the current WSL Toast source identity and executable through
-  Banteng-owned `profiles/toast/stock-wsl-testdb.json` and
-  `scripts/run_toast_wsl.sh` before any behavioral claim. Do not depend on a
-  Barn working-tree script, profile, plan, or generated artifact.
-- Keep Barn, `moo_interp`, and `lambdamoo-db-py` read-only implementation
-  references. Do not copy code from them and do not modify Barn while building
-  Banteng.
-- Pin each production and test dependency in the executable Gradle build. The
-  build files, lock files, and verification metadata are the dependency record;
-  do not create a parallel dependency report.
-- Fix the supported conformance-profile set explicitly. The primary release
-  gate is Banteng's stock WSL Toast profile
-  (`profiles/toast/stock-wsl-testdb.json`); declare the Mongoose
-  `PROMOTE_NUMBERS` profile and each real-core profile in or out. Every later
-  "selected profile" reference in this plan resolves to that recorded list.
+1. Add `scripts/verify_toast_profile_wsl.sh MANIFEST`. For a profile manifest, it must
+   verify the WSL source HEAD, executable SHA-256 and executable bit,
+   configuration SHA-256, fixture SHA-256, and support status before launch.
+2. Add the required Toast source path, executable checksum, and canonical
+   fixture path to all three manifests under `profiles/toast/`. The ToastCore
+   manifest also records fixture source path `/root/src/toastcore` and fixture
+   source commit `1887eacd591d97fdc55d258a76e2167899b1951d`; its preflight verifies
+   that HEAD separately from the Toast executable source. No environment
+   variable may bypass a failed identity check.
+3. Make `scripts/run_toast_wsl.sh` invoke that preflight before `exec`.
+4. Verify `../barn/mongoose_fresh2.db` has SHA-256
+   `33201970097d3d2d2bfc0d5f875f087d587601bf8255ef31ef19b416d65ac925`,
+   copy that exact file into `fixtures/mongoose.db`, and verify the copy has the
+   same checksum. This is the only authorized read of the Barn fixture.
+   Thereafter no Banteng command may read `../barn/mongoose_fresh2.db`.
+5. Make `scripts/run_banteng_wsl.sh` run `/opt/java/25/bin/java` inside WSL,
+   accept `{db} {port} {manifest}`, and select `PROMOTE_NUMBERS` only from the
+   supplied target manifest. It must not launch Windows Java or require a
+   Windows-host gateway.
+6. Fix the advertised `moo-conformance FILE_OR_DIR...` interface so exact YAML
+   file and directory arguments collect only rows below those paths even though
+   the CLI loads the installed `moo_conformance` package. Add a conformance CLI
+   regression at `tests/test_cli_file_selection.py` proving one YAML file does
+   not collect another, one directory collects every and only its descendant
+   suites, a literal YAML `skip:` remains allowed, and fixture, profile,
+   capability, collection, or runtime skips fail under
+   `--fail-on-unexpected-skip`. Commit that conformance-repository slice before
+   using path-selected gates below.
+7. After the stock Toast preflight verifies `/root/src/toaststunt`, generate
+   `startup-fixtures.sha256` from `Anon1.db` through `Anon6.db` and `Broken1.db`
+   through `Broken5.db` in `/root/src/toaststunt/test/tests/`, with sorted
+   basename-only entries. Then copy those exact files into
+   `../moo-conformance-tests/src/moo_conformance/_db/startup/`. Commit those
+   eleven fixtures plus the source-generated manifest in the conformance
+   repository. Never regenerate the manifest from the destination copies.
+8. Add `test_suites` arrays to the three Toast oracle manifests: stock and
+   Mongoose contain `src/moo_conformance/_tests`; ToastCore is empty until Phase
+   2 commits the persistent walking-skeleton row. Stock and Mongoose set
+   `login_commands` to an empty array and `skip_standard_properties` to false;
+   ToastCore sets `login_commands` to `["connect wizard"]` and
+   `skip_standard_properties` to true. Add corresponding checked-in
+   Banteng target manifests under `profiles/banteng/`; each identifies
+   implementation `banteng`, the matching feature flags and fixture, and the
+   same `test_suites` array as its Toast oracle manifest.
+9. Add `scripts/run_managed_wsl.sh TARGET PROFILE SUITE...`, where `TARGET` is
+   exactly `toast` or `banteng`, `PROFILE` is exactly `stock`, `mongoose`, or
+   `toastcore`, and `SUITE...` is one or more exact conformance YAML paths,
+   directories, or the single word `profile`. It selects only the checked-in
+   Toast oracle manifest plus either that oracle manifest or the matching
+   Banteng target manifest, invokes `uv run
+   moo-conformance` with the exact suite paths, server command, fixture, oracle
+   and target manifests, `--server-db-dir
+   src/moo_conformance/_db/startup`, `--fail-on-unexpected-skip`, login commands,
+   and standard-property behavior. It rejects every other argument shape,
+   rejects any tracked or staged conformance change and any untracked path below
+   conformance `src/moo_conformance` or `tests`, and
+   is checked in executable. `profile` expands only to the target manifest's
+   nonempty checked-in `test_suites` array.
+10. Add `scripts/test_verify_toast_profile_wsl.sh`. It must prove the verifier
+   returns nonzero for a wrong source HEAD, executable checksum, configuration
+   checksum, fixture checksum, and unsupported status, using temporary manifest
+   and fixture copies only. For every failure case, repeat the invocation with
+   valid alternate paths supplied through `TOAST_SOURCE_DIR`,
+   `TOAST_EXECUTABLE`, `TOAST_CONFIG`, `TOAST_FIXTURE`, and
+   `TOAST_SUPPORT_STATUS=supported`; it must still return nonzero from the
+   manifest failure.
+11. Add `scripts/test_managed_runners_wsl.sh`. Using only temporary Git
+   repositories, manifests, fixtures, stub executables, and an argument-capture
+   stub for `uv run moo-conformance`, it proves: Toast preflight occurs before
+   launch; Banteng invokes `/opt/java/25/bin/java`; only the target manifest
+   controls `PROMOTE_NUMBERS`; every invalid target, profile, and suite shape is
+   rejected; `profile` expands only the selected nonempty suite array; login and
+   standard-property options match the selected profile; dirty tracked, staged,
+   and in-scope untracked conformance state is rejected; and
+   `--fail-on-unexpected-skip` is forwarded.
+12. Keep the selected fixtures exact:
+   `../moo-conformance-tests/src/moo_conformance/_db/Test.db` at SHA-256
+   `1a3f23ebb549e02ccf5341668425118fcdc935b977096add87bc2a8ef29d408e`,
+   `fixtures/mongoose.db` at the checksum above, and
+   `/root/src/toastcore/toastcore.db` at SHA-256
+   `8013b703c61a9894866f836f2b934eada7118cdf0b3cd56181e4bf9205b2f557`
+   from ToastCore commit `1887eacd591d97fdc55d258a76e2167899b1951d`.
 
 Gates:
 
-- The managed oracle runs from Banteng-owned files and a pinned Toast
-  executable without reading or changing Barn's working tree.
-- Barn has no Banteng-authored changes.
-- Phase 0 adds no MOO-semantic production code. The non-semantic build and CLI
-  bootstrap do not authorize a semantic API or representation.
+```bash
+cd /mnt/c/Users/Q/code/banteng
+bash -n scripts/verify_toast_profile_wsl.sh
+bash -n scripts/run_toast_wsl.sh
+bash -n scripts/run_banteng_wsl.sh
+bash -n scripts/run_managed_wsl.sh
+bash scripts/test_verify_toast_profile_wsl.sh
+bash scripts/test_managed_runners_wsl.sh
+scripts/verify_toast_profile_wsl.sh profiles/toast/stock-wsl-testdb.json
+scripts/verify_toast_profile_wsl.sh profiles/toast/mongoose-wsl-mongoose.json
+scripts/verify_toast_profile_wsl.sh profiles/toast/stock-wsl-toastcore.json
+test "$(git ls-files -s scripts/verify_toast_profile_wsl.sh | cut -d' ' -f1)" = 100755
+test "$(git ls-files -s scripts/run_toast_wsl.sh | cut -d' ' -f1)" = 100755
+test "$(git ls-files -s scripts/run_banteng_wsl.sh | cut -d' ' -f1)" = 100755
+test "$(git ls-files -s scripts/run_managed_wsl.sh | cut -d' ' -f1)" = 100755
+git diff --check
+cd /mnt/c/Users/Q/code/moo-conformance-tests
+UV_PROJECT_ENVIRONMENT=/root/.venvs/moo-conformance uv run pytest tests/test_cli_file_selection.py
+cd src/moo_conformance/_db/startup
+sed 's#  #  /root/src/toaststunt/test/tests/#' startup-fixtures.sha256 | sha256sum -c -
+sha256sum -c startup-fixtures.sha256
+cd /mnt/c/Users/Q/code/moo-conformance-tests
+git diff --check
+```
+Record no Phase 0 result in a new report; the manifests, scripts, tests, and
+kept commit are the evidence.
 
-## Phase 1 - Java skeleton and architectural guardrails
+## Phase 1 - Java skeleton and guardrails
 
-Deliverables:
+The build remains one Gradle project through Phase 8. It uses Gradle Wrapper
+9.6.1, Java 25 with `--release 25` and no preview features, dependency locking
+and verification, JUnit 6.1.2, JetCheck 0.3.0, Jazzer 0.30.0, jcstress 0.16,
+JMH 1.37, Error Prone, JSpecify, and NullAway. Do not add another test framework,
+dependency-injection container, plugin system, or reactive networking stack.
 
-- Gradle Wrapper 9.6.1, pinned distribution checksum, Java 25 toolchain, `--release 25`, dependency locking and verification, reproducible test/build/application-distribution tasks, and no preview flags.
-- Concrete picocli CLI with database path, checkpoint path, listener address/port, structured log level, validated usage, and stable exit codes.
-- Package skeleton matching the ownership map.
-- ArchUnit tests enforcing allowed package dependencies and rejecting package cycles.
-- JUnit 6.1.2, a JetCheck 0.3.0 property-test acceptance spike, Jazzer 0.30.0 regression/fuzz tasks, a jcstress 0.16 source set, a forked JMH 1.37 benchmark artifact, and JFR event definitions.
-- A Java 25 compatibility decision for Error Prone and for JSpecify plus NullAway, based on representative sealed types, records, generics, and package annotations. `javac -Xlint:all -Werror` remains mandatory regardless of that decision.
-- A JetCheck spike that generates nested MOO values and a stateful `WorldTxn` command sequence, demonstrates automatic minimization, reproduces the failure from the emitted recheck token, and runs through the wrapper with JUnit 6. Reject JetCheck rather than building a local property framework if the spike fails.
-- One executable smoke test that starts, reports its version, and shuts down cleanly without a database.
-
-Gates:
-
-- A clean checkout builds and tests using only the wrapper.
-- The build compiles with `-Xlint:all` and warnings promoted to errors; any suppression is explicit in code with a stated reason.
-- Dependency locking, checksum verification, and the application distribution
-  are checked by the wrapper.
-- The JetCheck acceptance spike passes on Java 25 and its recorded falsification can be minimized and rechecked exactly. The deliberately failing spike is not left in the normal committed suite.
-- Error Prone and NullAway are each either proven and enabled as blocking checks or explicitly rejected with the observed incompatibility; no partially configured static-analysis gate remains.
-- No framework, backend interface, plugin system, dependency injection container, or reactive networking stack is introduced.
-
-## Phase 2 - Values, syntax, bytecode, and pure VM
-
-Begin immediately with the first thin vertical semantic slice. Resolve value
-semantics just in time through the decision-bearing authority gate; do not
-complete an exhaustive primitive-family audit or narrative matrix before
-writing the executable path. Existing Toast-proven conformance rows are the
-starting authority. Add a row only for a decision the active slice requires and
-that existing rows do not settle.
-
-Establish only the representation required by the active slice. Do not infer
-deep immutability, equality, hashing, ordering, byte ownership, character
-encoding, scalar status, or Java record suitability from ordinary Java
-value-object practice. When a later slice needs another behavior, settle and
-implement it then.
-
-Each kept slice crosses source bytes, lexer and spans, immutable AST, compiler,
-deterministic disassembler, and explicit-stack VM execution before the next
-slice begins:
-
-1. literals, error values, truth, return, and literal formatting;
-2. variables, arithmetic, comparisons, and control flow;
-3. strings, lists, maps, ranges, indexing, and 1-based collection operations;
-4. loops, comprehensions, and scatter assignment;
-5. calls, returns, exceptions, and `finally`;
-6. fork bodies, ticks, and wall-clock limits represented as serializable VM state.
-
-Do not complete an entire value hierarchy, lexer, parser, compiler, or VM layer
-ahead of the next executable semantic path. The immediate implementation target
-is slice 1. Keep or fully restore each source slice before starting the next.
-
-Use `moo_interp` for differential generation where it is already proven, but resolve every disagreement through focused WSL Toast evidence and add the result to `moo-conformance-tests` when coverage is missing.
+The committed `JetCheckAcceptanceTest` is the only replay-token authority.
+Remove the duplicated token from `docs/reports/jetcheck-acceptance-spike.md` so
+that the report points to the test instead of asserting another token.
 
 Gates:
 
-- Focused conformance categories for basic values and language constructs pass.
-- Parser/compiler round trips and disassembly are deterministic.
-- Every VM state required for suspension is serializable data; no correctness depends on a Java call stack.
-- JetCheck properties cover value equality/hash/order contracts, Latin-1 round trips, nested collection operations, and compiler control-flow invariants; minimized failures are promoted to durable regressions before a fix.
+```bash
+cd /mnt/c/Users/Q/code/banteng
+JAVA_HOME=/opt/java/25 ./gradlew clean check
+JAVA_HOME=/opt/java/25 ./gradlew fuzzTest
+JAVA_HOME=/opt/java/25 ./gradlew jcstress
+JAVA_HOME=/opt/java/25 ./gradlew jmh
+JAVA_HOME=/opt/java/25 ./gradlew installDist
+rg -n 'JetCheckAcceptanceTest' docs/reports/jetcheck-acceptance-spike.md
+! rg -n 'AOudqRMBCgMI|rechecking\(' docs/reports/jetcheck-acceptance-spike.md
+git diff --check
+```
 
-## Phase 3 - Minimal persistent walking skeleton, then full world
+If any command fails, Phase 1 is the active phase until it passes and the fix is
+committed.
 
-Deliverables, in this order:
+## Phase 2 - First production vertical slice
 
-1. The minimum streaming v17 reader, immutable world records, concrete `WorldTxn`, and deterministic v17 writer needed by the first managed row. Even this minimal path permits no runtime-visible read or write outside `WorldTxn`.
-2. The minimum byte-oriented connection, login, command, serial scheduling, output, checkpoint, and restart path needed to run the existing first end-to-end managed row: boot the bundled database, connect Wizard, evaluate a simple expression, checkpoint, restart, and evaluate again.
-3. Expand the proven path to the complete streaming v4/v17 reader and v17 writer; immutable object, property, verb, WAIF, anonymous-object, task, and connection records; and exact parent/child, location/contents, inheritance, property, verb, recycled-object, and player indices.
-4. Expand `WorldTxn` to complete read/write/predicate tracking and topology validation.
-5. Add the simplest correct short atomic publication of a fixed-snapshot committed revision, immutable version chains, epoch retention, and the deterministic snapshot API used by the writer. Do not introduce commit descriptors before the Phase 6 benchmark justifies them.
+Deliverables, in order:
 
-Proof fixtures include bundled conformance `Test.db`, Toast test databases, `toastcore.db`, and representative LambdaCore/Mongoose databases already present in the supplied resources. Never run a tracked fixture in place.
+1. Add
+   `../moo-conformance-tests/src/moo_conformance/_tests/server/persistent_walking_skeleton.yaml`
+   with suite `persistent_walking_skeleton` and test
+   `boot_login_eval_checkpoint_restart_eval`. Starting from disposable bundled
+   `Test.db`, the row logs in as Wizard, evaluates `return 6 * 7;` and requires
+   `42`, evaluates `return dump_database();` and requires `0`, restarts with
+   `restart_server`, reconnects as Wizard, evaluates `return 40 + 2;`, and
+   requires `42`.
+2. After its schema and CLI tests pass, commit the candidate row by itself in
+   `moo-conformance-tests` so managed runs execute a clean conformance checkout.
+   Prove it green against pinned stock Toast. If its expectation is wrong,
+   correct only that row and amend the same candidate commit before rerunning.
+   Then run it against the current Banteng HEAD. If red, amend the conformance
+   commit with trailer `Banteng-red: <exact HEAD>` before any Phase 2 corrective
+   production edit. If already green, keep it as validation and do not invent a
+   corrective slice for that row.
+3. Add the committed row path to the ToastCore oracle and Banteng target
+   manifests' `test_suites` arrays and commit that Banteng manifest slice.
+4. Implement the complete production path used by the row: Latin-1 source
+   bytes, lexer, parser, AST, compiler, deterministic disassembly, explicit VM
+   state, minimum v4 `Test.db` input, minimum v17 checkpoint input, deterministic
+   v17 output, immutable world records, real `WorldTxn`, production executor,
+   tickets, validation, retry, ordered effects, socket ingress, Wizard login,
+   command evaluation, `dump_database()`, atomic checkpoint replacement,
+   process restart, reconnect, and evaluation.
+5. Create the builtin manifest defined above with
+   `new BuiltinSpec("dump_database", List.of(new CallShape(List.of(), List.of(),
+   Optional.empty())), BuiltinPermissionRule.WIZARD_ONLY,
+   BuiltinCostRule.fixed(0), EffectClass.DEFERRED_COMMIT, BuiltinOwner.SERVER,
+   BuiltinCatalog::dumpDatabase)`. The VM call
+   opcode owns its ordinary tick; this builtin adds no dynamic tick charge.
+   Production evaluation dispatches through that entry. Prove its zero-argument
+   call shape and `E_PERM` behavior with
+   `server/dump_database.yaml` and `generated_builtins/dump_database.yaml` in
+   the Phase 2 managed gate.
+6. Add `--promote-numbers` to the concrete application configuration. Only the
+   checked target manifest controls it; application code may not infer it from
+   the database filename or server command.
+7. Add `DurableTaskStateArchitectureTest`. It recursively rejects durable task
+   snapshot fields assignable to `Thread`, `Future`, `CompletionStage`,
+   `Socket`, `Channel`, or `Clock`; `VmSnapshotTest` proves
+   the snapshot stores elapsed CPU budget as a value rather than a live anchor.
+8. Delete or replace every placeholder and direct-world path exercised by this
+   row. Do not add an alternate scheduler or alternate execution mode.
+
+Before committing the candidate row, run its exact collection gate:
+
+```bash
+cd /mnt/c/Users/Q/code/moo-conformance-tests
+UV_PROJECT_ENVIRONMENT=/root/.venvs/moo-conformance uv run moo-conformance \
+  --collect-only \
+  src/moo_conformance/_tests/server/persistent_walking_skeleton.yaml \
+  -q -k boot_login_eval_checkpoint_restart_eval
+```
+
+Before any Phase 2 corrective production edit, run these exact single-row
+managed commands from WSL after the candidate conformance commit:
+
+```bash
+cd /mnt/c/Users/Q/code/banteng
+scripts/run_managed_wsl.sh toast stock \
+  src/moo_conformance/_tests/server/persistent_walking_skeleton.yaml
+JAVA_HOME=/opt/java/25 ./gradlew installDist
+scripts/run_managed_wsl.sh banteng stock \
+  src/moo_conformance/_tests/server/persistent_walking_skeleton.yaml
+```
+
+After the production implementation, run these exact broader managed commands:
+
+```bash
+cd /mnt/c/Users/Q/code/banteng
+scripts/run_managed_wsl.sh toast stock \
+  src/moo_conformance/_tests/server/persistent_walking_skeleton.yaml \
+  src/moo_conformance/_tests/server/dump_database.yaml \
+  src/moo_conformance/_tests/generated_builtins/dump_database.yaml
+JAVA_HOME=/opt/java/25 ./gradlew installDist
+scripts/run_managed_wsl.sh banteng stock \
+  src/moo_conformance/_tests/server/persistent_walking_skeleton.yaml \
+  src/moo_conformance/_tests/server/dump_database.yaml \
+  src/moo_conformance/_tests/generated_builtins/dump_database.yaml
+```
+
+Additional gates:
+
+```bash
+cd /mnt/c/Users/Q/code/banteng
+JAVA_HOME=/opt/java/25 ./gradlew test --tests moo.persistence.V17RoundTripTest
+JAVA_HOME=/opt/java/25 ./gradlew test --tests moo.world.WorldTxnTest --tests moo.world.WorldTxnPropertyTest
+JAVA_HOME=/opt/java/25 ./gradlew test --tests moo.runtime.PublicationSchedulerTest --tests moo.ArchitectureTest --tests moo.world.WorldAccessArchitectureTest --tests moo.runtime.DurableTaskStateArchitectureTest
+JAVA_HOME=/opt/java/25 ./gradlew jcstress
+JAVA_HOME=/opt/java/25 ./gradlew check
+git diff --check
+```
+
+The named test classes are deliverables of this phase. `V17RoundTripTest` reloads
+the newly written v17 file and compares restored world and task state; the tests
+also cover byte-stable v17 output, repeatable reads, read/write/predicate
+conflicts, atomic multi-object publication, topology validation, reverse-order
+segment completion, ordered effects, and version reclamation. This phase
+establishes the production execution path; externally observable concurrency
+proof occurs after Phase 4 supplies real task creation and fork behavior.
+
+## Phase 3 - Expand language, world, and persistence through production
+
+Expand only through end-to-end slices that enter through the managed socket and
+use the Phase 2 production scheduler, VM, `WorldTxn`, and checkpoint path:
+
+1. values, variables, arithmetic, comparisons, strings, lists, maps, ranges,
+   indexing, and collection updates;
+2. control flow, loops, comprehensions, scatter assignment, calls, exceptions,
+   and `finally`;
+3. complete streaming v4/v17 input and v17 output for objects, properties,
+   verbs, WAIFs, and anonymous objects;
+4. parent/child, location/contents, inheritance, property, verb, player, and
+   recycled-object indices; and
+5. anonymous fork parsing and a serializable fork-request VM outcome. Task IDs,
+   queueing, and named fork-variable binding remain Phase 4 runtime behavior.
+
+Expand the Phase 2 builtin manifest with every handler invoked by the exact
+Phase 3 suite paths below, including `add_property`, `delete_property`,
+`create`, `recycle`, `new_waif`, and `dump_database`. These are Phase 3 vertical
+slice dependencies, not deferred Phase 5 work.
+
+Every VM snapshot round-trips at return, error, fork, suspension, and resume
+boundaries and contains none of the forbidden live Java state listed above.
+
+Add `MooValuePropertiesTest` for equality/hash/order, Latin-1 round trips, and
+nested collection operations; `MooCompilerPropertiesTest` for generated
+control-flow targets and byte-identical disassembly; and `VmSnapshotTest` for
+the five named VM boundaries and the durable-state restrictions. Add
+`AnonymousObjectPersistenceTest`, which loads each of the six committed
+anonymous-object v4 fixtures, writes v17, reloads it, and compares every
+anonymous object, property, verb, and reference. Add `WorldIndexPropertyTest`,
+which generates create, recycle, reparent, move, player-flag, property, and verb
+mutations and after every committed transaction recomputes and compares the
+parent/child, location/contents, inheritance, property, verb, player, and
+recycled-object indices.
 
 Gates:
 
-- The first managed boot/login/evaluate/checkpoint/restart row passes before the codec, world, or server surface is expanded.
-- Banteng -> v17 -> `lambdamoo-db-py` and `lambdamoo-db-py` -> Banteng differential round trips preserve functional state.
-- Banteng-emitted disposable databases boot successfully under freshly verified WSL Toast.
-- JUnit examples and JetCheck state-machine models prove atomic multi-object publication, repeatable reads, predicate conflict detection, topology invariants, and version reclamation safety; jcstress separately proves Java Memory Model publication properties.
-- There is no non-transactional production mutator.
+```bash
+cd /mnt/c/Users/Q/code/banteng
+JAVA_HOME=/opt/java/25 ./gradlew test --tests moo.value.MooValuePropertiesTest --tests moo.bytecode.MooCompilerPropertiesTest --tests moo.vm.VmSnapshotTest --tests moo.persistence.AnonymousObjectPersistenceTest --tests moo.world.WorldIndexPropertyTest
+JAVA_HOME=/opt/java/25 ./gradlew check
+git diff --check
+```
 
-## Phase 4 - Complete serial server and task semantics
+Run the same exact path list once with `toast stock` and once with
+`banteng stock`:
 
-Deliverables:
+```bash
+cd /mnt/c/Users/Q/code/banteng
+scripts/run_managed_wsl.sh toast stock \
+  src/moo_conformance/_tests/basic/value.yaml \
+  src/moo_conformance/_tests/basic/types.yaml \
+  src/moo_conformance/_tests/basic/arithmetic.yaml \
+  src/moo_conformance/_tests/basic/string.yaml \
+  src/moo_conformance/_tests/basic/list.yaml \
+  src/moo_conformance/_tests/language/error_authority.yaml \
+  src/moo_conformance/_tests/language/control_flow.yaml \
+  src/moo_conformance/_tests/language/index_and_range.yaml \
+  src/moo_conformance/_tests/language/looping.yaml \
+  src/moo_conformance/_tests/language/scatter.yaml \
+  src/moo_conformance/_tests/language/splice.yaml \
+  src/moo_conformance/_tests/language/try_except.yaml \
+  src/moo_conformance/_tests/basic/object.yaml \
+  src/moo_conformance/_tests/basic/property.yaml \
+  src/moo_conformance/_tests/objects/property_lookup.yaml \
+  src/moo_conformance/_tests/server/dump_persistence.yaml \
+  src/moo_conformance/_tests/server/boolean_dump_persistence.yaml \
+  src/moo_conformance/_tests/server/error_dump_persistence.yaml \
+  src/moo_conformance/_tests/server/float_boundary_dump_persistence.yaml \
+  src/moo_conformance/_tests/server/integer_dump_persistence.yaml \
+  src/moo_conformance/_tests/server/list_dump_persistence.yaml \
+  src/moo_conformance/_tests/server/map_dump_persistence.yaml \
+  src/moo_conformance/_tests/server/object_dump_persistence.yaml \
+  src/moo_conformance/_tests/server/string_dump_persistence.yaml \
+  src/moo_conformance/_tests/server/waif_dump_persistence.yaml \
+  src/moo_conformance/_tests/server/startup_repair_anon1.yaml \
+  src/moo_conformance/_tests/server/startup_repair_anon2.yaml \
+  src/moo_conformance/_tests/server/startup_repair_anon3.yaml \
+  src/moo_conformance/_tests/server/startup_repair_anon4.yaml \
+  src/moo_conformance/_tests/server/startup_repair_anon5.yaml \
+  src/moo_conformance/_tests/server/startup_repair_anon6.yaml
+scripts/run_managed_wsl.sh banteng stock \
+  src/moo_conformance/_tests/basic/value.yaml \
+  src/moo_conformance/_tests/basic/types.yaml \
+  src/moo_conformance/_tests/basic/arithmetic.yaml \
+  src/moo_conformance/_tests/basic/string.yaml \
+  src/moo_conformance/_tests/basic/list.yaml \
+  src/moo_conformance/_tests/language/error_authority.yaml \
+  src/moo_conformance/_tests/language/control_flow.yaml \
+  src/moo_conformance/_tests/language/index_and_range.yaml \
+  src/moo_conformance/_tests/language/looping.yaml \
+  src/moo_conformance/_tests/language/scatter.yaml \
+  src/moo_conformance/_tests/language/splice.yaml \
+  src/moo_conformance/_tests/language/try_except.yaml \
+  src/moo_conformance/_tests/basic/object.yaml \
+  src/moo_conformance/_tests/basic/property.yaml \
+  src/moo_conformance/_tests/objects/property_lookup.yaml \
+  src/moo_conformance/_tests/server/dump_persistence.yaml \
+  src/moo_conformance/_tests/server/boolean_dump_persistence.yaml \
+  src/moo_conformance/_tests/server/error_dump_persistence.yaml \
+  src/moo_conformance/_tests/server/float_boundary_dump_persistence.yaml \
+  src/moo_conformance/_tests/server/integer_dump_persistence.yaml \
+  src/moo_conformance/_tests/server/list_dump_persistence.yaml \
+  src/moo_conformance/_tests/server/map_dump_persistence.yaml \
+  src/moo_conformance/_tests/server/object_dump_persistence.yaml \
+  src/moo_conformance/_tests/server/string_dump_persistence.yaml \
+  src/moo_conformance/_tests/server/waif_dump_persistence.yaml \
+  src/moo_conformance/_tests/server/startup_repair_anon1.yaml \
+  src/moo_conformance/_tests/server/startup_repair_anon2.yaml \
+  src/moo_conformance/_tests/server/startup_repair_anon3.yaml \
+  src/moo_conformance/_tests/server/startup_repair_anon4.yaml \
+  src/moo_conformance/_tests/server/startup_repair_anon5.yaml \
+  src/moo_conformance/_tests/server/startup_repair_anon6.yaml
+```
 
-- Expand the Phase 3 server seam to a blocking `ServerSocket` accept loop and virtual-thread connection lifecycle.
-- Complete the byte-oriented Telnet parser, including split IAC state.
-- Complete serialized connection output and input queues.
-- Login, command parsing, verb lookup, task creation, explicit suspend/read/resume/fork, and task registry.
-- Serial scheduler mode using the same ticket, `WorldTxn`, effect-journal, and publication path intended for parallel execution.
-- Focused WSL Toast probes for ready-queue ordering rules, task-ID timing, and output ordering, recorded as durable conformance rows before the ticket sequencer design is frozen.
+## Phase 4 - Complete production server and task semantics
+
+Complete the blocking `ServerSocket` listener, virtual-thread connection
+lifecycle, split-IAC Telnet parser, ordered input/output queues, login, command
+parsing, verb lookup, task creation, task IDs, task registry, suspend, read,
+resume, fork, kill, and queued-task inspection. Every operation uses the Phase 2
+production tickets, executor, `WorldTxn`, effect journal, and ordered
+publication path. Delete the placeholder `queued_tasks()` before other Phase 4
+source work only as part of the same kept slice that installs and registers its
+real task-registry-backed implementation; do not commit a deletion-only gap.
+Expand the builtin manifest with every task, object, property, verb, listener,
+connection, and server handler invoked by the exact Phase 4 suite paths below.
+Those handlers are Phase 4 vertical slice dependencies; Phase 5 completes only
+the remaining manifest surface.
+
+The task CPU limit uses Toast's virtual/process-CPU semantics, not wall time.
+The exact authority is
+`audit_task_scheduling_toast_oracle::audit_server_options_fg_seconds_runtime`
+and `audit_task_scheduling_toast_oracle::audit_server_options_bg_seconds_runtime`
+in the Phase 4 path list below.
+
+Run this exact path list once with `toast stock` and once with `banteng stock`:
+
+```bash
+cd /mnt/c/Users/Q/code/banteng
+scripts/run_managed_wsl.sh toast stock \
+  src/moo_conformance/_tests/server/lifecycle.yaml \
+  src/moo_conformance/_tests/server/command_parsing.yaml \
+  src/moo_conformance/_tests/fork/fork_observation.yaml \
+  src/moo_conformance/_tests/fork/fork_timing.yaml \
+  src/moo_conformance/_tests/capabilities/queued_tasks.yaml \
+  src/moo_conformance/_tests/audit/connection_lifecycle_toast_oracle.yaml \
+  src/moo_conformance/_tests/audit/task_scheduling_toast_oracle.yaml
+scripts/run_managed_wsl.sh banteng stock \
+  src/moo_conformance/_tests/server/lifecycle.yaml \
+  src/moo_conformance/_tests/server/command_parsing.yaml \
+  src/moo_conformance/_tests/fork/fork_observation.yaml \
+  src/moo_conformance/_tests/fork/fork_timing.yaml \
+  src/moo_conformance/_tests/capabilities/queued_tasks.yaml \
+  src/moo_conformance/_tests/audit/connection_lifecycle_toast_oracle.yaml \
+  src/moo_conformance/_tests/audit/task_scheduling_toast_oracle.yaml
+JAVA_HOME=/opt/java/25 ./gradlew check
+git diff --check
+```
+
+Commit the kept phase before Phase 5.
+
+## Phase 5 - Complete builtin manifest and implementation
+
+Complete the single `BuiltinSpec` table defined above. Delete the remaining
+independent dispatch-name and effect-class switches, aliases absent from Toast,
+and every placeholder result.
+
+Add `scripts/extract_toast_builtin_names_wsl.sh MANIFEST OUTPUT`. It verifies the
+manifest first, reads only that manifest's pinned Toast source, and writes the
+sorted canonical registered-name set. Commit exact stock and Mongoose name
+fixtures under `src/test/resources/moo/builtin/`. `BuiltinCatalogTest` compares
+the production manifest with those fixtures without accessing an external
+checkout. The separate extraction gate below regenerates temporary files from
+the pinned sources and compares them byte-for-byte with the fixtures.
+
+`BuiltinCatalogTest` proves one-to-one correspondence between manifest entries
+and dispatch implementations, complete contract fields, and complete canonical
+name coverage for each selected profile. No builtin reads or changes committed
+world state except through the current `WorldTxn`.
 
 Gates:
 
-- Focused server lifecycle, command, task, fork, read, Telnet, and persistence rows pass through the managed conformance harness.
-- Serial behavior matches WSL Toast for ready ordering, zero-delay forks, task IDs, connection output, and restart.
-- No manual server lifecycle substitutes for the managed harness.
+```bash
+cd /mnt/c/Users/Q/code/banteng
+scripts/extract_toast_builtin_names_wsl.sh profiles/toast/stock-wsl-testdb.json /tmp/banteng-builtins-stock.txt
+cmp src/test/resources/moo/builtin/toast-builtins-stock.txt /tmp/banteng-builtins-stock.txt
+scripts/extract_toast_builtin_names_wsl.sh profiles/toast/mongoose-wsl-mongoose.json /tmp/banteng-builtins-mongoose.txt
+cmp src/test/resources/moo/builtin/toast-builtins-mongoose.txt /tmp/banteng-builtins-mongoose.txt
+rm /tmp/banteng-builtins-stock.txt /tmp/banteng-builtins-mongoose.txt
+JAVA_HOME=/opt/java/25 ./gradlew test --tests moo.builtin.BuiltinCatalogTest
+scripts/run_managed_wsl.sh toast stock src/moo_conformance/_tests/builtins src/moo_conformance/_tests/generated_builtins
+scripts/run_managed_wsl.sh banteng stock src/moo_conformance/_tests/builtins src/moo_conformance/_tests/generated_builtins
+scripts/run_managed_wsl.sh toast mongoose src/moo_conformance/_tests/builtins src/moo_conformance/_tests/generated_builtins
+scripts/run_managed_wsl.sh banteng mongoose src/moo_conformance/_tests/builtins src/moo_conformance/_tests/generated_builtins
+JAVA_HOME=/opt/java/25 ./gradlew check
+git diff --check
+```
 
-## Phase 5 - Builtin surface by classified families
+ToastCore uses the same pinned stock Toast executable and therefore the same
+stock canonical builtin-name fixture. Its checked-in profile contains only the
+Phase 2 persistent walking skeleton and has no separate Phase 5
+builtin-directory gate.
 
-Create an explicit builtin manifest containing name, argument contract, permission rule, tick cost, effect class, and implementation owner. Implement families in conformance-driven slices:
+## Phase 6 - Prove and harden production concurrency
 
-1. conversions, strings, collections, math, regex, JSON;
-2. objects, properties, verbs, permissions, movement, lifecycle;
-3. tasks, server, connections, listeners, output;
-4. crypto, file I/O, SQLite, HTTP/network, exec, and optional extensions.
+Do not create a serial scheduler, serial mode, commit-descriptor alternative, or
+Barn benchmark dependency.
 
-Before each family, apply the decision-bearing authority gate only to builtin
-contracts that existing Toast-proven rows do not settle. Compare the executable
-manifest against Toast's registered names and the focused conformance rows.
-Delete accidental extra surface rather than keeping aliases.
+Add these exact proof artifacts:
 
-Gates:
+- `moo.runtime.ConcurrentExecutionTest`: independent CPU segments overlap on
+  distinct production executor threads;
+- `moo.runtime.ConcurrentSchedulerPropertyTest`: generated completion orders,
+  conflicts, retries, task IDs, and effects preserve invariants frozen by the
+  exact Phase 4 managed rows; concurrent PRNG consumption must equal execution
+  of the same generated task list in ready order with the same seed, using the
+  Toast-proven `random` and `reseed_random` rows from Phase 5;
+- `moo.runtime.ConcurrentSchedulerStressTest`: bounded-queue saturation,
+  repeated conflicts, retry bounds, and eventual progress;
+- `moo.jcstress.WorldPublicationTest`: readers observe only complete committed
+  revisions.
 
-- Every enabled builtin has exactly one effect classification and focused tests.
-- Every Toast builtin required by the selected profile is implemented or explicitly profile-excluded.
-- No builtin can access committed world state without the current `WorldTxn`.
-- Each family passes its focused managed conformance slice before the next begins.
-
-## Phase 6 - Deterministic multi-core execution
-
-Deliverables:
-
-- A measured fixed-size `ThreadPoolExecutor` for speculative VM segments with an explicitly bounded work queue and admission policy; do not use virtual threads or an unbounded executor for CPU work.
-- Toast-order publication tickets.
-- Captured segment start state, validation, conflict retry, bounded retry accounting, and exclusive irrevocable rerun.
-- Transactional global PRNG state, publication-turn reruns for wall-clock reads,
-  and a narrowly scoped journal for genuinely task-local retry-safe inputs.
-- Deferred effect publication for output, forks, connection changes, task changes, finalization, and MOO-visible logging.
-- JFR and counters for queue delay, execution time, publication wait, commit, conflict cause (including PRNG-record contention), retries, irrevocable reruns, publication-sensitive wall-clock reruns, and version retention.
-- A forked JMH commit-engine benchmark comparing the short global publication sequencer against commit descriptors under disjoint and conflicting writes. The sequencer remains the production design unless descriptors produce a material kept gain. A rejected descriptor slice is fully restored; a kept slice is committed and this architecture plan is updated before further source work.
-
-Proof workloads use one common harness for Banteng serial mode, Banteng parallel mode, Barn master, and Barn's `work/mvcc-concurrent-moo` branch:
-
-- independent CPU-heavy read-only verbs;
-- disjoint property writes;
-- same-property contention;
-- inheritance/topology reads plus writes;
-- output/fork ordering;
-- checkpoint during active work.
+Add Gradle task `schedulerStress` that runs only the named stress class. Extend
+`jcstress` to include both checked-in publication tests.
 
 Gates:
 
-- Serial and parallel Banteng produce the same committed world, task order, IDs, and output for deterministic example and JetCheck-generated workloads; every minimized disagreement becomes a durable regression before the fix.
-- Conflict and retry stress tests are clean under jcstress for publication/JMM claims and the relevant longer-running generated stress suite for scheduler/transaction semantics.
-- Parallel Banteng beats its own serial mode on independent CPU work and disjoint writes using the same benchmark artifact.
-- On the same machine and harness, Banteng improves on Barn MVCC's throughput/scaling shape without hiding single-worker cost.
-- If two consecutive concurrency slices produce no kept measured improvement, stop this target and report it instead of widening the work.
+```bash
+cd /mnt/c/Users/Q/code/banteng
+JAVA_HOME=/opt/java/25 ./gradlew test --tests moo.runtime.ConcurrentExecutionTest --tests moo.runtime.ConcurrentSchedulerPropertyTest
+JAVA_HOME=/opt/java/25 ./gradlew schedulerStress
+JAVA_HOME=/opt/java/25 ./gradlew jcstress
+scripts/run_managed_wsl.sh toast stock \
+  src/moo_conformance/_tests/server/lifecycle.yaml \
+  src/moo_conformance/_tests/server/command_parsing.yaml \
+  src/moo_conformance/_tests/fork/fork_observation.yaml \
+  src/moo_conformance/_tests/fork/fork_timing.yaml \
+  src/moo_conformance/_tests/capabilities/queued_tasks.yaml \
+  src/moo_conformance/_tests/audit/connection_lifecycle_toast_oracle.yaml \
+  src/moo_conformance/_tests/audit/task_scheduling_toast_oracle.yaml
+scripts/run_managed_wsl.sh banteng stock \
+  src/moo_conformance/_tests/server/lifecycle.yaml \
+  src/moo_conformance/_tests/server/command_parsing.yaml \
+  src/moo_conformance/_tests/fork/fork_observation.yaml \
+  src/moo_conformance/_tests/fork/fork_timing.yaml \
+  src/moo_conformance/_tests/capabilities/queued_tasks.yaml \
+  src/moo_conformance/_tests/audit/connection_lifecycle_toast_oracle.yaml \
+  src/moo_conformance/_tests/audit/task_scheduling_toast_oracle.yaml
+JAVA_HOME=/opt/java/25 ./gradlew check
+git diff --check
+```
 
-## Phase 7 - Checkpoint, restart, and operational behavior
+The phase passes only when concurrent work is observed and every externally
+visible result matches the exact Toast-proven rows for task order, task IDs,
+world state, and output.
 
-Deliverables:
+## Phase 7 - Operational checkpoint and restart
 
-- Non-stop-the-world committed-revision checkpoints.
-- Atomic replacement and panic-dump behavior.
-- Full queued/suspended/interrupted task round trip.
-- Version retention bounded across slow checkpoints.
-- Graceful shutdown, listener recovery, connection cleanup, and deterministic task restoration.
-- JFR templates and a concise operator guide for thread, transaction, retry, GC, and checkpoint diagnosis.
+Extend the Phase 2 checkpoint path with queued and suspended task round trips,
+checkpoint-time revision retention, bounded reclamation, and graceful shutdown.
+There is no panic-dump feature in this plan.
+
+Add:
+
+- `../moo-conformance-tests/src/moo_conformance/_tests/server/checkpoint_operational.yaml`
+  with suite `checkpoint_operational` and exact tests
+  `queued_task_runs_once_after_restart`,
+  `suspended_task_resumes_once_after_restart`, and
+  `checkpoint_during_active_task_exposes_only_committed_state`;
+- `moo.persistence.ActiveCheckpointTest`;
+- `moo.persistence.AtomicCheckpointFailureTest`;
+- `moo.persistence.RepeatedRestartTest`;
+- `moo.world.CheckpointRetentionTest`;
+- `moo.runtime.GracefulShutdownTest`;
+- `moo.runtime.JfrTemplateTest`;
+- `moo.app.OperationsCommandTest`;
+- `src/main/resources/jfr/banteng-production.jfc`; and
+- `docs/operations.md` containing only executable launch, checkpoint, JFR, and
+  recovery commands.
+
+Commit the candidate three-row conformance suite, prove it green on pinned
+stock Toast, and run it on the current Banteng HEAD. Amend only the candidate
+suite until Toast-green. If Banteng is red, amend trailer
+`Banteng-red: <exact HEAD>` before Phase 7 production edits; if already green,
+keep it as validation and do not invent a corrective slice.
+`RepeatedRestartTest` performs 100 checkpoint/restart cycles and after every
+cycle compares the committed world, queued/suspended task IDs and states, and
+ordered output with the prior cycle. `GracefulShutdownTest` requires listener
+closure, executor termination, final checkpoint completion, and zero live
+Banteng-owned threads. `JfrTemplateTest` loads the checked-in JFC with the JDK
+JFR configuration API. `OperationsCommandTest` executes every fenced shell
+command in `docs/operations.md` against disposable paths. For a command that
+starts the server, the test launches the exact command, waits for its documented
+listener to accept a connection, sends `SIGTERM`, requires exit zero, and
+verifies the documented final checkpoint and process cleanup. `--help` never
+substitutes for executing a documented operational command.
 
 Gates:
 
-- Checkpoint/restart conformance passes while other tasks execute.
-- Repeated checkpoint/load cycles are functionally stable under both Banteng and WSL Toast.
-- Failure-injection tests never replace the last good database with a partial file.
-- Long checkpoints do not prevent unrelated speculative execution and do not leak retained versions afterward.
+```bash
+cd /mnt/c/Users/Q/code/banteng
+scripts/run_managed_wsl.sh toast stock src/moo_conformance/_tests/server/checkpoint_operational.yaml
+scripts/run_managed_wsl.sh banteng stock src/moo_conformance/_tests/server/checkpoint_operational.yaml
+JAVA_HOME=/opt/java/25 ./gradlew test --tests moo.persistence.ActiveCheckpointTest --tests moo.persistence.AtomicCheckpointFailureTest --tests moo.persistence.RepeatedRestartTest --tests moo.world.CheckpointRetentionTest --tests moo.runtime.GracefulShutdownTest --tests moo.runtime.JfrTemplateTest --tests moo.app.OperationsCommandTest
+JAVA_HOME=/opt/java/25 ./gradlew schedulerStress
+JAVA_HOME=/opt/java/25 ./gradlew check
+git diff --check
+```
 
-## Phase 8 - Exact convergence and release proof
+Failure injection must prove the last good database is never replaced by a
+partial file. Active checkpoints must not stop unrelated VM segments, and all
+checkpoint-held revisions must become reclaimable after completion.
 
-Work on one failing conformance family at a time. For each discrepancy:
+## Phase 8 - Exact convergence and release
 
-1. prove expected behavior on freshly verified WSL Toast;
-2. add or correct the durable focused conformance row;
-3. prove it red on Banteng;
-4. if generated testing exposed it, minimize it, record the exact replay token, promote the minimal case to a durable regression, and prove that regression red;
-5. implement one owned fix;
-6. prove the focused row and any promoted regression green;
-7. run the substantial targeted category;
-8. keep and commit the slice or fully restore it before the next family, then
-   continue with the next failing family or incomplete phase.
+Work on one failing YAML suite or test family at a time. Prove the exact row on
+its pinned Toast profile, prove it red on Banteng, implement one owned fix,
+prove the row green, run its entire suite file, and either commit or fully
+restore the slice before selecting another failure.
 
-Final gates:
+After the last conformance change is committed, add
+`profiles/conformance-suite.ref` containing only the exact
+`moo-conformance-tests` HEAD. `scripts/run_managed_wsl.sh` must reject a checkout
+whose HEAD differs from that file.
 
-- Full managed stock-Toast profile passes against the bundled database.
-- All selected real-core profiles pass with freshly identified disposable fixtures.
-- Full Gradle tests, JetCheck properties, Jazzer fuzz targets, jcstress publication tests, scheduler/transaction stress tests, JMH comparison, database round trips, restart tests, and `git diff --check` pass.
-- Every plan phase is complete or explicitly deferred by the user.
-- The release artifact runs on a clean Java 25 installation with documented commands and no development checkout dependencies except the optional external conformance run.
+Add executable `scripts/release_smoke_wsl.sh`. It creates a unique path with
+`mktemp -d /tmp/banteng-release.XXXXXX`, removes that empty directory, registers
+a detached `git worktree` at the path, installs an EXIT trap that runs
+`git worktree remove --force` for the registered path, and prints exactly one
+line `BANTENG_RELEASE_WORKTREE=<absolute-path>` before build output. After
+registration it sets `JAVA_HOME="${JAVA_HOME:-/opt/java/25}"` and runs the clean commands
+`./gradlew clean installDist`, `build/install/banteng/bin/banteng --version`,
+and `build/install/banteng/bin/banteng --help`. The trap must succeed after both
+passing and deliberately failing invocations. `scripts/test_release_smoke_wsl.sh`
+runs the smoke script normally, then runs
+`JAVA_HOME=/nonexistent bash scripts/release_smoke_wsl.sh` and requires a
+nonzero exit. After each invocation it proves that the created path is absent
+from both the filesystem and `git worktree list --porcelain`, using only the
+path parsed from that invocation's `BANTENG_RELEASE_WORKTREE=` line.
 
-## Explicit non-goals for the first release
+Final gates, in order:
 
-- arbitrary Java plugin API;
-- multiple storage backends;
-- actor-per-object architecture;
-- Netty/reactive streams;
-- Kotlin coroutines;
-- persisting Java thread/continuation stacks;
-- arbitrary serializable scheduling that changes Toast queue order;
-- internal SQL/RocksDB/event-store persistence;
-- native-image support before the JVM implementation is conformant and measured.
+```bash
+cd /mnt/c/Users/Q/code/banteng
+scripts/run_managed_wsl.sh toast stock profile
+scripts/run_managed_wsl.sh banteng stock profile
+scripts/run_managed_wsl.sh toast mongoose profile
+scripts/run_managed_wsl.sh banteng mongoose profile
+scripts/run_managed_wsl.sh toast toastcore profile
+scripts/run_managed_wsl.sh banteng toastcore profile
+JAVA_HOME=/opt/java/25 ./gradlew clean check
+JAVA_HOME=/opt/java/25 ./gradlew fuzzTest
+JAVA_HOME=/opt/java/25 ./gradlew jcstress
+JAVA_HOME=/opt/java/25 ./gradlew schedulerStress
+JAVA_HOME=/opt/java/25 ./gradlew jmh
+JAVA_HOME=/opt/java/25 ./gradlew installDist
+bash scripts/test_release_smoke_wsl.sh
+bash scripts/release_smoke_wsl.sh
+git diff --check
+```
+
+The project is complete only after all final gates and every earlier phase gate
+pass on the same kept Banteng revision and the exact conformance revision in
+`profiles/conformance-suite.ref`.
+
+## First-release exclusions
+
+- no alternate serial scheduler and no Banteng-internal behavioral reference;
+  pinned Toast remains the behavioral authority;
+- no mutable Barn branch, Barn fixture, or Barn working-tree dependency;
+- no arbitrary Java plugin API;
+- no alternate storage backend, SQL world store, RocksDB, event store, or WAL;
+- no actor-per-object architecture, Netty, or reactive streams;
+- no Kotlin coroutine or persisted Java continuation/thread stack; and
+- no native-image support in the first release.
