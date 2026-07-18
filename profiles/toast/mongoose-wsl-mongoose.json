@@ -18,6 +18,9 @@
     "option.PROMOTE_NUMBERS": true,
     "runtime.arch_bits": 64
   },
+  "test_suites": ["src/moo_conformance/_tests"],
+  "login_commands": [],
+  "skip_standard_properties": false,
   "support_status": "supported",
   "unsupported_reason": ""
 }

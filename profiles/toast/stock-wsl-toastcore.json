@@ -20,6 +20,9 @@
     "option.PROMOTE_NUMBERS": false,
     "runtime.arch_bits": 64
   },
+  "test_suites": [],
+  "login_commands": ["connect wizard"],
+  "skip_standard_properties": true,
   "support_status": "supported",
   "unsupported_reason": ""
 }

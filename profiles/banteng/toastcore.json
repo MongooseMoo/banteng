@@ -1,0 +1,19 @@
+{
+  "profile_id": "banteng-toastcore",
+  "implementation": "banteng",
+  "runtime_os": "linux",
+  "arch_bits": 64,
+  "database_fixture": "toastcore",
+  "fixture_path": "/root/src/toastcore/toastcore.db",
+  "database_checksum": "8013b703c61a9894866f836f2b934eada7118cdf0b3cd56181e4bf9205b2f557",
+  "features": {
+    "option.OUTBOUND_NETWORK": true,
+    "option.PROMOTE_NUMBERS": false,
+    "runtime.arch_bits": 64
+  },
+  "test_suites": [],
+  "login_commands": ["connect wizard"],
+  "skip_standard_properties": true,
+  "support_status": "supported",
+  "unsupported_reason": ""
+}
