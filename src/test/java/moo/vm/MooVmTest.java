@@ -265,6 +265,66 @@ final class MooVmTest {
   }
 
   @Test
+  void iteratesMapValuesInKeyOrderThroughTheCompleteControlFlowPipeline() {
+    byte[] source =
+        """
+        x = {};
+        for v in (["b" -> 2, "a" -> 1])
+          x = {@x, v};
+        endfor
+        return x;"""
+            .getBytes(StandardCharsets.ISO_8859_1);
+    Ast.Program syntax = MooParser.parse(source);
+    Ast.For forStatement = assertInstanceOf(Ast.For.class, syntax.statements().get(1));
+    assertEquals("v", forStatement.variable());
+    assertTrue(forStatement.indexVariable().isEmpty());
+    assertInstanceOf(Ast.MapLiteral.class, forStatement.iterable());
+    assertInstanceOf(Ast.ExpressionStatement.class, forStatement.body().getFirst());
+    assertEquals(
+        """
+        x = {};
+        for v in (["b" -> 2, "a" -> 1])
+          x = {@x, v};
+        endfor
+        return x;""",
+        MooUnparser.unparse(syntax));
+
+    BytecodeProgram program = new MooCompiler().compile(syntax);
+    assertEquals(
+        """
+        0 BUILD_LIST 0
+        1 DUP
+        2 STORE_LOCAL x
+        3 POP
+        4 PUSH_INTEGER 2
+        5 PUSH_STRING b
+        6 PUSH_INTEGER 1
+        7 PUSH_STRING a
+        8 BUILD_MAP 2
+        9 ITERATE 19 v
+        10 BUILD_LIST 0
+        11 LOAD_LOCAL x
+        12 LIST_EXTEND
+        13 LOAD_LOCAL v
+        14 LIST_APPEND
+        15 DUP
+        16 STORE_LOCAL x
+        17 POP
+        18 JUMP 9
+        19 LOAD_LOCAL x
+        20 RETURN""",
+        program.disassemble());
+    VmState state = new VmState();
+
+    new MooVm().execute(program, state);
+
+    assertEquals(VmState.Outcome.RETURNED, state.outcome());
+    assertEquals(
+        new ListValue(List.of(new IntegerValue(1), new IntegerValue(2))),
+        state.returnValue().orElseThrow());
+  }
+
+  @Test
   void comparesStringOrderingCaseInsensitively() {
     byte[] source = "return \"a\" < \"B\";".getBytes(StandardCharsets.ISO_8859_1);
     Ast.Program syntax = MooParser.parse(source);

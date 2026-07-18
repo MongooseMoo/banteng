@@ -1419,6 +1419,19 @@ public final class MooVm {
           characters.add(new StringValue(new byte[] {character}));
         }
         values = new ListValue(characters);
+      } else if (iterable instanceof MapValue map) {
+        List<Map.Entry<MooValue, MooValue>> entries = new ArrayList<>(map.entries().entrySet());
+        if (entries.stream().allMatch(entry -> entry.getKey() instanceof StringValue)) {
+          entries.sort(
+              (left, right) ->
+                  ((StringValue) left.getKey())
+                      .compareIgnoringCase((StringValue) right.getKey()));
+        }
+        List<MooValue> mapValues = new ArrayList<>(entries.size());
+        for (Map.Entry<MooValue, MooValue> entry : entries) {
+          mapValues.add(entry.getValue());
+        }
+        values = new ListValue(mapValues);
       } else {
         raiseError(state, ErrorValue.E_TYPE, world);
         return;
