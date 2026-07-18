@@ -623,6 +623,15 @@ public final class MooVm {
       frame.instructionPointer++;
       return;
     }
+    if (collection instanceof StringValue string) {
+      if (string.length() == 0) {
+        raiseError(state, ErrorValue.E_RANGE, world);
+        return;
+      }
+      frame.operandStack.push(new IntegerValue(string.length()));
+      frame.instructionPointer++;
+      return;
+    }
     raiseError(state, ErrorValue.E_TYPE, world);
   }
 

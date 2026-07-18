@@ -687,6 +687,42 @@ final class MooVmTest {
   }
 
   @Test
+  void indexesTheLastStringByteThroughTheCompleteCollectionPipeline() {
+    byte[] source = "return \"foobar\"[$];".getBytes(StandardCharsets.ISO_8859_1);
+    Ast.Program syntax = MooParser.parse(source);
+    Ast.Return returnStatement =
+        assertInstanceOf(Ast.Return.class, syntax.statements().getFirst());
+    Ast.IndexAccess index =
+        assertInstanceOf(Ast.IndexAccess.class, returnStatement.value().orElseThrow());
+    Ast.StringLiteral string = assertInstanceOf(Ast.StringLiteral.class, index.collection());
+    Ast.LastIndex last = assertInstanceOf(Ast.LastIndex.class, index.index());
+    assertEquals(new Ast.SourceSpan(0, 19, 1, 1), returnStatement.span().orElseThrow());
+    assertEquals(new Ast.SourceSpan(7, 18, 1, 8), index.span().orElseThrow());
+    assertEquals(new Ast.SourceSpan(7, 15, 1, 8), string.span().orElseThrow());
+    assertEquals(new Ast.SourceSpan(16, 17, 1, 17), last.span().orElseThrow());
+    assertEquals("return \"foobar\"[$];", MooUnparser.unparse(syntax));
+
+    BytecodeProgram program = new MooCompiler().compile(syntax);
+    assertEquals(
+        """
+        0 PUSH_STRING foobar
+        1 ENTER_INDEX
+        2 LAST
+        3 INDEX
+        4 RETURN""",
+        program.disassemble());
+    VmState state = new VmState();
+
+    new MooVm().execute(program, state);
+
+    assertEquals(VmState.Outcome.RETURNED, state.outcome());
+    assertTrue(state.uncaughtError().isEmpty());
+    assertEquals(
+        new StringValue("r".getBytes(StandardCharsets.ISO_8859_1)),
+        state.returnValue().orElseThrow());
+  }
+
+  @Test
   void resolvesTheLastListIndexInsideACallArgument() {
     byte[] source =
         "return {1, 2, 3, 4, 5, 6, 7}[max($, 1)];"
