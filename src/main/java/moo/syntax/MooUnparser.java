@@ -112,6 +112,12 @@ public final class MooUnparser {
         line(indentation, "endfor");
         return;
       }
+      if (statement instanceof Ast.Break breakStatement) {
+        line(
+            indentation,
+            breakStatement.loopVariable().map(name -> "break " + name + ";").orElse("break;"));
+        return;
+      }
       if (statement instanceof Ast.Fork forkStatement) {
         line(
             indentation, "fork (" + expression(forkStatement.delay(), ASSIGNMENT_PRECEDENCE) + ")");

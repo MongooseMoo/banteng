@@ -76,6 +76,7 @@ public final class MooParser {
       case IF -> parseIf();
       case WHILE -> parseWhile();
       case FOR -> parseFor();
+      case BREAK -> parseBreak();
       case FORK -> parseFork();
       case TRY -> parseTry();
       case RETURN -> parseReturn();
@@ -139,6 +140,17 @@ public final class MooParser {
     List<Ast.Statement> body = parseStatementsUntil(TokenKind.ENDFOR);
     expectAndAdvance(TokenKind.ENDFOR, "endfor");
     return new Ast.For(variable, indexVariable, iterable, body);
+  }
+
+  private Ast.Break parseBreak() {
+    advance();
+    Optional<String> loopVariable = Optional.empty();
+    if (current.kind() == TokenKind.IDENTIFIER) {
+      loopVariable = Optional.of(current.lexeme());
+      advance();
+    }
+    expectAndAdvance(TokenKind.SEMICOLON, "';' after break");
+    return new Ast.Break(loopVariable);
   }
 
   private Ast.Fork parseFork() {

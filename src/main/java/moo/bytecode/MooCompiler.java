@@ -12,6 +12,8 @@ import moo.syntax.MooParser;
 /** Lowers the authorized syntax slice directly into executable bytecode. */
 public final class MooCompiler {
   private int catchSequence;
+  private final List<String> activeLoopVariables = new ArrayList<>();
+  private final List<List<Integer>> activeLoopBreaks = new ArrayList<>();
 
   /** Parses and compiles one MOO verb body. */
   public BytecodeProgram compile(String source) {
@@ -23,6 +25,8 @@ public final class MooCompiler {
     List<Instruction> instructions = new ArrayList<>();
     List<BytecodeProgram> forkVectors = new ArrayList<>();
     catchSequence = 0;
+    activeLoopVariables.clear();
+    activeLoopBreaks.clear();
     for (Ast.Statement statement : program.statements()) {
       compileStatement(statement, instructions, forkVectors);
     }
@@ -71,9 +75,29 @@ public final class MooCompiler {
               .map(index -> forStatement.variable() + "," + index)
               .orElse(forStatement.variable());
       instructions.add(new Instruction(Opcode.ITERATE, -1, variables));
+      List<Integer> breakJumps = new ArrayList<>();
+      activeLoopVariables.add(forStatement.variable());
+      activeLoopBreaks.add(breakJumps);
       compileStatements(forStatement.body(), instructions, forkVectors);
+      activeLoopVariables.removeLast();
+      activeLoopBreaks.removeLast();
       instructions.add(new Instruction(Opcode.JUMP, iterate));
-      patchNumericOperand(iterate, instructions.size(), instructions);
+      int loopExit = instructions.size();
+      instructions.add(new Instruction(Opcode.LEAVE_LOOP, iterate));
+      patchNumericOperand(iterate, loopExit, instructions);
+      for (int breakJump : breakJumps) {
+        patchJump(breakJump, loopExit, instructions);
+      }
+      return;
+    }
+    if (statement instanceof Ast.Break breakStatement) {
+      String loopVariable = breakStatement.loopVariable().orElseThrow();
+      int loopIndex = activeLoopVariables.lastIndexOf(loopVariable);
+      if (loopIndex < 0) {
+        throw new IllegalArgumentException("unknown loop variable: " + loopVariable);
+      }
+      int breakJump = addJump(Opcode.JUMP, instructions);
+      activeLoopBreaks.get(loopIndex).add(breakJump);
       return;
     }
     if (statement instanceof Ast.Fork forkStatement) {

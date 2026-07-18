@@ -319,6 +319,10 @@ public final class MooVm {
       case LEAVE_HANDLER -> leaveHandler(frame);
       case END_FINALLY -> endFinally(state, world);
       case ITERATE -> iterate(instruction, frame, state, world);
+      case LEAVE_LOOP -> {
+        frame.loops.remove(Math.toIntExact(instruction.operand().orElseThrow()));
+        frame.instructionPointer++;
+      }
       case SCATTER -> scatter(instruction, frame, state, world);
       case RETURN -> {
         MooValue value = frame.operandStack.pop();

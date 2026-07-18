@@ -35,7 +35,7 @@ public sealed interface Ast
 
   /** The closed statement family. */
   sealed interface Statement extends Ast
-      permits If, While, For, Fork, Try, Return, ExpressionStatement {}
+      permits If, While, For, Break, Fork, Try, Return, ExpressionStatement {}
 
   record If(
       Expression condition,
@@ -94,6 +94,8 @@ public sealed interface Ast
       body = List.copyOf(body);
     }
   }
+
+  record Break(Optional<String> loopVariable) implements Statement {}
 
   record Fork(Expression delay, List<Statement> body) implements Statement {
     public Fork {

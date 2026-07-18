@@ -88,6 +88,7 @@ public record BytecodeProgram(List<Instruction> instructions, List<BytecodeProgr
     LEAVE_HANDLER,
     END_FINALLY,
     ITERATE,
+    LEAVE_LOOP,
     SCATTER,
     RETURN
   }
@@ -108,6 +109,7 @@ public record BytecodeProgram(List<Instruction> instructions, List<BytecodeProgr
                 JUMP_IF_TRUE,
                 FORK,
                 ITERATE,
+                LEAVE_LOOP,
                 SCATTER ->
                 true;
             default -> false;

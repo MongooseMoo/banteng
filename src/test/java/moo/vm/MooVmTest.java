@@ -180,8 +180,9 @@ final class MooVmTest {
         12 STORE_LOCAL x
         13 POP
         14 JUMP 5
-        15 LOAD_LOCAL x
-        16 RETURN""",
+        15 LEAVE_LOOP 5
+        16 LOAD_LOCAL x
+        17 RETURN""",
         program.disassemble());
     VmState state = new VmState();
 
@@ -246,8 +247,9 @@ final class MooVmTest {
         16 STORE_LOCAL x
         17 POP
         18 JUMP 5
-        19 LOAD_LOCAL x
-        20 RETURN""",
+        19 LEAVE_LOOP 5
+        20 LOAD_LOCAL x
+        21 RETURN""",
         program.disassemble());
     VmState state = new VmState();
 
@@ -311,8 +313,9 @@ final class MooVmTest {
         16 STORE_LOCAL x
         17 POP
         18 JUMP 9
-        19 LOAD_LOCAL x
-        20 RETURN""",
+        19 LEAVE_LOOP 9
+        20 LOAD_LOCAL x
+        21 RETURN""",
         program.disassemble());
     VmState state = new VmState();
 
@@ -375,8 +378,9 @@ final class MooVmTest {
         20 STORE_LOCAL x
         21 POP
         22 JUMP 9
-        23 LOAD_LOCAL x
-        24 RETURN""",
+        23 LEAVE_LOOP 9
+        24 LOAD_LOCAL x
+        25 RETURN""",
         program.disassemble());
     VmState state = new VmState();
 
@@ -390,6 +394,80 @@ final class MooVmTest {
                     List.of(new IntegerValue(1), new StringValue(new byte[] {'a'}))),
                 new ListValue(
                     List.of(new IntegerValue(2), new StringValue(new byte[] {'b'}))))),
+        state.returnValue().orElseThrow());
+  }
+
+  @Test
+  void breaksNamedForLoopThroughTheCompleteControlFlowPipeline() {
+    byte[] source =
+        """
+        x = {};
+        for i in ({1, 2, 3})
+          if (i > 2)
+            break i;
+          endif
+          x = {@x, i};
+        endfor
+        return x;"""
+            .getBytes(StandardCharsets.ISO_8859_1);
+    Ast.Program syntax = MooParser.parse(source);
+    Ast.For forStatement = assertInstanceOf(Ast.For.class, syntax.statements().get(1));
+    Ast.If ifStatement = assertInstanceOf(Ast.If.class, forStatement.body().getFirst());
+    Ast.Break breakStatement = assertInstanceOf(Ast.Break.class, ifStatement.body().getFirst());
+    assertEquals("i", breakStatement.loopVariable().orElseThrow());
+    assertEquals(
+        """
+        x = {};
+        for i in ({1, 2, 3})
+          if (i > 2)
+            break i;
+          endif
+          x = {@x, i};
+        endfor
+        return x;""",
+        MooUnparser.unparse(syntax));
+
+    BytecodeProgram program = new MooCompiler().compile(syntax);
+    assertEquals(
+        """
+        0 BUILD_LIST 0
+        1 DUP
+        2 STORE_LOCAL x
+        3 POP
+        4 BUILD_LIST 0
+        5 PUSH_INTEGER 1
+        6 LIST_APPEND
+        7 PUSH_INTEGER 2
+        8 LIST_APPEND
+        9 PUSH_INTEGER 3
+        10 LIST_APPEND
+        11 ITERATE 27 i
+        12 LOAD_LOCAL i
+        13 PUSH_INTEGER 2
+        14 GREATER_THAN
+        15 JUMP_IF_FALSE 18
+        16 JUMP 27
+        17 JUMP 18
+        18 BUILD_LIST 0
+        19 LOAD_LOCAL x
+        20 LIST_EXTEND
+        21 LOAD_LOCAL i
+        22 LIST_APPEND
+        23 DUP
+        24 STORE_LOCAL x
+        25 POP
+        26 JUMP 11
+        27 LEAVE_LOOP 11
+        28 LOAD_LOCAL x
+        29 RETURN""",
+        program.disassemble());
+    VmState state = new VmState();
+
+    new MooVm().execute(program, state);
+
+    assertEquals(VmState.Outcome.RETURNED, state.outcome());
+    assertEquals(
+        new ListValue(List.of(new IntegerValue(1), new IntegerValue(2))),
         state.returnValue().orElseThrow());
   }
 
