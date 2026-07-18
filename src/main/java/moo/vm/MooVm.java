@@ -688,6 +688,13 @@ public final class MooVm {
       return;
     }
     if (collection instanceof MapValue map) {
+      if (start instanceof ListValue
+          || start instanceof MapValue
+          || end instanceof ListValue
+          || end instanceof MapValue) {
+        raiseError(state, ErrorValue.E_TYPE, world);
+        return;
+      }
       if (start instanceof IntegerValue first
           && end instanceof IntegerValue last
           && last.value() < first.value()) {

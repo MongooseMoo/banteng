@@ -1082,6 +1082,51 @@ final class MooVmTest {
   }
 
   @Test
+  void rejectsACollectionValuedMapRangeEndThroughTheCompleteCollectionPipeline() {
+    byte[] source =
+        "return [1 -> 1, 2 -> 2, 3 -> 3, 4 -> 4, 5 -> 5][1..[]];"
+            .getBytes(StandardCharsets.ISO_8859_1);
+    Ast.Program syntax = MooParser.parse(source);
+    Ast.Return returnStatement =
+        assertInstanceOf(Ast.Return.class, syntax.statements().getFirst());
+    Ast.RangeAccess range =
+        assertInstanceOf(Ast.RangeAccess.class, returnStatement.value().orElseThrow());
+    assertInstanceOf(Ast.MapLiteral.class, range.collection());
+    assertInstanceOf(Ast.IntegerLiteral.class, range.start());
+    assertInstanceOf(Ast.MapLiteral.class, range.end());
+    assertEquals(
+        "return [1 -> 1, 2 -> 2, 3 -> 3, 4 -> 4, 5 -> 5][1..[]];",
+        MooUnparser.unparse(syntax));
+
+    BytecodeProgram program = new MooCompiler().compile(syntax);
+    assertEquals(
+        """
+        0 PUSH_INTEGER 1
+        1 PUSH_INTEGER 1
+        2 PUSH_INTEGER 2
+        3 PUSH_INTEGER 2
+        4 PUSH_INTEGER 3
+        5 PUSH_INTEGER 3
+        6 PUSH_INTEGER 4
+        7 PUSH_INTEGER 4
+        8 PUSH_INTEGER 5
+        9 PUSH_INTEGER 5
+        10 BUILD_MAP 5
+        11 ENTER_INDEX
+        12 PUSH_INTEGER 1
+        13 BUILD_MAP 0
+        14 RANGE
+        15 RETURN""",
+        program.disassemble());
+    VmState state = new VmState();
+
+    new MooVm().execute(program, state);
+
+    assertEquals(VmState.Outcome.ERRORED, state.outcome());
+    assertEquals(ErrorValue.E_TYPE, state.uncaughtError().orElseThrow());
+  }
+
+  @Test
   void assignsAnExactMapRangeThroughTheCompleteCollectionPipeline() {
     byte[] source =
         ("t = [1 -> 1, 2 -> 2, 3 -> 3, 4 -> 4, 5 -> 5, 6 -> 6, 7 -> 7]; "
