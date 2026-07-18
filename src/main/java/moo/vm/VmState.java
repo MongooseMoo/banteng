@@ -496,7 +496,7 @@ public final class VmState {
     }
   }
 
-  record IndexContext(MooValue collection, int operandDepth) {}
+  record IndexContext(MooValue collection, Optional<MooValue> key, int operandDepth) {}
 
   static final class LoopCursor {
     final ListValue values;

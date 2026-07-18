@@ -563,6 +563,98 @@ final class MooVmTest {
   }
 
   @Test
+  void assignsANestedStringRangeThroughTheCompleteCollectionPipeline() {
+    byte[] source =
+        "l = {1, 10, \"foo\", 6, 7, 8, 9}; l[3][2..$] = \"u\"; return l;"
+            .getBytes(StandardCharsets.ISO_8859_1);
+    Ast.Program syntax = MooParser.parse(source);
+    Ast.ExpressionStatement initialAssignmentStatement =
+        assertInstanceOf(Ast.ExpressionStatement.class, syntax.statements().getFirst());
+    Ast.Assignment initialAssignment =
+        assertInstanceOf(Ast.Assignment.class, initialAssignmentStatement.expression());
+    Ast.ListLiteral initialList = assertInstanceOf(Ast.ListLiteral.class, initialAssignment.value());
+    Ast.ExpressionStatement rangeAssignmentStatement =
+        assertInstanceOf(Ast.ExpressionStatement.class, syntax.statements().get(1));
+    Ast.Assignment rangeAssignment =
+        assertInstanceOf(Ast.Assignment.class, rangeAssignmentStatement.expression());
+    Ast.RangeTarget target = assertInstanceOf(Ast.RangeTarget.class, rangeAssignment.target());
+    Ast.IndexAccess parent = assertInstanceOf(Ast.IndexAccess.class, target.collection());
+    Ast.IntegerLiteral parentIndex = assertInstanceOf(Ast.IntegerLiteral.class, parent.index());
+    Ast.IntegerLiteral start = assertInstanceOf(Ast.IntegerLiteral.class, target.start());
+    Ast.LastIndex end = assertInstanceOf(Ast.LastIndex.class, target.end());
+    Ast.StringLiteral replacement =
+        assertInstanceOf(Ast.StringLiteral.class, rangeAssignment.value());
+    Ast.Return returnStatement = assertInstanceOf(Ast.Return.class, syntax.statements().get(2));
+    assertInstanceOf(Ast.Identifier.class, parent.collection());
+    assertEquals(new Ast.SourceSpan(4, 30, 1, 5), initialList.span().orElseThrow());
+    assertEquals(new Ast.SourceSpan(32, 49, 1, 33), rangeAssignmentStatement.span().orElseThrow());
+    assertEquals(new Ast.SourceSpan(32, 36, 1, 33), parent.span().orElseThrow());
+    assertEquals(new Ast.SourceSpan(34, 35, 1, 35), parentIndex.span().orElseThrow());
+    assertEquals(new Ast.SourceSpan(37, 38, 1, 38), start.span().orElseThrow());
+    assertEquals(new Ast.SourceSpan(40, 41, 1, 41), end.span().orElseThrow());
+    assertEquals(new Ast.SourceSpan(45, 48, 1, 46), replacement.span().orElseThrow());
+    assertEquals(new Ast.SourceSpan(50, 59, 1, 51), returnStatement.span().orElseThrow());
+    assertEquals(
+        """
+        l = {1, 10, "foo", 6, 7, 8, 9};
+        l[3][2..$] = "u";
+        return l;""",
+        MooUnparser.unparse(syntax));
+
+    BytecodeProgram program = new MooCompiler().compile(syntax);
+    assertEquals(
+        """
+        0 BUILD_LIST 0
+        1 PUSH_INTEGER 1
+        2 LIST_APPEND
+        3 PUSH_INTEGER 10
+        4 LIST_APPEND
+        5 PUSH_STRING foo
+        6 LIST_APPEND
+        7 PUSH_INTEGER 6
+        8 LIST_APPEND
+        9 PUSH_INTEGER 7
+        10 LIST_APPEND
+        11 PUSH_INTEGER 8
+        12 LIST_APPEND
+        13 PUSH_INTEGER 9
+        14 LIST_APPEND
+        15 DUP
+        16 STORE_LOCAL l
+        17 POP
+        18 LOAD_LOCAL l
+        19 ENTER_INDEX
+        20 PUSH_INTEGER 3
+        21 INDEX 1
+        22 ENTER_INDEX
+        23 PUSH_INTEGER 2
+        24 LAST
+        25 PUSH_STRING u
+        26 SET_RANGE_LOCAL 1 l
+        27 POP
+        28 LOAD_LOCAL l
+        29 RETURN""",
+        program.disassemble());
+    VmState state = new VmState();
+
+    new MooVm().execute(program, state);
+
+    assertEquals(VmState.Outcome.RETURNED, state.outcome());
+    assertTrue(state.uncaughtError().isEmpty());
+    assertEquals(
+        new ListValue(
+            List.of(
+                new IntegerValue(1),
+                new IntegerValue(10),
+                new StringValue("fu".getBytes(StandardCharsets.ISO_8859_1)),
+                new IntegerValue(6),
+                new IntegerValue(7),
+                new IntegerValue(8),
+                new IntegerValue(9))),
+        state.returnValue().orElseThrow());
+  }
+
+  @Test
   void returnsAnInclusiveStringRangeThroughTheCompleteCollectionPipeline() {
     byte[] source = "return \"foobar\"[3..3];".getBytes(StandardCharsets.ISO_8859_1);
     Ast.Program syntax = MooParser.parse(source);

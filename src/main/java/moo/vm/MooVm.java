@@ -8,6 +8,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.OptionalLong;
 import moo.builtin.BuiltinCatalog;
 import moo.builtin.BuiltinCatalog.Result;
@@ -107,17 +108,28 @@ public final class MooVm {
       case SET_PROPERTY -> setProperty(frame, state, world);
       case ENTER_INDEX -> {
         frame.indexCollections.push(
-            new IndexContext(frame.operandStack.getFirst(), frame.operandStack.size()));
+            new IndexContext(
+                frame.operandStack.getFirst(), Optional.empty(), frame.operandStack.size()));
         frame.instructionPointer++;
       }
-      case INDEX -> index(frame, state, world);
+      case INDEX ->
+          index(
+              frame,
+              state,
+              world,
+              Math.toIntExact(instruction.operand().orElse(0)));
       case RANGE -> range(frame, state, world);
       case FIRST -> firstIndex(frame, state, world);
       case LAST -> lastIndex(frame, state, world);
       case SET_INDEX_LOCAL ->
           setIndexedLocal(frame, state, world, instruction.text().orElseThrow());
       case SET_RANGE_LOCAL ->
-          setRangeLocal(frame, state, world, instruction.text().orElseThrow());
+          setRangeLocal(
+              frame,
+              state,
+              world,
+              instruction.text().orElseThrow(),
+              Math.toIntExact(instruction.operand().orElse(0)));
       case CALL -> {
         String callName = instruction.text().orElseThrow();
         if (!callName.equalsIgnoreCase("pass")) {
@@ -526,8 +538,8 @@ public final class MooVm {
     frame.instructionPointer++;
   }
 
-  private static void index(Frame frame, VmState state, WorldTxn world) {
-    frame.indexCollections.pop();
+  private static void index(Frame frame, VmState state, WorldTxn world, int parentDepth) {
+    IndexContext context = frame.indexCollections.pop();
     MooValue index = frame.operandStack.pop();
     MooValue collection = frame.operandStack.pop();
     if (collection instanceof ListValue list && index instanceof IntegerValue integer) {
@@ -535,6 +547,10 @@ public final class MooVm {
       if (value == null) {
         raiseError(state, ErrorValue.E_RANGE, world);
         return;
+      }
+      if (parentDepth == 1) {
+        frame.indexCollections.push(
+            new IndexContext(collection, Optional.of(index), context.operandDepth()));
       }
       frame.operandStack.push(value);
       frame.instructionPointer++;
@@ -544,6 +560,10 @@ public final class MooVm {
       if (integer.value() < 1 || integer.value() > string.length()) {
         raiseError(state, ErrorValue.E_RANGE, world);
         return;
+      }
+      if (parentDepth == 1) {
+        frame.indexCollections.push(
+            new IndexContext(collection, Optional.of(index), context.operandDepth()));
       }
       byte[] bytes = string.bytes();
       frame.operandStack.push(
@@ -562,6 +582,10 @@ public final class MooVm {
       if (value == null) {
         raiseError(state, ErrorValue.E_RANGE, world);
         return;
+      }
+      if (parentDepth == 1) {
+        frame.indexCollections.push(
+            new IndexContext(collection, Optional.of(index), context.operandDepth()));
       }
       frame.operandStack.push(value);
       frame.instructionPointer++;
@@ -753,13 +777,38 @@ public final class MooVm {
     raiseError(state, ErrorValue.E_TYPE, world);
   }
 
-  private static void setRangeLocal(Frame frame, VmState state, WorldTxn world, String owner) {
+  private static void setRangeLocal(
+      Frame frame, VmState state, WorldTxn world, String owner, int parentDepth) {
     frame.indexCollections.pop();
     MooValue value = frame.operandStack.pop();
     MooValue end = frame.operandStack.pop();
     MooValue start = frame.operandStack.pop();
     MooValue collection = frame.operandStack.pop();
-    if (collection instanceof ListValue list && value instanceof ListValue replacement) {
+    MooValue updatedCollection;
+    if (collection instanceof StringValue string && value instanceof StringValue replacement) {
+      if (!(start instanceof IntegerValue first) || !(end instanceof IntegerValue last)) {
+        raiseError(state, ErrorValue.E_TYPE, world);
+        return;
+      }
+      if (first.value() < 1 || last.value() < first.value() || last.value() > string.length()) {
+        raiseError(state, ErrorValue.E_RANGE, world);
+        return;
+      }
+      byte[] original = string.bytes();
+      byte[] inserted = replacement.bytes();
+      int prefixLength = Math.toIntExact(first.value() - 1);
+      int suffixStart = Math.toIntExact(last.value());
+      byte[] replaced = new byte[prefixLength + inserted.length + original.length - suffixStart];
+      System.arraycopy(original, 0, replaced, 0, prefixLength);
+      System.arraycopy(inserted, 0, replaced, prefixLength, inserted.length);
+      System.arraycopy(
+          original,
+          suffixStart,
+          replaced,
+          prefixLength + inserted.length,
+          original.length - suffixStart);
+      updatedCollection = new StringValue(replaced);
+    } else if (collection instanceof ListValue list && value instanceof ListValue replacement) {
       if (!(start instanceof IntegerValue first) || !(end instanceof IntegerValue last)) {
         raiseError(state, ErrorValue.E_TYPE, world);
         return;
@@ -772,54 +821,64 @@ public final class MooVm {
         inserted.addAll(list.elements().subList(0, insertionPoint));
         inserted.addAll(replacement.elements());
         inserted.addAll(list.elements().subList(insertionPoint, list.size()));
-        frame.locals.put(normalize(owner), new ListValue(inserted));
-        frame.operandStack.push(value);
-        frame.instructionPointer++;
-        return;
+        updatedCollection = new ListValue(inserted);
+      } else {
+        if (first.value() < 1 || last.value() < first.value() || last.value() > list.size()) {
+          raiseError(state, ErrorValue.E_RANGE, world);
+          return;
+        }
+        List<MooValue> replaced = new ArrayList<>();
+        replaced.addAll(list.elements().subList(0, Math.toIntExact(first.value() - 1)));
+        replaced.addAll(replacement.elements());
+        replaced.addAll(list.elements().subList(Math.toIntExact(last.value()), list.size()));
+        updatedCollection = new ListValue(replaced);
       }
-      if (first.value() < 1 || last.value() < first.value() || last.value() > list.size()) {
+    } else if (collection instanceof MapValue map && value instanceof MapValue replacement) {
+      List<MooValue> keys = new ArrayList<>(map.entries().keySet());
+      int firstPosition = keys.indexOf(start);
+      int lastPosition = keys.indexOf(end);
+      if (firstPosition < 0 || lastPosition < 0) {
         raiseError(state, ErrorValue.E_RANGE, world);
         return;
       }
-      List<MooValue> replaced = new ArrayList<>();
-      replaced.addAll(list.elements().subList(0, Math.toIntExact(first.value() - 1)));
-      replaced.addAll(replacement.elements());
-      replaced.addAll(list.elements().subList(Math.toIntExact(last.value()), list.size()));
-      frame.locals.put(normalize(owner), new ListValue(replaced));
-      frame.operandStack.push(value);
-      frame.instructionPointer++;
-      return;
-    }
-    if (!(collection instanceof MapValue map) || !(value instanceof MapValue replacement)) {
+      Map<MooValue, MooValue> replaced = new LinkedHashMap<>();
+      if (lastPosition < firstPosition) {
+        replaced.putAll(map.entries());
+        replaced.putAll(replacement.entries());
+      } else {
+        for (int position = 0; position < firstPosition; position++) {
+          MooValue key = keys.get(position);
+          replaced.put(key, map.entries().get(key));
+        }
+        replaced.putAll(replacement.entries());
+        for (int position = lastPosition + 1; position < keys.size(); position++) {
+          MooValue key = keys.get(position);
+          replaced.put(key, map.entries().get(key));
+        }
+      }
+      updatedCollection = new MapValue(replaced);
+    } else {
       raiseError(state, ErrorValue.E_TYPE, world);
       return;
     }
-    List<MooValue> keys = new ArrayList<>(map.entries().keySet());
-    int firstPosition = keys.indexOf(start);
-    int lastPosition = keys.indexOf(end);
-    if (firstPosition < 0 || lastPosition < 0) {
-      raiseError(state, ErrorValue.E_RANGE, world);
-      return;
+    if (parentDepth == 0) {
+      frame.locals.put(normalize(owner), updatedCollection);
+    } else {
+      IndexContext parentContext = frame.indexCollections.pop();
+      MooValue parentKey = parentContext.key().orElseThrow();
+      MooValue parent = parentContext.collection();
+      if (!(parent instanceof ListValue list) || !(parentKey instanceof IntegerValue index)) {
+        raiseError(state, ErrorValue.E_TYPE, world);
+        return;
+      }
+      if (index.value() < 1 || index.value() > list.size()) {
+        raiseError(state, ErrorValue.E_RANGE, world);
+        return;
+      }
+      List<MooValue> replaced = new ArrayList<>(list.elements());
+      replaced.set(Math.toIntExact(index.value() - 1), updatedCollection);
+      frame.locals.put(normalize(owner), new ListValue(replaced));
     }
-    Map<MooValue, MooValue> replaced = new LinkedHashMap<>();
-    if (lastPosition < firstPosition) {
-      replaced.putAll(map.entries());
-      replaced.putAll(replacement.entries());
-      frame.locals.put(normalize(owner), new MapValue(replaced));
-      frame.operandStack.push(value);
-      frame.instructionPointer++;
-      return;
-    }
-    for (int position = 0; position < firstPosition; position++) {
-      MooValue key = keys.get(position);
-      replaced.put(key, map.entries().get(key));
-    }
-    replaced.putAll(replacement.entries());
-    for (int position = lastPosition + 1; position < keys.size(); position++) {
-      MooValue key = keys.get(position);
-      replaced.put(key, map.entries().get(key));
-    }
-    frame.locals.put(normalize(owner), new MapValue(replaced));
     frame.operandStack.push(value);
     frame.instructionPointer++;
   }

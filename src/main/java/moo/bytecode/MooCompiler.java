@@ -347,16 +347,29 @@ public final class MooCompiler {
       return;
     }
     if (assignment.target() instanceof Ast.RangeTarget range) {
-      if (!(range.collection() instanceof Ast.Identifier owner)) {
-        throw new IllegalArgumentException("range assignment requires a local owner");
+      if (range.collection() instanceof Ast.Identifier owner) {
+        instructions.add(new Instruction(Opcode.LOAD_LOCAL, owner.name()));
+        instructions.add(new Instruction(Opcode.ENTER_INDEX));
+        compileExpression(range.start(), instructions);
+        compileExpression(range.end(), instructions);
+        compileExpression(assignment.value(), instructions);
+        instructions.add(new Instruction(Opcode.SET_RANGE_LOCAL, owner.name()));
+        return;
       }
-      instructions.add(new Instruction(Opcode.LOAD_LOCAL, owner.name()));
-      instructions.add(new Instruction(Opcode.ENTER_INDEX));
-      compileExpression(range.start(), instructions);
-      compileExpression(range.end(), instructions);
-      compileExpression(assignment.value(), instructions);
-      instructions.add(new Instruction(Opcode.SET_RANGE_LOCAL, owner.name()));
-      return;
+      if (range.collection() instanceof Ast.IndexAccess parent
+          && parent.collection() instanceof Ast.Identifier owner) {
+        instructions.add(new Instruction(Opcode.LOAD_LOCAL, owner.name()));
+        instructions.add(new Instruction(Opcode.ENTER_INDEX));
+        compileExpression(parent.index(), instructions);
+        instructions.add(new Instruction(Opcode.INDEX, 1));
+        instructions.add(new Instruction(Opcode.ENTER_INDEX));
+        compileExpression(range.start(), instructions);
+        compileExpression(range.end(), instructions);
+        compileExpression(assignment.value(), instructions);
+        instructions.add(new Instruction(Opcode.SET_RANGE_LOCAL, 1, owner.name()));
+        return;
+      }
+      throw new IllegalArgumentException("range assignment requires a local owner");
     }
     if (assignment.target() instanceof Ast.ScatterTarget scatter) {
       compileExpression(assignment.value(), instructions);

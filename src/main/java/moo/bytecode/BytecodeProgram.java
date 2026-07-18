@@ -127,7 +127,9 @@ public record BytecodeProgram(List<Instruction> instructions, List<BytecodeProgr
             default -> false;
           };
       boolean handlerRequired = opcode == Opcode.ENTER_HANDLER;
-      if (numberRequired != operand.isPresent()
+      boolean optionalParent = opcode == Opcode.INDEX || opcode == Opcode.SET_RANGE_LOCAL;
+      if ((!optionalParent && numberRequired != operand.isPresent())
+          || (optionalParent && operand.isPresent() && operand.orElseThrow() != 1)
           || textRequired != text.isPresent()
           || handlerRequired != handler.isPresent()) {
         throw new IllegalArgumentException(opcode + " has invalid operands");
