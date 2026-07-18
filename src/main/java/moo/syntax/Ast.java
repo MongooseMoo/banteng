@@ -173,6 +173,7 @@ public sealed interface Ast
           ListLiteral,
           MapLiteral,
           Splice,
+          ScatterElement,
           Call,
           VerbCall,
           Assignment,
@@ -327,6 +328,10 @@ public sealed interface Ast
   record MapEntry(Expression key, Expression value) implements Ast {}
 
   record Splice(Expression value) implements Expression {}
+
+  record ScatterElement(
+      String name, boolean rest, boolean optional, Optional<Expression> defaultValue)
+      implements Expression {}
 
   record Call(String name, List<Expression> arguments) implements Expression {
     public Call {
@@ -524,9 +529,9 @@ public sealed interface Ast
   record RangeTarget(Expression collection, Expression start, Expression end)
       implements AssignmentTarget {}
 
-  record ScatterTarget(List<String> variables) implements AssignmentTarget {
+  record ScatterTarget(List<ScatterElement> elements) implements AssignmentTarget {
     public ScatterTarget {
-      variables = List.copyOf(variables);
+      elements = List.copyOf(elements);
     }
   }
 

@@ -199,6 +199,14 @@ public final class MooUnparser {
       rendered = "[" + entries + "]";
     } else if (expression instanceof Ast.Splice splice) {
       rendered = "@" + expression(splice.value(), UNARY_PRECEDENCE);
+    } else if (expression instanceof Ast.ScatterElement element) {
+      rendered =
+          (element.rest() ? "@" : element.optional() ? "?" : "")
+              + element.name()
+              + element
+                  .defaultValue()
+                  .map(value -> " = " + expression(value, ASSIGNMENT_PRECEDENCE))
+                  .orElse("");
     } else if (expression instanceof Ast.Call call) {
       rendered = call.name() + "(" + joinExpressions(call.arguments()) + ")";
     } else if (expression instanceof Ast.VerbCall verbCall) {
@@ -307,7 +315,14 @@ public final class MooUnparser {
           + "]";
     }
     if (target instanceof Ast.ScatterTarget scatter) {
-      return "{" + String.join(", ", scatter.variables()) + "}";
+      StringBuilder elements = new StringBuilder();
+      for (Ast.ScatterElement element : scatter.elements()) {
+        if (!elements.isEmpty()) {
+          elements.append(", ");
+        }
+        elements.append(expression(element, ASSIGNMENT_PRECEDENCE));
+      }
+      return "{" + elements + "}";
     }
     throw new IllegalArgumentException("unsupported assignment target: " + target);
   }

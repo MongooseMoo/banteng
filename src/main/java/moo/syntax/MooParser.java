@@ -457,7 +457,11 @@ public final class MooParser {
         if (optional) {
           Token identifier = expect(TokenKind.IDENTIFIER, "optional scatter variable");
           advance();
-          element = new Ast.Identifier("?" + identifier.lexeme());
+          Optional<Ast.Expression> defaultValue = Optional.empty();
+          if (match(TokenKind.EQUAL)) {
+            defaultValue = Optional.of(parseExpression(ASSIGNMENT_PRECEDENCE));
+          }
+          element = new Ast.ScatterElement(identifier.lexeme(), false, true, defaultValue);
         } else {
           element = parseExpression(ASSIGNMENT_PRECEDENCE);
         }
@@ -638,22 +642,25 @@ public final class MooParser {
       return new Ast.RangeTarget(range.collection(), range.start(), range.end());
     }
     if (expression instanceof Ast.ListLiteral list) {
-      List<String> variables = new ArrayList<>();
+      List<Ast.ScatterElement> elements = new ArrayList<>();
       for (Ast.Expression element : list.elements()) {
         if (element instanceof Ast.Identifier identifier) {
-          variables.add(identifier.name());
+          elements.add(
+              new Ast.ScatterElement(identifier.name(), false, false, Optional.empty()));
+        } else if (element instanceof Ast.ScatterElement optional) {
+          elements.add(optional);
         } else if (element instanceof Ast.Splice splice
             && splice.value() instanceof Ast.Identifier identifier
-            && variables.stream().noneMatch(variable -> variable.startsWith("@"))) {
-          variables.add("@" + identifier.name());
+            && elements.stream().noneMatch(Ast.ScatterElement::rest)) {
+          elements.add(new Ast.ScatterElement(identifier.name(), true, false, Optional.empty()));
         } else {
           throw error("scatter assignment requires variable targets");
         }
       }
-      if (variables.isEmpty()) {
+      if (elements.isEmpty()) {
         throw error("scatter assignment requires at least one target");
       }
-      return new Ast.ScatterTarget(variables);
+      return new Ast.ScatterTarget(elements);
     }
     throw error("invalid assignment target");
   }

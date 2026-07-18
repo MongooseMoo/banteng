@@ -431,9 +431,18 @@ public final class MooCompiler {
     }
     if (assignment.target() instanceof Ast.ScatterTarget scatter) {
       compileExpression(assignment.value(), instructions);
+      List<String> encodedElements = new ArrayList<>();
+      for (Ast.ScatterElement element : scatter.elements()) {
+        element.defaultValue().ifPresent(value -> compileExpression(value, instructions));
+        encodedElements.add(
+            (element.rest()
+                    ? "@"
+                    : element.defaultValue().isPresent() ? "$" : element.optional() ? "?" : "")
+                + element.name());
+      }
       instructions.add(
           new Instruction(
-              Opcode.SCATTER, scatter.variables().size(), String.join(",", scatter.variables())));
+              Opcode.SCATTER, scatter.elements().size(), String.join(",", encodedElements)));
       return;
     }
     throw new IllegalArgumentException("unsupported assignment target: " + assignment.target());

@@ -1475,42 +1475,60 @@ public final class MooVm {
   }
 
   private static void scatter(Instruction instruction, Frame frame, VmState state, WorldTxn world) {
+    String[] names = instruction.text().orElseThrow().split(",", -1);
+    MooValue[] defaults = new MooValue[names.length];
+    for (int index = names.length - 1; index >= 0; index--) {
+      if (names[index].startsWith("$")) {
+        defaults[index] = frame.operandStack.pop();
+      }
+    }
     MooValue source = frame.operandStack.pop();
     if (!(source instanceof ListValue list)) {
       raiseError(state, ErrorValue.E_TYPE, world);
       return;
     }
-    String[] names = instruction.text().orElseThrow().split(",", -1);
-    int restIndex = -1;
-    for (int index = 0; index < names.length; index++) {
-      if (names[index].startsWith("@")) {
-        restIndex = index;
-        break;
+    int requiredValues = 0;
+    boolean hasRest = false;
+    for (String name : names) {
+      if (name.startsWith("@")) {
+        hasRest = true;
+      } else if (!name.startsWith("?") && !name.startsWith("$")) {
+        requiredValues++;
       }
     }
-    int requiredValues = restIndex < 0 ? names.length : names.length - 1;
     if (names.length != instruction.operand().orElseThrow()
         || list.size() < requiredValues
-        || (restIndex < 0 && names.length != list.size())) {
+        || (!hasRest && list.size() > names.length)) {
       raiseError(state, ErrorValue.E_ARGS, world);
       return;
     }
+    int sourceIndex = 0;
     for (int index = 0; index < names.length; index++) {
-      if (index < restIndex || restIndex < 0) {
+      String encodedName = names[index];
+      String name = normalize(encodedName.substring(encodedName.startsWith("@")
+              || encodedName.startsWith("?")
+              || encodedName.startsWith("$") ? 1 : 0));
+      int requiredAfter = 0;
+      for (int later = index + 1; later < names.length; later++) {
+        if (!names[later].startsWith("@")
+            && !names[later].startsWith("?")
+            && !names[later].startsWith("$")) {
+          requiredAfter++;
+        }
+      }
+      if (encodedName.startsWith("@")) {
+        int end = list.size() - requiredAfter;
         frame.locals.put(
-            normalize(names[index].startsWith("?") ? names[index].substring(1) : names[index]),
-            list.elements().get(index));
-      } else if (index == restIndex) {
-        int trailingValues = names.length - restIndex - 1;
-        frame.locals.put(
-            normalize(names[index].substring(1)),
-            new ListValue(
-                list.elements().subList(restIndex, list.elements().size() - trailingValues)));
+            name, new ListValue(list.elements().subList(sourceIndex, end)));
+        sourceIndex = end;
+      } else if (encodedName.startsWith("?") || encodedName.startsWith("$")) {
+        if (list.size() - sourceIndex > requiredAfter) {
+          frame.locals.put(name, list.elements().get(sourceIndex++));
+        } else if (defaults[index] != null) {
+          frame.locals.put(name, defaults[index]);
+        }
       } else {
-        int sourceIndex = list.elements().size() - (names.length - index);
-        frame.locals.put(
-            normalize(names[index].startsWith("?") ? names[index].substring(1) : names[index]),
-            list.elements().get(sourceIndex));
+        frame.locals.put(name, list.elements().get(sourceIndex++));
       }
     }
     frame.operandStack.push(source);
