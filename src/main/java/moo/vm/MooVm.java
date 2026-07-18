@@ -668,6 +668,21 @@ public final class MooVm {
       frame.instructionPointer++;
       return;
     }
+    if (collection instanceof StringValue string
+        && key instanceof IntegerValue index
+        && value instanceof StringValue replacement
+        && replacement.length() == 1) {
+      if (index.value() < 1 || index.value() > string.length()) {
+        raiseError(state, ErrorValue.E_RANGE, world);
+        return;
+      }
+      byte[] replaced = string.bytes();
+      replaced[Math.toIntExact(index.value() - 1)] = replacement.bytes()[0];
+      frame.locals.put(normalize(owner), new StringValue(replaced));
+      frame.operandStack.push(value);
+      frame.instructionPointer++;
+      return;
+    }
     raiseError(state, ErrorValue.E_TYPE, world);
   }
 
