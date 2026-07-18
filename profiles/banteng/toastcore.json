@@ -11,7 +11,7 @@
     "option.PROMOTE_NUMBERS": false,
     "runtime.arch_bits": 64
   },
-  "test_suites": [],
+  "test_suites": ["src/moo_conformance/_tests/server/persistent_walking_skeleton.yaml"],
   "login_commands": ["connect wizard"],
   "skip_standard_properties": true,
   "support_status": "supported",
