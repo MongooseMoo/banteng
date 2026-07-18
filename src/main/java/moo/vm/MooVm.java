@@ -527,6 +527,17 @@ public final class MooVm {
       frame.instructionPointer++;
       return;
     }
+    if (collection instanceof StringValue string && index instanceof IntegerValue integer) {
+      if (integer.value() < 1 || integer.value() > string.length()) {
+        raiseError(state, ErrorValue.E_RANGE, world);
+        return;
+      }
+      byte[] bytes = string.bytes();
+      frame.operandStack.push(
+          new StringValue(new byte[] {bytes[Math.toIntExact(integer.value() - 1)]}));
+      frame.instructionPointer++;
+      return;
+    }
     if (collection instanceof MapValue map) {
       MooValue value;
       try {
@@ -559,6 +570,15 @@ public final class MooVm {
     }
     if (collection instanceof ListValue list) {
       if (list.size() == 0) {
+        raiseError(state, ErrorValue.E_RANGE, world);
+        return;
+      }
+      frame.operandStack.push(new IntegerValue(1));
+      frame.instructionPointer++;
+      return;
+    }
+    if (collection instanceof StringValue string) {
+      if (string.length() == 0) {
         raiseError(state, ErrorValue.E_RANGE, world);
         return;
       }
