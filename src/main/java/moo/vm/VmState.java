@@ -500,10 +500,12 @@ public final class VmState {
 
   static final class LoopCursor {
     final ListValue values;
+    final Optional<ListValue> secondaryValues;
     int nextIndex;
 
-    LoopCursor(ListValue values) {
+    LoopCursor(ListValue values, Optional<ListValue> secondaryValues) {
       this.values = values;
+      this.secondaryValues = secondaryValues;
     }
   }
 

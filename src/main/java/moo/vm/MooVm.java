@@ -1411,6 +1411,7 @@ public final class MooVm {
     if (cursor == null) {
       MooValue iterable = frame.operandStack.pop();
       ListValue values;
+      Optional<ListValue> secondaryValues = Optional.empty();
       if (iterable instanceof ListValue list) {
         values = list;
       } else if (iterable instanceof StringValue string) {
@@ -1428,15 +1429,18 @@ public final class MooVm {
                       .compareIgnoringCase((StringValue) right.getKey()));
         }
         List<MooValue> mapValues = new ArrayList<>(entries.size());
+        List<MooValue> mapKeys = new ArrayList<>(entries.size());
         for (Map.Entry<MooValue, MooValue> entry : entries) {
           mapValues.add(entry.getValue());
+          mapKeys.add(entry.getKey());
         }
         values = new ListValue(mapValues);
+        secondaryValues = Optional.of(new ListValue(mapKeys));
       } else {
         raiseError(state, ErrorValue.E_TYPE, world);
         return;
       }
-      cursor = new LoopCursor(values);
+      cursor = new LoopCursor(values, secondaryValues);
       frame.loops.put(instructionIndex, cursor);
     }
     if (cursor.nextIndex >= cursor.values.size()) {
@@ -1448,7 +1452,11 @@ public final class MooVm {
     MooValue value = cursor.values.elements().get(cursor.nextIndex);
     frame.locals.put(normalize(variables[0]), value);
     if (variables.length == 2) {
-      frame.locals.put(normalize(variables[1]), new IntegerValue(cursor.nextIndex + 1L));
+      MooValue secondaryValue =
+          cursor.secondaryValues.isPresent()
+              ? cursor.secondaryValues.orElseThrow().elements().get(cursor.nextIndex)
+              : new IntegerValue(cursor.nextIndex + 1L);
+      frame.locals.put(normalize(variables[1]), secondaryValue);
     }
     cursor.nextIndex++;
     frame.instructionPointer++;
