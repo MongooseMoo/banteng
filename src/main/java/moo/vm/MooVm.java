@@ -626,17 +626,29 @@ public final class MooVm {
     MooValue value = frame.operandStack.pop();
     MooValue key = frame.operandStack.pop();
     MooValue collection = frame.operandStack.pop();
-    if (!(collection instanceof MapValue map)) {
-      raiseError(state, ErrorValue.E_TYPE, world);
+    if (collection instanceof MapValue map) {
+      try {
+        frame.locals.put(normalize(owner), map.with(key, value));
+        frame.operandStack.push(value);
+        frame.instructionPointer++;
+      } catch (IllegalArgumentException error) {
+        raiseError(state, ErrorValue.E_TYPE, world);
+      }
       return;
     }
-    try {
-      frame.locals.put(normalize(owner), map.with(key, value));
+    if (collection instanceof ListValue list && key instanceof IntegerValue index) {
+      if (index.value() < 1 || index.value() > list.size()) {
+        raiseError(state, ErrorValue.E_RANGE, world);
+        return;
+      }
+      List<MooValue> replaced = new ArrayList<>(list.elements());
+      replaced.set(Math.toIntExact(index.value() - 1), value);
+      frame.locals.put(normalize(owner), new ListValue(replaced));
       frame.operandStack.push(value);
       frame.instructionPointer++;
-    } catch (IllegalArgumentException error) {
-      raiseError(state, ErrorValue.E_TYPE, world);
+      return;
     }
+    raiseError(state, ErrorValue.E_TYPE, world);
   }
 
   private static void invokeBuiltin(

@@ -581,6 +581,58 @@ final class MooVmTest {
   }
 
   @Test
+  void assignsTheFirstListValueThroughTheCompleteCollectionPipeline() {
+    byte[] source =
+        "t = {1, 2, 3}; t[^] = 9; return t;".getBytes(StandardCharsets.ISO_8859_1);
+    Ast.Program syntax = MooParser.parse(source);
+    Ast.ExpressionStatement assignmentStatement =
+        assertInstanceOf(Ast.ExpressionStatement.class, syntax.statements().get(1));
+    Ast.Assignment assignment =
+        assertInstanceOf(Ast.Assignment.class, assignmentStatement.expression());
+    Ast.IndexTarget target = assertInstanceOf(Ast.IndexTarget.class, assignment.target());
+    Ast.FirstIndex first = assertInstanceOf(Ast.FirstIndex.class, target.index());
+    assertEquals(new Ast.SourceSpan(15, 24, 1, 16), assignmentStatement.span().orElseThrow());
+    assertEquals(new Ast.SourceSpan(15, 23, 1, 16), assignment.span().orElseThrow());
+    assertEquals(new Ast.SourceSpan(17, 18, 1, 18), first.span().orElseThrow());
+    assertEquals(
+        """
+        t = {1, 2, 3};
+        t[^] = 9;
+        return t;""",
+        MooUnparser.unparse(syntax));
+
+    BytecodeProgram program = new MooCompiler().compile(syntax);
+    assertEquals(
+        """
+        0 BUILD_LIST 0
+        1 PUSH_INTEGER 1
+        2 LIST_APPEND
+        3 PUSH_INTEGER 2
+        4 LIST_APPEND
+        5 PUSH_INTEGER 3
+        6 LIST_APPEND
+        7 DUP
+        8 STORE_LOCAL t
+        9 POP
+        10 LOAD_LOCAL t
+        11 FIRST
+        12 PUSH_INTEGER 9
+        13 SET_INDEX_LOCAL t
+        14 POP
+        15 LOAD_LOCAL t
+        16 RETURN""",
+        program.disassemble());
+    VmState state = new VmState();
+
+    new MooVm().execute(program, state);
+
+    assertEquals(VmState.Outcome.RETURNED, state.outcome());
+    assertEquals(
+        new ListValue(List.of(new IntegerValue(9), new IntegerValue(2), new IntegerValue(3))),
+        state.returnValue().orElseThrow());
+  }
+
+  @Test
   void returnsInterruptErrorThroughTheCompleteLiteralPipeline() {
     byte[] source = "return E_INTRPT;".getBytes(StandardCharsets.ISO_8859_1);
     Ast.Program syntax = MooParser.parse(source);
