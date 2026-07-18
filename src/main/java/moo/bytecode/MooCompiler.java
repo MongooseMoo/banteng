@@ -12,7 +12,7 @@ import moo.syntax.MooParser;
 /** Lowers the authorized syntax slice directly into executable bytecode. */
 public final class MooCompiler {
   private int catchSequence;
-  private final List<String> activeLoopVariables = new ArrayList<>();
+  private final List<List<String>> activeLoopVariables = new ArrayList<>();
   private final List<Integer> activeLoopStarts = new ArrayList<>();
   private final List<List<Integer>> activeLoopBreaks = new ArrayList<>();
 
@@ -78,7 +78,11 @@ public final class MooCompiler {
               .orElse(forStatement.variable());
       instructions.add(new Instruction(Opcode.ITERATE, -1, variables));
       List<Integer> breakJumps = new ArrayList<>();
-      activeLoopVariables.add(forStatement.variable());
+      activeLoopVariables.add(
+          forStatement
+              .indexVariable()
+              .map(index -> List.of(forStatement.variable(), index))
+              .orElseGet(() -> List.of(forStatement.variable())));
       activeLoopStarts.add(iterate);
       activeLoopBreaks.add(breakJumps);
       compileStatements(forStatement.body(), instructions, forkVectors);
@@ -96,7 +100,13 @@ public final class MooCompiler {
     }
     if (statement instanceof Ast.Break breakStatement) {
       String loopVariable = breakStatement.loopVariable().orElseThrow();
-      int loopIndex = activeLoopVariables.lastIndexOf(loopVariable);
+      int loopIndex = -1;
+      for (int index = activeLoopVariables.size() - 1; index >= 0; index--) {
+        if (activeLoopVariables.get(index).contains(loopVariable)) {
+          loopIndex = index;
+          break;
+        }
+      }
       if (loopIndex < 0) {
         throw new IllegalArgumentException("unknown loop variable: " + loopVariable);
       }
@@ -106,7 +116,13 @@ public final class MooCompiler {
     }
     if (statement instanceof Ast.Continue continueStatement) {
       String loopVariable = continueStatement.loopVariable().orElseThrow();
-      int loopIndex = activeLoopVariables.lastIndexOf(loopVariable);
+      int loopIndex = -1;
+      for (int index = activeLoopVariables.size() - 1; index >= 0; index--) {
+        if (activeLoopVariables.get(index).contains(loopVariable)) {
+          loopIndex = index;
+          break;
+        }
+      }
       if (loopIndex < 0) {
         throw new IllegalArgumentException("unknown loop variable: " + loopVariable);
       }

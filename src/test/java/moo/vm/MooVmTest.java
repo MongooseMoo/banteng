@@ -472,6 +472,87 @@ final class MooVmTest {
   }
 
   @Test
+  void breaksForLoopNamedByItsSecondVariableThroughTheCompleteControlFlowPipeline() {
+    byte[] source =
+        """
+        x = {};
+        for i, j in ({"1", "2", "3", "4", "5"})
+          if (j > 2)
+            break j;
+          endif
+          x = {@x, i};
+        endfor
+        return x;"""
+            .getBytes(StandardCharsets.ISO_8859_1);
+    Ast.Program syntax = MooParser.parse(source);
+    Ast.For forStatement = assertInstanceOf(Ast.For.class, syntax.statements().get(1));
+    assertEquals("j", forStatement.indexVariable().orElseThrow());
+    Ast.If ifStatement = assertInstanceOf(Ast.If.class, forStatement.body().getFirst());
+    Ast.Break breakStatement = assertInstanceOf(Ast.Break.class, ifStatement.body().getFirst());
+    assertEquals("j", breakStatement.loopVariable().orElseThrow());
+    assertEquals(
+        """
+        x = {};
+        for i, j in ({"1", "2", "3", "4", "5"})
+          if (j > 2)
+            break j;
+          endif
+          x = {@x, i};
+        endfor
+        return x;""",
+        MooUnparser.unparse(syntax));
+
+    BytecodeProgram program = new MooCompiler().compile(syntax);
+    assertEquals(
+        """
+        0 BUILD_LIST 0
+        1 DUP
+        2 STORE_LOCAL x
+        3 POP
+        4 BUILD_LIST 0
+        5 PUSH_STRING 1
+        6 LIST_APPEND
+        7 PUSH_STRING 2
+        8 LIST_APPEND
+        9 PUSH_STRING 3
+        10 LIST_APPEND
+        11 PUSH_STRING 4
+        12 LIST_APPEND
+        13 PUSH_STRING 5
+        14 LIST_APPEND
+        15 ITERATE 31 i,j
+        16 LOAD_LOCAL j
+        17 PUSH_INTEGER 2
+        18 GREATER_THAN
+        19 JUMP_IF_FALSE 22
+        20 JUMP 31
+        21 JUMP 22
+        22 BUILD_LIST 0
+        23 LOAD_LOCAL x
+        24 LIST_EXTEND
+        25 LOAD_LOCAL i
+        26 LIST_APPEND
+        27 DUP
+        28 STORE_LOCAL x
+        29 POP
+        30 JUMP 15
+        31 LEAVE_LOOP 15
+        32 LOAD_LOCAL x
+        33 RETURN""",
+        program.disassemble());
+    VmState state = new VmState();
+
+    new MooVm().execute(program, state);
+
+    assertEquals(VmState.Outcome.RETURNED, state.outcome());
+    assertEquals(
+        new ListValue(
+            List.of(
+                new StringValue(new byte[] {'1'}), new StringValue(new byte[] {'2'}))),
+        state.returnValue().orElseThrow());
+  }
+
+  @Test
   void continuesNamedForLoopThroughTheCompleteControlFlowPipeline() {
     byte[] source =
         """
