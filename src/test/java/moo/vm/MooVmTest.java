@@ -2764,7 +2764,7 @@ final class MooVmTest {
         new MooCompiler().compile(MooParser.parse("return typeof(1.0) == FLOAT;"));
     VmState state = new VmState();
 
-    new MooVm().execute(program, state, new WorldTxn(List.of(), List.of()), new BuiltinCatalog());
+    executeAndClose(program, state, new WorldTxn(List.of(), List.of()), new BuiltinCatalog());
 
     assertEquals(VmState.Outcome.RETURNED, state.outcome());
     assertEquals(new IntegerValue(1), state.returnValue().orElseThrow());
@@ -2776,7 +2776,7 @@ final class MooVmTest {
         new MooCompiler().compile(MooParser.parse("return typeof(#0) == OBJ;"));
     VmState state = new VmState();
 
-    new MooVm().execute(program, state, new WorldTxn(List.of(), List.of()), new BuiltinCatalog());
+    executeAndClose(program, state, new WorldTxn(List.of(), List.of()), new BuiltinCatalog());
 
     assertEquals(VmState.Outcome.RETURNED, state.outcome());
     assertEquals(new IntegerValue(1), state.returnValue().orElseThrow());
@@ -2791,7 +2791,7 @@ final class MooVmTest {
                     "return {tostr(), tostr(\"value=\", 42, 3.0, #0, E_TYPE, E_INTRPT, {1}, [\"a\" -> 1])};"));
     VmState state = new VmState();
 
-    new MooVm().execute(program, state, new WorldTxn(List.of(), List.of()), new BuiltinCatalog());
+    executeAndClose(program, state, new WorldTxn(List.of(), List.of()), new BuiltinCatalog());
 
     assertEquals(VmState.Outcome.RETURNED, state.outcome());
     assertEquals(
@@ -2815,7 +2815,7 @@ final class MooVmTest {
                         + "function_info(\"queued_tasks\")};"));
     VmState state = new VmState();
 
-    new MooVm().execute(program, state, new WorldTxn(List.of(), List.of()), new BuiltinCatalog());
+    executeAndClose(program, state, new WorldTxn(List.of(), List.of()), new BuiltinCatalog());
 
     ListValue functionInfoDescription =
         new ListValue(
@@ -2849,12 +2849,11 @@ final class MooVmTest {
     for (int index = 0; index < failures.length; index++) {
       VmState failure = new VmState();
 
-      new MooVm()
-          .execute(
-              new MooCompiler().compile(MooParser.parse(failures[index])),
-              failure,
-              new WorldTxn(List.of(), List.of()),
-              new BuiltinCatalog());
+      executeAndClose(
+          new MooCompiler().compile(MooParser.parse(failures[index])),
+          failure,
+          new WorldTxn(List.of(), List.of()),
+          new BuiltinCatalog());
 
       assertEquals(VmState.Outcome.ERRORED, failure.outcome(), failures[index]);
       assertEquals(errors[index], failure.uncaughtError().orElseThrow(), failures[index]);
@@ -2874,7 +2873,7 @@ final class MooVmTest {
                         + "queued_tasks(0, 1), queued_tasks(1, 1)};"));
     VmState state = new VmState();
 
-    new MooVm().execute(program, state, new WorldTxn(List.of(), List.of()), new BuiltinCatalog());
+    executeAndClose(program, state, new WorldTxn(List.of(), List.of()), new BuiltinCatalog());
 
     ListValue empty = new ListValue(List.of());
     assertEquals(VmState.Outcome.RETURNED, state.outcome());
@@ -2892,12 +2891,11 @@ final class MooVmTest {
     for (int index = 0; index < failures.length; index++) {
       VmState failure = new VmState();
 
-      new MooVm()
-          .execute(
-              new MooCompiler().compile(MooParser.parse(failures[index])),
-              failure,
-              new WorldTxn(List.of(), List.of()),
-              new BuiltinCatalog());
+      executeAndClose(
+          new MooCompiler().compile(MooParser.parse(failures[index])),
+          failure,
+          new WorldTxn(List.of(), List.of()),
+          new BuiltinCatalog());
 
       assertEquals(VmState.Outcome.ERRORED, failure.outcome(), failures[index]);
       assertEquals(errors[index], failure.uncaughtError().orElseThrow(), failures[index]);
@@ -3163,7 +3161,7 @@ final class MooVmTest {
         new WorldObject(0, "wizard", 6, 0, -1, -1, List.of(), List.of(), List.of(), List.of());
     WorldTxn world = new WorldTxn(List.of(0L), List.of(wizard));
 
-    new MooVm().execute(program, state, world, new BuiltinCatalog());
+    executeAndClose(program, state, world, new BuiltinCatalog());
 
     assertEquals(VmState.Outcome.RETURNED, state.outcome());
     assertEquals(new IntegerValue(1), state.returnValue().orElseThrow());
@@ -3444,7 +3442,7 @@ final class MooVmTest {
                 MooParser.parse("name = \"name\"; return {#0.(name), #0.(\"name\") == #0.name};"));
     VmState state = new VmState();
 
-    new MooVm().execute(program, state, world, new BuiltinCatalog());
+    executeAndClose(program, state, world, new BuiltinCatalog());
 
     assertEquals(VmState.Outcome.RETURNED, state.outcome());
     assertEquals(
@@ -3468,7 +3466,7 @@ final class MooVmTest {
       BytecodeProgram program = new MooCompiler().compile(MooParser.parse(sources[index]));
       VmState state = new VmState();
 
-      new MooVm().execute(program, state, world, new BuiltinCatalog());
+      executeAndClose(program, state, world, new BuiltinCatalog());
 
       assertEquals(VmState.Outcome.ERRORED, state.outcome(), sources[index]);
       assertEquals(errors[index], state.uncaughtError().orElseThrow(), sources[index]);
@@ -3506,11 +3504,11 @@ final class MooVmTest {
       BytecodeProgram program = new MooCompiler().compile(MooParser.parse(sources[index]));
       VmState state = new VmState(Map.of("player", new ObjectValue(0)), 0);
 
-      new MooVm().execute(program, state, world, new BuiltinCatalog());
+      executeAndCommit(program, state, world, new BuiltinCatalog());
 
       assertEquals(VmState.Outcome.RETURNED, state.outcome(), sources[index]);
       assertEquals(expected.get(index), state.returnValue().orElseThrow(), sources[index]);
-      assertEquals(1, world.objectCount(), sources[index]);
+      assertEquals(1, world.snapshot().objects().size(), sources[index]);
     }
   }
 
@@ -3525,59 +3523,62 @@ final class MooVmTest {
     WorldTxn world = new WorldTxn(List.of(3L, 4L), List.of(system, wizard, programmer));
     VmState setup = new VmState(Map.of("player", new ObjectValue(3)), 3);
 
-    new MooVm()
-        .execute(
-            new MooCompiler()
-                .compile(
-                    MooParser.parse(
-                        "obj = create(#-1); obj.w = 0; "
-                            + "add_property(obj, \"audit_secret\", 10, {#0, \"\"}); "
-                            + "return obj;")),
-            setup,
-            world,
-            new BuiltinCatalog());
+    executeAndCommit(
+        new MooCompiler()
+            .compile(
+                MooParser.parse(
+                    "obj = create(#-1); obj.w = 0; "
+                        + "add_property(obj, \"audit_secret\", 10, {#0, \"\"}); "
+                        + "return obj;")),
+        setup,
+        world,
+        new BuiltinCatalog());
 
     assertEquals(VmState.Outcome.RETURNED, setup.outcome());
     ObjectValue object = (ObjectValue) setup.returnValue().orElseThrow();
-    assertEquals(0, world.object(object.value()).orElseThrow().flags() & 32);
-    assertEquals(0, world.property(object.value(), "audit_secret").orElseThrow().owner());
-    assertEquals(0, world.property(object.value(), "audit_secret").orElseThrow().permissions());
+    try (WorldTxn view = world.begin()) {
+      assertEquals(0, view.object(object.value()).orElseThrow().flags() & 32);
+      assertEquals(0, view.property(object.value(), "audit_secret").orElseThrow().owner());
+      assertEquals(0, view.property(object.value(), "audit_secret").orElseThrow().permissions());
+    }
 
     VmState read = new VmState(Map.of("player", new ObjectValue(4)), 4);
-    new MooVm()
-        .execute(
-            new MooCompiler()
-                .compile(MooParser.parse("return #" + object.value() + ".audit_secret;")),
-            read,
-            world,
-            new BuiltinCatalog());
+    executeAndClose(
+        new MooCompiler()
+            .compile(MooParser.parse("return #" + object.value() + ".audit_secret;")),
+        read,
+        world,
+        new BuiltinCatalog());
 
     assertEquals(VmState.Outcome.ERRORED, read.outcome());
     assertEquals(ErrorValue.E_PERM, read.uncaughtError().orElseThrow());
 
     VmState write = new VmState(Map.of("player", new ObjectValue(4)), 4);
-    new MooVm()
-        .execute(
-            new MooCompiler()
-                .compile(MooParser.parse("#" + object.value() + ".audit_secret = 11;")),
-            write,
-            world,
-            new BuiltinCatalog());
+    executeAndClose(
+        new MooCompiler()
+            .compile(MooParser.parse("#" + object.value() + ".audit_secret = 11;")),
+        write,
+        world,
+        new BuiltinCatalog());
 
     assertEquals(VmState.Outcome.ERRORED, write.outcome());
     assertEquals(ErrorValue.E_PERM, write.uncaughtError().orElseThrow());
-    assertEquals(
-        new IntegerValue(10), world.property(object.value(), "audit_secret").orElseThrow().value());
+    try (WorldTxn view = world.begin()) {
+      assertEquals(
+          new IntegerValue(10),
+          view.property(object.value(), "audit_secret").orElseThrow().value());
+    }
   }
 
   @Test
   void roundTripsIntrinsicCommandConnectionOptionWithinOneTask() {
     WorldObject wizard =
         new WorldObject(3, "Wizard", 7, 3, -1, -1, List.of(), List.of(), List.of(), List.of());
-    WorldTxn world = new WorldTxn(List.of(3L), List.of(wizard));
-    world.openConnection(-47, new MapValue(Map.of()));
-    assertTrue(world.switchConnectionPlayer(-47, 3));
-    VmState state = new VmState(Map.of("player", new ObjectValue(3)), 3);
+    WorldTxn root = new WorldTxn(List.of(3L), List.of(wizard));
+    try (WorldTxn world = root.begin()) {
+      world.openConnection(-47, new MapValue(Map.of()));
+      assertTrue(world.switchConnectionPlayer(-47, 3));
+      VmState state = new VmState(Map.of("player", new ObjectValue(3)), 3);
 
     new MooVm()
         .execute(
@@ -3609,18 +3610,20 @@ final class MooVmTest {
                 new StringValue("PREFIX".getBytes(StandardCharsets.ISO_8859_1)),
                 new StringValue("SUFFIX".getBytes(StandardCharsets.ISO_8859_1))));
 
-    assertEquals(VmState.Outcome.RETURNED, state.outcome());
-    assertEquals(new ListValue(List.of(all, subset, all)), state.returnValue().orElseThrow());
+      assertEquals(VmState.Outcome.RETURNED, state.outcome());
+      assertEquals(new ListValue(List.of(all, subset, all)), state.returnValue().orElseThrow());
+    }
   }
 
   @Test
   void rejectsUnknownIntrinsicCommandWithoutChangingTable() {
     WorldObject wizard =
         new WorldObject(3, "Wizard", 7, 3, -1, -1, List.of(), List.of(), List.of(), List.of());
-    WorldTxn world = new WorldTxn(List.of(3L), List.of(wizard));
-    world.openConnection(-47, new MapValue(Map.of()));
-    assertTrue(world.switchConnectionPlayer(-47, 3));
-    VmState state = new VmState(Map.of("player", new ObjectValue(3)), 3);
+    WorldTxn root = new WorldTxn(List.of(3L), List.of(wizard));
+    try (WorldTxn world = root.begin()) {
+      world.openConnection(-47, new MapValue(Map.of()));
+      assertTrue(world.switchConnectionPlayer(-47, 3));
+      VmState state = new VmState(Map.of("player", new ObjectValue(3)), 3);
 
     new MooVm()
         .execute(
@@ -3635,15 +3638,16 @@ final class MooVmTest {
 
     assertEquals(VmState.Outcome.ERRORED, state.outcome());
     assertEquals(ErrorValue.E_INVARG, state.uncaughtError().orElseThrow());
-    assertEquals(
-        new ListValue(
-            List.of(
-                new StringValue(".program".getBytes(StandardCharsets.ISO_8859_1)),
-                new StringValue("PREFIX".getBytes(StandardCharsets.ISO_8859_1)),
-                new StringValue("SUFFIX".getBytes(StandardCharsets.ISO_8859_1)),
-                new StringValue("OUTPUTPREFIX".getBytes(StandardCharsets.ISO_8859_1)),
-                new StringValue("OUTPUTSUFFIX".getBytes(StandardCharsets.ISO_8859_1)))),
-        world.intrinsicCommands(3).orElseThrow());
+      assertEquals(
+          new ListValue(
+              List.of(
+                  new StringValue(".program".getBytes(StandardCharsets.ISO_8859_1)),
+                  new StringValue("PREFIX".getBytes(StandardCharsets.ISO_8859_1)),
+                  new StringValue("SUFFIX".getBytes(StandardCharsets.ISO_8859_1)),
+                  new StringValue("OUTPUTPREFIX".getBytes(StandardCharsets.ISO_8859_1)),
+                  new StringValue("OUTPUTSUFFIX".getBytes(StandardCharsets.ISO_8859_1)))),
+          world.intrinsicCommands(3).orElseThrow());
+    }
   }
 
   @Test
@@ -3653,12 +3657,11 @@ final class MooVmTest {
     for (int index = 0; index < successes.length; index++) {
       VmState state = new VmState();
 
-      new MooVm()
-          .execute(
-              new MooCompiler().compile(MooParser.parse(successes[index])),
-              state,
-              new WorldTxn(List.of(), List.of()),
-              new BuiltinCatalog());
+      executeAndClose(
+          new MooCompiler().compile(MooParser.parse(successes[index])),
+          state,
+          new WorldTxn(List.of(), List.of()),
+          new BuiltinCatalog());
 
       assertEquals(VmState.Outcome.RETURNED, state.outcome(), successes[index]);
       assertEquals(values[index], state.returnValue().orElseThrow(), successes[index]);
@@ -3669,12 +3672,11 @@ final class MooVmTest {
     for (int index = 0; index < failures.length; index++) {
       VmState state = new VmState();
 
-      new MooVm()
-          .execute(
-              new MooCompiler().compile(MooParser.parse(failures[index])),
-              state,
-              new WorldTxn(List.of(), List.of()),
-              new BuiltinCatalog());
+      executeAndClose(
+          new MooCompiler().compile(MooParser.parse(failures[index])),
+          state,
+          new WorldTxn(List.of(), List.of()),
+          new BuiltinCatalog());
 
       assertEquals(VmState.Outcome.ERRORED, state.outcome(), failures[index]);
       assertEquals(errors[index], state.uncaughtError().orElseThrow(), failures[index]);
@@ -3693,12 +3695,11 @@ final class MooVmTest {
         """;
     VmState state = new VmState();
 
-    new MooVm()
-        .execute(
-            new MooCompiler().compile(MooParser.parse(source)),
-            state,
-            new WorldTxn(List.of(), List.of()),
-            new BuiltinCatalog());
+    executeAndClose(
+        new MooCompiler().compile(MooParser.parse(source)),
+        state,
+        new WorldTxn(List.of(), List.of()),
+        new BuiltinCatalog());
 
     assertEquals(VmState.Outcome.RETURNED, state.outcome());
     assertEquals(
@@ -3733,9 +3734,11 @@ final class MooVmTest {
         """;
     VmState state = new VmState(Map.of("player", new ObjectValue(0)), 0);
 
-    new MooVm()
-        .execute(
-            new MooCompiler().compile(MooParser.parse(source)), state, world, new BuiltinCatalog());
+    executeAndCommit(
+        new MooCompiler().compile(MooParser.parse(source)),
+        state,
+        world,
+        new BuiltinCatalog());
 
     assertEquals(VmState.Outcome.RETURNED, state.outcome());
     assertEquals(
@@ -3744,15 +3747,14 @@ final class MooVmTest {
                 new StringValue("missing".getBytes(StandardCharsets.ISO_8859_1)),
                 new StringValue("missing".getBytes(StandardCharsets.ISO_8859_1)))),
         state.returnValue().orElseThrow());
-    assertEquals(1, world.objectCount());
+    assertEquals(1, world.snapshot().objects().size());
 
     VmState typeError = new VmState();
-    new MooVm()
-        .execute(
-            new MooCompiler().compile(MooParser.parse("return #0:(1)();")),
-            typeError,
-            world,
-            new BuiltinCatalog());
+    executeAndClose(
+        new MooCompiler().compile(MooParser.parse("return #0:(1)();")),
+        typeError,
+        world,
+        new BuiltinCatalog());
     assertEquals(ErrorValue.E_TYPE, typeError.uncaughtError().orElseThrow());
   }
 
@@ -3781,16 +3783,15 @@ final class MooVmTest {
     VmState state =
         new VmState(Map.of("player", new ObjectValue(3), "this", new ObjectValue(4)), 3);
 
-    new MooVm()
-        .execute(
-            new MooCompiler()
-                .compile(
-                    MooParser.parse(
-                        "result = #2:(\"MIXED\")(42); after = create(#-1); "
-                            + "return {result, after};")),
-            state,
-            world,
-            new BuiltinCatalog());
+    executeAndCommit(
+        new MooCompiler()
+            .compile(
+                MooParser.parse(
+                    "result = #2:(\"MIXED\")(42); after = create(#-1); "
+                        + "return {result, after};")),
+        state,
+        world,
+        new BuiltinCatalog());
 
     assertEquals(VmState.Outcome.RETURNED, state.outcome());
     assertEquals(
@@ -3807,8 +3808,10 @@ final class MooVmTest {
                         new ObjectValue(5))),
                 new ObjectValue(6))),
         state.returnValue().orElseThrow());
-    assertEquals(9, world.object(5).orElseThrow().owner());
-    assertEquals(3, world.object(6).orElseThrow().owner());
+    try (WorldTxn view = world.begin()) {
+      assertEquals(9, view.object(5).orElseThrow().owner());
+      assertEquals(3, view.object(6).orElseThrow().owner());
+    }
   }
 
   @Test
@@ -3825,16 +3828,38 @@ final class MooVmTest {
     WorldObject location =
         new WorldObject(
             10, "location", 0, 0, -1, -1, List.of(8L, 1L, 9L), List.of(), List.of(), List.of());
-    WorldTxn world = new WorldTxn(List.of(1L), List.of(target, content, parent, child, location));
+    WorldObject siblingSix =
+        new WorldObject(6, "six", 0, 0, -1, 3, List.of(), List.of(), List.of(), List.of());
+    WorldObject siblingSeven =
+        new WorldObject(7, "seven", 0, 0, -1, 3, List.of(), List.of(), List.of(), List.of());
+    WorldObject contentEight =
+        new WorldObject(8, "eight", 0, 0, 10, -1, List.of(), List.of(), List.of(), List.of());
+    WorldObject contentNine =
+        new WorldObject(9, "nine", 0, 0, 10, -1, List.of(), List.of(), List.of(), List.of());
+    WorldTxn root =
+        new WorldTxn(
+            List.of(1L),
+            List.of(
+                target,
+                content,
+                parent,
+                child,
+                siblingSix,
+                siblingSeven,
+                contentEight,
+                contentNine,
+                location));
+    try (WorldTxn world = root.begin()) {
+      assertTrue(world.recycleObject(1));
 
-    assertTrue(world.recycleObject(1));
-
-    assertTrue(world.object(1).isEmpty());
-    assertEquals(List.of(), world.players());
-    assertEquals(-1, world.object(2).orElseThrow().location());
-    assertEquals(3, world.object(4).orElseThrow().parent());
-    assertEquals(List.of(8L, 9L), world.object(10).orElseThrow().contents());
-    assertEquals(List.of(7L, 4L, 6L), world.object(3).orElseThrow().children());
+      assertTrue(world.object(1).isEmpty());
+      assertEquals(List.of(), world.players());
+      assertEquals(-1, world.object(2).orElseThrow().location());
+      assertEquals(3, world.object(4).orElseThrow().parent());
+      assertEquals(List.of(8L, 9L), world.object(10).orElseThrow().contents());
+      assertEquals(List.of(7L, 4L, 6L), world.object(3).orElseThrow().children());
+      assertTrue(world.commit().isCommitted());
+    }
   }
 
   @Test
@@ -3860,19 +3885,18 @@ final class MooVmTest {
       WorldTxn world = new WorldTxn(List.of(), List.of(parent, target));
       VmState state = new VmState(Map.of("player", new ObjectValue(0)), 0);
 
-      new MooVm()
-          .execute(
-              new MooCompiler().compile(MooParser.parse(rootSources[index])),
-              state,
-              world,
-              new BuiltinCatalog());
+      executeAndCommit(
+          new MooCompiler().compile(MooParser.parse(rootSources[index])),
+          state,
+          world,
+          new BuiltinCatalog());
 
       assertEquals(VmState.Outcome.RETURNED, state.outcome(), hookSources[index]);
       assertEquals(
           new IntegerValue(index == 0 ? 0 : 1),
           state.returnValue().orElseThrow(),
           hookSources[index]);
-      assertTrue(world.object(2).isEmpty(), hookSources[index]);
+      assertFalse(world.snapshot().objects().containsKey(2L), hookSources[index]);
     }
   }
 
@@ -3885,23 +3909,21 @@ final class MooVmTest {
     WorldTxn world = new WorldTxn(List.of(), List.of(programmer, target));
     VmState denied = new VmState(Map.of(), 3);
 
-    new MooVm()
-        .execute(
-            new MooCompiler().compile(MooParser.parse("return `recycle(#4) ! E_PERM => 1';")),
-            denied,
-            world,
-            new BuiltinCatalog());
+    executeAndClose(
+        new MooCompiler().compile(MooParser.parse("return `recycle(#4) ! E_PERM => 1';")),
+        denied,
+        world,
+        new BuiltinCatalog());
 
     assertEquals(new IntegerValue(1), denied.returnValue().orElseThrow());
-    assertTrue(world.object(4).isPresent());
+    assertTrue(world.snapshot().objects().containsKey(4L));
 
     VmState invalid = new VmState(Map.of(), 3);
-    new MooVm()
-        .execute(
-            new MooCompiler().compile(MooParser.parse("return `recycle(#99) ! E_INVARG => 1';")),
-            invalid,
-            world,
-            new BuiltinCatalog());
+    executeAndClose(
+        new MooCompiler().compile(MooParser.parse("return `recycle(#99) ! E_INVARG => 1';")),
+        invalid,
+        world,
+        new BuiltinCatalog());
     assertEquals(new IntegerValue(1), invalid.returnValue().orElseThrow());
   }
 
@@ -3912,12 +3934,11 @@ final class MooVmTest {
     WorldTxn world = new WorldTxn(List.of(), List.of(object));
     VmState values = new VmState();
 
-    new MooVm()
-        .execute(
-            new MooCompiler().compile(MooParser.parse("return {valid(#0), valid(#-1)};")),
-            values,
-            world,
-            new BuiltinCatalog());
+    executeAndClose(
+        new MooCompiler().compile(MooParser.parse("return {valid(#0), valid(#-1)};")),
+        values,
+        world,
+        new BuiltinCatalog());
 
     assertEquals(
         new ListValue(List.of(new IntegerValue(1), new IntegerValue(0))),
@@ -3930,12 +3951,11 @@ final class MooVmTest {
     for (int index = 0; index < failures.length; index++) {
       VmState state = new VmState();
 
-      new MooVm()
-          .execute(
-              new MooCompiler().compile(MooParser.parse(failures[index])),
-              state,
-              world,
-              new BuiltinCatalog());
+      executeAndClose(
+          new MooCompiler().compile(MooParser.parse(failures[index])),
+          state,
+          world,
+          new BuiltinCatalog());
 
       assertEquals(VmState.Outcome.ERRORED, state.outcome(), failures[index]);
       assertEquals(errors[index], state.uncaughtError().orElseThrow(), failures[index]);
@@ -3953,27 +3973,26 @@ final class MooVmTest {
     WorldTxn world = new WorldTxn(List.of(), List.of(programmer, target, owner));
     VmState state = new VmState(Map.of(), 0);
 
-    new MooVm()
-        .execute(
-            new MooCompiler()
-                .compile(
-                    MooParser.parse(
-                        "return {"
-                            + "add_verb(#1, {#0, \"rWxD\", \"  foo*bar\"}, "
-                            + "{\"any\", \"any\", \"this\"}), "
-                            + "add_verb(#1, {#0, \"\", \"second\"}, "
-                            + "{\"none\", \"none\", \"none\"}), "
-                            + "add_verb(#1, {#0, \"\", \"inside\"}, "
-                            + "{\"this\", \"in\", \"this\"}), "
-                            + "add_verb(#1, {#0, \"\", \"upon\"}, "
-                            + "{\"this\", \"on\", \"this\"}), "
-                            + "add_verb(#1, {#0, \"\", \"numeric\"}, "
-                            + "{\"this\", \"14\", \"this\"}), "
-                            + "add_verb(#1, {#0, \"\", \"hash_numeric\"}, "
-                            + "{\"this\", \"#0\", \"this\"})};")),
-            state,
-            world,
-            new BuiltinCatalog());
+    executeAndCommit(
+        new MooCompiler()
+            .compile(
+                MooParser.parse(
+                    "return {"
+                        + "add_verb(#1, {#0, \"rWxD\", \"  foo*bar\"}, "
+                        + "{\"any\", \"any\", \"this\"}), "
+                        + "add_verb(#1, {#0, \"\", \"second\"}, "
+                        + "{\"none\", \"none\", \"none\"}), "
+                        + "add_verb(#1, {#0, \"\", \"inside\"}, "
+                        + "{\"this\", \"in\", \"this\"}), "
+                        + "add_verb(#1, {#0, \"\", \"upon\"}, "
+                        + "{\"this\", \"on\", \"this\"}), "
+                        + "add_verb(#1, {#0, \"\", \"numeric\"}, "
+                        + "{\"this\", \"14\", \"this\"}), "
+                        + "add_verb(#1, {#0, \"\", \"hash_numeric\"}, "
+                        + "{\"this\", \"#0\", \"this\"})};")),
+        state,
+        world,
+        new BuiltinCatalog());
 
     assertEquals(
         new ListValue(
@@ -3985,16 +4004,18 @@ final class MooVmTest {
                 new IntegerValue(5),
                 new IntegerValue(6))),
         state.returnValue().orElseThrow());
-    WorldVerb first = world.verb(1, 0).orElseThrow();
-    assertEquals("foo*bar", first.names());
-    assertEquals(0, first.owner());
-    assertEquals(159, first.permissions());
-    assertEquals(-2, first.preposition());
-    assertEquals("second", world.verb(1, 1).orElseThrow().names());
-    assertEquals(3, world.verb(1, 2).orElseThrow().preposition());
-    assertEquals(4, world.verb(1, 3).orElseThrow().preposition());
-    assertEquals(14, world.verb(1, 4).orElseThrow().preposition());
-    assertEquals(0, world.verb(1, 5).orElseThrow().preposition());
+    try (WorldTxn view = world.begin()) {
+      WorldVerb first = view.verb(1, 0).orElseThrow();
+      assertEquals("foo*bar", first.names());
+      assertEquals(0, first.owner());
+      assertEquals(159, first.permissions());
+      assertEquals(-2, first.preposition());
+      assertEquals("second", view.verb(1, 1).orElseThrow().names());
+      assertEquals(3, view.verb(1, 2).orElseThrow().preposition());
+      assertEquals(4, view.verb(1, 3).orElseThrow().preposition());
+      assertEquals(14, view.verb(1, 4).orElseThrow().preposition());
+      assertEquals(0, view.verb(1, 5).orElseThrow().preposition());
+    }
 
     String[] failures = {
       "return add_verb(#1, {#99, \"x\", \"bad\"}, {\"this\", \"none\", \"this\"});",
@@ -4014,12 +4035,11 @@ final class MooVmTest {
     };
     for (int index = 0; index < failures.length; index++) {
       VmState failure = new VmState(Map.of(), 0);
-      new MooVm()
-          .execute(
-              new MooCompiler().compile(MooParser.parse(failures[index])),
-              failure,
-              world,
-              new BuiltinCatalog());
+      executeAndClose(
+          new MooCompiler().compile(MooParser.parse(failures[index])),
+          failure,
+          world,
+          new BuiltinCatalog());
       assertEquals(errors[index], failure.uncaughtError().orElseThrow(), failures[index]);
     }
   }
@@ -4035,30 +4055,31 @@ final class MooVmTest {
     WorldTxn world = new WorldTxn(List.of(), List.of(wizard, oldOwner));
     VmState state = new VmState(Map.of(), 0);
 
-    new MooVm()
-        .execute(
-            new MooCompiler()
-                .compile(
-                    MooParser.parse(
-                        "return {"
-                            + "set_verb_info(#0, \"do_login_command\", "
-                            + "{#0, \"rxd\", \"do_login_command\"}), "
-                            + "set_verb_args(#0, \"do_login_command\", "
-                            + "{\"this\", \"none\", \"this\"})};")),
-            state,
-            world,
-            new BuiltinCatalog());
+    executeAndCommit(
+        new MooCompiler()
+            .compile(
+                MooParser.parse(
+                    "return {"
+                        + "set_verb_info(#0, \"do_login_command\", "
+                        + "{#0, \"rxd\", \"do_login_command\"}), "
+                        + "set_verb_args(#0, \"do_login_command\", "
+                        + "{\"this\", \"none\", \"this\"})};")),
+        state,
+        world,
+        new BuiltinCatalog());
 
     assertEquals(VmState.Outcome.RETURNED, state.outcome());
     assertEquals(
         new ListValue(List.of(new IntegerValue(0), new IntegerValue(0))),
         state.returnValue().orElseThrow());
-    WorldVerb changed = world.verb(0, 0).orElseThrow();
-    assertEquals("do_login_command", changed.names());
-    assertEquals(0, changed.owner());
-    assertEquals(173, changed.permissions());
-    assertEquals(-1, changed.preposition());
-    assertEquals(source, changed.programSource());
+    try (WorldTxn view = world.begin()) {
+      WorldVerb changed = view.verb(0, 0).orElseThrow();
+      assertEquals("do_login_command", changed.names());
+      assertEquals(0, changed.owner());
+      assertEquals(173, changed.permissions());
+      assertEquals(-1, changed.preposition());
+      assertEquals(source, changed.programSource());
+    }
     assertEquals(
         BuiltinCatalog.EffectClass.TRANSACTION_WRITE,
         new BuiltinCatalog().effectClass("set_verb_info"));
@@ -4092,30 +4113,30 @@ final class MooVmTest {
     WorldTxn world = new WorldTxn(List.of(), List.of(programmer, target, parent));
     VmState state = new VmState(Map.of(), 0);
 
-    new MooVm()
-        .execute(
-            new MooCompiler()
-                .compile(
-                    MooParser.parse("return {delete_verb(#1, 2), delete_verb(#1, \"first\")};")),
-            state,
-            world,
-            new BuiltinCatalog());
+    executeAndCommit(
+        new MooCompiler()
+            .compile(
+                MooParser.parse("return {delete_verb(#1, 2), delete_verb(#1, \"first\")};")),
+        state,
+        world,
+        new BuiltinCatalog());
 
     assertEquals(
         new ListValue(List.of(new IntegerValue(0), new IntegerValue(0))),
         state.returnValue().orElseThrow());
-    assertTrue(world.object(1).orElseThrow().verbs().isEmpty());
+    try (WorldTxn view = world.begin()) {
+      assertTrue(view.object(1).orElseThrow().verbs().isEmpty());
+    }
 
     String[] failures = {"return delete_verb(#1, \"parent\");", "return delete_verb(#1, 0);"};
     ErrorValue[] errors = {ErrorValue.E_VERBNF, ErrorValue.E_INVARG};
     for (int index = 0; index < failures.length; index++) {
       VmState failure = new VmState(Map.of(), 0);
-      new MooVm()
-          .execute(
-              new MooCompiler().compile(MooParser.parse(failures[index])),
-              failure,
-              world,
-              new BuiltinCatalog());
+      executeAndClose(
+          new MooCompiler().compile(MooParser.parse(failures[index])),
+          failure,
+          world,
+          new BuiltinCatalog());
       assertEquals(errors[index], failure.uncaughtError().orElseThrow(), failures[index]);
     }
 
@@ -4135,12 +4156,11 @@ final class MooVmTest {
             List.of());
     WorldTxn protectedWorld = new WorldTxn(List.of(), List.of(ordinaryProgrammer, protectedTarget));
     VmState denied = new VmState(Map.of(), 3);
-    new MooVm()
-        .execute(
-            new MooCompiler().compile(MooParser.parse("return delete_verb(#4, 1);")),
-            denied,
-            protectedWorld,
-            new BuiltinCatalog());
+    executeAndClose(
+        new MooCompiler().compile(MooParser.parse("return delete_verb(#4, 1);")),
+        denied,
+        protectedWorld,
+        new BuiltinCatalog());
     assertEquals(ErrorValue.E_PERM, denied.uncaughtError().orElseThrow());
   }
 
@@ -4160,42 +4180,45 @@ final class MooVmTest {
     WorldTxn world = new WorldTxn(List.of(), List.of(programmer, target, parent));
     VmState success = new VmState(Map.of(), 0);
 
-    new MooVm()
-        .execute(
-            new MooCompiler()
-                .compile(MooParser.parse("return set_verb_code(#1, 1, {\"return 7;\"});")),
-            success,
-            world,
-            new BuiltinCatalog());
+    executeAndCommit(
+        new MooCompiler()
+            .compile(MooParser.parse("return set_verb_code(#1, 1, {\"return 7;\"});")),
+        success,
+        world,
+        new BuiltinCatalog());
 
     assertEquals(new ListValue(List.of()), success.returnValue().orElseThrow());
-    assertEquals("return 7;", world.verb(1, 0).orElseThrow().programSource());
+    try (WorldTxn view = world.begin()) {
+      assertEquals("return 7;", view.verb(1, 0).orElseThrow().programSource());
+    }
 
     VmState writableSuccess = new VmState(Map.of(), 0);
-    new MooVm()
-        .execute(
-            new MooCompiler()
-                .compile(
-                    MooParser.parse("return set_verb_code(#1, \"writable\", {\"return 8;\"});")),
-            writableSuccess,
-            world,
-            new BuiltinCatalog());
+    executeAndCommit(
+        new MooCompiler()
+            .compile(
+                MooParser.parse("return set_verb_code(#1, \"writable\", {\"return 8;\"});")),
+        writableSuccess,
+        world,
+        new BuiltinCatalog());
     assertEquals(new ListValue(List.of()), writableSuccess.returnValue().orElseThrow());
-    assertEquals("return 8;", world.verb(1, 1).orElseThrow().programSource());
+    try (WorldTxn view = world.begin()) {
+      assertEquals("return 8;", view.verb(1, 1).orElseThrow().programSource());
+    }
 
     VmState diagnostic = new VmState(Map.of(), 0);
-    new MooVm()
-        .execute(
-            new MooCompiler()
-                .compile(MooParser.parse("return set_verb_code(#1, 1, {\"return 9;\", \"if\"});")),
-            diagnostic,
-            world,
-            new BuiltinCatalog());
+    executeAndClose(
+        new MooCompiler()
+            .compile(MooParser.parse("return set_verb_code(#1, 1, {\"return 9;\", \"if\"});")),
+        diagnostic,
+        world,
+        new BuiltinCatalog());
     assertTrue(
         diagnostic.returnValue().orElseThrow() instanceof ListValue errors
             && errors.size() == 1
             && errors.elements().getFirst() instanceof StringValue);
-    assertEquals("return 7;", world.verb(1, 0).orElseThrow().programSource());
+    try (WorldTxn view = world.begin()) {
+      assertEquals("return 7;", view.verb(1, 0).orElseThrow().programSource());
+    }
 
     String[] failures = {
       "return set_verb_code(#1, \"inherited\", {\"return 4;\"});",
@@ -4204,12 +4227,11 @@ final class MooVmTest {
     ErrorValue[] errors = {ErrorValue.E_VERBNF, ErrorValue.E_TYPE};
     for (int index = 0; index < failures.length; index++) {
       VmState failure = new VmState(Map.of(), 0);
-      new MooVm()
-          .execute(
-              new MooCompiler().compile(MooParser.parse(failures[index])),
-              failure,
-              world,
-              new BuiltinCatalog());
+      executeAndClose(
+          new MooCompiler().compile(MooParser.parse(failures[index])),
+          failure,
+          world,
+          new BuiltinCatalog());
       assertEquals(errors[index], failure.uncaughtError().orElseThrow(), failures[index]);
     }
 
@@ -4230,13 +4252,27 @@ final class MooVmTest {
             List.of());
     WorldTxn deniedWorld = new WorldTxn(List.of(), List.of(nonProgrammer, writableTarget));
     VmState denied = new VmState(Map.of(), 3);
-    new MooVm()
-        .execute(
-            new MooCompiler()
-                .compile(MooParser.parse("return set_verb_code(#4, 1, {\"return 2;\"});")),
-            denied,
-            deniedWorld,
-            new BuiltinCatalog());
+    executeAndClose(
+        new MooCompiler()
+            .compile(MooParser.parse("return set_verb_code(#4, 1, {\"return 2;\"});")),
+        denied,
+        deniedWorld,
+        new BuiltinCatalog());
     assertEquals(ErrorValue.E_PERM, denied.uncaughtError().orElseThrow());
+  }
+
+  private static void executeAndClose(
+      BytecodeProgram program, VmState state, WorldTxn root, BuiltinCatalog builtins) {
+    try (WorldTxn transaction = root.begin()) {
+      new MooVm().execute(program, state, transaction, builtins);
+    }
+  }
+
+  private static void executeAndCommit(
+      BytecodeProgram program, VmState state, WorldTxn root, BuiltinCatalog builtins) {
+    try (WorldTxn transaction = root.begin()) {
+      new MooVm().execute(program, state, transaction, builtins);
+      assertTrue(transaction.commit().isCommitted());
+    }
   }
 }

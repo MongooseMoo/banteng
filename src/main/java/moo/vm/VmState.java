@@ -2,6 +2,7 @@ package moo.vm;
 
 import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Deque;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -43,11 +44,13 @@ public final class VmState {
   private Optional<ForkRequest> forkRequest = Optional.empty();
   private OptionalDouble suspensionDelaySeconds = OptionalDouble.empty();
   private Optional<CompletableFuture<MooValue>> hostResult = Optional.empty();
+  private boolean awaitingHostResult;
   private MooValue taskLocal = new MapValue(Map.of());
   private long remainingTicks;
-  private final long secondsLimit;
+  private long elapsedCpuNanos;
+  private long remainingCpuNanos;
   private final long maxStackDepth;
-  private long processCpuAnchorNanos;
+  private long segmentCpuAnchorNanos = -1;
   private final long initialProgrammer;
   private final ObjectValue initialVerbLocation;
 
@@ -104,7 +107,7 @@ public final class VmState {
     initialProgrammer = programmer;
     initialVerbLocation = verbLocation;
     this.remainingTicks = remainingTicks;
-    this.secondsLimit = secondsLimit;
+    remainingCpuNanos = Math.max(0L, TimeUnit.SECONDS.toNanos(secondsLimit));
     this.maxStackDepth = maxStackDepth;
   }
 
@@ -184,11 +187,9 @@ public final class VmState {
   }
 
   long remainingSeconds() {
-    long limitNanos = Math.max(0L, TimeUnit.SECONDS.toNanos(secondsLimit));
-    long currentProcessCpuNanos =
-        ProcessHandle.current().info().totalCpuDuration().orElseThrow().toNanos();
-    long elapsedNanos = Math.max(0L, currentProcessCpuNanos - processCpuAnchorNanos);
-    long remainingNanos = Math.max(0L, limitNanos - Math.min(limitNanos, elapsedNanos));
+    long elapsedNanos = segmentElapsedCpuNanos(currentProcessCpuNanos());
+    long remainingNanos =
+        Math.max(0L, remainingCpuNanos - Math.min(remainingCpuNanos, elapsedNanos));
     return TimeUnit.NANOSECONDS.toSeconds(remainingNanos);
   }
 
@@ -198,8 +199,6 @@ public final class VmState {
 
   void ensureRoot(BytecodeProgram program) {
     if (frames.isEmpty()) {
-      processCpuAnchorNanos =
-          ProcessHandle.current().info().totalCpuDuration().orElseThrow().toNanos();
       MooValue receiver = initialLocals.getOrDefault("this", new ObjectValue(-1));
       frames.push(
           new Frame(
@@ -212,6 +211,16 @@ public final class VmState {
               OptionalLong.empty(),
               OptionalLong.empty(),
               OptionalLong.empty()));
+    }
+  }
+
+  void beginSegment() {
+    beginSegment(currentProcessCpuNanos());
+  }
+
+  void beginSegment(long currentProcessCpuNanos) {
+    if (segmentCpuAnchorNanos < 0) {
+      segmentCpuAnchorNanos = currentProcessCpuNanos;
     }
   }
 
@@ -408,6 +417,7 @@ public final class VmState {
     }
     suspensionDelaySeconds = delaySeconds;
     hostResult = externalResult;
+    awaitingHostResult = externalResult.isPresent();
     outcome = Outcome.SUSPENDED;
   }
 
@@ -418,8 +428,208 @@ public final class VmState {
     }
     suspensionDelaySeconds = OptionalDouble.empty();
     hostResult = Optional.empty();
+    awaitingHostResult = false;
     currentFrame().operandStack.push(value);
     outcome = Outcome.RUNNING;
+  }
+
+  /** Captures this task as value-only state for retry or checkpoint storage. */
+  public VmSnapshot snapshot() {
+    return snapshot(currentProcessCpuNanos());
+  }
+
+  VmSnapshot snapshot(long currentProcessCpuNanos) {
+    long segmentElapsedCpuNanos = segmentElapsedCpuNanos(currentProcessCpuNanos);
+    long chargedCpuNanos = Math.min(remainingCpuNanos, segmentElapsedCpuNanos);
+    long capturedRemainingCpuNanos = remainingCpuNanos - chargedCpuNanos;
+    long capturedElapsedCpuNanos = saturatedAdd(elapsedCpuNanos, chargedCpuNanos);
+
+    List<VmSnapshot.Frame> frameSnapshots = new ArrayList<>(frames.size());
+    for (Frame frame : frames) {
+      frameSnapshots.add(snapshot(frame));
+    }
+    Optional<VmSnapshot.Fork> forkSnapshot =
+        forkRequest.map(
+            request ->
+                new VmSnapshot.Fork(
+                    request.program(),
+                    request.locals(),
+                    request.programmer(),
+                    request.verbLocation(),
+                    request.delaySeconds()));
+    return new VmSnapshot(
+        initialLocals,
+        initialProgrammer,
+        initialVerbLocation,
+        frameSnapshots,
+        output,
+        connectionOptionRequests,
+        bootPlayerTargets,
+        forcedInputRequests,
+        outcome,
+        returnValue,
+        pendingError,
+        uncaughtError,
+        switchedPlayer,
+        forkSnapshot,
+        suspensionDelaySeconds,
+        awaitingHostResult,
+        taskLocal,
+        remainingTicks,
+        capturedElapsedCpuNanos,
+        capturedRemainingCpuNanos,
+        maxStackDepth);
+  }
+
+  /** Restores a task from a value-only retry or checkpoint snapshot. */
+  public static VmState restore(VmSnapshot snapshot) {
+    VmState state =
+        new VmState(
+            snapshot.initialLocals(),
+            snapshot.initialProgrammer(),
+            snapshot.initialVerbLocation(),
+            snapshot.remainingTicks(),
+            0,
+            snapshot.maxStackDepth());
+    for (VmSnapshot.Frame frame : snapshot.frames()) {
+      state.frames.addLast(restore(frame));
+    }
+    state.output.addAll(snapshot.output());
+    state.connectionOptionRequests.addAll(snapshot.connectionOptionRequests());
+    state.bootPlayerTargets.addAll(snapshot.bootPlayerTargets());
+    state.forcedInputRequests.addAll(snapshot.forcedInputRequests());
+    state.outcome = snapshot.outcome();
+    state.returnValue = snapshot.returnValue();
+    state.pendingError = snapshot.pendingError();
+    state.uncaughtError = snapshot.uncaughtError();
+    state.switchedPlayer = snapshot.switchedPlayer();
+    state.forkRequest =
+        snapshot
+            .forkRequest()
+            .map(
+                request ->
+                    new ForkRequest(
+                        request.program(),
+                        request.locals(),
+                        request.programmer(),
+                        request.verbLocation(),
+                        request.delaySeconds()));
+    state.suspensionDelaySeconds = snapshot.suspensionDelaySeconds();
+    state.awaitingHostResult = snapshot.awaitingHostResult();
+    state.hostResult = Optional.empty();
+    state.taskLocal = snapshot.taskLocal();
+    state.elapsedCpuNanos = snapshot.elapsedCpuNanos();
+    state.remainingCpuNanos = snapshot.remainingCpuNanos();
+    state.segmentCpuAnchorNanos = -1;
+    return state;
+  }
+
+  private static VmSnapshot.Frame snapshot(Frame frame) {
+    List<VmSnapshot.HandlerState> handlers = new ArrayList<>(frame.handlers.size());
+    for (ActiveHandler handler : frame.handlers) {
+      handlers.add(
+          new VmSnapshot.HandlerState(
+              handler.specification,
+              handler.operandDepth,
+              VmSnapshot.HandlerPhase.valueOf(handler.phase.name())));
+    }
+    List<VmSnapshot.FinallyState> finallyStates =
+        new ArrayList<>(frame.finallyContinuations.size());
+    for (FinallyContinuation continuation : frame.finallyContinuations) {
+      finallyStates.add(
+          new VmSnapshot.FinallyState(
+              VmSnapshot.FinallyKind.valueOf(continuation.kind().name()),
+              continuation.normalTarget(),
+              continuation.returnValue(),
+              continuation.error()));
+    }
+    List<VmSnapshot.IndexState> indexStates =
+        new ArrayList<>(frame.indexCollections.size());
+    for (IndexContext context : frame.indexCollections) {
+      indexStates.add(
+          new VmSnapshot.IndexState(
+              context.collection(), context.key(), context.operandDepth()));
+    }
+    Map<Integer, VmSnapshot.LoopState> loops = new LinkedHashMap<>();
+    frame.loops.forEach(
+        (instruction, cursor) ->
+            loops.put(
+                instruction,
+                new VmSnapshot.LoopState(
+                    cursor.values, cursor.secondaryValues, cursor.nextIndex)));
+    return new VmSnapshot.Frame(
+        frame.program,
+        List.copyOf(frame.operandStack),
+        indexStates,
+        frame.locals,
+        handlers,
+        finallyStates,
+        loops,
+        VmSnapshot.ReturnMode.valueOf(frame.returnMode.name()),
+        frame.receiver,
+        frame.verbLocation,
+        frame.recycleTarget,
+        frame.moveObject,
+        frame.moveDestination,
+        frame.programmer,
+        frame.instructionPointer);
+  }
+
+  private static Frame restore(VmSnapshot.Frame snapshot) {
+    Frame frame =
+        new Frame(
+            snapshot.program(),
+            snapshot.locals(),
+            ReturnMode.valueOf(snapshot.returnMode().name()),
+            snapshot.programmer(),
+            snapshot.receiver(),
+            snapshot.verbLocation(),
+            snapshot.recycleTarget(),
+            snapshot.moveObject(),
+            snapshot.moveDestination());
+    frame.operandStack.addAll(snapshot.operandStack());
+    for (VmSnapshot.IndexState index : snapshot.indexCollections()) {
+      frame.indexCollections.addLast(
+          new IndexContext(index.collection(), index.key(), index.operandDepth()));
+    }
+    for (VmSnapshot.HandlerState handler : snapshot.handlers()) {
+      ActiveHandler restored =
+          new ActiveHandler(handler.specification(), handler.operandDepth());
+      restored.phase = HandlerPhase.valueOf(handler.phase().name());
+      frame.handlers.addLast(restored);
+    }
+    for (VmSnapshot.FinallyState finallyState : snapshot.finallyStates()) {
+      frame.finallyContinuations.addLast(
+          new FinallyContinuation(
+              ContinuationKind.valueOf(finallyState.kind().name()),
+              finallyState.normalTarget(),
+              finallyState.returnValue(),
+              finallyState.error()));
+    }
+    snapshot
+        .loops()
+        .forEach(
+            (instruction, loop) -> {
+              LoopCursor cursor = new LoopCursor(loop.values(), loop.secondaryValues());
+              cursor.nextIndex = loop.nextIndex();
+              frame.loops.put(instruction, cursor);
+            });
+    frame.instructionPointer = snapshot.instructionPointer();
+    return frame;
+  }
+
+  private long segmentElapsedCpuNanos(long currentProcessCpuNanos) {
+    return segmentCpuAnchorNanos < 0
+        ? 0
+        : Math.max(0L, currentProcessCpuNanos - segmentCpuAnchorNanos);
+  }
+
+  private static long currentProcessCpuNanos() {
+    return ProcessHandle.current().info().totalCpuDuration().orElseThrow().toNanos();
+  }
+
+  private static long saturatedAdd(long left, long right) {
+    return Long.MAX_VALUE - left < right ? Long.MAX_VALUE : left + right;
   }
 
   private static Map<String, MooValue> normalizedLocals(Map<String, MooValue> locals) {
@@ -492,7 +702,7 @@ public final class VmState {
       ObjectValue verbLocation,
       double delaySeconds) {
     public ForkRequest {
-      locals = Map.copyOf(locals);
+      locals = Collections.unmodifiableMap(new LinkedHashMap<>(locals));
     }
   }
 

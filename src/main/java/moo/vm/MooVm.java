@@ -46,6 +46,7 @@ public final class MooVm {
   /** Executes with the one concrete world transaction and builtin catalog. */
   public void execute(
       BytecodeProgram program, VmState state, WorldTxn world, BuiltinCatalog builtins) {
+    state.beginSegment();
     state.ensureRoot(program);
     while (state.outcome() == VmState.Outcome.RUNNING) {
       Frame frame = state.currentFrame();
