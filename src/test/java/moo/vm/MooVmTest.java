@@ -728,6 +728,37 @@ final class MooVmTest {
   }
 
   @Test
+  void bindsARestVariableThroughTheCompleteScatterPipeline() {
+    byte[] source =
+        "{a, b, @c} = {1, 2, 3, 4, 5}; return {a, b, c};"
+            .getBytes(StandardCharsets.ISO_8859_1);
+    Ast.Program syntax = MooParser.parse(source);
+    Ast.ExpressionStatement assignmentStatement =
+        assertInstanceOf(Ast.ExpressionStatement.class, syntax.statements().getFirst());
+    Ast.Assignment assignment =
+        assertInstanceOf(Ast.Assignment.class, assignmentStatement.expression());
+    assertInstanceOf(Ast.ScatterTarget.class, assignment.target());
+
+    BytecodeProgram program = new MooCompiler().compile(syntax);
+    VmState state = new VmState();
+
+    new MooVm().execute(program, state);
+
+    assertEquals(VmState.Outcome.RETURNED, state.outcome());
+    assertEquals(
+        new ListValue(
+            List.of(
+                new IntegerValue(1),
+                new IntegerValue(2),
+                new ListValue(
+                    List.of(
+                        new IntegerValue(3),
+                        new IntegerValue(4),
+                        new IntegerValue(5))))),
+        state.returnValue().orElseThrow());
+  }
+
+  @Test
   void evaluatesMapValuesBeforeKeysThroughTheCompleteCollectionPipeline() {
     byte[] source =
         "trace = 0; mapping = [(trace = 1) -> (trace = 2)]; return trace;"

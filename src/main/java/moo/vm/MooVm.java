@@ -1481,12 +1481,33 @@ public final class MooVm {
       return;
     }
     String[] names = instruction.text().orElseThrow().split(",", -1);
-    if (names.length != instruction.operand().orElseThrow() || names.length != list.size()) {
+    int restIndex = -1;
+    for (int index = 0; index < names.length; index++) {
+      if (names[index].startsWith("@")) {
+        restIndex = index;
+        break;
+      }
+    }
+    int requiredValues = restIndex < 0 ? names.length : names.length - 1;
+    if (names.length != instruction.operand().orElseThrow()
+        || list.size() < requiredValues
+        || (restIndex < 0 && names.length != list.size())) {
       raiseError(state, ErrorValue.E_ARGS, world);
       return;
     }
     for (int index = 0; index < names.length; index++) {
-      frame.locals.put(normalize(names[index]), list.elements().get(index));
+      if (index < restIndex || restIndex < 0) {
+        frame.locals.put(normalize(names[index]), list.elements().get(index));
+      } else if (index == restIndex) {
+        int trailingValues = names.length - restIndex - 1;
+        frame.locals.put(
+            normalize(names[index].substring(1)),
+            new ListValue(
+                list.elements().subList(restIndex, list.elements().size() - trailingValues)));
+      } else {
+        int sourceIndex = list.elements().size() - (names.length - index);
+        frame.locals.put(normalize(names[index]), list.elements().get(sourceIndex));
+      }
     }
     frame.operandStack.push(source);
     frame.instructionPointer++;

@@ -632,10 +632,15 @@ public final class MooParser {
     if (expression instanceof Ast.ListLiteral list) {
       List<String> variables = new ArrayList<>();
       for (Ast.Expression element : list.elements()) {
-        if (!(element instanceof Ast.Identifier identifier)) {
+        if (element instanceof Ast.Identifier identifier) {
+          variables.add(identifier.name());
+        } else if (element instanceof Ast.Splice splice
+            && splice.value() instanceof Ast.Identifier identifier
+            && variables.stream().noneMatch(variable -> variable.startsWith("@"))) {
+          variables.add("@" + identifier.name());
+        } else {
           throw error("scatter assignment requires variable targets");
         }
-        variables.add(identifier.name());
       }
       if (variables.isEmpty()) {
         throw error("scatter assignment requires at least one target");
