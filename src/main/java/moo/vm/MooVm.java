@@ -790,24 +790,32 @@ public final class MooVm {
         raiseError(state, ErrorValue.E_TYPE, world);
         return;
       }
-      if (first.value() < 1 || last.value() < first.value() || last.value() > string.length()) {
-        raiseError(state, ErrorValue.E_RANGE, world);
-        return;
+      if (first.value() == string.length() + 1L && last.value() >= first.value()) {
+        byte[] original = string.bytes();
+        byte[] inserted = replacement.bytes();
+        byte[] appended = Arrays.copyOf(original, original.length + inserted.length);
+        System.arraycopy(inserted, 0, appended, original.length, inserted.length);
+        updatedCollection = new StringValue(appended);
+      } else {
+        if (first.value() < 1 || last.value() < first.value() || last.value() > string.length()) {
+          raiseError(state, ErrorValue.E_RANGE, world);
+          return;
+        }
+        byte[] original = string.bytes();
+        byte[] inserted = replacement.bytes();
+        int prefixLength = Math.toIntExact(first.value() - 1);
+        int suffixStart = Math.toIntExact(last.value());
+        byte[] replaced = new byte[prefixLength + inserted.length + original.length - suffixStart];
+        System.arraycopy(original, 0, replaced, 0, prefixLength);
+        System.arraycopy(inserted, 0, replaced, prefixLength, inserted.length);
+        System.arraycopy(
+            original,
+            suffixStart,
+            replaced,
+            prefixLength + inserted.length,
+            original.length - suffixStart);
+        updatedCollection = new StringValue(replaced);
       }
-      byte[] original = string.bytes();
-      byte[] inserted = replacement.bytes();
-      int prefixLength = Math.toIntExact(first.value() - 1);
-      int suffixStart = Math.toIntExact(last.value());
-      byte[] replaced = new byte[prefixLength + inserted.length + original.length - suffixStart];
-      System.arraycopy(original, 0, replaced, 0, prefixLength);
-      System.arraycopy(inserted, 0, replaced, prefixLength, inserted.length);
-      System.arraycopy(
-          original,
-          suffixStart,
-          replaced,
-          prefixLength + inserted.length,
-          original.length - suffixStart);
-      updatedCollection = new StringValue(replaced);
     } else if (collection instanceof ListValue list && value instanceof ListValue replacement) {
       if (!(start instanceof IntegerValue first) || !(end instanceof IntegerValue last)) {
         raiseError(state, ErrorValue.E_TYPE, world);
