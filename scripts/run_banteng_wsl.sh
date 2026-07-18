@@ -1,11 +1,14 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-if [[ $# -ne 2 ]]; then
-  echo "usage: run_banteng_wsl.sh DATABASE PORT" >&2
+if [[ $# -ne 3 ]]; then
+  echo "usage: run_banteng_wsl.sh DATABASE PORT MANIFEST" >&2
   exit 64
 fi
 
+database="$1"
+port="$2"
+manifest="$3"
 script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 repo_dir="$(cd -- "$script_dir/.." && pwd)"
 distribution_lib="$repo_dir/build/install/banteng/lib"
@@ -14,25 +17,18 @@ if [[ ! -d "$distribution_lib" ]]; then
   echo "installed Banteng libraries not found: $distribution_lib" >&2
   exit 66
 fi
-
-if [[ -z "${BANTENG_JAVA_HOME:-}" ]]; then
-  echo "BANTENG_JAVA_HOME must name the WSL path to a Java 25 installation" >&2
-  exit 78
-fi
-if [[ ! -x "$BANTENG_JAVA_HOME/bin/java.exe" ]]; then
-  echo "Java launcher not found: $BANTENG_JAVA_HOME/bin/java.exe" >&2
+if [[ ! -f "$manifest" ]]; then
+  echo "target manifest not found: $manifest" >&2
   exit 66
 fi
 
-database_win="$(wslpath -w "$1")"
-checkpoint_win="$(wslpath -w "$1.new")"
-classpath_win="$(wslpath -w "$distribution_lib")\\*"
-listen_address="${BANTENG_LISTEN_ADDRESS:-127.0.0.1}"
+promote_numbers="$(jq -er '.features["option.PROMOTE_NUMBERS"] | select(type == "boolean")' "$manifest")"
 
-exec "$BANTENG_JAVA_HOME/bin/java.exe" \
-  -classpath "$classpath_win" \
+exec /opt/java/25/bin/java \
+  -classpath "$distribution_lib/*" \
   moo.app.Banteng \
-  --database "$database_win" \
-  --checkpoint "$checkpoint_win" \
-  --listen-address "$listen_address" \
-  --port "$2"
+  --database "$database" \
+  --checkpoint "${database}.new" \
+  --listen-address 127.0.0.1 \
+  --port "$port" \
+  --promote-numbers="$promote_numbers"
