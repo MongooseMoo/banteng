@@ -452,7 +452,15 @@ public final class MooParser {
     if (current.kind() != TokenKind.RIGHT_BRACE) {
       do {
         boolean splice = match(TokenKind.AT);
-        Ast.Expression element = parseExpression(ASSIGNMENT_PRECEDENCE);
+        boolean optional = !splice && match(TokenKind.QUESTION);
+        Ast.Expression element;
+        if (optional) {
+          Token identifier = expect(TokenKind.IDENTIFIER, "optional scatter variable");
+          advance();
+          element = new Ast.Identifier("?" + identifier.lexeme());
+        } else {
+          element = parseExpression(ASSIGNMENT_PRECEDENCE);
+        }
         elements.add(splice ? new Ast.Splice(element) : element);
       } while (match(TokenKind.COMMA));
     }

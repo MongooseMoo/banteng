@@ -1497,7 +1497,9 @@ public final class MooVm {
     }
     for (int index = 0; index < names.length; index++) {
       if (index < restIndex || restIndex < 0) {
-        frame.locals.put(normalize(names[index]), list.elements().get(index));
+        frame.locals.put(
+            normalize(names[index].startsWith("?") ? names[index].substring(1) : names[index]),
+            list.elements().get(index));
       } else if (index == restIndex) {
         int trailingValues = names.length - restIndex - 1;
         frame.locals.put(
@@ -1506,7 +1508,9 @@ public final class MooVm {
                 list.elements().subList(restIndex, list.elements().size() - trailingValues)));
       } else {
         int sourceIndex = list.elements().size() - (names.length - index);
-        frame.locals.put(normalize(names[index]), list.elements().get(sourceIndex));
+        frame.locals.put(
+            normalize(names[index].startsWith("?") ? names[index].substring(1) : names[index]),
+            list.elements().get(sourceIndex));
       }
     }
     frame.operandStack.push(source);
