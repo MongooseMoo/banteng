@@ -2,13 +2,16 @@ package moo.world;
 
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.OptionalLong;
+import java.util.Set;
 import java.util.StringTokenizer;
 import moo.value.MooValue;
 import moo.value.MooValue.IntegerValue;
@@ -18,7 +21,7 @@ import moo.value.MooValue.ObjectValue;
 import moo.value.MooValue.StringValue;
 
 /** The concrete transaction path for all runtime-visible world reads and writes. */
-public final class WorldTxn {
+public final class WorldTxn implements AutoCloseable {
   private static final int PLAYER_FLAG = 1;
   private static final int PROGRAMMER_FLAG = 2;
   private static final int WIZARD_FLAG = 4;
@@ -34,36 +37,93 @@ public final class WorldTxn {
   private final Map<Long, Long> connections = new LinkedHashMap<>();
   private final Map<Long, MapValue> connectionInfo = new LinkedHashMap<>();
   private final Map<Long, ListValue> intrinsicCommands = new LinkedHashMap<>();
-  private World world;
+  private final WorldHistory history;
+  private final boolean transaction;
+  private final World base;
+  private final Set<Long> recordReads = new LinkedHashSet<>();
+  private final Set<Long> recordWrites = new LinkedHashSet<>();
+  private final Set<ScanPredicate> scanPredicates = new LinkedHashSet<>();
+  private final List<MooValue> stagedEffects = new ArrayList<>();
+  private World working;
+  private boolean playersWritten;
+  private boolean completed;
 
-  /** Creates a transaction over immutable snapshots of the supplied records. */
+  /** Creates the committed world owner from immutable snapshots of the supplied records. */
   public WorldTxn(List<Long> players, List<WorldObject> objects) {
-    Objects.requireNonNull(players, "players");
-    Objects.requireNonNull(objects, "objects");
-    Map<Long, WorldObject> objectsById = new LinkedHashMap<>();
-    for (WorldObject object : objects) {
-      Objects.requireNonNull(object, "object");
-      if (objectsById.putIfAbsent(object.id(), object) != null) {
-        throw new IllegalArgumentException("duplicate object #" + object.id());
-      }
+    history = new WorldHistory(players, objects);
+    transaction = false;
+    base = history.current();
+    working = base;
+  }
+
+  private WorldTxn(WorldHistory history, World base) {
+    this.history = history;
+    transaction = true;
+    this.base = base;
+    working = base;
+  }
+
+  /** Begins one fixed-snapshot transaction against the current committed revision. */
+  public WorldTxn begin() {
+    ensureRoot();
+    return new WorldTxn(history, history.retainCurrent());
+  }
+
+  /** Returns an immutable committed snapshot on the root or local snapshot on a transaction. */
+  public WorldSnapshot snapshot() {
+    return transaction ? working.snapshot() : history.snapshot();
+  }
+
+  /** Returns this transaction's fixed base revision. */
+  public long baseRevision() {
+    ensureActiveTransaction();
+    return base.revision().value();
+  }
+
+  /** Stages one immutable effect value for publication with this transaction. */
+  public void stageEffect(MooValue effect) {
+    ensureActiveTransaction();
+    stagedEffects.add(Objects.requireNonNull(effect, "effect"));
+  }
+
+  /** Atomically validates and publishes this transaction or returns an explicit conflict. */
+  public CommitResult commit() {
+    ensureActiveTransaction();
+    CommitResult result = history.publish(this);
+    completed = true;
+    history.release(base);
+    return result;
+  }
+
+  /** Abandons an unpublished transaction and releases its retained revision. */
+  @Override
+  public void close() {
+    if (transaction && !completed) {
+      completed = true;
+      history.release(base);
     }
-    world = new World(players, objectsById);
   }
 
   /** Returns the players in persisted order. */
   public List<Long> players() {
-    return world.players();
+    ensureActiveTransaction();
+    scanPredicates.add(ScanPredicate.PLAYERS);
+    return working.players();
   }
 
   /** Returns the number of live objects. */
   public int objectCount() {
-    return world.objects().size();
+    ensureActiveTransaction();
+    scanPredicates.add(ScanPredicate.OBJECT_IDS);
+    return working.objects().size();
   }
 
   /** Returns the greatest live object number, or {@code -1} when the world is empty. */
   public long maximumObjectId() {
+    ensureActiveTransaction();
+    scanPredicates.add(ScanPredicate.OBJECT_IDS);
     long maximum = -1;
-    for (long objectId : world.objects().keySet()) {
+    for (long objectId : working.objects().keySet()) {
       maximum = Math.max(maximum, objectId);
     }
     return maximum;
@@ -76,6 +136,7 @@ public final class WorldTxn {
 
   /** Registers one negative connection and its immutable network metadata. */
   public void openConnection(long connectionId, MapValue info) {
+    ensureActiveTransaction();
     if (connectionId >= 0) {
       throw new IllegalArgumentException("connection object must be negative");
     }
@@ -88,6 +149,7 @@ public final class WorldTxn {
 
   /** Removes one connection record. */
   public void closeConnection(long connectionId) {
+    ensureActiveTransaction();
     connections.remove(connectionId);
     connectionInfo.remove(connectionId);
     intrinsicCommands.remove(connectionId);
@@ -95,12 +157,14 @@ public final class WorldTxn {
 
   /** Returns the player currently attached to a connection. */
   public OptionalLong connectionPlayer(long connectionId) {
+    ensureActiveTransaction();
     Long player = connections.get(connectionId);
     return player == null ? OptionalLong.empty() : OptionalLong.of(player);
   }
 
   /** Returns attached players in newest-connection-first order. */
   public List<Long> connectedPlayers(boolean showAll) {
+    ensureActiveTransaction();
     List<Long> players = new ArrayList<>();
     for (long player : connections.values()) {
       if (showAll || player >= 0) {
@@ -112,6 +176,7 @@ public final class WorldTxn {
 
   /** Returns network metadata for a connection object or its attached player. */
   public Optional<MapValue> connectionInfo(long objectId) {
+    ensureActiveTransaction();
     if (connections.containsKey(objectId)) {
       return Optional.ofNullable(connectionInfo.get(objectId));
     }
@@ -125,6 +190,7 @@ public final class WorldTxn {
 
   /** Returns the enabled intrinsic command table for a live connection or attached player. */
   public Optional<ListValue> intrinsicCommands(long objectId) {
+    ensureActiveTransaction();
     if (connections.containsKey(objectId)) {
       return Optional.ofNullable(intrinsicCommands.get(objectId));
     }
@@ -138,6 +204,7 @@ public final class WorldTxn {
 
   /** Replaces the intrinsic command table for a live connection or attached player. */
   public boolean setIntrinsicCommands(long objectId, ListValue commands) {
+    ensureActiveTransaction();
     Objects.requireNonNull(commands, "commands");
     if (connections.containsKey(objectId)) {
       intrinsicCommands.put(objectId, commands);
@@ -154,11 +221,13 @@ public final class WorldTxn {
 
   /** Restores every intrinsic command for a live connection or attached player. */
   public boolean restoreIntrinsicCommands(long objectId) {
+    ensureActiveTransaction();
     return setIntrinsicCommands(objectId, DEFAULT_INTRINSIC_COMMANDS);
   }
 
   /** Stages a player switch on an existing connection. */
   public boolean switchConnectionPlayer(long connectionId, long playerId) {
+    ensureActiveTransaction();
     if (!connections.containsKey(connectionId) || object(playerId).isEmpty()) {
       return false;
     }
@@ -168,7 +237,9 @@ public final class WorldTxn {
 
   /** Looks up an object by its signed object number. */
   public Optional<WorldObject> object(long objectId) {
-    return Optional.ofNullable(world.objects().get(objectId));
+    ensureActiveTransaction();
+    recordReads.add(objectId);
+    return Optional.ofNullable(working.objects().get(objectId));
   }
 
   /** Looks up a zero-based verb slot on an object. */
@@ -344,8 +415,9 @@ public final class WorldTxn {
     if (parentId != -1 && object(parentId).isEmpty()) {
       throw new IllegalArgumentException("missing parent #" + parentId);
     }
+    scanPredicates.add(ScanPredicate.OBJECT_IDS);
     long objectId = -1;
-    for (long existing : world.objects().keySet()) {
+    for (long existing : working.objects().keySet()) {
       objectId = Math.max(objectId, existing);
     }
     objectId = Math.incrementExact(objectId);
@@ -379,9 +451,10 @@ public final class WorldTxn {
     if (target == null) {
       return false;
     }
-    Map<Long, WorldObject> objects = new LinkedHashMap<>(world.objects());
+    Map<Long, WorldObject> objects = new LinkedHashMap<>(working.objects());
 
     if (target.location() != -1) {
+      recordReads.add(target.location());
       WorldObject location = objects.get(target.location());
       if (location != null) {
         List<Long> contents = new ArrayList<>(location.contents());
@@ -403,6 +476,7 @@ public final class WorldTxn {
     }
 
     for (long contentId : target.contents()) {
+      recordReads.add(contentId);
       WorldObject content = objects.get(contentId);
       if (content != null && content.id() != objectId) {
         objects.put(
@@ -422,6 +496,7 @@ public final class WorldTxn {
     }
 
     for (long childId : target.children()) {
+      recordReads.add(childId);
       WorldObject child = objects.get(childId);
       if (child != null && child.id() != objectId) {
         objects.put(
@@ -441,6 +516,7 @@ public final class WorldTxn {
     }
 
     if (target.parent() != -1) {
+      recordReads.add(target.parent());
       WorldObject parent = objects.get(target.parent());
       if (parent != null) {
         List<Long> children = new ArrayList<>();
@@ -468,7 +544,7 @@ public final class WorldTxn {
     }
 
     objects.remove(objectId);
-    List<Long> players = new ArrayList<>(world.players());
+    List<Long> players = new ArrayList<>(working.players());
     players.remove(objectId);
     replaceWorld(players, objects);
     return true;
@@ -500,7 +576,7 @@ public final class WorldTxn {
       ancestor = ancestorObject.parent();
     }
 
-    Map<Long, WorldObject> objects = new LinkedHashMap<>(world.objects());
+    Map<Long, WorldObject> objects = new LinkedHashMap<>(working.objects());
     if (target.parent() != -1) {
       WorldObject oldParent = Objects.requireNonNull(objects.get(target.parent()));
       List<Long> oldChildren = new ArrayList<>();
@@ -561,7 +637,7 @@ public final class WorldTxn {
             target.children(),
             target.verbs(),
             target.properties()));
-    replaceWorld(world.players(), objects);
+    replaceWorld(working.players(), objects);
     return true;
   }
 
@@ -572,13 +648,13 @@ public final class WorldTxn {
       return false;
     }
     replaceFlags(object, PLAYER_FLAG, enabled);
-    List<Long> players = new ArrayList<>(world.players());
+    List<Long> players = new ArrayList<>(working.players());
     if (enabled && !players.contains(objectId)) {
       players.add(objectId);
     } else if (!enabled) {
       players.remove(objectId);
     }
-    replaceWorld(players, world.objects());
+    replaceWorld(players, working.objects());
     return true;
   }
 
@@ -792,13 +868,80 @@ public final class WorldTxn {
   }
 
   private void replaceObject(WorldObject replacement) {
-    Map<Long, WorldObject> objects = new LinkedHashMap<>(world.objects());
+    Map<Long, WorldObject> objects = new LinkedHashMap<>(working.objects());
     objects.put(replacement.id(), replacement);
-    replaceWorld(world.players(), objects);
+    replaceWorld(working.players(), objects);
   }
 
   private void replaceWorld(List<Long> players, Map<Long, WorldObject> objects) {
-    world = new World(players, objects);
+    ensureActiveTransaction();
+    World replacement = new World(base.revision(), players, objects);
+    Set<Long> candidates = new LinkedHashSet<>(working.objects().keySet());
+    candidates.addAll(replacement.objects().keySet());
+    for (long objectId : candidates) {
+      if (!Objects.equals(working.objects().get(objectId), replacement.objects().get(objectId))) {
+        if (Objects.equals(base.objects().get(objectId), replacement.objects().get(objectId))) {
+          recordWrites.remove(objectId);
+        } else {
+          recordWrites.add(objectId);
+        }
+      }
+    }
+    playersWritten = !base.players().equals(replacement.players());
+    working = replacement;
+  }
+
+  World baseWorld() {
+    return base;
+  }
+
+  World workingWorld() {
+    return working;
+  }
+
+  Set<Long> recordReads() {
+    return Collections.unmodifiableSet(recordReads);
+  }
+
+  Set<Long> recordWrites() {
+    return Collections.unmodifiableSet(recordWrites);
+  }
+
+  Set<ScanPredicate> scanPredicates() {
+    return Collections.unmodifiableSet(scanPredicates);
+  }
+
+  boolean playersWritten() {
+    return playersWritten;
+  }
+
+  List<MooValue> stagedEffects() {
+    return List.copyOf(stagedEffects);
+  }
+
+  int retainedRevisionCount() {
+    ensureRoot();
+    return history.retainedRevisionCount();
+  }
+
+  List<Long> retainedRevisions() {
+    ensureRoot();
+    return history.retainedRevisions();
+  }
+
+  private void ensureRoot() {
+    if (transaction) {
+      throw new IllegalStateException("operation requires committed world owner");
+    }
+  }
+
+  private void ensureActiveTransaction() {
+    if (!transaction) {
+      throw new IllegalStateException("begin a transaction before reading or writing world state");
+    }
+    if (completed) {
+      throw new IllegalStateException("transaction is already complete");
+    }
   }
 
   private static WorldObject copyContents(WorldObject object, List<Long> contents) {
@@ -828,5 +971,51 @@ public final class WorldTxn {
         object.children(),
         object.verbs(),
         properties);
+  }
+
+  /** Closed scan predicates recorded for validation against a fixed snapshot. */
+  public enum ScanPredicate {
+    OBJECT_IDS,
+    PLAYERS
+  }
+
+  /** The explicit result of one atomic validation and publication attempt. */
+  public record CommitResult(
+      Status status,
+      long revision,
+      Set<Long> conflictingRecords,
+      Set<ScanPredicate> conflictingPredicates,
+      List<MooValue> effects) {
+    /** Takes immutable copies of conflict evidence and published effects. */
+    public CommitResult {
+      Objects.requireNonNull(status, "status");
+      conflictingRecords = Collections.unmodifiableSet(new LinkedHashSet<>(conflictingRecords));
+      conflictingPredicates =
+          Collections.unmodifiableSet(new LinkedHashSet<>(conflictingPredicates));
+      effects = List.copyOf(effects);
+    }
+
+    static CommitResult committed(long revision, List<MooValue> effects) {
+      return new CommitResult(Status.COMMITTED, revision, Set.of(), Set.of(), effects);
+    }
+
+    static CommitResult conflict(
+        long revision,
+        Set<Long> conflictingRecords,
+        Set<ScanPredicate> conflictingPredicates) {
+      return new CommitResult(
+          Status.CONFLICT, revision, conflictingRecords, conflictingPredicates, List.of());
+    }
+
+    /** Returns whether this transaction published its records and effects. */
+    public boolean isCommitted() {
+      return status == Status.COMMITTED;
+    }
+  }
+
+  /** Terminal publication outcomes. */
+  public enum Status {
+    COMMITTED,
+    CONFLICT
   }
 }

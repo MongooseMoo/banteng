@@ -1,4 +1,4 @@
-/** Immutable world records and the concrete read-only transaction lookup path. */
+/** Immutable versioned world records and the concrete transactional publication path. */
 @NullMarked
 package moo.world;
 
