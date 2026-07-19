@@ -15,6 +15,7 @@ import java.util.OptionalLong;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import moo.value.MooValue;
+import moo.value.MooValue.BooleanValue;
 import moo.value.MooValue.ErrorValue;
 import moo.value.MooValue.FloatValue;
 import moo.value.MooValue.IntegerValue;
@@ -429,6 +430,7 @@ public final class BuiltinCatalog {
           switch (argument) {
             case StringValue string -> decode(string);
             case IntegerValue integer -> Long.toString(integer.value());
+            case BooleanValue bool -> bool.toLiteral();
             case FloatValue floating -> floating.toLiteral();
             case ObjectValue object -> object.toLiteral();
             case WaifValue waif -> waif.toString();
@@ -496,6 +498,9 @@ public final class BuiltinCatalog {
     if (argument instanceof IntegerValue integer) {
       return Result.value(integer);
     }
+    if (argument instanceof BooleanValue bool) {
+      return Result.value(new IntegerValue(bool.value() ? 1 : 0));
+    }
     if (argument instanceof FloatValue floating) {
       return Double.isFinite(floating.value())
           ? Result.value(new IntegerValue((long) floating.value()))
@@ -536,6 +541,9 @@ public final class BuiltinCatalog {
     }
     if (argument instanceof IntegerValue integer) {
       return Result.value(new ObjectValue(integer.value()));
+    }
+    if (argument instanceof BooleanValue bool) {
+      return Result.value(new ObjectValue(bool.value() ? 1 : 0));
     }
     if (argument instanceof FloatValue floating) {
       return Double.isFinite(floating.value())

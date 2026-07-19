@@ -18,6 +18,7 @@ import moo.bytecode.BytecodeProgram;
 import moo.bytecode.BytecodeProgram.Instruction;
 import moo.bytecode.MooCompiler;
 import moo.value.MooValue;
+import moo.value.MooValue.BooleanValue;
 import moo.value.MooValue.ErrorValue;
 import moo.value.MooValue.FloatValue;
 import moo.value.MooValue.IntegerValue;
@@ -447,7 +448,7 @@ public final class MooVm {
   private static void loadLocal(Frame frame, String name, VmState state, WorldTxn world) {
     MooValue value = frame.locals.get(normalize(name));
     if (value == null) {
-      if (name.equalsIgnoreCase("INT")) {
+      if (name.equalsIgnoreCase("INT") || name.equalsIgnoreCase("NUM")) {
         frame.operandStack.push(new IntegerValue(MooValue.Type.INTEGER.code()));
         frame.instructionPointer++;
         return;
@@ -474,6 +475,36 @@ public final class MooVm {
       }
       if (name.equalsIgnoreCase("WAIF")) {
         frame.operandStack.push(new IntegerValue(MooValue.Type.WAIF.code()));
+        frame.instructionPointer++;
+        return;
+      }
+      if (name.equalsIgnoreCase("ERR")) {
+        frame.operandStack.push(new IntegerValue(MooValue.Type.ERROR.code()));
+        frame.instructionPointer++;
+        return;
+      }
+      if (name.equalsIgnoreCase("MAP")) {
+        frame.operandStack.push(new IntegerValue(MooValue.Type.MAP.code()));
+        frame.instructionPointer++;
+        return;
+      }
+      if (name.equalsIgnoreCase("ANON")) {
+        frame.operandStack.push(new IntegerValue(12));
+        frame.instructionPointer++;
+        return;
+      }
+      if (name.equalsIgnoreCase("BOOL")) {
+        frame.operandStack.push(new IntegerValue(MooValue.Type.BOOLEAN.code()));
+        frame.instructionPointer++;
+        return;
+      }
+      if (name.equalsIgnoreCase("true")) {
+        frame.operandStack.push(BooleanValue.TRUE);
+        frame.instructionPointer++;
+        return;
+      }
+      if (name.equalsIgnoreCase("false")) {
+        frame.operandStack.push(BooleanValue.FALSE);
         frame.instructionPointer++;
         return;
       }
@@ -1287,6 +1318,12 @@ public final class MooVm {
         raiseError(state, ErrorValue.E_DIV, world);
         return;
       }
+      if (instruction.opcode() == BytecodeProgram.Opcode.POWER
+          && left.value() == 0
+          && right.value() < 0) {
+        raiseError(state, ErrorValue.E_DIV, world);
+        return;
+      }
       long result =
           switch (instruction.opcode()) {
             case ADD -> left.value() + right.value();
@@ -1378,7 +1415,14 @@ public final class MooVm {
   private static void equality(Instruction instruction, Frame frame) {
     MooValue right = frame.operandStack.pop();
     MooValue left = frame.operandStack.pop();
-    boolean equal = left.equals(right);
+    boolean equal;
+    if (left instanceof BooleanValue bool && right instanceof IntegerValue integer) {
+      equal = integer.value() == (bool.value() ? 1 : 0);
+    } else if (left instanceof IntegerValue integer && right instanceof BooleanValue bool) {
+      equal = integer.value() == (bool.value() ? 1 : 0);
+    } else {
+      equal = left.equals(right);
+    }
     if (instruction.opcode() == BytecodeProgram.Opcode.NOT_EQUAL) {
       equal = !equal;
     }

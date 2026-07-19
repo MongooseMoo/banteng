@@ -13,6 +13,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import moo.value.MooValue.BooleanValue;
 import moo.value.MooValue.ErrorValue;
 import moo.value.MooValue.FloatValue;
 import moo.value.MooValue.IntegerValue;
@@ -25,11 +26,12 @@ import org.junit.jupiter.api.Test;
 
 final class MooValueTest {
   @Test
-  void familyIsClosedOverExactlyTheEightAuthorizedValues() {
+  void familyIsClosedOverExactlyTheNineAuthorizedValues() {
     assertTrue(MooValue.class.isSealed());
     assertEquals(
         Set.of(
             IntegerValue.class,
+            BooleanValue.class,
             FloatValue.class,
             StringValue.class,
             ObjectValue.class,
@@ -39,8 +41,20 @@ final class MooValueTest {
             MapValue.class),
         Set.of(MooValue.class.getPermittedSubclasses()));
     assertEquals(
-        List.of(0, 1, 2, 3, 4, 9, 10, 13),
+        List.of(0, 1, 2, 3, 4, 9, 10, 13, 14),
         List.of(MooValue.Type.values()).stream().map(MooValue.Type::code).toList());
+  }
+
+  @Test
+  void booleansPreserveDistinctTypeTruthLiteralEqualityAndHashing() {
+    assertEquals(MooValue.Type.BOOLEAN, BooleanValue.TRUE.type());
+    assertTrue(BooleanValue.TRUE.isTruthy());
+    assertFalse(BooleanValue.FALSE.isTruthy());
+    assertEquals("true", BooleanValue.TRUE.toLiteral());
+    assertEquals("false", BooleanValue.FALSE.toLiteral());
+    assertEquals(BooleanValue.TRUE, BooleanValue.of(true));
+    assertEquals(BooleanValue.FALSE, BooleanValue.of(false));
+    assertNotEquals(BooleanValue.TRUE, BooleanValue.FALSE);
   }
 
   @Test

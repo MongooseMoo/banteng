@@ -16,6 +16,7 @@ import java.util.Optional;
 /** The closed value family required by the first server slice. */
 public sealed interface MooValue
     permits MooValue.IntegerValue,
+        MooValue.BooleanValue,
         MooValue.FloatValue,
         MooValue.StringValue,
         MooValue.ObjectValue,
@@ -42,7 +43,8 @@ public sealed interface MooValue
     LIST(4),
     FLOAT(9),
     MAP(10),
-    WAIF(13);
+    WAIF(13),
+    BOOLEAN(14);
 
     private final int code;
 
@@ -71,6 +73,48 @@ public sealed interface MooValue
     @Override
     public String toLiteral() {
       return Long.toString(value);
+    }
+
+    @Override
+    public String toString() {
+      return toLiteral();
+    }
+  }
+
+  /** A distinct Toast boolean value with integer-compatible equality at the VM boundary. */
+  enum BooleanValue implements MooValue {
+    FALSE(false),
+    TRUE(true);
+
+    private final boolean value;
+
+    BooleanValue(boolean value) {
+      this.value = value;
+    }
+
+    /** Returns the canonical value for {@code value}. */
+    public static BooleanValue of(boolean value) {
+      return value ? TRUE : FALSE;
+    }
+
+    /** Returns the primitive truth payload. */
+    public boolean value() {
+      return value;
+    }
+
+    @Override
+    public Type type() {
+      return Type.BOOLEAN;
+    }
+
+    @Override
+    public boolean isTruthy() {
+      return value;
+    }
+
+    @Override
+    public String toLiteral() {
+      return value ? "true" : "false";
     }
 
     @Override

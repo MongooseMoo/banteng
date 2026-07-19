@@ -16,6 +16,7 @@ import moo.syntax.Ast;
 import moo.syntax.MooParser;
 import moo.syntax.MooUnparser;
 import moo.value.MooValue;
+import moo.value.MooValue.BooleanValue;
 import moo.value.MooValue.ErrorValue;
 import moo.value.MooValue.FloatValue;
 import moo.value.MooValue.IntegerValue;
@@ -2650,6 +2651,86 @@ final class MooVmTest {
 
     assertEquals(VmState.Outcome.RETURNED, state.outcome());
     assertEquals(new IntegerValue(1), state.returnValue().orElseThrow());
+  }
+
+  @Test
+  void resolvesToastBooleanValuesAndAllTypeConstantsThroughTheVm() {
+    BytecodeProgram program =
+        new MooCompiler()
+            .compile(
+                MooParser.parse(
+                    "return {NUM, INT, ERR, MAP, ANON, BOOL, typeof(true), typeof(false), "
+                        + "true == 1, false == 0, true == false, !true, !false, "
+                        + "toint(true), toint(false), toobj(true), toobj(false), "
+                        + "tostr(true), tostr(false), toliteral(true), toliteral(false)};"));
+    VmState state = new VmState();
+
+    new MooVm().execute(program, state);
+
+    assertEquals(VmState.Outcome.RETURNED, state.outcome());
+    assertEquals(
+        new ListValue(
+            List.of(
+                new IntegerValue(0),
+                new IntegerValue(0),
+                new IntegerValue(3),
+                new IntegerValue(10),
+                new IntegerValue(12),
+                new IntegerValue(14),
+                new IntegerValue(14),
+                new IntegerValue(14),
+                new IntegerValue(1),
+                new IntegerValue(1),
+                new IntegerValue(0),
+                new IntegerValue(0),
+                new IntegerValue(1),
+                new IntegerValue(1),
+                new IntegerValue(0),
+                new ObjectValue(1),
+                new ObjectValue(0),
+                new StringValue("true".getBytes(StandardCharsets.ISO_8859_1)),
+                new StringValue("false".getBytes(StandardCharsets.ISO_8859_1)),
+                new StringValue("true".getBytes(StandardCharsets.ISO_8859_1)),
+                new StringValue("false".getBytes(StandardCharsets.ISO_8859_1)))),
+        state.returnValue().orElseThrow());
+
+    BytecodeProgram values =
+        new MooCompiler().compile(MooParser.parse("return {true, false};"));
+    VmState valuesState = new VmState();
+    new MooVm().execute(values, valuesState);
+    assertEquals(
+        new ListValue(List.of(BooleanValue.TRUE, BooleanValue.FALSE)),
+        valuesState.returnValue().orElseThrow());
+  }
+
+  @Test
+  void appliesToastBooleanTruthAndRejectsBooleanToFloatConversion() {
+    BytecodeProgram truth =
+        new MooCompiler().compile(MooParser.parse("return {true && 7 || 9, false && 7 || 9};"));
+    VmState truthState = new VmState();
+
+    new MooVm().execute(truth, truthState);
+
+    assertEquals(
+        new ListValue(List.of(new IntegerValue(7), new IntegerValue(9))),
+        truthState.returnValue().orElseThrow());
+
+    BytecodeProgram conversion =
+        new MooCompiler().compile(MooParser.parse("return `tofloat(true) ! ANY';"));
+    VmState conversionState = new VmState();
+    new MooVm().execute(conversion, conversionState);
+    assertEquals(ErrorValue.E_TYPE, conversionState.returnValue().orElseThrow());
+  }
+
+  @Test
+  void integerZeroRaisedToNegativeExponentRaisesDivisionError() {
+    BytecodeProgram program = new MooCompiler().compile(MooParser.parse("return 0 ^ -1;"));
+    VmState state = new VmState();
+
+    new MooVm().execute(program, state);
+
+    assertEquals(VmState.Outcome.ERRORED, state.outcome());
+    assertEquals(ErrorValue.E_DIV, state.uncaughtError().orElseThrow());
   }
 
   @Test
