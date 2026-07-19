@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.nio.charset.StandardCharsets;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -50,6 +51,7 @@ final class BuiltinCatalogTest {
           "listdelete",
           "listinsert",
           "listset",
+          "mapkeys",
           "max",
           "move",
           "notify",
@@ -340,6 +342,40 @@ final class BuiltinCatalogTest {
                   transaction,
                   2)
               .error());
+    }
+  }
+
+  @Test
+  void mapKeysReturnsToastCanonicalScalarOrderWithoutCollapsingAdjacentFloats() {
+    BuiltinCatalog catalog = new BuiltinCatalog();
+    BuiltinSpec spec = catalog.spec("mapkeys").orElseThrow();
+    assertPureVmContract(
+        catalog,
+        "mapkeys",
+        new CallShape(List.of(Set.of(ArgType.MAP)), List.of(), Optional.empty()));
+
+    FloatValue next = new FloatValue(1.0000000000000002);
+    FloatValue one = new FloatValue(1.0);
+    LinkedHashMap<MooValue, MooValue> entries = new LinkedHashMap<>();
+    entries.put(string("z"), new IntegerValue(1));
+    entries.put(next, new IntegerValue(2));
+    entries.put(ErrorValue.E_PERM, new IntegerValue(3));
+    entries.put(new ObjectValue(5), new IntegerValue(4));
+    entries.put(new IntegerValue(10), new IntegerValue(5));
+    entries.put(one, new IntegerValue(6));
+
+    try (WorldTxn transaction = world().begin()) {
+      assertEquals(
+          Optional.of(
+              new ListValue(
+                  List.of(
+                      new IntegerValue(10),
+                      new ObjectValue(5),
+                      ErrorValue.E_PERM,
+                      one,
+                      next,
+                      string("z")))),
+          invoke(catalog, spec, List.of(new MapValue(entries)), transaction, 1).value());
     }
   }
 

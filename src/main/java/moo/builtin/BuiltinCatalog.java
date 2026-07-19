@@ -155,6 +155,17 @@ public final class BuiltinCatalog {
             (a, w, p, t, rt, rs, r, cp, c) -> listSet(a)));
     entries.add(
         new BuiltinSpec(
+            "mapkeys",
+            List.of(
+                new CallShape(
+                    List.of(Set.of(ArgType.MAP)), List.of(), Optional.empty())),
+            BuiltinPermissionRule.ANY,
+            BuiltinCostRule.fixed(0),
+            EffectClass.PURE,
+            BuiltinOwner.VM,
+            (a, w, p, t, rt, rs, r, cp, c) -> mapKeys(a)));
+    entries.add(
+        new BuiltinSpec(
             "setadd",
             List.of(new CallShape(List.of(Set.of(ArgType.LIST), ANY), List.of(), Optional.empty())),
             BuiltinPermissionRule.ANY,
@@ -770,6 +781,58 @@ public final class BuiltinCatalog {
     List<MooValue> replaced = new ArrayList<>(list.elements());
     replaced.set((int) position - 1, arguments.get(1));
     return Result.value(new ListValue(replaced));
+  }
+
+  private static Result mapKeys(List<MooValue> arguments) {
+    MapValue map = (MapValue) arguments.getFirst();
+    List<MooValue> keys = new ArrayList<>(map.entries().keySet());
+    keys.sort(
+        (left, right) -> {
+          int leftRank =
+              switch (left.type()) {
+                case INTEGER -> 0;
+                case OBJECT -> 1;
+                case ERROR -> 2;
+                case FLOAT -> 3;
+                case BOOLEAN -> 4;
+                case STRING -> 5;
+                case WAIF -> 6;
+                case LIST, MAP -> throw new IllegalArgumentException("collection map key");
+              };
+          int rightRank =
+              switch (right.type()) {
+                case INTEGER -> 0;
+                case OBJECT -> 1;
+                case ERROR -> 2;
+                case FLOAT -> 3;
+                case BOOLEAN -> 4;
+                case STRING -> 5;
+                case WAIF -> 6;
+                case LIST, MAP -> throw new IllegalArgumentException("collection map key");
+              };
+          if (leftRank != rightRank) {
+            return Integer.compare(leftRank, rightRank);
+          }
+          return switch (left) {
+            case IntegerValue integer ->
+                Long.compare(integer.value(), ((IntegerValue) right).value());
+            case ObjectValue object ->
+                Long.compare(object.value(), ((ObjectValue) right).value());
+            case ErrorValue error ->
+                Integer.compare(error.code(), ((ErrorValue) right).code());
+            case FloatValue floating -> {
+              double leftValue = floating.value();
+              double rightValue = ((FloatValue) right).value();
+              yield leftValue == rightValue ? 0 : (leftValue - rightValue < 0.0 ? -1 : 1);
+            }
+            case BooleanValue ignored -> 0;
+            case StringValue string -> string.compareIgnoringCase((StringValue) right);
+            case WaifValue ignored -> 0;
+            case ListValue ignored -> throw new IllegalArgumentException("list map key");
+            case MapValue ignored -> throw new IllegalArgumentException("map map key");
+          };
+        });
+    return Result.value(new ListValue(keys));
   }
 
   private static Result setAdd(List<MooValue> arguments) {
