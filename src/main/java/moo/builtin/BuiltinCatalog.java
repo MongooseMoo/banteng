@@ -13,6 +13,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.OptionalDouble;
 import java.util.OptionalLong;
+import java.util.Random;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import moo.value.MooValue;
@@ -37,10 +38,12 @@ public final class BuiltinCatalog {
   private static final Set<ArgType> OBJECT = Set.of(ArgType.OBJECT);
 
   private final List<BuiltinSpec> manifest;
+  private final Random random;
   private final Map<String, BuiltinSpec> specs;
 
   /** Creates a catalog without host listener access for focused VM execution. */
   public BuiltinCatalog() {
+    random = new Random();
     manifest = buildManifest();
     specs = indexManifest(manifest);
   }
@@ -48,6 +51,7 @@ public final class BuiltinCatalog {
   /** Creates the production catalog with the concrete server listener owner. */
   public BuiltinCatalog(ListenerControl listenerControl) {
     Objects.requireNonNull(listenerControl, "listenerControl");
+    random = new Random();
     manifest = buildManifest();
     specs = indexManifest(manifest);
   }
@@ -76,6 +80,15 @@ public final class BuiltinCatalog {
             EffectClass.PURE,
             BuiltinOwner.VM,
             (a, w, p, t, rt, rs, r, cp, c) -> maximum(a)));
+    entries.add(
+        new BuiltinSpec(
+            "random",
+            List.of(new CallShape(List.of(), List.of(INTEGER, INTEGER), Optional.empty())),
+            BuiltinPermissionRule.ANY,
+            BuiltinCostRule.fixed(0),
+            EffectClass.IRREVOCABLE,
+            BuiltinOwner.VM,
+            (a, w, p, t, rt, rs, r, cp, c) -> randomInteger(a)));
     entries.add(
         new BuiltinSpec(
             "listappend",
@@ -522,6 +535,35 @@ public final class BuiltinCatalog {
       return Result.value(new FloatValue(maximum));
     }
     return Result.error(ErrorValue.E_TYPE);
+  }
+
+  private Result randomInteger(List<MooValue> arguments) {
+    long lower = 1;
+    long upper = Long.MAX_VALUE;
+    if (arguments.size() == 1) {
+      upper = ((IntegerValue) arguments.getFirst()).value();
+      if (upper <= 0) {
+        return Result.error(ErrorValue.E_INVARG);
+      }
+    } else if (arguments.size() == 2) {
+      lower = ((IntegerValue) arguments.get(0)).value();
+      upper = ((IntegerValue) arguments.get(1)).value();
+      if (upper < lower) {
+        return Result.error(ErrorValue.E_INVARG);
+      }
+    }
+    if (lower == upper) {
+      return Result.value(new IntegerValue(lower));
+    }
+    long width = upper - lower + 1;
+    if (width > 0) {
+      return Result.value(new IntegerValue(lower + random.nextLong(width)));
+    }
+    long value;
+    do {
+      value = random.nextLong();
+    } while (value < lower || value > upper);
+    return Result.value(new IntegerValue(value));
   }
 
   private static Result listInsert(List<MooValue> arguments, boolean append) {

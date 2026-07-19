@@ -43,6 +43,7 @@ final class BuiltinCatalogTest {
           "max",
           "move",
           "notify",
+          "random",
           "rindex",
           "set_player_flag",
           "set_task_perms",
@@ -109,6 +110,59 @@ final class BuiltinCatalogTest {
                   transaction,
                   1)
               .error());
+    }
+  }
+
+  @Test
+  void randomUsesTheIrrevocableVmContractAndInclusiveIntegerBounds() {
+    BuiltinCatalog catalog = new BuiltinCatalog();
+    BuiltinSpec spec = catalog.spec("random").orElseThrow();
+
+    assertEquals(
+        List.of(
+            new CallShape(
+                List.of(),
+                List.of(Set.of(ArgType.INTEGER), Set.of(ArgType.INTEGER)),
+                Optional.empty())),
+        spec.callShapes());
+    assertSame(BuiltinPermissionRule.ANY, spec.permission());
+    assertEquals(EffectClass.IRREVOCABLE, spec.effect());
+    assertEquals(BuiltinOwner.VM, spec.owner());
+
+    try (WorldTxn transaction = world().begin()) {
+      assertEquals(
+          Optional.of(new IntegerValue(1)),
+          invoke(catalog, spec, List.of(new IntegerValue(1)), transaction, 1).value());
+      for (int invocation = 0; invocation < 64; invocation++) {
+        long value =
+            ((IntegerValue)
+                    invoke(catalog, spec, List.of(new IntegerValue(7)), transaction, 1)
+                        .value()
+                        .orElseThrow())
+                .value();
+        assertTrue(value >= 1 && value <= 7);
+      }
+      long ranged =
+          ((IntegerValue)
+                  invoke(
+                          catalog,
+                          spec,
+                          List.of(new IntegerValue(5), new IntegerValue(10)),
+                          transaction,
+                          1)
+                      .value()
+                      .orElseThrow())
+              .value();
+      assertTrue(ranged >= 5 && ranged <= 10);
+      for (List<MooValue> arguments :
+          List.of(
+              List.<MooValue>of(new IntegerValue(0)),
+              List.<MooValue>of(new IntegerValue(-1)),
+              List.<MooValue>of(new IntegerValue(10), new IntegerValue(5)))) {
+        assertEquals(
+            Optional.of(ErrorValue.E_INVARG),
+            invoke(catalog, spec, arguments, transaction, 1).error());
+      }
     }
   }
 
