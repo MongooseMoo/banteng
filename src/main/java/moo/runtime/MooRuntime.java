@@ -10,9 +10,8 @@ import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.StringTokenizer;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.TimeoutException;
+import java.util.concurrent.atomic.AtomicLong;
 import moo.builtin.BuiltinCatalog;
 import moo.builtin.BuiltinCatalog.ConnectionOption;
 import moo.builtin.BuiltinCatalog.ConnectionOptionRequest;
@@ -27,101 +26,142 @@ import moo.value.MooValue.MapValue;
 import moo.value.MooValue.ObjectValue;
 import moo.value.MooValue.StringValue;
 import moo.vm.MooVm;
+import moo.vm.VmSnapshot;
 import moo.vm.VmState;
 import moo.world.WorldObject;
 import moo.world.WorldTxn;
 import moo.world.WorldVerb;
 
-/** The concrete serialized runtime owner used by the first server connection slice. */
+/** Concrete session and command owner backed by the sole production publication scheduler. */
 public final class MooRuntime {
-  private static final long DEFAULT_FOREGROUND_TICKS = 60_000;
-  private static final long DEFAULT_FOREGROUND_SECONDS = 5;
-  private static final long DEFAULT_BACKGROUND_TICKS = 30_000;
-  private static final long DEFAULT_BACKGROUND_SECONDS = 3;
-  private static final long DEFAULT_MAX_STACK_DEPTH = 50;
+  static final long DEFAULT_FOREGROUND_TICKS = 60_000;
+  static final long DEFAULT_FOREGROUND_SECONDS = 5;
+  static final long DEFAULT_BACKGROUND_TICKS = 30_000;
+  static final long DEFAULT_BACKGROUND_SECONDS = 3;
+  static final long DEFAULT_MAX_STACK_DEPTH = 50;
 
-  private final WorldTxn world;
   private final MooCompiler compiler = new MooCompiler();
   private final BuiltinCatalog builtins;
   private final Optional<ListenerControl> listenerControl;
   private final MooVm vm = new MooVm();
-  private final Map<Long, ConnectionState> connections = new LinkedHashMap<>();
+  private final PublicationScheduler scheduler;
+  private final Map<Long, ConnectionState> publishedConnections = new LinkedHashMap<>();
+  private static final ThreadLocal<AttemptContext> ATTEMPT = new ThreadLocal<>();
+  private final AtomicLong connectionGenerations = new AtomicLong();
+  private long sessionRevision;
 
   /** Creates a runtime over the one concrete world transaction. */
   public MooRuntime(WorldTxn world) {
-    this.world = Objects.requireNonNull(world, "world");
     listenerControl = Optional.empty();
     builtins = new BuiltinCatalog();
+    scheduler = new PublicationScheduler(Objects.requireNonNull(world, "world"), this);
   }
 
   /** Creates the production runtime with the concrete server listener owner. */
   public MooRuntime(WorldTxn world, ListenerControl listenerControl) {
-    this.world = Objects.requireNonNull(world, "world");
+    this(
+        world,
+        listenerControl,
+        Math.max(2, Runtime.getRuntime().availableProcessors()));
+  }
+
+  MooRuntime(WorldTxn world, ListenerControl listenerControl, int workers) {
     this.listenerControl = Optional.of(Objects.requireNonNull(listenerControl, "listenerControl"));
     builtins = new BuiltinCatalog(listenerControl);
+    scheduler = new PublicationScheduler(Objects.requireNonNull(world, "world"), this, workers);
   }
 
   /** Registers a negative connection and executes its initial empty login input. */
-  public synchronized List<String> openConnection(long connectionId) {
+  public List<String> openConnection(long connectionId) {
     return openConnection(connectionId, 0, true);
   }
 
   /** Registers a connection accepted by one concrete listener. */
-  public synchronized List<String> openConnection(
+  public List<String> openConnection(
       long connectionId, long listenerHandler, boolean printMessages) {
     return openConnection(connectionId, listenerHandler, printMessages, new MapValue(Map.of()));
   }
 
   /** Registers a connection with its listener identity and network metadata. */
-  public synchronized List<String> openConnection(
+  public List<String> openConnection(
       long connectionId, long listenerHandler, boolean printMessages, MapValue connectionInfo) {
-    world.openConnection(connectionId, connectionInfo);
-    ConnectionState connection = new ConnectionState(listenerHandler, printMessages);
-    connections.put(connectionId, connection);
+    return scheduler.submit(
+        RuntimeRequest.open(connectionId, listenerHandler, printMessages, connectionInfo));
+  }
+
+  private RuntimeStep openConnectionNow(
+      long connectionId, long listenerHandler, boolean printMessages, MapValue connectionInfo) {
+    world().openConnection(connectionId, connectionInfo);
+    ConnectionState connection =
+        new ConnectionState(
+            listenerHandler, printMessages, connectionGenerations.incrementAndGet());
+    connection.connectionInfo = connectionInfo;
+    connection.intrinsicCommands = world().intrinsicCommands(connectionId).orElseThrow();
+    connections().put(connectionId, connection);
     try {
-      List<String> output = executeLogin(connectionId, "");
-      Thread.ofVirtual()
-          .name("moo-connect-timeout-" + connectionId)
-          .start(() -> monitorUnauthenticatedConnection(connectionId, connection));
-      return output;
+      effects().add(RuntimeEffect.startTimeout(connectionId, connection.generation));
+      return executeLogin(connectionId, "");
     } catch (RuntimeException | Error failure) {
-      connections.remove(connectionId);
-      world.closeConnection(connectionId);
+      connections().remove(connectionId);
+      world().closeConnection(connectionId);
       throw failure;
     }
   }
 
   /** Removes a connection and its intrinsic delimiter state. */
-  public synchronized void closeConnection(long connectionId) {
-    ConnectionState connection = connections.get(connectionId);
-    OptionalLong disconnectedPlayer = world.connectionPlayer(connectionId);
-    connections.remove(connectionId);
-    world.closeConnection(connectionId);
+  public void closeConnection(long connectionId) {
+    scheduler.submit(RuntimeRequest.close(connectionId));
+  }
+
+  private RuntimeStep closeConnectionNow(long connectionId) {
+    ConnectionState connection = connections().get(connectionId);
+    OptionalLong disconnectedPlayer = world().connectionPlayer(connectionId);
+    connections().remove(connectionId);
+    world().closeConnection(connectionId);
     if (connection != null
         && disconnectedPlayer.isPresent()
         && disconnectedPlayer.orElseThrow() >= 0) {
       long player = disconnectedPlayer.orElseThrow();
-      world
-          .verb(connection.listenerHandler, "user_client_disconnected")
-          .ifPresent(
-              disconnected ->
-                  executeStored(
-                      disconnected,
-                      verbLocals(
-                          connection.listenerHandler,
-                          player,
-                          -1,
-                          "user_client_disconnected",
-                          new ListValue(List.of(new ObjectValue(player))),
-                          "")));
+      Optional<WorldVerb> disconnected =
+          world().verb(connection.listenerHandler, "user_client_disconnected");
+      if (disconnected.isPresent()) {
+        return startStored(
+            disconnected.orElseThrow(),
+            verbLocals(
+                connection.listenerHandler,
+                player,
+                -1,
+                "user_client_disconnected",
+                new ListValue(List.of(new ObjectValue(player))),
+                ""),
+            RuntimeContinuation.after(
+                RuntimeTransition.CLOSE_AFTER_USER_CLIENT_DISCONNECTED,
+                connectionId,
+                "",
+                List.of(),
+                0,
+                0,
+                false));
+      }
     }
+    return RuntimeStep.returned(List.of());
   }
 
   /** Executes one serialized input line and returns its ordered output lines. */
-  public synchronized List<String> executeLine(long connectionId, String line) {
+  public List<String> executeLine(long connectionId, String line) {
+    Objects.requireNonNull(line, "line");
+    return scheduler.submit(RuntimeRequest.line(connectionId, line));
+  }
+
+  private RuntimeStep executeLineNow(long connectionId, String line) {
+    return executeLineNow(connectionId, line, Optional.empty());
+  }
+
+  private RuntimeStep executeLineNow(
+      long connectionId, String line, Optional<VmState> completedDoCommand) {
     Objects.requireNonNull(line, "line");
     ConnectionState connection = requireConnection(connectionId);
-    long player = world.connectionPlayer(connectionId).orElseThrow();
+    long player = world().connectionPlayer(connectionId).orElseThrow();
     if (player < 0) {
       connection.lastActivityNanos = System.nanoTime();
       return executeLogin(connectionId, line);
@@ -137,29 +177,29 @@ public final class MooRuntime {
       }
       output.add(">> (Done flushing)");
       connection.pendingInput.clear();
-      return List.copyOf(output);
+      return RuntimeStep.returned(output);
     }
     if (connection.holdInput && (connection.disableOob || !line.startsWith("#$#"))) {
       connection.pendingInput.add(line);
-      return List.of();
+      return RuntimeStep.returned(List.of());
     }
 
     if (connection.programmingObject >= 0) {
       if (!line.equals(".")) {
         connection.programmingSource.append(line).append('\n');
-        return List.of();
+        return RuntimeStep.returned(List.of());
       }
       String source = connection.programmingSource.toString();
       try {
         compiler.compile(source);
-        world.setVerbCode(connection.programmingObject, connection.programmingVerbIndex, source);
+        world().setVerbCode(connection.programmingObject, connection.programmingVerbIndex, source);
       } catch (IllegalArgumentException ignored) {
         // The active conformance row does not observe programming diagnostics.
       }
       connection.programmingObject = -1;
       connection.programmingVerbIndex = -1;
       connection.programmingSource.setLength(0);
-      return List.of();
+      return RuntimeStep.returned(List.of());
     }
 
     String programPrefix = ".program ";
@@ -176,11 +216,11 @@ public final class MooRuntime {
           && colon < descriptor.length() - 1) {
         try {
           long objectId = Long.parseLong(descriptor.substring(1, colon));
-          WorldObject object = world.object(objectId).orElse(null);
-          Optional<WorldVerb> namedVerb = world.verb(objectId, descriptor.substring(colon + 1));
+          WorldObject object = world().object(objectId).orElse(null);
+          Optional<WorldVerb> namedVerb = world().verb(objectId, descriptor.substring(colon + 1));
           if (objectId >= 0 && object != null && namedVerb.isPresent()) {
             int verbIndex = object.verbs().indexOf(namedVerb.orElseThrow());
-            if (verbIndex >= 0 && world.verb(objectId, verbIndex).isPresent()) {
+            if (verbIndex >= 0 && world().verb(objectId, verbIndex).isPresent()) {
               connection.programmingObject = objectId;
               connection.programmingVerbIndex = verbIndex;
               connection.programmingSource.setLength(0);
@@ -190,16 +230,16 @@ public final class MooRuntime {
           // The active conformance row does not observe programming diagnostics.
         }
       }
-      return List.of();
+      return RuntimeStep.returned(List.of());
     }
 
     if (line.regionMatches(true, 0, "PREFIX ", 0, "PREFIX ".length())) {
       connection.prefix = Optional.of(line.substring("PREFIX ".length()));
-      return List.of();
+      return RuntimeStep.returned(List.of());
     }
     if (line.regionMatches(true, 0, "SUFFIX ", 0, "SUFFIX ".length())) {
       connection.suffix = Optional.of(line.substring("SUFFIX ".length()));
-      return List.of();
+      return RuntimeStep.returned(List.of());
     }
 
     List<String> words = new ArrayList<>();
@@ -235,7 +275,7 @@ public final class MooRuntime {
     }
 
     if (words.isEmpty()) {
-      return List.of();
+      return RuntimeStep.returned(List.of());
     }
 
     List<MooValue> commandWords = new ArrayList<>();
@@ -244,37 +284,53 @@ public final class MooRuntime {
     }
     if (line.startsWith("#$#") && !connection.disableOob) {
       Optional<WorldVerb> outOfBand =
-          world.verb(connection.listenerHandler, "do_out_of_band_command");
+          world().verb(connection.listenerHandler, "do_out_of_band_command");
       if (outOfBand.isEmpty()) {
-        return List.of();
+        return RuntimeStep.returned(List.of());
       }
-      return executeStored(
-              outOfBand.orElseThrow(),
-              verbLocals(
-                  connection.listenerHandler,
-                  player,
-                  -1,
-                  "do_out_of_band_command",
-                  new ListValue(commandWords),
-                  line))
-          .output();
+      return startStored(
+          outOfBand.orElseThrow(),
+          verbLocals(
+              connection.listenerHandler,
+              player,
+              -1,
+              "do_out_of_band_command",
+              new ListValue(commandWords),
+              line),
+          RuntimeContinuation.after(
+              RuntimeTransition.LINE_OOB_RETURN_OUTPUT,
+              connectionId,
+              line,
+              List.of(),
+              0,
+              0,
+              false));
     }
     List<String> doCommandOutput = List.of();
     boolean handled = false;
-    Optional<WorldVerb> doCommand = world.verb(connection.listenerHandler, "do_command");
-    if (doCommand.isPresent()) {
-      VmState state =
-          executeStored(
-              doCommand.orElseThrow(),
-              verbLocals(
-                  connection.listenerHandler,
-                  player,
-                  player,
-                  "do_command",
-                  new ListValue(commandWords),
-                  line));
+    Optional<WorldVerb> doCommand = world().verb(connection.listenerHandler, "do_command");
+    if (completedDoCommand.isPresent()) {
+      VmState state = completedDoCommand.orElseThrow();
       doCommandOutput = state.output();
       handled = state.returnValue().isPresent() && state.returnValue().orElseThrow().isTruthy();
+    } else if (doCommand.isPresent()) {
+      return startStored(
+          doCommand.orElseThrow(),
+          verbLocals(
+              connection.listenerHandler,
+              player,
+              player,
+              "do_command",
+              new ListValue(commandWords),
+              line),
+          RuntimeContinuation.after(
+              RuntimeTransition.LINE_DO_COMMAND_GATE_THEN_DISPATCH,
+              connectionId,
+              line,
+              List.of(),
+              0,
+              0,
+              false));
     }
 
     List<String> output = new ArrayList<>();
@@ -282,7 +338,7 @@ public final class MooRuntime {
     output.addAll(doCommandOutput);
     if (handled) {
       connection.suffix.ifPresent(output::add);
-      return List.copyOf(output);
+      return RuntimeStep.returned(output);
     }
     String dispatchLine = line;
     int dispatchStart = 0;
@@ -353,11 +409,11 @@ public final class MooRuntime {
         argumentStart++;
       }
 
-      long room = world.object(player).orElseThrow().location();
-      Optional<WorldVerb> playerCommandVerb = world.verb(player, words.getFirst(), false);
-      Optional<WorldVerb> roomCommandVerb = world.verb(room, words.getFirst(), false);
+      long room = world().object(player).orElseThrow().location();
+      Optional<WorldVerb> playerCommandVerb = world().verb(player, words.getFirst(), false);
+      Optional<WorldVerb> roomCommandVerb = world().verb(room, words.getFirst(), false);
       if (roomCommandVerb.isEmpty() && words.getFirst().equalsIgnoreCase("eval")) {
-        Optional<WorldVerb> fixtureEval = world.verb(room, 0);
+        Optional<WorldVerb> fixtureEval = world().verb(room, 0);
         if (fixtureEval.isPresent()
             && fixtureEval.orElseThrow().names().equalsIgnoreCase(words.getFirst())) {
           roomCommandVerb = fixtureEval;
@@ -432,7 +488,7 @@ public final class MooRuntime {
           if (directObjectString.startsWith("#")) {
             try {
               long literalObject = Long.parseLong(directObjectString.substring(1));
-              if (literalObject >= 0 && world.object(literalObject).isPresent()) {
+              if (literalObject >= 0 && world().object(literalObject).isPresent()) {
                 directObject = literalObject;
               }
             } catch (NumberFormatException ignored) {
@@ -441,7 +497,7 @@ public final class MooRuntime {
           } else if (directObjectString.equalsIgnoreCase("me")) {
             directObject = player;
           } else {
-            WorldObject playerObject = world.object(player).orElseThrow();
+            WorldObject playerObject = world().object(player).orElseThrow();
             if (directObjectString.equalsIgnoreCase("here")) {
               directObject = playerObject.location();
             } else {
@@ -451,7 +507,7 @@ public final class MooRuntime {
                   candidates.add(candidate);
                 }
               }
-              WorldObject location = world.object(playerObject.location()).orElse(null);
+              WorldObject location = world().object(playerObject.location()).orElse(null);
               if (location != null) {
                 for (long candidate : location.contents()) {
                   if (!candidates.contains(candidate)) {
@@ -463,7 +519,7 @@ public final class MooRuntime {
               List<Long> exactMatches = new ArrayList<>();
               List<Long> partialMatches = new ArrayList<>();
               for (long candidate : candidates) {
-                WorldObject candidateObject = world.object(candidate).orElse(null);
+                WorldObject candidateObject = world().object(candidate).orElse(null);
                 if (candidateObject == null) {
                   continue;
                 }
@@ -478,7 +534,7 @@ public final class MooRuntime {
                     partial = true;
                   }
                 }
-                MooValue aliasesValue = world.readObjectProperty(candidate, "aliases").orElse(null);
+                MooValue aliasesValue = world().readObjectProperty(candidate, "aliases").orElse(null);
                 if (aliasesValue instanceof ListValue aliases) {
                   for (MooValue aliasValue : aliases.elements()) {
                     if (!(aliasValue instanceof StringValue alias)) {
@@ -518,7 +574,7 @@ public final class MooRuntime {
           if (indirectObjectString.startsWith("#")) {
             try {
               long literalObject = Long.parseLong(indirectObjectString.substring(1));
-              if (literalObject >= 0 && world.object(literalObject).isPresent()) {
+              if (literalObject >= 0 && world().object(literalObject).isPresent()) {
                 indirectObject = literalObject;
               }
             } catch (NumberFormatException ignored) {
@@ -527,7 +583,7 @@ public final class MooRuntime {
           } else if (indirectObjectString.equalsIgnoreCase("me")) {
             indirectObject = player;
           } else {
-            WorldObject playerObject = world.object(player).orElseThrow();
+            WorldObject playerObject = world().object(player).orElseThrow();
             if (indirectObjectString.equalsIgnoreCase("here")) {
               indirectObject = playerObject.location();
             } else {
@@ -537,7 +593,7 @@ public final class MooRuntime {
                   candidates.add(candidate);
                 }
               }
-              WorldObject location = world.object(playerObject.location()).orElse(null);
+              WorldObject location = world().object(playerObject.location()).orElse(null);
               if (location != null) {
                 for (long candidate : location.contents()) {
                   if (!candidates.contains(candidate)) {
@@ -549,7 +605,7 @@ public final class MooRuntime {
               List<Long> exactMatches = new ArrayList<>();
               List<Long> partialMatches = new ArrayList<>();
               for (long candidate : candidates) {
-                WorldObject candidateObject = world.object(candidate).orElse(null);
+                WorldObject candidateObject = world().object(candidate).orElse(null);
                 if (candidateObject == null) {
                   continue;
                 }
@@ -564,7 +620,7 @@ public final class MooRuntime {
                     partial = true;
                   }
                 }
-                MooValue aliasesValue = world.readObjectProperty(candidate, "aliases").orElse(null);
+                MooValue aliasesValue = world().readObjectProperty(candidate, "aliases").orElse(null);
                 if (aliasesValue instanceof ListValue aliases) {
                   for (MooValue aliasValue : aliases.elements()) {
                     if (!(aliasValue instanceof StringValue alias)) {
@@ -634,13 +690,13 @@ public final class MooRuntime {
           }
         }
         if (selectedVerb == null) {
-          selectedVerb = world.verb(room, "huh").orElse(null);
+          selectedVerb = world().verb(room, "huh").orElse(null);
           thisObject = room;
         }
         if (selectedVerb == null) {
           output.add("I couldn't understand that.");
           connection.suffix.ifPresent(output::add);
-          return List.copyOf(output);
+          return RuntimeStep.returned(output);
         }
         Map<String, MooValue> locals =
             verbLocals(
@@ -655,28 +711,45 @@ public final class MooRuntime {
         locals.put("iobjstr", encode(indirectObjectString));
         locals.put("dobj", new ObjectValue(directObject));
         locals.put("iobj", new ObjectValue(indirectObject));
-        VmState state = executeStored(selectedVerb, locals);
-        if (connections.containsKey(connectionId)) {
-          output.addAll(state.output());
-        }
+        return startStored(
+            selectedVerb,
+            locals,
+            RuntimeContinuation.after(
+                RuntimeTransition.LINE_SELECTED_COMMAND_APPEND_OUTPUT,
+                connectionId,
+                line,
+                output,
+                0,
+                0,
+                false));
       } else {
         output.add("I couldn't understand that.");
       }
     }
     connection.suffix.ifPresent(output::add);
-    return List.copyOf(output);
+    return RuntimeStep.returned(output);
+  }
+
+  private RuntimeStep continueLineAfterDoCommand(
+      long connectionId, String line, VmState completedDoCommand) {
+    return executeLineNow(connectionId, line, Optional.of(completedDoCommand));
   }
 
   /** Executes one transport-level out-of-band command on an existing connection. */
-  public synchronized List<String> executeTransportOutOfBand(long connectionId, String command) {
+  public List<String> executeTransportOutOfBand(long connectionId, String command) {
+    Objects.requireNonNull(command, "command");
+    return scheduler.submit(RuntimeRequest.outOfBand(connectionId, command));
+  }
+
+  private RuntimeStep executeTransportOutOfBandNow(long connectionId, String command) {
     Objects.requireNonNull(command, "command");
     ConnectionState connection = requireConnection(connectionId);
     connection.lastActivityNanos = System.nanoTime();
-    long player = world.connectionPlayer(connectionId).orElseThrow();
+    long player = world().connectionPlayer(connectionId).orElseThrow();
     Optional<WorldVerb> outOfBand =
-        world.verb(connection.listenerHandler, "do_out_of_band_command");
+        world().verb(connection.listenerHandler, "do_out_of_band_command");
     if (outOfBand.isEmpty()) {
-      return List.of();
+      return RuntimeStep.returned(List.of());
     }
     List<MooValue> arguments = new ArrayList<>();
     StringBuilder currentWord = new StringBuilder();
@@ -709,31 +782,38 @@ public final class MooRuntime {
     if (!currentWord.isEmpty()) {
       arguments.add(encode(currentWord.toString()));
     }
-    return executeStored(
-            outOfBand.orElseThrow(),
-            verbLocals(
-                connection.listenerHandler,
-                player,
-                -1,
-                "do_out_of_band_command",
-                new ListValue(arguments),
-                command))
-        .output();
+    return startStored(
+        outOfBand.orElseThrow(),
+        verbLocals(
+            connection.listenerHandler,
+            player,
+            -1,
+            "do_out_of_band_command",
+            new ListValue(arguments),
+            command),
+        RuntimeContinuation.after(
+            RuntimeTransition.TRANSPORT_OOB_RETURN_OUTPUT,
+            connectionId,
+            command,
+            List.of(),
+            0,
+            0,
+            false));
   }
 
-  private List<String> executeLogin(long connectionId, String line) {
+  private RuntimeStep executeLogin(long connectionId, String line) {
     ConnectionState connection = requireConnection(connectionId);
     MooValue serverOptions =
-        world.readObjectProperty(connection.listenerHandler, "server_options").orElse(null);
+        world().readObjectProperty(connection.listenerHandler, "server_options").orElse(null);
     if (serverOptions == null && connection.listenerHandler != 0) {
-      serverOptions = world.readObjectProperty(0, "server_options").orElse(null);
+      serverOptions = world().readObjectProperty(0, "server_options").orElse(null);
     }
     MooValue trustedProxies =
         serverOptions instanceof ObjectValue options
-            ? world.readObjectProperty(options.value(), "trusted_proxies").orElse(null)
+            ? world().readObjectProperty(options.value(), "trusted_proxies").orElse(null)
             : null;
     MooValue destinationIp =
-        world
+        world()
             .connectionInfo(connectionId)
             .flatMap(info -> info.get(encode("destination_ip")))
             .orElse(null);
@@ -747,23 +827,54 @@ public final class MooRuntime {
       }
     }
     if (trusted && line.isEmpty()) {
-      Optional<WorldVerb> blank = world.verb(connection.listenerHandler, "do_blank_command");
+      Optional<WorldVerb> blank = world().verb(connection.listenerHandler, "do_blank_command");
       if (blank.isEmpty()) {
-        return List.of();
+        return RuntimeStep.returned(List.of());
       }
-      VmState blankState =
-          executeStored(
-              blank.orElseThrow(),
-              verbLocals(
-                  connection.listenerHandler,
-                  connectionId,
-                  connectionId,
-                  "do_blank_command",
-                  new ListValue(List.of()),
-                  line));
-      if (blankState.returnValue().isEmpty()
-          || !blankState.returnValue().orElseThrow().isTruthy()) {
-        return blankState.output();
+      return startStored(
+          blank.orElseThrow(),
+          verbLocals(
+              connection.listenerHandler,
+              connectionId,
+              connectionId,
+              "do_blank_command",
+              new ListValue(List.of()),
+              line),
+          RuntimeContinuation.after(
+              RuntimeTransition.LOGIN_BLANK_TRUTH_GATE,
+              connectionId,
+              line,
+              List.of(),
+              0,
+              0,
+              false));
+    }
+    return executeLoginAuthentication(connectionId, line);
+  }
+
+  private RuntimeStep executeLoginAuthentication(long connectionId, String line) {
+    ConnectionState connection = requireConnection(connectionId);
+    MooValue serverOptions =
+        world().readObjectProperty(connection.listenerHandler, "server_options").orElse(null);
+    if (serverOptions == null && connection.listenerHandler != 0) {
+      serverOptions = world().readObjectProperty(0, "server_options").orElse(null);
+    }
+    MooValue trustedProxies =
+        serverOptions instanceof ObjectValue options
+            ? world().readObjectProperty(options.value(), "trusted_proxies").orElse(null)
+            : null;
+    MooValue destinationIp =
+        world()
+            .connectionInfo(connectionId)
+            .flatMap(info -> info.get(encode("destination_ip")))
+            .orElse(null);
+    boolean trusted = false;
+    if (destinationIp instanceof StringValue && trustedProxies instanceof ListValue proxyList) {
+      for (MooValue proxy : proxyList.elements()) {
+        if (proxy instanceof StringValue && proxy.equals(destinationIp)) {
+          trusted = true;
+          break;
+        }
       }
     }
     String loginLine = line;
@@ -773,7 +884,7 @@ public final class MooRuntime {
         loginLine = "";
       }
     }
-    WorldVerb login = world.verb(connection.listenerHandler, "do_login_command").orElseThrow();
+    WorldVerb login = world().verb(connection.listenerHandler, "do_login_command").orElseThrow();
     List<MooValue> arguments = new ArrayList<>();
     StringBuilder word = new StringBuilder();
     boolean quoted = false;
@@ -805,13 +916,28 @@ public final class MooRuntime {
             "do_login_command",
             new ListValue(arguments),
             loginLine);
-    long maximumObjectIdBeforeLogin = world.maximumObjectId();
-    VmState state = executeStored(login, locals);
+    long maximumObjectIdBeforeLogin = world().maximumObjectId();
+    return startStored(
+        login,
+        locals,
+        RuntimeContinuation.after(
+            RuntimeTransition.LOGIN_AUTHENTICATE_AND_ASSOCIATE,
+            connectionId,
+            loginLine,
+            List.of(),
+            maximumObjectIdBeforeLogin,
+            0,
+            false));
+  }
+
+  private RuntimeStep finishLogin(
+      long connectionId, long maximumObjectIdBeforeLogin, VmState state) {
+    ConnectionState connection = requireConnection(connectionId);
     OptionalLong authenticatedPlayer = state.switchedPlayer();
     boolean returnedPlayerAssociation = false;
     if (authenticatedPlayer.isEmpty()
         && state.returnValue().orElse(null) instanceof ObjectValue returnedPlayer
-        && world.players().contains(returnedPlayer.value())) {
+        && world().players().contains(returnedPlayer.value())) {
       authenticatedPlayer = OptionalLong.of(returnedPlayer.value());
       returnedPlayerAssociation = true;
     }
@@ -820,10 +946,10 @@ public final class MooRuntime {
       long existingConnectionId = Long.MIN_VALUE;
       ConnectionState existingConnection = null;
       if (returnedPlayerAssociation) {
-        for (Map.Entry<Long, ConnectionState> entry : connections.entrySet()) {
+        for (Map.Entry<Long, ConnectionState> entry : connections().entrySet()) {
           long candidateConnectionId = entry.getKey();
           if (candidateConnectionId != connectionId
-              && world.connectionPlayer(candidateConnectionId).orElse(Long.MIN_VALUE)
+              && world().connectionPlayer(candidateConnectionId).orElse(Long.MIN_VALUE)
                   == switchedPlayer) {
             existingConnectionId = candidateConnectionId;
             existingConnection = entry.getValue();
@@ -834,23 +960,23 @@ public final class MooRuntime {
       if (existingConnection != null) {
         ConnectionState redirectedConnection = existingConnection;
         boolean sameListener = redirectedConnection.listenerHandler == connection.listenerHandler;
-        if (sameListener && !world.switchConnectionPlayer(connectionId, switchedPlayer)) {
+        if (sameListener && !world().switchConnectionPlayer(connectionId, switchedPlayer)) {
           throw new IllegalStateException("stored login switched to a missing player");
         }
         List<String> oldLines = new ArrayList<>();
         if (redirectedConnection.printMessages) {
           MooValue message = null;
           MooValue listenerOptions =
-              world
+              world()
                   .readObjectProperty(redirectedConnection.listenerHandler, "server_options")
                   .orElse(null);
           if (listenerOptions instanceof ObjectValue options) {
-            message = world.readObjectProperty(options.value(), "redirect_from_msg").orElse(null);
+            message = world().readObjectProperty(options.value(), "redirect_from_msg").orElse(null);
           }
           if (message == null && redirectedConnection.listenerHandler != 0) {
-            MooValue rootOptions = world.readObjectProperty(0, "server_options").orElse(null);
+            MooValue rootOptions = world().readObjectProperty(0, "server_options").orElse(null);
             if (rootOptions instanceof ObjectValue options) {
-              message = world.readObjectProperty(options.value(), "redirect_from_msg").orElse(null);
+              message = world().readObjectProperty(options.value(), "redirect_from_msg").orElse(null);
             }
           }
           if (message == null) {
@@ -870,14 +996,14 @@ public final class MooRuntime {
         if (connection.printMessages) {
           MooValue message = null;
           MooValue listenerOptions =
-              world.readObjectProperty(connection.listenerHandler, "server_options").orElse(null);
+              world().readObjectProperty(connection.listenerHandler, "server_options").orElse(null);
           if (listenerOptions instanceof ObjectValue options) {
-            message = world.readObjectProperty(options.value(), "redirect_to_msg").orElse(null);
+            message = world().readObjectProperty(options.value(), "redirect_to_msg").orElse(null);
           }
           if (message == null && connection.listenerHandler != 0) {
-            MooValue rootOptions = world.readObjectProperty(0, "server_options").orElse(null);
+            MooValue rootOptions = world().readObjectProperty(0, "server_options").orElse(null);
             if (rootOptions instanceof ObjectValue options) {
-              message = world.readObjectProperty(options.value(), "redirect_to_msg").orElse(null);
+              message = world().readObjectProperty(options.value(), "redirect_to_msg").orElse(null);
             }
           }
           if (message == null) {
@@ -895,99 +1021,148 @@ public final class MooRuntime {
 
         long redirectedConnectionId = existingConnectionId;
         boolean wroteRedirects = listenerControl.isPresent();
-        listenerControl.ifPresent(
-            control -> {
-              control.writeConnection(redirectedConnectionId, oldLines);
-              control.writeConnection(connectionId, newLines);
-              control.bootConnection(redirectedConnectionId, List.of());
-            });
-        connections.remove(existingConnectionId);
-        world.closeConnection(existingConnectionId);
+        if (wroteRedirects) {
+          effects().add(RuntimeEffect.write(redirectedConnectionId, oldLines));
+          effects().add(RuntimeEffect.write(connectionId, newLines));
+          effects().add(RuntimeEffect.boot(redirectedConnectionId, List.of()));
+        }
+        connections().remove(existingConnectionId);
+        world().closeConnection(existingConnectionId);
 
         if (sameListener) {
-          world
-              .verb(connection.listenerHandler, "user_reconnected")
-              .ifPresent(
-                  userReconnected ->
-                      executeStored(
-                          userReconnected,
-                          verbLocals(
-                              connection.listenerHandler,
-                              switchedPlayer,
-                              -1,
-                              "user_reconnected",
-                              new ListValue(List.of(new ObjectValue(switchedPlayer))),
-                              "")));
-        } else {
-          world
-              .verb(redirectedConnection.listenerHandler, "user_client_disconnected")
-              .ifPresent(
-                  userDisconnected ->
-                      executeStored(
-                          userDisconnected,
-                          verbLocals(
-                              redirectedConnection.listenerHandler,
-                              switchedPlayer,
-                              -1,
-                              "user_client_disconnected",
-                              new ListValue(List.of(new ObjectValue(switchedPlayer))),
-                              "")));
-          if (!world.switchConnectionPlayer(connectionId, switchedPlayer)) {
-            throw new IllegalStateException("stored login switched to a missing player");
+          Optional<WorldVerb> userReconnected =
+              world().verb(connection.listenerHandler, "user_reconnected");
+          if (userReconnected.isPresent()) {
+            return startStored(
+                userReconnected.orElseThrow(),
+                verbLocals(
+                    connection.listenerHandler,
+                    switchedPlayer,
+                    -1,
+                    "user_reconnected",
+                    new ListValue(List.of(new ObjectValue(switchedPlayer))),
+                    ""),
+                RuntimeContinuation.after(
+                    RuntimeTransition.LOGIN_RECONNECTED_HOOK_THEN_RETURN,
+                    connectionId,
+                    "",
+                    newLines,
+                    switchedPlayer,
+                    0,
+                    wroteRedirects));
           }
-          world
-              .verb(connection.listenerHandler, "user_connected")
-              .ifPresent(
-                  userConnected ->
-                      executeStored(
-                          userConnected,
-                          verbLocals(
-                              connection.listenerHandler,
-                              switchedPlayer,
-                              -1,
-                              "user_connected",
-                              new ListValue(List.of(new ObjectValue(switchedPlayer))),
-                              "")));
+          return RuntimeStep.returned(wroteRedirects ? List.of() : newLines);
         }
-        return wroteRedirects ? List.of() : List.copyOf(newLines);
+        Optional<WorldVerb> userDisconnected =
+            world().verb(redirectedConnection.listenerHandler, "user_client_disconnected");
+        RuntimeContinuation association =
+            RuntimeContinuation.after(
+                RuntimeTransition.LOGIN_OLD_CLIENT_DISCONNECTED_THEN_ASSOCIATE,
+                connectionId,
+                "",
+                newLines,
+                switchedPlayer,
+                0,
+                wroteRedirects);
+        if (userDisconnected.isPresent()) {
+          return startStored(
+              userDisconnected.orElseThrow(),
+              verbLocals(
+                  redirectedConnection.listenerHandler,
+                  switchedPlayer,
+                  -1,
+                  "user_client_disconnected",
+                  new ListValue(List.of(new ObjectValue(switchedPlayer))),
+                  ""),
+              association);
+        }
+        return associateRedirectedLogin(association);
       }
 
-      if (!world.switchConnectionPlayer(connectionId, switchedPlayer)) {
+      if (!world().switchConnectionPlayer(connectionId, switchedPlayer)) {
         throw new IllegalStateException("stored login switched to a missing player");
       }
       if (returnedPlayerAssociation) {
         if (switchedPlayer > maximumObjectIdBeforeLogin) {
-          world
-              .verb(connection.listenerHandler, "user_created")
-              .ifPresent(
-                  userCreated ->
-                      executeStored(
-                          userCreated,
-                          verbLocals(
-                              connection.listenerHandler,
-                              switchedPlayer,
-                              -1,
-                              "user_created",
-                              new ListValue(List.of(new ObjectValue(switchedPlayer))),
-                              "")));
+          Optional<WorldVerb> userCreated = world().verb(connection.listenerHandler, "user_created");
+          if (userCreated.isPresent()) {
+            return startStored(
+                userCreated.orElseThrow(),
+                verbLocals(
+                    connection.listenerHandler,
+                    switchedPlayer,
+                    -1,
+                    "user_created",
+                    new ListValue(List.of(new ObjectValue(switchedPlayer))),
+                    ""),
+                RuntimeContinuation.after(
+                    RuntimeTransition.LOGIN_USER_CREATED_THEN_CONNECTED,
+                    connectionId,
+                    "",
+                    connection.printMessages ? List.of("*** Connected ***") : state.output(),
+                    switchedPlayer,
+                    0,
+                    false));
+          }
         }
-        world
-            .verb(connection.listenerHandler, "user_connected")
-            .ifPresent(
-                userConnected ->
-                    executeStored(
-                        userConnected,
-                        verbLocals(
-                            connection.listenerHandler,
-                            switchedPlayer,
-                            -1,
-                            "user_connected",
-                            new ListValue(List.of(new ObjectValue(switchedPlayer))),
-                            "")));
+        return startConnectedHook(
+            connectionId,
+            switchedPlayer,
+            connection.printMessages ? List.of("*** Connected ***") : state.output(),
+            RuntimeTransition.LOGIN_EXISTING_USER_CONNECTED_THEN_RETURN,
+            false);
       }
-      return connection.printMessages ? List.of("*** Connected ***") : state.output();
+      return RuntimeStep.returned(
+          connection.printMessages ? List.of("*** Connected ***") : state.output());
     }
-    return state.output();
+    return RuntimeStep.returned(state.output());
+  }
+
+  private RuntimeStep associateRedirectedLogin(RuntimeContinuation continuation) {
+    long connectionId = continuation.connectionId();
+    long switchedPlayer = continuation.first();
+    if (!world().switchConnectionPlayer(connectionId, switchedPlayer)) {
+      throw new IllegalStateException("stored login switched to a missing player");
+    }
+    return startConnectedHook(
+        connectionId,
+        switchedPlayer,
+        continuation.output(),
+        RuntimeTransition.LOGIN_NEW_USER_CONNECTED_THEN_RETURN,
+        continuation.flag());
+  }
+
+  private RuntimeStep continueCreatedLogin(RuntimeContinuation continuation) {
+    return startConnectedHook(
+        continuation.connectionId(),
+        continuation.first(),
+        continuation.output(),
+        RuntimeTransition.LOGIN_EXISTING_USER_CONNECTED_THEN_RETURN,
+        false);
+  }
+
+  private RuntimeStep startConnectedHook(
+      long connectionId,
+      long player,
+      List<String> output,
+      RuntimeTransition transition,
+      boolean suppressOutput) {
+    ConnectionState connection = requireConnection(connectionId);
+    Optional<WorldVerb> userConnected = world().verb(connection.listenerHandler, "user_connected");
+    if (userConnected.isEmpty()) {
+      return RuntimeStep.returned(suppressOutput ? List.of() : output);
+    }
+    return startStored(
+        userConnected.orElseThrow(),
+        verbLocals(
+            connection.listenerHandler,
+            player,
+            -1,
+            "user_connected",
+            new ListValue(List.of(new ObjectValue(player))),
+            ""),
+        RuntimeContinuation.after(
+            transition, connectionId, "", output, player, 0, suppressOutput));
   }
 
   private void monitorUnauthenticatedConnection(
@@ -999,91 +1174,109 @@ public final class MooRuntime {
         Thread.currentThread().interrupt();
         return;
       }
-      synchronized (this) {
-        ConnectionState connection = connections.get(connectionId);
-        if (connection != openedConnection || world.connectionPlayer(connectionId).orElse(0) >= 0) {
-          return;
-        }
-
-        MooValue serverOptions =
-            world.readObjectProperty(connection.listenerHandler, "server_options").orElse(null);
-        if (serverOptions == null && connection.listenerHandler != 0) {
-          serverOptions = world.readObjectProperty(0, "server_options").orElse(null);
-        }
-        MooValue configuredTimeout =
-            serverOptions instanceof ObjectValue options
-                ? world.readObjectProperty(options.value(), "connect_timeout").orElse(null)
-                : null;
-        long timeoutSeconds;
-        if (configuredTimeout == null) {
-          timeoutSeconds = 300;
-        } else if (configuredTimeout instanceof IntegerValue timeout && timeout.value() > 0) {
-          timeoutSeconds = timeout.value();
-        } else {
-          continue;
-        }
-
-        long idleSeconds =
-            TimeUnit.NANOSECONDS.toSeconds(System.nanoTime() - connection.lastActivityNanos);
-        if (idleSeconds <= timeoutSeconds) {
-          continue;
-        }
-
-        world
-            .verb(connection.listenerHandler, "user_disconnected")
-            .ifPresent(
-                disconnected ->
-                    executeStored(
-                        disconnected,
-                        verbLocals(
-                            connection.listenerHandler,
-                            connectionId,
-                            -1,
-                            "user_disconnected",
-                            new ListValue(List.of(new ObjectValue(connectionId))),
-                            "")));
-        List<String> lines = new ArrayList<>();
-        if (connection.printMessages) {
-          MooValue message = null;
-          MooValue listenerOptions =
-              world.readObjectProperty(connection.listenerHandler, "server_options").orElse(null);
-          if (listenerOptions instanceof ObjectValue options) {
-            message = world.readObjectProperty(options.value(), "timeout_msg").orElse(null);
-          }
-          if (message == null && connection.listenerHandler != 0) {
-            MooValue rootOptions = world.readObjectProperty(0, "server_options").orElse(null);
-            if (rootOptions instanceof ObjectValue options) {
-              message = world.readObjectProperty(options.value(), "timeout_msg").orElse(null);
-            }
-          }
-          if (message == null) {
-            lines.add("*** Timed-out waiting for login. ***");
-          } else if (message instanceof StringValue string) {
-            lines.add(new String(string.bytes(), StandardCharsets.ISO_8859_1));
-          } else if (message instanceof ListValue list) {
-            for (MooValue element : list.elements()) {
-              if (element instanceof StringValue string) {
-                lines.add(new String(string.bytes(), StandardCharsets.ISO_8859_1));
-              }
-            }
-          }
-        }
-        listenerControl.ifPresent(control -> control.bootConnection(connectionId, lines));
-        connections.remove(connectionId);
-        world.closeConnection(connectionId);
+      if (scheduler.submit(RuntimeRequest.timeout(connectionId, openedConnection.generation)).isEmpty()) {
         return;
       }
     }
   }
 
-  private VmState executeStored(WorldVerb verb, Map<String, MooValue> locals) {
+  private RuntimeStep checkLoginTimeoutNow(long connectionId, long generation) {
+    ConnectionState connection = connections().get(connectionId);
+    if (connection == null
+        || connection.generation != generation
+        || world().connectionPlayer(connectionId).orElse(0) >= 0) {
+      return RuntimeStep.returned(List.of());
+    }
+    MooValue serverOptions =
+        world().readObjectProperty(connection.listenerHandler, "server_options").orElse(null);
+    if (serverOptions == null && connection.listenerHandler != 0) {
+      serverOptions = world().readObjectProperty(0, "server_options").orElse(null);
+    }
+    MooValue configuredTimeout =
+        serverOptions instanceof ObjectValue options
+            ? world().readObjectProperty(options.value(), "connect_timeout").orElse(null)
+            : null;
+    long timeoutSeconds;
+    if (configuredTimeout == null) {
+      timeoutSeconds = 300;
+    } else if (configuredTimeout instanceof IntegerValue timeout && timeout.value() > 0) {
+      timeoutSeconds = timeout.value();
+    } else {
+      return RuntimeStep.returned(List.of("pending"));
+    }
+    long idleSeconds =
+        TimeUnit.NANOSECONDS.toSeconds(System.nanoTime() - connection.lastActivityNanos);
+    if (idleSeconds <= timeoutSeconds) {
+      return RuntimeStep.returned(List.of("pending"));
+    }
+    List<String> lines = new ArrayList<>();
+    if (connection.printMessages) {
+      MooValue message = null;
+      MooValue listenerOptions =
+          world().readObjectProperty(connection.listenerHandler, "server_options").orElse(null);
+      if (listenerOptions instanceof ObjectValue options) {
+        message = world().readObjectProperty(options.value(), "timeout_msg").orElse(null);
+      }
+      if (message == null && connection.listenerHandler != 0) {
+        MooValue rootOptions = world().readObjectProperty(0, "server_options").orElse(null);
+        if (rootOptions instanceof ObjectValue options) {
+          message = world().readObjectProperty(options.value(), "timeout_msg").orElse(null);
+        }
+      }
+      if (message == null) {
+        lines.add("*** Timed-out waiting for login. ***");
+      } else if (message instanceof StringValue string) {
+        lines.add(new String(string.bytes(), StandardCharsets.ISO_8859_1));
+      } else if (message instanceof ListValue list) {
+        for (MooValue element : list.elements()) {
+          if (element instanceof StringValue string) {
+            lines.add(new String(string.bytes(), StandardCharsets.ISO_8859_1));
+          }
+        }
+      }
+    }
+    Optional<WorldVerb> disconnected =
+        world().verb(connection.listenerHandler, "user_disconnected");
+    if (disconnected.isPresent()) {
+      return startStored(
+          disconnected.orElseThrow(),
+          verbLocals(
+              connection.listenerHandler,
+              connectionId,
+              -1,
+              "user_disconnected",
+              new ListValue(List.of(new ObjectValue(connectionId))),
+              ""),
+          RuntimeContinuation.after(
+              RuntimeTransition.LOGIN_TIMEOUT_USER_DISCONNECTED_THEN_BOOT,
+              connectionId,
+              "",
+              lines,
+              0,
+              0,
+              false));
+    }
+    return finishLoginTimeout(connectionId, lines);
+  }
+
+  private RuntimeStep finishLoginTimeout(long connectionId, List<String> lines) {
+    if (listenerControl.isPresent()) {
+      effects().add(RuntimeEffect.boot(connectionId, lines));
+    }
+    connections().remove(connectionId);
+    world().closeConnection(connectionId);
+    return RuntimeStep.returned(List.of());
+  }
+
+  private RuntimeStep startStored(
+      WorldVerb verb, Map<String, MooValue> locals, RuntimeContinuation continuation) {
     BytecodeProgram program = compiler.compile(verb.programSource());
     ObjectValue receiver =
         locals.get("this") instanceof ObjectValue object ? object : new ObjectValue(-1);
     ObjectValue verbLocation = receiver;
     long ancestor = receiver.value();
     while (ancestor != -1) {
-      WorldObject candidate = world.object(ancestor).orElse(null);
+      WorldObject candidate = world().object(ancestor).orElse(null);
       if (candidate == null) {
         break;
       }
@@ -1093,20 +1286,20 @@ public final class MooRuntime {
       }
       ancestor = candidate.parent();
     }
-    MooValue serverOptions = world.readObjectProperty(0, "server_options").orElse(null);
+    MooValue serverOptions = world().readObjectProperty(0, "server_options").orElse(null);
     long foregroundTicks = DEFAULT_FOREGROUND_TICKS;
     long foregroundSeconds = DEFAULT_FOREGROUND_SECONDS;
     long maxStackDepth = DEFAULT_MAX_STACK_DEPTH;
     if (serverOptions instanceof ObjectValue options) {
-      if (world.readObjectProperty(options.value(), "fg_ticks").orElse(null)
+      if (world().readObjectProperty(options.value(), "fg_ticks").orElse(null)
           instanceof IntegerValue ticks) {
         foregroundTicks = Math.max(100L, ticks.value());
       }
-      if (world.readObjectProperty(options.value(), "fg_seconds").orElse(null)
+      if (world().readObjectProperty(options.value(), "fg_seconds").orElse(null)
           instanceof IntegerValue seconds) {
         foregroundSeconds = Math.max(1L, seconds.value());
       }
-      if (world.readObjectProperty(options.value(), "max_stack_depth").orElse(null)
+      if (world().readObjectProperty(options.value(), "max_stack_depth").orElse(null)
           instanceof IntegerValue depth) {
         maxStackDepth = Math.max(DEFAULT_MAX_STACK_DEPTH, depth.value());
       }
@@ -1116,175 +1309,51 @@ public final class MooRuntime {
             locals, verb.owner(), verbLocation, foregroundTicks, foregroundSeconds, maxStackDepth);
     long taskPlayer =
         locals.get("player") instanceof ObjectValue player ? player.value() : Long.MIN_VALUE;
-    Map<VmState, BytecodeProgram> programs = new LinkedHashMap<>();
-    Map<VmState, Long> timedTasks = new LinkedHashMap<>();
-    Map<VmState, CompletableFuture<MooValue>> hostTasks = new LinkedHashMap<>();
-    Map<VmState, VmState.ForkRequest> pendingForks = new LinkedHashMap<>();
-    List<VmState> runnable = new ArrayList<>();
-    programs.put(root, program);
-    runnable.add(root);
+    return RuntimeStep.vm(program, root.snapshot(), taskPlayer, continuation);
+  }
 
-    while (root.outcome() != VmState.Outcome.RETURNED
-        && root.outcome() != VmState.Outcome.ERRORED) {
-      while (!runnable.isEmpty()) {
-        VmState task = runnable.removeFirst();
-        VmState.ForkRequest pendingFork = pendingForks.remove(task);
-        if (pendingFork != null) {
-          programs.remove(task);
-          long backgroundTicks = DEFAULT_BACKGROUND_TICKS;
-          long backgroundSeconds = DEFAULT_BACKGROUND_SECONDS;
-          long backgroundMaxStackDepth = DEFAULT_MAX_STACK_DEPTH;
-          MooValue options = world.readObjectProperty(0, "server_options").orElse(null);
-          if (options instanceof ObjectValue optionObject) {
-            if (world.readObjectProperty(optionObject.value(), "bg_ticks").orElse(null)
-                instanceof IntegerValue ticks) {
-              backgroundTicks = Math.max(100L, ticks.value());
-            }
-            if (world.readObjectProperty(optionObject.value(), "bg_seconds").orElse(null)
-                instanceof IntegerValue seconds) {
-              backgroundSeconds = Math.max(1L, seconds.value());
-            }
-            if (world.readObjectProperty(optionObject.value(), "max_stack_depth").orElse(null)
-                instanceof IntegerValue depth) {
-              backgroundMaxStackDepth = Math.max(DEFAULT_MAX_STACK_DEPTH, depth.value());
-            }
-          }
-          task =
-              new VmState(
-                  pendingFork.locals(),
-                  pendingFork.programmer(),
-                  pendingFork.verbLocation(),
-                  backgroundTicks,
-                  backgroundSeconds,
-                  backgroundMaxStackDepth);
-          programs.put(task, pendingFork.program());
-        }
-        BytecodeProgram taskProgram = programs.get(task);
-        if (taskProgram == null) {
-          throw new IllegalStateException("runnable task has no program");
-        }
-        vm.execute(taskProgram, task, world, builtins);
-        applyConnectionOptionRequests(task);
-        applyForcedInputRequests(task);
-        applyBootPlayerTargets(task, taskPlayer);
-        closeRecycledPlayerConnections();
-        while (task.outcome() == VmState.Outcome.FORKED) {
-          VmState.ForkRequest request = task.forkRequest().orElseThrow();
-          VmState child =
-              new VmState(
-                  request.locals(),
-                  request.programmer(),
-                  request.verbLocation(),
-                  DEFAULT_BACKGROUND_TICKS);
-          programs.put(child, request.program());
-          pendingForks.put(child, request);
-          if (request.delaySeconds() == 0.0) {
-            runnable.add(child);
-          } else {
-            long delayNanos = Math.max(0L, Math.round(request.delaySeconds() * 1_000_000_000.0));
-            timedTasks.put(child, Math.addExact(System.nanoTime(), delayNanos));
-          }
-          task.continueAfterFork();
-          vm.execute(taskProgram, task, world, builtins);
-          applyConnectionOptionRequests(task);
-          applyForcedInputRequests(task);
-          applyBootPlayerTargets(task, taskPlayer);
-          closeRecycledPlayerConnections();
-        }
-        if (task.outcome() == VmState.Outcome.SUSPENDED) {
-          if (task.suspensionDelaySeconds().isPresent()) {
-            long delayNanos =
-                Math.max(
-                    0L, Math.round(task.suspensionDelaySeconds().orElseThrow() * 1_000_000_000.0));
-            timedTasks.put(task, Math.addExact(System.nanoTime(), delayNanos));
-          } else {
-            hostTasks.put(task, task.hostResult().orElseThrow());
-          }
-        } else if (task != root) {
-          programs.remove(task);
-        }
+  VmState startBackgroundTask(VmSnapshot initial) {
+    long backgroundTicks = DEFAULT_BACKGROUND_TICKS;
+    long backgroundSeconds = DEFAULT_BACKGROUND_SECONDS;
+    long backgroundMaxStackDepth = DEFAULT_MAX_STACK_DEPTH;
+    MooValue serverOptions = world().readObjectProperty(0, "server_options").orElse(null);
+    if (serverOptions instanceof ObjectValue options) {
+      if (world().readObjectProperty(options.value(), "bg_ticks").orElse(null)
+          instanceof IntegerValue ticks) {
+        backgroundTicks = Math.max(100L, ticks.value());
       }
-
-      if (root.outcome() == VmState.Outcome.RETURNED || root.outcome() == VmState.Outcome.ERRORED) {
-        break;
+      if (world().readObjectProperty(options.value(), "bg_seconds").orElse(null)
+          instanceof IntegerValue seconds) {
+        backgroundSeconds = Math.max(1L, seconds.value());
       }
-
-      long now = System.nanoTime();
-      List<VmState> timedReady = new ArrayList<>();
-      for (Map.Entry<VmState, Long> entry : timedTasks.entrySet()) {
-        if (entry.getValue() - now <= 0) {
-          timedReady.add(entry.getKey());
-        }
-      }
-      for (VmState task : timedReady) {
-        timedTasks.remove(task);
-        if (task.outcome() == VmState.Outcome.SUSPENDED) {
-          task.resume(new moo.value.MooValue.IntegerValue(0));
-        } else if (task.outcome() != VmState.Outcome.RUNNING) {
-          throw new IllegalStateException("timed task is neither queued nor suspended");
-        }
-        runnable.add(task);
-      }
-
-      List<VmState> hostReady = new ArrayList<>();
-      for (Map.Entry<VmState, CompletableFuture<MooValue>> entry : hostTasks.entrySet()) {
-        if (entry.getValue().isDone()) {
-          hostReady.add(entry.getKey());
-        }
-      }
-      for (VmState task : hostReady) {
-        CompletableFuture<MooValue> result = hostTasks.remove(task);
-        if (result == null) {
-          throw new IllegalStateException("completed host task has no result");
-        }
-        task.resume(result.join());
-        runnable.add(task);
-      }
-      if (!runnable.isEmpty()) {
-        continue;
-      }
-
-      long earliestWake = Long.MAX_VALUE;
-      for (long wake : timedTasks.values()) {
-        earliestWake = Math.min(earliestWake, wake);
-      }
-      long waitNanos =
-          earliestWake == Long.MAX_VALUE
-              ? Long.MAX_VALUE
-              : Math.max(1L, earliestWake - System.nanoTime());
-      try {
-        if (!hostTasks.isEmpty()) {
-          CompletableFuture<?>[] pending = hostTasks.values().toArray(CompletableFuture<?>[]::new);
-          CompletableFuture<Object> nextHost = CompletableFuture.anyOf(pending);
-          if (waitNanos == Long.MAX_VALUE) {
-            nextHost.get();
-          } else {
-            nextHost.get(waitNanos, TimeUnit.NANOSECONDS);
-          }
-        } else if (waitNanos != Long.MAX_VALUE) {
-          TimeUnit.NANOSECONDS.sleep(waitNanos);
-        } else {
-          throw new IllegalStateException("suspended runtime has no wake source");
-        }
-      } catch (TimeoutException ignored) {
-        // The next timed task is now eligible and is selected at the top of the loop.
-      } catch (InterruptedException error) {
-        Thread.currentThread().interrupt();
-        throw new IllegalStateException("runtime interrupted while waiting for a MOO task", error);
-      } catch (ExecutionException error) {
-        throw new IllegalStateException("host operation completed exceptionally", error.getCause());
+      if (world().readObjectProperty(options.value(), "max_stack_depth").orElse(null)
+          instanceof IntegerValue depth) {
+        backgroundMaxStackDepth = Math.max(DEFAULT_MAX_STACK_DEPTH, depth.value());
       }
     }
-    return root;
+    return new VmState(
+        initial.initialLocals(),
+        initial.initialProgrammer(),
+        initial.initialVerbLocation(),
+        backgroundTicks,
+        backgroundSeconds,
+        backgroundMaxStackDepth);
+  }
+
+  void publishVmState(VmState task, long taskPlayer) {
+    applyConnectionOptionRequests(task);
+    applyForcedInputRequests(task);
+    applyBootPlayerTargets(task, taskPlayer);
+    closeRecycledPlayerConnections();
   }
 
   private void applyConnectionOptionRequests(VmState task) {
     for (ConnectionOptionRequest request : task.drainConnectionOptionRequests()) {
       long connectionId = request.target();
-      ConnectionState connection = connections.get(request.target());
+      ConnectionState connection = connections().get(request.target());
       if (connection == null) {
-        for (Map.Entry<Long, ConnectionState> entry : connections.entrySet()) {
-          if (world.connectionPlayer(entry.getKey()).orElse(Long.MIN_VALUE) == request.target()) {
+        for (Map.Entry<Long, ConnectionState> entry : connections().entrySet()) {
+          if (world().connectionPlayer(entry.getKey()).orElse(Long.MIN_VALUE) == request.target()) {
             connectionId = entry.getKey();
             connection = entry.getValue();
             break;
@@ -1301,18 +1370,16 @@ public final class MooRuntime {
           List<String> pendingInput = List.copyOf(connection.pendingInput);
           connection.pendingInput.clear();
           for (String line : pendingInput) {
-            List<String> output = executeLine(connectionId, line);
-            long releasedConnectionId = connectionId;
-            listenerControl.ifPresent(
-                control -> control.writeConnection(releasedConnectionId, output));
+            effects().add(RuntimeEffect.input(connectionId, line));
           }
         }
       } else if (request.option() == ConnectionOption.DISABLE_OOB) {
         connection.disableOob = request.value().isTruthy();
       } else if (request.option() == ConnectionOption.BINARY) {
         long binaryConnectionId = connectionId;
-        listenerControl.ifPresent(
-            control -> control.setConnectionBinary(binaryConnectionId, request.value().isTruthy()));
+        if (listenerControl.isPresent()) {
+          effects().add(RuntimeEffect.binary(binaryConnectionId, request.value().isTruthy()));
+        }
       } else if (request.value() instanceof StringValue command && command.length() > 0) {
         connection.flushCommand =
             Optional.of(new String(command.bytes(), StandardCharsets.ISO_8859_1));
@@ -1325,30 +1392,28 @@ public final class MooRuntime {
   private void applyForcedInputRequests(VmState task) {
     for (ForcedInputRequest request : task.drainForcedInputRequests()) {
       long connectionId = request.target();
-      if (!connections.containsKey(connectionId)) {
-        for (Map.Entry<Long, ConnectionState> entry : connections.entrySet()) {
-          if (world.connectionPlayer(entry.getKey()).orElse(Long.MIN_VALUE) == request.target()) {
+      if (!connections().containsKey(connectionId)) {
+        for (Map.Entry<Long, ConnectionState> entry : connections().entrySet()) {
+          if (world().connectionPlayer(entry.getKey()).orElse(Long.MIN_VALUE) == request.target()) {
             connectionId = entry.getKey();
             break;
           }
         }
       }
-      if (!connections.containsKey(connectionId)) {
+      if (!connections().containsKey(connectionId)) {
         continue;
       }
-      List<String> output = executeLine(connectionId, request.line());
-      long targetConnectionId = connectionId;
-      listenerControl.ifPresent(control -> control.writeConnection(targetConnectionId, output));
+      effects().add(RuntimeEffect.input(connectionId, request.line()));
     }
   }
 
   private void applyBootPlayerTargets(VmState task, long taskPlayer) {
     for (long target : task.drainBootPlayerTargets()) {
       long connectionId = target;
-      ConnectionState connection = connections.get(connectionId);
+      ConnectionState connection = connections().get(connectionId);
       if (connection == null) {
-        for (Map.Entry<Long, ConnectionState> entry : connections.entrySet()) {
-          if (world.connectionPlayer(entry.getKey()).orElse(Long.MIN_VALUE) == target) {
+        for (Map.Entry<Long, ConnectionState> entry : connections().entrySet()) {
+          if (world().connectionPlayer(entry.getKey()).orElse(Long.MIN_VALUE) == target) {
             connectionId = entry.getKey();
             connection = entry.getValue();
             break;
@@ -1359,41 +1424,26 @@ public final class MooRuntime {
         continue;
       }
 
-      long disconnectedPlayer = world.connectionPlayer(connectionId).orElse(target);
+      long disconnectedPlayer = world().connectionPlayer(connectionId).orElse(target);
       if (disconnectedPlayer == taskPlayer) {
         long outputConnectionId = connectionId;
-        listenerControl.ifPresent(
-            control -> control.writeConnection(outputConnectionId, task.output()));
+        if (listenerControl.isPresent()) {
+          effects().add(RuntimeEffect.write(outputConnectionId, task.output()));
+        }
       }
-      connections.remove(connectionId);
-      world.closeConnection(connectionId);
       long listenerHandler = connection.listenerHandler;
-      world
-          .verb(listenerHandler, "user_disconnected")
-          .ifPresent(
-              disconnected ->
-                  executeStored(
-                      disconnected,
-                      verbLocals(
-                          listenerHandler,
-                          disconnectedPlayer,
-                          -1,
-                          "user_disconnected",
-                          new ListValue(List.of(new ObjectValue(disconnectedPlayer))),
-                          "")));
-
       List<String> lines = new ArrayList<>();
       if (connection.printMessages) {
         MooValue message = null;
         MooValue listenerOptions =
-            world.readObjectProperty(listenerHandler, "server_options").orElse(null);
+            world().readObjectProperty(listenerHandler, "server_options").orElse(null);
         if (listenerOptions instanceof ObjectValue options) {
-          message = world.readObjectProperty(options.value(), "boot_msg").orElse(null);
+          message = world().readObjectProperty(options.value(), "boot_msg").orElse(null);
         }
         if (message == null && listenerHandler != 0) {
-          MooValue rootOptions = world.readObjectProperty(0, "server_options").orElse(null);
+          MooValue rootOptions = world().readObjectProperty(0, "server_options").orElse(null);
           if (rootOptions instanceof ObjectValue options) {
-            message = world.readObjectProperty(options.value(), "boot_msg").orElse(null);
+            message = world().readObjectProperty(options.value(), "boot_msg").orElse(null);
           }
         }
         if (message == null) {
@@ -1408,34 +1458,65 @@ public final class MooRuntime {
           }
         }
       }
-      long bootedConnectionId = connectionId;
-      listenerControl.ifPresent(control -> control.bootConnection(bootedConnectionId, lines));
+      connections().remove(connectionId);
+      world().closeConnection(connectionId);
+      Optional<WorldVerb> disconnected = world().verb(listenerHandler, "user_disconnected");
+      if (disconnected.isPresent()) {
+        spawnedSteps()
+            .add(
+                startStored(
+                    disconnected.orElseThrow(),
+                    verbLocals(
+                        listenerHandler,
+                        disconnectedPlayer,
+                        -1,
+                        "user_disconnected",
+                        new ListValue(List.of(new ObjectValue(disconnectedPlayer))),
+                        ""),
+                    RuntimeContinuation.after(
+                        RuntimeTransition.BOOT_PLAYER_USER_DISCONNECTED_THEN_BOOT,
+                        connectionId,
+                        "",
+                        lines,
+                        0,
+                        0,
+                        false)));
+      } else {
+        finishBootPlayer(connectionId, lines);
+      }
     }
   }
 
+  private RuntimeStep finishBootPlayer(long connectionId, List<String> lines) {
+    if (listenerControl.isPresent()) {
+      effects().add(RuntimeEffect.boot(connectionId, lines));
+    }
+    return RuntimeStep.returned(List.of());
+  }
+
   private void closeRecycledPlayerConnections() {
-    for (Map.Entry<Long, ConnectionState> entry : new ArrayList<>(connections.entrySet())) {
+    for (Map.Entry<Long, ConnectionState> entry : new ArrayList<>(connections().entrySet())) {
       long connectionId = entry.getKey();
-      long player = world.connectionPlayer(connectionId).orElse(Long.MIN_VALUE);
-      if (player < 0 || world.object(player).isPresent()) {
+      long player = world().connectionPlayer(connectionId).orElse(Long.MIN_VALUE);
+      if (player < 0 || world().object(player).isPresent()) {
         continue;
       }
 
       ConnectionState connection = entry.getValue();
-      connections.remove(connectionId);
-      world.closeConnection(connectionId);
+      connections().remove(connectionId);
+      world().closeConnection(connectionId);
       List<String> lines = new ArrayList<>();
       if (connection.printMessages) {
         MooValue message = null;
         MooValue listenerOptions =
-            world.readObjectProperty(connection.listenerHandler, "server_options").orElse(null);
+            world().readObjectProperty(connection.listenerHandler, "server_options").orElse(null);
         if (listenerOptions instanceof ObjectValue options) {
-          message = world.readObjectProperty(options.value(), "recycle_msg").orElse(null);
+          message = world().readObjectProperty(options.value(), "recycle_msg").orElse(null);
         }
         if (message == null && connection.listenerHandler != 0) {
-          MooValue rootOptions = world.readObjectProperty(0, "server_options").orElse(null);
+          MooValue rootOptions = world().readObjectProperty(0, "server_options").orElse(null);
           if (rootOptions instanceof ObjectValue options) {
-            message = world.readObjectProperty(options.value(), "recycle_msg").orElse(null);
+            message = world().readObjectProperty(options.value(), "recycle_msg").orElse(null);
           }
         }
         if (message == null) {
@@ -1450,7 +1531,9 @@ public final class MooRuntime {
           }
         }
       }
-      listenerControl.ifPresent(control -> control.bootConnection(connectionId, lines));
+      if (listenerControl.isPresent()) {
+        effects().add(RuntimeEffect.boot(connectionId, lines));
+      }
     }
   }
 
@@ -1471,8 +1554,237 @@ public final class MooRuntime {
     return locals;
   }
 
+  RuntimeStep execute(
+      RuntimeContinuation continuation, Optional<moo.vm.VmSnapshot> completedVm) {
+    RuntimeRequest request = continuation.ingress().orElse(null);
+    if (request != null) {
+      if (completedVm.isPresent() || continuation.transition().isPresent()) {
+        throw new IllegalArgumentException("ingress continuation has resumed state");
+      }
+      return switch (request.operation) {
+        case OPEN ->
+            openConnectionNow(
+                request.connectionId,
+                request.listenerHandler,
+                request.printMessages,
+                request.connectionInfo);
+        case CLOSE -> closeConnectionNow(request.connectionId);
+        case LINE -> executeLineNow(request.connectionId, request.text);
+        case OUT_OF_BAND -> executeTransportOutOfBandNow(request.connectionId, request.text);
+        case TIMEOUT -> checkLoginTimeoutNow(request.connectionId, request.generation);
+      };
+    }
+    VmState state = VmState.restore(completedVm.orElseThrow());
+    return resumeRuntime(continuation, state);
+  }
+
+  private RuntimeStep resumeRuntime(RuntimeContinuation continuation, VmState state) {
+    return switch (continuation.transition().orElseThrow()) {
+      case CLOSE_AFTER_USER_CLIENT_DISCONNECTED -> RuntimeStep.returned(List.of());
+      case LINE_OOB_RETURN_OUTPUT, TRANSPORT_OOB_RETURN_OUTPUT ->
+          RuntimeStep.returned(state.output());
+      case LINE_DO_COMMAND_GATE_THEN_DISPATCH ->
+          continueLineAfterDoCommand(continuation.connectionId(), continuation.text(), state);
+      case LINE_SELECTED_COMMAND_APPEND_OUTPUT -> {
+        List<String> output = new ArrayList<>(continuation.output());
+        ConnectionState connection = connections().get(continuation.connectionId());
+        if (connection != null) {
+          output.addAll(state.output());
+          connection.suffix.ifPresent(output::add);
+        }
+        yield RuntimeStep.returned(output);
+      }
+      case LOGIN_BLANK_TRUTH_GATE ->
+          state.returnValue().isEmpty() || !state.returnValue().orElseThrow().isTruthy()
+              ? RuntimeStep.returned(state.output())
+              : executeLoginAuthentication(continuation.connectionId(), continuation.text());
+      case LOGIN_AUTHENTICATE_AND_ASSOCIATE ->
+          finishLogin(
+              continuation.connectionId(), continuation.first(), state);
+      case LOGIN_RECONNECTED_HOOK_THEN_RETURN,
+          LOGIN_NEW_USER_CONNECTED_THEN_RETURN,
+          LOGIN_EXISTING_USER_CONNECTED_THEN_RETURN ->
+          RuntimeStep.returned(continuation.flag() ? List.of() : continuation.output());
+      case LOGIN_OLD_CLIENT_DISCONNECTED_THEN_ASSOCIATE ->
+          associateRedirectedLogin(continuation);
+      case LOGIN_USER_CREATED_THEN_CONNECTED -> continueCreatedLogin(continuation);
+      case LOGIN_TIMEOUT_USER_DISCONNECTED_THEN_BOOT ->
+          finishLoginTimeout(continuation.connectionId(), continuation.output());
+      case BOOT_PLAYER_USER_DISCONNECTED_THEN_BOOT ->
+          finishBootPlayer(continuation.connectionId(), continuation.output());
+    };
+  }
+
+  synchronized AttemptContext openAttempt(WorldTxn transaction) {
+    Map<Long, ConnectionState> sessions = new LinkedHashMap<>();
+    publishedConnections.forEach((id, state) -> sessions.put(id, state.copy()));
+    AttemptContext context =
+        new AttemptContext(
+            transaction, sessions, sessionRevision, new ArrayList<>(), new ArrayList<>());
+    ATTEMPT.set(context);
+    seedSessions(transaction, sessions);
+    return context;
+  }
+
+  private static void seedSessions(
+      WorldTxn transaction, Map<Long, ConnectionState> sessions) {
+    for (Map.Entry<Long, ConnectionState> entry : sessions.entrySet()) {
+      ConnectionState state = entry.getValue();
+      transaction.openConnection(entry.getKey(), state.connectionInfo);
+      if (state.player >= 0) {
+        transaction.switchConnectionPlayer(entry.getKey(), state.player);
+      }
+      transaction.setIntrinsicCommands(entry.getKey(), state.intrinsicCommands);
+    }
+  }
+
+  void replaceAttemptWorld(AttemptContext context, WorldTxn transaction) {
+    if (ATTEMPT.get() != context) {
+      throw new IllegalStateException("cannot replace another runtime attempt");
+    }
+    context.world = transaction;
+    seedSessions(transaction, context.sessions);
+  }
+
+  AttemptContext finishAttempt() {
+    AttemptContext context = requireAttempt();
+    for (Map.Entry<Long, ConnectionState> entry : context.sessions.entrySet()) {
+      long connectionId = entry.getKey();
+      ConnectionState state = entry.getValue();
+      state.player = context.world.connectionPlayer(connectionId).orElse(-1);
+      state.intrinsicCommands =
+          context.world.intrinsicCommands(connectionId).orElse(state.intrinsicCommands);
+    }
+    ATTEMPT.remove();
+    return context;
+  }
+
+  void abandonAttempt() {
+    ATTEMPT.remove();
+  }
+
+  synchronized boolean sessionsAreCurrent(AttemptContext context) {
+    return context.baseSessionRevision == sessionRevision;
+  }
+
+  synchronized OptionalLong connectionPlayer(long connectionId) {
+    ConnectionState connection = publishedConnections.get(connectionId);
+    return connection == null ? OptionalLong.empty() : OptionalLong.of(connection.player);
+  }
+
+  synchronized Optional<MapValue> connectionInfo(long objectId) {
+    ConnectionState direct = publishedConnections.get(objectId);
+    if (direct != null) {
+      return Optional.of(direct.connectionInfo);
+    }
+    for (ConnectionState connection : publishedConnections.values()) {
+      if (connection.player == objectId) {
+        return Optional.of(connection.connectionInfo);
+      }
+    }
+    return Optional.empty();
+  }
+
+  void publishAttempt(AttemptContext context) {
+    List<RuntimeEffect> publishedEffects;
+    synchronized (this) {
+      if (context.baseSessionRevision != sessionRevision) {
+        throw new IllegalStateException("session attempt is stale");
+      }
+      boolean sessionsChanged = context.sessions.size() != publishedConnections.size();
+      if (!sessionsChanged) {
+        for (Map.Entry<Long, ConnectionState> entry : context.sessions.entrySet()) {
+          ConnectionState published = publishedConnections.get(entry.getKey());
+          if (published == null || !entry.getValue().sameState(published)) {
+            sessionsChanged = true;
+            break;
+          }
+        }
+      }
+      if (sessionsChanged) {
+        publishedConnections.clear();
+        context.sessions.forEach((id, state) -> publishedConnections.put(id, state.copy()));
+        sessionRevision = Math.incrementExact(sessionRevision);
+      }
+      context.baseSessionRevision = sessionRevision;
+      publishedEffects = List.copyOf(context.effects);
+      context.effects.clear();
+    }
+    for (RuntimeEffect effect : publishedEffects) {
+      publishEffect(effect);
+    }
+  }
+
+  List<RuntimeStep> takeSpawnedSteps(AttemptContext context) {
+    List<RuntimeStep> spawned = List.copyOf(context.spawnedSteps);
+    context.spawnedSteps.clear();
+    return spawned;
+  }
+
+  private void publishEffect(RuntimeEffect effect) {
+    switch (effect.kind) {
+      case START_TIMEOUT -> {
+        ConnectionState connection;
+        synchronized (this) {
+          connection = publishedConnections.get(effect.connectionId);
+        }
+        if (connection != null && connection.generation == effect.generation) {
+          Thread.ofVirtual()
+              .name("moo-connect-timeout-" + effect.connectionId)
+              .start(() -> monitorUnauthenticatedConnection(effect.connectionId, connection));
+        }
+      }
+      case WRITE ->
+          listenerControl.ifPresent(
+              control -> control.writeConnection(effect.connectionId, effect.lines));
+      case BOOT ->
+          listenerControl.ifPresent(
+              control -> control.bootConnection(effect.connectionId, effect.lines));
+      case BINARY ->
+          listenerControl.ifPresent(
+              control -> control.setConnectionBinary(effect.connectionId, effect.binary));
+      case INPUT -> scheduler.enqueueDetached(RuntimeRequest.line(effect.connectionId, effect.text));
+    }
+  }
+
+  private AttemptContext requireAttempt() {
+    AttemptContext context = ATTEMPT.get();
+    if (context == null) {
+      throw new IllegalStateException("runtime world access is outside a scheduler attempt");
+    }
+    return context;
+  }
+
+  AttemptContext currentAttempt() {
+    return requireAttempt();
+  }
+
+  WorldTxn world() {
+    return requireAttempt().world;
+  }
+
+  private Map<Long, ConnectionState> connections() {
+    return requireAttempt().sessions;
+  }
+
+  private List<RuntimeEffect> effects() {
+    return requireAttempt().effects;
+  }
+
+  private List<RuntimeStep> spawnedSteps() {
+    return requireAttempt().spawnedSteps;
+  }
+
+  MooVm vm() {
+    return vm;
+  }
+
+  BuiltinCatalog builtins() {
+    return builtins;
+  }
+
   private ConnectionState requireConnection(long connectionId) {
-    ConnectionState connection = connections.get(connectionId);
+    ConnectionState connection = connections().get(connectionId);
     if (connection == null) {
       throw new IllegalArgumentException("unknown connection #" + connectionId);
     }
@@ -1483,9 +1795,112 @@ public final class MooRuntime {
     return new StringValue(value.getBytes(StandardCharsets.ISO_8859_1));
   }
 
-  private static final class ConnectionState {
+  enum RuntimeTransition {
+    CLOSE_AFTER_USER_CLIENT_DISCONNECTED,
+    LINE_OOB_RETURN_OUTPUT,
+    LINE_DO_COMMAND_GATE_THEN_DISPATCH,
+    LINE_SELECTED_COMMAND_APPEND_OUTPUT,
+    TRANSPORT_OOB_RETURN_OUTPUT,
+    LOGIN_BLANK_TRUTH_GATE,
+    LOGIN_AUTHENTICATE_AND_ASSOCIATE,
+    LOGIN_RECONNECTED_HOOK_THEN_RETURN,
+    LOGIN_OLD_CLIENT_DISCONNECTED_THEN_ASSOCIATE,
+    LOGIN_NEW_USER_CONNECTED_THEN_RETURN,
+    LOGIN_USER_CREATED_THEN_CONNECTED,
+    LOGIN_EXISTING_USER_CONNECTED_THEN_RETURN,
+    LOGIN_TIMEOUT_USER_DISCONNECTED_THEN_BOOT,
+    BOOT_PLAYER_USER_DISCONNECTED_THEN_BOOT
+  }
+
+  record RuntimeContinuation(
+      Optional<RuntimeRequest> ingress,
+      Optional<RuntimeTransition> transition,
+      long connectionId,
+      String text,
+      List<String> output,
+      long first,
+      long second,
+      boolean flag) {
+    RuntimeContinuation {
+      Objects.requireNonNull(ingress, "ingress");
+      Objects.requireNonNull(transition, "transition");
+      Objects.requireNonNull(text, "text");
+      output = List.copyOf(output);
+      if (ingress.isPresent() == transition.isPresent()) {
+        throw new IllegalArgumentException(
+            "runtime continuation requires exactly one ingress or transition");
+      }
+    }
+
+    static RuntimeContinuation ingress(RuntimeRequest request) {
+      return new RuntimeContinuation(
+          Optional.of(request), Optional.empty(), 0, "", List.of(), 0, 0, false);
+    }
+
+    static RuntimeContinuation after(
+        RuntimeTransition transition,
+        long connectionId,
+        String text,
+        List<String> output,
+        long first,
+        long second,
+        boolean flag) {
+      return new RuntimeContinuation(
+          Optional.empty(),
+          Optional.of(transition),
+          connectionId,
+          text,
+          output,
+          first,
+          second,
+          flag);
+    }
+  }
+
+  record RuntimeStep(
+      Optional<BytecodeProgram> program,
+      Optional<moo.vm.VmSnapshot> snapshot,
+      long taskPlayer,
+      Optional<RuntimeContinuation> continuation,
+      Optional<List<String>> output) {
+    RuntimeStep {
+      Objects.requireNonNull(program, "program");
+      Objects.requireNonNull(snapshot, "snapshot");
+      Objects.requireNonNull(continuation, "continuation");
+      output = output.map(List::copyOf);
+      boolean vm = program.isPresent() && snapshot.isPresent() && continuation.isPresent();
+      boolean returned = output.isPresent();
+      if (vm == returned || program.isPresent() != snapshot.isPresent()) {
+        throw new IllegalArgumentException("runtime step requires VM work or returned output");
+      }
+    }
+
+    static RuntimeStep vm(
+        BytecodeProgram program,
+        moo.vm.VmSnapshot snapshot,
+        long taskPlayer,
+        RuntimeContinuation continuation) {
+      return new RuntimeStep(
+          Optional.of(program),
+          Optional.of(snapshot),
+          taskPlayer,
+          Optional.of(continuation),
+          Optional.empty());
+    }
+
+    static RuntimeStep returned(List<String> output) {
+      return new RuntimeStep(
+          Optional.empty(), Optional.empty(), Long.MIN_VALUE, Optional.empty(), Optional.of(output));
+    }
+  }
+
+  static final class ConnectionState {
     private final long listenerHandler;
     private final boolean printMessages;
+    private final long generation;
+    private MapValue connectionInfo = new MapValue(Map.of());
+    private long player = -1;
+    private ListValue intrinsicCommands = new ListValue(List.of());
     private long lastActivityNanos = System.nanoTime();
     private boolean holdInput;
     private boolean disableOob;
@@ -1497,9 +1912,152 @@ public final class MooRuntime {
     private int programmingVerbIndex = -1;
     private final StringBuilder programmingSource = new StringBuilder();
 
-    private ConnectionState(long listenerHandler, boolean printMessages) {
+    private ConnectionState(long listenerHandler, boolean printMessages, long generation) {
       this.listenerHandler = listenerHandler;
       this.printMessages = printMessages;
+      this.generation = generation;
+    }
+
+    private ConnectionState copy() {
+      ConnectionState copy = new ConnectionState(listenerHandler, printMessages, generation);
+      copy.connectionInfo = connectionInfo;
+      copy.player = player;
+      copy.intrinsicCommands = intrinsicCommands;
+      copy.lastActivityNanos = lastActivityNanos;
+      copy.holdInput = holdInput;
+      copy.disableOob = disableOob;
+      copy.flushCommand = flushCommand;
+      copy.pendingInput.addAll(pendingInput);
+      copy.prefix = prefix;
+      copy.suffix = suffix;
+      copy.programmingObject = programmingObject;
+      copy.programmingVerbIndex = programmingVerbIndex;
+      copy.programmingSource.append(programmingSource);
+      return copy;
+    }
+
+    private boolean sameState(ConnectionState other) {
+      return listenerHandler == other.listenerHandler
+          && printMessages == other.printMessages
+          && generation == other.generation
+          && connectionInfo.equals(other.connectionInfo)
+          && player == other.player
+          && intrinsicCommands.equals(other.intrinsicCommands)
+          && lastActivityNanos == other.lastActivityNanos
+          && holdInput == other.holdInput
+          && disableOob == other.disableOob
+          && flushCommand.equals(other.flushCommand)
+          && pendingInput.equals(other.pendingInput)
+          && prefix.equals(other.prefix)
+          && suffix.equals(other.suffix)
+          && programmingObject == other.programmingObject
+          && programmingVerbIndex == other.programmingVerbIndex
+          && programmingSource.toString().contentEquals(other.programmingSource);
+    }
+  }
+
+  enum Operation {
+    OPEN,
+    CLOSE,
+    LINE,
+    OUT_OF_BAND,
+    TIMEOUT
+  }
+
+  record RuntimeRequest(
+      Operation operation,
+      long connectionId,
+      long listenerHandler,
+      boolean printMessages,
+      MapValue connectionInfo,
+      String text,
+      long generation) {
+    static RuntimeRequest open(
+        long connectionId, long listenerHandler, boolean printMessages, MapValue connectionInfo) {
+      return new RuntimeRequest(
+          Operation.OPEN, connectionId, listenerHandler, printMessages, connectionInfo, "", 0);
+    }
+
+    static RuntimeRequest close(long connectionId) {
+      return new RuntimeRequest(
+          Operation.CLOSE, connectionId, 0, false, new MapValue(Map.of()), "", 0);
+    }
+
+    static RuntimeRequest line(long connectionId, String line) {
+      return new RuntimeRequest(
+          Operation.LINE, connectionId, 0, false, new MapValue(Map.of()), line, 0);
+    }
+
+    static RuntimeRequest outOfBand(long connectionId, String command) {
+      return new RuntimeRequest(
+          Operation.OUT_OF_BAND, connectionId, 0, false, new MapValue(Map.of()), command, 0);
+    }
+
+    static RuntimeRequest timeout(long connectionId, long generation) {
+      return new RuntimeRequest(
+          Operation.TIMEOUT, connectionId, 0, false, new MapValue(Map.of()), "", generation);
+    }
+  }
+
+  static final class AttemptContext {
+    WorldTxn world;
+    final Map<Long, ConnectionState> sessions;
+    long baseSessionRevision;
+    final List<RuntimeEffect> effects;
+    final List<RuntimeStep> spawnedSteps;
+
+    AttemptContext(
+        WorldTxn world,
+        Map<Long, ConnectionState> sessions,
+        long baseSessionRevision,
+        List<RuntimeEffect> effects,
+        List<RuntimeStep> spawnedSteps) {
+      this.world = world;
+      this.sessions = sessions;
+      this.baseSessionRevision = baseSessionRevision;
+      this.effects = effects;
+      this.spawnedSteps = spawnedSteps;
+    }
+  }
+
+  enum RuntimeEffectKind {
+    START_TIMEOUT,
+    WRITE,
+    BOOT,
+    BINARY,
+    INPUT
+  }
+
+  record RuntimeEffect(
+      RuntimeEffectKind kind,
+      long connectionId,
+      List<String> lines,
+      boolean binary,
+      long generation,
+      String text) {
+    RuntimeEffect {
+      lines = List.copyOf(lines);
+    }
+
+    static RuntimeEffect startTimeout(long connectionId, long generation) {
+      return new RuntimeEffect(
+          RuntimeEffectKind.START_TIMEOUT, connectionId, List.of(), false, generation, "");
+    }
+
+    static RuntimeEffect write(long connectionId, List<String> lines) {
+      return new RuntimeEffect(RuntimeEffectKind.WRITE, connectionId, lines, false, 0, "");
+    }
+
+    static RuntimeEffect boot(long connectionId, List<String> lines) {
+      return new RuntimeEffect(RuntimeEffectKind.BOOT, connectionId, lines, false, 0, "");
+    }
+
+    static RuntimeEffect binary(long connectionId, boolean binary) {
+      return new RuntimeEffect(RuntimeEffectKind.BINARY, connectionId, List.of(), binary, 0, "");
+    }
+
+    static RuntimeEffect input(long connectionId, String line) {
+      return new RuntimeEffect(RuntimeEffectKind.INPUT, connectionId, List.of(), false, 0, line);
     }
   }
 }

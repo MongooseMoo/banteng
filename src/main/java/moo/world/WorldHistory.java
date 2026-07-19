@@ -46,14 +46,22 @@ final class WorldHistory {
     return current.snapshot();
   }
 
-  synchronized WorldTxn.CommitResult publish(WorldTxn transaction) {
+  synchronized WorldTxn.ValidationResult validate(WorldTxn transaction) {
     World base = transaction.baseWorld();
     Set<Long> conflictingRecords = conflictingRecords(transaction, base, current);
     Set<WorldTxn.ScanPredicate> conflictingPredicates =
         conflictingPredicates(transaction, base, current);
-    if (!conflictingRecords.isEmpty() || !conflictingPredicates.isEmpty()) {
+    return new WorldTxn.ValidationResult(
+        current.revision().value(), conflictingRecords, conflictingPredicates);
+  }
+
+  synchronized WorldTxn.CommitResult publish(WorldTxn transaction) {
+    WorldTxn.ValidationResult validation = validate(transaction);
+    if (!validation.isValid()) {
       return WorldTxn.CommitResult.conflict(
-          current.revision().value(), conflictingRecords, conflictingPredicates);
+          validation.revision(),
+          validation.conflictingRecords(),
+          validation.conflictingPredicates());
     }
 
     Map<Long, WorldObject> objects = new LinkedHashMap<>(current.objects());

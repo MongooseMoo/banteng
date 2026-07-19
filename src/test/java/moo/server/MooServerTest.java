@@ -223,9 +223,11 @@ final class MooServerTest {
         targetOutput.flush();
 
         assertEquals("DONE", targetInput.readLine());
-        assertEquals(
-            "{{\"iac--login\"}, \"iac--login\"}",
-            world.property(0, "audit_telnet_literal_seen").orElseThrow().value().toLiteral());
+        try (WorldTxn view = world.begin()) {
+          assertEquals(
+              "{{\"iac--login\"}, \"iac--login\"}",
+              view.property(0, "audit_telnet_literal_seen").orElseThrow().value().toLiteral());
+        }
       }
     } finally {
       server.close();
@@ -275,9 +277,11 @@ final class MooServerTest {
         targetOutput.flush();
 
         Thread.sleep(Duration.ofMillis(500));
-        assertEquals(
-            "{{\"~FF~F1\"}, \"~FF~F1\"}",
-            world.property(0, "audit_telnet_nop_seen").orElseThrow().value().toLiteral());
+        try (WorldTxn view = world.begin()) {
+          assertEquals(
+              "{{\"~FF~F1\"}, \"~FF~F1\"}",
+              view.property(0, "audit_telnet_nop_seen").orElseThrow().value().toLiteral());
+        }
       }
     } finally {
       server.close();
@@ -328,9 +332,11 @@ final class MooServerTest {
         targetOutput.flush();
 
         Thread.sleep(Duration.ofMillis(500));
-        assertEquals(
-            "{{\"~FF~FB~01\"}, \"~FF~FB~01\"}",
-            world.property(0, "audit_telnet_will_seen").orElseThrow().value().toLiteral());
+        try (WorldTxn view = world.begin()) {
+          assertEquals(
+              "{{\"~FF~FB~01\"}, \"~FF~FB~01\"}",
+              view.property(0, "audit_telnet_will_seen").orElseThrow().value().toLiteral());
+        }
       }
     } finally {
       server.close();
@@ -384,9 +390,11 @@ final class MooServerTest {
         targetOutput.flush();
 
         Thread.sleep(Duration.ofMillis(500));
-        assertEquals(
-            "{{\"~FF~FA~1F~00P~00~18~FF~F0\"}, \"~FF~FA~1F~00P~00~18~FF~F0\"}",
-            world.property(0, "audit_telnet_sb_seen").orElseThrow().value().toLiteral());
+        try (WorldTxn view = world.begin()) {
+          assertEquals(
+              "{{\"~FF~FA~1F~00P~00~18~FF~F0\"}, \"~FF~FA~1F~00P~00~18~FF~F0\"}",
+              view.property(0, "audit_telnet_sb_seen").orElseThrow().value().toLiteral());
+        }
       }
     } finally {
       server.close();
@@ -454,8 +462,10 @@ final class MooServerTest {
         targetOutput.flush();
         Thread.sleep(Duration.ofMillis(500));
 
-        assertEquals(
-            "{\"\"}", world.property(0, "audit_binary_seen").orElseThrow().value().toLiteral());
+        try (WorldTxn view = world.begin()) {
+          assertEquals(
+              "{\"\"}", view.property(0, "audit_binary_seen").orElseThrow().value().toLiteral());
+        }
       }
     } finally {
       server.close();

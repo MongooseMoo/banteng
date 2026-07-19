@@ -15,6 +15,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 import moo.builtin.BuiltinCatalog.ConnectionOptionRequest;
 import moo.builtin.BuiltinCatalog.ForcedInputRequest;
+import moo.builtin.CheckpointRequest;
 import moo.bytecode.BytecodeProgram;
 import moo.bytecode.BytecodeProgram.HandlerSpec;
 import moo.value.MooValue;
@@ -36,6 +37,7 @@ public final class VmState {
   private final List<ConnectionOptionRequest> connectionOptionRequests = new ArrayList<>();
   private final List<Long> bootPlayerTargets = new ArrayList<>();
   private final List<ForcedInputRequest> forcedInputRequests = new ArrayList<>();
+  private final List<CheckpointRequest> checkpointRequests = new ArrayList<>();
   private Outcome outcome = Outcome.RUNNING;
   private Optional<MooValue> returnValue = Optional.empty();
   private Optional<ErrorValue> pendingError = Optional.empty();
@@ -45,6 +47,7 @@ public final class VmState {
   private OptionalDouble suspensionDelaySeconds = OptionalDouble.empty();
   private Optional<CompletableFuture<MooValue>> hostResult = Optional.empty();
   private boolean awaitingHostResult;
+  private Optional<VmSnapshot.PendingBuiltin> pendingBuiltin = Optional.empty();
   private MooValue taskLocal = new MapValue(Map.of());
   private long remainingTicks;
   private long elapsedCpuNanos;
@@ -141,6 +144,11 @@ public final class VmState {
   /** Returns the external result that will resume the current suspended task. */
   public Optional<CompletableFuture<MooValue>> hostResult() {
     return hostResult;
+  }
+
+  /** Returns the value-only builtin invocation waiting for publication authorization. */
+  public Optional<VmSnapshot.PendingBuiltin> pendingBuiltin() {
+    return pendingBuiltin;
   }
 
   /** Returns the value stored by a completed root return. */
@@ -385,6 +393,17 @@ public final class VmState {
     return requests;
   }
 
+  void stageCheckpointRequest(CheckpointRequest request) {
+    checkpointRequests.add(request);
+  }
+
+  /** Removes and returns checkpoint requests in task execution order. */
+  public List<CheckpointRequest> drainCheckpointRequests() {
+    List<CheckpointRequest> requests = List.copyOf(checkpointRequests);
+    checkpointRequests.clear();
+    return requests;
+  }
+
   void switchPlayer(long player) {
     switchedPlayer = OptionalLong.of(player);
   }
@@ -433,6 +452,24 @@ public final class VmState {
     outcome = Outcome.RUNNING;
   }
 
+  void yieldBuiltin(VmSnapshot.PendingBuiltin request) {
+    if (outcome != Outcome.RUNNING || pendingBuiltin.isPresent()) {
+      throw new IllegalStateException("VM cannot yield another builtin request");
+    }
+    pendingBuiltin = Optional.of(request);
+    outcome = Outcome.PENDING_BUILTIN;
+  }
+
+  VmSnapshot.PendingBuiltin authorizePendingBuiltin() {
+    if (outcome != Outcome.PENDING_BUILTIN || pendingBuiltin.isEmpty()) {
+      throw new IllegalStateException("VM has no pending builtin request");
+    }
+    VmSnapshot.PendingBuiltin request = pendingBuiltin.orElseThrow();
+    pendingBuiltin = Optional.empty();
+    outcome = Outcome.RUNNING;
+    return request;
+  }
+
   /** Captures this task as value-only state for retry or checkpoint storage. */
   public VmSnapshot snapshot() {
     return snapshot(currentProcessCpuNanos());
@@ -466,6 +503,7 @@ public final class VmState {
         connectionOptionRequests,
         bootPlayerTargets,
         forcedInputRequests,
+        checkpointRequests,
         outcome,
         returnValue,
         pendingError,
@@ -474,6 +512,7 @@ public final class VmState {
         forkSnapshot,
         suspensionDelaySeconds,
         awaitingHostResult,
+        pendingBuiltin,
         taskLocal,
         remainingTicks,
         capturedElapsedCpuNanos,
@@ -498,6 +537,7 @@ public final class VmState {
     state.connectionOptionRequests.addAll(snapshot.connectionOptionRequests());
     state.bootPlayerTargets.addAll(snapshot.bootPlayerTargets());
     state.forcedInputRequests.addAll(snapshot.forcedInputRequests());
+    state.checkpointRequests.addAll(snapshot.checkpointRequests());
     state.outcome = snapshot.outcome();
     state.returnValue = snapshot.returnValue();
     state.pendingError = snapshot.pendingError();
@@ -517,6 +557,7 @@ public final class VmState {
     state.suspensionDelaySeconds = snapshot.suspensionDelaySeconds();
     state.awaitingHostResult = snapshot.awaitingHostResult();
     state.hostResult = Optional.empty();
+    state.pendingBuiltin = snapshot.pendingBuiltin();
     state.taskLocal = snapshot.taskLocal();
     state.elapsedCpuNanos = snapshot.elapsedCpuNanos();
     state.remainingCpuNanos = snapshot.remainingCpuNanos();
@@ -741,6 +782,7 @@ public final class VmState {
     RUNNING,
     FORKED,
     SUSPENDED,
+    PENDING_BUILTIN,
     RETURNED,
     ERRORED
   }

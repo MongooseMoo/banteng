@@ -105,82 +105,84 @@ final class LambdaMooV4ReaderTest {
 
   @Test
   void readsTheCompleteAuthoritativeFixtureThroughWorldTxn() throws IOException {
-    WorldTxn world = new LambdaMooV4Reader().read(TEST_DATABASE);
+    WorldTxn root = new LambdaMooV4Reader().read(TEST_DATABASE);
 
-    assertEquals(List.of(3L, 4L), world.players());
-    assertEquals(8, world.objectCount());
+    try (WorldTxn world = root.begin()) {
+      assertEquals(List.of(3L, 4L), world.players());
+      assertEquals(8, world.objectCount());
 
-    List<WorldObject> expected =
-        List.of(
-            new WorldObject(
-                0,
-                "System Object",
-                16,
-                3,
-                -1,
-                1,
-                List.of(),
-                List.of(),
-                List.of(
-                    new WorldVerb("do_login_command", 3, 173, -1, LOGIN_SOURCE),
-                    new WorldVerb("handle_uncaught_error", 3, 172, -1, UNCAUGHT_SOURCE),
-                    new WorldVerb("handle_task_timeout", 3, 172, -1, TIMEOUT_SOURCE)),
-                List.of(
-                    property("nothing", -1, 4),
-                    property("system", 0, 4),
-                    property("object", 1, 4),
-                    property("anonymous", 5, 3),
-                    property("server_options", 6, 3),
-                    property("waif", 7, 3))),
-            new WorldObject(
-                1,
-                "Root Class",
-                144,
-                3,
-                -1,
-                -1,
-                List.of(),
-                List.of(0L, 2L, 3L, 4L, 5L, 6L, 7L),
-                List.of(),
-                List.of()),
-            new WorldObject(
-                2,
-                "The First Room",
-                0,
-                3,
-                -1,
-                1,
-                List.of(3L, 4L),
-                List.of(),
-                List.of(new WorldVerb("eval", 3, 88, -2, EVAL_SOURCE)),
-                List.of()),
-            object(3, "Wizard", 7, 3, 2, 1),
-            object(4, "Programmer", 3, 4, 2, 1),
-            object(5, "Anonymous Class", 256, 3, -1, 1),
-            object(6, "Server Options", 0, 3, -1, 1),
-            new WorldObject(
-                7,
-                "Waif Class",
-                128,
-                3,
-                -1,
-                1,
-                List.of(),
-                List.of(),
-                List.of(new WorldVerb("new", 3, 173, -1, NEW_SOURCE)),
-                List.of()));
+      List<WorldObject> expected =
+          List.of(
+              new WorldObject(
+                  0,
+                  "System Object",
+                  16,
+                  3,
+                  -1,
+                  1,
+                  List.of(),
+                  List.of(),
+                  List.of(
+                      new WorldVerb("do_login_command", 3, 173, -1, LOGIN_SOURCE),
+                      new WorldVerb("handle_uncaught_error", 3, 172, -1, UNCAUGHT_SOURCE),
+                      new WorldVerb("handle_task_timeout", 3, 172, -1, TIMEOUT_SOURCE)),
+                  List.of(
+                      property("nothing", -1, 4),
+                      property("system", 0, 4),
+                      property("object", 1, 4),
+                      property("anonymous", 5, 3),
+                      property("server_options", 6, 3),
+                      property("waif", 7, 3))),
+              new WorldObject(
+                  1,
+                  "Root Class",
+                  144,
+                  3,
+                  -1,
+                  -1,
+                  List.of(),
+                  List.of(0L, 2L, 3L, 4L, 5L, 6L, 7L),
+                  List.of(),
+                  List.of()),
+              new WorldObject(
+                  2,
+                  "The First Room",
+                  0,
+                  3,
+                  -1,
+                  1,
+                  List.of(3L, 4L),
+                  List.of(),
+                  List.of(new WorldVerb("eval", 3, 88, -2, EVAL_SOURCE)),
+                  List.of()),
+              object(3, "Wizard", 7, 3, 2, 1),
+              object(4, "Programmer", 3, 4, 2, 1),
+              object(5, "Anonymous Class", 256, 3, -1, 1),
+              object(6, "Server Options", 0, 3, -1, 1),
+              new WorldObject(
+                  7,
+                  "Waif Class",
+                  128,
+                  3,
+                  -1,
+                  1,
+                  List.of(),
+                  List.of(),
+                  List.of(new WorldVerb("new", 3, 173, -1, NEW_SOURCE)),
+                  List.of()));
 
-    for (WorldObject expectedObject : expected) {
-      assertEquals(expectedObject, world.object(expectedObject.id()).orElseThrow());
+      for (WorldObject expectedObject : expected) {
+        assertEquals(expectedObject, world.object(expectedObject.id()).orElseThrow());
+      }
+
+      assertEquals(expected.get(2).verbs().getFirst(), world.verb(2, 0).orElseThrow());
+      assertEquals(
+          expected.getFirst().properties().getFirst(), world.property(0, "nothing").orElseThrow());
+      assertTrue(world.object(8).isEmpty());
+      assertTrue(world.verb(2, 1).isEmpty());
+      assertTrue(world.verb(99, 0).isEmpty());
+      assertTrue(world.property(0, "missing").isEmpty());
     }
-
-    assertEquals(expected.get(2).verbs().getFirst(), world.verb(2, 0).orElseThrow());
-    assertEquals(
-        expected.getFirst().properties().getFirst(), world.property(0, "nothing").orElseThrow());
-    assertTrue(world.object(8).isEmpty());
-    assertTrue(world.verb(2, 1).isEmpty());
-    assertTrue(world.verb(99, 0).isEmpty());
-    assertTrue(world.property(0, "missing").isEmpty());
   }
 
   @Test

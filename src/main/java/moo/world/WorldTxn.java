@@ -86,6 +86,12 @@ public final class WorldTxn implements AutoCloseable {
     stagedEffects.add(Objects.requireNonNull(effect, "effect"));
   }
 
+  /** Validates this transaction's exact read, write, and predicate footprint without publishing. */
+  public ValidationResult validate() {
+    ensureActiveTransaction();
+    return history.validate(this);
+  }
+
   /** Atomically validates and publishes this transaction or returns an explicit conflict. */
   public CommitResult commit() {
     ensureActiveTransaction();
@@ -977,6 +983,23 @@ public final class WorldTxn implements AutoCloseable {
   public enum ScanPredicate {
     OBJECT_IDS,
     PLAYERS
+  }
+
+  /** The immutable result of non-publishing validation against the current committed revision. */
+  public record ValidationResult(
+      long revision,
+      Set<Long> conflictingRecords,
+      Set<ScanPredicate> conflictingPredicates) {
+    public ValidationResult {
+      conflictingRecords = Collections.unmodifiableSet(new LinkedHashSet<>(conflictingRecords));
+      conflictingPredicates =
+          Collections.unmodifiableSet(new LinkedHashSet<>(conflictingPredicates));
+    }
+
+    /** Returns whether the transaction's exact footprint remains current. */
+    public boolean isValid() {
+      return conflictingRecords.isEmpty() && conflictingPredicates.isEmpty();
+    }
   }
 
   /** The explicit result of one atomic validation and publication attempt. */

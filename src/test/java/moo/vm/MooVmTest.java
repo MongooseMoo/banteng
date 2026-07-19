@@ -10,6 +10,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Map;
 import moo.builtin.BuiltinCatalog;
+import moo.builtin.EffectClass;
 import moo.bytecode.BytecodeProgram;
 import moo.bytecode.MooCompiler;
 import moo.syntax.Ast;
@@ -2697,14 +2698,14 @@ final class MooVmTest {
 
     assertEquals(VmState.Outcome.ERRORED, invalid.outcome());
     assertEquals(ErrorValue.E_ARGS, invalid.uncaughtError().orElseThrow());
-    assertEquals(BuiltinCatalog.EffectClass.PURE, new BuiltinCatalog().effectClass("ticks_left"));
+    assertEquals(EffectClass.PURE, new BuiltinCatalog().spec("ticks_left").orElseThrow().effect());
   }
 
   @Test
   void exposesTheLiveForegroundSecondsRemainderAndRejectsArguments() {
     BytecodeProgram program =
         new MooCompiler()
-            .compile(MooParser.parse("return {seconds_left(), call_function(\"seconds_left\")};"));
+            .compile(MooParser.parse("return {seconds_left(), seconds_left()};"));
     VmState state = new VmState();
 
     new MooVm().execute(program, state);
@@ -2728,7 +2729,7 @@ final class MooVmTest {
 
     assertEquals(VmState.Outcome.ERRORED, invalid.outcome());
     assertEquals(ErrorValue.E_ARGS, invalid.uncaughtError().orElseThrow());
-    assertEquals(BuiltinCatalog.EffectClass.PURE, new BuiltinCatalog().effectClass("seconds_left"));
+    assertEquals(EffectClass.PURE, new BuiltinCatalog().spec("seconds_left").orElseThrow().effect());
   }
 
   @Test
@@ -2802,7 +2803,7 @@ final class MooVmTest {
                     "value=423.0#0Type mismatchInterrupted{list}[map]"
                         .getBytes(StandardCharsets.ISO_8859_1)))),
         state.returnValue().orElseThrow());
-    assertEquals(BuiltinCatalog.EffectClass.PURE, new BuiltinCatalog().effectClass("tostr"));
+    assertEquals(EffectClass.PURE, new BuiltinCatalog().spec("tostr").orElseThrow().effect());
   }
 
   @Test
@@ -2859,7 +2860,7 @@ final class MooVmTest {
       assertEquals(errors[index], failure.uncaughtError().orElseThrow(), failures[index]);
     }
     assertEquals(
-        BuiltinCatalog.EffectClass.PURE, new BuiltinCatalog().effectClass("function_info"));
+        EffectClass.PURE, new BuiltinCatalog().spec("function_info").orElseThrow().effect());
   }
 
   @Test
@@ -2901,7 +2902,7 @@ final class MooVmTest {
       assertEquals(errors[index], failure.uncaughtError().orElseThrow(), failures[index]);
     }
     assertEquals(
-        BuiltinCatalog.EffectClass.EXTERNAL_READ, new BuiltinCatalog().effectClass("queued_tasks"));
+        EffectClass.EXTERNAL_READ, new BuiltinCatalog().spec("queued_tasks").orElseThrow().effect());
   }
 
   @Test
@@ -3944,7 +3945,7 @@ final class MooVmTest {
         new ListValue(List.of(new IntegerValue(1), new IntegerValue(0))),
         values.returnValue().orElseThrow());
     assertEquals(
-        BuiltinCatalog.EffectClass.TRANSACTION_READ, new BuiltinCatalog().effectClass("valid"));
+        EffectClass.TRANSACTION_READ, new BuiltinCatalog().spec("valid").orElseThrow().effect());
 
     String[] failures = {"return valid();", "return valid(1);", "return valid(#0, #0);"};
     ErrorValue[] errors = {ErrorValue.E_ARGS, ErrorValue.E_TYPE, ErrorValue.E_ARGS};
@@ -4081,11 +4082,11 @@ final class MooVmTest {
       assertEquals(source, changed.programSource());
     }
     assertEquals(
-        BuiltinCatalog.EffectClass.TRANSACTION_WRITE,
-        new BuiltinCatalog().effectClass("set_verb_info"));
+        EffectClass.TRANSACTION_WRITE,
+        new BuiltinCatalog().spec("set_verb_info").orElseThrow().effect());
     assertEquals(
-        BuiltinCatalog.EffectClass.TRANSACTION_WRITE,
-        new BuiltinCatalog().effectClass("set_verb_args"));
+        EffectClass.TRANSACTION_WRITE,
+        new BuiltinCatalog().spec("set_verb_args").orElseThrow().effect());
   }
 
   @Test
@@ -4264,15 +4265,25 @@ final class MooVmTest {
   private static void executeAndClose(
       BytecodeProgram program, VmState state, WorldTxn root, BuiltinCatalog builtins) {
     try (WorldTxn transaction = root.begin()) {
-      new MooVm().execute(program, state, transaction, builtins);
+      executeWithAuthorizedIrrevocables(program, state, transaction, builtins);
     }
   }
 
   private static void executeAndCommit(
       BytecodeProgram program, VmState state, WorldTxn root, BuiltinCatalog builtins) {
     try (WorldTxn transaction = root.begin()) {
-      new MooVm().execute(program, state, transaction, builtins);
+      executeWithAuthorizedIrrevocables(program, state, transaction, builtins);
       assertTrue(transaction.commit().isCommitted());
+    }
+  }
+
+  private static void executeWithAuthorizedIrrevocables(
+      BytecodeProgram program, VmState state, WorldTxn transaction, BuiltinCatalog builtins) {
+    MooVm vm = new MooVm();
+    vm.execute(program, state, transaction, builtins);
+    while (state.outcome() == VmState.Outcome.PENDING_BUILTIN) {
+      vm.authorizePendingBuiltin(state, transaction, builtins);
+      vm.execute(program, state, transaction, builtins);
     }
   }
 }

@@ -8,14 +8,18 @@ import java.nio.file.Path;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Optional;
 import moo.builtin.BuiltinCatalog;
+import moo.builtin.EffectClass;
 import moo.persistence.LambdaMooV4Reader;
+import moo.value.MooValue;
 import moo.value.MooValue.IntegerValue;
 import moo.value.MooValue.ListValue;
 import moo.value.MooValue.MapValue;
 import moo.value.MooValue.ObjectValue;
 import moo.value.MooValue.StringValue;
 import moo.world.WorldObject;
+import moo.world.WorldProperty;
 import moo.world.WorldTxn;
 import moo.world.WorldVerb;
 import org.junit.jupiter.api.Test;
@@ -38,12 +42,12 @@ final class MooRuntimeTest {
     assertEquals(List.of(), runtime.openConnection(connectionId));
     assertEquals(List.of("*** Connected ***"), runtime.executeLine(connectionId, "connect Wizard"));
 
-    WorldObject wizard = world.object(8).orElseThrow();
+    WorldObject wizard = readObject(world, 8).orElseThrow();
     assertEquals(8, wizard.owner());
     assertEquals(7, wizard.flags());
     assertEquals(2, wizard.location());
-    assertEquals(List.of(3L, 4L, 8L), world.object(2).orElseThrow().contents());
-    assertEquals(List.of(3L, 4L, 8L), world.players());
+    assertEquals(List.of(3L, 4L, 8L), readObject(world, 2).orElseThrow().contents());
+    assertEquals(List.of(3L, 4L, 8L), world.snapshot().players());
 
     assertEquals(List.of(), runtime.executeLine(connectionId, "PREFIX " + CONNECTION_PREFIX));
     assertEquals(List.of(), runtime.executeLine(connectionId, "SUFFIX " + CONNECTION_SUFFIX));
@@ -54,16 +58,43 @@ final class MooRuntimeTest {
     executeSetup(runtime, connectionId, "sysobj", "#0");
     executeSetup(runtime, connectionId, "nothing", "#-1");
 
-    assertEquals(new ObjectValue(5), world.property(0, "anon").orElseThrow().value());
-    assertEquals(new ObjectValue(0), world.property(0, "sysobj").orElseThrow().value());
-    assertEquals(5, world.property(0, "anon").orElseThrow().permissions());
-    assertEquals(5, world.property(0, "sysobj").orElseThrow().permissions());
-    assertEquals(8, world.object(0).orElseThrow().properties().size());
+    assertEquals(new ObjectValue(5), readProperty(world, 0, "anon").orElseThrow().value());
+    assertEquals(new ObjectValue(0), readProperty(world, 0, "sysobj").orElseThrow().value());
+    assertEquals(5, readProperty(world, 0, "anon").orElseThrow().permissions());
+    assertEquals(5, readProperty(world, 0, "sysobj").orElseThrow().permissions());
+    assertEquals(8, readObject(world, 0).orElseThrow().properties().size());
 
     assertEquals(
         List.of(
             CONNECTION_PREFIX, CONNECTION_PREFIX, "{1, 2}", CONNECTION_SUFFIX, CONNECTION_SUFFIX),
         runtime.executeLine(connectionId, "; return 1 + 1;"));
+  }
+
+  @Test
+  void authorizesDynamicCallFunctionThroughTheProductionScheduler() throws Exception {
+    WorldTxn world = new LambdaMooV4Reader().read(FIXTURE);
+    MooRuntime runtime = new MooRuntime(world);
+    long connectionId = -47;
+
+    assertEquals(List.of(), runtime.openConnection(connectionId));
+    assertEquals(List.of("*** Connected ***"), runtime.executeLine(connectionId, "connect Wizard"));
+    assertEquals(List.of(), runtime.executeLine(connectionId, "PREFIX " + CONNECTION_PREFIX));
+    assertEquals(List.of(), runtime.executeLine(connectionId, "SUFFIX " + CONNECTION_SUFFIX));
+
+    assertEquals(
+        List.of(
+            CONNECTION_PREFIX,
+            CONNECTION_PREFIX,
+            "{1, {1, 1}}",
+            CONNECTION_SUFFIX,
+            CONNECTION_SUFFIX),
+        runtime.executeLine(
+            connectionId,
+            "; direct = seconds_left(); indirect = call_function(\"seconds_left\"); "
+                + "return {direct >= 0 && direct <= 5, indirect >= 0 && indirect <= direct};"));
+    assertEquals(
+        EffectClass.IRREVOCABLE,
+        new BuiltinCatalog().spec("call_function").orElseThrow().effect());
   }
 
   @Test
@@ -97,8 +128,8 @@ final class MooRuntimeTest {
             CONNECTION_SUFFIX),
         runtime.executeLine(connectionId, "; return connection_name(player, 0);"));
     assertEquals(
-        BuiltinCatalog.EffectClass.EXTERNAL_READ,
-        new BuiltinCatalog().effectClass("connection_name"));
+        EffectClass.EXTERNAL_READ,
+        new BuiltinCatalog().spec("connection_name").orElseThrow().effect());
   }
 
   @Test
@@ -140,7 +171,7 @@ final class MooRuntimeTest {
             + "{\"this\", \"none\", \"this\"}, {\"1;\"}, 0, "
             + "{#8, \"rxd\", \"get*ter_probe\"}, "
             + "{\"this\", \"none\", \"this\"}, {\"1;\"}}",
-        world.property(0, "audit_verb_getters").orElseThrow().value().toLiteral());
+        readProperty(world, 0, "audit_verb_getters").orElseThrow().value().toLiteral());
   }
 
   @Test
@@ -152,7 +183,7 @@ final class MooRuntimeTest {
     assertEquals(List.of(), runtime.openConnection(primaryConnection));
     assertEquals(
         List.of("*** Connected ***"), runtime.executeLine(primaryConnection, "connect Wizard"));
-    long handler = world.objectCount();
+    long handler = world.snapshot().objects().size();
     long loginPlayer = handler + 1;
     runtime.executeLine(
         primaryConnection,
@@ -174,13 +205,13 @@ final class MooRuntimeTest {
         });
         return 1;
         """);
-    assertTrue(world.object(handler).isPresent());
-    assertTrue(world.object(loginPlayer).isPresent());
+    assertTrue(readObject(world, handler).isPresent());
+    assertTrue(readObject(world, loginPlayer).isPresent());
 
     long dynamicConnection = -48;
     try {
       assertEquals(List.of(), runtime.openConnection(dynamicConnection, handler, false));
-      assertEquals(loginPlayer, world.connectionPlayer(dynamicConnection).orElseThrow());
+      assertEquals(loginPlayer, runtime.connectionPlayer(dynamicConnection).orElseThrow());
       assertEquals(
           List.of("I couldn't understand that."),
           runtime.executeLine(dynamicConnection, "postlogin alpha beta"));
@@ -190,7 +221,7 @@ final class MooRuntimeTest {
               + ", #"
               + loginPlayer
               + ", {\"postlogin\", \"alpha\", \"beta\"}, \"postlogin alpha beta\"}",
-          world.property(0, "audit_command_seen").orElseThrow().value().toLiteral());
+          readProperty(world, 0, "audit_command_seen").orElseThrow().value().toLiteral());
     } finally {
       runtime.closeConnection(dynamicConnection);
     }
@@ -236,8 +267,8 @@ final class MooRuntimeTest {
           return handler;
         """);
     long handler =
-        ((ObjectValue) world.property(0, "audit_created_handler").orElseThrow().value()).value();
-    assertTrue(world.object(handler).isPresent());
+        ((ObjectValue) readProperty(world, 0, "audit_created_handler").orElseThrow().value()).value();
+    assertTrue(readObject(world, handler).isPresent());
 
     StringValue sourcePortKey =
         new StringValue("source_port".getBytes(StandardCharsets.ISO_8859_1));
@@ -248,8 +279,8 @@ final class MooRuntimeTest {
       assertEquals(
           List.of(), runtime.openConnection(dynamicConnection, handler, false, connectionInfo));
       long loginPlayer =
-          ((ObjectValue) world.property(0, "audit_created_player").orElseThrow().value()).value();
-      assertEquals(loginPlayer, world.connectionPlayer(dynamicConnection).orElseThrow());
+          ((ObjectValue) readProperty(world, 0, "audit_created_player").orElseThrow().value()).value();
+      assertEquals(loginPlayer, runtime.connectionPlayer(dynamicConnection).orElseThrow());
       assertEquals(
           "{#"
               + handler
@@ -260,10 +291,10 @@ final class MooRuntimeTest {
               + "}, \"\", "
               + sourcePort
               + "}",
-          world.property(0, "audit_created_seen").orElseThrow().value().toLiteral());
+          readProperty(world, 0, "audit_created_seen").orElseThrow().value().toLiteral());
       assertEquals(
           "{\"created\", \"connected\"}",
-          world.property(0, "audit_created_order").orElseThrow().value().toLiteral());
+          readProperty(world, 0, "audit_created_order").orElseThrow().value().toLiteral());
     } finally {
       runtime.closeConnection(dynamicConnection);
     }
@@ -278,7 +309,7 @@ final class MooRuntimeTest {
     assertEquals(List.of(), runtime.openConnection(primaryConnection));
     assertEquals(
         List.of("*** Connected ***"), runtime.executeLine(primaryConnection, "connect Wizard"));
-    long handler = world.objectCount();
+    long handler = world.snapshot().objects().size();
     long loginPlayer = handler + 1;
     runtime.executeLine(
         primaryConnection,
@@ -298,16 +329,16 @@ final class MooRuntimeTest {
         });
         return 1;
         """);
-    assertTrue(world.object(handler).isPresent());
-    assertTrue(world.object(loginPlayer).isPresent());
+    assertTrue(readObject(world, handler).isPresent());
+    assertTrue(readObject(world, loginPlayer).isPresent());
 
     long dynamicConnection = -48;
     try {
       assertEquals(List.of(), runtime.openConnection(dynamicConnection, handler, false));
-      assertEquals(loginPlayer, world.connectionPlayer(dynamicConnection).orElseThrow());
+      assertEquals(loginPlayer, runtime.connectionPlayer(dynamicConnection).orElseThrow());
       assertEquals(
           "{#" + handler + ", #" + loginPlayer + ", #-1, {#" + loginPlayer + "}, \"\"}",
-          world.property(0, "audit_connected_seen").orElseThrow().value().toLiteral());
+          readProperty(world, 0, "audit_connected_seen").orElseThrow().value().toLiteral());
     } finally {
       runtime.closeConnection(dynamicConnection);
     }
@@ -322,7 +353,7 @@ final class MooRuntimeTest {
     assertEquals(List.of(), runtime.openConnection(primaryConnection));
     assertEquals(
         List.of("*** Connected ***"), runtime.executeLine(primaryConnection, "connect Wizard"));
-    long handler = world.objectCount();
+    long handler = world.snapshot().objects().size();
     long loginPlayer = handler + 1;
     runtime.executeLine(
         primaryConnection,
@@ -348,19 +379,19 @@ final class MooRuntimeTest {
         });
         return 1;
         """);
-    assertTrue(world.object(handler).isPresent());
-    assertTrue(world.object(loginPlayer).isPresent());
+    assertTrue(readObject(world, handler).isPresent());
+    assertTrue(readObject(world, loginPlayer).isPresent());
 
     long dynamicConnection = -48;
     assertEquals(List.of(), runtime.openConnection(dynamicConnection, handler, false));
-    assertEquals(loginPlayer, world.connectionPlayer(dynamicConnection).orElseThrow());
+    assertEquals(loginPlayer, runtime.connectionPlayer(dynamicConnection).orElseThrow());
 
     runtime.closeConnection(dynamicConnection);
 
-    assertTrue(world.connectionPlayer(dynamicConnection).isEmpty());
+    assertTrue(runtime.connectionPlayer(dynamicConnection).isEmpty());
     assertEquals(
         "{{#" + handler + ", #" + loginPlayer + ", #-1, {#" + loginPlayer + "}, \"\", 0}}",
-        world.property(0, "audit_disconnected_seen").orElseThrow().value().toLiteral());
+        readProperty(world, 0, "audit_disconnected_seen").orElseThrow().value().toLiteral());
   }
 
   @Test
@@ -421,14 +452,14 @@ final class MooRuntimeTest {
         return 1;
         """);
     long oldHandler =
-        ((ObjectValue) world.property(0, "audit_cross_old_handler").orElseThrow().value()).value();
+        ((ObjectValue) readProperty(world, 0, "audit_cross_old_handler").orElseThrow().value()).value();
     long newHandler =
-        ((ObjectValue) world.property(0, "audit_cross_new_handler").orElseThrow().value()).value();
+        ((ObjectValue) readProperty(world, 0, "audit_cross_new_handler").orElseThrow().value()).value();
     long loginPlayer =
-        ((ObjectValue) world.property(0, "audit_cross_player").orElseThrow().value()).value();
-    assertTrue(world.object(oldHandler).isPresent());
-    assertTrue(world.object(newHandler).isPresent());
-    assertTrue(world.object(loginPlayer).isPresent());
+        ((ObjectValue) readProperty(world, 0, "audit_cross_player").orElseThrow().value()).value();
+    assertTrue(readObject(world, oldHandler).isPresent());
+    assertTrue(readObject(world, newHandler).isPresent());
+    assertTrue(readObject(world, loginPlayer).isPresent());
 
     StringValue sourcePortKey =
         new StringValue("source_port".getBytes(StandardCharsets.ISO_8859_1));
@@ -448,7 +479,7 @@ final class MooRuntimeTest {
 
     assertEquals(
         "{{#" + oldHandler + ", #" + loginPlayer + ", #-1, {#" + loginPlayer + "}, \"\", 0}}",
-        world.property(0, "audit_cross_old_client").orElseThrow().value().toLiteral());
+        readProperty(world, 0, "audit_cross_old_client").orElseThrow().value().toLiteral());
     assertEquals(
         "{{#"
             + newHandler
@@ -459,15 +490,15 @@ final class MooRuntimeTest {
             + "}, \"\", "
             + newSourcePort
             + "}}",
-        world.property(0, "audit_cross_new_connected").orElseThrow().value().toLiteral());
+        readProperty(world, 0, "audit_cross_new_connected").orElseThrow().value().toLiteral());
     assertEquals(
         "{\"old_client\", \"new_connected\"}",
-        world.property(0, "audit_cross_order").orElseThrow().value().toLiteral());
+        readProperty(world, 0, "audit_cross_order").orElseThrow().value().toLiteral());
     assertEquals(
-        "{}", world.property(0, "audit_cross_new_reconnected").orElseThrow().value().toLiteral());
+        "{}", readProperty(world, 0, "audit_cross_new_reconnected").orElseThrow().value().toLiteral());
     assertEquals(
         new IntegerValue(newSourcePort),
-        world.connectionInfo(loginPlayer).orElseThrow().get(sourcePortKey).orElseThrow());
+        runtime.connectionInfo(loginPlayer).orElseThrow().get(sourcePortKey).orElseThrow());
   }
 
   @Test
@@ -504,22 +535,22 @@ final class MooRuntimeTest {
     long timedConnection = -48;
     assertEquals(List.of(), runtime.openConnection(timedConnection, 0, false));
     Thread.sleep(1200);
-    assertEquals("{}", world.property(0, "audit_timeout_seen").orElseThrow().value().toLiteral());
+    assertEquals("{}", readProperty(world, 0, "audit_timeout_seen").orElseThrow().value().toLiteral());
 
     assertEquals(List.of(), runtime.executeLine(timedConnection, "activity reset"));
     Thread.sleep(1200);
-    assertEquals("{}", world.property(0, "audit_timeout_seen").orElseThrow().value().toLiteral());
+    assertEquals("{}", readProperty(world, 0, "audit_timeout_seen").orElseThrow().value().toLiteral());
 
     Thread.sleep(1200);
     String expectedFrame =
         "{{#0, #" + timedConnection + ", #-1, {#" + timedConnection + "}, \"\"}}";
     assertEquals(
-        expectedFrame, world.property(0, "audit_timeout_seen").orElseThrow().value().toLiteral());
-    assertTrue(world.connectionPlayer(timedConnection).isEmpty());
+        expectedFrame, readProperty(world, 0, "audit_timeout_seen").orElseThrow().value().toLiteral());
+    assertTrue(runtime.connectionPlayer(timedConnection).isEmpty());
 
     Thread.sleep(1200);
     assertEquals(
-        expectedFrame, world.property(0, "audit_timeout_seen").orElseThrow().value().toLiteral());
+        expectedFrame, readProperty(world, 0, "audit_timeout_seen").orElseThrow().value().toLiteral());
   }
 
   @Test
@@ -576,7 +607,7 @@ final class MooRuntimeTest {
         primaryConnection,
         "; set_connection_option(#0.audit_flush_player, \"hold-input\", 0); return 1;");
     assertEquals(List.of(), runtime.executeLine(heldConnection, "auditflush"));
-    assertEquals("{\"\"}", world.property(0, "audit_flush_seen").orElseThrow().value().toLiteral());
+    assertEquals("{\"\"}", readProperty(world, 0, "audit_flush_seen").orElseThrow().value().toLiteral());
   }
 
   @Test
@@ -666,9 +697,9 @@ final class MooRuntimeTest {
 
     assertEquals(
         "{1, 1, 1, 1, 0}",
-        world.property(0, "audit_queue_result").orElseThrow().value().toLiteral());
+        readProperty(world, 0, "audit_queue_result").orElseThrow().value().toLiteral());
     assertEquals(
-        "1", world.property(0, "audit_queue_login_seen").orElseThrow().value().toLiteral());
+        "1", readProperty(world, 0, "audit_queue_login_seen").orElseThrow().value().toLiteral());
   }
 
   @Test
@@ -680,7 +711,7 @@ final class MooRuntimeTest {
     assertEquals(List.of(), runtime.openConnection(primaryConnection));
     assertEquals(
         List.of("*** Connected ***"), runtime.executeLine(primaryConnection, "connect Wizard"));
-    long handler = world.objectCount();
+    long handler = world.snapshot().objects().size();
     long loginPlayer = handler + 1;
     runtime.executeLine(
         primaryConnection,
@@ -713,8 +744,8 @@ final class MooRuntimeTest {
         });
         return 1;
         """);
-    assertTrue(world.object(handler).isPresent());
-    assertTrue(world.object(loginPlayer).isPresent());
+    assertTrue(readObject(world, handler).isPresent());
+    assertTrue(readObject(world, loginPlayer).isPresent());
 
     long dynamicConnection = -48;
     try {
@@ -723,10 +754,10 @@ final class MooRuntimeTest {
           "{#" + loginPlayer + ", #" + loginPlayer + ", {\"parent\", \"child\"}, \"before\"}",
           new ListValue(
                   List.of(
-                      world.property(0, "audit_connected_fork_parent").orElseThrow().value(),
-                      world.property(0, "audit_connected_fork_child").orElseThrow().value(),
-                      world.property(0, "audit_connected_fork_order").orElseThrow().value(),
-                      world.property(0, "audit_connected_fork_marker").orElseThrow().value()))
+                      readProperty(world, 0, "audit_connected_fork_parent").orElseThrow().value(),
+                      readProperty(world, 0, "audit_connected_fork_child").orElseThrow().value(),
+                      readProperty(world, 0, "audit_connected_fork_order").orElseThrow().value(),
+                      readProperty(world, 0, "audit_connected_fork_marker").orElseThrow().value()))
               .toLiteral());
     } finally {
       runtime.closeConnection(dynamicConnection);
@@ -762,7 +793,7 @@ final class MooRuntimeTest {
               return #0.audit_task_local_value;
               """));
       assertEquals(
-          "[]", world.property(0, "audit_task_local_value").orElseThrow().value().toLiteral());
+          "[]", readProperty(world, 0, "audit_task_local_value").orElseThrow().value().toLiteral());
     } finally {
       runtime.executeLine(
           connectionId, "; return delete_property(#0, \"audit_task_local_value\");");
@@ -795,7 +826,7 @@ final class MooRuntimeTest {
               return #0.audit_background_ticks;
               """));
       assertEquals(
-          "29999", world.property(0, "audit_background_ticks").orElseThrow().value().toLiteral());
+          "29999", readProperty(world, 0, "audit_background_ticks").orElseThrow().value().toLiteral());
     } finally {
       runtime.executeLine(
           connectionId, "; return delete_property(#0, " + "\"audit_background_ticks\");");
@@ -823,7 +854,7 @@ final class MooRuntimeTest {
             endtry
             return 1;
             """));
-    assertEquals(new IntegerValue(12_345), world.property(6, "fg_ticks").orElseThrow().value());
+    assertEquals(new IntegerValue(12_345), readProperty(world, 6, "fg_ticks").orElseThrow().value());
 
     assertEquals(
         List.of(CONNECTION_PREFIX, "{1, 1}", CONNECTION_SUFFIX),
@@ -852,7 +883,7 @@ final class MooRuntimeTest {
             endtry
             return 1;
             """));
-    assertEquals(new IntegerValue(12), world.property(6, "fg_seconds").orElseThrow().value());
+    assertEquals(new IntegerValue(12), readProperty(world, 6, "fg_seconds").orElseThrow().value());
 
     assertEquals(
         List.of(CONNECTION_PREFIX, "{1, 1}", CONNECTION_SUFFIX),
@@ -931,8 +962,8 @@ final class MooRuntimeTest {
             endtry
             return 1;
             """));
-    assertEquals(new IntegerValue(23_456), world.property(6, "bg_ticks").orElseThrow().value());
-    assertEquals(new IntegerValue(0), world.property(0, "audit_bg_ticks").orElseThrow().value());
+    assertEquals(new IntegerValue(23_456), readProperty(world, 6, "bg_ticks").orElseThrow().value());
+    assertEquals(new IntegerValue(0), readProperty(world, 0, "audit_bg_ticks").orElseThrow().value());
 
     assertEquals(
         List.of(CONNECTION_PREFIX, "{1, 1}", CONNECTION_SUFFIX),
@@ -972,8 +1003,8 @@ final class MooRuntimeTest {
             endtry
             return 1;
             """));
-    assertEquals(new IntegerValue(23_456), world.property(6, "bg_ticks").orElseThrow().value());
-    assertEquals(new IntegerValue(0), world.property(0, "audit_bg_ticks").orElseThrow().value());
+    assertEquals(new IntegerValue(23_456), readProperty(world, 6, "bg_ticks").orElseThrow().value());
+    assertEquals(new IntegerValue(0), readProperty(world, 0, "audit_bg_ticks").orElseThrow().value());
 
     assertEquals(
         List.of(CONNECTION_PREFIX, "{1, 1}", CONNECTION_SUFFIX),
@@ -1014,8 +1045,8 @@ final class MooRuntimeTest {
             endtry
             return 1;
             """));
-    assertEquals(new IntegerValue(23_456), world.property(6, "bg_ticks").orElseThrow().value());
-    assertEquals(new IntegerValue(0), world.property(0, "audit_bg_ticks").orElseThrow().value());
+    assertEquals(new IntegerValue(23_456), readProperty(world, 6, "bg_ticks").orElseThrow().value());
+    assertEquals(new IntegerValue(0), readProperty(world, 0, "audit_bg_ticks").orElseThrow().value());
 
     assertEquals(
         List.of(CONNECTION_PREFIX, "{1, 1}", CONNECTION_SUFFIX),
@@ -1057,8 +1088,8 @@ final class MooRuntimeTest {
             endtry
             return 1;
             """));
-    assertEquals(new IntegerValue(9), world.property(6, "bg_seconds").orElseThrow().value());
-    assertEquals(new IntegerValue(0), world.property(0, "audit_bg_seconds").orElseThrow().value());
+    assertEquals(new IntegerValue(9), readProperty(world, 6, "bg_seconds").orElseThrow().value());
+    assertEquals(new IntegerValue(0), readProperty(world, 0, "audit_bg_seconds").orElseThrow().value());
 
     assertEquals(
         List.of(CONNECTION_PREFIX, "{1, 1}", CONNECTION_SUFFIX),
@@ -1098,8 +1129,8 @@ final class MooRuntimeTest {
             endtry
             return 1;
             """));
-    assertEquals(new IntegerValue(9), world.property(6, "bg_seconds").orElseThrow().value());
-    assertEquals(new IntegerValue(0), world.property(0, "audit_bg_seconds").orElseThrow().value());
+    assertEquals(new IntegerValue(9), readProperty(world, 6, "bg_seconds").orElseThrow().value());
+    assertEquals(new IntegerValue(0), readProperty(world, 0, "audit_bg_seconds").orElseThrow().value());
 
     assertEquals(
         List.of(CONNECTION_PREFIX, "{1, 1}", CONNECTION_SUFFIX),
@@ -1140,8 +1171,8 @@ final class MooRuntimeTest {
             endtry
             return 1;
             """));
-    assertEquals(new IntegerValue(9), world.property(6, "bg_seconds").orElseThrow().value());
-    assertEquals(new IntegerValue(0), world.property(0, "audit_bg_seconds").orElseThrow().value());
+    assertEquals(new IntegerValue(9), readProperty(world, 6, "bg_seconds").orElseThrow().value());
+    assertEquals(new IntegerValue(0), readProperty(world, 0, "audit_bg_seconds").orElseThrow().value());
 
     assertEquals(
         List.of(CONNECTION_PREFIX, "{1, 1}", CONNECTION_SUFFIX),
@@ -1166,7 +1197,7 @@ final class MooRuntimeTest {
 
     assertEquals(List.of(), runtime.openConnection(connectionId));
     assertEquals(List.of("*** Connected ***"), runtime.executeLine(connectionId, "connect Wizard"));
-    long waifSubclass = world.objectCount();
+    long waifSubclass = world.snapshot().objects().size();
 
     try {
       assertEquals(
@@ -1186,8 +1217,8 @@ final class MooRuntimeTest {
               });
               return obj;
               """));
-      assertEquals(3, world.object(waifSubclass).orElseThrow().verbs().size());
-      assertTrue(world.verb(waifSubclass, "new").isPresent());
+      assertEquals(3, readObject(world, waifSubclass).orElseThrow().verbs().size());
+      assertTrue(readVerb(world, waifSubclass, "new").isPresent());
 
       assertEquals(
           List.of(
@@ -1203,7 +1234,7 @@ final class MooRuntimeTest {
                   + "recycle(obj);\n"
                   + "return result;"));
     } finally {
-      if (world.object(waifSubclass).isPresent()) {
+      if (readObject(world, waifSubclass).isPresent()) {
         runtime.executeLine(connectionId, "; recycle(#" + waifSubclass + "); return 1;");
       }
     }
@@ -1217,7 +1248,7 @@ final class MooRuntimeTest {
 
     assertEquals(List.of(), runtime.openConnection(connectionId));
     assertEquals(List.of("*** Connected ***"), runtime.executeLine(connectionId, "connect Wizard"));
-    long thing = world.objectCount();
+    long thing = world.snapshot().objects().size();
     long destination = thing + 1;
 
     try {
@@ -1238,10 +1269,10 @@ final class MooRuntimeTest {
               return {destination.accept_seen == thing, thing.location == destination};
               """));
     } finally {
-      if (world.object(thing).isPresent()) {
+      if (readObject(world, thing).isPresent()) {
         runtime.executeLine(connectionId, "; recycle(#" + thing + "); return 1;");
       }
-      if (world.object(destination).isPresent()) {
+      if (readObject(world, destination).isPresent()) {
         runtime.executeLine(connectionId, "; recycle(#" + destination + "); return 1;");
       }
     }
@@ -1255,7 +1286,7 @@ final class MooRuntimeTest {
 
     assertEquals(List.of(), runtime.openConnection(connectionId));
     assertEquals(List.of("*** Connected ***"), runtime.executeLine(connectionId, "connect Wizard"));
-    long object = world.objectCount();
+    long object = world.snapshot().objects().size();
 
     try {
       List<String> output =
@@ -1266,10 +1297,10 @@ final class MooRuntimeTest {
               return object.f = 0;
               """);
 
-      assertEquals(0, world.object(object).orElseThrow().flags() & 128);
+      assertEquals(0, readObject(world, object).orElseThrow().flags() & 128);
       assertEquals(List.of(CONNECTION_PREFIX, "{1, 0}", CONNECTION_SUFFIX), output);
     } finally {
-      if (world.object(object).isPresent()) {
+      if (readObject(world, object).isPresent()) {
         runtime.executeLine(connectionId, "; recycle(#" + object + "); return 1;");
       }
     }
@@ -1284,7 +1315,7 @@ final class MooRuntimeTest {
     assertEquals(List.of(), runtime.openConnection(primaryConnection));
     assertEquals(
         List.of("*** Connected ***"), runtime.executeLine(primaryConnection, "connect Wizard"));
-    long definingParent = world.objectCount();
+    long definingParent = world.snapshot().objects().size();
     long childHandler = definingParent + 1;
     long loginPlayer = childHandler + 1;
 
@@ -1314,10 +1345,10 @@ final class MooRuntimeTest {
     long inheritedConnection = -48;
     try {
       assertEquals(List.of(), runtime.openConnection(inheritedConnection, childHandler, false));
-      assertEquals(loginPlayer, world.connectionPlayer(inheritedConnection).orElseThrow());
+      assertEquals(loginPlayer, runtime.connectionPlayer(inheritedConnection).orElseThrow());
       assertEquals(
           new ObjectValue(definingParent),
-          world.property(0, "audit_root_verb_location").orElseThrow().value());
+          readProperty(world, 0, "audit_root_verb_location").orElseThrow().value());
     } finally {
       runtime.closeConnection(inheritedConnection);
     }
@@ -1332,8 +1363,8 @@ final class MooRuntimeTest {
     assertEquals(List.of(), runtime.openConnection(primaryConnection));
     assertEquals(
         List.of("*** Connected ***"), runtime.executeLine(primaryConnection, "connect Wizard"));
-    long setupWizard = world.connectionPlayer(primaryConnection).orElseThrow();
-    long handler = world.objectCount();
+    long setupWizard = runtime.connectionPlayer(primaryConnection).orElseThrow();
+    long handler = world.snapshot().objects().size();
     long loginPlayer = handler + 1;
     long location = loginPlayer + 1;
     runtime.executeLine(
@@ -1385,9 +1416,9 @@ final class MooRuntimeTest {
         });
         return 1;
         """);
-    assertTrue(world.object(handler).isPresent());
-    assertTrue(world.object(loginPlayer).isPresent());
-    assertTrue(world.object(location).isPresent());
+    assertTrue(readObject(world, handler).isPresent());
+    assertTrue(readObject(world, loginPlayer).isPresent());
+    assertTrue(readObject(world, location).isPresent());
 
     long dynamicConnection = -48;
     try {
@@ -1416,11 +1447,11 @@ final class MooRuntimeTest {
               + "}}",
           new ListValue(
                   List.of(
-                      world.property(0, "audit_confunc_child").orElseThrow().value(),
-                      world.property(0, "audit_confunc_after_suspend").orElseThrow().value(),
-                      world.property(0, "audit_confunc_location_seen").orElseThrow().value(),
-                      world.property(0, "audit_confunc_user_seen").orElseThrow().value(),
-                      world.property(0, "audit_confunc_parent").orElseThrow().value()))
+                      readProperty(world, 0, "audit_confunc_child").orElseThrow().value(),
+                      readProperty(world, 0, "audit_confunc_after_suspend").orElseThrow().value(),
+                      readProperty(world, 0, "audit_confunc_location_seen").orElseThrow().value(),
+                      readProperty(world, 0, "audit_confunc_user_seen").orElseThrow().value(),
+                      readProperty(world, 0, "audit_confunc_parent").orElseThrow().value()))
               .toLiteral());
     } finally {
       runtime.closeConnection(dynamicConnection);
@@ -1436,7 +1467,7 @@ final class MooRuntimeTest {
     assertEquals(List.of(), runtime.openConnection(primaryConnection));
     assertEquals(
         List.of("*** Connected ***"), runtime.executeLine(primaryConnection, "connect Wizard"));
-    long handler = world.objectCount();
+    long handler = world.snapshot().objects().size();
     runtime.executeLine(
         primaryConnection,
         """
@@ -1456,7 +1487,7 @@ final class MooRuntimeTest {
         });
         return 1;
         """);
-    assertEquals(new ObjectValue(6), world.property(0, "server_options").orElseThrow().value());
+    assertEquals(new ObjectValue(6), readProperty(world, 0, "server_options").orElseThrow().value());
 
     StringValue destinationIp = new StringValue("127.0.0.1".getBytes(StandardCharsets.ISO_8859_1));
     MapValue connectionInfo =
@@ -1471,7 +1502,7 @@ final class MooRuntimeTest {
       assertEquals(List.of(), runtime.executeLine(dynamicConnection, ""));
       assertEquals(
           "{#" + handler + ", #-48, #-48, {}, \"\"}",
-          world.property(0, "audit_blank_seen").orElseThrow().value().toLiteral());
+          readProperty(world, 0, "audit_blank_seen").orElseThrow().value().toLiteral());
     } finally {
       runtime.closeConnection(dynamicConnection);
     }
@@ -1521,7 +1552,7 @@ final class MooRuntimeTest {
           List.of(),
           runtime.executeLine(dynamicConnection, "PROXY TCP4 127.0.0.1 198.51.100.9 4242 7777"));
       assertEquals(
-          "{{}, \"\"}", world.property(0, "audit_proxy_seen").orElseThrow().value().toLiteral());
+          "{{}, \"\"}", readProperty(world, 0, "audit_proxy_seen").orElseThrow().value().toLiteral());
     } finally {
       runtime.closeConnection(dynamicConnection);
     }
@@ -1536,7 +1567,7 @@ final class MooRuntimeTest {
     assertEquals(List.of(), runtime.openConnection(primaryConnection));
     assertEquals(
         List.of("*** Connected ***"), runtime.executeLine(primaryConnection, "connect Wizard"));
-    long handler = world.objectCount();
+    long handler = world.snapshot().objects().size();
     runtime.executeLine(
         primaryConnection,
         """
@@ -1549,7 +1580,7 @@ final class MooRuntimeTest {
         });
         return handler;
         """);
-    assertTrue(world.object(handler).isPresent());
+    assertTrue(readObject(world, handler).isPresent());
 
     long dynamicConnection = -48;
     try {
@@ -1557,7 +1588,7 @@ final class MooRuntimeTest {
       assertEquals(List.of(), runtime.executeLine(dynamicConnection, "auditlogin foo\\ bar  baz"));
       assertEquals(
           "{{\"auditlogin\", \"foo bar\", \"baz\"}, \"auditlogin foo\\\\ bar  baz\"}",
-          world.property(0, "audit_login_words").orElseThrow().value().toLiteral());
+          readProperty(world, 0, "audit_login_words").orElseThrow().value().toLiteral());
     } finally {
       runtime.closeConnection(dynamicConnection);
       runtime.executeLine(
@@ -1586,12 +1617,12 @@ final class MooRuntimeTest {
             });
             return 1;
             """);
-    long player = world.connectionPlayer(connectionId).orElseThrow();
+    long player = runtime.connectionPlayer(connectionId).orElseThrow();
     assertTrue(
-        world.verb(player, "audit_words").isPresent(),
-        () -> setupOutput + " player=" + player + " object=" + world.object(player));
+        readVerb(world, player, "audit_words").isPresent(),
+        () -> setupOutput + " player=" + player + " object=" + readObject(world, player));
     assertTrue(
-        !world.verb(player, "audit_words").orElseThrow().programSource().isEmpty(),
+        !readVerb(world, player, "audit_words").orElseThrow().programSource().isEmpty(),
         setupOutput::toString);
 
     try {
@@ -1623,8 +1654,8 @@ final class MooRuntimeTest {
             });
             return 1;
             """);
-    long player = world.connectionPlayer(connectionId).orElseThrow();
-    assertTrue(world.verb(player, "audit_words").isPresent(), setupOutput::toString);
+    long player = runtime.connectionPlayer(connectionId).orElseThrow();
+    assertTrue(readVerb(world, player, "audit_words").isPresent(), setupOutput::toString);
 
     try {
       assertEquals(
@@ -1656,7 +1687,7 @@ final class MooRuntimeTest {
             return 1;
             """);
     assertTrue(
-        world.verb(world.connectionPlayer(connectionId).orElseThrow(), "auditprep").isPresent(),
+        readVerb(world, runtime.connectionPlayer(connectionId).orElseThrow(), "auditprep").isPresent(),
         setupOutput::toString);
 
     try {
@@ -1687,7 +1718,7 @@ final class MooRuntimeTest {
             return 1;
             """);
     assertTrue(
-        world.verb(world.connectionPlayer(connectionId).orElseThrow(), "auditgrab").isPresent(),
+        readVerb(world, runtime.connectionPlayer(connectionId).orElseThrow(), "auditgrab").isPresent(),
         setupOutput::toString);
 
     try {
@@ -1707,7 +1738,7 @@ final class MooRuntimeTest {
 
     assertEquals(List.of(), runtime.openConnection(connectionId));
     assertEquals(List.of("*** Connected ***"), runtime.executeLine(connectionId, "connect Wizard"));
-    long player = world.connectionPlayer(connectionId).orElseThrow();
+    long player = runtime.connectionPlayer(connectionId).orElseThrow();
     List<String> setupOutput =
         runtime.executeLine(
             connectionId,
@@ -1726,18 +1757,18 @@ final class MooRuntimeTest {
             });
             return {first, second};
             """);
-    List<Long> inventory = world.object(player).orElseThrow().contents();
+    List<Long> inventory = readObject(world, player).orElseThrow().contents();
     assertEquals(2, inventory.size(), setupOutput::toString);
     long first = inventory.get(0);
     long second = inventory.get(1);
-    assertEquals("auditexact", world.object(first).orElseThrow().name());
-    assertEquals("other audit exact", world.object(second).orElseThrow().name());
-    assertEquals("{}", world.readObjectProperty(first, "aliases").orElseThrow().toLiteral());
+    assertEquals("auditexact", readObject(world, first).orElseThrow().name());
+    assertEquals("other audit exact", readObject(world, second).orElseThrow().name());
+    assertEquals("{}", readObjectProperty(world, first, "aliases").orElseThrow().toLiteral());
     assertEquals(
-        "{\"auditexact\"}", world.readObjectProperty(second, "aliases").orElseThrow().toLiteral());
-    assertEquals(player, world.object(first).orElseThrow().location());
-    assertEquals(player, world.object(second).orElseThrow().location());
-    assertTrue(world.verb(player, "auditlook").isPresent(), setupOutput::toString);
+        "{\"auditexact\"}", readObjectProperty(world, second, "aliases").orElseThrow().toLiteral());
+    assertEquals(player, readObject(world, first).orElseThrow().location());
+    assertEquals(player, readObject(world, second).orElseThrow().location());
+    assertTrue(readVerb(world, player, "auditlook").isPresent(), setupOutput::toString);
 
     try {
       assertEquals(List.of("DOBJ:#-2"), runtime.executeLine(connectionId, "auditlook auditexact"));
@@ -1760,7 +1791,7 @@ final class MooRuntimeTest {
 
     assertEquals(List.of(), runtime.openConnection(connectionId));
     assertEquals(List.of("*** Connected ***"), runtime.executeLine(connectionId, "connect Wizard"));
-    long player = world.connectionPlayer(connectionId).orElseThrow();
+    long player = runtime.connectionPlayer(connectionId).orElseThrow();
     List<String> setupOutput =
         runtime.executeLine(
             connectionId,
@@ -1779,19 +1810,19 @@ final class MooRuntimeTest {
             });
             return {first, second};
             """);
-    List<Long> inventory = world.object(player).orElseThrow().contents();
+    List<Long> inventory = readObject(world, player).orElseThrow().contents();
     assertEquals(2, inventory.size(), setupOutput::toString);
     long first = inventory.get(0);
     long second = inventory.get(1);
-    assertEquals("auditpartialone", world.object(first).orElseThrow().name());
-    assertEquals("other audit partial", world.object(second).orElseThrow().name());
-    assertEquals("{}", world.readObjectProperty(first, "aliases").orElseThrow().toLiteral());
+    assertEquals("auditpartialone", readObject(world, first).orElseThrow().name());
+    assertEquals("other audit partial", readObject(world, second).orElseThrow().name());
+    assertEquals("{}", readObjectProperty(world, first, "aliases").orElseThrow().toLiteral());
     assertEquals(
         "{\"auditpartialtwo\"}",
-        world.readObjectProperty(second, "aliases").orElseThrow().toLiteral());
-    assertEquals(player, world.object(first).orElseThrow().location());
-    assertEquals(player, world.object(second).orElseThrow().location());
-    assertTrue(world.verb(player, "auditlook").isPresent(), setupOutput::toString);
+        readObjectProperty(world, second, "aliases").orElseThrow().toLiteral());
+    assertEquals(player, readObject(world, first).orElseThrow().location());
+    assertEquals(player, readObject(world, second).orElseThrow().location());
+    assertTrue(readVerb(world, player, "auditlook").isPresent(), setupOutput::toString);
 
     try {
       assertEquals(
@@ -1815,8 +1846,8 @@ final class MooRuntimeTest {
 
     assertEquals(List.of(), runtime.openConnection(connectionId));
     assertEquals(List.of("*** Connected ***"), runtime.executeLine(connectionId, "connect Wizard"));
-    long player = world.connectionPlayer(connectionId).orElseThrow();
-    String oldName = world.object(player).orElseThrow().name();
+    long player = runtime.connectionPlayer(connectionId).orElseThrow();
+    String oldName = readObject(world, player).orElseThrow().name();
     List<String> setupOutput =
         runtime.executeLine(
             connectionId,
@@ -1830,13 +1861,13 @@ final class MooRuntimeTest {
             });
             return 1;
             """);
-    assertEquals("auditplayerunique", world.object(player).orElseThrow().name());
+    assertEquals("auditplayerunique", readObject(world, player).orElseThrow().name());
     assertEquals(
         "\"" + oldName + "\"",
-        world.readObjectProperty(player, "audit_old_name").orElseThrow().toLiteral());
-    long location = world.object(player).orElseThrow().location();
-    assertTrue(world.object(location).orElseThrow().contents().contains(player));
-    assertTrue(world.verb(player, "auditlook").isPresent(), setupOutput::toString);
+        readObjectProperty(world, player, "audit_old_name").orElseThrow().toLiteral());
+    long location = readObject(world, player).orElseThrow().location();
+    assertTrue(readObject(world, location).orElseThrow().contents().contains(player));
+    assertTrue(readVerb(world, player, "auditlook").isPresent(), setupOutput::toString);
 
     try {
       assertEquals(
@@ -1858,19 +1889,19 @@ final class MooRuntimeTest {
 
     assertEquals(List.of(), runtime.openConnection(connectionId));
     assertEquals(List.of("*** Connected ***"), runtime.executeLine(connectionId, "connect Wizard"));
-    long player = world.connectionPlayer(connectionId).orElseThrow();
+    long player = runtime.connectionPlayer(connectionId).orElseThrow();
     runtime.executeLine(
         connectionId,
         "; add_property(player, \"audit_delete_local\", 1, {player, \"rw\"}); return 1;");
-    assertTrue(world.readObjectProperty(player, "audit_delete_local").isPresent());
+    assertTrue(readObjectProperty(world, player, "audit_delete_local").isPresent());
 
     runtime.executeLine(
         connectionId, "; delete_property(player, \"audit_delete_local\"); return 1;");
 
-    assertTrue(world.readObjectProperty(player, "audit_delete_local").isEmpty());
+    assertTrue(readObjectProperty(world, player, "audit_delete_local").isEmpty());
     assertEquals(
-        BuiltinCatalog.EffectClass.TRANSACTION_WRITE,
-        new BuiltinCatalog().effectClass("delete_property"));
+        EffectClass.TRANSACTION_WRITE,
+        new BuiltinCatalog().spec("delete_property").orElseThrow().effect());
   }
 
   @Test
@@ -1881,7 +1912,7 @@ final class MooRuntimeTest {
 
     assertEquals(List.of(), runtime.openConnection(connectionId));
     assertEquals(List.of("*** Connected ***"), runtime.executeLine(connectionId, "connect Wizard"));
-    long player = world.connectionPlayer(connectionId).orElseThrow();
+    long player = runtime.connectionPlayer(connectionId).orElseThrow();
     runtime.executeLine(
         connectionId,
         "; add_property(#0, \"audit_oob_frame\", {}, {#0, \"rw\"});"
@@ -1897,7 +1928,7 @@ final class MooRuntimeTest {
             + ", #-1, \"do_out_of_band_command\","
             + " {\"#$#audit-oob\", \"alpha\", \"beta\"},"
             + " \"#$#audit-oob alpha beta\"}",
-        world.readObjectProperty(0, "audit_oob_frame").orElseThrow().toLiteral());
+        readObjectProperty(world, 0, "audit_oob_frame").orElseThrow().toLiteral());
   }
 
   @Test
@@ -1923,7 +1954,7 @@ final class MooRuntimeTest {
     assertEquals(
         "{{\"~FF~FA~C9Core.Hello\", \"{client:audit}~FF~F0\"},"
             + " \"~FF~FA~C9Core.Hello {\\\"client\\\":\\\"audit\\\"}~FF~F0\"}",
-        world.readObjectProperty(0, "audit_transport_oob_frame").orElseThrow().toLiteral());
+        readObjectProperty(world, 0, "audit_transport_oob_frame").orElseThrow().toLiteral());
   }
 
   @Test
@@ -1953,7 +1984,7 @@ final class MooRuntimeTest {
               set_verb_code(player, "audit_words", {"notify(player, \\"NORMAL_DISPATCH\\");"});
               return 1;
             """);
-    assertTrue(world.verb(0, "do_command").isPresent(), setupOutput::toString);
+    assertTrue(readVerb(world, 0, "do_command").isPresent(), setupOutput::toString);
 
     try {
       assertEquals(List.of(), runtime.executeLine(connectionId, "pReFiX command-prefix"));
@@ -1976,12 +2007,17 @@ final class MooRuntimeTest {
 
     assertEquals(List.of(), runtime.openConnection(connectionId));
     assertEquals(List.of("*** Connected ***"), runtime.executeLine(connectionId, "connect Wizard"));
-    long player = world.connectionPlayer(connectionId).orElseThrow();
-    int verbNumber = world.addVerb(player, "auditnoexec", player, 8, -1);
-    assertTrue(verbNumber > 0);
-    int verbIndex = verbNumber - 1;
-    assertTrue(world.setVerbCode(player, verbIndex, "notify(player, \"EXECUTED\");"));
-    assertEquals(8, world.verb(player, verbIndex).orElseThrow().permissions());
+    long player = runtime.connectionPlayer(connectionId).orElseThrow();
+    int verbIndex;
+    try (WorldTxn transaction = world.begin()) {
+      int verbNumber = transaction.addVerb(player, "auditnoexec", player, 8, -1);
+      assertTrue(verbNumber > 0);
+      verbIndex = verbNumber - 1;
+      assertTrue(
+          transaction.setVerbCode(player, verbIndex, "notify(player, \"EXECUTED\");"));
+      assertTrue(transaction.commit().isCommitted());
+    }
+    assertEquals(8, readVerb(world, player, verbIndex).orElseThrow().permissions());
 
     assertEquals(List.of("EXECUTED"), runtime.executeLine(connectionId, "auditnoexec"));
   }
@@ -1994,8 +2030,8 @@ final class MooRuntimeTest {
 
     assertEquals(List.of(), runtime.openConnection(connectionId));
     assertEquals(List.of("*** Connected ***"), runtime.executeLine(connectionId, "connect Wizard"));
-    long player = world.connectionPlayer(connectionId).orElseThrow();
-    long room = world.object(player).orElseThrow().location();
+    long player = runtime.connectionPlayer(connectionId).orElseThrow();
+    long room = readObject(world, player).orElseThrow().location();
     List<String> setupOutput =
         runtime.executeLine(
             connectionId,
@@ -2013,12 +2049,12 @@ final class MooRuntimeTest {
             return room;
             """);
     assertEquals(List.of(CONNECTION_PREFIX, "{1, #" + room + "}", CONNECTION_SUFFIX), setupOutput);
-    assertEquals(room, world.object(player).orElseThrow().location());
-    WorldVerb commandVerb = world.verb(player, "auditmismatch").orElseThrow();
+    assertEquals(room, readObject(world, player).orElseThrow().location());
+    WorldVerb commandVerb = readVerb(world, player, "auditmismatch").orElseThrow();
     assertEquals(12, commandVerb.permissions());
     assertEquals(-1, commandVerb.preposition());
     assertTrue(!commandVerb.programSource().isEmpty());
-    WorldVerb huhVerb = world.verb(room, "huh").orElseThrow();
+    WorldVerb huhVerb = readVerb(world, room, "huh").orElseThrow();
     assertEquals(12, huhVerb.permissions());
     assertEquals(-1, huhVerb.preposition());
     assertTrue(!huhVerb.programSource().isEmpty());
@@ -2044,7 +2080,7 @@ final class MooRuntimeTest {
 
     assertEquals(List.of(), runtime.openConnection(connectionId));
     assertEquals(List.of("*** Connected ***"), runtime.executeLine(connectionId, "connect Wizard"));
-    long player = world.connectionPlayer(connectionId).orElseThrow();
+    long player = runtime.connectionPlayer(connectionId).orElseThrow();
     List<String> setupOutput =
         runtime.executeLine(
             connectionId,
@@ -2060,13 +2096,13 @@ final class MooRuntimeTest {
             });
             return box;
             """);
-    List<Long> inventory = world.object(player).orElseThrow().contents();
+    List<Long> inventory = readObject(world, player).orElseThrow().contents();
     assertEquals(1, inventory.size(), setupOutput::toString);
     long box = inventory.getFirst();
     assertEquals(List.of(CONNECTION_PREFIX, "{1, #" + box + "}", CONNECTION_SUFFIX), setupOutput);
-    assertEquals("auditbox", world.object(box).orElseThrow().name());
-    assertEquals(player, world.object(box).orElseThrow().location());
-    WorldVerb say = world.verb(player, "say").orElseThrow();
+    assertEquals("auditbox", readObject(world, box).orElseThrow().name());
+    assertEquals(player, readObject(world, box).orElseThrow().location());
+    WorldVerb say = readVerb(world, player, "say").orElseThrow();
     assertEquals(92, say.permissions());
     assertEquals(3, say.preposition());
     assertTrue(!say.programSource().isEmpty());
@@ -2089,7 +2125,7 @@ final class MooRuntimeTest {
 
     assertEquals(List.of(), runtime.openConnection(connectionId));
     assertEquals(List.of("*** Connected ***"), runtime.executeLine(connectionId, "connect Wizard"));
-    long player = world.connectionPlayer(connectionId).orElseThrow();
+    long player = runtime.connectionPlayer(connectionId).orElseThrow();
     List<String> setupOutput =
         runtime.executeLine(
             connectionId,
@@ -2104,7 +2140,7 @@ final class MooRuntimeTest {
             return 1;
             """);
     assertEquals(List.of(CONNECTION_PREFIX, "{1, 1}", CONNECTION_SUFFIX), setupOutput);
-    WorldVerb emote = world.verb(player, "emote").orElseThrow();
+    WorldVerb emote = readVerb(world, player, "emote").orElseThrow();
     assertEquals(92, emote.permissions());
     assertEquals(1, emote.preposition());
     assertTrue(!emote.programSource().isEmpty());
@@ -2126,7 +2162,7 @@ final class MooRuntimeTest {
 
     assertEquals(List.of(), runtime.openConnection(connectionId));
     assertEquals(List.of("*** Connected ***"), runtime.executeLine(connectionId, "connect Wizard"));
-    long player = world.connectionPlayer(connectionId).orElseThrow();
+    long player = runtime.connectionPlayer(connectionId).orElseThrow();
     List<String> setupOutput =
         runtime.executeLine(
             connectionId,
@@ -2142,13 +2178,13 @@ final class MooRuntimeTest {
             });
             return box;
             """);
-    List<Long> inventory = world.object(player).orElseThrow().contents();
+    List<Long> inventory = readObject(world, player).orElseThrow().contents();
     assertEquals(1, inventory.size(), setupOutput::toString);
     long box = inventory.getFirst();
     assertEquals(List.of(CONNECTION_PREFIX, "{1, #" + box + "}", CONNECTION_SUFFIX), setupOutput);
-    assertEquals("auditevalbox", world.object(box).orElseThrow().name());
-    assertEquals(player, world.object(box).orElseThrow().location());
-    WorldVerb eval = world.verb(player, "eval").orElseThrow();
+    assertEquals("auditevalbox", readObject(world, box).orElseThrow().name());
+    assertEquals(player, readObject(world, box).orElseThrow().location());
+    WorldVerb eval = readVerb(world, player, "eval").orElseThrow();
     assertEquals(92, eval.permissions());
     assertEquals(3, eval.preposition());
     assertTrue(!eval.programSource().isEmpty());
@@ -2171,9 +2207,9 @@ final class MooRuntimeTest {
 
     assertEquals(List.of(), runtime.openConnection(connectionId));
     assertEquals(List.of("*** Connected ***"), runtime.executeLine(connectionId, "connect Wizard"));
-    long player = world.connectionPlayer(connectionId).orElseThrow();
-    long object = world.objectCount();
-    assertTrue(world.object(object).isEmpty());
+    long player = runtime.connectionPlayer(connectionId).orElseThrow();
+    long object = world.snapshot().objects().size();
+    assertTrue(readObject(world, object).isEmpty());
     List<String> setupOutput =
         runtime.executeLine(
             connectionId,
@@ -2185,7 +2221,7 @@ final class MooRuntimeTest {
             """);
     assertEquals(
         List.of(CONNECTION_PREFIX, "{1, #" + object + "}", CONNECTION_SUFFIX), setupOutput);
-    WorldObject target = world.object(object).orElseThrow();
+    WorldObject target = readObject(world, object).orElseThrow();
     assertEquals("audit program target", target.name());
     assertEquals(-1, target.parent());
     assertEquals(player, target.owner());
@@ -2199,15 +2235,15 @@ final class MooRuntimeTest {
 
     try {
       runtime.executeLine(connectionId, ".program #" + object + ":auditprog");
-      assertEquals("", world.verb(object, 0).orElseThrow().programSource());
+      assertEquals("", readVerb(world, object, 0).orElseThrow().programSource());
       runtime.executeLine(connectionId, "return 4242;");
-      assertEquals("", world.verb(object, 0).orElseThrow().programSource());
+      assertEquals("", readVerb(world, object, 0).orElseThrow().programSource());
       runtime.executeLine(connectionId, ".");
 
       assertEquals(
           List.of(CONNECTION_PREFIX, "{1, 4242}", CONNECTION_SUFFIX),
           runtime.executeLine(connectionId, "; return #" + object + ":auditprog();"));
-      assertEquals("return 4242;\n", world.verb(object, 0).orElseThrow().programSource());
+      assertEquals("return 4242;\n", readVerb(world, object, 0).orElseThrow().programSource());
     } finally {
       runtime.executeLine(connectionId, "; recycle(#" + object + "); return 1;");
     }
@@ -2220,24 +2256,24 @@ final class MooRuntimeTest {
     long connectionId = -47;
 
     assertEquals(
-        BuiltinCatalog.EffectClass.TRANSACTION_READ, new BuiltinCatalog().effectClass("parent"));
+        EffectClass.TRANSACTION_READ, new BuiltinCatalog().spec("parent").orElseThrow().effect());
     assertEquals(
-        BuiltinCatalog.EffectClass.TRANSACTION_WRITE, new BuiltinCatalog().effectClass("chparent"));
+        EffectClass.TRANSACTION_WRITE, new BuiltinCatalog().spec("chparent").orElseThrow().effect());
     assertEquals(List.of(), runtime.openConnection(connectionId));
     assertEquals(List.of("*** Connected ***"), runtime.executeLine(connectionId, "connect Wizard"));
-    long player = world.connectionPlayer(connectionId).orElseThrow();
-    long oldParent = world.object(player).orElseThrow().parent();
+    long player = runtime.connectionPlayer(connectionId).orElseThrow();
+    long oldParent = readObject(world, player).orElseThrow().parent();
     assertEquals(-1, oldParent);
-    assertTrue(world.object(oldParent).isEmpty());
+    assertTrue(readObject(world, oldParent).isEmpty());
     assertEquals(
         List.of(CONNECTION_PREFIX, "{1, #" + oldParent + "}", CONNECTION_SUFFIX),
         runtime.executeLine(connectionId, "; return parent(player);"));
 
-    long ancestor = world.objectCount();
+    long ancestor = world.snapshot().objects().size();
     assertEquals(
         List.of(CONNECTION_PREFIX, "{1, #" + ancestor + "}", CONNECTION_SUFFIX),
         runtime.executeLine(connectionId, "; return create(#" + oldParent + ");"));
-    assertEquals(oldParent, world.object(ancestor).orElseThrow().parent());
+    assertEquals(oldParent, readObject(world, ancestor).orElseThrow().parent());
 
     try {
       List<String> setupOutput =
@@ -2250,7 +2286,7 @@ final class MooRuntimeTest {
               return 1;
               """
                   .formatted(ancestor, ancestor, ancestor));
-      WorldObject inheritedTarget = world.object(ancestor).orElseThrow();
+      WorldObject inheritedTarget = readObject(world, ancestor).orElseThrow();
       assertEquals(oldParent, inheritedTarget.parent());
       assertEquals(1, inheritedTarget.verbs().size());
       WorldVerb inherited = inheritedTarget.verbs().getFirst();
@@ -2262,8 +2298,8 @@ final class MooRuntimeTest {
           "notify(player, \"CALLER_IS_PLAYER:\" + tostr(caller == player));",
           inherited.programSource());
       assertEquals(List.of(player), inheritedTarget.children());
-      assertEquals(ancestor, world.object(player).orElseThrow().parent());
-      assertTrue(world.object(oldParent).isEmpty());
+      assertEquals(ancestor, readObject(world, player).orElseThrow().parent());
+      assertTrue(readObject(world, oldParent).isEmpty());
       assertEquals(List.of(CONNECTION_PREFIX, "{1, 1}", CONNECTION_SUFFIX), setupOutput);
 
       assertEquals(
@@ -2273,9 +2309,9 @@ final class MooRuntimeTest {
       runtime.executeLine(
           connectionId,
           "; chparent(player, #" + oldParent + "); recycle(#" + ancestor + "); return 1;");
-      assertEquals(oldParent, world.object(player).orElseThrow().parent());
-      assertTrue(world.object(ancestor).isEmpty());
-      assertTrue(world.object(oldParent).isEmpty());
+      assertEquals(oldParent, readObject(world, player).orElseThrow().parent());
+      assertTrue(readObject(world, ancestor).isEmpty());
+      assertTrue(readObject(world, oldParent).isEmpty());
     }
   }
 
@@ -2287,25 +2323,25 @@ final class MooRuntimeTest {
 
     assertEquals(List.of(), runtime.openConnection(connectionId));
     assertEquals(List.of("*** Connected ***"), runtime.executeLine(connectionId, "connect Wizard"));
-    long player = world.connectionPlayer(connectionId).orElseThrow();
-    long oldParent = world.object(player).orElseThrow().parent();
+    long player = runtime.connectionPlayer(connectionId).orElseThrow();
+    long oldParent = readObject(world, player).orElseThrow().parent();
     assertEquals(-1, oldParent);
-    assertTrue(world.object(oldParent).isEmpty());
+    assertTrue(readObject(world, oldParent).isEmpty());
     assertEquals(
         List.of(CONNECTION_PREFIX, "{1, #" + oldParent + "}", CONNECTION_SUFFIX),
         runtime.executeLine(connectionId, "; return parent(player);"));
 
-    long definingAncestor = world.objectCount();
+    long definingAncestor = world.snapshot().objects().size();
     assertEquals(
         List.of(CONNECTION_PREFIX, "{1, #" + definingAncestor + "}", CONNECTION_SUFFIX),
         runtime.executeLine(connectionId, "; return create(#" + oldParent + ");"));
-    long middleAncestor = world.objectCount();
+    long middleAncestor = world.snapshot().objects().size();
     assertEquals(
         List.of(CONNECTION_PREFIX, "{1, #" + middleAncestor + "}", CONNECTION_SUFFIX),
         runtime.executeLine(connectionId, "; return create(#" + definingAncestor + ");"));
-    assertEquals(oldParent, world.object(definingAncestor).orElseThrow().parent());
-    assertEquals(definingAncestor, world.object(middleAncestor).orElseThrow().parent());
-    assertEquals(List.of(middleAncestor), world.object(definingAncestor).orElseThrow().children());
+    assertEquals(oldParent, readObject(world, definingAncestor).orElseThrow().parent());
+    assertEquals(definingAncestor, readObject(world, middleAncestor).orElseThrow().parent());
+    assertEquals(List.of(middleAncestor), readObject(world, definingAncestor).orElseThrow().children());
 
     try {
       List<String> setupOutput =
@@ -2318,8 +2354,8 @@ final class MooRuntimeTest {
               return 1;
               """
                   .formatted(definingAncestor, definingAncestor, middleAncestor));
-      WorldObject defining = world.object(definingAncestor).orElseThrow();
-      WorldObject middle = world.object(middleAncestor).orElseThrow();
+      WorldObject defining = readObject(world, definingAncestor).orElseThrow();
+      WorldObject middle = readObject(world, middleAncestor).orElseThrow();
       assertEquals(oldParent, defining.parent());
       assertEquals(List.of(middleAncestor), defining.children());
       assertEquals(1, defining.verbs().size());
@@ -2334,8 +2370,8 @@ final class MooRuntimeTest {
           inherited.programSource());
       assertEquals(definingAncestor, middle.parent());
       assertEquals(List.of(player), middle.children());
-      assertEquals(middleAncestor, world.object(player).orElseThrow().parent());
-      assertTrue(world.object(oldParent).isEmpty());
+      assertEquals(middleAncestor, readObject(world, player).orElseThrow().parent());
+      assertTrue(readObject(world, oldParent).isEmpty());
       assertEquals(List.of(CONNECTION_PREFIX, "{1, 1}", CONNECTION_SUFFIX), setupOutput);
 
       assertEquals(
@@ -2351,10 +2387,10 @@ final class MooRuntimeTest {
               + "); recycle(#"
               + definingAncestor
               + "); return 1;");
-      assertEquals(oldParent, world.object(player).orElseThrow().parent());
-      assertTrue(world.object(middleAncestor).isEmpty());
-      assertTrue(world.object(definingAncestor).isEmpty());
-      assertTrue(world.object(oldParent).isEmpty());
+      assertEquals(oldParent, readObject(world, player).orElseThrow().parent());
+      assertTrue(readObject(world, middleAncestor).isEmpty());
+      assertTrue(readObject(world, definingAncestor).isEmpty());
+      assertTrue(readObject(world, oldParent).isEmpty());
     }
   }
 
@@ -2366,32 +2402,32 @@ final class MooRuntimeTest {
 
     assertEquals(List.of(), runtime.openConnection(connectionId));
     assertEquals(List.of("*** Connected ***"), runtime.executeLine(connectionId, "connect Wizard"));
-    long player = world.connectionPlayer(connectionId).orElseThrow();
-    long oldParent = world.object(player).orElseThrow().parent();
+    long player = runtime.connectionPlayer(connectionId).orElseThrow();
+    long oldParent = readObject(world, player).orElseThrow().parent();
     assertEquals(-1, oldParent);
-    assertTrue(world.object(oldParent).isEmpty());
+    assertTrue(readObject(world, oldParent).isEmpty());
     assertEquals(
         List.of(CONNECTION_PREFIX, "{1, #" + oldParent + "}", CONNECTION_SUFFIX),
         runtime.executeLine(connectionId, "; return parent(player);"));
 
-    long passTarget = world.objectCount();
+    long passTarget = world.snapshot().objects().size();
     assertEquals(
         List.of(CONNECTION_PREFIX, "{1, #" + passTarget + "}", CONNECTION_SUFFIX),
         runtime.executeLine(connectionId, "; return create(#" + oldParent + ");"));
-    long passGap = world.objectCount();
+    long passGap = world.snapshot().objects().size();
     assertEquals(
         List.of(CONNECTION_PREFIX, "{1, #" + passGap + "}", CONNECTION_SUFFIX),
         runtime.executeLine(connectionId, "; return create(#" + passTarget + ");"));
-    long commandDefiner = world.objectCount();
+    long commandDefiner = world.snapshot().objects().size();
     assertEquals(
         List.of(CONNECTION_PREFIX, "{1, #" + commandDefiner + "}", CONNECTION_SUFFIX),
         runtime.executeLine(connectionId, "; return create(#" + passGap + ");"));
-    assertEquals(oldParent, world.object(passTarget).orElseThrow().parent());
-    assertEquals(List.of(passGap), world.object(passTarget).orElseThrow().children());
-    assertEquals(passTarget, world.object(passGap).orElseThrow().parent());
-    assertEquals(List.of(commandDefiner), world.object(passGap).orElseThrow().children());
-    assertEquals(passGap, world.object(commandDefiner).orElseThrow().parent());
-    assertEquals(List.of(), world.object(commandDefiner).orElseThrow().children());
+    assertEquals(oldParent, readObject(world, passTarget).orElseThrow().parent());
+    assertEquals(List.of(passGap), readObject(world, passTarget).orElseThrow().children());
+    assertEquals(passTarget, readObject(world, passGap).orElseThrow().parent());
+    assertEquals(List.of(commandDefiner), readObject(world, passGap).orElseThrow().children());
+    assertEquals(passGap, readObject(world, commandDefiner).orElseThrow().parent());
+    assertEquals(List.of(), readObject(world, commandDefiner).orElseThrow().children());
 
     try {
       List<String> setupOutput =
@@ -2407,9 +2443,9 @@ final class MooRuntimeTest {
               """
                   .formatted(
                       passTarget, passTarget, commandDefiner, commandDefiner, commandDefiner));
-      WorldObject target = world.object(passTarget).orElseThrow();
-      WorldObject gap = world.object(passGap).orElseThrow();
-      WorldObject definer = world.object(commandDefiner).orElseThrow();
+      WorldObject target = readObject(world, passTarget).orElseThrow();
+      WorldObject gap = readObject(world, passGap).orElseThrow();
+      WorldObject definer = readObject(world, commandDefiner).orElseThrow();
       assertEquals(oldParent, target.parent());
       assertEquals(List.of(passGap), target.children());
       assertEquals(passTarget, gap.parent());
@@ -2417,8 +2453,8 @@ final class MooRuntimeTest {
       assertEquals(List.of(), gap.verbs());
       assertEquals(passGap, definer.parent());
       assertEquals(List.of(player), definer.children());
-      assertEquals(commandDefiner, world.object(player).orElseThrow().parent());
-      assertTrue(world.object(oldParent).isEmpty());
+      assertEquals(commandDefiner, readObject(world, player).orElseThrow().parent());
+      assertTrue(readObject(world, oldParent).isEmpty());
       assertEquals(1, target.verbs().size());
       WorldVerb pass = target.verbs().getFirst();
       assertEquals("audit_pass_caller", pass.names());
@@ -2455,11 +2491,11 @@ final class MooRuntimeTest {
               + "); recycle(#"
               + passTarget
               + "); return 1;");
-      assertEquals(oldParent, world.object(player).orElseThrow().parent());
-      assertTrue(world.object(commandDefiner).isEmpty());
-      assertTrue(world.object(passGap).isEmpty());
-      assertTrue(world.object(passTarget).isEmpty());
-      assertTrue(world.object(oldParent).isEmpty());
+      assertEquals(oldParent, readObject(world, player).orElseThrow().parent());
+      assertTrue(readObject(world, commandDefiner).isEmpty());
+      assertTrue(readObject(world, passGap).isEmpty());
+      assertTrue(readObject(world, passTarget).isEmpty());
+      assertTrue(readObject(world, oldParent).isEmpty());
     }
   }
 
@@ -2731,6 +2767,39 @@ final class MooRuntimeTest {
     assertTrue(
         output.stream().anyMatch(line -> line.toLowerCase(Locale.ROOT).contains("interrupt")),
         output::toString);
+  }
+
+  private static Optional<WorldObject> readObject(WorldTxn root, long objectId) {
+    try (WorldTxn transaction = root.begin()) {
+      return transaction.object(objectId);
+    }
+  }
+
+  private static Optional<WorldProperty> readProperty(
+      WorldTxn root, long objectId, String propertyName) {
+    try (WorldTxn transaction = root.begin()) {
+      return transaction.property(objectId, propertyName);
+    }
+  }
+
+  private static Optional<WorldVerb> readVerb(
+      WorldTxn root, long objectId, String verbName) {
+    try (WorldTxn transaction = root.begin()) {
+      return transaction.verb(objectId, verbName);
+    }
+  }
+
+  private static Optional<WorldVerb> readVerb(WorldTxn root, long objectId, int verbIndex) {
+    try (WorldTxn transaction = root.begin()) {
+      return transaction.verb(objectId, verbIndex);
+    }
+  }
+
+  private static Optional<MooValue> readObjectProperty(
+      WorldTxn root, long objectId, String propertyName) {
+    try (WorldTxn transaction = root.begin()) {
+      return transaction.readObjectProperty(objectId, propertyName);
+    }
   }
 
   private static void executeSetup(

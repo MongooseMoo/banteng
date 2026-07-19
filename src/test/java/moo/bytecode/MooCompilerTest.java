@@ -307,19 +307,21 @@ final class MooCompilerTest {
   void compilesEveryCompleteStoredVerbIncludingUnexecutedBranches() throws Exception {
     Path fixture =
         Path.of("..", "moo-conformance-tests", "src", "moo_conformance", "_db", "Test.db");
-    WorldTxn world = new LambdaMooV4Reader().read(fixture);
+    WorldTxn root = new LambdaMooV4Reader().read(fixture);
     MooCompiler compiler = new MooCompiler();
 
     int compiled = 0;
-    for (long objectId : new long[] {0, 2, 7}) {
-      WorldObject object = world.object(objectId).orElseThrow();
-      for (WorldVerb verb : object.verbs()) {
-        BytecodeProgram first = compiler.compile(MooParser.parse(verb.programSource()));
-        BytecodeProgram second = compiler.compile(MooParser.parse(verb.programSource()));
-        assertFalse(first.instructions().isEmpty(), "#" + objectId + ":" + verb.names());
-        assertEquals(first, second, "#" + objectId + ":" + verb.names());
-        assertEquals(first.disassemble(), second.disassemble());
-        compiled++;
+    try (WorldTxn world = root.begin()) {
+      for (long objectId : new long[] {0, 2, 7}) {
+        WorldObject object = world.object(objectId).orElseThrow();
+        for (WorldVerb verb : object.verbs()) {
+          BytecodeProgram first = compiler.compile(MooParser.parse(verb.programSource()));
+          BytecodeProgram second = compiler.compile(MooParser.parse(verb.programSource()));
+          assertFalse(first.instructions().isEmpty(), "#" + objectId + ":" + verb.names());
+          assertEquals(first, second, "#" + objectId + ":" + verb.names());
+          assertEquals(first.disassemble(), second.disassemble());
+          compiled++;
+        }
       }
     }
 

@@ -75,9 +75,12 @@ final class JetCheckAcceptanceTest {
     return environment -> {
       ImperativeCommand create =
           commandEnvironment -> {
-            WorldObject created = world.createObject(-1, -1);
-            liveObjectIds.add(created.id());
-            assertWorldMatchesModel(world, liveObjectIds);
+            try (WorldTxn transaction = world.begin()) {
+              WorldObject created = transaction.createObject(-1, -1);
+              liveObjectIds.add(created.id());
+              assertWorldMatchesModel(transaction, liveObjectIds);
+              assertTrue(transaction.commit().isCommitted());
+            }
           };
       ImperativeCommand recycle =
           commandEnvironment -> {
@@ -85,9 +88,12 @@ final class JetCheckAcceptanceTest {
                 commandEnvironment.generateValue(
                     Generator.integers(0, liveObjectIds.size() - 1), "recycle model index %s");
             long objectId = liveObjectIds.remove(index);
-            assertTrue(world.recycleObject(objectId));
-            assertTrue(world.object(objectId).isEmpty());
-            assertWorldMatchesModel(world, liveObjectIds);
+            try (WorldTxn transaction = world.begin()) {
+              assertTrue(transaction.recycleObject(objectId));
+              assertTrue(transaction.object(objectId).isEmpty());
+              assertWorldMatchesModel(transaction, liveObjectIds);
+              assertTrue(transaction.commit().isCommitted());
+            }
           };
       Generator<ImperativeCommand> commands =
           Generator.from(

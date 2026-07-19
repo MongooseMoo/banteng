@@ -61,6 +61,35 @@ final class WorldTxnTest {
   }
 
   @Test
+  void validatesExactFootprintWithoutPublishingOrCompletingTheTransaction() {
+    WorldTxn root = root(object(0, "base"));
+    try (WorldTxn candidate = root.begin()) {
+      assertEquals("base", candidate.object(0).orElseThrow().name());
+      assertTrue(candidate.writeObjectProperty(0, "name", string("candidate")));
+
+      WorldTxn.ValidationResult current = candidate.validate();
+
+      assertTrue(current.isValid());
+      assertEquals(0, current.revision());
+      assertEquals("base", snapshotObject(root.snapshot(), 0).name());
+
+      try (WorldTxn winner = root.begin()) {
+        assertTrue(winner.writeObjectProperty(0, "name", string("winner")));
+        assertTrue(winner.commit().isCommitted());
+      }
+
+      WorldTxn.ValidationResult stale = candidate.validate();
+
+      assertFalse(stale.isValid());
+      assertEquals(1, stale.revision());
+      assertEquals(Set.of(0L), stale.conflictingRecords());
+      assertEquals(Set.of(), stale.conflictingPredicates());
+      assertEquals("candidate", candidate.object(0).orElseThrow().name());
+      assertEquals("winner", snapshotObject(root.snapshot(), 0).name());
+    }
+  }
+
+  @Test
   void objectScanConflictsWhenAnotherTransactionChangesItsMembership() {
     WorldTxn root = root(object(0, "base"));
     WorldTxn scanner = root.begin();

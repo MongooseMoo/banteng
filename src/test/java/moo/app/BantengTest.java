@@ -20,6 +20,18 @@ final class BantengTest {
   }
 
   @Test
+  void acceptsTheManifestSelectedPromoteNumbersValue() {
+    CommandLine commandLine = new CommandLine(new Banteng());
+
+    assertEquals(
+        CommandLine.ExitCode.OK,
+        commandLine.execute("--promote-numbers=false", "--version"));
+    assertEquals(
+        CommandLine.ExitCode.OK,
+        commandLine.execute("--promote-numbers=true", "--version"));
+  }
+
+  @Test
   void rejectsInvalidPort() {
     StringWriter errors = new StringWriter();
     CommandLine commandLine = new CommandLine(new Banteng());

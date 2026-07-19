@@ -39,6 +39,14 @@ public final class Banteng implements Callable<Integer> {
       "UnusedVariable") // Retained CLI surface; server logging is not part of this slice.
   private System.Logger.Level logLevel = System.Logger.Level.INFO;
 
+  @Option(
+      names = "--promote-numbers",
+      arity = "1",
+      defaultValue = "false",
+      description = "Enable mixed integer/float numeric equality")
+  @SuppressWarnings("UnusedVariable") // Profile-selected configuration for the Phase 3 value slice.
+  private boolean promoteNumbers;
+
   @Spec private @Nullable CommandSpec commandSpec;
 
   /** Loads the configured database and blocks while serving connections. */

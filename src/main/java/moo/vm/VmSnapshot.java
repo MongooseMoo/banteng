@@ -9,6 +9,7 @@ import java.util.OptionalDouble;
 import java.util.OptionalLong;
 import moo.builtin.BuiltinCatalog.ConnectionOptionRequest;
 import moo.builtin.BuiltinCatalog.ForcedInputRequest;
+import moo.builtin.CheckpointRequest;
 import moo.bytecode.BytecodeProgram;
 import moo.bytecode.BytecodeProgram.HandlerSpec;
 import moo.value.MooValue;
@@ -26,6 +27,7 @@ public record VmSnapshot(
     List<ConnectionOptionRequest> connectionOptionRequests,
     List<Long> bootPlayerTargets,
     List<ForcedInputRequest> forcedInputRequests,
+    List<CheckpointRequest> checkpointRequests,
     VmState.Outcome outcome,
     Optional<MooValue> returnValue,
     Optional<ErrorValue> pendingError,
@@ -34,6 +36,7 @@ public record VmSnapshot(
     Optional<Fork> forkRequest,
     OptionalDouble suspensionDelaySeconds,
     boolean awaitingHostResult,
+    Optional<PendingBuiltin> pendingBuiltin,
     MooValue taskLocal,
     long remainingTicks,
     long elapsedCpuNanos,
@@ -47,6 +50,7 @@ public record VmSnapshot(
     connectionOptionRequests = List.copyOf(connectionOptionRequests);
     bootPlayerTargets = List.copyOf(bootPlayerTargets);
     forcedInputRequests = List.copyOf(forcedInputRequests);
+    checkpointRequests = List.copyOf(checkpointRequests);
     if (elapsedCpuNanos < 0
         || remainingCpuNanos < 0
         || maxStackDepth < 1) {
@@ -59,6 +63,9 @@ public record VmSnapshot(
     if (outcome != VmState.Outcome.SUSPENDED
         && (suspensionDelaySeconds.isPresent() || awaitingHostResult)) {
       throw new IllegalArgumentException("only suspended snapshots have a wake kind");
+    }
+    if ((outcome == VmState.Outcome.PENDING_BUILTIN) != pendingBuiltin.isPresent()) {
+      throw new IllegalArgumentException("pending builtin outcome requires one request");
     }
   }
 
@@ -136,6 +143,22 @@ public record VmSnapshot(
       double delaySeconds) {
     public Fork {
       locals = Collections.unmodifiableMap(new LinkedHashMap<>(locals));
+    }
+  }
+
+  /** One value-only builtin invocation held until its publication ticket owns the turn. */
+  public record PendingBuiltin(
+      String name,
+      List<MooValue> arguments,
+      long programmer,
+      MooValue taskLocal,
+      long remainingTicks,
+      long remainingSeconds,
+      MooValue receiver,
+      long callerProgrammer,
+      ListValue callers) {
+    public PendingBuiltin {
+      arguments = List.copyOf(arguments);
     }
   }
 

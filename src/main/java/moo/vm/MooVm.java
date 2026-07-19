@@ -12,6 +12,8 @@ import java.util.Optional;
 import java.util.OptionalLong;
 import moo.builtin.BuiltinCatalog;
 import moo.builtin.BuiltinCatalog.Result;
+import moo.builtin.BuiltinSpec;
+import moo.builtin.EffectClass;
 import moo.bytecode.BytecodeProgram;
 import moo.bytecode.BytecodeProgram.Instruction;
 import moo.bytecode.MooCompiler;
@@ -38,9 +40,15 @@ import moo.world.WorldVerb;
 
 /** Iterative executor for the authorized explicit bytecode state. */
 public final class MooVm {
-  /** Executes a pure program from the supplied explicit state. */
-  public void execute(BytecodeProgram program, VmState state) {
-    execute(program, state, new WorldTxn(List.of(), List.of()), new BuiltinCatalog());
+  /** Executes a pure program for package-level VM tests without publishing world state or effects. */
+  void execute(BytecodeProgram program, VmState state) {
+    WorldTxn root = new WorldTxn(List.of(), List.of());
+    try (WorldTxn transaction = root.begin()) {
+      execute(program, state, transaction, new BuiltinCatalog());
+      if (state.outcome() == VmState.Outcome.PENDING_BUILTIN) {
+        throw new IllegalStateException("pure VM execution reached an irrevocable builtin");
+      }
+    }
   }
 
   /** Executes with the one concrete world transaction and builtin catalog. */
@@ -967,9 +975,29 @@ public final class MooVm {
       return;
     }
     frame.instructionPointer++;
+    String name = instruction.text().orElseThrow();
+    BuiltinSpec spec = builtins.spec(name).orElse(null);
+    if (spec == null) {
+      raiseError(state, ErrorValue.E_VERBNF, world);
+      return;
+    }
+    if (spec.effect() == EffectClass.IRREVOCABLE) {
+      state.yieldBuiltin(
+          new VmSnapshot.PendingBuiltin(
+              spec.name(),
+              arguments.elements(),
+              state.programmer(),
+              state.taskLocal(),
+              state.remainingTicks(),
+              state.remainingSeconds(),
+              frame.receiver,
+              state.callerProgrammer(),
+              state.callers()));
+      return;
+    }
     Result result =
         builtins.invoke(
-            instruction.text().orElseThrow(),
+            spec,
             arguments.elements(),
             world,
             state.programmer(),
@@ -979,6 +1007,31 @@ public final class MooVm {
             frame.receiver,
             state.callerProgrammer(),
             state.callers());
+    applyBuiltinResult(result, frame, state, world);
+  }
+
+  /** Authorizes and applies the exact builtin request held at a publication boundary. */
+  public void authorizePendingBuiltin(
+      VmState state, WorldTxn world, BuiltinCatalog builtins) {
+    VmSnapshot.PendingBuiltin request = state.authorizePendingBuiltin();
+    BuiltinSpec spec = builtins.spec(request.name()).orElseThrow();
+    Result result =
+        builtins.invoke(
+            spec,
+            request.arguments(),
+            world,
+            request.programmer(),
+            request.taskLocal(),
+            request.remainingTicks(),
+            request.remainingSeconds(),
+            request.receiver(),
+            request.callerProgrammer(),
+            request.callers());
+    applyBuiltinResult(result, state.currentFrame(), state, world);
+  }
+
+  private static void applyBuiltinResult(
+      Result result, Frame frame, VmState state, WorldTxn world) {
     if (result.error().isPresent()) {
       if (result.errorDetails().isPresent()) {
         raiseError(
@@ -992,6 +1045,7 @@ public final class MooVm {
     result.output().ifPresent(state::stageOutput);
     result.connectionOptionRequest().ifPresent(state::stageConnectionOptionRequest);
     result.forcedInputRequest().ifPresent(state::stageForcedInputRequest);
+    result.checkpointRequest().ifPresent(state::stageCheckpointRequest);
     if (result.bootPlayerTarget().isPresent()) {
       state.stageBootPlayerTarget(result.bootPlayerTarget().orElseThrow());
     }
