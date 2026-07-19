@@ -3,6 +3,7 @@ package moo.builtin;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -15,11 +16,13 @@ import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import moo.value.MooValue;
 import moo.value.MooValue.ErrorValue;
+import moo.value.MooValue.FloatValue;
 import moo.value.MooValue.IntegerValue;
 import moo.value.MooValue.ListValue;
 import moo.value.MooValue.MapValue;
 import moo.value.MooValue.ObjectValue;
 import moo.value.MooValue.StringValue;
+import moo.value.MooValue.WaifValue;
 import moo.world.WorldObject;
 import moo.world.WorldTxn;
 
@@ -117,6 +120,33 @@ public final class BuiltinCatalog {
             (a, w, p, t, rt, rs, r, cp, c) -> notifyLine(a)));
     entries.add(
         new BuiltinSpec(
+            "tostr",
+            List.of(new CallShape(List.of(), List.of(), Optional.of(ANY))),
+            BuiltinPermissionRule.ANY,
+            BuiltinCostRule.fixed(0),
+            EffectClass.PURE,
+            BuiltinOwner.VM,
+            (a, w, p, t, rt, rs, r, cp, c) -> toStringValue(a)));
+    entries.add(
+        new BuiltinSpec(
+            "tofloat",
+            List.of(new CallShape(List.of(ANY), List.of(), Optional.empty())),
+            BuiltinPermissionRule.ANY,
+            BuiltinCostRule.fixed(0),
+            EffectClass.PURE,
+            BuiltinOwner.VM,
+            (a, w, p, t, rt, rs, r, cp, c) -> toFloat(a)));
+    entries.add(
+        new BuiltinSpec(
+            "toint",
+            List.of(new CallShape(List.of(ANY), List.of(), Optional.empty())),
+            BuiltinPermissionRule.ANY,
+            BuiltinCostRule.fixed(0),
+            EffectClass.PURE,
+            BuiltinOwner.VM,
+            (a, w, p, t, rt, rs, r, cp, c) -> toInteger(a)));
+    entries.add(
+        new BuiltinSpec(
             "toliteral",
             List.of(new CallShape(List.of(ANY), List.of(), Optional.empty())),
             BuiltinPermissionRule.ANY,
@@ -124,6 +154,24 @@ public final class BuiltinCatalog {
             EffectClass.PURE,
             BuiltinOwner.VM,
             (a, w, p, t, rt, rs, r, cp, c) -> toLiteral(a)));
+    entries.add(
+        new BuiltinSpec(
+            "toobj",
+            List.of(new CallShape(List.of(ANY), List.of(), Optional.empty())),
+            BuiltinPermissionRule.ANY,
+            BuiltinCostRule.fixed(0),
+            EffectClass.PURE,
+            BuiltinOwner.VM,
+            (a, w, p, t, rt, rs, r, cp, c) -> toObject(a)));
+    entries.add(
+        new BuiltinSpec(
+            "equal",
+            List.of(new CallShape(List.of(ANY, ANY), List.of(), Optional.empty())),
+            BuiltinPermissionRule.ANY,
+            BuiltinCostRule.fixed(0),
+            EffectClass.PURE,
+            BuiltinOwner.VM,
+            (a, w, p, t, rt, rs, r, cp, c) -> equalValues(a)));
     entries.add(
         new BuiltinSpec(
             "eval",
@@ -374,8 +422,185 @@ public final class BuiltinCatalog {
     return Result.output(decode(line));
   }
 
+  private static Result toStringValue(List<MooValue> arguments) {
+    StringBuilder text = new StringBuilder();
+    for (MooValue argument : arguments) {
+      text.append(
+          switch (argument) {
+            case StringValue string -> decode(string);
+            case IntegerValue integer -> Long.toString(integer.value());
+            case FloatValue floating -> floating.toLiteral();
+            case ObjectValue object -> object.toLiteral();
+            case WaifValue waif -> waif.toString();
+            case ErrorValue error -> errorDescription(error);
+            case ListValue ignored -> "{list}";
+            case MapValue ignored -> "[map]";
+          });
+    }
+    return Result.value(encode(text.toString()));
+  }
+
+  private static String errorDescription(ErrorValue error) {
+    return switch (error) {
+      case E_NONE -> "No error";
+      case E_TYPE -> "Type mismatch";
+      case E_DIV -> "Division by zero";
+      case E_PERM -> "Permission denied";
+      case E_PROPNF -> "Property not found";
+      case E_VERBNF -> "Verb not found";
+      case E_VARNF -> "Variable not found";
+      case E_INVIND -> "Invalid indirection";
+      case E_RECMOVE -> "Recursive move";
+      case E_MAXREC -> "Too many verb calls";
+      case E_RANGE -> "Range error";
+      case E_ARGS -> "Incorrect number of arguments";
+      case E_NACC -> "Move refused by destination";
+      case E_INVARG -> "Invalid argument";
+      case E_QUOTA -> "Resource limit exceeded";
+      case E_FLOAT -> "Floating-point arithmetic error";
+      case E_FILE -> "File error";
+      case E_EXEC -> "Exec error";
+      case E_INTRPT -> "Interrupted";
+    };
+  }
+
+  private static Result toFloat(List<MooValue> arguments) {
+    MooValue argument = arguments.getFirst();
+    if (argument instanceof FloatValue floating) {
+      return Result.value(floating);
+    }
+    if (argument instanceof IntegerValue integer) {
+      return Result.value(new FloatValue(integer.value()));
+    }
+    if (argument instanceof ObjectValue object) {
+      return Result.value(new FloatValue(object.value()));
+    }
+    if (argument instanceof ErrorValue error) {
+      return Result.value(new FloatValue(error.code()));
+    }
+    if (argument instanceof StringValue string) {
+      try {
+        double converted = Double.parseDouble(decode(string).strip());
+        return Double.isFinite(converted)
+            ? Result.value(new FloatValue(converted))
+            : Result.error(ErrorValue.E_INVARG);
+      } catch (NumberFormatException error) {
+        return Result.error(ErrorValue.E_INVARG);
+      }
+    }
+    return Result.error(ErrorValue.E_TYPE);
+  }
+
+  private static Result toInteger(List<MooValue> arguments) {
+    MooValue argument = arguments.getFirst();
+    if (argument instanceof IntegerValue integer) {
+      return Result.value(integer);
+    }
+    if (argument instanceof FloatValue floating) {
+      return Double.isFinite(floating.value())
+          ? Result.value(new IntegerValue((long) floating.value()))
+          : Result.error(ErrorValue.E_FLOAT);
+    }
+    if (argument instanceof ObjectValue object) {
+      return Result.value(new IntegerValue(object.value()));
+    }
+    if (argument instanceof ErrorValue error) {
+      return Result.value(new IntegerValue(error.code()));
+    }
+    if (argument instanceof StringValue string) {
+      String text = decode(string).strip();
+      try {
+        return Result.value(new IntegerValue(Long.parseLong(text)));
+      } catch (NumberFormatException integerError) {
+        try {
+          double converted = Double.parseDouble(text);
+          return Double.isFinite(converted)
+              ? Result.value(new IntegerValue((long) converted))
+              : Result.zero();
+        } catch (NumberFormatException floatingError) {
+          return Result.zero();
+        }
+      }
+    }
+    return Result.error(ErrorValue.E_TYPE);
+  }
+
   private static Result toLiteral(List<MooValue> arguments) {
     return Result.value(encode(arguments.getFirst().toLiteral()));
+  }
+
+  private static Result toObject(List<MooValue> arguments) {
+    MooValue argument = arguments.getFirst();
+    if (argument instanceof ObjectValue object) {
+      return Result.value(object);
+    }
+    if (argument instanceof IntegerValue integer) {
+      return Result.value(new ObjectValue(integer.value()));
+    }
+    if (argument instanceof FloatValue floating) {
+      return Double.isFinite(floating.value())
+          ? Result.value(new ObjectValue((long) floating.value()))
+          : Result.error(ErrorValue.E_FLOAT);
+    }
+    if (argument instanceof ErrorValue error) {
+      return Result.value(new ObjectValue(error.code()));
+    }
+    if (argument instanceof StringValue string) {
+      String text = decode(string).strip();
+      if (text.startsWith("#")) {
+        text = text.substring(1);
+      }
+      try {
+        return Result.value(new ObjectValue(Long.parseLong(text)));
+      } catch (NumberFormatException error) {
+        return Result.value(new ObjectValue(0));
+      }
+    }
+    return Result.error(ErrorValue.E_TYPE);
+  }
+
+  private static Result equalValues(List<MooValue> arguments) {
+    return Result.value(
+        new IntegerValue(exactlyEqual(arguments.get(0), arguments.get(1)) ? 1 : 0));
+  }
+
+  private static boolean exactlyEqual(MooValue left, MooValue right) {
+    if (left instanceof StringValue leftString && right instanceof StringValue rightString) {
+      return Arrays.equals(leftString.bytes(), rightString.bytes());
+    }
+    if (left instanceof ListValue leftList && right instanceof ListValue rightList) {
+      if (leftList.size() != rightList.size()) {
+        return false;
+      }
+      for (int index = 0; index < leftList.size(); index++) {
+        if (!exactlyEqual(leftList.elements().get(index), rightList.elements().get(index))) {
+          return false;
+        }
+      }
+      return true;
+    }
+    if (left instanceof MapValue leftMap && right instanceof MapValue rightMap) {
+      if (leftMap.size() != rightMap.size()) {
+        return false;
+      }
+      for (Map.Entry<MooValue, MooValue> leftEntry : leftMap.entries().entrySet()) {
+        boolean matched = false;
+        for (Map.Entry<MooValue, MooValue> rightEntry : rightMap.entries().entrySet()) {
+          if (exactlyEqual(leftEntry.getKey(), rightEntry.getKey())) {
+            if (!exactlyEqual(leftEntry.getValue(), rightEntry.getValue())) {
+              return false;
+            }
+            matched = true;
+            break;
+          }
+        }
+        if (!matched) {
+          return false;
+        }
+      }
+      return true;
+    }
+    return left.equals(right);
   }
 
   private static Result dynamicEval(List<MooValue> arguments) {

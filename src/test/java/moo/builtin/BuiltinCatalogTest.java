@@ -27,6 +27,7 @@ final class BuiltinCatalogTest {
       Set.of(
           "create",
           "dump_database",
+          "equal",
           "eval",
           "function_info",
           "length",
@@ -35,7 +36,11 @@ final class BuiltinCatalogTest {
           "set_player_flag",
           "set_task_perms",
           "switch_player",
+          "tofloat",
+          "toint",
           "toliteral",
+          "toobj",
+          "tostr",
           "typeof");
 
   @Test
@@ -67,6 +72,29 @@ final class BuiltinCatalogTest {
     assertEquals(0, spec.tickCost().charge(List.of()));
     assertEquals(EffectClass.DEFERRED_COMMIT, spec.effect());
     assertEquals(BuiltinOwner.SERVER, spec.owner());
+  }
+
+  @Test
+  void exposesTheExactPureValueConversionContracts() {
+    BuiltinCatalog catalog = new BuiltinCatalog();
+
+    assertPureVmContract(
+        catalog,
+        "tostr",
+        new CallShape(List.of(), List.of(), Optional.of(Set.of(ArgType.ANY))));
+    for (String name : List.of("tofloat", "toint", "toobj")) {
+      assertPureVmContract(
+          catalog,
+          name,
+          new CallShape(List.of(Set.of(ArgType.ANY)), List.of(), Optional.empty()));
+    }
+    assertPureVmContract(
+        catalog,
+        "equal",
+        new CallShape(
+            List.of(Set.of(ArgType.ANY), Set.of(ArgType.ANY)),
+            List.of(),
+            Optional.empty()));
   }
 
   @Test
@@ -146,6 +174,16 @@ final class BuiltinCatalogTest {
         new ObjectValue(programmer),
         programmer,
         new ListValue(List.of()));
+  }
+
+  private static void assertPureVmContract(
+      BuiltinCatalog catalog, String name, CallShape shape) {
+    BuiltinSpec spec = catalog.spec(name).orElseThrow();
+    assertEquals(List.of(shape), spec.callShapes());
+    assertSame(BuiltinPermissionRule.ANY, spec.permission());
+    assertEquals(0, spec.tickCost().charge(List.of()));
+    assertEquals(EffectClass.PURE, spec.effect());
+    assertEquals(BuiltinOwner.VM, spec.owner());
   }
 
   private static WorldTxn world() {
