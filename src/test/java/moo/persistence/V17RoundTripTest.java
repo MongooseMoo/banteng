@@ -11,6 +11,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import moo.value.MooValue;
+import moo.value.MooValue.BooleanValue;
 import moo.value.MooValue.ErrorValue;
 import moo.value.MooValue.FloatValue;
 import moo.value.MooValue.IntegerValue;
@@ -86,7 +87,13 @@ final class V17RoundTripTest {
             List.of(),
             List.of(),
             List.of(
-                new WorldProperty("local", new IntegerValue(9), 0, 1, false, true),
+                new WorldProperty(
+                    "local",
+                    new ListValue(List.of(BooleanValue.TRUE, BooleanValue.FALSE)),
+                    0,
+                    1,
+                    false,
+                    true),
                 new WorldProperty(
                     "integer", new IntegerValue(Long.MIN_VALUE), 0, 1, true, false),
                 new WorldProperty("float", new FloatValue(3.5), 0, 1, false, false),

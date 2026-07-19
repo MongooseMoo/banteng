@@ -21,6 +21,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import moo.value.MooValue;
+import moo.value.MooValue.BooleanValue;
 import moo.value.MooValue.ErrorValue;
 import moo.value.MooValue.FloatValue;
 import moo.value.MooValue.IntegerValue;
@@ -243,6 +244,7 @@ public final class LambdaMooV17Codec {
     line(output, value.type().code());
     switch (value) {
       case IntegerValue integer -> line(output, integer.value());
+      case BooleanValue booleanValue -> line(output, booleanValue.value() ? 1 : 0);
       case ObjectValue object -> line(output, object.value());
       case StringValue string ->
           lineString(
@@ -490,6 +492,7 @@ public final class LambdaMooV17Codec {
         }
         yield new MapValue(values);
       }
+      case 14 -> BooleanValue.of(readLong(input, "boolean value") != 0);
       default -> throw malformed("unsupported Phase 2 v17 value tag " + tag);
     };
   }
