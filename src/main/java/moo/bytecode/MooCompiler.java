@@ -63,9 +63,21 @@ public final class MooCompiler {
       int conditionTarget = instructions.size();
       compileExpression(whileStatement.condition(), instructions);
       int exitJump = addJump(Opcode.JUMP_IF_FALSE, instructions);
+      List<Integer> breakJumps = new ArrayList<>();
+      activeLoopVariables.add(
+          whileStatement.loopVariable().map(List::of).orElseGet(List::of));
+      activeLoopStarts.add(conditionTarget);
+      activeLoopBreaks.add(breakJumps);
       compileStatements(whileStatement.body(), instructions, forkVectors);
+      activeLoopVariables.removeLast();
+      activeLoopStarts.removeLast();
+      activeLoopBreaks.removeLast();
       instructions.add(new Instruction(Opcode.JUMP, conditionTarget));
-      patchJump(exitJump, instructions.size(), instructions);
+      int loopExit = instructions.size();
+      patchJump(exitJump, loopExit, instructions);
+      for (int breakJump : breakJumps) {
+        patchJump(breakJump, loopExit, instructions);
+      }
       return;
     }
     if (statement instanceof Ast.For forStatement) {
@@ -99,32 +111,40 @@ public final class MooCompiler {
       return;
     }
     if (statement instanceof Ast.Break breakStatement) {
-      String loopVariable = breakStatement.loopVariable().orElseThrow();
-      int loopIndex = -1;
-      for (int index = activeLoopVariables.size() - 1; index >= 0; index--) {
-        if (activeLoopVariables.get(index).contains(loopVariable)) {
-          loopIndex = index;
-          break;
+      int loopIndex = activeLoopVariables.size() - 1;
+      if (breakStatement.loopVariable().isPresent()) {
+        String loopVariable = breakStatement.loopVariable().orElseThrow();
+        loopIndex = -1;
+        for (int index = activeLoopVariables.size() - 1; index >= 0; index--) {
+          if (activeLoopVariables.get(index).contains(loopVariable)) {
+            loopIndex = index;
+            break;
+          }
         }
       }
       if (loopIndex < 0) {
-        throw new IllegalArgumentException("unknown loop variable: " + loopVariable);
+        throw new IllegalArgumentException(
+            "unknown loop variable: " + breakStatement.loopVariable().orElse("<unnamed>"));
       }
       int breakJump = addJump(Opcode.JUMP, instructions);
       activeLoopBreaks.get(loopIndex).add(breakJump);
       return;
     }
     if (statement instanceof Ast.Continue continueStatement) {
-      String loopVariable = continueStatement.loopVariable().orElseThrow();
-      int loopIndex = -1;
-      for (int index = activeLoopVariables.size() - 1; index >= 0; index--) {
-        if (activeLoopVariables.get(index).contains(loopVariable)) {
-          loopIndex = index;
-          break;
+      int loopIndex = activeLoopVariables.size() - 1;
+      if (continueStatement.loopVariable().isPresent()) {
+        String loopVariable = continueStatement.loopVariable().orElseThrow();
+        loopIndex = -1;
+        for (int index = activeLoopVariables.size() - 1; index >= 0; index--) {
+          if (activeLoopVariables.get(index).contains(loopVariable)) {
+            loopIndex = index;
+            break;
+          }
         }
       }
       if (loopIndex < 0) {
-        throw new IllegalArgumentException("Invalid loop name: " + loopVariable);
+        throw new IllegalArgumentException(
+            "Invalid loop name: " + continueStatement.loopVariable().orElse("<unnamed>"));
       }
       instructions.add(new Instruction(Opcode.JUMP, activeLoopStarts.get(loopIndex)));
       return;

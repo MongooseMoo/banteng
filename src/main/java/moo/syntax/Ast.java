@@ -80,8 +80,10 @@ public sealed interface Ast
     }
   }
 
-  record While(Expression condition, List<Statement> body) implements Statement {
+  record While(Optional<String> loopVariable, Expression condition, List<Statement> body)
+      implements Statement {
     public While {
+      Objects.requireNonNull(loopVariable, "loopVariable");
       body = List.copyOf(body);
     }
   }

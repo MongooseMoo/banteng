@@ -121,10 +121,15 @@ public final class MooParser {
 
   private Ast.While parseWhile() {
     advance();
+    Optional<String> loopVariable = Optional.empty();
+    if (current.kind() == TokenKind.IDENTIFIER) {
+      loopVariable = Optional.of(current.lexeme());
+      advance();
+    }
     Ast.Expression condition = parseParenthesizedExpression("while");
     List<Ast.Statement> body = parseStatementsUntil(TokenKind.ENDWHILE);
     expectAndAdvance(TokenKind.ENDWHILE, "endwhile");
-    return new Ast.While(condition, body);
+    return new Ast.While(loopVariable, condition, body);
   }
 
   private Ast.For parseFor() {

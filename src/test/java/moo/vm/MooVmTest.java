@@ -140,6 +140,70 @@ final class MooVmTest {
   }
 
   @Test
+  void executesNamedWhileBreakAndContinueThroughTheCompleteControlFlowPipeline() {
+    byte[] source =
+        """
+        x = 0;
+        y = 0;
+        while loop (x < 6)
+          x = x + 1;
+          if (x == 2)
+            continue loop;
+          endif
+          y = y + 1;
+          if (x == 4)
+            break loop;
+          endif
+        endwhile
+        return {x, y};"""
+            .getBytes(StandardCharsets.ISO_8859_1);
+    Ast.Program syntax = MooParser.parse(source);
+    Ast.While whileStatement = assertInstanceOf(Ast.While.class, syntax.statements().get(2));
+    assertEquals("loop", whileStatement.loopVariable().orElseThrow());
+    assertEquals(new String(source, StandardCharsets.ISO_8859_1), MooUnparser.unparse(syntax));
+
+    VmState state = new VmState();
+    new MooVm().execute(new MooCompiler().compile(syntax), state);
+
+    assertEquals(VmState.Outcome.RETURNED, state.outcome());
+    assertEquals(
+        new ListValue(List.of(new IntegerValue(4), new IntegerValue(3))),
+        state.returnValue().orElseThrow());
+  }
+
+  @Test
+  void executesUnnamedWhileBreakAndContinueThroughTheCompleteControlFlowPipeline() {
+    byte[] source =
+        """
+        x = 0;
+        y = 0;
+        while (x < 6)
+          x = x + 1;
+          if (x == 2)
+            continue;
+          endif
+          y = y + 1;
+          if (x == 4)
+            break;
+          endif
+        endwhile
+        return {x, y};"""
+            .getBytes(StandardCharsets.ISO_8859_1);
+    Ast.Program syntax = MooParser.parse(source);
+    Ast.While whileStatement = assertInstanceOf(Ast.While.class, syntax.statements().get(2));
+    assertTrue(whileStatement.loopVariable().isEmpty());
+    assertEquals(new String(source, StandardCharsets.ISO_8859_1), MooUnparser.unparse(syntax));
+
+    VmState state = new VmState();
+    new MooVm().execute(new MooCompiler().compile(syntax), state);
+
+    assertEquals(VmState.Outcome.RETURNED, state.outcome());
+    assertEquals(
+        new ListValue(List.of(new IntegerValue(4), new IntegerValue(3))),
+        state.returnValue().orElseThrow());
+  }
+
+  @Test
   void iteratesStringBytesThroughTheCompleteControlFlowPipeline() {
     byte[] source =
         """

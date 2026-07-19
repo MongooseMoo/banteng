@@ -94,7 +94,11 @@ public final class MooUnparser {
       if (statement instanceof Ast.While whileStatement) {
         line(
             indentation,
-            "while (" + expression(whileStatement.condition(), ASSIGNMENT_PRECEDENCE) + ")");
+            "while"
+                + whileStatement.loopVariable().map(name -> " " + name).orElse("")
+                + " ("
+                + expression(whileStatement.condition(), ASSIGNMENT_PRECEDENCE)
+                + ")");
         statements(whileStatement.body(), indentation + 1);
         line(indentation, "endwhile");
         return;
