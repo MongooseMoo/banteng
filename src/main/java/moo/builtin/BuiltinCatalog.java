@@ -249,6 +249,15 @@ public final class BuiltinCatalog {
             (a, w, p, t, rt, rs, r, cp, c) -> properties(a, w, p)));
     entries.add(
         new BuiltinSpec(
+            "property_info",
+            List.of(new CallShape(List.of(ANY, STRING), List.of(), Optional.empty())),
+            BuiltinPermissionRule.ANY,
+            BuiltinCostRule.fixed(0),
+            EffectClass.TRANSACTION_READ,
+            BuiltinOwner.WORLD,
+            (a, w, p, t, rt, rs, r, cp, c) -> propertyInfo(a, w, p)));
+    entries.add(
+        new BuiltinSpec(
             "is_clear_property",
             List.of(new CallShape(List.of(ANY, STRING), List.of(), Optional.empty())),
             BuiltinPermissionRule.ANY,
@@ -1230,6 +1239,50 @@ public final class BuiltinCatalog {
             .findFirst()
             .orElse(null);
     return Result.value(new IntegerValue(local != null && local.clear() ? 1 : 0));
+  }
+
+  private static Result propertyInfo(
+      List<MooValue> arguments, WorldTxn world, long programmer) {
+    if (!(arguments.getFirst() instanceof ObjectValue object)) {
+      return Result.error(ErrorValue.E_TYPE);
+    }
+    if (world.object(object.value()).isEmpty()) {
+      return Result.error(ErrorValue.E_INVARG);
+    }
+    String name = decode((StringValue) arguments.get(1));
+    String normalized = name.toLowerCase(Locale.ROOT);
+    if (normalized.equals("name")
+        || normalized.equals("location")
+        || normalized.equals("contents")
+        || normalized.equals("owner")
+        || normalized.equals("programmer")
+        || normalized.equals("wizard")
+        || normalized.equals("r")
+        || normalized.equals("w")
+        || normalized.equals("f")) {
+      return Result.error(ErrorValue.E_PROPNF);
+    }
+    WorldProperty property = world.property(object.value(), name).orElse(null);
+    if (property == null) {
+      return Result.error(ErrorValue.E_PROPNF);
+    }
+    WorldObject actor = world.object(programmer).orElse(null);
+    boolean wizard = actor != null && (actor.flags() & 4) != 0;
+    if (property.owner() != programmer && !wizard && (property.permissions() & 1) == 0) {
+      return Result.error(ErrorValue.E_PERM);
+    }
+    String permissions = "";
+    if ((property.permissions() & 1) != 0) {
+      permissions += "r";
+    }
+    if ((property.permissions() & 2) != 0) {
+      permissions += "w";
+    }
+    if ((property.permissions() & 4) != 0) {
+      permissions += "c";
+    }
+    return Result.value(
+        new ListValue(List.of(new ObjectValue(property.owner()), encode(permissions))));
   }
 
   private static Result clearProperty(

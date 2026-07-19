@@ -55,6 +55,7 @@ final class BuiltinCatalogTest {
           "notify",
           "parent",
           "properties",
+          "property_info",
           "random",
           "raise",
           "recycle",
@@ -278,6 +279,67 @@ final class BuiltinCatalogTest {
                   1)
               .value());
       assertTrue(transaction.property(2, "test").isEmpty());
+    }
+  }
+
+  @Test
+  void propertyInfoResolvesCaseInsensitivelyAndReturnsCanonicalMetadata() {
+    BuiltinCatalog catalog = new BuiltinCatalog();
+    BuiltinSpec spec = catalog.spec("property_info").orElseThrow();
+    assertEquals(
+        List.of(
+            new CallShape(
+                List.of(Set.of(ArgType.ANY), Set.of(ArgType.STRING)),
+                List.of(),
+                Optional.empty())),
+        spec.callShapes());
+    assertEquals(EffectClass.TRANSACTION_READ, spec.effect());
+    assertEquals(BuiltinOwner.WORLD, spec.owner());
+
+    WorldObject wizard =
+        new WorldObject(1, "Wizard", 4, 1, -1, -1, List.of(), List.of(), List.of(), List.of());
+    WorldObject target =
+        new WorldObject(
+            2,
+            "Target",
+            0,
+            2,
+            -1,
+            -1,
+            List.of(),
+            List.of(),
+            List.of(),
+            List.of(
+                new WorldProperty("CaseProbe", new IntegerValue(42), 1, 3, false, true),
+                new WorldProperty("Private", new IntegerValue(0), 1, 2, false, true)));
+    try (WorldTxn transaction = new WorldTxn(List.of(), List.of(wizard, target)).begin()) {
+      assertEquals(
+          Optional.of(new ListValue(List.of(new ObjectValue(1), string("rw")))),
+          invoke(
+                  catalog,
+                  spec,
+                  List.of(new ObjectValue(2), string("caseprobe")),
+                  transaction,
+                  1)
+              .value());
+      assertEquals(
+          Optional.of(ErrorValue.E_PROPNF),
+          invoke(
+                  catalog,
+                  spec,
+                  List.of(new ObjectValue(2), string("name")),
+                  transaction,
+                  1)
+              .error());
+      assertEquals(
+          Optional.of(ErrorValue.E_PERM),
+          invoke(
+                  catalog,
+                  spec,
+                  List.of(new ObjectValue(2), string("private")),
+                  transaction,
+                  2)
+              .error());
     }
   }
 
