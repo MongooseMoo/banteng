@@ -22,13 +22,16 @@ import moo.value.MooValue.ObjectValue;
 import moo.value.MooValue.StringValue;
 import moo.world.WorldObject;
 import moo.world.WorldTxn;
+import moo.world.WorldVerb;
 import org.junit.jupiter.api.Test;
 
 final class BuiltinCatalogTest {
   private static final Set<String> REACHABLE_NAMES =
       Set.of(
+          "add_verb",
           "create",
           "decode_binary",
+          "disassemble",
           "dump_database",
           "encode_binary",
           "equal",
@@ -47,6 +50,7 @@ final class BuiltinCatalogTest {
           "rindex",
           "set_player_flag",
           "set_task_perms",
+          "set_verb_code",
           "setadd",
           "strcmp",
           "strsub",
@@ -74,6 +78,93 @@ final class BuiltinCatalogTest {
       assertTrue(!spec.callShapes().isEmpty(), spec.name());
       assertTrue(spec.tickCost().charge(List.of()) >= 0, spec.name());
       assertSame(spec, catalog.spec(spec.name().toUpperCase(java.util.Locale.ROOT)).orElseThrow());
+    }
+  }
+
+  @Test
+  void addVerbValidatesAndStagesOneCompleteWorldVerb() {
+    BuiltinCatalog catalog = new BuiltinCatalog();
+    BuiltinSpec spec = catalog.spec("add_verb").orElseThrow();
+
+    assertEquals(
+        List.of(
+            new CallShape(
+                List.of(Set.of(ArgType.ANY), Set.of(ArgType.LIST), Set.of(ArgType.LIST)),
+                List.of(),
+                Optional.empty())),
+        spec.callShapes());
+    assertSame(BuiltinPermissionRule.ANY, spec.permission());
+    assertEquals(EffectClass.TRANSACTION_WRITE, spec.effect());
+    assertEquals(BuiltinOwner.WORLD, spec.owner());
+
+    WorldObject wizard =
+        new WorldObject(1, "Wizard", 4, 1, -1, -1, List.of(), List.of(), List.of(), List.of());
+    WorldObject target =
+        new WorldObject(3, "Target", 0, 1, -1, -1, List.of(), List.of(), List.of(), List.of());
+    try (WorldTxn transaction = new WorldTxn(List.of(), List.of(wizard, target)).begin()) {
+      Result result =
+          invoke(
+              catalog,
+              spec,
+              List.of(
+                  new ObjectValue(3),
+                  new ListValue(List.of(new ObjectValue(1), string("xd"), string("foobar"))),
+                  new ListValue(List.of(string("this"), string("none"), string("this")))),
+              transaction,
+              1);
+
+      assertEquals(Optional.of(new IntegerValue(1)), result.value());
+      assertEquals(
+          new WorldVerb("foobar", 1, 12 | (2 << 4) | (2 << 6), -1, ""),
+          transaction.verb(3, 0).orElseThrow());
+    }
+  }
+
+  @Test
+  void setVerbCodeCompilesAndStagesSourceOnOneDefinedVerb() {
+    BuiltinCatalog catalog = new BuiltinCatalog();
+    BuiltinSpec spec = catalog.spec("set_verb_code").orElseThrow();
+
+    assertEquals(
+        List.of(
+            new CallShape(
+                List.of(Set.of(ArgType.ANY), Set.of(ArgType.ANY), Set.of(ArgType.LIST)),
+                List.of(),
+                Optional.empty())),
+        spec.callShapes());
+    assertSame(BuiltinPermissionRule.ANY, spec.permission());
+    assertEquals(EffectClass.TRANSACTION_WRITE, spec.effect());
+    assertEquals(BuiltinOwner.WORLD, spec.owner());
+
+    WorldObject wizard =
+        new WorldObject(1, "Wizard", 4, 1, -1, -1, List.of(), List.of(), List.of(), List.of());
+    WorldObject target =
+        new WorldObject(
+            3,
+            "Target",
+            0,
+            1,
+            -1,
+            -1,
+            List.of(),
+            List.of(),
+            List.of(new WorldVerb("foobar", 1, 0, -1, "")),
+            List.of());
+    try (WorldTxn transaction = new WorldTxn(List.of(), List.of(wizard, target)).begin()) {
+      Result result =
+          invoke(
+              catalog,
+              spec,
+              List.of(
+                  new ObjectValue(3),
+                  string("foobar"),
+                  new ListValue(List.of(string("return \"foobar\"[^..$];")))),
+              transaction,
+              1);
+
+      assertEquals(Optional.of(new ListValue(List.of())), result.value());
+      assertEquals(
+          "return \"foobar\"[^..$];", transaction.verb(3, 0).orElseThrow().programSource());
     }
   }
 
@@ -163,6 +254,113 @@ final class BuiltinCatalogTest {
             Optional.of(ErrorValue.E_INVARG),
             invoke(catalog, spec, arguments, transaction, 1).error());
       }
+    }
+  }
+
+  @Test
+  void disassembleReadsOneDefinedVerbAndReturnsDeterministicBytecodeLines() {
+    BuiltinCatalog catalog = new BuiltinCatalog();
+    BuiltinSpec spec = catalog.spec("disassemble").orElseThrow();
+
+    assertEquals(
+        List.of(new CallShape(List.of(Set.of(ArgType.ANY), Set.of(ArgType.ANY)), List.of(), Optional.empty())),
+        spec.callShapes());
+    assertSame(BuiltinPermissionRule.ANY, spec.permission());
+    assertEquals(EffectClass.TRANSACTION_READ, spec.effect());
+    assertEquals(BuiltinOwner.WORLD, spec.owner());
+
+    WorldObject wizard =
+        new WorldObject(1, "Wizard", 4, 1, -1, -1, List.of(), List.of(), List.of(), List.of());
+    WorldObject programmer =
+        new WorldObject(2, "Programmer", 0, 2, -1, -1, List.of(), List.of(), List.of(), List.of());
+    WorldObject target =
+        new WorldObject(
+            3,
+            "Target",
+            0,
+            2,
+            -1,
+            -1,
+            List.of(),
+            List.of(),
+            List.of(new WorldVerb("foobar", 2, 0, -1, "return \"foobar\"[^..$];")),
+            List.of());
+    WorldObject privateTarget =
+        new WorldObject(
+            4,
+            "Private",
+            0,
+            1,
+            -1,
+            -1,
+            List.of(),
+            List.of(),
+            List.of(new WorldVerb("secret", 1, 0, -1, "return 1;")),
+            List.of());
+    try (WorldTxn transaction =
+        new WorldTxn(List.of(), List.of(wizard, programmer, target, privateTarget)).begin()) {
+      Result result =
+          invoke(catalog, spec, List.of(new ObjectValue(3), string("foobar")), transaction, 2);
+      ListValue lines = (ListValue) result.value().orElseThrow();
+      assertTrue(
+          lines.elements().stream()
+              .map(StringValue.class::cast)
+              .map(BuiltinCatalogTest::decode)
+              .anyMatch(line -> line.contains("FIRST")));
+      assertTrue(
+          lines.elements().stream()
+              .map(StringValue.class::cast)
+              .map(BuiltinCatalogTest::decode)
+              .anyMatch(line -> line.contains("LAST")));
+
+      assertEquals(
+          Optional.of(ErrorValue.E_TYPE),
+          invoke(
+                  catalog,
+                  spec,
+                  List.of(new IntegerValue(3), string("foobar")),
+                  transaction,
+                  2)
+              .error());
+      assertEquals(
+          Optional.of(ErrorValue.E_TYPE),
+          invoke(
+                  catalog,
+                  spec,
+                  List.of(new ObjectValue(3), new FloatValue(1.5)),
+                  transaction,
+                  2)
+              .error());
+      assertEquals(
+          Optional.of(ErrorValue.E_INVARG),
+          invoke(
+                  catalog,
+                  spec,
+                  List.of(new ObjectValue(999), string("foobar")),
+                  transaction,
+                  2)
+              .error());
+      assertEquals(
+          Optional.of(ErrorValue.E_INVARG),
+          invoke(
+                  catalog,
+                  spec,
+                  List.of(new ObjectValue(3), new IntegerValue(0)),
+                  transaction,
+                  2)
+              .error());
+      assertEquals(
+          Optional.of(ErrorValue.E_VERBNF),
+          invoke(catalog, spec, List.of(new ObjectValue(3), string("missing")), transaction, 2)
+              .error());
+      assertEquals(
+          Optional.of(ErrorValue.E_PERM),
+          invoke(catalog, spec, List.of(new ObjectValue(4), string("secret")), transaction, 2)
+              .error());
+      assertTrue(
+          invoke(catalog, spec, List.of(new ObjectValue(4), string("secret")), transaction, 1)
+              .value()
+              .isPresent());
     }
   }
 
@@ -625,6 +823,10 @@ final class BuiltinCatalogTest {
 
   private static StringValue string(String value) {
     return new StringValue(value.getBytes(StandardCharsets.ISO_8859_1));
+  }
+
+  private static String decode(StringValue value) {
+    return new String(value.bytes(), StandardCharsets.ISO_8859_1);
   }
 
   private static void assertString(String expected, Result actual) {

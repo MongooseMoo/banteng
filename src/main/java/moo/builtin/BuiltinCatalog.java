@@ -16,6 +16,7 @@ import java.util.OptionalLong;
 import java.util.Random;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
+import moo.bytecode.MooCompiler;
 import moo.value.MooValue;
 import moo.value.MooValue.BooleanValue;
 import moo.value.MooValue.ErrorValue;
@@ -28,6 +29,7 @@ import moo.value.MooValue.StringValue;
 import moo.value.MooValue.WaifValue;
 import moo.world.WorldObject;
 import moo.world.WorldTxn;
+import moo.world.WorldVerb;
 
 /** The explicit builtin catalog required by the first managed runtime path. */
 public final class BuiltinCatalog {
@@ -195,6 +197,15 @@ public final class BuiltinCatalog {
             (a, w, p, t, rt, rs, r, cp, c) -> decodeBinary(a)));
     entries.add(
         new BuiltinSpec(
+            "disassemble",
+            List.of(new CallShape(List.of(ANY, ANY), List.of(), Optional.empty())),
+            BuiltinPermissionRule.ANY,
+            BuiltinCostRule.fixed(0),
+            EffectClass.TRANSACTION_READ,
+            BuiltinOwner.WORLD,
+            (a, w, p, t, rt, rs, r, cp, c) -> disassemble(a, w, p)));
+    entries.add(
+        new BuiltinSpec(
             "encode_binary",
             List.of(new CallShape(List.of(), List.of(), Optional.of(ANY))),
             BuiltinPermissionRule.ANY,
@@ -202,6 +213,19 @@ public final class BuiltinCatalog {
             EffectClass.PURE,
             BuiltinOwner.VM,
             (a, w, p, t, rt, rs, r, cp, c) -> encodeBinary(a)));
+    entries.add(
+        new BuiltinSpec(
+            "add_verb",
+            List.of(
+                new CallShape(
+                    List.of(ANY, Set.of(ArgType.LIST), Set.of(ArgType.LIST)),
+                    List.of(),
+                    Optional.empty())),
+            BuiltinPermissionRule.ANY,
+            BuiltinCostRule.fixed(0),
+            EffectClass.TRANSACTION_WRITE,
+            BuiltinOwner.WORLD,
+            (a, w, p, t, rt, rs, r, cp, c) -> addVerb(a, w, p)));
     entries.add(
         new BuiltinSpec(
             "create",
@@ -220,6 +244,19 @@ public final class BuiltinCatalog {
             EffectClass.TRANSACTION_WRITE,
             BuiltinOwner.WORLD,
             (a, w, p, t, rt, rs, r, cp, c) -> setPlayerFlag(a, w)));
+    entries.add(
+        new BuiltinSpec(
+            "set_verb_code",
+            List.of(
+                new CallShape(
+                    List.of(ANY, ANY, Set.of(ArgType.LIST)),
+                    List.of(),
+                    Optional.empty())),
+            BuiltinPermissionRule.ANY,
+            BuiltinCostRule.fixed(0),
+            EffectClass.TRANSACTION_WRITE,
+            BuiltinOwner.WORLD,
+            (a, w, p, t, rt, rs, r, cp, c) -> setVerbCode(a, w, p)));
     entries.add(
         new BuiltinSpec(
             "move",
@@ -761,6 +798,52 @@ public final class BuiltinCatalog {
     return Result.value(new StringValue(encoded.toByteArray()));
   }
 
+  private static Result disassemble(
+      List<MooValue> arguments, WorldTxn world, long programmer) {
+    if (!(arguments.get(0) instanceof ObjectValue object)) {
+      return Result.error(ErrorValue.E_TYPE);
+    }
+    MooValue descriptor = arguments.get(1);
+    if (!(descriptor instanceof StringValue) && !(descriptor instanceof IntegerValue)) {
+      return Result.error(ErrorValue.E_TYPE);
+    }
+    if (descriptor instanceof IntegerValue integer && integer.value() <= 0) {
+      return Result.error(ErrorValue.E_INVARG);
+    }
+    WorldObject target = world.object(object.value()).orElse(null);
+    if (target == null) {
+      return Result.error(ErrorValue.E_INVARG);
+    }
+
+    WorldVerb verb;
+    if (descriptor instanceof IntegerValue integer) {
+      long index = integer.value() - 1;
+      if (index >= target.verbs().size()) {
+        return Result.error(ErrorValue.E_VERBNF);
+      }
+      verb = target.verbs().get((int) index);
+    } else {
+      WorldVerb candidate =
+          world.verb(object.value(), decode((StringValue) descriptor), false).orElse(null);
+      if (candidate == null || !target.verbs().contains(candidate)) {
+        return Result.error(ErrorValue.E_VERBNF);
+      }
+      verb = candidate;
+    }
+
+    WorldObject actor = world.object(programmer).orElse(null);
+    boolean wizard = actor != null && (actor.flags() & 4) != 0;
+    if (verb.owner() != programmer && !wizard && (verb.permissions() & 1) == 0) {
+      return Result.error(ErrorValue.E_PERM);
+    }
+    List<MooValue> lines =
+        new MooCompiler().compile(verb.programSource()).disassemble().lines()
+            .map(BuiltinCatalog::encode)
+            .map(MooValue.class::cast)
+            .toList();
+    return Result.value(new ListValue(lines));
+  }
+
   private static boolean appendBinaryBytes(ByteArrayOutputStream output, MooValue value) {
     if (value instanceof StringValue string) {
       output.writeBytes(string.bytes());
@@ -817,12 +900,165 @@ public final class BuiltinCatalog {
     }
   }
 
+  private static Result addVerb(
+      List<MooValue> arguments, WorldTxn world, long programmer) {
+    ListValue info = (ListValue) arguments.get(1);
+    if (info.size() != 3
+        || !(info.elements().get(0) instanceof ObjectValue owner)
+        || !(info.elements().get(1) instanceof StringValue permissionValue)
+        || !(info.elements().get(2) instanceof StringValue namesValue)) {
+      return Result.error(ErrorValue.E_TYPE);
+    }
+    if (world.object(owner.value()).isEmpty()) {
+      return Result.error(ErrorValue.E_INVARG);
+    }
+    int permissions = 0;
+    String permissionText = decode(permissionValue);
+    for (int index = 0; index < permissionText.length(); index++) {
+      permissions |=
+          switch (Character.toLowerCase(permissionText.charAt(index))) {
+            case 'r' -> 1;
+            case 'w' -> 2;
+            case 'x' -> 4;
+            case 'd' -> 8;
+            default -> -1;
+          };
+      if (permissions < 0) {
+        return Result.error(ErrorValue.E_INVARG);
+      }
+    }
+    String names = decode(namesValue).stripLeading();
+    if (names.isEmpty()) {
+      return Result.error(ErrorValue.E_INVARG);
+    }
+
+    ListValue verbArguments = (ListValue) arguments.get(2);
+    if (verbArguments.size() != 3
+        || verbArguments.elements().stream().anyMatch(value -> !(value instanceof StringValue))) {
+      return Result.error(ErrorValue.E_TYPE);
+    }
+    String directText = decode((StringValue) verbArguments.elements().get(0));
+    String prepositionText = decode((StringValue) verbArguments.elements().get(1));
+    String indirectText = decode((StringValue) verbArguments.elements().get(2));
+    int direct =
+        switch (directText.toLowerCase(Locale.ROOT)) {
+          case "none" -> 0;
+          case "any" -> 1;
+          case "this" -> 2;
+          default -> -1;
+        };
+    int indirect =
+        switch (indirectText.toLowerCase(Locale.ROOT)) {
+          case "none" -> 0;
+          case "any" -> 1;
+          case "this" -> 2;
+          default -> -1;
+        };
+    int preposition =
+        switch (prepositionText.toLowerCase(Locale.ROOT)) {
+          case "none" -> -1;
+          case "any" -> -2;
+          default -> Integer.MIN_VALUE;
+        };
+    if (direct < 0 || indirect < 0 || preposition == Integer.MIN_VALUE) {
+      return Result.error(ErrorValue.E_INVARG);
+    }
+
+    if (!(arguments.get(0) instanceof ObjectValue object)) {
+      return Result.error(ErrorValue.E_TYPE);
+    }
+    WorldObject target = world.object(object.value()).orElse(null);
+    if (target == null) {
+      return Result.error(ErrorValue.E_INVARG);
+    }
+    WorldObject actor = world.object(programmer).orElse(null);
+    boolean wizard = actor != null && (actor.flags() & 4) != 0;
+    boolean writable = target.owner() == programmer || wizard || (target.flags() & 32) != 0;
+    if (!writable || (owner.value() != programmer && !wizard)) {
+      return Result.error(ErrorValue.E_PERM);
+    }
+
+    int encodedPermissions = permissions | (direct << 4) | (indirect << 6);
+    return Result.value(
+        new IntegerValue(
+            world.addVerb(
+                object.value(), names, owner.value(), encodedPermissions, preposition)));
+  }
+
   private static Result setPlayerFlag(List<MooValue> arguments, WorldTxn world) {
     ObjectValue object = (ObjectValue) arguments.get(0);
     IntegerValue enabled = (IntegerValue) arguments.get(1);
     return world.setPlayerFlag(object.value(), enabled.isTruthy())
         ? Result.zero()
         : Result.error(ErrorValue.E_INVARG);
+  }
+
+  private static Result setVerbCode(
+      List<MooValue> arguments, WorldTxn world, long programmer) {
+    ListValue code = (ListValue) arguments.get(2);
+    if (code.elements().stream().anyMatch(value -> !(value instanceof StringValue))) {
+      return Result.error(ErrorValue.E_TYPE);
+    }
+    if (!(arguments.get(0) instanceof ObjectValue object)) {
+      return Result.error(ErrorValue.E_TYPE);
+    }
+    MooValue descriptor = arguments.get(1);
+    if (!(descriptor instanceof StringValue) && !(descriptor instanceof IntegerValue)) {
+      return Result.error(ErrorValue.E_TYPE);
+    }
+    if (descriptor instanceof IntegerValue integer && integer.value() <= 0) {
+      return Result.error(ErrorValue.E_INVARG);
+    }
+    WorldObject target = world.object(object.value()).orElse(null);
+    if (target == null) {
+      return Result.error(ErrorValue.E_INVARG);
+    }
+
+    WorldVerb verb;
+    int verbIndex;
+    if (descriptor instanceof IntegerValue integer) {
+      long index = integer.value() - 1;
+      if (index >= target.verbs().size()) {
+        return Result.error(ErrorValue.E_VERBNF);
+      }
+      verbIndex = (int) index;
+      verb = target.verbs().get(verbIndex);
+    } else {
+      WorldVerb candidate =
+          world.verb(object.value(), decode((StringValue) descriptor), false).orElse(null);
+      if (candidate == null || !target.verbs().contains(candidate)) {
+        return Result.error(ErrorValue.E_VERBNF);
+      }
+      verb = candidate;
+      verbIndex = target.verbs().indexOf(verb);
+    }
+
+    WorldObject actor = world.object(programmer).orElse(null);
+    boolean wizard = actor != null && (actor.flags() & 4) != 0;
+    boolean programmerFlag = actor != null && (actor.flags() & 2) != 0;
+    if ((!programmerFlag && !wizard)
+        || (verb.owner() != programmer && !wizard && (verb.permissions() & 2) == 0)) {
+      return Result.error(ErrorValue.E_PERM);
+    }
+
+    String source =
+        code.elements().stream()
+            .map(StringValue.class::cast)
+            .map(BuiltinCatalog::decode)
+            .collect(java.util.stream.Collectors.joining("\n"));
+    try {
+      new MooCompiler().compile(source);
+    } catch (IllegalArgumentException error) {
+      String diagnostic = error.getMessage();
+      if (diagnostic == null) {
+        diagnostic = error.getClass().getSimpleName();
+      }
+      return Result.value(new ListValue(List.of(encode(diagnostic))));
+    }
+    if (!world.setVerbCode(object.value(), verbIndex, source)) {
+      return Result.error(ErrorValue.E_VERBNF);
+    }
+    return Result.value(new ListValue(List.of()));
   }
 
   private static Result move(List<MooValue> arguments, WorldTxn world, long programmer) {
