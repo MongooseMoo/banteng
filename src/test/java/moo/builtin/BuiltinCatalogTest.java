@@ -35,11 +35,16 @@ final class BuiltinCatalogTest {
           "function_info",
           "index",
           "length",
+          "listappend",
+          "listdelete",
+          "listinsert",
+          "listset",
           "move",
           "notify",
           "rindex",
           "set_player_flag",
           "set_task_perms",
+          "setadd",
           "strcmp",
           "strsub",
           "switch_player",
@@ -296,6 +301,144 @@ final class BuiltinCatalogTest {
                   transaction,
                   1)
               .error());
+    }
+  }
+
+  @Test
+  void exposesTheExactPureListContracts() {
+    BuiltinCatalog catalog = new BuiltinCatalog();
+    Set<ArgType> any = Set.of(ArgType.ANY);
+    Set<ArgType> integer = Set.of(ArgType.INTEGER);
+    Set<ArgType> list = Set.of(ArgType.LIST);
+
+    for (String name : List.of("listappend", "listinsert")) {
+      assertPureVmContract(
+          catalog,
+          name,
+          new CallShape(List.of(list, any), List.of(integer), Optional.empty()));
+    }
+    assertPureVmContract(
+        catalog,
+        "listdelete",
+        new CallShape(List.of(list, integer), List.of(), Optional.empty()));
+    assertPureVmContract(
+        catalog,
+        "listset",
+        new CallShape(List.of(list, any, integer), List.of(), Optional.empty()));
+    assertPureVmContract(
+        catalog,
+        "setadd",
+        new CallShape(List.of(list, any), List.of(), Optional.empty()));
+  }
+
+  @Test
+  void listBuiltinsPreserveToastInsertionMutationSetAndRangeSemantics() {
+    BuiltinCatalog catalog = new BuiltinCatalog();
+    ListValue oneTwo = new ListValue(List.of(new IntegerValue(1), new IntegerValue(2)));
+    try (WorldTxn transaction = world().begin()) {
+      assertEquals(
+          Optional.of(
+              new ListValue(
+                  List.of(new IntegerValue(1), new IntegerValue(2), new IntegerValue(3)))),
+          invoke(
+                  catalog,
+                  catalog.spec("listappend").orElseThrow(),
+                  List.of(oneTwo, new IntegerValue(3)),
+                  transaction,
+                  1)
+              .value());
+      assertEquals(
+          Optional.of(
+              new ListValue(
+                  List.of(new IntegerValue(1), new IntegerValue(3), new IntegerValue(2)))),
+          invoke(
+                  catalog,
+                  catalog.spec("listappend").orElseThrow(),
+                  List.of(oneTwo, new IntegerValue(3), new IntegerValue(1)),
+                  transaction,
+                  1)
+              .value());
+      assertEquals(
+          Optional.of(
+              new ListValue(
+                  List.of(new IntegerValue(3), new IntegerValue(1), new IntegerValue(2)))),
+          invoke(
+                  catalog,
+                  catalog.spec("listinsert").orElseThrow(),
+                  List.of(oneTwo, new IntegerValue(3), new IntegerValue(1)),
+                  transaction,
+                  1)
+              .value());
+      assertEquals(
+          Optional.of(new ListValue(List.of(new IntegerValue(1), new IntegerValue(3)))),
+          invoke(
+                  catalog,
+                  catalog.spec("listdelete").orElseThrow(),
+                  List.of(
+                      new ListValue(
+                          List.of(
+                              new IntegerValue(1),
+                              new IntegerValue(2),
+                              new IntegerValue(3))),
+                      new IntegerValue(2)),
+                  transaction,
+                  1)
+              .value());
+      assertEquals(
+          Optional.of(
+              new ListValue(
+                  List.of(new IntegerValue(1), new IntegerValue(4), new IntegerValue(3)))),
+          invoke(
+                  catalog,
+                  catalog.spec("listset").orElseThrow(),
+                  List.of(
+                      new ListValue(
+                          List.of(
+                              new IntegerValue(1),
+                              new IntegerValue(2),
+                              new IntegerValue(3))),
+                      new IntegerValue(4),
+                      new IntegerValue(2)),
+                  transaction,
+                  1)
+              .value());
+      assertEquals(
+          Optional.of(
+              new ListValue(
+                  List.of(new IntegerValue(1), new IntegerValue(2), new IntegerValue(3)))),
+          invoke(
+                  catalog,
+                  catalog.spec("setadd").orElseThrow(),
+                  List.of(oneTwo, new IntegerValue(3)),
+                  transaction,
+                  1)
+              .value());
+      assertEquals(
+          Optional.of(oneTwo),
+          invoke(
+                  catalog,
+                  catalog.spec("setadd").orElseThrow(),
+                  List.of(oneTwo, new IntegerValue(2)),
+                  transaction,
+                  1)
+              .value());
+
+      for (String name : List.of("listdelete", "listset")) {
+        List<MooValue> arguments =
+            name.equals("listdelete")
+                ? List.of(oneTwo, new IntegerValue(0))
+                : List.of(oneTwo, new IntegerValue(9), new IntegerValue(0));
+        assertEquals(
+            Optional.of(ErrorValue.E_RANGE),
+            invoke(
+                    catalog,
+                    catalog.spec(name).orElseThrow(),
+                    arguments,
+                    transaction,
+                    1)
+                .error(),
+            name);
+      }
     }
   }
 

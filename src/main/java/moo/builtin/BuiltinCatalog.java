@@ -68,6 +68,65 @@ public final class BuiltinCatalog {
             (a, w, p, t, rt, rs, r, cp, c) -> length(a)));
     entries.add(
         new BuiltinSpec(
+            "listappend",
+            List.of(
+                new CallShape(
+                    List.of(Set.of(ArgType.LIST), ANY),
+                    List.of(INTEGER),
+                    Optional.empty())),
+            BuiltinPermissionRule.ANY,
+            BuiltinCostRule.fixed(0),
+            EffectClass.PURE,
+            BuiltinOwner.VM,
+            (a, w, p, t, rt, rs, r, cp, c) -> listInsert(a, true)));
+    entries.add(
+        new BuiltinSpec(
+            "listinsert",
+            List.of(
+                new CallShape(
+                    List.of(Set.of(ArgType.LIST), ANY),
+                    List.of(INTEGER),
+                    Optional.empty())),
+            BuiltinPermissionRule.ANY,
+            BuiltinCostRule.fixed(0),
+            EffectClass.PURE,
+            BuiltinOwner.VM,
+            (a, w, p, t, rt, rs, r, cp, c) -> listInsert(a, false)));
+    entries.add(
+        new BuiltinSpec(
+            "listdelete",
+            List.of(
+                new CallShape(
+                    List.of(Set.of(ArgType.LIST), INTEGER), List.of(), Optional.empty())),
+            BuiltinPermissionRule.ANY,
+            BuiltinCostRule.fixed(0),
+            EffectClass.PURE,
+            BuiltinOwner.VM,
+            (a, w, p, t, rt, rs, r, cp, c) -> listDelete(a)));
+    entries.add(
+        new BuiltinSpec(
+            "listset",
+            List.of(
+                new CallShape(
+                    List.of(Set.of(ArgType.LIST), ANY, INTEGER),
+                    List.of(),
+                    Optional.empty())),
+            BuiltinPermissionRule.ANY,
+            BuiltinCostRule.fixed(0),
+            EffectClass.PURE,
+            BuiltinOwner.VM,
+            (a, w, p, t, rt, rs, r, cp, c) -> listSet(a)));
+    entries.add(
+        new BuiltinSpec(
+            "setadd",
+            List.of(new CallShape(List.of(Set.of(ArgType.LIST), ANY), List.of(), Optional.empty())),
+            BuiltinPermissionRule.ANY,
+            BuiltinCostRule.fixed(0),
+            EffectClass.PURE,
+            BuiltinOwner.VM,
+            (a, w, p, t, rt, rs, r, cp, c) -> setAdd(a)));
+    entries.add(
+        new BuiltinSpec(
             "strsub",
             List.of(new CallShape(List.of(STRING, STRING, STRING), List.of(ANY), Optional.empty())),
             BuiltinPermissionRule.ANY,
@@ -428,6 +487,57 @@ public final class BuiltinCatalog {
       return Result.value(new IntegerValue(list.size()));
     }
     return Result.error(ErrorValue.E_TYPE);
+  }
+
+  private static Result listInsert(List<MooValue> arguments, boolean append) {
+    ListValue list = (ListValue) arguments.get(0);
+    MooValue value = arguments.get(1);
+    long requestedPosition;
+    if (arguments.size() == 2) {
+      requestedPosition = append ? list.size() + 1L : 1L;
+    } else {
+      long supplied = ((IntegerValue) arguments.get(2)).value();
+      requestedPosition = append && supplied != Long.MAX_VALUE ? supplied + 1 : supplied;
+    }
+    int position;
+    if (requestedPosition <= 0) {
+      position = 1;
+    } else if (requestedPosition > list.size() + 1L) {
+      position = list.size() + 1;
+    } else {
+      position = (int) requestedPosition;
+    }
+    List<MooValue> inserted = new ArrayList<>(list.elements());
+    inserted.add(position - 1, value);
+    return Result.value(new ListValue(inserted));
+  }
+
+  private static Result listDelete(List<MooValue> arguments) {
+    ListValue list = (ListValue) arguments.get(0);
+    long position = ((IntegerValue) arguments.get(1)).value();
+    if (position <= 0 || position > list.size()) {
+      return Result.error(ErrorValue.E_RANGE);
+    }
+    List<MooValue> deleted = new ArrayList<>(list.elements());
+    deleted.remove((int) position - 1);
+    return Result.value(new ListValue(deleted));
+  }
+
+  private static Result listSet(List<MooValue> arguments) {
+    ListValue list = (ListValue) arguments.get(0);
+    long position = ((IntegerValue) arguments.get(2)).value();
+    if (position <= 0 || position > list.size()) {
+      return Result.error(ErrorValue.E_RANGE);
+    }
+    List<MooValue> replaced = new ArrayList<>(list.elements());
+    replaced.set((int) position - 1, arguments.get(1));
+    return Result.value(new ListValue(replaced));
+  }
+
+  private static Result setAdd(List<MooValue> arguments) {
+    ListValue list = (ListValue) arguments.get(0);
+    MooValue value = arguments.get(1);
+    return Result.value(list.elements().contains(value) ? list : list.append(value));
   }
 
   private static Result stringSubstitute(List<MooValue> arguments) {
