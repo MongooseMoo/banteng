@@ -329,10 +329,19 @@ public final class WorldTxn implements AutoCloseable {
       case "name" ->
           Optional.of(new StringValue(object.name().getBytes(StandardCharsets.ISO_8859_1)));
       case "location" -> Optional.of(new ObjectValue(object.location()));
+      case "contents" ->
+          Optional.of(
+              new ListValue(
+                  object.contents().stream()
+                      .map(contentId -> (MooValue) new ObjectValue(contentId))
+                      .toList()));
       case "owner" -> Optional.of(new ObjectValue(object.owner()));
       case "programmer" ->
           Optional.of(new IntegerValue((object.flags() & PROGRAMMER_FLAG) == 0 ? 0 : 1));
       case "wizard" -> Optional.of(new IntegerValue((object.flags() & WIZARD_FLAG) == 0 ? 0 : 1));
+      case "r" -> Optional.of(new IntegerValue((object.flags() & 16) == 0 ? 0 : 1));
+      case "w" -> Optional.of(new IntegerValue((object.flags() & 32) == 0 ? 0 : 1));
+      case "f" -> Optional.of(new IntegerValue((object.flags() & 128) == 0 ? 0 : 1));
       default -> property(objectId, propertyName).map(WorldProperty::value);
     };
   }

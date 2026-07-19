@@ -8,8 +8,10 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 import moo.value.MooValue.IntegerValue;
+import moo.value.MooValue.ListValue;
 import moo.value.MooValue.StringValue;
 import org.junit.jupiter.api.Test;
 
@@ -120,6 +122,28 @@ final class WorldTxnTest {
 
     assertEquals(Set.of(WorldTxn.ScanPredicate.PLAYERS), result.conflictingPredicates());
     assertEquals(List.of(1L), root.snapshot().players());
+  }
+
+  @Test
+  void readsContentsAndObjectPermissionFlagsFromTheObjectRecord() {
+    WorldObject flagged =
+        new WorldObject(
+            0,
+            "flagged",
+            16 | 32 | 128,
+            0,
+            -1,
+            -1,
+            List.of(),
+            List.of(),
+            List.of(),
+            List.of());
+    try (WorldTxn transaction = root(flagged).begin()) {
+      assertEquals(Optional.of(new ListValue(List.of())), transaction.readObjectProperty(0, "contents"));
+      assertEquals(Optional.of(new IntegerValue(1)), transaction.readObjectProperty(0, "r"));
+      assertEquals(Optional.of(new IntegerValue(1)), transaction.readObjectProperty(0, "w"));
+      assertEquals(Optional.of(new IntegerValue(1)), transaction.readObjectProperty(0, "f"));
+    }
   }
 
   @Test

@@ -40,6 +40,7 @@ final class BuiltinCatalogTest {
           "eval",
           "function_info",
           "index",
+          "is_player",
           "length",
           "listappend",
           "listdelete",
@@ -48,6 +49,7 @@ final class BuiltinCatalogTest {
           "max",
           "move",
           "notify",
+          "parent",
           "random",
           "raise",
           "recycle",
@@ -65,6 +67,7 @@ final class BuiltinCatalogTest {
           "toobj",
           "tostr",
           "typeof",
+          "valid",
           "verb_code");
 
   @Test
@@ -301,6 +304,62 @@ final class BuiltinCatalogTest {
       assertEquals(
           Optional.of(ErrorValue.E_PERM),
           invoke(catalog, spec, List.of(new ObjectValue(3)), transaction, 1).error());
+    }
+  }
+
+  @Test
+  void objectQueriesReadTheExistingTransactionalWorldState() {
+    BuiltinCatalog catalog = new BuiltinCatalog();
+    BuiltinSpec parent = catalog.spec("parent").orElseThrow();
+    BuiltinSpec isPlayer = catalog.spec("is_player").orElseThrow();
+    BuiltinSpec valid = catalog.spec("valid").orElseThrow();
+
+    assertEquals(
+        List.of(new CallShape(List.of(Set.of(ArgType.ANY)), List.of(), Optional.empty())),
+        parent.callShapes());
+    assertEquals(
+        List.of(new CallShape(List.of(Set.of(ArgType.OBJECT)), List.of(), Optional.empty())),
+        isPlayer.callShapes());
+    assertEquals(
+        List.of(new CallShape(List.of(Set.of(ArgType.ANY)), List.of(), Optional.empty())),
+        valid.callShapes());
+    for (BuiltinSpec spec : List.of(parent, isPlayer, valid)) {
+      assertSame(BuiltinPermissionRule.ANY, spec.permission());
+      assertEquals(EffectClass.TRANSACTION_READ, spec.effect());
+      assertEquals(BuiltinOwner.WORLD, spec.owner());
+    }
+
+    WorldObject system =
+        new WorldObject(0, "System", 0, 0, -1, -1, List.of(), List.of(), List.of(), List.of());
+    WorldObject player =
+        new WorldObject(1, "Player", 1, 1, -1, -1, List.of(), List.of(), List.of(), List.of());
+    WorldObject parentObject =
+        new WorldObject(2, "Parent", 0, 1, -1, -1, List.of(), List.of(3L), List.of(), List.of());
+    WorldObject child =
+        new WorldObject(3, "Child", 0, 1, -1, 2, List.of(), List.of(), List.of(), List.of());
+    try (WorldTxn transaction =
+        new WorldTxn(List.of(1L), List.of(system, player, parentObject, child)).begin()) {
+      assertEquals(
+          Optional.of(new ObjectValue(2)),
+          invoke(catalog, parent, List.of(new ObjectValue(3)), transaction, 1).value());
+      assertEquals(
+          Optional.of(new IntegerValue(1)),
+          invoke(catalog, isPlayer, List.of(new ObjectValue(1)), transaction, 1).value());
+      assertEquals(
+          Optional.of(new IntegerValue(0)),
+          invoke(catalog, isPlayer, List.of(new ObjectValue(3)), transaction, 1).value());
+      assertEquals(
+          Optional.of(new IntegerValue(1)),
+          invoke(catalog, valid, List.of(new ObjectValue(0)), transaction, 1).value());
+      assertEquals(
+          Optional.of(new IntegerValue(0)),
+          invoke(catalog, valid, List.of(new ObjectValue(-1)), transaction, 1).value());
+      assertEquals(
+          Optional.of(ErrorValue.E_INVARG),
+          invoke(catalog, parent, List.of(new ObjectValue(99)), transaction, 1).error());
+      assertEquals(
+          Optional.of(ErrorValue.E_INVARG),
+          invoke(catalog, isPlayer, List.of(new ObjectValue(99)), transaction, 1).error());
     }
   }
 

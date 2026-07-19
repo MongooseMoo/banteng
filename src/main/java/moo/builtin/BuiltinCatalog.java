@@ -261,6 +261,33 @@ public final class BuiltinCatalog {
             (a, w, p, t, rt, rs, r, cp, c) -> create(a, w, p)));
     entries.add(
         new BuiltinSpec(
+            "parent",
+            List.of(new CallShape(List.of(ANY), List.of(), Optional.empty())),
+            BuiltinPermissionRule.ANY,
+            BuiltinCostRule.fixed(0),
+            EffectClass.TRANSACTION_READ,
+            BuiltinOwner.WORLD,
+            (a, w, p, t, rt, rs, r, cp, c) -> parent(a, w)));
+    entries.add(
+        new BuiltinSpec(
+            "is_player",
+            List.of(new CallShape(List.of(OBJECT), List.of(), Optional.empty())),
+            BuiltinPermissionRule.ANY,
+            BuiltinCostRule.fixed(0),
+            EffectClass.TRANSACTION_READ,
+            BuiltinOwner.WORLD,
+            (a, w, p, t, rt, rs, r, cp, c) -> isPlayer(a, w)));
+    entries.add(
+        new BuiltinSpec(
+            "valid",
+            List.of(new CallShape(List.of(ANY), List.of(), Optional.empty())),
+            BuiltinPermissionRule.ANY,
+            BuiltinCostRule.fixed(0),
+            EffectClass.TRANSACTION_READ,
+            BuiltinOwner.WORLD,
+            (a, w, p, t, rt, rs, r, cp, c) -> valid(a, w)));
+    entries.add(
+        new BuiltinSpec(
             "set_player_flag",
             List.of(new CallShape(List.of(OBJECT, INTEGER), List.of(), Optional.empty())),
             BuiltinPermissionRule.ANY,
@@ -949,6 +976,31 @@ public final class BuiltinCatalog {
     } catch (IllegalArgumentException error) {
       return Result.error(ErrorValue.E_INVARG);
     }
+  }
+
+  private static Result parent(List<MooValue> arguments, WorldTxn world) {
+    if (!(arguments.getFirst() instanceof ObjectValue object)) {
+      return Result.error(ErrorValue.E_TYPE);
+    }
+    WorldObject target = world.object(object.value()).orElse(null);
+    return target == null
+        ? Result.error(ErrorValue.E_INVARG)
+        : Result.value(new ObjectValue(target.parent()));
+  }
+
+  private static Result isPlayer(List<MooValue> arguments, WorldTxn world) {
+    ObjectValue object = (ObjectValue) arguments.getFirst();
+    if (world.object(object.value()).isEmpty()) {
+      return Result.error(ErrorValue.E_INVARG);
+    }
+    return Result.value(new IntegerValue(world.players().contains(object.value()) ? 1 : 0));
+  }
+
+  private static Result valid(List<MooValue> arguments, WorldTxn world) {
+    if (!(arguments.getFirst() instanceof ObjectValue object)) {
+      return Result.error(ErrorValue.E_TYPE);
+    }
+    return Result.value(new IntegerValue(world.object(object.value()).isPresent() ? 1 : 0));
   }
 
   private static Result addVerb(
