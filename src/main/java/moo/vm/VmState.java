@@ -597,7 +597,7 @@ public final class VmState {
             loops.put(
                 instruction,
                 new VmSnapshot.LoopState(
-                    cursor.values, cursor.secondaryValues, cursor.nextIndex)));
+                    cursor.values, cursor.secondaryValues, cursor.nextIndex, cursor.range)));
     return new VmSnapshot.Frame(
         frame.program,
         List.copyOf(frame.operandStack),
@@ -651,7 +651,8 @@ public final class VmState {
         .loops()
         .forEach(
             (instruction, loop) -> {
-              LoopCursor cursor = new LoopCursor(loop.values(), loop.secondaryValues());
+              LoopCursor cursor =
+                  new LoopCursor(loop.values(), loop.secondaryValues(), loop.range());
               cursor.nextIndex = loop.nextIndex();
               frame.loops.put(instruction, cursor);
             });
@@ -752,11 +753,17 @@ public final class VmState {
   static final class LoopCursor {
     final ListValue values;
     final Optional<ListValue> secondaryValues;
-    int nextIndex;
+    final boolean range;
+    long nextIndex;
 
     LoopCursor(ListValue values, Optional<ListValue> secondaryValues) {
+      this(values, secondaryValues, false);
+    }
+
+    LoopCursor(ListValue values, Optional<ListValue> secondaryValues, boolean range) {
       this.values = values;
       this.secondaryValues = secondaryValues;
+      this.range = range;
     }
   }
 

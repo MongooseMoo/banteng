@@ -14,6 +14,7 @@ import moo.bytecode.BytecodeProgram;
 import moo.bytecode.BytecodeProgram.HandlerSpec;
 import moo.value.MooValue;
 import moo.value.MooValue.ErrorValue;
+import moo.value.MooValue.IntegerValue;
 import moo.value.MooValue.ListValue;
 import moo.value.MooValue.ObjectValue;
 
@@ -126,10 +127,17 @@ public record VmSnapshot(
 
   /** One resumable loop cursor. */
   public record LoopState(
-      ListValue values, Optional<ListValue> secondaryValues, int nextIndex) {
+      ListValue values, Optional<ListValue> secondaryValues, long nextIndex, boolean range) {
     public LoopState {
-      if (nextIndex < 0 || nextIndex > values.size()) {
+      if (nextIndex < 0 || (!range && nextIndex > values.size())) {
         throw new IllegalArgumentException("loop cursor outside values");
+      }
+      if (range
+          && (values.size() != 2
+              || !(values.elements().get(0) instanceof IntegerValue)
+              || !(values.elements().get(1) instanceof IntegerValue)
+              || secondaryValues.isPresent())) {
+        throw new IllegalArgumentException("invalid range loop cursor");
       }
     }
   }

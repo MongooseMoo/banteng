@@ -109,9 +109,12 @@ public final class MooUnparser {
             "for "
                 + forStatement.variable()
                 + forStatement.indexVariable().map(index -> ", " + index).orElse("")
-                + " in ("
+                + (forStatement.rangeEnd().isPresent() ? " in [" : " in (")
                 + expression(forStatement.iterable(), ASSIGNMENT_PRECEDENCE)
-                + ")");
+                + forStatement
+                    .rangeEnd()
+                    .map(end -> ".." + expression(end, ASSIGNMENT_PRECEDENCE) + "]")
+                    .orElse(")"));
         statements(forStatement.body(), indentation + 1);
         line(indentation, "endfor");
         return;

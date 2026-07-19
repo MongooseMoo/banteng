@@ -329,6 +329,7 @@ public final class MooVm {
       case LEAVE_HANDLER -> leaveHandler(frame);
       case END_FINALLY -> endFinally(state, world);
       case ITERATE -> iterate(instruction, frame, state, world);
+      case ITERATE_RANGE -> iterateRange(instruction, frame, state, world);
       case LEAVE_LOOP -> {
         frame.loops.remove(Math.toIntExact(instruction.operand().orElseThrow()));
         frame.instructionPointer++;
@@ -385,6 +386,7 @@ public final class MooVm {
           JUMP_IF_TRUE,
           ENTER_HANDLER,
           ITERATE,
+          ITERATE_RANGE,
           SCATTER ->
           true;
       default -> false;
@@ -1565,14 +1567,55 @@ public final class MooVm {
       return;
     }
     String[] variables = instruction.text().orElseThrow().split(",", -1);
-    MooValue value = cursor.values.elements().get(cursor.nextIndex);
+    int valueIndex = Math.toIntExact(cursor.nextIndex);
+    MooValue value = cursor.values.elements().get(valueIndex);
     frame.locals.put(normalize(variables[0]), value);
     if (variables.length == 2) {
       MooValue secondaryValue =
           cursor.secondaryValues.isPresent()
-              ? cursor.secondaryValues.orElseThrow().elements().get(cursor.nextIndex)
+              ? cursor.secondaryValues.orElseThrow().elements().get(valueIndex)
               : new IntegerValue(cursor.nextIndex + 1L);
       frame.locals.put(normalize(variables[1]), secondaryValue);
+    }
+    cursor.nextIndex++;
+    frame.instructionPointer++;
+  }
+
+  private static void iterateRange(
+      Instruction instruction, Frame frame, VmState state, WorldTxn world) {
+    int instructionIndex = frame.instructionPointer;
+    LoopCursor cursor = frame.loops.get(instructionIndex);
+    if (cursor == null) {
+      MooValue endValue = frame.operandStack.pop();
+      MooValue startValue = frame.operandStack.pop();
+      if (!(startValue instanceof IntegerValue start) || !(endValue instanceof IntegerValue end)) {
+        raiseError(state, ErrorValue.E_TYPE, world);
+        return;
+      }
+      cursor =
+          new LoopCursor(
+              new ListValue(List.of(start, end)), Optional.empty(), true);
+      frame.loops.put(instructionIndex, cursor);
+    }
+    IntegerValue start = (IntegerValue) cursor.values.elements().get(0);
+    IntegerValue end = (IntegerValue) cursor.values.elements().get(1);
+    long value;
+    try {
+      value = Math.addExact(start.value(), cursor.nextIndex);
+    } catch (ArithmeticException overflow) {
+      frame.loops.remove(instructionIndex);
+      frame.instructionPointer = target(instruction);
+      return;
+    }
+    if (start.value() > end.value() || value > end.value()) {
+      frame.loops.remove(instructionIndex);
+      frame.instructionPointer = target(instruction);
+      return;
+    }
+    String[] variables = instruction.text().orElseThrow().split(",", -1);
+    frame.locals.put(normalize(variables[0]), new IntegerValue(value));
+    if (variables.length == 2) {
+      frame.locals.put(normalize(variables[1]), new IntegerValue(cursor.nextIndex + 1L));
     }
     cursor.nextIndex++;
     frame.instructionPointer++;

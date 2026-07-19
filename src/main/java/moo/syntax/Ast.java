@@ -89,10 +89,15 @@ public sealed interface Ast
   }
 
   record For(
-      String variable, Optional<String> indexVariable, Expression iterable, List<Statement> body)
+      String variable,
+      Optional<String> indexVariable,
+      Expression iterable,
+      Optional<Expression> rangeEnd,
+      List<Statement> body)
       implements Statement {
     public For {
       Objects.requireNonNull(indexVariable, "indexVariable");
+      Objects.requireNonNull(rangeEnd, "rangeEnd");
       body = List.copyOf(body);
     }
   }

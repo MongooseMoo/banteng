@@ -82,13 +82,18 @@ public final class MooCompiler {
     }
     if (statement instanceof Ast.For forStatement) {
       compileExpression(forStatement.iterable(), instructions);
+      forStatement.rangeEnd().ifPresent(end -> compileExpression(end, instructions));
       int iterate = instructions.size();
       String variables =
           forStatement
               .indexVariable()
               .map(index -> forStatement.variable() + "," + index)
               .orElse(forStatement.variable());
-      instructions.add(new Instruction(Opcode.ITERATE, -1, variables));
+      instructions.add(
+          new Instruction(
+              forStatement.rangeEnd().isPresent() ? Opcode.ITERATE_RANGE : Opcode.ITERATE,
+              -1,
+              variables));
       List<Integer> breakJumps = new ArrayList<>();
       activeLoopVariables.add(
           forStatement

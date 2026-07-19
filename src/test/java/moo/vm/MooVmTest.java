@@ -266,6 +266,40 @@ final class MooVmTest {
   }
 
   @Test
+  void iteratesIntegerRangesThroughTheCompleteControlFlowPipeline() {
+    byte[] source =
+        """
+        ascending = 0;
+        for i in [1..5]
+          ascending = ascending + i;
+        endfor
+        reversed = 0;
+        for i in [5..1]
+          reversed = reversed + i;
+        endfor
+        single = 0;
+        for i in [3..3]
+          single = i;
+        endfor
+        return {ascending, reversed, single};"""
+            .getBytes(StandardCharsets.ISO_8859_1);
+    Ast.Program syntax = MooParser.parse(source);
+    Ast.For ascending = assertInstanceOf(Ast.For.class, syntax.statements().get(1));
+    assertEquals(new Ast.IntegerLiteral(1), ascending.iterable());
+    assertEquals(new Ast.IntegerLiteral(5), ascending.rangeEnd().orElseThrow());
+    assertEquals(new String(source, StandardCharsets.ISO_8859_1), MooUnparser.unparse(syntax));
+
+    VmState state = new VmState();
+    new MooVm().execute(new MooCompiler().compile(syntax), state);
+
+    assertEquals(VmState.Outcome.RETURNED, state.outcome());
+    assertEquals(
+        new ListValue(
+            List.of(new IntegerValue(15), new IntegerValue(0), new IntegerValue(3))),
+        state.returnValue().orElseThrow());
+  }
+
+  @Test
   void bindsStringBytesAndIndexesThroughTheCompleteControlFlowPipeline() {
     byte[] source =
         """

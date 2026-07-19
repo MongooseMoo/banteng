@@ -142,10 +142,19 @@ public final class MooParser {
       advance();
     }
     expectAndAdvance(TokenKind.IN, "in");
-    Ast.Expression iterable = parseParenthesizedExpression("for");
+    Ast.Expression iterable;
+    Optional<Ast.Expression> rangeEnd = Optional.empty();
+    if (match(TokenKind.LEFT_BRACKET)) {
+      iterable = parseExpression(ASSIGNMENT_PRECEDENCE);
+      expectAndAdvance(TokenKind.RANGE, "'..' in for range");
+      rangeEnd = Optional.of(parseExpression(ASSIGNMENT_PRECEDENCE));
+      expectAndAdvance(TokenKind.RIGHT_BRACKET, "']' after for range");
+    } else {
+      iterable = parseParenthesizedExpression("for");
+    }
     List<Ast.Statement> body = parseStatementsUntil(TokenKind.ENDFOR);
     expectAndAdvance(TokenKind.ENDFOR, "endfor");
-    return new Ast.For(variable, indexVariable, iterable, body);
+    return new Ast.For(variable, indexVariable, iterable, rangeEnd, body);
   }
 
   private Ast.Break parseBreak() {
