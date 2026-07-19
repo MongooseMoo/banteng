@@ -95,6 +95,15 @@ public final class BuiltinCatalog {
             (a, w, p, t, rt, rs, r, cp, c) -> randomInteger(a)));
     entries.add(
         new BuiltinSpec(
+            "raise",
+            List.of(new CallShape(List.of(ANY), List.of(STRING, ANY), Optional.empty())),
+            BuiltinPermissionRule.ANY,
+            BuiltinCostRule.fixed(0),
+            EffectClass.PURE,
+            BuiltinOwner.VM,
+            (a, w, p, t, rt, rs, r, cp, c) -> raise(a)));
+    entries.add(
+        new BuiltinSpec(
             "listappend",
             List.of(
                 new CallShape(
@@ -634,6 +643,15 @@ public final class BuiltinCatalog {
       value = random.nextLong();
     } while (value < lower || value > upper);
     return Result.value(new IntegerValue(value));
+  }
+
+  private static Result raise(List<MooValue> arguments) {
+    MooValue code = arguments.getFirst();
+    ErrorValue error = code instanceof ErrorValue errorValue ? errorValue : ErrorValue.E_INVARG;
+    StringValue message =
+        arguments.size() >= 2 ? (StringValue) arguments.get(1) : encode(code.toLiteral());
+    MooValue value = arguments.size() >= 3 ? arguments.get(2) : new IntegerValue(0);
+    return Result.raised(error, message, value);
   }
 
   private static Result listInsert(List<MooValue> arguments, boolean append) {
@@ -1577,6 +1595,27 @@ public final class BuiltinCatalog {
           Optional.empty(),
           Optional.empty(),
           OptionalLong.empty(),
+          Optional.empty());
+    }
+
+    static Result raised(ErrorValue error, StringValue message, MooValue value) {
+      return new Result(
+          Optional.empty(),
+          Optional.of(error),
+          Optional.empty(),
+          Optional.empty(),
+          OptionalLong.empty(),
+          OptionalLong.empty(),
+          OptionalLong.empty(),
+          OptionalDouble.empty(),
+          Optional.empty(),
+          Optional.empty(),
+          OptionalLong.empty(),
+          Optional.empty(),
+          Optional.empty(),
+          OptionalLong.empty(),
+          OptionalLong.empty(),
+          Optional.of(new ListValue(List.of(message, value, new ListValue(List.of())))),
           Optional.empty());
     }
 

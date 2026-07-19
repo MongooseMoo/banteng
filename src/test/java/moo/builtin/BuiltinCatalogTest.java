@@ -49,6 +49,7 @@ final class BuiltinCatalogTest {
           "move",
           "notify",
           "random",
+          "raise",
           "recycle",
           "rindex",
           "set_player_flag",
@@ -300,6 +301,49 @@ final class BuiltinCatalogTest {
       assertEquals(
           Optional.of(ErrorValue.E_PERM),
           invoke(catalog, spec, List.of(new ObjectValue(3)), transaction, 1).error());
+    }
+  }
+
+  @Test
+  void raiseProducesTheExistingStructuredErrorOutcome() {
+    BuiltinCatalog catalog = new BuiltinCatalog();
+    BuiltinSpec spec = catalog.spec("raise").orElseThrow();
+
+    assertEquals(
+        List.of(
+            new CallShape(
+                List.of(Set.of(ArgType.ANY)),
+                List.of(Set.of(ArgType.STRING), Set.of(ArgType.ANY)),
+                Optional.empty())),
+        spec.callShapes());
+    assertSame(BuiltinPermissionRule.ANY, spec.permission());
+    assertEquals(EffectClass.PURE, spec.effect());
+    assertEquals(BuiltinOwner.VM, spec.owner());
+
+    try (WorldTxn transaction = new WorldTxn(List.of(), List.of()).begin()) {
+      Result basic =
+          invoke(catalog, spec, List.of(ErrorValue.E_INVARG), transaction, 1);
+      assertEquals(Optional.of(ErrorValue.E_INVARG), basic.error());
+      assertEquals(
+          Optional.of(
+              new ListValue(
+                  List.of(string("E_INVARG"), new IntegerValue(0), new ListValue(List.of())))),
+          basic.errorDetails());
+
+      ListValue customValue = new ListValue(List.of(new IntegerValue(1), new IntegerValue(2)));
+      Result custom =
+          invoke(
+              catalog,
+              spec,
+              List.of(ErrorValue.E_TYPE, string("custom message"), customValue),
+              transaction,
+              1);
+      assertEquals(Optional.of(ErrorValue.E_TYPE), custom.error());
+      assertEquals(
+          Optional.of(
+              new ListValue(
+                  List.of(string("custom message"), customValue, new ListValue(List.of())))),
+          custom.errorDetails());
     }
   }
 
