@@ -214,13 +214,20 @@ public final class LambdaMooV17Codec {
       line(output, verb.preposition());
     }
 
-    line(output, object.properties().size());
+    long definitionCount = object.properties().stream().filter(WorldProperty::defined).count();
+    line(output, definitionCount);
     for (WorldProperty property : object.properties()) {
-      lineString(output, property.name(), "property name");
+      if (property.defined()) {
+        lineString(output, property.name(), "property name");
+      }
     }
     line(output, object.properties().size());
     for (WorldProperty property : object.properties()) {
-      writeValue(output, property.value());
+      if (property.clear()) {
+        line(output, 5);
+      } else {
+        writeValue(output, property.value());
+      }
       line(output, property.owner());
       line(output, property.permissions());
     }
@@ -298,20 +305,28 @@ public final class LambdaMooV17Codec {
       propertyNames.add(requiredLine(input, "property name"));
     }
     int propertyValueCount = readCount(input, "object #" + expectedId + " property-value count");
-    if (propertyValueCount != propertyNameCount) {
-      throw malformed("Phase 2 v17 input requires local-only property value slots");
-    }
-    List<WorldProperty> properties = new ArrayList<>(propertyValueCount);
+    List<RawPropertySlot> propertySlots = new ArrayList<>(propertyValueCount);
     for (int index = 0; index < propertyValueCount; index++) {
-      properties.add(
-          new WorldProperty(
-              propertyNames.get(index),
-              readValue(input),
+      int tag = readInt(input, "property value tag");
+      propertySlots.add(
+          new RawPropertySlot(
+              tag == 5 ? null : readValue(input, tag),
+              tag == 5,
               readLong(input, "property owner"),
               readInt(input, "property permissions")));
     }
     return new RawObject(
-        expectedId, name, flags, owner, location, parent, contents, children, verbs, properties);
+        expectedId,
+        name,
+        flags,
+        owner,
+        location,
+        parent,
+        contents,
+        children,
+        verbs,
+        propertyNames,
+        propertySlots);
   }
 
   private static void readProgram(
@@ -346,6 +361,10 @@ public final class LambdaMooV17Codec {
 
   private static List<WorldObject> restoreObjects(
       Map<Long, RawObject> objects, Map<ProgramSlot, String> programs) throws IOException {
+    Map<Long, List<WorldProperty>> restoredProperties = new LinkedHashMap<>();
+    for (RawObject object : objects.values()) {
+      restoreProperties(object, objects, restoredProperties, new ArrayList<>());
+    }
     List<WorldObject> restored = new ArrayList<>(objects.size());
     for (RawObject object : objects.values()) {
       List<WorldVerb> verbs = new ArrayList<>(object.verbs().size());
@@ -370,13 +389,78 @@ public final class LambdaMooV17Codec {
               object.contents(),
               object.children(),
               verbs,
-              object.properties()));
+              Objects.requireNonNull(restoredProperties.get(object.id()))));
     }
     return restored;
   }
 
+  private static List<WorldProperty> restoreProperties(
+      RawObject object,
+      Map<Long, RawObject> objects,
+      Map<Long, List<WorldProperty>> restored,
+      List<Long> ancestry)
+      throws IOException {
+    List<WorldProperty> existing = restored.get(object.id());
+    if (existing != null) {
+      return existing;
+    }
+    if (ancestry.contains(object.id())) {
+      throw malformed("cyclic property ancestry at object #" + object.id());
+    }
+    ancestry.add(object.id());
+
+    List<WorldProperty> inherited = List.of();
+    if (object.parent() != -1) {
+      RawObject parent = objects.get(object.parent());
+      if (parent == null) {
+        throw malformed("object #" + object.id() + " has missing parent #" + object.parent());
+      }
+      inherited = restoreProperties(parent, objects, restored, ancestry);
+    }
+    if (object.propertySlots().size() != object.propertyNames().size() + inherited.size()) {
+      throw malformed(
+          "object #"
+              + object.id()
+              + " has "
+              + object.propertyNames().size()
+              + " definitions and "
+              + object.propertySlots().size()
+              + " value slots for "
+              + inherited.size()
+              + " inherited properties");
+    }
+
+    List<WorldProperty> properties = new ArrayList<>(object.propertySlots().size());
+    for (int index = 0; index < object.propertySlots().size(); index++) {
+      RawPropertySlot slot = object.propertySlots().get(index);
+      boolean defined = index < object.propertyNames().size();
+      String name =
+          defined
+              ? object.propertyNames().get(index)
+              : inherited.get(index - object.propertyNames().size()).name();
+      if (defined && slot.clear()) {
+        throw malformed("object #" + object.id() + " has a clear local property " + name);
+      }
+      MooValue value = slot.value();
+      if (value == null) {
+        value = inherited.get(index - object.propertyNames().size()).value();
+      }
+      properties.add(
+          new WorldProperty(
+              name, value, slot.owner(), slot.permissions(), slot.clear(), defined));
+    }
+    ancestry.removeLast();
+    List<WorldProperty> result = List.copyOf(properties);
+    restored.put(object.id(), result);
+    return result;
+  }
+
   private static MooValue readValue(BufferedReader input) throws IOException {
     int tag = readInt(input, "value tag");
+    return readValue(input, tag);
+  }
+
+  private static MooValue readValue(BufferedReader input, int tag) throws IOException {
     return switch (tag) {
       case 0 -> new IntegerValue(readLong(input, "integer value"));
       case 1 -> new ObjectValue(readLong(input, "object value"));
@@ -528,6 +612,9 @@ public final class LambdaMooV17Codec {
 
   private record RawVerb(String names, long owner, int permissions, int preposition) {}
 
+  private record RawPropertySlot(
+      @Nullable MooValue value, boolean clear, long owner, int permissions) {}
+
   private record RawObject(
       long id,
       String name,
@@ -538,12 +625,14 @@ public final class LambdaMooV17Codec {
       List<Long> contents,
       List<Long> children,
       List<RawVerb> verbs,
-      List<WorldProperty> properties) {
+      List<String> propertyNames,
+      List<RawPropertySlot> propertySlots) {
     private RawObject {
       contents = List.copyOf(contents);
       children = List.copyOf(children);
       verbs = List.copyOf(verbs);
-      properties = List.copyOf(properties);
+      propertyNames = List.copyOf(propertyNames);
+      propertySlots = List.copyOf(propertySlots);
     }
   }
 }

@@ -22,6 +22,7 @@ import moo.value.MooValue.MapValue;
 import moo.value.MooValue.ObjectValue;
 import moo.value.MooValue.StringValue;
 import moo.world.WorldObject;
+import moo.world.WorldProperty;
 import moo.world.WorldTxn;
 import moo.world.WorldVerb;
 import org.junit.jupiter.api.Test;
@@ -32,7 +33,9 @@ final class BuiltinCatalogTest {
           "add_property",
           "add_verb",
           "create",
+          "clear_property",
           "decode_binary",
+          "delete_property",
           "disassemble",
           "dump_database",
           "encode_binary",
@@ -41,6 +44,7 @@ final class BuiltinCatalogTest {
           "function_info",
           "index",
           "is_player",
+          "is_clear_property",
           "length",
           "listappend",
           "listdelete",
@@ -50,6 +54,7 @@ final class BuiltinCatalogTest {
           "move",
           "notify",
           "parent",
+          "properties",
           "random",
           "raise",
           "recycle",
@@ -170,6 +175,109 @@ final class BuiltinCatalogTest {
           Optional.of(new IntegerValue(99)),
           transaction.readObjectProperty(3, "foo"));
       assertEquals(7, transaction.property(3, "foo").orElseThrow().permissions());
+    }
+  }
+
+  @Test
+  void propertyBuiltinsExposeDefinitionsAndClearInheritedSlots() {
+    BuiltinCatalog catalog = new BuiltinCatalog();
+    assertEquals(EffectClass.TRANSACTION_READ, catalog.spec("properties").orElseThrow().effect());
+    assertEquals(
+        EffectClass.TRANSACTION_READ,
+        catalog.spec("is_clear_property").orElseThrow().effect());
+    assertEquals(
+        EffectClass.TRANSACTION_WRITE, catalog.spec("clear_property").orElseThrow().effect());
+    assertEquals(
+        EffectClass.TRANSACTION_WRITE, catalog.spec("delete_property").orElseThrow().effect());
+
+    WorldProperty definition =
+        new WorldProperty("test", new IntegerValue(1), 1, 7, false, true);
+    WorldProperty inherited =
+        new WorldProperty("test", new IntegerValue(1), 1, 7, true, false);
+    WorldObject wizard =
+        new WorldObject(
+            1,
+            "Wizard",
+            4,
+            1,
+            -1,
+            -1,
+            List.of(),
+            List.of(2L),
+            List.of(),
+            List.of(definition));
+    WorldObject child =
+        new WorldObject(
+            2,
+            "Child",
+            0,
+            1,
+            -1,
+            1,
+            List.of(),
+            List.of(),
+            List.of(),
+            List.of(inherited));
+    try (WorldTxn transaction = new WorldTxn(List.of(), List.of(wizard, child)).begin()) {
+      assertEquals(
+          Optional.of(new ListValue(List.of(string("test")))),
+          invoke(
+                  catalog,
+                  catalog.spec("properties").orElseThrow(),
+                  List.of(new ObjectValue(1)),
+                  transaction,
+                  1)
+              .value());
+      assertEquals(
+          Optional.of(new ListValue(List.of())),
+          invoke(
+                  catalog,
+                  catalog.spec("properties").orElseThrow(),
+                  List.of(new ObjectValue(2)),
+                  transaction,
+                  1)
+              .value());
+      assertEquals(
+          Optional.of(new IntegerValue(1)),
+          invoke(
+                  catalog,
+                  catalog.spec("is_clear_property").orElseThrow(),
+                  List.of(new ObjectValue(2), string("test")),
+                  transaction,
+                  1)
+              .value());
+
+      assertTrue(transaction.writeObjectProperty(2, "test", new IntegerValue(2)));
+      assertEquals(
+          Optional.of(new IntegerValue(0)),
+          invoke(
+                  catalog,
+                  catalog.spec("is_clear_property").orElseThrow(),
+                  List.of(new ObjectValue(2), string("test")),
+                  transaction,
+                  1)
+              .value());
+      assertEquals(
+          Optional.of(new IntegerValue(0)),
+          invoke(
+                  catalog,
+                  catalog.spec("clear_property").orElseThrow(),
+                  List.of(new ObjectValue(2), string("test")),
+                  transaction,
+                  1)
+              .value());
+      assertEquals(Optional.of(new IntegerValue(1)), transaction.readObjectProperty(2, "test"));
+
+      assertEquals(
+          Optional.of(new IntegerValue(0)),
+          invoke(
+                  catalog,
+                  catalog.spec("delete_property").orElseThrow(),
+                  List.of(new ObjectValue(1), string("test")),
+                  transaction,
+                  1)
+              .value());
+      assertTrue(transaction.property(2, "test").isEmpty());
     }
   }
 

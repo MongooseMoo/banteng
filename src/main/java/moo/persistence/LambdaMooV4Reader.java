@@ -115,7 +115,9 @@ public final class LambdaMooV4Reader {
               propertyNames.get(index),
               new ObjectValue(readLong(input, "object-reference value")),
               readLong(input, "property owner"),
-              readInt(input, "property permissions")));
+              readInt(input, "property permissions"),
+              false,
+              true));
     }
 
     return new RawObject(

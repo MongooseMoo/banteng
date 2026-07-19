@@ -243,7 +243,7 @@ final class LambdaMooV4ReaderTest {
   }
 
   private static WorldProperty property(String name, long value, long owner) {
-    return new WorldProperty(name, new ObjectValue(value), owner, 1);
+    return new WorldProperty(name, new ObjectValue(value), owner, 1, false, true);
   }
 
   private static WorldObject object(

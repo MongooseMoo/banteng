@@ -30,6 +30,7 @@ import moo.value.MooValue.ObjectValue;
 import moo.value.MooValue.StringValue;
 import moo.value.MooValue.WaifValue;
 import moo.world.WorldObject;
+import moo.world.WorldProperty;
 import moo.world.WorldTxn;
 import moo.world.WorldVerb;
 
@@ -237,6 +238,42 @@ public final class BuiltinCatalog {
             EffectClass.TRANSACTION_WRITE,
             BuiltinOwner.WORLD,
             (a, w, p, t, rt, rs, r, cp, c) -> addProperty(a, w, p)));
+    entries.add(
+        new BuiltinSpec(
+            "properties",
+            List.of(new CallShape(List.of(ANY), List.of(), Optional.empty())),
+            BuiltinPermissionRule.ANY,
+            BuiltinCostRule.fixed(0),
+            EffectClass.TRANSACTION_READ,
+            BuiltinOwner.WORLD,
+            (a, w, p, t, rt, rs, r, cp, c) -> properties(a, w, p)));
+    entries.add(
+        new BuiltinSpec(
+            "is_clear_property",
+            List.of(new CallShape(List.of(ANY, STRING), List.of(), Optional.empty())),
+            BuiltinPermissionRule.ANY,
+            BuiltinCostRule.fixed(0),
+            EffectClass.TRANSACTION_READ,
+            BuiltinOwner.WORLD,
+            (a, w, p, t, rt, rs, r, cp, c) -> isClearProperty(a, w, p)));
+    entries.add(
+        new BuiltinSpec(
+            "clear_property",
+            List.of(new CallShape(List.of(ANY, STRING), List.of(), Optional.empty())),
+            BuiltinPermissionRule.ANY,
+            BuiltinCostRule.fixed(0),
+            EffectClass.TRANSACTION_WRITE,
+            BuiltinOwner.WORLD,
+            (a, w, p, t, rt, rs, r, cp, c) -> clearProperty(a, w, p)));
+    entries.add(
+        new BuiltinSpec(
+            "delete_property",
+            List.of(new CallShape(List.of(ANY, STRING), List.of(), Optional.empty())),
+            BuiltinPermissionRule.ANY,
+            BuiltinCostRule.fixed(0),
+            EffectClass.TRANSACTION_WRITE,
+            BuiltinOwner.WORLD,
+            (a, w, p, t, rt, rs, r, cp, c) -> deleteProperty(a, w, p)));
     entries.add(
         new BuiltinSpec(
             "add_verb",
@@ -1130,6 +1167,139 @@ public final class BuiltinCatalog {
     return world.addProperty(object.value(), name, arguments.get(2), owner.value(), permissions)
         ? Result.zero()
         : Result.error(ErrorValue.E_INVARG);
+  }
+
+  private static Result properties(
+      List<MooValue> arguments, WorldTxn world, long programmer) {
+    if (!(arguments.getFirst() instanceof ObjectValue object)) {
+      return Result.error(ErrorValue.E_TYPE);
+    }
+    WorldObject target = world.object(object.value()).orElse(null);
+    if (target == null) {
+      return Result.error(ErrorValue.E_INVARG);
+    }
+    WorldObject actor = world.object(programmer).orElse(null);
+    boolean wizard = actor != null && (actor.flags() & 4) != 0;
+    if (target.owner() != programmer && !wizard && (target.flags() & 16) == 0) {
+      return Result.error(ErrorValue.E_PERM);
+    }
+    List<MooValue> names =
+        target.properties().stream()
+            .filter(WorldProperty::defined)
+            .map(WorldProperty::name)
+            .map(BuiltinCatalog::encode)
+            .map(MooValue.class::cast)
+            .toList();
+    return Result.value(new ListValue(names));
+  }
+
+  private static Result isClearProperty(
+      List<MooValue> arguments, WorldTxn world, long programmer) {
+    if (!(arguments.getFirst() instanceof ObjectValue object)) {
+      return Result.error(ErrorValue.E_INVARG);
+    }
+    WorldObject target = world.object(object.value()).orElse(null);
+    if (target == null) {
+      return Result.error(ErrorValue.E_INVARG);
+    }
+    String name = decode((StringValue) arguments.get(1));
+    String normalized = name.toLowerCase(Locale.ROOT);
+    if (normalized.equals("name")
+        || normalized.equals("location")
+        || normalized.equals("contents")
+        || normalized.equals("owner")
+        || normalized.equals("programmer")
+        || normalized.equals("wizard")
+        || normalized.equals("r")
+        || normalized.equals("w")
+        || normalized.equals("f")) {
+      return Result.zero();
+    }
+    WorldProperty property = world.property(object.value(), name).orElse(null);
+    if (property == null) {
+      return Result.error(ErrorValue.E_PROPNF);
+    }
+    WorldObject actor = world.object(programmer).orElse(null);
+    boolean wizard = actor != null && (actor.flags() & 4) != 0;
+    if (property.owner() != programmer && !wizard && (property.permissions() & 1) == 0) {
+      return Result.error(ErrorValue.E_PERM);
+    }
+    WorldProperty local =
+        target.properties().stream()
+            .filter(candidate -> candidate.name().equalsIgnoreCase(name))
+            .findFirst()
+            .orElse(null);
+    return Result.value(new IntegerValue(local != null && local.clear() ? 1 : 0));
+  }
+
+  private static Result clearProperty(
+      List<MooValue> arguments, WorldTxn world, long programmer) {
+    if (!(arguments.getFirst() instanceof ObjectValue object)) {
+      return Result.error(ErrorValue.E_TYPE);
+    }
+    WorldObject target = world.object(object.value()).orElse(null);
+    if (target == null) {
+      return Result.error(ErrorValue.E_INVARG);
+    }
+    String name = decode((StringValue) arguments.get(1));
+    String normalized = name.toLowerCase(Locale.ROOT);
+    if (normalized.equals("name")
+        || normalized.equals("location")
+        || normalized.equals("contents")
+        || normalized.equals("owner")
+        || normalized.equals("programmer")
+        || normalized.equals("wizard")
+        || normalized.equals("r")
+        || normalized.equals("w")
+        || normalized.equals("f")) {
+      return Result.error(ErrorValue.E_PERM);
+    }
+    WorldProperty property = world.property(object.value(), name).orElse(null);
+    if (property == null) {
+      return Result.error(ErrorValue.E_PROPNF);
+    }
+    WorldObject actor = world.object(programmer).orElse(null);
+    boolean wizard = actor != null && (actor.flags() & 4) != 0;
+    if (property.owner() != programmer && !wizard && (property.permissions() & 2) == 0) {
+      return Result.error(ErrorValue.E_PERM);
+    }
+    WorldProperty local =
+        target.properties().stream()
+            .filter(candidate -> candidate.name().equalsIgnoreCase(name))
+            .findFirst()
+            .orElse(null);
+    if (local == null || local.defined()) {
+      return Result.error(ErrorValue.E_INVARG);
+    }
+    return world.clearProperty(object.value(), name)
+        ? Result.zero()
+        : Result.error(ErrorValue.E_PROPNF);
+  }
+
+  private static Result deleteProperty(
+      List<MooValue> arguments, WorldTxn world, long programmer) {
+    if (!(arguments.getFirst() instanceof ObjectValue object)) {
+      return Result.error(ErrorValue.E_TYPE);
+    }
+    WorldObject target = world.object(object.value()).orElse(null);
+    if (target == null) {
+      return Result.error(ErrorValue.E_INVARG);
+    }
+    WorldObject actor = world.object(programmer).orElse(null);
+    boolean wizard = actor != null && (actor.flags() & 4) != 0;
+    if (target.owner() != programmer && !wizard && (target.flags() & 32) == 0) {
+      return Result.error(ErrorValue.E_PERM);
+    }
+    String name = decode((StringValue) arguments.get(1));
+    boolean defined =
+        target.properties().stream()
+            .anyMatch(property -> property.defined() && property.name().equalsIgnoreCase(name));
+    if (!defined) {
+      return Result.error(ErrorValue.E_PROPNF);
+    }
+    return world.deleteProperty(object.value(), name)
+        ? Result.zero()
+        : Result.error(ErrorValue.E_PROPNF);
   }
 
   private static Result setPlayerFlag(List<MooValue> arguments, WorldTxn world) {

@@ -147,6 +147,102 @@ final class WorldTxnTest {
   }
 
   @Test
+  void inheritedPropertySlotsOverrideAndClearWithoutLosingTheDefinition() {
+    WorldProperty definition =
+        new WorldProperty("test", new IntegerValue(1), 0, 7, false, true);
+    WorldProperty inherited =
+        new WorldProperty("test", new IntegerValue(1), 0, 7, true, false);
+    WorldObject parent =
+        new WorldObject(
+            0,
+            "parent",
+            0,
+            0,
+            -1,
+            -1,
+            List.of(),
+            List.of(1L),
+            List.of(),
+            List.of(definition));
+    WorldObject child =
+        new WorldObject(
+            1,
+            "child",
+            0,
+            0,
+            -1,
+            0,
+            List.of(),
+            List.of(),
+            List.of(),
+            List.of(inherited));
+
+    try (WorldTxn transaction = root(parent, child).begin()) {
+      assertEquals(Optional.of(new IntegerValue(1)), transaction.readObjectProperty(1, "test"));
+      assertTrue(transaction.property(1, "test").orElseThrow().clear());
+
+      assertTrue(transaction.writeObjectProperty(1, "test", new IntegerValue(2)));
+      assertEquals(Optional.of(new IntegerValue(2)), transaction.readObjectProperty(1, "test"));
+      assertFalse(transaction.property(1, "test").orElseThrow().clear());
+      assertFalse(transaction.property(1, "test").orElseThrow().defined());
+
+      assertTrue(transaction.clearProperty(1, "test"));
+      assertEquals(Optional.of(new IntegerValue(1)), transaction.readObjectProperty(1, "test"));
+      assertTrue(transaction.property(1, "test").orElseThrow().clear());
+      assertFalse(transaction.property(1, "test").orElseThrow().defined());
+    }
+  }
+
+  @Test
+  void propertyDefinitionsPropagateToCreatedDescendantsAndDeleteAsOneIndexMutation() {
+    WorldObject root =
+        new WorldObject(
+            0,
+            "root",
+            0,
+            0,
+            -1,
+            -1,
+            List.of(),
+            List.of(1L),
+            List.of(),
+            List.of());
+    WorldObject child =
+        new WorldObject(
+            1,
+            "child",
+            0,
+            0,
+            -1,
+            0,
+            List.of(),
+            List.of(),
+            List.of(),
+            List.of());
+
+    try (WorldTxn transaction = root(root, child).begin()) {
+      assertTrue(transaction.addProperty(0, "test", new IntegerValue(1), 0, 7));
+      WorldProperty definition = transaction.object(0).orElseThrow().properties().getFirst();
+      WorldProperty inherited = transaction.object(1).orElseThrow().properties().getFirst();
+      assertTrue(definition.defined());
+      assertFalse(definition.clear());
+      assertFalse(inherited.defined());
+      assertTrue(inherited.clear());
+
+      WorldObject grandchild = transaction.createObject(1, 0);
+      WorldProperty grandchildSlot = grandchild.properties().getFirst();
+      assertFalse(grandchildSlot.defined());
+      assertTrue(grandchildSlot.clear());
+      assertEquals(Optional.of(new IntegerValue(1)), transaction.readObjectProperty(2, "test"));
+
+      assertTrue(transaction.deleteProperty(0, "test"));
+      assertTrue(transaction.object(0).orElseThrow().properties().isEmpty());
+      assertTrue(transaction.object(1).orElseThrow().properties().isEmpty());
+      assertTrue(transaction.object(2).orElseThrow().properties().isEmpty());
+    }
+  }
+
+  @Test
   void retainsAReferencedRevisionAndReclaimsItAfterTransactionEnds() {
     WorldTxn root = root(object(0, "base"));
     WorldTxn retained = root.begin();

@@ -63,7 +63,7 @@ final class V17RoundTripTest {
             -1,
             -1,
             List.of(),
-            List.of(),
+            List.of(1L),
             List.of(new WorldVerb("evaluate", 0, 173, -1, "return \"caf\u00e9\";\n")),
             List.of(
                 property("integer", new IntegerValue(Long.MIN_VALUE)),
@@ -74,11 +74,39 @@ final class V17RoundTripTest {
                 property(
                     "list", new ListValue(List.of(new IntegerValue(1), string("two")))),
                 property("map", new MapValue(map))));
-    return new WorldTxn(List.of(0L), List.of(object));
+    WorldObject child =
+        new WorldObject(
+            1,
+            "child",
+            0,
+            0,
+            -1,
+            0,
+            List.of(),
+            List.of(),
+            List.of(),
+            List.of(
+                new WorldProperty("local", new IntegerValue(9), 0, 1, false, true),
+                new WorldProperty(
+                    "integer", new IntegerValue(Long.MIN_VALUE), 0, 1, true, false),
+                new WorldProperty("float", new FloatValue(3.5), 0, 1, false, false),
+                new WorldProperty(
+                    "string", new StringValue(new byte[] {(byte) 0xff, 0x41}), 0, 1, true, false),
+                new WorldProperty("object", new ObjectValue(0), 0, 1, true, false),
+                new WorldProperty("error", ErrorValue.E_PERM, 0, 1, true, false),
+                new WorldProperty(
+                    "list",
+                    new ListValue(List.of(new IntegerValue(1), string("two"))),
+                    0,
+                    1,
+                    true,
+                    false),
+                new WorldProperty("map", new MapValue(map), 0, 1, true, false)));
+    return new WorldTxn(List.of(0L), List.of(object, child));
   }
 
   private static WorldProperty property(String name, MooValue value) {
-    return new WorldProperty(name, value, 0, 1);
+    return new WorldProperty(name, value, 0, 1, false, true);
   }
 
   private static StringValue string(String value) {

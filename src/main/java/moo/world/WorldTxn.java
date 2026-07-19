@@ -342,7 +342,22 @@ public final class WorldTxn implements AutoCloseable {
       case "r" -> Optional.of(new IntegerValue((object.flags() & 16) == 0 ? 0 : 1));
       case "w" -> Optional.of(new IntegerValue((object.flags() & 32) == 0 ? 0 : 1));
       case "f" -> Optional.of(new IntegerValue((object.flags() & 128) == 0 ? 0 : 1));
-      default -> property(objectId, propertyName).map(WorldProperty::value);
+      default -> {
+        long current = objectId;
+        Optional<MooValue> value = Optional.empty();
+        while (current != -1 && value.isEmpty()) {
+          WorldObject currentObject = object(current).orElse(null);
+          if (currentObject == null) {
+            break;
+          }
+          WorldProperty property = findProperty(currentObject, propertyName).orElse(null);
+          if (property != null && !property.clear()) {
+            value = Optional.of(property.value());
+          }
+          current = currentObject.parent();
+        }
+        yield value;
+      }
     };
   }
 
@@ -416,13 +431,28 @@ public final class WorldTxn implements AutoCloseable {
       if (property.name().equalsIgnoreCase(propertyName)) {
         properties.set(
             index,
-            new WorldProperty(property.name(), value, property.owner(), property.permissions()));
+            new WorldProperty(
+                property.name(),
+                value,
+                property.owner(),
+                property.permissions(),
+                false,
+                property.defined()));
         replaceObject(
             copyObject(object, object.flags(), object.owner(), object.location(), properties));
         return true;
       }
     }
-    return false;
+    WorldProperty inherited = property(objectId, propertyName).orElse(null);
+    if (inherited == null) {
+      return false;
+    }
+    properties.add(
+        new WorldProperty(
+            inherited.name(), value, inherited.owner(), inherited.permissions(), false, false));
+    replaceObject(
+        copyObject(object, object.flags(), object.owner(), object.location(), properties));
+    return true;
   }
 
   /** Allocates the next object number and returns the new object. */
@@ -436,9 +466,22 @@ public final class WorldTxn implements AutoCloseable {
       objectId = Math.max(objectId, existing);
     }
     objectId = Math.incrementExact(objectId);
+    List<WorldProperty> properties = new ArrayList<>();
+    if (parentId != -1) {
+      for (WorldProperty property : object(parentId).orElseThrow().properties()) {
+        properties.add(
+            new WorldProperty(
+                property.name(),
+                property.value(),
+                property.owner(),
+                property.permissions(),
+                true,
+                false));
+      }
+    }
     WorldObject created =
         new WorldObject(
-            objectId, "", 0, ownerId, -1, parentId, List.of(), List.of(), List.of(), List.of());
+            objectId, "", 0, ownerId, -1, parentId, List.of(), List.of(), List.of(), properties);
     replaceObject(created);
     if (parentId != -1) {
       WorldObject parent = object(parentId).orElseThrow();
@@ -704,9 +747,43 @@ public final class WorldTxn implements AutoCloseable {
       return false;
     }
     List<WorldProperty> properties = new ArrayList<>(object.properties());
-    properties.add(new WorldProperty(name, value, owner, permissions));
+    int propertyIndex = 0;
+    while (propertyIndex < properties.size() && properties.get(propertyIndex).defined()) {
+      propertyIndex++;
+    }
+    properties.add(
+        propertyIndex, new WorldProperty(name, value, owner, permissions, false, true));
     replaceObject(
         copyObject(object, object.flags(), object.owner(), object.location(), properties));
+
+    List<Long> descendants = new ArrayList<>(object.children());
+    List<Integer> inheritedIndices = new ArrayList<>();
+    for (int index = 0; index < object.children().size(); index++) {
+      inheritedIndices.add(propertyIndex);
+    }
+    for (int cursor = 0; cursor < descendants.size(); cursor++) {
+      WorldObject descendant = object(descendants.get(cursor)).orElseThrow();
+      int localDefinitionCount = 0;
+      while (localDefinitionCount < descendant.properties().size()
+          && descendant.properties().get(localDefinitionCount).defined()) {
+        localDefinitionCount++;
+      }
+      int inheritedIndex = localDefinitionCount + inheritedIndices.get(cursor);
+      List<WorldProperty> descendantProperties = new ArrayList<>(descendant.properties());
+      descendantProperties.add(
+          inheritedIndex, new WorldProperty(name, value, owner, permissions, true, false));
+      replaceObject(
+          copyObject(
+              descendant,
+              descendant.flags(),
+              descendant.owner(),
+              descendant.location(),
+              descendantProperties));
+      for (long childId : descendant.children()) {
+        descendants.add(childId);
+        inheritedIndices.add(inheritedIndex);
+      }
+    }
     return true;
   }
 
@@ -718,13 +795,82 @@ public final class WorldTxn implements AutoCloseable {
       return false;
     }
     List<WorldProperty> properties = new ArrayList<>(object.properties());
-    boolean removed = properties.removeIf(property -> property.name().equalsIgnoreCase(name));
-    if (!removed) {
+    int propertyIndex = -1;
+    for (int index = 0; index < properties.size(); index++) {
+      WorldProperty property = properties.get(index);
+      if (property.defined() && property.name().equalsIgnoreCase(name)) {
+        propertyIndex = index;
+        break;
+      }
+    }
+    if (propertyIndex < 0) {
       return false;
     }
+    properties.remove(propertyIndex);
     replaceObject(
         copyObject(object, object.flags(), object.owner(), object.location(), properties));
+
+    List<Long> descendants = new ArrayList<>(object.children());
+    List<Integer> inheritedIndices = new ArrayList<>();
+    for (int index = 0; index < object.children().size(); index++) {
+      inheritedIndices.add(propertyIndex);
+    }
+    for (int cursor = 0; cursor < descendants.size(); cursor++) {
+      WorldObject descendant = object(descendants.get(cursor)).orElseThrow();
+      int localDefinitionCount = 0;
+      while (localDefinitionCount < descendant.properties().size()
+          && descendant.properties().get(localDefinitionCount).defined()) {
+        localDefinitionCount++;
+      }
+      int inheritedIndex = localDefinitionCount + inheritedIndices.get(cursor);
+      List<WorldProperty> descendantProperties = new ArrayList<>(descendant.properties());
+      if (inheritedIndex >= descendantProperties.size()
+          || !descendantProperties.get(inheritedIndex).name().equalsIgnoreCase(name)
+          || descendantProperties.get(inheritedIndex).defined()) {
+        throw new IllegalStateException("inconsistent inherited property layout");
+      }
+      descendantProperties.remove(inheritedIndex);
+      replaceObject(
+          copyObject(
+              descendant,
+              descendant.flags(),
+              descendant.owner(),
+              descendant.location(),
+              descendantProperties));
+      for (long childId : descendant.children()) {
+        descendants.add(childId);
+        inheritedIndices.add(inheritedIndex);
+      }
+    }
     return true;
+  }
+
+  /** Clears one inherited property value slot without deleting its definition. */
+  public boolean clearProperty(long objectId, String name) {
+    Objects.requireNonNull(name, "name");
+    WorldObject object = object(objectId).orElse(null);
+    if (object == null) {
+      return false;
+    }
+    List<WorldProperty> properties = new ArrayList<>(object.properties());
+    for (int index = 0; index < properties.size(); index++) {
+      WorldProperty property = properties.get(index);
+      if (property.name().equalsIgnoreCase(name) && !property.defined()) {
+        properties.set(
+            index,
+            new WorldProperty(
+                property.name(),
+                property.value(),
+                property.owner(),
+                property.permissions(),
+                true,
+                false));
+        replaceObject(
+            copyObject(object, object.flags(), object.owner(), object.location(), properties));
+        return true;
+      }
+    }
+    return false;
   }
 
   /** Adds one local verb using the existing immutable verb record. */
