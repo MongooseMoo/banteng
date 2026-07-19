@@ -217,6 +217,19 @@ public final class BuiltinCatalog {
             (a, w, p, t, rt, rs, r, cp, c) -> encodeBinary(a)));
     entries.add(
         new BuiltinSpec(
+            "add_property",
+            List.of(
+                new CallShape(
+                    List.of(ANY, STRING, ANY, Set.of(ArgType.LIST)),
+                    List.of(),
+                    Optional.empty())),
+            BuiltinPermissionRule.ANY,
+            BuiltinCostRule.fixed(0),
+            EffectClass.TRANSACTION_WRITE,
+            BuiltinOwner.WORLD,
+            (a, w, p, t, rt, rs, r, cp, c) -> addProperty(a, w, p)));
+    entries.add(
+        new BuiltinSpec(
             "add_verb",
             List.of(
                 new CallShape(
@@ -1003,6 +1016,50 @@ public final class BuiltinCatalog {
         new IntegerValue(
             world.addVerb(
                 object.value(), names, owner.value(), encodedPermissions, preposition)));
+  }
+
+  private static Result addProperty(
+      List<MooValue> arguments, WorldTxn world, long programmer) {
+    ListValue info = (ListValue) arguments.get(3);
+    if (info.size() != 2
+        || !(info.elements().get(0) instanceof ObjectValue owner)
+        || !(info.elements().get(1) instanceof StringValue permissionValue)) {
+      return Result.error(ErrorValue.E_TYPE);
+    }
+    if (world.object(owner.value()).isEmpty()) {
+      return Result.error(ErrorValue.E_INVARG);
+    }
+    int permissions = 0;
+    String permissionText = decode(permissionValue);
+    for (int index = 0; index < permissionText.length(); index++) {
+      permissions |=
+          switch (Character.toLowerCase(permissionText.charAt(index))) {
+            case 'r' -> 1;
+            case 'w' -> 2;
+            case 'c' -> 4;
+            default -> -1;
+          };
+      if (permissions < 0) {
+        return Result.error(ErrorValue.E_INVARG);
+      }
+    }
+    if (!(arguments.get(0) instanceof ObjectValue object)) {
+      return Result.error(ErrorValue.E_TYPE);
+    }
+    WorldObject target = world.object(object.value()).orElse(null);
+    if (target == null) {
+      return Result.error(ErrorValue.E_INVARG);
+    }
+    WorldObject actor = world.object(programmer).orElse(null);
+    boolean wizard = actor != null && (actor.flags() & 4) != 0;
+    boolean writable = target.owner() == programmer || wizard || (target.flags() & 32) != 0;
+    if (!writable || (owner.value() != programmer && !wizard)) {
+      return Result.error(ErrorValue.E_PERM);
+    }
+    String name = decode((StringValue) arguments.get(1));
+    return world.addProperty(object.value(), name, arguments.get(2), owner.value(), permissions)
+        ? Result.zero()
+        : Result.error(ErrorValue.E_INVARG);
   }
 
   private static Result setPlayerFlag(List<MooValue> arguments, WorldTxn world) {

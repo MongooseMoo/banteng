@@ -29,6 +29,7 @@ import org.junit.jupiter.api.Test;
 final class BuiltinCatalogTest {
   private static final Set<String> REACHABLE_NAMES =
       Set.of(
+          "add_property",
           "add_verb",
           "create",
           "decode_binary",
@@ -120,6 +121,51 @@ final class BuiltinCatalogTest {
       assertEquals(
           new WorldVerb("foobar", 1, 12 | (2 << 4) | (2 << 6), -1, ""),
           transaction.verb(3, 0).orElseThrow());
+    }
+  }
+
+  @Test
+  void addPropertyValidatesAndStagesOneCompleteWorldProperty() {
+    BuiltinCatalog catalog = new BuiltinCatalog();
+    BuiltinSpec spec = catalog.spec("add_property").orElseThrow();
+
+    assertEquals(
+        List.of(
+            new CallShape(
+                List.of(
+                    Set.of(ArgType.ANY),
+                    Set.of(ArgType.STRING),
+                    Set.of(ArgType.ANY),
+                    Set.of(ArgType.LIST)),
+                List.of(),
+                Optional.empty())),
+        spec.callShapes());
+    assertSame(BuiltinPermissionRule.ANY, spec.permission());
+    assertEquals(EffectClass.TRANSACTION_WRITE, spec.effect());
+    assertEquals(BuiltinOwner.WORLD, spec.owner());
+
+    WorldObject wizard =
+        new WorldObject(1, "Wizard", 4, 1, -1, -1, List.of(), List.of(), List.of(), List.of());
+    WorldObject target =
+        new WorldObject(3, "Target", 0, 1, -1, -1, List.of(), List.of(), List.of(), List.of());
+    try (WorldTxn transaction = new WorldTxn(List.of(), List.of(wizard, target)).begin()) {
+      Result result =
+          invoke(
+              catalog,
+              spec,
+              List.of(
+                  new ObjectValue(3),
+                  string("foo"),
+                  new IntegerValue(99),
+                  new ListValue(List.of(new ObjectValue(1), string("rwc")))),
+              transaction,
+              1);
+
+      assertEquals(Optional.of(new IntegerValue(0)), result.value());
+      assertEquals(
+          Optional.of(new IntegerValue(99)),
+          transaction.readObjectProperty(3, "foo"));
+      assertEquals(7, transaction.property(3, "foo").orElseThrow().permissions());
     }
   }
 
