@@ -357,7 +357,7 @@ final class PublicationScheduler implements AutoCloseable {
     }
     attempt.transaction().close();
     try {
-      runtime.publishAttempt(context);
+      runtime.publishAttempt(context, committedWorld.snapshot());
       return PublishedAttempt.published(runtime.takeSpawnedSteps(context));
     } catch (Throwable failure) {
       return PublishedAttempt.failed(failure);

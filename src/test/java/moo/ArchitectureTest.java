@@ -41,7 +41,14 @@ final class ArchitectureTest {
     assertOnlyDependsOn(productionClasses, "vm", "builtin", "bytecode", "value", "world");
     assertOnlyDependsOn(productionClasses, "builtin", "bytecode", "syntax", "value", "world");
     assertOnlyDependsOn(
-        productionClasses, "runtime", "builtin", "bytecode", "value", "vm", "world");
+        productionClasses,
+        "runtime",
+        "builtin",
+        "bytecode",
+        "persistence",
+        "value",
+        "vm",
+        "world");
     assertOnlyDependsOn(productionClasses, "persistence", "bytecode", "value", "vm", "world");
     assertOnlyDependsOn(productionClasses, "server", "builtin", "runtime", "value", "world");
     assertOnlyDependsOn(

@@ -1,5 +1,8 @@
 package moo.runtime;
 
+import java.io.IOException;
+import java.io.UncheckedIOException;
+import java.nio.file.Path;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -19,6 +22,7 @@ import moo.builtin.BuiltinCatalog.ForcedInputRequest;
 import moo.builtin.BuiltinCatalog.ListenerControl;
 import moo.bytecode.BytecodeProgram;
 import moo.bytecode.MooCompiler;
+import moo.persistence.LambdaMooV17Codec;
 import moo.value.MooValue;
 import moo.value.MooValue.IntegerValue;
 import moo.value.MooValue.ListValue;
@@ -29,11 +33,13 @@ import moo.vm.MooVm;
 import moo.vm.VmSnapshot;
 import moo.vm.VmState;
 import moo.world.WorldObject;
+import moo.world.WorldSnapshot;
 import moo.world.WorldTxn;
 import moo.world.WorldVerb;
 
 /** Concrete session and command owner backed by the sole production publication scheduler. */
 public final class MooRuntime {
+  private static final System.Logger LOGGER = System.getLogger(MooRuntime.class.getName());
   static final long DEFAULT_FOREGROUND_TICKS = 60_000;
   static final long DEFAULT_FOREGROUND_SECONDS = 5;
   static final long DEFAULT_BACKGROUND_TICKS = 30_000;
@@ -43,6 +49,8 @@ public final class MooRuntime {
   private final MooCompiler compiler = new MooCompiler();
   private final BuiltinCatalog builtins;
   private final Optional<ListenerControl> listenerControl;
+  private final Optional<Path> checkpoint;
+  private final LambdaMooV17Codec checkpointCodec = new LambdaMooV17Codec();
   private final MooVm vm = new MooVm();
   private final PublicationScheduler scheduler;
   private final Map<Long, ConnectionState> publishedConnections = new LinkedHashMap<>();
@@ -53,20 +61,28 @@ public final class MooRuntime {
   /** Creates a runtime over the one concrete world transaction. */
   public MooRuntime(WorldTxn world) {
     listenerControl = Optional.empty();
+    checkpoint = Optional.empty();
     builtins = new BuiltinCatalog();
     scheduler = new PublicationScheduler(Objects.requireNonNull(world, "world"), this);
   }
 
-  /** Creates the production runtime with the concrete server listener owner. */
-  public MooRuntime(WorldTxn world, ListenerControl listenerControl) {
+  /** Creates the production runtime with its concrete listener and checkpoint owners. */
+  public MooRuntime(WorldTxn world, ListenerControl listenerControl, Path checkpoint) {
     this(
         world,
         listenerControl,
-        Math.max(2, Runtime.getRuntime().availableProcessors()));
+        Math.max(2, Runtime.getRuntime().availableProcessors()),
+        Optional.of(Objects.requireNonNull(checkpoint, "checkpoint")));
   }
 
   MooRuntime(WorldTxn world, ListenerControl listenerControl, int workers) {
+    this(world, listenerControl, workers, Optional.empty());
+  }
+
+  private MooRuntime(
+      WorldTxn world, ListenerControl listenerControl, int workers, Optional<Path> checkpoint) {
     this.listenerControl = Optional.of(Objects.requireNonNull(listenerControl, "listenerControl"));
+    this.checkpoint = Objects.requireNonNull(checkpoint, "checkpoint");
     builtins = new BuiltinCatalog(listenerControl);
     scheduler = new PublicationScheduler(Objects.requireNonNull(world, "world"), this, workers);
   }
@@ -1345,6 +1361,10 @@ public final class MooRuntime {
     applyForcedInputRequests(task);
     applyBootPlayerTargets(task, taskPlayer);
     closeRecycledPlayerConnections();
+    int checkpointCount = task.drainCheckpointRequests().size();
+    for (int index = 0; index < checkpointCount; index++) {
+      effects().add(RuntimeEffect.checkpoint());
+    }
   }
 
   private void applyConnectionOptionRequests(VmState task) {
@@ -1685,7 +1705,7 @@ public final class MooRuntime {
     return Optional.empty();
   }
 
-  void publishAttempt(AttemptContext context) {
+  void publishAttempt(AttemptContext context, WorldSnapshot committedWorld) {
     List<RuntimeEffect> publishedEffects;
     synchronized (this) {
       if (context.baseSessionRevision != sessionRevision) {
@@ -1711,7 +1731,7 @@ public final class MooRuntime {
       context.effects.clear();
     }
     for (RuntimeEffect effect : publishedEffects) {
-      publishEffect(effect);
+      publishEffect(effect, committedWorld);
     }
   }
 
@@ -1721,7 +1741,7 @@ public final class MooRuntime {
     return spawned;
   }
 
-  private void publishEffect(RuntimeEffect effect) {
+  private void publishEffect(RuntimeEffect effect, WorldSnapshot committedWorld) {
     switch (effect.kind) {
       case START_TIMEOUT -> {
         ConnectionState connection;
@@ -1744,6 +1764,17 @@ public final class MooRuntime {
           listenerControl.ifPresent(
               control -> control.setConnectionBinary(effect.connectionId, effect.binary));
       case INPUT -> scheduler.enqueueDetached(RuntimeRequest.line(effect.connectionId, effect.text));
+      case CHECKPOINT -> {
+        Path target =
+            checkpoint.orElseThrow(
+                () -> new IllegalStateException("dump_database() requires --checkpoint"));
+        LOGGER.log(System.Logger.Level.INFO, "CHECKPOINTING to {0}", target);
+        try {
+          checkpointCodec.writeAtomic(target, committedWorld, List.of());
+        } catch (IOException error) {
+          throw new UncheckedIOException("checkpoint failed: " + target, error);
+        }
+      }
     }
   }
 
@@ -2025,7 +2056,8 @@ public final class MooRuntime {
     WRITE,
     BOOT,
     BINARY,
-    INPUT
+    INPUT,
+    CHECKPOINT
   }
 
   record RuntimeEffect(
@@ -2058,6 +2090,10 @@ public final class MooRuntime {
 
     static RuntimeEffect input(long connectionId, String line) {
       return new RuntimeEffect(RuntimeEffectKind.INPUT, connectionId, List.of(), false, 0, line);
+    }
+
+    static RuntimeEffect checkpoint() {
+      return new RuntimeEffect(RuntimeEffectKind.CHECKPOINT, 0, List.of(), false, 0, "");
     }
   }
 }

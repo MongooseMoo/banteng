@@ -12,6 +12,7 @@ import java.net.ServerSocket;
 import java.net.Socket;
 import java.net.SocketException;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Path;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -43,14 +44,18 @@ public final class MooServer implements AutoCloseable, ListenerControl {
   private final AtomicLong nextConnectionId = new AtomicLong(-2);
 
   /** Binds the configured address and port. Port zero requests an ephemeral test port. */
-  public MooServer(String address, int port, WorldTxn world) throws IOException {
+  public MooServer(String address, int port, WorldTxn world, Path checkpoint) throws IOException {
     listenAddress = InetAddress.getByName(address);
     primaryListener = new ServerSocket();
     primaryListener.bind(new InetSocketAddress(listenAddress, port));
     primaryPort = primaryListener.getLocalPort();
     primary = new Listener(primaryListener, 0, true);
     listeners.put(primaryPort, primary);
-    runtime = new MooRuntime(Objects.requireNonNull(world, "world"), this);
+    runtime =
+        new MooRuntime(
+            Objects.requireNonNull(world, "world"),
+            this,
+            Objects.requireNonNull(checkpoint, "checkpoint"));
   }
 
   /** Returns the bound port, including the assigned ephemeral port in tests. */

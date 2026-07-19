@@ -1,8 +1,13 @@
 package moo.app;
 
+import java.io.BufferedReader;
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Objects;
 import java.util.concurrent.Callable;
+import moo.persistence.LambdaMooV17Codec;
 import moo.persistence.LambdaMooV4Reader;
 import moo.server.MooServer;
 import moo.world.WorldTxn;
@@ -24,8 +29,6 @@ public final class Banteng implements Callable<Integer> {
   private @Nullable Path database;
 
   @Option(names = "--checkpoint", paramLabel = "PATH", description = "Checkpoint output path")
-  @SuppressWarnings(
-      "UnusedVariable") // Accepted now; checkpoint writing is deferred from this slice.
   private @Nullable Path checkpoint;
 
   @Option(names = "--listen-address", defaultValue = "127.0.0.1", description = "Listener address")
@@ -63,8 +66,25 @@ public final class Banteng implements Callable<Integer> {
       throw new CommandLine.ParameterException(spec.commandLine(), "--database is required");
     }
 
-    WorldTxn world = new LambdaMooV4Reader().read(databasePath);
-    try (MooServer server = new MooServer(listenAddress, port, world)) {
+    @Nullable Path checkpointPath = checkpoint;
+    if (checkpointPath == null) {
+      throw new CommandLine.ParameterException(spec.commandLine(), "--checkpoint is required");
+    }
+
+    WorldTxn world;
+    try (BufferedReader input =
+        Files.newBufferedReader(databasePath, StandardCharsets.ISO_8859_1)) {
+      String header = input.readLine();
+      world =
+          switch (Objects.requireNonNullElse(header, "")) {
+            case "** LambdaMOO Database, Format Version 4 **" ->
+                new LambdaMooV4Reader().read(databasePath);
+            case "** LambdaMOO Database, Format Version 17 **" ->
+                new LambdaMooV17Codec().read(databasePath).world();
+            default -> throw new IOException("unsupported database header: " + header);
+          };
+    }
+    try (MooServer server = new MooServer(listenAddress, port, world, checkpointPath)) {
       server.serve();
     }
     return CommandLine.ExitCode.OK;
