@@ -1,5 +1,6 @@
 package moo.builtin;
 
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
@@ -65,6 +66,60 @@ public final class BuiltinCatalog {
             EffectClass.PURE,
             BuiltinOwner.VM,
             (a, w, p, t, rt, rs, r, cp, c) -> length(a)));
+    entries.add(
+        new BuiltinSpec(
+            "strsub",
+            List.of(new CallShape(List.of(STRING, STRING, STRING), List.of(ANY), Optional.empty())),
+            BuiltinPermissionRule.ANY,
+            BuiltinCostRule.fixed(0),
+            EffectClass.PURE,
+            BuiltinOwner.VM,
+            (a, w, p, t, rt, rs, r, cp, c) -> stringSubstitute(a)));
+    entries.add(
+        new BuiltinSpec(
+            "index",
+            List.of(new CallShape(List.of(STRING, STRING), List.of(ANY, INTEGER), Optional.empty())),
+            BuiltinPermissionRule.ANY,
+            BuiltinCostRule.fixed(0),
+            EffectClass.PURE,
+            BuiltinOwner.VM,
+            (a, w, p, t, rt, rs, r, cp, c) -> stringIndex(a, false)));
+    entries.add(
+        new BuiltinSpec(
+            "rindex",
+            List.of(new CallShape(List.of(STRING, STRING), List.of(ANY, INTEGER), Optional.empty())),
+            BuiltinPermissionRule.ANY,
+            BuiltinCostRule.fixed(0),
+            EffectClass.PURE,
+            BuiltinOwner.VM,
+            (a, w, p, t, rt, rs, r, cp, c) -> stringIndex(a, true)));
+    entries.add(
+        new BuiltinSpec(
+            "strcmp",
+            List.of(new CallShape(List.of(STRING, STRING), List.of(), Optional.empty())),
+            BuiltinPermissionRule.ANY,
+            BuiltinCostRule.fixed(0),
+            EffectClass.PURE,
+            BuiltinOwner.VM,
+            (a, w, p, t, rt, rs, r, cp, c) -> stringCompare(a)));
+    entries.add(
+        new BuiltinSpec(
+            "decode_binary",
+            List.of(new CallShape(List.of(STRING), List.of(ANY), Optional.empty())),
+            BuiltinPermissionRule.ANY,
+            BuiltinCostRule.fixed(0),
+            EffectClass.PURE,
+            BuiltinOwner.VM,
+            (a, w, p, t, rt, rs, r, cp, c) -> decodeBinary(a)));
+    entries.add(
+        new BuiltinSpec(
+            "encode_binary",
+            List.of(new CallShape(List.of(), List.of(), Optional.of(ANY))),
+            BuiltinPermissionRule.ANY,
+            BuiltinCostRule.fixed(0),
+            EffectClass.PURE,
+            BuiltinOwner.VM,
+            (a, w, p, t, rt, rs, r, cp, c) -> encodeBinary(a)));
     entries.add(
         new BuiltinSpec(
             "create",
@@ -373,6 +428,196 @@ public final class BuiltinCatalog {
       return Result.value(new IntegerValue(list.size()));
     }
     return Result.error(ErrorValue.E_TYPE);
+  }
+
+  private static Result stringSubstitute(List<MooValue> arguments) {
+    byte[] source = ((StringValue) arguments.get(0)).bytes();
+    byte[] what = ((StringValue) arguments.get(1)).bytes();
+    byte[] replacement = ((StringValue) arguments.get(2)).bytes();
+    if (what.length == 0) {
+      return Result.error(ErrorValue.E_INVARG);
+    }
+    boolean caseMatters = arguments.size() == 4 && arguments.get(3).isTruthy();
+    ByteArrayOutputStream substituted = new ByteArrayOutputStream(source.length);
+    int position = 0;
+    while (position <= source.length - what.length) {
+      if (matchesAt(source, position, what, caseMatters)) {
+        substituted.writeBytes(replacement);
+        position += what.length;
+      } else {
+        substituted.write(source[position]);
+        position++;
+      }
+    }
+    substituted.write(source, position, source.length - position);
+    return Result.value(new StringValue(substituted.toByteArray()));
+  }
+
+  private static Result stringIndex(List<MooValue> arguments, boolean reverse) {
+    byte[] source = ((StringValue) arguments.get(0)).bytes();
+    byte[] what = ((StringValue) arguments.get(1)).bytes();
+    boolean caseMatters = arguments.size() >= 3 && arguments.get(2).isTruthy();
+    long offset = arguments.size() == 4 ? ((IntegerValue) arguments.get(3)).value() : 0;
+    if ((!reverse && offset < 0) || (reverse && offset > 0)) {
+      return Result.error(ErrorValue.E_INVARG);
+    }
+
+    if (reverse) {
+      long prefixLength = source.length + offset;
+      if (prefixLength < 0) {
+        return Result.value(new IntegerValue(0));
+      }
+      int length = (int) Math.min(prefixLength, source.length);
+      for (int position = length - what.length; position >= 0; position--) {
+        if (matchesAt(source, position, what, caseMatters)) {
+          return Result.value(new IntegerValue(position + 1L));
+        }
+      }
+      return Result.value(new IntegerValue(0));
+    }
+
+    if (offset > source.length) {
+      return Result.value(new IntegerValue(0));
+    }
+    int start = (int) offset;
+    for (int position = start; position <= source.length - what.length; position++) {
+      if (matchesAt(source, position, what, caseMatters)) {
+        return Result.value(new IntegerValue(position - start + 1L));
+      }
+    }
+    return Result.value(new IntegerValue(0));
+  }
+
+  private static Result stringCompare(List<MooValue> arguments) {
+    byte[] left = ((StringValue) arguments.get(0)).bytes();
+    byte[] right = ((StringValue) arguments.get(1)).bytes();
+    int commonLength = Math.min(left.length, right.length);
+    for (int index = 0; index < commonLength; index++) {
+      int comparison =
+          Integer.compare(Byte.toUnsignedInt(left[index]), Byte.toUnsignedInt(right[index]));
+      if (comparison != 0) {
+        return Result.value(new IntegerValue(comparison));
+      }
+    }
+    return Result.value(new IntegerValue(Integer.compare(left.length, right.length)));
+  }
+
+  private static Result decodeBinary(List<MooValue> arguments) {
+    byte[] binary = ((StringValue) arguments.getFirst()).bytes();
+    ByteArrayOutputStream raw = new ByteArrayOutputStream(binary.length);
+    for (int index = 0; index < binary.length; index++) {
+      int value = Byte.toUnsignedInt(binary[index]);
+      if (value != '~') {
+        raw.write(value);
+        continue;
+      }
+      if (index + 2 >= binary.length) {
+        return Result.error(ErrorValue.E_INVARG);
+      }
+      int high = Character.digit((char) Byte.toUnsignedInt(binary[++index]), 16);
+      int low = Character.digit((char) Byte.toUnsignedInt(binary[++index]), 16);
+      if (high < 0 || low < 0) {
+        return Result.error(ErrorValue.E_INVARG);
+      }
+      raw.write((high << 4) | low);
+    }
+
+    byte[] decoded = raw.toByteArray();
+    if (arguments.size() == 2 && arguments.get(1).isTruthy()) {
+      return Result.value(
+          new ListValue(
+              java.util.stream.IntStream.range(0, decoded.length)
+                  .mapToObj(index -> new IntegerValue(Byte.toUnsignedInt(decoded[index])))
+                  .map(MooValue.class::cast)
+                  .toList()));
+    }
+
+    List<MooValue> values = new ArrayList<>();
+    ByteArrayOutputStream printable = new ByteArrayOutputStream();
+    for (byte current : decoded) {
+      int value = Byte.toUnsignedInt(current);
+      if ((value >= 0x21 && value <= 0x7e) || value == ' ' || value == '\t') {
+        printable.write(value);
+      } else {
+        if (printable.size() != 0) {
+          values.add(new StringValue(printable.toByteArray()));
+          printable.reset();
+        }
+        values.add(new IntegerValue(value));
+      }
+    }
+    if (printable.size() != 0) {
+      values.add(new StringValue(printable.toByteArray()));
+    }
+    return Result.value(new ListValue(values));
+  }
+
+  private static Result encodeBinary(List<MooValue> arguments) {
+    ByteArrayOutputStream raw = new ByteArrayOutputStream();
+    for (MooValue argument : arguments) {
+      if (!appendBinaryBytes(raw, argument)) {
+        return Result.error(ErrorValue.E_INVARG);
+      }
+    }
+
+    ByteArrayOutputStream encoded = new ByteArrayOutputStream(raw.size());
+    for (byte current : raw.toByteArray()) {
+      int value = Byte.toUnsignedInt(current);
+      if (value != '~' && ((value >= 0x21 && value <= 0x7e) || value == ' ')) {
+        encoded.write(value);
+      } else {
+        encoded.write('~');
+        encoded.write(Character.toUpperCase(Character.forDigit(value >>> 4, 16)));
+        encoded.write(Character.toUpperCase(Character.forDigit(value & 0x0f, 16)));
+      }
+    }
+    return Result.value(new StringValue(encoded.toByteArray()));
+  }
+
+  private static boolean appendBinaryBytes(ByteArrayOutputStream output, MooValue value) {
+    if (value instanceof StringValue string) {
+      output.writeBytes(string.bytes());
+      return true;
+    }
+    if (value instanceof IntegerValue integer) {
+      if (integer.value() < 0 || integer.value() > 255) {
+        return false;
+      }
+      output.write((int) integer.value());
+      return true;
+    }
+    if (value instanceof ListValue list) {
+      for (MooValue element : list.elements()) {
+        if (!appendBinaryBytes(output, element)) {
+          return false;
+        }
+      }
+      return true;
+    }
+    return false;
+  }
+
+  private static boolean matchesAt(
+      byte[] source, int position, byte[] what, boolean caseMatters) {
+    if (position < 0 || position + what.length > source.length) {
+      return false;
+    }
+    for (int index = 0; index < what.length; index++) {
+      int sourceByte = Byte.toUnsignedInt(source[position + index]);
+      int whatByte = Byte.toUnsignedInt(what[index]);
+      if (!caseMatters) {
+        sourceByte = foldAscii(sourceByte);
+        whatByte = foldAscii(whatByte);
+      }
+      if (sourceByte != whatByte) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  private static int foldAscii(int value) {
+    return value >= 'A' && value <= 'Z' ? value + ('a' - 'A') : value;
   }
 
   private static Result create(List<MooValue> arguments, WorldTxn world, long programmer) {

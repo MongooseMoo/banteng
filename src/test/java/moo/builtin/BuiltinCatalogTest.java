@@ -1,5 +1,6 @@
 package moo.builtin;
 
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -26,15 +27,21 @@ final class BuiltinCatalogTest {
   private static final Set<String> REACHABLE_NAMES =
       Set.of(
           "create",
+          "decode_binary",
           "dump_database",
+          "encode_binary",
           "equal",
           "eval",
           "function_info",
+          "index",
           "length",
           "move",
           "notify",
+          "rindex",
           "set_player_flag",
           "set_task_perms",
+          "strcmp",
+          "strsub",
           "switch_player",
           "tofloat",
           "toint",
@@ -95,6 +102,201 @@ final class BuiltinCatalogTest {
             List.of(Set.of(ArgType.ANY), Set.of(ArgType.ANY)),
             List.of(),
             Optional.empty()));
+  }
+
+  @Test
+  void exposesTheExactPureStringContracts() {
+    BuiltinCatalog catalog = new BuiltinCatalog();
+    Set<ArgType> any = Set.of(ArgType.ANY);
+    Set<ArgType> integer = Set.of(ArgType.INTEGER);
+    Set<ArgType> string = Set.of(ArgType.STRING);
+
+    assertPureVmContract(
+        catalog,
+        "strsub",
+        new CallShape(List.of(string, string, string), List.of(any), Optional.empty()));
+    for (String name : List.of("index", "rindex")) {
+      assertPureVmContract(
+          catalog,
+          name,
+          new CallShape(List.of(string, string), List.of(any, integer), Optional.empty()));
+    }
+    assertPureVmContract(
+        catalog,
+        "strcmp",
+        new CallShape(List.of(string, string), List.of(), Optional.empty()));
+    assertPureVmContract(
+        catalog,
+        "decode_binary",
+        new CallShape(List.of(string), List.of(any), Optional.empty()));
+    assertPureVmContract(
+        catalog,
+        "encode_binary",
+        new CallShape(List.of(), List.of(), Optional.of(any)));
+  }
+
+  @Test
+  void stringBuiltinsPreserveToastSearchSubstitutionAndComparisonSemantics() {
+    BuiltinCatalog catalog = new BuiltinCatalog();
+    try (WorldTxn transaction = world().begin()) {
+      assertString(
+          "bazBarbaz",
+          invoke(
+              catalog,
+              catalog.spec("strsub").orElseThrow(),
+              List.of(string("FooBarFoo"), string("foo"), string("baz")),
+              transaction,
+              1));
+      assertString(
+          "FooBarbaz",
+          invoke(
+              catalog,
+              catalog.spec("strsub").orElseThrow(),
+              List.of(
+                  string("FooBarfoo"),
+                  string("foo"),
+                  string("baz"),
+                  new IntegerValue(1)),
+              transaction,
+              1));
+      assertEquals(
+          Optional.of(ErrorValue.E_INVARG),
+          invoke(
+                  catalog,
+                  catalog.spec("strsub").orElseThrow(),
+                  List.of(string("foo"), string(""), string("x")),
+                  transaction,
+                  1)
+              .error());
+
+      assertEquals(
+          Optional.of(new IntegerValue(4)),
+          invoke(
+                  catalog,
+                  catalog.spec("index").orElseThrow(),
+                  List.of(string("fooBar"), string("bar")),
+                  transaction,
+                  1)
+              .value());
+      assertEquals(
+          Optional.of(new IntegerValue(0)),
+          invoke(
+                  catalog,
+                  catalog.spec("index").orElseThrow(),
+                  List.of(string("fooBar"), string("bar"), new IntegerValue(1)),
+                  transaction,
+                  1)
+              .value());
+      assertEquals(
+          Optional.of(new IntegerValue(7)),
+          invoke(
+                  catalog,
+                  catalog.spec("rindex").orElseThrow(),
+                  List.of(string("bazbarBazfoo"), string("baz")),
+                  transaction,
+                  1)
+              .value());
+      assertEquals(
+          Optional.of(new IntegerValue(1)),
+          invoke(
+                  catalog,
+                  catalog.spec("rindex").orElseThrow(),
+                  List.of(string("bazbarBazfoo"), string("baz"), new IntegerValue(1)),
+                  transaction,
+                  1)
+              .value());
+
+      assertEquals(
+          Optional.of(new IntegerValue(1)),
+          invoke(
+                  catalog,
+                  catalog.spec("strcmp").orElseThrow(),
+                  List.of(string("abc"), string("ABC")),
+                  transaction,
+                  1)
+              .value());
+      assertEquals(
+          Optional.of(new IntegerValue(-1)),
+          invoke(
+                  catalog,
+                  catalog.spec("strcmp").orElseThrow(),
+                  List.of(string("abc"), string("abcd")),
+                  transaction,
+                  1)
+              .value());
+    }
+  }
+
+  @Test
+  void binaryBuiltinsPreserveToastByteGroupingEscapesAndErrors() {
+    BuiltinCatalog catalog = new BuiltinCatalog();
+    try (WorldTxn transaction = world().begin()) {
+      Result decoded =
+          invoke(
+              catalog,
+              catalog.spec("decode_binary").orElseThrow(),
+              List.of(string("foo~0D~0A")),
+              transaction,
+              1);
+      assertEquals(
+          Optional.of(
+              new ListValue(
+                  List.of(string("foo"), new IntegerValue(13), new IntegerValue(10)))),
+          decoded.value());
+      assertEquals(
+          Optional.of(
+              new ListValue(
+                  List.of(
+                      new IntegerValue(102),
+                      new IntegerValue(111),
+                      new IntegerValue(111),
+                      new IntegerValue(13),
+                      new IntegerValue(10)))),
+          invoke(
+                  catalog,
+                  catalog.spec("decode_binary").orElseThrow(),
+                  List.of(string("foo~0D~0A"), new IntegerValue(1)),
+                  transaction,
+                  1)
+              .value());
+      assertEquals(
+          Optional.of(ErrorValue.E_INVARG),
+          invoke(
+                  catalog,
+                  catalog.spec("decode_binary").orElseThrow(),
+                  List.of(string("~ZZ")),
+                  transaction,
+                  1)
+              .error());
+
+      assertString(
+          "foo~0Abar~0D",
+          invoke(
+              catalog,
+              catalog.spec("encode_binary").orElseThrow(),
+              List.of(
+                  new ListValue(List.of(string("foo"), new IntegerValue(10))),
+                  new ListValue(List.of(string("bar"), new IntegerValue(13)))),
+              transaction,
+              1));
+      assertString(
+          "",
+          invoke(
+              catalog,
+              catalog.spec("encode_binary").orElseThrow(),
+              List.of(),
+              transaction,
+              1));
+      assertEquals(
+          Optional.of(ErrorValue.E_INVARG),
+          invoke(
+                  catalog,
+                  catalog.spec("encode_binary").orElseThrow(),
+                  List.of(new IntegerValue(256)),
+                  transaction,
+                  1)
+              .error());
+    }
   }
 
   @Test
@@ -184,6 +386,15 @@ final class BuiltinCatalogTest {
     assertEquals(0, spec.tickCost().charge(List.of()));
     assertEquals(EffectClass.PURE, spec.effect());
     assertEquals(BuiltinOwner.VM, spec.owner());
+  }
+
+  private static StringValue string(String value) {
+    return new StringValue(value.getBytes(StandardCharsets.ISO_8859_1));
+  }
+
+  private static void assertString(String expected, Result actual) {
+    StringValue value = (StringValue) actual.value().orElseThrow();
+    assertArrayEquals(expected.getBytes(StandardCharsets.ISO_8859_1), value.bytes());
   }
 
   private static WorldTxn world() {
