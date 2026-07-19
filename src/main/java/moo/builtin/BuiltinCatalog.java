@@ -32,6 +32,7 @@ import moo.world.WorldTxn;
 public final class BuiltinCatalog {
   private static final Set<ArgType> ANY = Set.of(ArgType.ANY);
   private static final Set<ArgType> INTEGER = Set.of(ArgType.INTEGER);
+  private static final Set<ArgType> NUMBER = Set.of(ArgType.NUMBER);
   private static final Set<ArgType> STRING = Set.of(ArgType.STRING);
   private static final Set<ArgType> OBJECT = Set.of(ArgType.OBJECT);
 
@@ -66,6 +67,15 @@ public final class BuiltinCatalog {
             EffectClass.PURE,
             BuiltinOwner.VM,
             (a, w, p, t, rt, rs, r, cp, c) -> length(a)));
+    entries.add(
+        new BuiltinSpec(
+            "max",
+            List.of(new CallShape(List.of(NUMBER), List.of(), Optional.of(NUMBER))),
+            BuiltinPermissionRule.ANY,
+            BuiltinCostRule.fixed(0),
+            EffectClass.PURE,
+            BuiltinOwner.VM,
+            (a, w, p, t, rt, rs, r, cp, c) -> maximum(a)));
     entries.add(
         new BuiltinSpec(
             "listappend",
@@ -485,6 +495,31 @@ public final class BuiltinCatalog {
     }
     if (value instanceof ListValue list) {
       return Result.value(new IntegerValue(list.size()));
+    }
+    return Result.error(ErrorValue.E_TYPE);
+  }
+
+  private static Result maximum(List<MooValue> arguments) {
+    MooValue first = arguments.getFirst();
+    if (first instanceof IntegerValue integer) {
+      long maximum = integer.value();
+      for (MooValue argument : arguments) {
+        if (!(argument instanceof IntegerValue value)) {
+          return Result.error(ErrorValue.E_TYPE);
+        }
+        maximum = Math.max(maximum, value.value());
+      }
+      return Result.value(new IntegerValue(maximum));
+    }
+    if (first instanceof FloatValue floating) {
+      double maximum = floating.value();
+      for (MooValue argument : arguments) {
+        if (!(argument instanceof FloatValue value)) {
+          return Result.error(ErrorValue.E_TYPE);
+        }
+        maximum = Math.max(maximum, value.value());
+      }
+      return Result.value(new FloatValue(maximum));
     }
     return Result.error(ErrorValue.E_TYPE);
   }

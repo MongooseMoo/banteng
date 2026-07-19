@@ -14,6 +14,7 @@ import java.util.Set;
 import moo.builtin.BuiltinCatalog.Result;
 import moo.value.MooValue;
 import moo.value.MooValue.ErrorValue;
+import moo.value.MooValue.FloatValue;
 import moo.value.MooValue.IntegerValue;
 import moo.value.MooValue.ListValue;
 import moo.value.MooValue.MapValue;
@@ -39,6 +40,7 @@ final class BuiltinCatalogTest {
           "listdelete",
           "listinsert",
           "listset",
+          "max",
           "move",
           "notify",
           "rindex",
@@ -71,6 +73,42 @@ final class BuiltinCatalogTest {
       assertTrue(!spec.callShapes().isEmpty(), spec.name());
       assertTrue(spec.tickCost().charge(List.of()) >= 0, spec.name());
       assertSame(spec, catalog.spec(spec.name().toUpperCase(java.util.Locale.ROOT)).orElseThrow());
+    }
+  }
+
+  @Test
+  void maxSelectsTheLargestHomogeneousNumericArgumentWithoutPromotion() {
+    BuiltinCatalog catalog = new BuiltinCatalog();
+    try (WorldTxn transaction = world().begin()) {
+      BuiltinSpec spec = catalog.spec("max").orElseThrow();
+
+      assertEquals(
+          Optional.of(new IntegerValue(7)),
+          invoke(
+                  catalog,
+                  spec,
+                  List.of(new IntegerValue(3), new IntegerValue(7), new IntegerValue(1)),
+                  transaction,
+                  1)
+              .value());
+      assertEquals(
+          Optional.of(new FloatValue(7.5)),
+          invoke(
+                  catalog,
+                  spec,
+                  List.of(new FloatValue(3.5), new FloatValue(7.5)),
+                  transaction,
+                  1)
+              .value());
+      assertEquals(
+          Optional.of(ErrorValue.E_TYPE),
+          invoke(
+                  catalog,
+                  spec,
+                  List.of(new IntegerValue(3), new FloatValue(7.5)),
+                  transaction,
+                  1)
+              .error());
     }
   }
 
