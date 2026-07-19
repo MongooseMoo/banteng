@@ -17,6 +17,8 @@ import java.util.Random;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import moo.bytecode.MooCompiler;
+import moo.syntax.MooParser;
+import moo.syntax.MooUnparser;
 import moo.value.MooValue;
 import moo.value.MooValue.BooleanValue;
 import moo.value.MooValue.ErrorValue;
@@ -259,6 +261,15 @@ public final class BuiltinCatalog {
             (a, w, p, t, rt, rs, r, cp, c) -> setVerbCode(a, w, p)));
     entries.add(
         new BuiltinSpec(
+            "verb_code",
+            List.of(new CallShape(List.of(ANY, ANY), List.of(ANY, ANY), Optional.empty())),
+            BuiltinPermissionRule.ANY,
+            BuiltinCostRule.fixed(0),
+            EffectClass.TRANSACTION_READ,
+            BuiltinOwner.WORLD,
+            (a, w, p, t, rt, rs, r, cp, c) -> verbCode(a, w, p)));
+    entries.add(
+        new BuiltinSpec(
             "move",
             List.of(new CallShape(List.of(OBJECT, OBJECT), List.of(), Optional.empty())),
             BuiltinPermissionRule.ANY,
@@ -266,6 +277,15 @@ public final class BuiltinCatalog {
             EffectClass.TRANSACTION_WRITE,
             BuiltinOwner.WORLD,
             (a, w, p, t, rt, rs, r, cp, c) -> move(a, w, p)));
+    entries.add(
+        new BuiltinSpec(
+            "recycle",
+            List.of(new CallShape(List.of(ANY), List.of(), Optional.empty())),
+            BuiltinPermissionRule.ANY,
+            BuiltinCostRule.fixed(0),
+            EffectClass.TRANSACTION_WRITE,
+            BuiltinOwner.WORLD,
+            (a, w, p, t, rt, rs, r, cp, c) -> recycle(a, w, p)));
     entries.add(
         new BuiltinSpec(
             "switch_player",
@@ -1061,6 +1081,55 @@ public final class BuiltinCatalog {
     return Result.value(new ListValue(List.of()));
   }
 
+  private static Result verbCode(
+      List<MooValue> arguments, WorldTxn world, long programmer) {
+    if (!(arguments.get(0) instanceof ObjectValue object)) {
+      return Result.error(ErrorValue.E_TYPE);
+    }
+    MooValue descriptor = arguments.get(1);
+    if (!(descriptor instanceof StringValue) && !(descriptor instanceof IntegerValue)) {
+      return Result.error(ErrorValue.E_TYPE);
+    }
+    if (descriptor instanceof IntegerValue integer && integer.value() <= 0) {
+      return Result.error(ErrorValue.E_INVARG);
+    }
+    WorldObject target = world.object(object.value()).orElse(null);
+    if (target == null) {
+      return Result.error(ErrorValue.E_INVARG);
+    }
+
+    WorldVerb verb;
+    if (descriptor instanceof IntegerValue integer) {
+      long index = integer.value() - 1;
+      if (index >= target.verbs().size()) {
+        return Result.error(ErrorValue.E_VERBNF);
+      }
+      verb = target.verbs().get((int) index);
+    } else {
+      WorldVerb candidate =
+          world.verb(object.value(), decode((StringValue) descriptor), false).orElse(null);
+      if (candidate == null || !target.verbs().contains(candidate)) {
+        return Result.error(ErrorValue.E_VERBNF);
+      }
+      verb = candidate;
+    }
+
+    WorldObject actor = world.object(programmer).orElse(null);
+    boolean wizard = actor != null && (actor.flags() & 4) != 0;
+    if (verb.owner() != programmer && !wizard && (verb.permissions() & 1) == 0) {
+      return Result.error(ErrorValue.E_PERM);
+    }
+
+    boolean indent = arguments.size() < 4 || arguments.get(3).isTruthy();
+    List<MooValue> lines =
+        MooUnparser.unparse(MooParser.parse(verb.programSource())).lines()
+            .map(line -> indent ? line : line.stripLeading())
+            .map(BuiltinCatalog::encode)
+            .map(MooValue.class::cast)
+            .toList();
+    return Result.value(new ListValue(lines));
+  }
+
   private static Result move(List<MooValue> arguments, WorldTxn world, long programmer) {
     ObjectValue object = (ObjectValue) arguments.get(0);
     ObjectValue destination = (ObjectValue) arguments.get(1);
@@ -1074,6 +1143,23 @@ public final class BuiltinCatalog {
     return world.move(object.value(), destination.value())
         ? Result.zero()
         : Result.error(ErrorValue.E_INVARG);
+  }
+
+  private static Result recycle(
+      List<MooValue> arguments, WorldTxn world, long programmer) {
+    if (!(arguments.getFirst() instanceof ObjectValue object)) {
+      return Result.error(ErrorValue.E_TYPE);
+    }
+    WorldObject target = world.object(object.value()).orElse(null);
+    if (target == null) {
+      return Result.error(ErrorValue.E_INVARG);
+    }
+    WorldObject actor = world.object(programmer).orElse(null);
+    boolean wizard = actor != null && (actor.flags() & 4) != 0;
+    if (target.owner() != programmer && !wizard) {
+      return Result.error(ErrorValue.E_PERM);
+    }
+    return Result.recycle(object.value());
   }
 
   private static Result switchPlayer(List<MooValue> arguments) {
@@ -1519,6 +1605,22 @@ public final class BuiltinCatalog {
           OptionalLong.of(object),
           OptionalLong.of(destination),
           Optional.empty(),
+          Optional.empty());
+    }
+
+    static Result recycle(long object) {
+      return new Result(
+          Optional.empty(),
+          Optional.empty(),
+          Optional.empty(),
+          Optional.empty(),
+          OptionalLong.empty(),
+          OptionalLong.empty(),
+          OptionalLong.of(object),
+          OptionalDouble.empty(),
+          Optional.empty(),
+          Optional.empty(),
+          OptionalLong.empty(),
           Optional.empty());
     }
   }

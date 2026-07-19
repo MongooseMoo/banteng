@@ -10,6 +10,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.OptionalLong;
 import java.util.Set;
 import moo.builtin.BuiltinCatalog.Result;
 import moo.value.MooValue;
@@ -47,6 +48,7 @@ final class BuiltinCatalogTest {
           "move",
           "notify",
           "random",
+          "recycle",
           "rindex",
           "set_player_flag",
           "set_task_perms",
@@ -60,7 +62,8 @@ final class BuiltinCatalogTest {
           "toliteral",
           "toobj",
           "tostr",
-          "typeof");
+          "typeof",
+          "verb_code");
 
   @Test
   void registersEveryReachableBuiltinExactlyOnceWithCompleteContracts() {
@@ -165,6 +168,92 @@ final class BuiltinCatalogTest {
       assertEquals(Optional.of(new ListValue(List.of())), result.value());
       assertEquals(
           "return \"foobar\"[^..$];", transaction.verb(3, 0).orElseThrow().programSource());
+    }
+  }
+
+  @Test
+  void verbCodeReadsOneLocalVerbAsCanonicalSourceLines() {
+    BuiltinCatalog catalog = new BuiltinCatalog();
+    BuiltinSpec spec = catalog.spec("verb_code").orElseThrow();
+
+    assertEquals(
+        List.of(
+            new CallShape(
+                List.of(Set.of(ArgType.ANY), Set.of(ArgType.ANY)),
+                List.of(Set.of(ArgType.ANY), Set.of(ArgType.ANY)),
+                Optional.empty())),
+        spec.callShapes());
+    assertSame(BuiltinPermissionRule.ANY, spec.permission());
+    assertEquals(EffectClass.TRANSACTION_READ, spec.effect());
+    assertEquals(BuiltinOwner.WORLD, spec.owner());
+
+    WorldObject programmer =
+        new WorldObject(2, "Programmer", 0, 2, -1, -1, List.of(), List.of(), List.of(), List.of());
+    WorldObject target =
+        new WorldObject(
+            3,
+            "Target",
+            0,
+            2,
+            -1,
+            -1,
+            List.of(),
+            List.of(),
+            List.of(
+                new WorldVerb(
+                    "test",
+                    2,
+                    0,
+                    -1,
+                    "for i, j in ({})\n  break j;\n  continue i;\nendfor")),
+            List.of());
+    try (WorldTxn transaction = new WorldTxn(List.of(), List.of(programmer, target)).begin()) {
+      Result result =
+          invoke(catalog, spec, List.of(new ObjectValue(3), string("test")), transaction, 2);
+
+      assertEquals(
+          Optional.of(
+              new ListValue(
+                  List.of(
+                      string("for i, j in ({})"),
+                      string("  break j;"),
+                      string("  continue i;"),
+                      string("endfor")))),
+          result.value());
+    }
+  }
+
+  @Test
+  void recycleAuthorizesOneObjectForTheExistingVmOutcome() {
+    BuiltinCatalog catalog = new BuiltinCatalog();
+    BuiltinSpec spec = catalog.spec("recycle").orElseThrow();
+
+    assertEquals(
+        List.of(
+            new CallShape(List.of(Set.of(ArgType.ANY)), List.of(), Optional.empty())),
+        spec.callShapes());
+    assertSame(BuiltinPermissionRule.ANY, spec.permission());
+    assertEquals(EffectClass.TRANSACTION_WRITE, spec.effect());
+    assertEquals(BuiltinOwner.WORLD, spec.owner());
+
+    WorldObject owner =
+        new WorldObject(2, "Owner", 0, 2, -1, -1, List.of(), List.of(), List.of(), List.of());
+    WorldObject target =
+        new WorldObject(3, "Target", 0, 2, -1, -1, List.of(), List.of(), List.of(), List.of());
+    try (WorldTxn transaction = new WorldTxn(List.of(), List.of(owner, target)).begin()) {
+      Result result =
+          invoke(catalog, spec, List.of(new ObjectValue(3)), transaction, 2);
+
+      assertEquals(OptionalLong.of(3), result.recycleTarget());
+      assertEquals(
+          Optional.of(ErrorValue.E_TYPE),
+          invoke(catalog, spec, List.of(new IntegerValue(3)), transaction, 2).error());
+      assertEquals(
+          Optional.of(ErrorValue.E_INVARG),
+          invoke(catalog, spec, List.of(new ObjectValue(999)), transaction, 2).error());
+      assertEquals(
+          Optional.of(ErrorValue.E_PERM),
+          invoke(catalog, spec, List.of(new ObjectValue(3)), transaction, 1).error());
     }
   }
 
