@@ -82,6 +82,7 @@ final class MooValueTest {
     assertEquals("123456789012345.0", new FloatValue(123456789012345.0).toLiteral());
     assertEquals("1.23456789012346e+15", new FloatValue(1234567890123456.0).toLiteral());
     assertEquals("10000000000.0", new FloatValue(1.0e10).toLiteral());
+    assertEquals("4.94065645841247e-324", new FloatValue(Double.MIN_VALUE).toLiteral());
   }
 
   @Test

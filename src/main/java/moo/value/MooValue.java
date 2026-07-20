@@ -1,5 +1,6 @@
 package moo.value;
 
+import java.math.BigDecimal;
 import java.nio.ByteBuffer;
 import java.nio.charset.CharacterCodingException;
 import java.nio.charset.CodingErrorAction;
@@ -151,7 +152,7 @@ public sealed interface MooValue
       if (value == 0.0) {
         return "0.0";
       }
-      String formatted = String.format(Locale.ROOT, "%.15g", value);
+      String formatted = String.format(Locale.ROOT, "%.15g", new BigDecimal(value));
       int exponent = Math.max(formatted.indexOf('e'), formatted.indexOf('E'));
       String significand = exponent < 0 ? formatted : formatted.substring(0, exponent);
       String suffix = exponent < 0 ? "" : formatted.substring(exponent);
