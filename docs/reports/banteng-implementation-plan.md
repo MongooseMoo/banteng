@@ -6,8 +6,9 @@ Build a Java 25 MOO server that:
 
 - passes every non-excluded row for the three profiles in
   `docs/reports/supported-conformance-profiles.md`;
-- reads LambdaMOO v4 and ToastStunt v17 databases and writes deterministic
-  ToastStunt v17 databases;
+- reads LambdaMOO v4 permanent-object bootstrap databases and ToastStunt v17
+  databases, reads anonymous objects only from ToastStunt v17 databases, and
+  writes deterministic ToastStunt v17 databases;
 - restores queued and suspended tasks after checkpoint and restart;
 - runs production VM work through the transaction and publication scheduler
   defined below; and
@@ -89,7 +90,7 @@ socket reader -> deterministic ready queue -> publication ticket
 | `moo.vm` | explicit frames, opcodes, errors, limits, segment outcomes |
 | `moo.world` | immutable records, indices, `WorldTxn`, revisions |
 | `moo.runtime` | tasks, tickets, retries, publication, effect journal |
-| `moo.persistence` | streaming v4/v17 input and deterministic v17 output |
+| `moo.persistence` | streaming v4 permanent-object bootstrap input, streaming v17 input including anonymous objects, and deterministic v17 output |
 | `moo.builtin` | builtin manifest, contracts, implementations |
 | `moo.server` | sockets, Telnet bytes, sessions, login, command ingress |
 | `moo.app` | picocli options and concrete composition root |
@@ -279,7 +280,8 @@ Deliverables, in order:
    manifests' `test_suites` arrays and commit that Banteng manifest slice.
 4. Implement the complete production path used by the row: Latin-1 source
    bytes, lexer, parser, AST, compiler, deterministic disassembly, explicit VM
-   state, minimum v4 `Test.db` input, minimum v17 checkpoint input, deterministic
+   state, minimum v4 `Test.db` permanent-object bootstrap input with no
+   anonymous-object requirement, minimum v17 checkpoint input, deterministic
    v17 output, immutable world records, real `WorldTxn`, production executor,
    tickets, validation, retry, ordered effects, socket ingress, Wizard login,
    command evaluation, `dump_database()`, atomic checkpoint replacement,
@@ -370,9 +372,10 @@ use the Phase 2 production scheduler, VM, `WorldTxn`, and checkpoint path:
    indexing, and collection updates;
 2. control flow, loops, comprehensions, scatter assignment, calls, exceptions,
    and `finally`;
-3. complete streaming v4 input for the legacy permanent-object bootstrap
-   surface, and complete v17 input plus deterministic v17 output for objects,
-   properties, verbs, WAIFs, and anonymous objects;
+3. complete streaming v4 input only for the legacy permanent-object bootstrap
+   surface; do not define or implement v4 anonymous-object input because those
+   databases do not exist. Use complete v17 input plus deterministic v17 output
+   for objects, properties, verbs, WAIFs, and anonymous objects;
 4. parent/child, location/contents, inheritance, property, verb, player, and
    recycled-object indices; and
 5. anonymous fork parsing and a serializable fork-request VM outcome. Task IDs,
