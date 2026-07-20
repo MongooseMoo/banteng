@@ -12,6 +12,8 @@
 - A later diagnostic using only `-XX:TieredStopAtLevel=1` lost its tool output. Its temporary directory is absent, so it supplies no usable evidence and will not be repeated as though it had succeeded.
 - The exact startup-repair suite has no transport steps. The managed runner therefore calls `Popen` with `wait_for_port=false` and begins the YAML wait immediately after process creation.
 - A focused class-initialization run placed `TaskSegmentEvent` initialization at 0.361 seconds and parser initialization at 0.442 seconds, an approximately 81 ms gap before startup-verb compilation. `CheckpointEvent` initialized at 0.521 seconds, after the row deadline.
+- A syscall trace of restored source showed checkpoint temporary-file creation through atomic rename taking about 42 ms. The data-file `fsync` itself took about 1.7 ms and rename about 0.08 ms. Trace overhead delayed checkpoint entry substantially, but the individual persistence operations were not slow.
+- The restored late-init window showed `Files.createTempFile` initializing `TempFileHelper`, `SecureRandom`, the JCA provider list, the SUN provider, native PRNG classes, and POSIX temp-permission machinery immediately before checkpoint file creation. This work is caused by randomized naming, not v17 serialization or atomic durability.
 
 ## Theories (plausible)
 
@@ -30,16 +32,19 @@
 | Class-load trace | Late startup work occurs before checkpoint output | Compiler/AST/VM classes loaded immediately before checkpoint handling | A pure checkpoint-I/O explanation | 2 |
 | Focused class-initialization timestamps | Custom JFR event initialization is material startup work | `TaskSegmentEvent` preceded parser initialization by about 81 ms; `CheckpointEvent` initialized at 0.521 s | Compiler/parser work as the sole late cost | 2 |
 | Guard custom events until JFR is initialized | Removing unrequested JFR initialization is sufficient | Affected JFR, scheduler, v17, and Anon1 tests passed, but the unchanged managed row still missed the file at 500 ms; source attempt fully reversed | JFR initialization as a sufficient cause | 1, 2, or 3 beyond that cost |
+| Timestamp checkpoint syscalls | Atomic force or rename governs the miss | Temporary creation through rename took about 42 ms; `fsync` 1.7 ms and rename 0.08 ms | Slow force/rename as the primary cause | 1 or 2 |
+| Inspect restored 0.48-0.56 s class-init window | A removable pre-checkpoint operation remains | Randomized temp creation initialized the security-provider and PRNG stack immediately before file creation | No identifiable redundant work remains | 2 |
+| Deterministic sibling temp source attempt | Removing randomized temp initialization is sufficient | V17 and Anon1 tests passed, but the valid unchanged managed row still missed the file at 500 ms; source attempt fully reversed | Randomized temp initialization as a sufficient cause | 1 or 2 beyond that cost |
 
 ## Current Best Theory
 
-The row interval includes the entire Java launch. Unconditional custom-JFR initialization is a measured cost, but eliminating it did not make the exact gate pass and that source attempt was fully reversed. At least one additional late cost remains between process creation and atomic checkpoint visibility; the next test must separate checkpoint publication latency from other pre-checkpoint startup/class initialization.
+The row interval includes the entire Java launch. Both identified removable costs—unrequested custom-JFR initialization and randomized temp-file initialization—were individually removed in complete source attempts, passed their affected semantic tests, and still did not make the unchanged managed row pass. Both attempts were fully reversed. The exact target now has two consecutive no-improvement source slices.
 
 ## Open Questions
 
-- At what exact uptime does `writeAtomic()` begin, complete the data-file force, finish the atomic move, and make the target visible under the restored source?
-- Which non-JFR class initialization or source operation immediately precedes `writeAtomic()` entry?
+- Which additional pre-checkpoint cost, if any, can be changed without violating the immutable launcher, JVM, Picocli, scheduler, VM, fixture, row timing, or production semantics?
+- Does the user want to authorize continuing this exact target despite the two-slice stop, or change one of those controlling constraints?
 
 ## Next Action
 
-Measure the restored source at the existing checkpoint boundary, with timestamps that distinguish checkpoint entry, atomic move visibility, and the preceding runtime work. Do not retry JFR guarding or alter the managed row, fixture, launcher, JVM command, worker count, or Picocli model.
+Stop before widening the search surface. The exact-convergence rule requires user direction after two consecutive no-improvement source slices on this target. Do not change source, harness, timing, launcher, JVM flags, Picocli, worker count, or fixture until that direction is supplied.
