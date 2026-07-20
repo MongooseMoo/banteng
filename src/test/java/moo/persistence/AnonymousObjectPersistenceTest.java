@@ -14,6 +14,9 @@ import java.util.List;
 import java.util.Objects;
 import moo.server.MooServer;
 import moo.value.MooValue.AnonymousObjectValue;
+import moo.value.MooValue.MapValue;
+import moo.value.MooValue.ObjectValue;
+import moo.value.MooValue.StringValue;
 import moo.world.WorldAnonymousObject;
 import moo.world.WorldSnapshot;
 import org.junit.jupiter.api.Test;
@@ -197,6 +200,76 @@ final class AnonymousObjectPersistenceTest {
         Objects.requireNonNull(thirdWorld.objects().get(1L)).properties().stream()
             .noneMatch(property -> property.name().equals("two")));
     assertArrayEquals(inputBytes, Files.readAllBytes(third));
+  }
+
+  @Test
+  void anon5PreservesAnIndirectSelfReferentialAnonymousObjectAcrossThreeProductionBoots(
+      @TempDir Path temporaryDirectory) throws Exception {
+    LambdaMooV17Codec codec = new LambdaMooV17Codec();
+    Path first = temporaryDirectory.resolve("Anon5.db.new");
+
+    runUntilFixtureShutdown(codec.read(STARTUP_FIXTURES.resolve("Anon5.db")), first);
+    LambdaMooV17Codec.Checkpoint firstCheckpoint = codec.read(first);
+    WorldSnapshot firstWorld = firstCheckpoint.world().snapshot();
+
+    Path second = temporaryDirectory.resolve("Anon5.db.second");
+    runUntilFixtureShutdown(firstCheckpoint, second);
+    LambdaMooV17Codec.Checkpoint secondCheckpoint = codec.read(second);
+    WorldSnapshot secondWorld = secondCheckpoint.world().snapshot();
+
+    Path third = temporaryDirectory.resolve("Anon5.db.third");
+    runUntilFixtureShutdown(secondCheckpoint, third);
+    LambdaMooV17Codec.Checkpoint thirdCheckpoint = codec.read(third);
+    WorldSnapshot thirdWorld = thirdCheckpoint.world().snapshot();
+
+    assertArrayEquals(Files.readAllBytes(second), Files.readAllBytes(third));
+    for (WorldSnapshot world : List.of(firstWorld, secondWorld, thirdWorld)) {
+      assertTrue(world.pendingFinalization().isEmpty());
+      assertEquals(1, world.anonymousObjects().size());
+
+      var oneProperty =
+          Objects.requireNonNull(world.objects().get(0L)).properties().stream()
+              .filter(property -> property.name().equals("one"))
+              .findFirst()
+              .orElseThrow();
+      ObjectValue outer = assertInstanceOf(ObjectValue.class, oneProperty.value());
+      var outerBody = Objects.requireNonNull(world.objects().get(outer.value()));
+      assertEquals("", outerBody.name());
+      assertEquals(0, outerBody.flags());
+      assertEquals(3, outerBody.owner());
+      assertEquals(-1, outerBody.parent());
+      assertTrue(outerBody.verbs().isEmpty());
+
+      var twoProperty =
+          outerBody.properties().stream()
+              .filter(property -> property.name().equals("two"))
+              .findFirst()
+              .orElseThrow();
+      MapValue indirect = assertInstanceOf(MapValue.class, twoProperty.value());
+      assertEquals(1, indirect.size());
+      AnonymousObjectValue anonymous =
+          assertInstanceOf(
+              AnonymousObjectValue.class,
+              indirect
+                  .get(new StringValue("foo".getBytes(StandardCharsets.ISO_8859_1)))
+                  .orElseThrow());
+      WorldAnonymousObject anonymousBody =
+          Objects.requireNonNull(world.anonymousObjects().get(anonymous));
+      assertEquals("", anonymousBody.name());
+      assertEquals(0, anonymousBody.flags());
+      assertEquals(3, anonymousBody.owner());
+      assertEquals(1, anonymousBody.parent());
+      assertTrue(anonymousBody.verbs().isEmpty());
+
+      var fooProperty =
+          anonymousBody.properties().stream()
+              .filter(property -> property.name().equals("foo"))
+              .findFirst()
+              .orElseThrow();
+      assertSame(anonymous, fooProperty.value());
+      assertTrue(!fooProperty.defined());
+      assertTrue(!fooProperty.clear());
+    }
   }
 
   private static void runUntilFixtureShutdown(
