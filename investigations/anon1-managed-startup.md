@@ -10,6 +10,8 @@
 - Replacing the annotated Picocli model with a programmatic model did not make the unchanged managed row pass and was fully restored.
 - A bundle of JVM startup flags changed server behavior and broke managed setup; it was rejected and the launcher was fully restored.
 - A later diagnostic using only `-XX:TieredStopAtLevel=1` lost its tool output. Its temporary directory is absent, so it supplies no usable evidence and will not be repeated as though it had succeeded.
+- The exact startup-repair suite has no transport steps. The managed runner therefore calls `Popen` with `wait_for_port=false` and begins the YAML wait immediately after process creation.
+- A focused class-initialization run placed `TaskSegmentEvent` initialization at 0.361 seconds and parser initialization at 0.442 seconds, an approximately 81 ms gap before startup-verb compilation. `CheckpointEvent` initialized at 0.521 seconds, after the row deadline.
 
 ## Theories (plausible)
 
@@ -26,17 +28,18 @@
 | Programmatic Picocli experiment | Annotation model construction is the removable governing cost | Managed row still failed; experiment restored | Picocli annotation inspection as a sufficient explanation | 1 or 2 |
 | JVM flag bundle | Generic JVM startup tuning is a valid production fix | Managed setup broke; experiment restored | That flag bundle as an acceptable fix | None |
 | Class-load trace | Late startup work occurs before checkpoint output | Compiler/AST/VM classes loaded immediately before checkpoint handling | A pure checkpoint-I/O explanation | 2 |
+| Focused class-initialization timestamps | Custom JFR event initialization is material startup work | `TaskSegmentEvent` preceded parser initialization by about 81 ms; `CheckpointEvent` initialized at 0.521 s | Compiler/parser work as the sole late cost | 2 |
+| Guard custom events until JFR is initialized | Removing unrequested JFR initialization is sufficient | Affected JFR, scheduler, v17, and Anon1 tests passed, but the unchanged managed row still missed the file at 500 ms; source attempt fully reversed | JFR initialization as a sufficient cause | 1, 2, or 3 beyond that cost |
 
 ## Current Best Theory
 
-The row interval includes substantial pre-composition-root launch and class-loading time, and startup execution lazily loads compiler/VM classes near the deadline. The evidence does not yet prove which source initialization is unnecessary or whether any semantics-preserving source removal is sufficient.
+The row interval includes the entire Java launch. Unconditional custom-JFR initialization is a measured cost, but eliminating it did not make the exact gate pass and that source attempt was fully reversed. At least one additional late cost remains between process creation and atomic checkpoint visibility; the next test must separate checkpoint publication latency from other pre-checkpoint startup/class initialization.
 
 ## Open Questions
 
-- At what exact point does the managed runner start Banteng relative to its 500 ms step timer?
-- Which production method first triggers the late compiler/VM class loads, and is that work required for the fixture's startup verb?
-- How much time elapses from checkpoint-effect entry to atomic file visibility?
+- At what exact uptime does `writeAtomic()` begin, complete the data-file force, finish the atomic move, and make the target visible under the restored source?
+- Which non-JFR class initialization or source operation immediately precedes `writeAtomic()` entry?
 
 ## Next Action
 
-Read the exact managed-runner timer/process-launch path and the production startup/checkpoint call chain. Select a diagnostic only if it separates the surviving theories without changing the row, fixture, launcher, JVM command, or production behavior.
+Measure the restored source at the existing checkpoint boundary, with timestamps that distinguish checkpoint entry, atomic move visibility, and the preceding runtime work. Do not retry JFR guarding or alter the managed row, fixture, launcher, JVM command, worker count, or Picocli model.
