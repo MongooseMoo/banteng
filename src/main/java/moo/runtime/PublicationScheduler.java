@@ -15,12 +15,14 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
+import jdk.jfr.FlightRecorder;
 import moo.bytecode.BytecodeProgram;
 import moo.value.MooValue;
 import moo.value.MooValue.IntegerValue;
 import moo.vm.VmSnapshot;
 import moo.vm.VmState;
 import moo.world.WorldTxn;
+import org.jspecify.annotations.Nullable;
 
 /** The sole deterministic execution, validation, retry, and publication owner. */
 final class PublicationScheduler implements AutoCloseable {
@@ -111,10 +113,13 @@ final class PublicationScheduler implements AutoCloseable {
   }
 
   private void executeAttempt(Entry entry) {
-    TaskSegmentEvent segment = new TaskSegmentEvent();
-    segment.taskId = entry.taskId();
-    segment.ticket = entry.ticket();
-    segment.begin();
+    @Nullable TaskSegmentEvent segment = null;
+    if (FlightRecorder.isInitialized()) {
+      segment = new TaskSegmentEvent();
+      segment.taskId = entry.taskId();
+      segment.ticket = entry.ticket();
+      segment.begin();
+    }
     WorldTxn transaction = committedWorld.begin();
     MooRuntime.AttemptContext context = null;
     SegmentResult result = null;
@@ -128,7 +133,9 @@ final class PublicationScheduler implements AutoCloseable {
       failure = caught;
       runtime.abandonAttempt();
     }
-    segment.commit();
+    if (segment != null) {
+      segment.commit();
+    }
     complete(
         new Attempt(
             entry,
@@ -416,8 +423,12 @@ final class PublicationScheduler implements AutoCloseable {
       nextPublicationTicket++;
     }
     if (snapshot.suspensionDelaySeconds().isPresent()) {
-      startTimer(
-          new TimedWork(suspended, snapshot.suspensionDelaySeconds().orElseThrow(), true));
+      double delaySeconds = snapshot.suspensionDelaySeconds().orElseThrow();
+      if (delaySeconds == 0.0) {
+        enqueueWake(suspended, new IntegerValue(0));
+      } else {
+        startTimer(new TimedWork(suspended, delaySeconds, true));
+      }
       return;
     }
     CompletableFuture<MooValue> wake = hostWake.orElseThrow();

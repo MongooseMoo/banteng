@@ -438,5 +438,8 @@ final class PublicationSchedulerTest {
 
     @Override
     public void setConnectionBinary(long connectionId, boolean binary) {}
+
+    @Override
+    public void shutdown() {}
   }
 }

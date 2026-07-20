@@ -50,11 +50,12 @@ public final class WorldTxn implements AutoCloseable {
   private final List<MooValue> stagedEffects = new ArrayList<>();
   private World working;
   private boolean playersWritten;
+  private boolean pendingFinalizationWritten;
   private boolean completed;
 
   /** Creates the committed world owner from immutable snapshots of the supplied records. */
   public WorldTxn(List<Long> players, List<WorldObject> objects) {
-    this(players, objects, Map.of(), Map.of());
+    this(players, objects, Map.of(), Map.of(), List.of());
   }
 
   /** Creates the committed world owner with permanent and anonymous records. */
@@ -62,7 +63,7 @@ public final class WorldTxn implements AutoCloseable {
       List<Long> players,
       List<WorldObject> objects,
       Map<AnonymousObjectValue, WorldAnonymousObject> anonymousObjects) {
-    this(players, objects, anonymousObjects, Map.of());
+    this(players, objects, anonymousObjects, Map.of(), List.of());
   }
 
   /** Creates the committed world owner with permanent, anonymous, and WAIF records. */
@@ -71,7 +72,18 @@ public final class WorldTxn implements AutoCloseable {
       List<WorldObject> objects,
       Map<AnonymousObjectValue, WorldAnonymousObject> anonymousObjects,
       Map<WaifValue, WorldWaif> waifs) {
-    history = new WorldHistory(players, objects, anonymousObjects, waifs);
+    this(players, objects, anonymousObjects, waifs, List.of());
+  }
+
+  /** Creates the committed world owner with every v17 world-state section. */
+  public WorldTxn(
+      List<Long> players,
+      List<WorldObject> objects,
+      Map<AnonymousObjectValue, WorldAnonymousObject> anonymousObjects,
+      Map<WaifValue, WorldWaif> waifs,
+      List<MooValue> pendingFinalization) {
+    history =
+        new WorldHistory(players, objects, anonymousObjects, waifs, pendingFinalization);
     transaction = false;
     base = history.current();
     working = base;
@@ -93,6 +105,28 @@ public final class WorldTxn implements AutoCloseable {
   /** Returns an immutable committed snapshot on the root or local snapshot on a transaction. */
   public WorldSnapshot snapshot() {
     return transaction ? working.snapshot() : history.snapshot();
+  }
+
+  /** Returns this transaction's ordered values pending finalization. */
+  public List<MooValue> pendingFinalization() {
+    ensureActiveTransaction();
+    scanPredicates.add(ScanPredicate.PENDING_FINALIZATION);
+    return working.pendingFinalization();
+  }
+
+  /** Replaces the ordered pending-finalization roots in this transaction. */
+  public void replacePendingFinalization(List<MooValue> values) {
+    ensureActiveTransaction();
+    List<MooValue> replacement = List.copyOf(values);
+    working =
+        new World(
+            base.revision(),
+            working.players(),
+            working.objects(),
+            working.anonymousObjects(),
+            working.waifs(),
+            replacement);
+    pendingFinalizationWritten = !base.pendingFinalization().equals(replacement);
   }
 
   /** Returns this transaction's fixed base revision. */
@@ -276,6 +310,29 @@ public final class WorldTxn implements AutoCloseable {
         working.anonymousObjects().get(Objects.requireNonNull(identity, "identity")));
   }
 
+  /** Removes one anonymous body while preserving the identity of every other body. */
+  public boolean removeAnonymousObject(AnonymousObjectValue identity) {
+    ensureActiveTransaction();
+    Objects.requireNonNull(identity, "identity");
+    if (!working.anonymousObjects().containsKey(identity)) {
+      return false;
+    }
+    Map<AnonymousObjectValue, WorldAnonymousObject> anonymousObjects =
+        new LinkedHashMap<>(working.anonymousObjects());
+    anonymousObjects.remove(identity);
+    World next =
+        new World(
+            base.revision(),
+            working.players(),
+            working.objects(),
+            anonymousObjects,
+            working.waifs(),
+            working.pendingFinalization());
+    anonymousWrites.add(identity);
+    working = next;
+    return true;
+  }
+
   /** Returns one WAIF body by reference identity. */
   public Optional<WorldWaif> waif(WaifValue identity) {
     ensureActiveTransaction();
@@ -307,31 +364,59 @@ public final class WorldTxn implements AutoCloseable {
         return Optional.empty();
       }
       for (WorldVerb verb : candidate.orElseThrow().verbs()) {
-        StringTokenizer names = new StringTokenizer(verb.names());
-        while (names.hasMoreTokens()) {
-          String pattern = names.nextToken().toLowerCase(Locale.ROOT);
-          int wildcard = pattern.indexOf('*');
-          boolean matches;
-          if (wildcard < 0) {
-            matches = pattern.equals(requestedName);
-          } else if (pattern.equals("*")) {
-            matches = true;
-          } else if (wildcard == pattern.length() - 1) {
-            matches = requestedName.startsWith(pattern.substring(0, wildcard));
-          } else {
-            String requiredPrefix = pattern.substring(0, wildcard);
-            String fullName = requiredPrefix + pattern.substring(wildcard + 1);
-            matches =
-                requestedName.startsWith(requiredPrefix) && fullName.startsWith(requestedName);
-          }
-          if (matches && (!requireExecutable || (verb.permissions() & 4) != 0)) {
-            return Optional.of(verb);
-          }
+        if (matchesVerbName(verb, requestedName)
+            && (!requireExecutable || (verb.permissions() & 4) != 0)) {
+          return Optional.of(verb);
         }
       }
       current = candidate.orElseThrow().parent();
     }
     return Optional.empty();
+  }
+
+  /** Finds a named verb on an anonymous body and then through its permanent parent chain. */
+  public Optional<WorldVerb> verb(
+      AnonymousObjectValue identity, String verbName, boolean requireExecutable) {
+    Objects.requireNonNull(identity, "identity");
+    Objects.requireNonNull(verbName, "verbName");
+    String requestedName = verbName.toLowerCase(Locale.ROOT);
+    WorldAnonymousObject anonymous = anonymousObject(identity).orElse(null);
+    if (anonymous == null) {
+      return Optional.empty();
+    }
+    for (WorldVerb verb : anonymous.verbs()) {
+      if (matchesVerbName(verb, requestedName)
+          && (!requireExecutable || (verb.permissions() & 4) != 0)) {
+        return Optional.of(verb);
+      }
+    }
+    return anonymous.parent() == -1
+        ? Optional.empty()
+        : verb(anonymous.parent(), verbName, requireExecutable);
+  }
+
+  private static boolean matchesVerbName(WorldVerb verb, String requestedName) {
+    StringTokenizer names = new StringTokenizer(verb.names());
+    while (names.hasMoreTokens()) {
+      String pattern = names.nextToken().toLowerCase(Locale.ROOT);
+      int wildcard = pattern.indexOf('*');
+      boolean matches;
+      if (wildcard < 0) {
+        matches = pattern.equals(requestedName);
+      } else if (pattern.equals("*")) {
+        matches = true;
+      } else if (wildcard == pattern.length() - 1) {
+        matches = requestedName.startsWith(pattern.substring(0, wildcard));
+      } else {
+        String requiredPrefix = pattern.substring(0, wildcard);
+        String fullName = requiredPrefix + pattern.substring(wildcard + 1);
+        matches = requestedName.startsWith(requiredPrefix) && fullName.startsWith(requestedName);
+      }
+      if (matches) {
+        return true;
+      }
+    }
+    return false;
   }
 
   /** Looks up a local or inherited property name. */
@@ -1083,6 +1168,33 @@ public final class WorldTxn implements AutoCloseable {
     return verbs.size();
   }
 
+  /** Adds one local verb to an anonymous object's immutable body. */
+  public int addVerb(
+      AnonymousObjectValue identity,
+      String names,
+      long owner,
+      int permissions,
+      int preposition) {
+    Objects.requireNonNull(identity, "identity");
+    Objects.requireNonNull(names, "names");
+    WorldAnonymousObject object = anonymousObject(identity).orElse(null);
+    if (object == null) {
+      return 0;
+    }
+    List<WorldVerb> verbs = new ArrayList<>(object.verbs());
+    verbs.add(new WorldVerb(names, owner, permissions, preposition, ""));
+    replaceAnonymousObject(
+        identity,
+        new WorldAnonymousObject(
+            object.name(),
+            object.flags(),
+            object.owner(),
+            object.parent(),
+            verbs,
+            object.properties()));
+    return verbs.size();
+  }
+
   /** Deletes one resolved zero-based local verb from the immutable object record. */
   public boolean deleteVerb(long objectId, int verbIndex) {
     WorldObject object = object(objectId).orElse(null);
@@ -1129,6 +1241,33 @@ public final class WorldTxn implements AutoCloseable {
             object.parent(),
             object.contents(),
             object.children(),
+            verbs,
+            object.properties()));
+    return true;
+  }
+
+  /** Replaces the source of one zero-based local verb on an anonymous object. */
+  public boolean setVerbCode(
+      AnonymousObjectValue identity, int verbIndex, String programSource) {
+    Objects.requireNonNull(identity, "identity");
+    Objects.requireNonNull(programSource, "programSource");
+    WorldAnonymousObject object = anonymousObject(identity).orElse(null);
+    if (object == null || verbIndex < 0 || verbIndex >= object.verbs().size()) {
+      return false;
+    }
+    List<WorldVerb> verbs = new ArrayList<>(object.verbs());
+    WorldVerb verb = verbs.get(verbIndex);
+    verbs.set(
+        verbIndex,
+        new WorldVerb(
+            verb.names(), verb.owner(), verb.permissions(), verb.preposition(), programSource));
+    replaceAnonymousObject(
+        identity,
+        new WorldAnonymousObject(
+            object.name(),
+            object.flags(),
+            object.owner(),
+            object.parent(),
             verbs,
             object.properties()));
     return true;
@@ -1232,7 +1371,8 @@ public final class WorldTxn implements AutoCloseable {
             working.players(),
             working.objects(),
             anonymousObjects,
-            working.waifs());
+            working.waifs(),
+            working.pendingFinalization());
     if (Objects.equals(base.anonymousObjects().get(identity), replacement)) {
       anonymousWrites.remove(identity);
     } else {
@@ -1251,7 +1391,8 @@ public final class WorldTxn implements AutoCloseable {
             working.players(),
             working.objects(),
             working.anonymousObjects(),
-            waifs);
+            waifs,
+            working.pendingFinalization());
     if (Objects.equals(base.waifs().get(identity), replacement)) {
       waifWrites.remove(identity);
     } else {
@@ -1263,7 +1404,13 @@ public final class WorldTxn implements AutoCloseable {
   private void replaceWorld(List<Long> players, Map<Long, WorldObject> objects) {
     ensureActiveTransaction();
     World replacement =
-        new World(base.revision(), players, objects, working.anonymousObjects(), working.waifs());
+        new World(
+            base.revision(),
+            players,
+            objects,
+            working.anonymousObjects(),
+            working.waifs(),
+            working.pendingFinalization());
     Set<Long> candidates = new LinkedHashSet<>(working.objects().keySet());
     candidates.addAll(replacement.objects().keySet());
     for (long objectId : candidates) {
@@ -1301,6 +1448,10 @@ public final class WorldTxn implements AutoCloseable {
 
   Set<WaifValue> waifWrites() {
     return Collections.unmodifiableSet(waifWrites);
+  }
+
+  boolean pendingFinalizationWritten() {
+    return pendingFinalizationWritten;
   }
 
   Set<ScanPredicate> scanPredicates() {
@@ -1372,7 +1523,8 @@ public final class WorldTxn implements AutoCloseable {
   /** Closed scan predicates recorded for validation against a fixed snapshot. */
   public enum ScanPredicate {
     OBJECT_IDS,
-    PLAYERS
+    PLAYERS,
+    PENDING_FINALIZATION
   }
 
   /** The immutable result of non-publishing validation against the current committed revision. */

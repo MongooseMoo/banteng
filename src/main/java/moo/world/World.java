@@ -5,6 +5,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import moo.value.MooValue;
 import moo.value.MooValue.AnonymousObjectValue;
 import moo.value.MooValue.WaifValue;
 
@@ -14,7 +15,8 @@ record World(
     List<Long> players,
     Map<Long, WorldObject> objects,
     Map<AnonymousObjectValue, WorldAnonymousObject> anonymousObjects,
-    Map<WaifValue, WorldWaif> waifs) {
+    Map<WaifValue, WorldWaif> waifs,
+    List<MooValue> pendingFinalization) {
   World {
     Objects.requireNonNull(revision, "revision");
     players = List.copyOf(players);
@@ -22,10 +24,11 @@ record World(
     anonymousObjects =
         Collections.unmodifiableMap(new LinkedHashMap<>(anonymousObjects));
     waifs = Collections.unmodifiableMap(new LinkedHashMap<>(waifs));
+    pendingFinalization = List.copyOf(pendingFinalization);
   }
 
   World(WorldRevision revision, List<Long> players, Map<Long, WorldObject> objects) {
-    this(revision, players, objects, Map.of(), Map.of());
+    this(revision, players, objects, Map.of(), Map.of(), List.of());
   }
 
   World(
@@ -33,10 +36,20 @@ record World(
       List<Long> players,
       Map<Long, WorldObject> objects,
       Map<AnonymousObjectValue, WorldAnonymousObject> anonymousObjects) {
-    this(revision, players, objects, anonymousObjects, Map.of());
+    this(revision, players, objects, anonymousObjects, Map.of(), List.of());
+  }
+
+  World(
+      WorldRevision revision,
+      List<Long> players,
+      Map<Long, WorldObject> objects,
+      Map<AnonymousObjectValue, WorldAnonymousObject> anonymousObjects,
+      Map<WaifValue, WorldWaif> waifs) {
+    this(revision, players, objects, anonymousObjects, waifs, List.of());
   }
 
   WorldSnapshot snapshot() {
-    return new WorldSnapshot(revision.value(), players, objects, anonymousObjects, waifs);
+    return new WorldSnapshot(
+        revision.value(), players, objects, anonymousObjects, waifs, pendingFinalization);
   }
 }

@@ -10,6 +10,7 @@ import java.util.NavigableMap;
 import java.util.Objects;
 import java.util.Set;
 import java.util.TreeMap;
+import moo.value.MooValue;
 import moo.value.MooValue.AnonymousObjectValue;
 import moo.value.MooValue.WaifValue;
 
@@ -20,14 +21,14 @@ final class WorldHistory {
   private World current;
 
   WorldHistory(List<Long> players, List<WorldObject> objects) {
-    this(players, objects, Map.of(), Map.of());
+    this(players, objects, Map.of(), Map.of(), List.of());
   }
 
   WorldHistory(
       List<Long> players,
       List<WorldObject> objects,
       Map<AnonymousObjectValue, WorldAnonymousObject> anonymousObjects) {
-    this(players, objects, anonymousObjects, Map.of());
+    this(players, objects, anonymousObjects, Map.of(), List.of());
   }
 
   WorldHistory(
@@ -35,10 +36,20 @@ final class WorldHistory {
       List<WorldObject> objects,
       Map<AnonymousObjectValue, WorldAnonymousObject> anonymousObjects,
       Map<WaifValue, WorldWaif> waifs) {
+    this(players, objects, anonymousObjects, waifs, List.of());
+  }
+
+  WorldHistory(
+      List<Long> players,
+      List<WorldObject> objects,
+      Map<AnonymousObjectValue, WorldAnonymousObject> anonymousObjects,
+      Map<WaifValue, WorldWaif> waifs,
+      List<MooValue> pendingFinalization) {
     Objects.requireNonNull(players, "players");
     Objects.requireNonNull(objects, "objects");
     Objects.requireNonNull(anonymousObjects, "anonymousObjects");
     Objects.requireNonNull(waifs, "waifs");
+    Objects.requireNonNull(pendingFinalization, "pendingFinalization");
     Map<Long, WorldObject> objectsById = new LinkedHashMap<>();
     for (WorldObject object : objects) {
       Objects.requireNonNull(object, "object");
@@ -46,7 +57,14 @@ final class WorldHistory {
         throw new IllegalArgumentException("duplicate object #" + object.id());
       }
     }
-    current = new World(new WorldRevision(0), players, objectsById, anonymousObjects, waifs);
+    current =
+        new World(
+            new WorldRevision(0),
+            players,
+            objectsById,
+            anonymousObjects,
+            waifs,
+            pendingFinalization);
     validateTopology(current);
     revisions.put(0L, current);
   }
@@ -114,13 +132,18 @@ final class WorldHistory {
     }
     List<Long> players =
         transaction.playersWritten() ? transaction.workingWorld().players() : current.players();
+    List<MooValue> pendingFinalization =
+        transaction.pendingFinalizationWritten()
+            ? transaction.workingWorld().pendingFinalization()
+            : current.pendingFinalization();
     World replacement =
         new World(
             new WorldRevision(Math.incrementExact(current.revision().value())),
             players,
             objects,
             anonymousObjects,
-            waifs);
+            waifs,
+            pendingFinalization);
     validateTopology(replacement);
     current = replacement;
     revisions.put(replacement.revision().value(), replacement);
@@ -176,11 +199,16 @@ final class WorldHistory {
     if (transaction.playersWritten()) {
       checked.add(WorldTxn.ScanPredicate.PLAYERS);
     }
+    if (transaction.pendingFinalizationWritten()) {
+      checked.add(WorldTxn.ScanPredicate.PENDING_FINALIZATION);
+    }
     for (WorldTxn.ScanPredicate predicate : checked) {
       boolean unchanged =
           switch (predicate) {
             case OBJECT_IDS -> base.objects().keySet().equals(current.objects().keySet());
             case PLAYERS -> base.players().equals(current.players());
+            case PENDING_FINALIZATION ->
+                base.pendingFinalization().equals(current.pendingFinalization());
           };
       if (!unchanged) {
         conflicts.add(predicate);

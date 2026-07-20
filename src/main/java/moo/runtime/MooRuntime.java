@@ -5,12 +5,14 @@ import java.io.UncheckedIOException;
 import java.nio.file.Path;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.OptionalLong;
+import java.util.Set;
 import java.util.StringTokenizer;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
@@ -24,22 +26,26 @@ import moo.bytecode.BytecodeProgram;
 import moo.bytecode.MooCompiler;
 import moo.persistence.LambdaMooV17Codec;
 import moo.value.MooValue;
+import moo.value.MooValue.AnonymousObjectValue;
 import moo.value.MooValue.IntegerValue;
 import moo.value.MooValue.ListValue;
 import moo.value.MooValue.MapValue;
 import moo.value.MooValue.ObjectValue;
 import moo.value.MooValue.StringValue;
+import moo.value.MooValue.WaifValue;
+import moo.world.WorldAnonymousObject;
 import moo.vm.MooVm;
 import moo.vm.VmSnapshot;
 import moo.vm.VmState;
 import moo.world.WorldObject;
+import moo.world.WorldProperty;
 import moo.world.WorldSnapshot;
 import moo.world.WorldTxn;
 import moo.world.WorldVerb;
+import moo.world.WorldWaif;
 
 /** Concrete session and command owner backed by the sole production publication scheduler. */
 public final class MooRuntime {
-  private static final System.Logger LOGGER = System.getLogger(MooRuntime.class.getName());
   static final long DEFAULT_FOREGROUND_TICKS = 60_000;
   static final long DEFAULT_FOREGROUND_SECONDS = 5;
   static final long DEFAULT_BACKGROUND_TICKS = 30_000;
@@ -85,6 +91,23 @@ public final class MooRuntime {
     this.checkpoint = Objects.requireNonNull(checkpoint, "checkpoint");
     builtins = new BuiltinCatalog(listenerControl);
     scheduler = new PublicationScheduler(Objects.requireNonNull(world, "world"), this, workers);
+  }
+
+  /** Runs the database's server_started verb through the production scheduler. */
+  public void startServer() {
+    scheduler.submit(RuntimeRequest.startup());
+  }
+
+  private RuntimeStep startServerNow() {
+    WorldVerb started = world().verb(0, "server_started").orElse(null);
+    if (started == null) {
+      return RuntimeStep.returned(List.of());
+    }
+    return startStored(
+        started,
+        verbLocals(0, -1, -1, "server_started", new ListValue(List.of()), ""),
+        RuntimeContinuation.after(
+            RuntimeTransition.SERVER_STARTED_RETURN, 0, "", List.of(), 0, 0, false));
   }
 
   /** Registers a negative connection and executes its initial empty login input. */
@@ -1361,9 +1384,96 @@ public final class MooRuntime {
     applyForcedInputRequests(task);
     applyBootPlayerTargets(task, taskPlayer);
     closeRecycledPlayerConnections();
-    int checkpointCount = task.drainCheckpointRequests().size();
-    for (int index = 0; index < checkpointCount; index++) {
+    if (task.outcome() == VmState.Outcome.SUSPENDED) {
+      finalizePendingAnonymousObjects();
+    } else if (task.outcome() == VmState.Outcome.RETURNED
+        || task.outcome() == VmState.Outcome.ERRORED) {
+      queueUnreachableAnonymousObjects();
+    }
+    for (var request : task.drainCheckpointRequests()) {
       effects().add(RuntimeEffect.checkpoint());
+      if (request.shutdown()) {
+        effects().add(RuntimeEffect.shutdown());
+      }
+    }
+  }
+
+  private void finalizePendingAnonymousObjects() {
+    List<MooValue> pending = world().pendingFinalization();
+    if (pending.isEmpty()) {
+      return;
+    }
+    List<MooValue> remaining = new ArrayList<>();
+    for (MooValue value : pending) {
+      if (value instanceof AnonymousObjectValue anonymous) {
+        world().removeAnonymousObject(anonymous);
+      } else {
+        remaining.add(value);
+      }
+    }
+    world().replacePendingFinalization(remaining);
+  }
+
+  private void queueUnreachableAnonymousObjects() {
+    WorldSnapshot snapshot = world().snapshot();
+    Set<AnonymousObjectValue> reachable = new LinkedHashSet<>();
+    Set<WaifValue> visitedWaifs = new LinkedHashSet<>();
+    for (WorldObject object : snapshot.objects().values()) {
+      for (WorldProperty property : object.properties()) {
+        markReachableAnonymous(
+            property.value(), snapshot, reachable, visitedWaifs);
+      }
+    }
+
+    List<MooValue> pending = new ArrayList<>(snapshot.pendingFinalization());
+    for (AnonymousObjectValue identity : snapshot.anonymousObjects().keySet()) {
+      if (!reachable.contains(identity) && !pending.contains(identity)) {
+        pending.add(identity);
+      }
+    }
+    world().replacePendingFinalization(pending);
+  }
+
+  private static void markReachableAnonymous(
+      MooValue value,
+      WorldSnapshot world,
+      Set<AnonymousObjectValue> reachable,
+      Set<WaifValue> visitedWaifs) {
+    if (value instanceof AnonymousObjectValue anonymous) {
+      if (!reachable.add(anonymous)) {
+        return;
+      }
+      WorldAnonymousObject body = world.anonymousObjects().get(anonymous);
+      if (body != null) {
+        for (WorldProperty property : body.properties()) {
+          markReachableAnonymous(property.value(), world, reachable, visitedWaifs);
+        }
+      }
+      return;
+    }
+    if (value instanceof WaifValue waif) {
+      if (!visitedWaifs.add(waif)) {
+        return;
+      }
+      WorldWaif body = world.waifs().get(waif);
+      if (body != null) {
+        for (WorldProperty property : body.properties()) {
+          markReachableAnonymous(property.value(), world, reachable, visitedWaifs);
+        }
+      }
+      return;
+    }
+    if (value instanceof ListValue list) {
+      for (MooValue element : list.elements()) {
+        markReachableAnonymous(element, world, reachable, visitedWaifs);
+      }
+      return;
+    }
+    if (value instanceof MapValue map) {
+      for (Map.Entry<MooValue, MooValue> entry : map.entries().entrySet()) {
+        markReachableAnonymous(entry.getKey(), world, reachable, visitedWaifs);
+        markReachableAnonymous(entry.getValue(), world, reachable, visitedWaifs);
+      }
     }
   }
 
@@ -1582,6 +1692,7 @@ public final class MooRuntime {
         throw new IllegalArgumentException("ingress continuation has resumed state");
       }
       return switch (request.operation) {
+        case STARTUP -> startServerNow();
         case OPEN ->
             openConnectionNow(
                 request.connectionId,
@@ -1600,6 +1711,7 @@ public final class MooRuntime {
 
   private RuntimeStep resumeRuntime(RuntimeContinuation continuation, VmState state) {
     return switch (continuation.transition().orElseThrow()) {
+      case SERVER_STARTED_RETURN -> RuntimeStep.returned(state.output());
       case CLOSE_AFTER_USER_CLIENT_DISCONNECTED -> RuntimeStep.returned(List.of());
       case LINE_OOB_RETURN_OUTPUT, TRANSPORT_OOB_RETURN_OUTPUT ->
           RuntimeStep.returned(state.output());
@@ -1768,13 +1880,14 @@ public final class MooRuntime {
         Path target =
             checkpoint.orElseThrow(
                 () -> new IllegalStateException("dump_database() requires --checkpoint"));
-        LOGGER.log(System.Logger.Level.INFO, "CHECKPOINTING to {0}", target);
+        System.err.println("CHECKPOINTING to " + target);
         try {
           checkpointCodec.writeAtomic(target, committedWorld, List.of());
         } catch (IOException error) {
           throw new UncheckedIOException("checkpoint failed: " + target, error);
         }
       }
+      case SHUTDOWN -> listenerControl.ifPresent(ListenerControl::shutdown);
     }
   }
 
@@ -1827,6 +1940,7 @@ public final class MooRuntime {
   }
 
   enum RuntimeTransition {
+    SERVER_STARTED_RETURN,
     CLOSE_AFTER_USER_CLIENT_DISCONNECTED,
     LINE_OOB_RETURN_OUTPUT,
     LINE_DO_COMMAND_GATE_THEN_DISPATCH,
@@ -1988,6 +2102,7 @@ public final class MooRuntime {
   }
 
   enum Operation {
+    STARTUP,
     OPEN,
     CLOSE,
     LINE,
@@ -2003,6 +2118,11 @@ public final class MooRuntime {
       MapValue connectionInfo,
       String text,
       long generation) {
+    static RuntimeRequest startup() {
+      return new RuntimeRequest(
+          Operation.STARTUP, 0, 0, false, new MapValue(Map.of()), "", 0);
+    }
+
     static RuntimeRequest open(
         long connectionId, long listenerHandler, boolean printMessages, MapValue connectionInfo) {
       return new RuntimeRequest(
@@ -2057,7 +2177,8 @@ public final class MooRuntime {
     BOOT,
     BINARY,
     INPUT,
-    CHECKPOINT
+    CHECKPOINT,
+    SHUTDOWN
   }
 
   record RuntimeEffect(
@@ -2094,6 +2215,10 @@ public final class MooRuntime {
 
     static RuntimeEffect checkpoint() {
       return new RuntimeEffect(RuntimeEffectKind.CHECKPOINT, 0, List.of(), false, 0, "");
+    }
+
+    static RuntimeEffect shutdown() {
+      return new RuntimeEffect(RuntimeEffectKind.SHUTDOWN, 0, List.of(), false, 0, "");
     }
   }
 }

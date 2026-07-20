@@ -16,7 +16,9 @@ import jdk.jfr.Recording;
 import jdk.jfr.consumer.RecordedEvent;
 import jdk.jfr.consumer.RecordingFile;
 import moo.persistence.CheckpointEvent;
+import moo.persistence.LambdaMooV17Codec;
 import moo.world.VersionRetentionEvent;
+import moo.world.WorldTxn;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -77,14 +79,11 @@ final class JfrEventDefinitionsTest {
       retention.activeSnapshotCount = 2;
       retention.commit();
 
-      CheckpointEvent checkpoint = new CheckpointEvent();
-      checkpoint.revision = 37;
-      checkpoint.objectCount = 41;
-      checkpoint.taskCount = 5;
-      checkpoint.bytesWritten = 43;
-      checkpoint.success = true;
-      checkpoint.begin();
-      checkpoint.commit();
+      new LambdaMooV17Codec()
+          .writeAtomic(
+              temporaryDirectory.resolve("checkpoint.db"),
+              new WorldTxn(List.of(), List.of()).snapshot(),
+              List.of());
 
       recording.stop();
       recording.dump(recordingPath);

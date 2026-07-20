@@ -69,6 +69,7 @@ public final class MooServer implements AutoCloseable, ListenerControl {
       throw new IllegalStateException("server is already serving");
     }
     try {
+      runtime.startServer();
       acceptConnections(primary);
     } finally {
       serving.set(false);
@@ -340,6 +341,16 @@ public final class MooServer implements AutoCloseable, ListenerControl {
       binaryConnections.put(connectionId, Boolean.TRUE);
     } else {
       binaryConnections.remove(connectionId);
+    }
+  }
+
+  /** Closes the production server after a committed shutdown checkpoint. */
+  @Override
+  public void shutdown() {
+    try {
+      close();
+    } catch (IOException error) {
+      throw new UncheckedIOException("server shutdown failed", error);
     }
   }
 

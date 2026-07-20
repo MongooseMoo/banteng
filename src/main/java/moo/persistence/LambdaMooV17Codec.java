@@ -13,6 +13,8 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
+import java.nio.file.attribute.FileAttribute;
+import java.nio.file.attribute.PosixFilePermissions;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.IdentityHashMap;
@@ -21,6 +23,8 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
+import jdk.jfr.FlightRecorder;
 import moo.value.MooValue;
 import moo.value.MooValue.AnonymousObjectValue;
 import moo.value.MooValue.BooleanValue;
@@ -68,19 +72,32 @@ public final class LambdaMooV17Codec {
     Path target = checkpoint.toAbsolutePath().normalize();
     Path directory = Objects.requireNonNull(target.getParent(), "checkpoint parent directory");
     Files.createDirectories(directory);
-    Path temporary = Files.createTempFile(directory, target.getFileName() + ".", ".tmp");
-    CheckpointEvent event = new CheckpointEvent();
-    event.revision = world.revision();
-    event.objectCount = world.objects().size();
-    event.taskCount = tasks.size();
-    event.begin();
+    Path temporary =
+        target.resolveSibling(
+            target.getFileName() + "." + ProcessHandle.current().pid() + ".tmp");
+    Files.deleteIfExists(temporary);
+    FileAttribute<?>[] attributes =
+        Files.getFileStore(directory).supportsFileAttributeView("posix")
+            ? new FileAttribute<?>[] {
+              PosixFilePermissions.asFileAttribute(
+                  PosixFilePermissions.fromString("rw-------"))
+            }
+            : new FileAttribute<?>[0];
+    @Nullable CheckpointEvent event = null;
+    if (FlightRecorder.isInitialized()) {
+      event = new CheckpointEvent();
+      event.revision = world.revision();
+      event.objectCount = world.objects().size();
+      event.taskCount = tasks.size();
+      event.begin();
+    }
     boolean promoted = false;
     try {
       try (FileChannel channel =
               FileChannel.open(
                   temporary,
-                  StandardOpenOption.WRITE,
-                  StandardOpenOption.TRUNCATE_EXISTING);
+                  Set.of(StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE),
+                  attributes);
           BufferedWriter output =
               new BufferedWriter(
                   new OutputStreamWriter(
@@ -94,13 +111,17 @@ public final class LambdaMooV17Codec {
       try (FileChannel directoryChannel = FileChannel.open(directory, StandardOpenOption.READ)) {
         directoryChannel.force(true);
       }
-      event.bytesWritten = Files.size(target);
-      event.success = true;
+      if (event != null) {
+        event.bytesWritten = Files.size(target);
+        event.success = true;
+      }
     } finally {
       if (!promoted) {
         Files.deleteIfExists(temporary);
       }
-      event.commit();
+      if (event != null) {
+        event.commit();
+      }
     }
   }
 
@@ -117,7 +138,11 @@ public final class LambdaMooV17Codec {
       }
 
       ReadContext context = new ReadContext();
-      requireExact(input, "0 values pending finalization", "pending-finalization count");
+      int pendingCount = readPendingFinalizationCount(input);
+      List<MooValue> pendingFinalization = new ArrayList<>(pendingCount);
+      for (int index = 0; index < pendingCount; index++) {
+        pendingFinalization.add(readValue(input, context));
+      }
       requireExact(input, "0 clocks", "clocks count");
       requireExact(input, "0 queued tasks", "queued-task count");
       requireExact(input, "0 suspended tasks", "suspended-task count");
@@ -166,23 +191,12 @@ public final class LambdaMooV17Codec {
       Map<AnonymousObjectValue, WorldAnonymousObject> anonymousObjects =
           restoreAnonymousObjects(objects, programs, context, permanentSlotCount);
       Map<WaifValue, WorldWaif> waifs = restoreWaifs(restored, context);
-      return new Checkpoint(new WorldTxn(players, restored, anonymousObjects, waifs), List.of());
+      return new Checkpoint(
+          new WorldTxn(players, restored, anonymousObjects, waifs, pendingFinalization), List.of());
     }
   }
 
   private static void write(BufferedWriter output, WorldSnapshot world) throws IOException {
-    line(output, HEADER);
-    line(output, world.players().size());
-    for (long player : world.players()) {
-      line(output, player);
-    }
-    line(output, "0 values pending finalization");
-    line(output, "0 clocks");
-    line(output, "0 queued tasks");
-    line(output, "0 suspended tasks");
-    line(output, "0 interrupted tasks");
-    line(output, "0 active connections with listeners");
-
     List<WorldObject> objects =
         world.objects().values().stream()
             .sorted(Comparator.comparingLong(WorldObject::id))
@@ -192,6 +206,22 @@ public final class LambdaMooV17Codec {
       throw new IOException("v17 object slot count exceeds supported range");
     }
     WriteContext context = new WriteContext(world, maximumObjectId + 1);
+
+    line(output, HEADER);
+    line(output, world.players().size());
+    for (long player : world.players()) {
+      line(output, player);
+    }
+    line(output, world.pendingFinalization().size() + " values pending finalization");
+    for (MooValue pending : world.pendingFinalization()) {
+      writeValue(output, pending, context);
+    }
+    line(output, "0 clocks");
+    line(output, "0 queued tasks");
+    line(output, "0 suspended tasks");
+    line(output, "0 interrupted tasks");
+    line(output, "0 active connections with listeners");
+
     line(output, maximumObjectId + 1);
     int objectIndex = 0;
     for (long objectId = 0; objectId <= maximumObjectId; objectId++) {
@@ -220,18 +250,29 @@ public final class LambdaMooV17Codec {
     }
     line(output, 0);
 
-    int programCount = objects.stream().mapToInt(object -> object.verbs().size()).sum();
+    int programCount =
+        Math.toIntExact(
+            objects.stream()
+                .flatMap(object -> object.verbs().stream())
+                .filter(verb -> !verb.programSource().isEmpty())
+                .count());
     for (AnonymousObjectValue identity : context.anonymousOrder) {
       programCount =
           Math.addExact(
               programCount,
-              Objects.requireNonNull(world.anonymousObjects().get(identity)).verbs().size());
+              Math.toIntExact(
+                  Objects.requireNonNull(world.anonymousObjects().get(identity)).verbs().stream()
+                      .filter(verb -> !verb.programSource().isEmpty())
+                      .count()));
     }
     line(output, programCount);
     for (WorldObject object : objects) {
       for (int verbIndex = 0; verbIndex < object.verbs().size(); verbIndex++) {
-        line(output, "#" + object.id() + ":" + verbIndex);
         String source = object.verbs().get(verbIndex).programSource();
+        if (source.isEmpty()) {
+          continue;
+        }
+        line(output, "#" + object.id() + ":" + verbIndex);
         output.write(source);
         if (!source.isEmpty() && source.charAt(source.length() - 1) != '\n') {
           output.write('\n');
@@ -243,8 +284,11 @@ public final class LambdaMooV17Codec {
       WorldAnonymousObject object = Objects.requireNonNull(world.anonymousObjects().get(identity));
       long objectId = Objects.requireNonNull(context.anonymousIds.get(identity));
       for (int verbIndex = 0; verbIndex < object.verbs().size(); verbIndex++) {
-        line(output, "#" + objectId + ":" + verbIndex);
         String source = object.verbs().get(verbIndex).programSource();
+        if (source.isEmpty()) {
+          continue;
+        }
+        line(output, "#" + objectId + ":" + verbIndex);
         output.write(source);
         if (!source.isEmpty() && source.charAt(source.length() - 1) != '\n') {
           output.write('\n');
@@ -519,10 +563,7 @@ public final class LambdaMooV17Codec {
       List<WorldVerb> verbs = new ArrayList<>(object.verbs().size());
       for (int index = 0; index < object.verbs().size(); index++) {
         RawVerb verb = object.verbs().get(index);
-        String source = programs.get(new ProgramSlot(object.id(), index));
-        if (source == null) {
-          throw malformed("missing program #" + object.id() + ":" + index);
-        }
+        String source = programs.getOrDefault(new ProgramSlot(object.id(), index), "");
         verbs.add(
             new WorldVerb(
                 verb.names(), verb.owner(), verb.permissions(), verb.preposition(), source));
@@ -565,10 +606,7 @@ public final class LambdaMooV17Codec {
       List<WorldVerb> verbs = new ArrayList<>(object.verbs().size());
       for (int index = 0; index < object.verbs().size(); index++) {
         RawVerb verb = object.verbs().get(index);
-        String source = programs.get(new ProgramSlot(object.id(), index));
-        if (source == null) {
-          throw malformed("missing program #" + object.id() + ":" + index);
-        }
+        String source = programs.getOrDefault(new ProgramSlot(object.id(), index), "");
         verbs.add(
             new WorldVerb(
                 verb.names(), verb.owner(), verb.permissions(), verb.preposition(), source));
@@ -838,6 +876,16 @@ public final class LambdaMooV17Codec {
 
   private static int readCount(BufferedReader input, String field) throws IOException {
     return parseCount(requiredLine(input, field), field);
+  }
+
+  private static int readPendingFinalizationCount(BufferedReader input) throws IOException {
+    String line = requiredLine(input, "pending-finalization count");
+    String suffix = " values pending finalization";
+    if (!line.endsWith(suffix)) {
+      throw malformed("invalid pending-finalization count: " + line);
+    }
+    return parseCount(
+        line.substring(0, line.length() - suffix.length()), "pending-finalization count");
   }
 
   private static int parseCount(String text, String field) throws IOException {

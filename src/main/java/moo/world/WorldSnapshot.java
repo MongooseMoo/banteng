@@ -4,6 +4,7 @@ import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import moo.value.MooValue;
 import moo.value.MooValue.AnonymousObjectValue;
 import moo.value.MooValue.WaifValue;
 
@@ -13,7 +14,8 @@ public record WorldSnapshot(
     List<Long> players,
     Map<Long, WorldObject> objects,
     Map<AnonymousObjectValue, WorldAnonymousObject> anonymousObjects,
-    Map<WaifValue, WorldWaif> waifs) {
+    Map<WaifValue, WorldWaif> waifs,
+    List<MooValue> pendingFinalization) {
   /** Takes immutable, insertion-preserving copies of the ordered world records. */
   public WorldSnapshot {
     players = List.copyOf(players);
@@ -21,11 +23,12 @@ public record WorldSnapshot(
     anonymousObjects =
         Collections.unmodifiableMap(new LinkedHashMap<>(anonymousObjects));
     waifs = Collections.unmodifiableMap(new LinkedHashMap<>(waifs));
+    pendingFinalization = List.copyOf(pendingFinalization);
   }
 
   /** Creates a snapshot without anonymous objects for legacy permanent-object callers. */
   public WorldSnapshot(long revision, List<Long> players, Map<Long, WorldObject> objects) {
-    this(revision, players, objects, Map.of(), Map.of());
+    this(revision, players, objects, Map.of(), Map.of(), List.of());
   }
 
   /** Creates a snapshot without WAIF bodies for existing anonymous-object callers. */
@@ -34,6 +37,16 @@ public record WorldSnapshot(
       List<Long> players,
       Map<Long, WorldObject> objects,
       Map<AnonymousObjectValue, WorldAnonymousObject> anonymousObjects) {
-    this(revision, players, objects, anonymousObjects, Map.of());
+    this(revision, players, objects, anonymousObjects, Map.of(), List.of());
+  }
+
+  /** Creates a snapshot without pending-finalization roots. */
+  public WorldSnapshot(
+      long revision,
+      List<Long> players,
+      Map<Long, WorldObject> objects,
+      Map<AnonymousObjectValue, WorldAnonymousObject> anonymousObjects,
+      Map<WaifValue, WorldWaif> waifs) {
+    this(revision, players, objects, anonymousObjects, waifs, List.of());
   }
 }

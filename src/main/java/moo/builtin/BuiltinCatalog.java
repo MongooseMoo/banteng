@@ -30,6 +30,7 @@ import moo.value.MooValue.MapValue;
 import moo.value.MooValue.ObjectValue;
 import moo.value.MooValue.StringValue;
 import moo.value.MooValue.WaifValue;
+import moo.world.WorldAnonymousObject;
 import moo.world.WorldObject;
 import moo.world.WorldProperty;
 import moo.world.WorldTxn;
@@ -443,6 +444,15 @@ public final class BuiltinCatalog {
                 Result.value(new ObjectValue(c.size() == 0 ? -1 : cp))));
     entries.add(
         new BuiltinSpec(
+            "task_perms",
+            List.of(new CallShape(List.of(), List.of(), Optional.empty())),
+            BuiltinPermissionRule.ANY,
+            BuiltinCostRule.fixed(0),
+            EffectClass.PURE,
+            BuiltinOwner.VM,
+            (a, w, p, t, rt, rs, r, cp, c) -> Result.value(new ObjectValue(p))));
+    entries.add(
+        new BuiltinSpec(
             "set_task_perms",
             List.of(new CallShape(List.of(OBJECT), List.of(), Optional.empty())),
             BuiltinPermissionRule.ANY,
@@ -540,6 +550,33 @@ public final class BuiltinCatalog {
             EffectClass.PURE,
             BuiltinOwner.VM,
             (a, w, p, t, rt, rs, r, cp, c) -> functionInfo(a)));
+    entries.add(
+        new BuiltinSpec(
+            "server_log",
+            List.of(new CallShape(List.of(STRING), List.of(ANY), Optional.empty())),
+            BuiltinPermissionRule.WIZARD_ONLY,
+            BuiltinCostRule.fixed(0),
+            EffectClass.IRREVOCABLE,
+            BuiltinOwner.SERVER,
+            (a, w, p, t, rt, rs, r, cp, c) -> serverLog(a)));
+    entries.add(
+        new BuiltinSpec(
+            "suspend",
+            List.of(new CallShape(List.of(), List.of(NUMBER), Optional.empty())),
+            BuiltinPermissionRule.ANY,
+            BuiltinCostRule.fixed(0),
+            EffectClass.PURE,
+            BuiltinOwner.VM,
+            (a, w, p, t, rt, rs, r, cp, c) -> suspend(a)));
+    entries.add(
+        new BuiltinSpec(
+            "shutdown",
+            List.of(new CallShape(List.of(), List.of(STRING, ANY), Optional.empty())),
+            BuiltinPermissionRule.WIZARD_ONLY,
+            BuiltinCostRule.fixed(0),
+            EffectClass.DEFERRED_COMMIT,
+            BuiltinOwner.SERVER,
+            (a, w, p, t, rt, rs, r, cp, c) -> shutdown(a)));
     entries.add(
         new BuiltinSpec(
             "dump_database",
@@ -702,6 +739,31 @@ public final class BuiltinCatalog {
       long callerProgrammer,
       ListValue callers) {
     return Result.checkpoint();
+  }
+
+  private static Result serverLog(List<MooValue> arguments) {
+    String message = decode((StringValue) arguments.getFirst());
+    System.err.println("> " + message);
+    return Result.zero();
+  }
+
+  private static Result suspend(List<MooValue> arguments) {
+    double seconds = 0;
+    if (!arguments.isEmpty()) {
+      MooValue delay = arguments.getFirst();
+      seconds =
+          delay instanceof IntegerValue integer
+              ? integer.value()
+              : ((FloatValue) delay).value();
+    }
+    return seconds < 0 ? Result.error(ErrorValue.E_INVARG) : Result.suspend(seconds);
+  }
+
+  private static Result shutdown(List<MooValue> arguments) {
+    if (arguments.size() == 2 && arguments.get(1).isTruthy()) {
+      return Result.error(ErrorValue.E_INVARG);
+    }
+    return Result.shutdown();
   }
 
   private static Result length(List<MooValue> arguments) {
@@ -1225,25 +1287,46 @@ public final class BuiltinCatalog {
       return Result.error(ErrorValue.E_INVARG);
     }
 
-    if (!(arguments.get(0) instanceof ObjectValue object)) {
-      return Result.error(ErrorValue.E_TYPE);
-    }
-    WorldObject target = world.object(object.value()).orElse(null);
-    if (target == null) {
-      return Result.error(ErrorValue.E_INVARG);
-    }
     WorldObject actor = world.object(programmer).orElse(null);
     boolean wizard = actor != null && (actor.flags() & 4) != 0;
-    boolean writable = target.owner() == programmer || wizard || (target.flags() & 32) != 0;
+    MooValue receiver = arguments.get(0);
+    long targetOwner;
+    int targetFlags;
+    if (receiver instanceof ObjectValue object) {
+      WorldObject target = world.object(object.value()).orElse(null);
+      if (target == null) {
+        return Result.error(ErrorValue.E_INVARG);
+      }
+      targetOwner = target.owner();
+      targetFlags = target.flags();
+    } else if (receiver instanceof AnonymousObjectValue anonymous) {
+      WorldAnonymousObject target = world.anonymousObject(anonymous).orElse(null);
+      if (target == null) {
+        return Result.error(ErrorValue.E_INVARG);
+      }
+      targetOwner = target.owner();
+      targetFlags = target.flags();
+    } else {
+      return Result.error(ErrorValue.E_TYPE);
+    }
+    boolean writable = targetOwner == programmer || wizard || (targetFlags & 32) != 0;
     if (!writable || (owner.value() != programmer && !wizard)) {
       return Result.error(ErrorValue.E_PERM);
     }
 
     int encodedPermissions = permissions | (direct << 4) | (indirect << 6);
+    int slot =
+        receiver instanceof ObjectValue object
+            ? world.addVerb(
+                object.value(), names, owner.value(), encodedPermissions, preposition)
+            : world.addVerb(
+                (AnonymousObjectValue) receiver,
+                names,
+                owner.value(),
+                encodedPermissions,
+                preposition);
     return Result.value(
-        new IntegerValue(
-            world.addVerb(
-                object.value(), names, owner.value(), encodedPermissions, preposition)));
+        new IntegerValue(slot));
   }
 
   private static Result addProperty(
@@ -1481,7 +1564,21 @@ public final class BuiltinCatalog {
     if (code.elements().stream().anyMatch(value -> !(value instanceof StringValue))) {
       return Result.error(ErrorValue.E_TYPE);
     }
-    if (!(arguments.get(0) instanceof ObjectValue object)) {
+    MooValue receiver = arguments.get(0);
+    List<WorldVerb> targetVerbs;
+    if (receiver instanceof ObjectValue object) {
+      WorldObject target = world.object(object.value()).orElse(null);
+      if (target == null) {
+        return Result.error(ErrorValue.E_INVARG);
+      }
+      targetVerbs = target.verbs();
+    } else if (receiver instanceof AnonymousObjectValue anonymous) {
+      WorldAnonymousObject target = world.anonymousObject(anonymous).orElse(null);
+      if (target == null) {
+        return Result.error(ErrorValue.E_INVARG);
+      }
+      targetVerbs = target.verbs();
+    } else {
       return Result.error(ErrorValue.E_TYPE);
     }
     MooValue descriptor = arguments.get(1);
@@ -1491,28 +1588,30 @@ public final class BuiltinCatalog {
     if (descriptor instanceof IntegerValue integer && integer.value() <= 0) {
       return Result.error(ErrorValue.E_INVARG);
     }
-    WorldObject target = world.object(object.value()).orElse(null);
-    if (target == null) {
-      return Result.error(ErrorValue.E_INVARG);
-    }
-
     WorldVerb verb;
     int verbIndex;
     if (descriptor instanceof IntegerValue integer) {
       long index = integer.value() - 1;
-      if (index >= target.verbs().size()) {
+      if (index >= targetVerbs.size()) {
         return Result.error(ErrorValue.E_VERBNF);
       }
       verbIndex = (int) index;
-      verb = target.verbs().get(verbIndex);
+      verb = targetVerbs.get(verbIndex);
     } else {
       WorldVerb candidate =
-          world.verb(object.value(), decode((StringValue) descriptor), false).orElse(null);
-      if (candidate == null || !target.verbs().contains(candidate)) {
+          receiver instanceof ObjectValue object
+              ? world.verb(object.value(), decode((StringValue) descriptor), false).orElse(null)
+              : world
+                  .verb(
+                      (AnonymousObjectValue) receiver,
+                      decode((StringValue) descriptor),
+                      false)
+                  .orElse(null);
+      if (candidate == null || !targetVerbs.contains(candidate)) {
         return Result.error(ErrorValue.E_VERBNF);
       }
       verb = candidate;
-      verbIndex = target.verbs().indexOf(verb);
+      verbIndex = targetVerbs.indexOf(verb);
     }
 
     WorldObject actor = world.object(programmer).orElse(null);
@@ -1537,7 +1636,11 @@ public final class BuiltinCatalog {
       }
       return Result.value(new ListValue(List.of(encode(diagnostic))));
     }
-    if (!world.setVerbCode(object.value(), verbIndex, source)) {
+    boolean updated =
+        receiver instanceof ObjectValue object
+            ? world.setVerbCode(object.value(), verbIndex, source)
+            : world.setVerbCode((AnonymousObjectValue) receiver, verbIndex, source);
+    if (!updated) {
       return Result.error(ErrorValue.E_VERBNF);
     }
     return Result.value(new ListValue(List.of()));
@@ -1861,6 +1964,9 @@ public final class BuiltinCatalog {
 
     /** Selects delimiter-free binary reads for one accepted connection. */
     void setConnectionBinary(long connectionId, boolean binary);
+
+    /** Stops the production server after its committed shutdown checkpoint is published. */
+    void shutdown();
   }
 
   /** One validated mutation of the closed connection-option surface. */
@@ -1967,7 +2073,44 @@ public final class BuiltinCatalog {
           OptionalLong.empty(),
           OptionalLong.empty(),
           Optional.empty(),
-          Optional.of(new CheckpointRequest()));
+          Optional.of(new CheckpointRequest(false)));
+    }
+
+    static Result shutdown() {
+      return new Result(
+          Optional.of(new IntegerValue(0)),
+          Optional.empty(),
+          Optional.empty(),
+          Optional.empty(),
+          OptionalLong.empty(),
+          OptionalLong.empty(),
+          OptionalLong.empty(),
+          OptionalDouble.empty(),
+          Optional.empty(),
+          Optional.empty(),
+          OptionalLong.empty(),
+          Optional.empty(),
+          Optional.empty(),
+          OptionalLong.empty(),
+          OptionalLong.empty(),
+          Optional.empty(),
+          Optional.of(new CheckpointRequest(true)));
+    }
+
+    static Result suspend(double seconds) {
+      return new Result(
+          Optional.empty(),
+          Optional.empty(),
+          Optional.empty(),
+          Optional.empty(),
+          OptionalLong.empty(),
+          OptionalLong.empty(),
+          OptionalLong.empty(),
+          OptionalDouble.of(seconds),
+          Optional.empty(),
+          Optional.empty(),
+          OptionalLong.empty(),
+          Optional.empty());
     }
 
     static Result error(ErrorValue error) {
