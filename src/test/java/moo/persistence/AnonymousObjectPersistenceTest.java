@@ -272,6 +272,20 @@ final class AnonymousObjectPersistenceTest {
     }
   }
 
+  @Test
+  void anon6RemovesAnInvalidPendingAnonymousValueInOneProductionBoot(
+      @TempDir Path temporaryDirectory) throws Exception {
+    LambdaMooV17Codec codec = new LambdaMooV17Codec();
+    Path output = temporaryDirectory.resolve("Anon6.db.new");
+
+    runUntilFixtureShutdown(codec.read(STARTUP_FIXTURES.resolve("Anon6.db")), output);
+
+    WorldSnapshot world = codec.read(output).world().snapshot();
+    assertTrue(world.pendingFinalization().isEmpty());
+    assertTrue(world.anonymousObjects().isEmpty());
+    assertEquals(4, world.objects().size());
+  }
+
   private static void runUntilFixtureShutdown(
       LambdaMooV17Codec.Checkpoint checkpoint, Path output) throws Exception {
     MooServer server = new MooServer("127.0.0.1", 0, checkpoint.world(), output);
