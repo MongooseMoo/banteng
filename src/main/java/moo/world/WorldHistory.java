@@ -10,6 +10,7 @@ import java.util.NavigableMap;
 import java.util.Objects;
 import java.util.Set;
 import java.util.TreeMap;
+import moo.value.MooValue.AnonymousObjectValue;
 
 /** Owns committed revisions; all record access remains on {@link WorldTxn}. */
 final class WorldHistory {
@@ -18,8 +19,16 @@ final class WorldHistory {
   private World current;
 
   WorldHistory(List<Long> players, List<WorldObject> objects) {
+    this(players, objects, Map.of());
+  }
+
+  WorldHistory(
+      List<Long> players,
+      List<WorldObject> objects,
+      Map<AnonymousObjectValue, WorldAnonymousObject> anonymousObjects) {
     Objects.requireNonNull(players, "players");
     Objects.requireNonNull(objects, "objects");
+    Objects.requireNonNull(anonymousObjects, "anonymousObjects");
     Map<Long, WorldObject> objectsById = new LinkedHashMap<>();
     for (WorldObject object : objects) {
       Objects.requireNonNull(object, "object");
@@ -27,7 +36,7 @@ final class WorldHistory {
         throw new IllegalArgumentException("duplicate object #" + object.id());
       }
     }
-    current = new World(new WorldRevision(0), players, objectsById);
+    current = new World(new WorldRevision(0), players, objectsById, anonymousObjects);
     validateTopology(current);
     revisions.put(0L, current);
   }
@@ -73,11 +82,25 @@ final class WorldHistory {
         objects.put(objectId, replacement);
       }
     }
+    Map<AnonymousObjectValue, WorldAnonymousObject> anonymousObjects =
+        new LinkedHashMap<>(current.anonymousObjects());
+    for (AnonymousObjectValue identity : transaction.anonymousWrites()) {
+      WorldAnonymousObject replacement =
+          transaction.workingWorld().anonymousObjects().get(identity);
+      if (replacement == null) {
+        anonymousObjects.remove(identity);
+      } else {
+        anonymousObjects.put(identity, replacement);
+      }
+    }
     List<Long> players =
         transaction.playersWritten() ? transaction.workingWorld().players() : current.players();
     World replacement =
         new World(
-            new WorldRevision(Math.incrementExact(current.revision().value())), players, objects);
+            new WorldRevision(Math.incrementExact(current.revision().value())),
+            players,
+            objects,
+            anonymousObjects);
     validateTopology(replacement);
     current = replacement;
     revisions.put(replacement.revision().value(), replacement);
@@ -184,6 +207,12 @@ final class WorldHistory {
         if (child == null || child.parent() != objectId) {
           throw new IllegalStateException("children relation is not reciprocal for #" + objectId);
         }
+      }
+    }
+    for (WorldAnonymousObject object : world.anonymousObjects().values()) {
+      if (object.parent() != -1 && !objects.containsKey(object.parent())) {
+        throw new IllegalStateException(
+            "anonymous object names missing parent #" + object.parent());
       }
     }
   }

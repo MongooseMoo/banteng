@@ -21,6 +21,7 @@ public sealed interface MooValue
         MooValue.FloatValue,
         MooValue.StringValue,
         MooValue.ObjectValue,
+        MooValue.AnonymousObjectValue,
         MooValue.WaifValue,
         MooValue.ErrorValue,
         MooValue.ListValue,
@@ -44,6 +45,7 @@ public sealed interface MooValue
     LIST(4),
     FLOAT(9),
     MAP(10),
+    ANONYMOUS(12),
     WAIF(13),
     BOOLEAN(14);
 
@@ -343,6 +345,29 @@ public sealed interface MooValue
     }
   }
 
+  /** An anonymous MOO object whose runtime identity is its Java reference. */
+  final class AnonymousObjectValue implements MooValue {
+    @Override
+    public Type type() {
+      return Type.ANONYMOUS;
+    }
+
+    @Override
+    public boolean isTruthy() {
+      return false;
+    }
+
+    @Override
+    public String toLiteral() {
+      return "*anonymous*";
+    }
+
+    @Override
+    public String toString() {
+      return toLiteral();
+    }
+  }
+
   /** A MOO WAIF with identity semantics and immutable class and owner references. */
   final class WaifValue implements MooValue {
     private final ObjectValue classObject;
@@ -524,7 +549,7 @@ public sealed interface MooValue
     }
   }
 
-  /** An immutable insertion-preserving MOO map with scalar keys. */
+  /** An immutable MOO map whose entry traversal follows Toast map insertion topology. */
   final class MapValue implements MooValue {
     private final Map<MooValue, MooValue> entries;
 
@@ -558,16 +583,18 @@ public sealed interface MooValue
     public MapValue with(MooValue key, MooValue value) {
       requireScalarKey(key);
       LinkedHashMap<MooValue, MooValue> replacement = new LinkedHashMap<>();
-      boolean found = false;
+      boolean inserted = false;
       for (Map.Entry<MooValue, MooValue> entry : entries.entrySet()) {
-        if (!found && entry.getKey().equals(key)) {
+        int comparison = compareKeys(entry.getKey(), key);
+        if (!inserted && comparison >= 0) {
           replacement.put(key, value);
-          found = true;
-        } else {
+          inserted = true;
+        }
+        if (comparison != 0) {
           replacement.put(entry.getKey(), entry.getValue());
         }
       }
-      if (!found) {
+      if (!inserted) {
         replacement.put(key, value);
       }
       return new MapValue(replacement);
@@ -618,6 +645,53 @@ public sealed interface MooValue
       if (key instanceof ListValue || key instanceof MapValue) {
         throw new IllegalArgumentException("MOO map keys must be scalar");
       }
+    }
+
+    private static int compareKeys(MooValue left, MooValue right) {
+      int leftRank =
+          switch (left.type()) {
+            case INTEGER -> 0;
+            case OBJECT -> 1;
+            case ERROR -> 2;
+            case FLOAT -> 3;
+            case BOOLEAN -> 4;
+            case STRING -> 5;
+            case ANONYMOUS -> 6;
+            case WAIF -> 7;
+            case LIST, MAP -> throw new IllegalArgumentException("collection map key");
+          };
+      int rightRank =
+          switch (right.type()) {
+            case INTEGER -> 0;
+            case OBJECT -> 1;
+            case ERROR -> 2;
+            case FLOAT -> 3;
+            case BOOLEAN -> 4;
+            case STRING -> 5;
+            case ANONYMOUS -> 6;
+            case WAIF -> 7;
+            case LIST, MAP -> throw new IllegalArgumentException("collection map key");
+          };
+      if (leftRank != rightRank) {
+        return Integer.compare(leftRank, rightRank);
+      }
+      return switch (left) {
+        case IntegerValue integer ->
+            Long.compare(integer.value(), ((IntegerValue) right).value());
+        case ObjectValue object -> Long.compare(object.value(), ((ObjectValue) right).value());
+        case ErrorValue error -> Integer.compare(error.code(), ((ErrorValue) right).code());
+        case FloatValue floating -> {
+          double leftValue = floating.value();
+          double rightValue = ((FloatValue) right).value();
+          yield leftValue == rightValue ? 0 : (leftValue - rightValue < 0.0 ? -1 : 1);
+        }
+        case BooleanValue bool -> bool == right ? 0 : 1;
+        case StringValue string -> string.compareIgnoringCase((StringValue) right);
+        case AnonymousObjectValue anonymous -> anonymous == right ? 0 : 1;
+        case WaifValue waif -> waif == right ? 0 : 1;
+        case ListValue ignored -> throw new IllegalArgumentException("list map key");
+        case MapValue ignored -> throw new IllegalArgumentException("map map key");
+      };
     }
   }
 }

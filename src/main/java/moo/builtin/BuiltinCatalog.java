@@ -20,6 +20,7 @@ import moo.bytecode.MooCompiler;
 import moo.syntax.MooParser;
 import moo.syntax.MooUnparser;
 import moo.value.MooValue;
+import moo.value.MooValue.AnonymousObjectValue;
 import moo.value.MooValue.BooleanValue;
 import moo.value.MooValue.ErrorValue;
 import moo.value.MooValue.FloatValue;
@@ -238,6 +239,20 @@ public final class BuiltinCatalog {
             (a, w, p, t, rt, rs, r, cp, c) -> encodeBinary(a)));
     entries.add(
         new BuiltinSpec(
+            "chr",
+            List.of(new CallShape(List.of(INTEGER), List.of(), Optional.empty())),
+            BuiltinPermissionRule.ANY,
+            BuiltinCostRule.fixed(0),
+            EffectClass.PURE,
+            BuiltinOwner.VM,
+            (a, w, p, t, rt, rs, r, cp, c) -> {
+              long code = ((IntegerValue) a.getFirst()).value();
+              return code < 0 || code > 255
+                  ? Result.error(ErrorValue.E_INVARG)
+                  : Result.value(new StringValue(new byte[] {(byte) code}));
+            }));
+    entries.add(
+        new BuiltinSpec(
             "add_property",
             List.of(
                 new CallShape(
@@ -310,7 +325,7 @@ public final class BuiltinCatalog {
     entries.add(
         new BuiltinSpec(
             "create",
-            List.of(new CallShape(List.of(OBJECT), List.of(), Optional.empty())),
+            List.of(new CallShape(List.of(OBJECT), List.of(INTEGER), Optional.empty())),
             BuiltinPermissionRule.ANY,
             BuiltinCostRule.fixed(0),
             EffectClass.TRANSACTION_WRITE,
@@ -394,6 +409,21 @@ public final class BuiltinCatalog {
             (a, w, p, t, rt, rs, r, cp, c) -> recycle(a, w, p)));
     entries.add(
         new BuiltinSpec(
+            "new_waif",
+            List.of(new CallShape(List.of(), List.of(), Optional.empty())),
+            BuiltinPermissionRule.ANY,
+            BuiltinCostRule.fixed(0),
+            EffectClass.TRANSACTION_READ,
+            BuiltinOwner.WORLD,
+            (a, w, p, t, rt, rs, r, cp, c) -> {
+              if (!(r instanceof ObjectValue classObject)
+                  || w.object(classObject.value()).isEmpty()) {
+                return Result.error(ErrorValue.E_INVIND);
+              }
+              return Result.value(new WaifValue(classObject, new ObjectValue(p)));
+            }));
+    entries.add(
+        new BuiltinSpec(
             "switch_player",
             List.of(new CallShape(List.of(OBJECT, OBJECT), List.of(), Optional.empty())),
             BuiltinPermissionRule.ANY,
@@ -401,6 +431,16 @@ public final class BuiltinCatalog {
             EffectClass.DEFERRED_COMMIT,
             BuiltinOwner.CONNECTION,
             (a, w, p, t, rt, rs, r, cp, c) -> switchPlayer(a)));
+    entries.add(
+        new BuiltinSpec(
+            "caller_perms",
+            List.of(new CallShape(List.of(), List.of(), Optional.empty())),
+            BuiltinPermissionRule.ANY,
+            BuiltinCostRule.fixed(0),
+            EffectClass.PURE,
+            BuiltinOwner.VM,
+            (a, w, p, t, rt, rs, r, cp, c) ->
+                Result.value(new ObjectValue(c.size() == 0 ? -1 : cp))));
     entries.add(
         new BuiltinSpec(
             "set_task_perms",
@@ -796,7 +836,8 @@ public final class BuiltinCatalog {
                 case FLOAT -> 3;
                 case BOOLEAN -> 4;
                 case STRING -> 5;
-                case WAIF -> 6;
+                case ANONYMOUS -> 6;
+                case WAIF -> 7;
                 case LIST, MAP -> throw new IllegalArgumentException("collection map key");
               };
           int rightRank =
@@ -807,7 +848,8 @@ public final class BuiltinCatalog {
                 case FLOAT -> 3;
                 case BOOLEAN -> 4;
                 case STRING -> 5;
-                case WAIF -> 6;
+                case ANONYMOUS -> 6;
+                case WAIF -> 7;
                 case LIST, MAP -> throw new IllegalArgumentException("collection map key");
               };
           if (leftRank != rightRank) {
@@ -827,6 +869,7 @@ public final class BuiltinCatalog {
             }
             case BooleanValue ignored -> 0;
             case StringValue string -> string.compareIgnoringCase((StringValue) right);
+            case AnonymousObjectValue ignored -> left == right ? 0 : 1;
             case WaifValue ignored -> 0;
             case ListValue ignored -> throw new IllegalArgumentException("list map key");
             case MapValue ignored -> throw new IllegalArgumentException("map map key");
@@ -1080,6 +1123,9 @@ public final class BuiltinCatalog {
   private static Result create(List<MooValue> arguments, WorldTxn world, long programmer) {
     ObjectValue parent = (ObjectValue) arguments.getFirst();
     try {
+      if (arguments.size() == 2 && ((IntegerValue) arguments.get(1)).value() != 0) {
+        return Result.value(world.createAnonymousObject(parent.value(), programmer));
+      }
       WorldObject created = world.createObject(parent.value(), programmer);
       return Result.value(new ObjectValue(created.id()));
     } catch (IllegalArgumentException error) {
@@ -1600,6 +1646,7 @@ public final class BuiltinCatalog {
             case BooleanValue bool -> bool.toLiteral();
             case FloatValue floating -> floating.toLiteral();
             case ObjectValue object -> object.toLiteral();
+            case AnonymousObjectValue anonymous -> anonymous.toString();
             case WaifValue waif -> waif.toString();
             case ErrorValue error -> errorDescription(error);
             case ListValue ignored -> "{list}";

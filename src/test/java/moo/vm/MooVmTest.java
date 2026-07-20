@@ -16,6 +16,7 @@ import moo.syntax.Ast;
 import moo.syntax.MooParser;
 import moo.syntax.MooUnparser;
 import moo.value.MooValue;
+import moo.value.MooValue.AnonymousObjectValue;
 import moo.value.MooValue.BooleanValue;
 import moo.value.MooValue.ErrorValue;
 import moo.value.MooValue.FloatValue;
@@ -24,6 +25,7 @@ import moo.value.MooValue.ListValue;
 import moo.value.MooValue.MapValue;
 import moo.value.MooValue.ObjectValue;
 import moo.value.MooValue.StringValue;
+import moo.value.MooValue.WaifValue;
 import moo.world.WorldObject;
 import moo.world.WorldTxn;
 import moo.world.WorldVerb;
@@ -79,6 +81,22 @@ final class MooVmTest {
 
     assertEquals(VmState.Outcome.RETURNED, state.outcome());
     assertEquals(new IntegerValue(1), state.returnValue().orElseThrow());
+  }
+
+  @Test
+  void chrProducesTheRequestedLatin1ByteThroughBuiltinDispatch() {
+    VmState state = new VmState();
+
+    executeAndClose(
+        new MooCompiler().compile(MooParser.parse("return encode_binary(chr(200));")),
+        state,
+        new WorldTxn(List.of(), List.of()),
+        new BuiltinCatalog());
+
+    assertEquals(VmState.Outcome.RETURNED, state.outcome());
+    assertEquals(
+        new StringValue("~C8".getBytes(StandardCharsets.ISO_8859_1)),
+        state.returnValue().orElseThrow());
   }
 
   @Test
@@ -3271,6 +3289,67 @@ final class MooVmTest {
     try (WorldTxn view = world.begin()) {
       assertEquals(9, view.object(5).orElseThrow().owner());
       assertEquals(3, view.object(6).orElseThrow().owner());
+    }
+  }
+
+  @Test
+  void newWaifUsesCallingVerbReceiverAsClassAndProgrammerAsOwner() {
+    WorldVerb constructor =
+        new WorldVerb(
+            "new",
+            1,
+            4,
+            -1,
+            "set_task_perms(caller_perms()); player = caller_perms(); return new_waif();");
+    WorldObject wizard =
+        new WorldObject(
+            1, "wizard", 4, 1, -1, -1, List.of(), List.of(), List.of(), List.of());
+    WorldObject waifClass =
+        new WorldObject(
+            7, "waif class", 0, 1, -1, -1, List.of(), List.of(), List.of(constructor), List.of());
+    WorldTxn world = new WorldTxn(List.of(1L), List.of(wizard, waifClass));
+    VmState state =
+        new VmState(Map.of("player", new ObjectValue(1), "this", new ObjectValue(1)), 1);
+
+    executeAndClose(
+        new MooCompiler().compile(MooParser.parse("return #7:new();")),
+        state,
+        world,
+        new BuiltinCatalog());
+
+    assertEquals(VmState.Outcome.RETURNED, state.outcome());
+    WaifValue waif = assertInstanceOf(WaifValue.class, state.returnValue().orElseThrow());
+    assertEquals(new ObjectValue(7), waif.classObject());
+    assertEquals(new ObjectValue(1), waif.owner());
+  }
+
+  @Test
+  void createWithAnonymousFlagCommitsAnonymousIdentityWithoutPermanentAllocation() {
+    WorldObject parent =
+        new WorldObject(
+            0, "anonymous parent", 0, 0, -1, -1, List.of(), List.of(), List.of(), List.of());
+    WorldObject programmer =
+        new WorldObject(
+            1, "programmer", 4, 1, -1, -1, List.of(), List.of(), List.of(), List.of());
+    WorldTxn world = new WorldTxn(List.of(1L), List.of(parent, programmer));
+    VmState state =
+        new VmState(Map.of("player", new ObjectValue(1), "this", new ObjectValue(1)), 1);
+
+    executeAndCommit(
+        new MooCompiler().compile(MooParser.parse("return create(#0, 1);")),
+        state,
+        world,
+        new BuiltinCatalog());
+
+    assertEquals(VmState.Outcome.RETURNED, state.outcome());
+    AnonymousObjectValue identity =
+        assertInstanceOf(AnonymousObjectValue.class, state.returnValue().orElseThrow());
+    try (WorldTxn view = world.begin()) {
+      assertEquals(2, view.objectCount());
+      assertEquals(1, view.maximumObjectId());
+      assertEquals(0, view.anonymousObject(identity).orElseThrow().parent());
+      assertEquals(1, view.anonymousObject(identity).orElseThrow().owner());
+      assertTrue(view.object(0).orElseThrow().children().isEmpty());
     }
   }
 

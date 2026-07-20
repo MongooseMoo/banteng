@@ -370,8 +370,9 @@ use the Phase 2 production scheduler, VM, `WorldTxn`, and checkpoint path:
    indexing, and collection updates;
 2. control flow, loops, comprehensions, scatter assignment, calls, exceptions,
    and `finally`;
-3. complete streaming v4/v17 input and v17 output for objects, properties,
-   verbs, WAIFs, and anonymous objects;
+3. complete streaming v4 input for the legacy permanent-object bootstrap
+   surface, and complete v17 input plus deterministic v17 output for objects,
+   properties, verbs, WAIFs, and anonymous objects;
 4. parent/child, location/contents, inheritance, property, verb, player, and
    recycled-object indices; and
 5. anonymous fork parsing and a serializable fork-request VM outcome. Task IDs,
@@ -389,9 +390,20 @@ Add `MooValuePropertiesTest` for equality/hash/order, Latin-1 round trips, and
 nested collection operations; `MooCompilerPropertiesTest` for generated
 control-flow targets and byte-identical disassembly; and `VmSnapshotTest` for
 the five named VM boundaries and the durable-state restrictions. Add
-`AnonymousObjectPersistenceTest`, which loads each of the six committed
-anonymous-object v4 fixtures, writes v17, reloads it, and compares every
-anonymous object, property, verb, and reference. Add `WorldIndexPropertyTest`,
+`AnonymousObjectPersistenceTest`, which starts each of the six committed v17
+anonymous-object fixtures (`Anon1.db` through `Anon6.db`) through the production
+runtime. It runs the exact boot counts `Anon1=2`, `Anon2=2`, `Anon3=2`,
+`Anon4=3`, `Anon5=3`, and `Anon6=1`; every boot waits for fixture-defined
+shutdown and its resulting v17 checkpoint, and the next boot consumes that
+checkpoint. After every boot it reloads the checkpoint and compares every
+anonymous object, pending-finalization root, property, verb, and recursive
+reference while preserving aliases and cycles. It also freezes the Toast
+canned-database lifecycle invariants: the second `Anon1` and `Anon2` checkpoints
+are byte-identical to their first checkpoints, both `Anon3` checkpoints are
+byte-identical to the input, the final `Anon4` checkpoint is byte-identical to
+the input, the second and third `Anon5` checkpoints are byte-identical, and
+`Anon6` removes its invalid pending-finalization value. Add
+`WorldIndexPropertyTest`,
 which generates create, recycle, reparent, move, player-flag, property, and verb
 mutations and after every committed transaction recomputes and compares the
 parent/child, location/contents, inheritance, property, verb, player, and

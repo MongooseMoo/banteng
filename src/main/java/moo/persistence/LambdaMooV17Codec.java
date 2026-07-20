@@ -15,12 +15,14 @@ import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.IdentityHashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import moo.value.MooValue;
+import moo.value.MooValue.AnonymousObjectValue;
 import moo.value.MooValue.BooleanValue;
 import moo.value.MooValue.ErrorValue;
 import moo.value.MooValue.FloatValue;
@@ -29,8 +31,10 @@ import moo.value.MooValue.ListValue;
 import moo.value.MooValue.MapValue;
 import moo.value.MooValue.ObjectValue;
 import moo.value.MooValue.StringValue;
+import moo.value.MooValue.WaifValue;
 import moo.vm.VmSnapshot;
 import moo.world.WorldObject;
+import moo.world.WorldAnonymousObject;
 import moo.world.WorldProperty;
 import moo.world.WorldSnapshot;
 import moo.world.WorldTxn;
@@ -111,6 +115,7 @@ public final class LambdaMooV17Codec {
         players.add(readLong(input, "player object"));
       }
 
+      ReadContext context = new ReadContext();
       requireExact(input, "0 values pending finalization", "pending-finalization count");
       requireExact(input, "0 clocks", "clocks count");
       requireExact(input, "0 queued tasks", "queued-task count");
@@ -120,17 +125,29 @@ public final class LambdaMooV17Codec {
 
       Map<Long, RawObject> objects = new LinkedHashMap<>();
       long expectedObjectId = 0;
+      int permanentSlotCount = readCount(input, "permanent object batch count");
+      for (int index = 0; index < permanentSlotCount; index++) {
+        RawObject object = readObject(input, expectedObjectId++, context);
+        if (object != null && objects.putIfAbsent(object.id(), object) != null) {
+          throw malformed("duplicate object #" + object.id());
+        }
+      }
       while (true) {
-        int batchCount = readCount(input, "object batch count");
+        int batchCount = readCount(input, "anonymous object batch count");
         if (batchCount == 0) {
           break;
         }
         for (int index = 0; index < batchCount; index++) {
-          RawObject object = readObject(input, expectedObjectId++);
-          if (object != null) {
-            if (objects.putIfAbsent(object.id(), object) != null) {
-              throw malformed("duplicate object #" + object.id());
-            }
+          long objectId = expectedObjectId++;
+          if (!context.anonymousById.containsKey(objectId)) {
+            throw malformed("anonymous object body has no preceding reference #" + objectId);
+          }
+          RawObject object = readObject(input, objectId, context);
+          if (object == null) {
+            throw malformed("anonymous object body is recycled #" + objectId);
+          }
+          if (objects.putIfAbsent(object.id(), object) != null) {
+            throw malformed("duplicate object #" + object.id());
           }
         }
       }
@@ -144,8 +161,10 @@ public final class LambdaMooV17Codec {
         throw malformed("unexpected v17 data after program section");
       }
 
-      List<WorldObject> restored = restoreObjects(objects, programs);
-      return new Checkpoint(new WorldTxn(players, restored), List.of());
+      List<WorldObject> restored = restoreObjects(objects, programs, permanentSlotCount);
+      Map<AnonymousObjectValue, WorldAnonymousObject> anonymousObjects =
+          restoreAnonymousObjects(objects, programs, context, permanentSlotCount);
+      return new Checkpoint(new WorldTxn(players, restored, anonymousObjects), List.of());
     }
   }
 
@@ -170,18 +189,42 @@ public final class LambdaMooV17Codec {
     if (maximumObjectId > Integer.MAX_VALUE - 1L) {
       throw new IOException("v17 object slot count exceeds supported range");
     }
+    WriteContext context = new WriteContext(world, maximumObjectId + 1);
     line(output, maximumObjectId + 1);
     int objectIndex = 0;
     for (long objectId = 0; objectId <= maximumObjectId; objectId++) {
       if (objectIndex >= objects.size() || objects.get(objectIndex).id() != objectId) {
         line(output, "#" + objectId + " recycled");
       } else {
-        writeObject(output, objects.get(objectIndex++));
+        writeObject(output, objects.get(objectIndex++), context);
+      }
+    }
+    int anonymousIndex = 0;
+    while (anonymousIndex < context.anonymousOrder.size()) {
+      int batchEnd = context.anonymousOrder.size();
+      line(output, batchEnd - anonymousIndex);
+      while (anonymousIndex < batchEnd) {
+        AnonymousObjectValue identity = context.anonymousOrder.get(anonymousIndex++);
+        WorldAnonymousObject object = world.anonymousObjects().get(identity);
+        if (object == null) {
+          throw new IOException("anonymous value has no world object body");
+        }
+        writeAnonymousObject(
+            output,
+            Objects.requireNonNull(context.anonymousIds.get(identity)),
+            object,
+            context);
       }
     }
     line(output, 0);
 
     int programCount = objects.stream().mapToInt(object -> object.verbs().size()).sum();
+    for (AnonymousObjectValue identity : context.anonymousOrder) {
+      programCount =
+          Math.addExact(
+              programCount,
+              Objects.requireNonNull(world.anonymousObjects().get(identity)).verbs().size());
+    }
     line(output, programCount);
     for (WorldObject object : objects) {
       for (int verbIndex = 0; verbIndex < object.verbs().size(); verbIndex++) {
@@ -194,18 +237,32 @@ public final class LambdaMooV17Codec {
         line(output, ".");
       }
     }
+    for (AnonymousObjectValue identity : context.anonymousOrder) {
+      WorldAnonymousObject object = Objects.requireNonNull(world.anonymousObjects().get(identity));
+      long objectId = Objects.requireNonNull(context.anonymousIds.get(identity));
+      for (int verbIndex = 0; verbIndex < object.verbs().size(); verbIndex++) {
+        line(output, "#" + objectId + ":" + verbIndex);
+        String source = object.verbs().get(verbIndex).programSource();
+        output.write(source);
+        if (!source.isEmpty() && source.charAt(source.length() - 1) != '\n') {
+          output.write('\n');
+        }
+        line(output, ".");
+      }
+    }
   }
 
-  private static void writeObject(BufferedWriter output, WorldObject object) throws IOException {
+  private static void writeObject(
+      BufferedWriter output, WorldObject object, WriteContext context) throws IOException {
     line(output, "#" + object.id());
     lineString(output, object.name(), "object name");
     line(output, object.flags());
     line(output, object.owner());
-    writeValue(output, new ObjectValue(object.location()));
-    writeValue(output, new IntegerValue(0));
-    writeObjectList(output, object.contents());
-    writeValue(output, new ObjectValue(object.parent()));
-    writeObjectList(output, object.children());
+    writeValue(output, new ObjectValue(object.location()), context);
+    writeValue(output, new IntegerValue(0), context);
+    writeObjectList(output, object.contents(), context);
+    writeValue(output, new ObjectValue(object.parent()), context);
+    writeObjectList(output, object.children(), context);
 
     line(output, object.verbs().size());
     for (WorldVerb verb : object.verbs()) {
@@ -227,20 +284,65 @@ public final class LambdaMooV17Codec {
       if (property.clear()) {
         line(output, 5);
       } else {
-        writeValue(output, property.value());
+        writeValue(output, property.value(), context);
       }
       line(output, property.owner());
       line(output, property.permissions());
     }
   }
 
-  private static void writeObjectList(BufferedWriter output, List<Long> objectIds)
+  private static void writeAnonymousObject(
+      BufferedWriter output,
+      long objectId,
+      WorldAnonymousObject object,
+      WriteContext context)
       throws IOException {
-    List<MooValue> values = objectIds.stream().map(ObjectValue::new).map(MooValue.class::cast).toList();
-    writeValue(output, new ListValue(values));
+    line(output, "#" + objectId);
+    lineString(output, object.name(), "anonymous object name");
+    line(output, object.flags());
+    line(output, object.owner());
+    writeValue(output, new ObjectValue(-1), context);
+    writeValue(output, new IntegerValue(0), context);
+    writeObjectList(output, List.of(), context);
+    writeValue(output, new ObjectValue(object.parent()), context);
+    writeObjectList(output, List.of(), context);
+
+    line(output, object.verbs().size());
+    for (WorldVerb verb : object.verbs()) {
+      lineString(output, verb.names(), "anonymous verb names");
+      line(output, verb.owner());
+      line(output, verb.permissions());
+      line(output, verb.preposition());
+    }
+
+    long definitionCount = object.properties().stream().filter(WorldProperty::defined).count();
+    line(output, definitionCount);
+    for (WorldProperty property : object.properties()) {
+      if (property.defined()) {
+        lineString(output, property.name(), "anonymous property name");
+      }
+    }
+    line(output, object.properties().size());
+    for (WorldProperty property : object.properties()) {
+      if (property.clear()) {
+        line(output, 5);
+      } else {
+        writeValue(output, property.value(), context);
+      }
+      line(output, property.owner());
+      line(output, property.permissions());
+    }
   }
 
-  private static void writeValue(BufferedWriter output, MooValue value) throws IOException {
+  private static void writeObjectList(
+      BufferedWriter output, List<Long> objectIds, WriteContext context)
+      throws IOException {
+    List<MooValue> values = objectIds.stream().map(ObjectValue::new).map(MooValue.class::cast).toList();
+    writeValue(output, new ListValue(values), context);
+  }
+
+  private static void writeValue(BufferedWriter output, MooValue value, WriteContext context)
+      throws IOException {
     line(output, value.type().code());
     switch (value) {
       case IntegerValue integer -> line(output, integer.value());
@@ -257,21 +359,39 @@ public final class LambdaMooV17Codec {
       case ListValue list -> {
         line(output, list.size());
         for (MooValue element : list.elements()) {
-          writeValue(output, element);
+          writeValue(output, element, context);
         }
       }
       case MapValue map -> {
         line(output, map.size());
         for (Map.Entry<MooValue, MooValue> entry : map.entries().entrySet()) {
-          writeValue(output, entry.getKey());
-          writeValue(output, entry.getValue());
+          writeValue(output, entry.getKey(), context);
+          writeValue(output, entry.getValue(), context);
+        }
+      }
+      case AnonymousObjectValue anonymous -> line(output, context.anonymousId(anonymous));
+      case WaifValue waif -> {
+        Integer existing = context.waifIds.get(waif);
+        if (existing != null) {
+          line(output, "r " + existing);
+          line(output, ".");
+        } else {
+          int index = context.waifIds.size();
+          context.waifIds.put(waif, index);
+          line(output, "c " + index);
+          line(output, waif.classObject().value());
+          line(output, waif.owner().value());
+          line(output, 0);
+          line(output, -1);
+          line(output, ".");
         }
       }
       default -> throw new IOException("unsupported Phase 2 v17 value: " + value.type());
     }
   }
 
-  private static @Nullable RawObject readObject(BufferedReader input, long expectedId)
+  private static @Nullable RawObject readObject(
+      BufferedReader input, long expectedId, ReadContext context)
       throws IOException {
     String header = requiredLine(input, "object #" + expectedId + " header");
     if (header.equals("#" + expectedId + " recycled")
@@ -284,11 +404,18 @@ public final class LambdaMooV17Codec {
     String name = requiredLine(input, "object #" + expectedId + " name");
     int flags = readInt(input, "object #" + expectedId + " flags");
     long owner = readLong(input, "object #" + expectedId + " owner");
-    long location = requireObject(readValue(input), "object #" + expectedId + " location");
-    readValue(input); // last_move is not represented in the Phase 2 world record.
-    List<Long> contents = requireObjectList(readValue(input), "object #" + expectedId + " contents");
-    long parent = requireSingleParent(readValue(input), "object #" + expectedId + " parents");
-    List<Long> children = requireObjectList(readValue(input), "object #" + expectedId + " children");
+    long location =
+        requireObject(readValue(input, context), "object #" + expectedId + " location");
+    readValue(input, context); // last_move is not represented in the Phase 2 world record.
+    List<Long> contents =
+        requireObjectList(
+            readValue(input, context), "object #" + expectedId + " contents");
+    long parent =
+        requireSingleParent(
+            readValue(input, context), "object #" + expectedId + " parents");
+    List<Long> children =
+        requireObjectList(
+            readValue(input, context), "object #" + expectedId + " children");
 
     int verbCount = readCount(input, "object #" + expectedId + " verb count");
     List<RawVerb> verbs = new ArrayList<>(verbCount);
@@ -312,7 +439,7 @@ public final class LambdaMooV17Codec {
       int tag = readInt(input, "property value tag");
       propertySlots.add(
           new RawPropertySlot(
-              tag == 5 ? null : readValue(input, tag),
+              tag == 5 ? null : readValue(input, tag, context),
               tag == 5,
               readLong(input, "property owner"),
               readInt(input, "property permissions")));
@@ -362,13 +489,19 @@ public final class LambdaMooV17Codec {
   }
 
   private static List<WorldObject> restoreObjects(
-      Map<Long, RawObject> objects, Map<ProgramSlot, String> programs) throws IOException {
+      Map<Long, RawObject> objects,
+      Map<ProgramSlot, String> programs,
+      int permanentSlotCount)
+      throws IOException {
     Map<Long, List<WorldProperty>> restoredProperties = new LinkedHashMap<>();
     for (RawObject object : objects.values()) {
       restoreProperties(object, objects, restoredProperties, new ArrayList<>());
     }
     List<WorldObject> restored = new ArrayList<>(objects.size());
     for (RawObject object : objects.values()) {
+      if (object.id() >= permanentSlotCount) {
+        continue;
+      }
       List<WorldVerb> verbs = new ArrayList<>(object.verbs().size());
       for (int index = 0; index < object.verbs().size(); index++) {
         RawVerb verb = object.verbs().get(index);
@@ -390,6 +523,49 @@ public final class LambdaMooV17Codec {
               object.parent(),
               object.contents(),
               object.children(),
+              verbs,
+              Objects.requireNonNull(restoredProperties.get(object.id()))));
+    }
+    return restored;
+  }
+
+  private static Map<AnonymousObjectValue, WorldAnonymousObject> restoreAnonymousObjects(
+      Map<Long, RawObject> objects,
+      Map<ProgramSlot, String> programs,
+      ReadContext context,
+      int permanentSlotCount)
+      throws IOException {
+    Map<Long, List<WorldProperty>> restoredProperties = new LinkedHashMap<>();
+    for (RawObject object : objects.values()) {
+      restoreProperties(object, objects, restoredProperties, new ArrayList<>());
+    }
+    Map<AnonymousObjectValue, WorldAnonymousObject> restored = new LinkedHashMap<>();
+    for (Map.Entry<Long, AnonymousObjectValue> entry : context.anonymousById.entrySet()) {
+      if (entry.getKey() < permanentSlotCount) {
+        throw malformed("anonymous reference reuses permanent object #" + entry.getKey());
+      }
+      RawObject object = objects.get(entry.getKey());
+      if (object == null) {
+        throw malformed("anonymous reference has no object body #" + entry.getKey());
+      }
+      List<WorldVerb> verbs = new ArrayList<>(object.verbs().size());
+      for (int index = 0; index < object.verbs().size(); index++) {
+        RawVerb verb = object.verbs().get(index);
+        String source = programs.get(new ProgramSlot(object.id(), index));
+        if (source == null) {
+          throw malformed("missing program #" + object.id() + ":" + index);
+        }
+        verbs.add(
+            new WorldVerb(
+                verb.names(), verb.owner(), verb.permissions(), verb.preposition(), source));
+      }
+      restored.put(
+          entry.getValue(),
+          new WorldAnonymousObject(
+              object.name(),
+              object.flags(),
+              object.owner(),
+              object.parent(),
               verbs,
               Objects.requireNonNull(restoredProperties.get(object.id()))));
     }
@@ -457,12 +633,13 @@ public final class LambdaMooV17Codec {
     return result;
   }
 
-  private static MooValue readValue(BufferedReader input) throws IOException {
+  private static MooValue readValue(BufferedReader input, ReadContext context) throws IOException {
     int tag = readInt(input, "value tag");
-    return readValue(input, tag);
+    return readValue(input, tag, context);
   }
 
-  private static MooValue readValue(BufferedReader input, int tag) throws IOException {
+  private static MooValue readValue(BufferedReader input, int tag, ReadContext context)
+      throws IOException {
     return switch (tag) {
       case 0 -> new IntegerValue(readLong(input, "integer value"));
       case 1 -> new ObjectValue(readLong(input, "object value"));
@@ -475,26 +652,72 @@ public final class LambdaMooV17Codec {
         int count = readCount(input, "list count");
         List<MooValue> values = new ArrayList<>(count);
         for (int index = 0; index < count; index++) {
-          values.add(readValue(input));
+          values.add(readValue(input, context));
         }
         yield new ListValue(values);
       }
       case 9 -> new FloatValue(readDouble(input, "float value"));
       case 10 -> {
         int count = readCount(input, "map count");
-        Map<MooValue, MooValue> values = new LinkedHashMap<>();
+        MapValue values = new MapValue(Map.of());
         for (int index = 0; index < count; index++) {
-          MooValue key = readValue(input);
-          MooValue previous = values.put(key, readValue(input));
-          if (previous != null) {
+          MooValue key = readValue(input, context);
+          MooValue value = readValue(input, context);
+          if (values.get(key).isPresent()) {
             throw malformed("duplicate map key in v17 value");
           }
+          values = values.with(key, value);
         }
-        yield new MapValue(values);
+        yield values;
       }
+      case 12 -> {
+        long objectId = readLong(input, "anonymous object reference");
+        if (objectId == -1) {
+          yield context.invalidAnonymous;
+        }
+        if (objectId < 0) {
+          throw malformed("invalid anonymous object reference #" + objectId);
+        }
+        yield context.anonymousById.computeIfAbsent(
+            objectId, ignored -> new AnonymousObjectValue());
+      }
+      case 13 -> readWaif(input, context);
       case 14 -> BooleanValue.of(readLong(input, "boolean value") != 0);
       default -> throw malformed("unsupported Phase 2 v17 value tag " + tag);
     };
+  }
+
+  private static WaifValue readWaif(BufferedReader input, ReadContext context)
+      throws IOException {
+    String header = requiredLine(input, "WAIF identity header");
+    if (header.length() < 3 || header.charAt(1) != ' ') {
+      throw malformed("invalid WAIF identity header: " + header);
+    }
+    char kind = header.charAt(0);
+    int index = parseCount(header.substring(2), "WAIF identity index");
+    if (kind == 'r') {
+      requireExact(input, ".", "WAIF reference terminator");
+      WaifValue existing = context.waifs.get(index);
+      if (existing == null) {
+        throw malformed("WAIF reference precedes creation " + index);
+      }
+      return existing;
+    }
+    if (kind != 'c' || index != context.waifs.size()) {
+      throw malformed("invalid WAIF creation index " + index);
+    }
+    WaifValue waif =
+        new WaifValue(
+            new ObjectValue(readLong(input, "WAIF class")),
+            new ObjectValue(readLong(input, "WAIF owner")));
+    context.waifs.put(index, waif);
+    int propertyCount = readCount(input, "WAIF property count");
+    if (propertyCount != 0) {
+      throw malformed("WAIF property slots are not represented by the current value model");
+    }
+    requireExact(input, "-1", "WAIF property terminator");
+    requireExact(input, ".", "WAIF creation terminator");
+    return waif;
   }
 
   private static long requireObject(MooValue value, String field) throws IOException {
@@ -609,6 +832,40 @@ public final class LambdaMooV17Codec {
 
   private static IOException malformed(String message, Throwable cause) {
     return new IOException(message, cause);
+  }
+
+  private static final class WriteContext {
+    private final List<AnonymousObjectValue> anonymousOrder = new ArrayList<>();
+    private final IdentityHashMap<AnonymousObjectValue, Long> anonymousIds =
+        new IdentityHashMap<>();
+    private final IdentityHashMap<WaifValue, Integer> waifIds = new IdentityHashMap<>();
+    private final WorldSnapshot world;
+    private long nextObjectId;
+
+    private WriteContext(WorldSnapshot world, long nextObjectId) {
+      this.world = world;
+      this.nextObjectId = nextObjectId;
+    }
+
+    private long anonymousId(AnonymousObjectValue identity) {
+      if (!world.anonymousObjects().containsKey(identity)) {
+        return -1;
+      }
+      Long existing = anonymousIds.get(identity);
+      if (existing != null) {
+        return existing;
+      }
+      long assigned = nextObjectId++;
+      anonymousIds.put(identity, assigned);
+      anonymousOrder.add(identity);
+      return assigned;
+    }
+  }
+
+  private static final class ReadContext {
+    private final Map<Long, AnonymousObjectValue> anonymousById = new LinkedHashMap<>();
+    private final AnonymousObjectValue invalidAnonymous = new AnonymousObjectValue();
+    private final Map<Integer, WaifValue> waifs = new LinkedHashMap<>();
   }
 
   private record ProgramSlot(long objectId, int verbIndex) {}

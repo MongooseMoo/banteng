@@ -13,6 +13,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import moo.value.MooValue.AnonymousObjectValue;
 import moo.value.MooValue.BooleanValue;
 import moo.value.MooValue.ErrorValue;
 import moo.value.MooValue.FloatValue;
@@ -26,7 +27,7 @@ import org.junit.jupiter.api.Test;
 
 final class MooValueTest {
   @Test
-  void familyIsClosedOverExactlyTheNineAuthorizedValues() {
+  void familyIsClosedOverExactlyTheTenAuthorizedValues() {
     assertTrue(MooValue.class.isSealed());
     assertEquals(
         Set.of(
@@ -35,14 +36,32 @@ final class MooValueTest {
             FloatValue.class,
             StringValue.class,
             ObjectValue.class,
+            AnonymousObjectValue.class,
             WaifValue.class,
             ErrorValue.class,
             ListValue.class,
             MapValue.class),
         Set.of(MooValue.class.getPermittedSubclasses()));
     assertEquals(
-        List.of(0, 1, 2, 3, 4, 9, 10, 13, 14),
+        List.of(0, 1, 2, 3, 4, 9, 10, 12, 13, 14),
         List.of(MooValue.Type.values()).stream().map(MooValue.Type::code).toList());
+  }
+
+  @Test
+  void anonymousObjectsUseReferenceIdentityAndTypeTwelve() {
+    AnonymousObjectValue first = new AnonymousObjectValue();
+    AnonymousObjectValue second = new AnonymousObjectValue();
+
+    assertEquals(MooValue.Type.ANONYMOUS, first.type());
+    assertFalse(first.isTruthy());
+    assertEquals("*anonymous*", first.toLiteral());
+    assertEquals(first, first);
+    assertNotEquals(first, second);
+
+    MapValue map = new MapValue(Map.of(first, new IntegerValue(1), second, new IntegerValue(2)));
+    assertEquals(new IntegerValue(1), map.get(first).orElseThrow());
+    assertEquals(new IntegerValue(2), map.get(second).orElseThrow());
+    assertEquals(2, map.size());
   }
 
   @Test

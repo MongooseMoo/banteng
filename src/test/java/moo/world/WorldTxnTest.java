@@ -10,6 +10,7 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import moo.value.MooValue.AnonymousObjectValue;
 import moo.value.MooValue.IntegerValue;
 import moo.value.MooValue.ListValue;
 import moo.value.MooValue.StringValue;
@@ -106,6 +107,65 @@ final class WorldTxnTest {
     assertFalse(result.isCommitted());
     assertEquals(Set.of(WorldTxn.ScanPredicate.OBJECT_IDS), result.conflictingPredicates());
     assertEquals(2, root.snapshot().objects().size());
+  }
+
+  @Test
+  void anonymousAllocationCommitsAndRollsBackOutsidePermanentObjectTopology() {
+    WorldTxn root = root(object(0, "parent"));
+    AnonymousObjectValue committed;
+    try (WorldTxn transaction = root.begin()) {
+      committed = transaction.createAnonymousObject(0, 0);
+
+      assertEquals(1, transaction.objectCount());
+      assertEquals(0, transaction.maximumObjectId());
+      assertEquals(List.of(), transaction.object(0).orElseThrow().children());
+      WorldAnonymousObject body = transaction.anonymousObject(committed).orElseThrow();
+      assertEquals(0, body.owner());
+      assertEquals(0, body.parent());
+      assertEquals(body, transaction.snapshot().anonymousObjects().get(committed));
+      assertTrue(transaction.commit().isCommitted());
+    }
+
+    try (WorldTxn view = root.begin()) {
+      assertTrue(view.anonymousObject(committed).isPresent());
+      assertEquals(1, view.objectCount());
+      assertEquals(List.of(), view.object(0).orElseThrow().children());
+    }
+
+    AnonymousObjectValue rolledBack;
+    try (WorldTxn transaction = root.begin()) {
+      rolledBack = transaction.createAnonymousObject(0, 0);
+      assertTrue(transaction.anonymousObject(rolledBack).isPresent());
+    }
+    try (WorldTxn view = root.begin()) {
+      assertTrue(view.anonymousObject(rolledBack).isEmpty());
+      assertEquals(1, view.snapshot().anonymousObjects().size());
+    }
+  }
+
+  @Test
+  void propertyDefinitionsPropagateToAnonymousDescendants() {
+    WorldTxn root = root(object(0, "parent"));
+    AnonymousObjectValue identity;
+
+    try (WorldTxn transaction = root.begin()) {
+      identity = transaction.createAnonymousObject(0, 0);
+      assertTrue(transaction.addProperty(0, "later", new IntegerValue(17), 0, 1));
+
+      WorldProperty inherited =
+          transaction.anonymousObject(identity).orElseThrow().properties().getFirst();
+      assertEquals("later", inherited.name());
+      assertEquals(new IntegerValue(17), inherited.value());
+      assertTrue(inherited.clear());
+      assertFalse(inherited.defined());
+      assertTrue(transaction.commit().isCommitted());
+    }
+
+    try (WorldTxn view = root.begin()) {
+      assertEquals(
+          "later",
+          view.anonymousObject(identity).orElseThrow().properties().getFirst().name());
+    }
   }
 
   @Test

@@ -14,6 +14,7 @@ import java.util.OptionalLong;
 import java.util.Set;
 import java.util.StringTokenizer;
 import moo.value.MooValue;
+import moo.value.MooValue.AnonymousObjectValue;
 import moo.value.MooValue.IntegerValue;
 import moo.value.MooValue.ListValue;
 import moo.value.MooValue.MapValue;
@@ -42,6 +43,7 @@ public final class WorldTxn implements AutoCloseable {
   private final World base;
   private final Set<Long> recordReads = new LinkedHashSet<>();
   private final Set<Long> recordWrites = new LinkedHashSet<>();
+  private final Set<AnonymousObjectValue> anonymousWrites = new LinkedHashSet<>();
   private final Set<ScanPredicate> scanPredicates = new LinkedHashSet<>();
   private final List<MooValue> stagedEffects = new ArrayList<>();
   private World working;
@@ -50,7 +52,15 @@ public final class WorldTxn implements AutoCloseable {
 
   /** Creates the committed world owner from immutable snapshots of the supplied records. */
   public WorldTxn(List<Long> players, List<WorldObject> objects) {
-    history = new WorldHistory(players, objects);
+    this(players, objects, Map.of());
+  }
+
+  /** Creates the committed world owner with permanent and anonymous records. */
+  public WorldTxn(
+      List<Long> players,
+      List<WorldObject> objects,
+      Map<AnonymousObjectValue, WorldAnonymousObject> anonymousObjects) {
+    history = new WorldHistory(players, objects, anonymousObjects);
     transaction = false;
     base = history.current();
     working = base;
@@ -246,6 +256,13 @@ public final class WorldTxn implements AutoCloseable {
     ensureActiveTransaction();
     recordReads.add(objectId);
     return Optional.ofNullable(working.objects().get(objectId));
+  }
+
+  /** Returns one anonymous object body by reference identity. */
+  public Optional<WorldAnonymousObject> anonymousObject(AnonymousObjectValue identity) {
+    ensureActiveTransaction();
+    return Optional.ofNullable(
+        working.anonymousObjects().get(Objects.requireNonNull(identity, "identity")));
   }
 
   /** Looks up a zero-based verb slot on an object. */
@@ -501,6 +518,31 @@ public final class WorldTxn implements AutoCloseable {
               parent.properties()));
     }
     return created;
+  }
+
+  /** Allocates an anonymous object without changing the permanent object-number topology. */
+  public AnonymousObjectValue createAnonymousObject(long parentId, long ownerId) {
+    if (parentId != -1 && object(parentId).isEmpty()) {
+      throw new IllegalArgumentException("missing parent #" + parentId);
+    }
+    List<WorldProperty> properties = new ArrayList<>();
+    if (parentId != -1) {
+      for (WorldProperty property : object(parentId).orElseThrow().properties()) {
+        properties.add(
+            new WorldProperty(
+                property.name(),
+                property.value(),
+                property.owner(),
+                property.permissions(),
+                true,
+                false));
+      }
+    }
+    AnonymousObjectValue identity = new AnonymousObjectValue();
+    replaceAnonymousObject(
+        identity,
+        new WorldAnonymousObject("", 0, ownerId, parentId, List.of(), properties));
+    return identity;
   }
 
   /** Removes one object from the current immutable world snapshot. */
@@ -784,6 +826,55 @@ public final class WorldTxn implements AutoCloseable {
         inheritedIndices.add(inheritedIndex);
       }
     }
+    for (Map.Entry<AnonymousObjectValue, WorldAnonymousObject> entry :
+        List.copyOf(working.anonymousObjects().entrySet())) {
+      WorldAnonymousObject anonymous = entry.getValue();
+      long ancestorId = anonymous.parent();
+      boolean descendant = false;
+      while (ancestorId != -1) {
+        if (ancestorId == objectId) {
+          descendant = true;
+          break;
+        }
+        WorldObject ancestor = working.objects().get(ancestorId);
+        if (ancestor == null) {
+          break;
+        }
+        ancestorId = ancestor.parent();
+      }
+      if (!descendant) {
+        continue;
+      }
+      WorldObject parent = Objects.requireNonNull(working.objects().get(anonymous.parent()));
+      int parentIndex = -1;
+      for (int index = 0; index < parent.properties().size(); index++) {
+        if (parent.properties().get(index).name().equalsIgnoreCase(name)) {
+          parentIndex = index;
+          break;
+        }
+      }
+      if (parentIndex < 0) {
+        throw new IllegalStateException("anonymous parent is missing inherited property");
+      }
+      int localDefinitionCount = 0;
+      while (localDefinitionCount < anonymous.properties().size()
+          && anonymous.properties().get(localDefinitionCount).defined()) {
+        localDefinitionCount++;
+      }
+      List<WorldProperty> anonymousProperties = new ArrayList<>(anonymous.properties());
+      anonymousProperties.add(
+          localDefinitionCount + parentIndex,
+          new WorldProperty(name, value, owner, permissions, true, false));
+      replaceAnonymousObject(
+          entry.getKey(),
+          new WorldAnonymousObject(
+              anonymous.name(),
+              anonymous.flags(),
+              anonymous.owner(),
+              anonymous.parent(),
+              anonymous.verbs(),
+              anonymousProperties));
+    }
     return true;
   }
 
@@ -1034,9 +1125,26 @@ public final class WorldTxn implements AutoCloseable {
     replaceWorld(working.players(), objects);
   }
 
+  private void replaceAnonymousObject(
+      AnonymousObjectValue identity, WorldAnonymousObject replacement) {
+    ensureActiveTransaction();
+    Map<AnonymousObjectValue, WorldAnonymousObject> anonymousObjects =
+        new LinkedHashMap<>(working.anonymousObjects());
+    anonymousObjects.put(identity, replacement);
+    World next =
+        new World(base.revision(), working.players(), working.objects(), anonymousObjects);
+    if (Objects.equals(base.anonymousObjects().get(identity), replacement)) {
+      anonymousWrites.remove(identity);
+    } else {
+      anonymousWrites.add(identity);
+    }
+    working = next;
+  }
+
   private void replaceWorld(List<Long> players, Map<Long, WorldObject> objects) {
     ensureActiveTransaction();
-    World replacement = new World(base.revision(), players, objects);
+    World replacement =
+        new World(base.revision(), players, objects, working.anonymousObjects());
     Set<Long> candidates = new LinkedHashSet<>(working.objects().keySet());
     candidates.addAll(replacement.objects().keySet());
     for (long objectId : candidates) {
@@ -1066,6 +1174,10 @@ public final class WorldTxn implements AutoCloseable {
 
   Set<Long> recordWrites() {
     return Collections.unmodifiableSet(recordWrites);
+  }
+
+  Set<AnonymousObjectValue> anonymousWrites() {
+    return Collections.unmodifiableSet(anonymousWrites);
   }
 
   Set<ScanPredicate> scanPredicates() {
