@@ -18,6 +18,7 @@ import moo.bytecode.BytecodeProgram;
 import moo.bytecode.BytecodeProgram.Instruction;
 import moo.bytecode.MooCompiler;
 import moo.value.MooValue;
+import moo.value.MooValue.AnonymousObjectValue;
 import moo.value.MooValue.BooleanValue;
 import moo.value.MooValue.ErrorValue;
 import moo.value.MooValue.FloatValue;
@@ -565,6 +566,26 @@ public final class MooVm {
       frame.instructionPointer++;
       return;
     }
+    if (receiver instanceof AnonymousObjectValue anonymous) {
+      WorldProperty property = world.property(anonymous, nameText).orElse(null);
+      if (property != null) {
+        long programmer = state.programmer();
+        WorldObject programmerObject = world.object(programmer).orElse(null);
+        boolean wizard = programmerObject != null && (programmerObject.flags() & 4) != 0;
+        if (property.owner() != programmer && !wizard && (property.permissions() & 1) == 0) {
+          raiseError(state, ErrorValue.E_PERM, world);
+          return;
+        }
+      }
+      MooValue value = world.readObjectProperty(anonymous, nameText).orElse(null);
+      if (value == null) {
+        raiseError(state, ErrorValue.E_PROPNF, world);
+        return;
+      }
+      frame.operandStack.push(value);
+      frame.instructionPointer++;
+      return;
+    }
     if (!(receiver instanceof ObjectValue object)) {
       raiseError(state, ErrorValue.E_TYPE, world);
       return;
@@ -616,6 +637,25 @@ public final class MooVm {
         }
       }
       if (!world.writeWaifProperty(waif, nameText, value)) {
+        raiseError(state, ErrorValue.E_PROPNF, world);
+        return;
+      }
+      frame.operandStack.push(value);
+      frame.instructionPointer++;
+      return;
+    }
+    if (receiver instanceof AnonymousObjectValue anonymous) {
+      WorldProperty property = world.property(anonymous, nameText).orElse(null);
+      if (property != null) {
+        long programmer = state.programmer();
+        WorldObject programmerObject = world.object(programmer).orElse(null);
+        boolean wizard = programmerObject != null && (programmerObject.flags() & 4) != 0;
+        if (property.owner() != programmer && !wizard && (property.permissions() & 2) == 0) {
+          raiseError(state, ErrorValue.E_PERM, world);
+          return;
+        }
+      }
+      if (!world.writeObjectProperty(anonymous, nameText, value)) {
         raiseError(state, ErrorValue.E_PROPNF, world);
         return;
       }

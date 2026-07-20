@@ -15,6 +15,7 @@ import java.util.OptionalLong;
 import java.util.Set;
 import java.util.StringTokenizer;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 import moo.builtin.BuiltinCatalog;
@@ -52,7 +53,7 @@ public final class MooRuntime {
   static final long DEFAULT_BACKGROUND_SECONDS = 3;
   static final long DEFAULT_MAX_STACK_DEPTH = 50;
 
-  private final MooCompiler compiler = new MooCompiler();
+  private final Map<String, BytecodeProgram> compiledPrograms = new ConcurrentHashMap<>();
   private final BuiltinCatalog builtins;
   private final Optional<ListenerControl> listenerControl;
   private final Optional<Path> checkpoint;
@@ -230,7 +231,7 @@ public final class MooRuntime {
       }
       String source = connection.programmingSource.toString();
       try {
-        compiler.compile(source);
+        new MooCompiler().compile(source);
         world().setVerbCode(connection.programmingObject, connection.programmingVerbIndex, source);
       } catch (IllegalArgumentException ignored) {
         // The active conformance row does not observe programming diagnostics.
@@ -1309,7 +1310,9 @@ public final class MooRuntime {
 
   private RuntimeStep startStored(
       WorldVerb verb, Map<String, MooValue> locals, RuntimeContinuation continuation) {
-    BytecodeProgram program = compiler.compile(verb.programSource());
+    BytecodeProgram program =
+        compiledPrograms.computeIfAbsent(
+            verb.programSource(), source -> new MooCompiler().compile(source));
     ObjectValue receiver =
         locals.get("this") instanceof ObjectValue object ? object : new ObjectValue(-1);
     ObjectValue verbLocation = receiver;
@@ -1403,13 +1406,19 @@ public final class MooRuntime {
     if (pending.isEmpty()) {
       return;
     }
+    WorldSnapshot snapshot = world().snapshot();
+    Set<AnonymousObjectValue> finalizing = new LinkedHashSet<>();
+    Set<WaifValue> visitedWaifs = new LinkedHashSet<>();
     List<MooValue> remaining = new ArrayList<>();
     for (MooValue value : pending) {
       if (value instanceof AnonymousObjectValue anonymous) {
-        world().removeAnonymousObject(anonymous);
+        markReachableAnonymous(anonymous, snapshot, finalizing, visitedWaifs);
       } else {
         remaining.add(value);
       }
+    }
+    for (AnonymousObjectValue anonymous : finalizing) {
+      world().removeAnonymousObject(anonymous);
     }
     world().replacePendingFinalization(remaining);
   }
@@ -1426,9 +1435,13 @@ public final class MooRuntime {
     }
 
     List<MooValue> pending = new ArrayList<>(snapshot.pendingFinalization());
+    for (MooValue value : pending) {
+      markReachableAnonymous(value, snapshot, reachable, visitedWaifs);
+    }
     for (AnonymousObjectValue identity : snapshot.anonymousObjects().keySet()) {
       if (!reachable.contains(identity) && !pending.contains(identity)) {
         pending.add(identity);
+        markReachableAnonymous(identity, snapshot, reachable, visitedWaifs);
       }
     }
     world().replacePendingFinalization(pending);

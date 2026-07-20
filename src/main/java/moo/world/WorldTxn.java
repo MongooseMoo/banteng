@@ -437,6 +437,25 @@ public final class WorldTxn implements AutoCloseable {
     return Optional.empty();
   }
 
+  /** Looks up a local or inherited property on an anonymous object. */
+  public Optional<WorldProperty> property(
+      AnonymousObjectValue identity, String propertyName) {
+    Objects.requireNonNull(identity, "identity");
+    Objects.requireNonNull(propertyName, "propertyName");
+    WorldAnonymousObject object = anonymousObject(identity).orElse(null);
+    if (object == null) {
+      return Optional.empty();
+    }
+    for (WorldProperty property : object.properties()) {
+      if (property.name().equalsIgnoreCase(propertyName)) {
+        return Optional.of(property);
+      }
+    }
+    return object.parent() == -1
+        ? Optional.empty()
+        : property(object.parent(), propertyName);
+  }
+
   /** Reads an ordinary or built-in object property. */
   public Optional<MooValue> readObjectProperty(long objectId, String propertyName) {
     Optional<WorldObject> candidate = object(objectId);
@@ -478,6 +497,28 @@ public final class WorldTxn implements AutoCloseable {
         yield value;
       }
     };
+  }
+
+  /** Reads an ordinary or built-in property on an anonymous object. */
+  public Optional<MooValue> readObjectProperty(
+      AnonymousObjectValue identity, String propertyName) {
+    Objects.requireNonNull(identity, "identity");
+    Objects.requireNonNull(propertyName, "propertyName");
+    WorldAnonymousObject object = anonymousObject(identity).orElse(null);
+    if (object == null) {
+      return Optional.empty();
+    }
+    if (propertyName.equalsIgnoreCase("name")) {
+      return Optional.of(new StringValue(object.name().getBytes(StandardCharsets.ISO_8859_1)));
+    }
+    for (WorldProperty property : object.properties()) {
+      if (property.name().equalsIgnoreCase(propertyName) && !property.clear()) {
+        return Optional.of(property.value());
+      }
+    }
+    return object.parent() == -1
+        ? Optional.empty()
+        : readObjectProperty(object.parent(), propertyName);
   }
 
   /** Writes an authorized built-in object property and returns whether it exists. */
@@ -571,6 +612,76 @@ public final class WorldTxn implements AutoCloseable {
             inherited.name(), value, inherited.owner(), inherited.permissions(), false, false));
     replaceObject(
         copyObject(object, object.flags(), object.owner(), object.location(), properties));
+    return true;
+  }
+
+  /** Writes an ordinary or built-in property on an anonymous object. */
+  public boolean writeObjectProperty(
+      AnonymousObjectValue identity, String propertyName, MooValue value) {
+    Objects.requireNonNull(identity, "identity");
+    Objects.requireNonNull(propertyName, "propertyName");
+    Objects.requireNonNull(value, "value");
+    WorldAnonymousObject object = anonymousObject(identity).orElse(null);
+    if (object == null) {
+      return false;
+    }
+    if (propertyName.equalsIgnoreCase("name")) {
+      if (!(value instanceof StringValue name)) {
+        return false;
+      }
+      replaceAnonymousObject(
+          identity,
+          new WorldAnonymousObject(
+              new String(name.bytes(), StandardCharsets.ISO_8859_1),
+              object.flags(),
+              object.owner(),
+              object.parent(),
+              object.verbs(),
+              object.properties()));
+      return true;
+    }
+    List<WorldProperty> properties = new ArrayList<>(object.properties());
+    for (int index = 0; index < properties.size(); index++) {
+      WorldProperty property = properties.get(index);
+      if (property.name().equalsIgnoreCase(propertyName)) {
+        properties.set(
+            index,
+            new WorldProperty(
+                property.name(),
+                value,
+                property.owner(),
+                property.permissions(),
+                false,
+                property.defined()));
+        replaceAnonymousObject(
+            identity,
+            new WorldAnonymousObject(
+                object.name(),
+                object.flags(),
+                object.owner(),
+                object.parent(),
+                object.verbs(),
+                properties));
+        return true;
+      }
+    }
+    WorldProperty inherited =
+        object.parent() == -1 ? null : property(object.parent(), propertyName).orElse(null);
+    if (inherited == null) {
+      return false;
+    }
+    properties.add(
+        new WorldProperty(
+            inherited.name(), value, inherited.owner(), inherited.permissions(), false, false));
+    replaceAnonymousObject(
+        identity,
+        new WorldAnonymousObject(
+            object.name(),
+            object.flags(),
+            object.owner(),
+            object.parent(),
+            object.verbs(),
+            properties));
     return true;
   }
 
@@ -1055,6 +1166,39 @@ public final class WorldTxn implements AutoCloseable {
               anonymous.verbs(),
               anonymousProperties));
     }
+    return true;
+  }
+
+  /** Adds one local property to an anonymous object. */
+  public boolean addProperty(
+      AnonymousObjectValue identity,
+      String name,
+      MooValue value,
+      long owner,
+      int permissions) {
+    Objects.requireNonNull(identity, "identity");
+    Objects.requireNonNull(name, "name");
+    Objects.requireNonNull(value, "value");
+    WorldAnonymousObject object = anonymousObject(identity).orElse(null);
+    if (object == null || property(identity, name).isPresent()) {
+      return false;
+    }
+    List<WorldProperty> properties = new ArrayList<>(object.properties());
+    int propertyIndex = 0;
+    while (propertyIndex < properties.size() && properties.get(propertyIndex).defined()) {
+      propertyIndex++;
+    }
+    properties.add(
+        propertyIndex, new WorldProperty(name, value, owner, permissions, false, true));
+    replaceAnonymousObject(
+        identity,
+        new WorldAnonymousObject(
+            object.name(),
+            object.flags(),
+            object.owner(),
+            object.parent(),
+            object.verbs(),
+            properties));
     return true;
   }
 

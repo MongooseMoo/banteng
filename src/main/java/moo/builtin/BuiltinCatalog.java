@@ -1354,21 +1354,44 @@ public final class BuiltinCatalog {
         return Result.error(ErrorValue.E_INVARG);
       }
     }
-    if (!(arguments.get(0) instanceof ObjectValue object)) {
+    MooValue receiver = arguments.get(0);
+    long targetOwner;
+    int targetFlags;
+    if (receiver instanceof ObjectValue object) {
+      WorldObject target = world.object(object.value()).orElse(null);
+      if (target == null) {
+        return Result.error(ErrorValue.E_INVARG);
+      }
+      targetOwner = target.owner();
+      targetFlags = target.flags();
+    } else if (receiver instanceof AnonymousObjectValue anonymous) {
+      WorldAnonymousObject target = world.anonymousObject(anonymous).orElse(null);
+      if (target == null) {
+        return Result.error(ErrorValue.E_INVARG);
+      }
+      targetOwner = target.owner();
+      targetFlags = target.flags();
+    } else {
       return Result.error(ErrorValue.E_TYPE);
-    }
-    WorldObject target = world.object(object.value()).orElse(null);
-    if (target == null) {
-      return Result.error(ErrorValue.E_INVARG);
     }
     WorldObject actor = world.object(programmer).orElse(null);
     boolean wizard = actor != null && (actor.flags() & 4) != 0;
-    boolean writable = target.owner() == programmer || wizard || (target.flags() & 32) != 0;
+    boolean writable = targetOwner == programmer || wizard || (targetFlags & 32) != 0;
     if (!writable || (owner.value() != programmer && !wizard)) {
       return Result.error(ErrorValue.E_PERM);
     }
     String name = decode((StringValue) arguments.get(1));
-    return world.addProperty(object.value(), name, arguments.get(2), owner.value(), permissions)
+    boolean added =
+        receiver instanceof ObjectValue object
+            ? world.addProperty(
+                object.value(), name, arguments.get(2), owner.value(), permissions)
+            : world.addProperty(
+                (AnonymousObjectValue) receiver,
+                name,
+                arguments.get(2),
+                owner.value(),
+                permissions);
+    return added
         ? Result.zero()
         : Result.error(ErrorValue.E_INVARG);
   }
