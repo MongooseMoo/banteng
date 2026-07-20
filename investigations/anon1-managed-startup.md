@@ -14,6 +14,8 @@
 - A focused class-initialization run placed `TaskSegmentEvent` initialization at 0.361 seconds and parser initialization at 0.442 seconds, an approximately 81 ms gap before startup-verb compilation. `CheckpointEvent` initialized at 0.521 seconds, after the row deadline.
 - A syscall trace of restored source showed checkpoint temporary-file creation through atomic rename taking about 42 ms. The data-file `fsync` itself took about 1.7 ms and rename about 0.08 ms. Trace overhead delayed checkpoint entry substantially, but the individual persistence operations were not slow.
 - The restored late-init window showed `Files.createTempFile` initializing `TempFileHelper`, `SecureRandom`, the JCA provider list, the SUN provider, native PRNG classes, and POSIX temp-permission machinery immediately before checkpoint file creation. This work is caused by randomized naming, not v17 serialization or atomic durability.
+- Toast `bf_suspend` always returns a suspend package; `enqueue_suspended_task` records a zero delay as start time `now` in the ordered `waiting_tasks` queue, and the next `run_ready_tasks()` pass moves it to the runnable background queue. Toast does not create a host timer thread for zero delay.
+- Banteng currently sends every numeric suspension delay, including zero, through `startTimer()`, which initializes and starts a virtual thread before requeueing the suspended VM.
 
 ## Theories (plausible)
 
@@ -35,16 +37,17 @@
 | Timestamp checkpoint syscalls | Atomic force or rename governs the miss | Temporary creation through rename took about 42 ms; `fsync` 1.7 ms and rename 0.08 ms | Slow force/rename as the primary cause | 1 or 2 |
 | Inspect restored 0.48-0.56 s class-init window | A removable pre-checkpoint operation remains | Randomized temp creation initialized the security-provider and PRNG stack immediately before file creation | No identifiable redundant work remains | 2 |
 | Deterministic sibling temp source attempt | Removing randomized temp initialization is sufficient | V17 and Anon1 tests passed, but the valid unchanged managed row still missed the file at 500 ms; source attempt fully reversed | Randomized temp initialization as a sufficient cause | 1 or 2 beyond that cost |
+| Compare zero-delay suspension owners | Banteng performs unnecessary host-timer work | Toast inserts start-time-now work into its waiting queue; Banteng starts a virtual timer even for zero | A host timer as required Toast behavior | 2 |
 
 ## Current Best Theory
 
-The row interval includes the entire Java launch. Both identified removable costs—unrequested custom-JFR initialization and randomized temp-file initialization—were individually removed in complete source attempts, passed their affected semantic tests, and still did not make the unchanged managed row pass. Both attempts were fully reversed. The exact target now has two consecutive no-improvement source slices.
+The row interval includes the entire Java launch. Both prior removable costs were insufficient alone and remain reverted. The Anon1 fixture's `suspend(0)` now exposes a concrete behavioral mismatch: Toast preserves the boundary by ready-queue ordering, while Banteng unnecessarily enters the host virtual-timer path. Direct ready-queue resumption after publication preserves Toast's boundary and removes unrelated host initialization.
 
 ## Open Questions
 
-- Which additional pre-checkpoint cost, if any, can be changed without violating the immutable launcher, JVM, Picocli, scheduler, VM, fixture, row timing, or production semantics?
-- Does the user want to authorize continuing this exact target despite the two-slice stop, or change one of those controlling constraints?
+- Does direct zero-delay requeue preserve suspension publication, finalization, resumed return value, and ticket ordering?
+- Does that exact correction produce a measured reduction in the unchanged managed Anon1 target?
 
 ## Next Action
 
-Stop before widening the search surface. The exact-convergence rule requires user direction after two consecutive no-improvement source slices on this target. Do not change source, harness, timing, launcher, JVM flags, Picocli, worker count, or fixture until that direction is supplied.
+Remain on Anon1 and do not widen. In `publishSuspension()`, enqueue a zero-delay suspension with wake value `0` directly after incrementing the publication ticket; retain `startTimer()` for positive delays and the host-wake path for non-timed suspensions. Run scheduler and Anon1 tests, reread Phase 3, and run the unchanged managed row. Do not alter the harness, timing, launcher, JVM flags, Picocli model, worker count, or fixture.
