@@ -132,7 +132,10 @@ public record BytecodeProgram(List<Instruction> instructions, List<BytecodeProgr
             default -> false;
           };
       boolean handlerRequired = opcode == Opcode.ENTER_HANDLER;
-      boolean optionalParent = opcode == Opcode.INDEX || opcode == Opcode.SET_RANGE_LOCAL;
+      boolean optionalParent =
+          opcode == Opcode.INDEX
+              || opcode == Opcode.SET_INDEX_LOCAL
+              || opcode == Opcode.SET_RANGE_LOCAL;
       if ((!optionalParent && numberRequired != operand.isPresent())
           || (optionalParent && operand.isPresent() && operand.orElseThrow() != 1)
           || textRequired != text.isPresent()

@@ -132,7 +132,12 @@ public final class MooVm {
       case FIRST -> firstIndex(frame, state, world);
       case LAST -> lastIndex(frame, state, world);
       case SET_INDEX_LOCAL ->
-          setIndexedLocal(frame, state, world, instruction.text().orElseThrow());
+          setIndexedLocal(
+              frame,
+              state,
+              world,
+              instruction.text().orElseThrow(),
+              Math.toIntExact(instruction.operand().orElse(0)));
       case SET_RANGE_LOCAL ->
           setRangeLocal(
               frame,
@@ -785,34 +790,29 @@ public final class MooVm {
     frame.instructionPointer++;
   }
 
-  private static void setIndexedLocal(Frame frame, VmState state, WorldTxn world, String owner) {
+  private static void setIndexedLocal(
+      Frame frame, VmState state, WorldTxn world, String owner, int parentDepth) {
     frame.indexCollections.pop();
     MooValue value = frame.operandStack.pop();
     MooValue key = frame.operandStack.pop();
     MooValue collection = frame.operandStack.pop();
+    MooValue updatedCollection;
     if (collection instanceof MapValue map) {
       try {
-        frame.locals.put(normalize(owner), map.with(key, value));
-        frame.operandStack.push(value);
-        frame.instructionPointer++;
+        updatedCollection = map.with(key, value);
       } catch (IllegalArgumentException error) {
         raiseError(state, ErrorValue.E_TYPE, world);
+        return;
       }
-      return;
-    }
-    if (collection instanceof ListValue list && key instanceof IntegerValue index) {
+    } else if (collection instanceof ListValue list && key instanceof IntegerValue index) {
       if (index.value() < 1 || index.value() > list.size()) {
         raiseError(state, ErrorValue.E_RANGE, world);
         return;
       }
       List<MooValue> replaced = new ArrayList<>(list.elements());
       replaced.set(Math.toIntExact(index.value() - 1), value);
-      frame.locals.put(normalize(owner), new ListValue(replaced));
-      frame.operandStack.push(value);
-      frame.instructionPointer++;
-      return;
-    }
-    if (collection instanceof StringValue string
+      updatedCollection = new ListValue(replaced);
+    } else if (collection instanceof StringValue string
         && key instanceof IntegerValue index
         && value instanceof StringValue replacement
         && replacement.length() == 1) {
@@ -822,12 +822,31 @@ public final class MooVm {
       }
       byte[] replaced = string.bytes();
       replaced[Math.toIntExact(index.value() - 1)] = replacement.bytes()[0];
-      frame.locals.put(normalize(owner), new StringValue(replaced));
-      frame.operandStack.push(value);
-      frame.instructionPointer++;
+      updatedCollection = new StringValue(replaced);
+    } else {
+      raiseError(state, ErrorValue.E_TYPE, world);
       return;
     }
-    raiseError(state, ErrorValue.E_TYPE, world);
+    if (parentDepth == 0) {
+      frame.locals.put(normalize(owner), updatedCollection);
+    } else {
+      IndexContext parentContext = frame.indexCollections.pop();
+      MooValue parentKey = parentContext.key().orElseThrow();
+      MooValue parent = parentContext.collection();
+      if (!(parent instanceof ListValue list) || !(parentKey instanceof IntegerValue index)) {
+        raiseError(state, ErrorValue.E_TYPE, world);
+        return;
+      }
+      if (index.value() < 1 || index.value() > list.size()) {
+        raiseError(state, ErrorValue.E_RANGE, world);
+        return;
+      }
+      List<MooValue> replaced = new ArrayList<>(list.elements());
+      replaced.set(Math.toIntExact(index.value() - 1), updatedCollection);
+      frame.locals.put(normalize(owner), new ListValue(replaced));
+    }
+    frame.operandStack.push(value);
+    frame.instructionPointer++;
   }
 
   private static void setRangeLocal(

@@ -1326,6 +1326,71 @@ final class MooVmTest {
   }
 
   @Test
+  void assignsANestedListIndexThroughTheCompleteCollectionPipeline() {
+    byte[] source =
+        "l = {{1, 2}, {1, 2}}; l[1][2] = 9; return l;"
+            .getBytes(StandardCharsets.ISO_8859_1);
+    Ast.Program syntax = MooParser.parse(source);
+    Ast.ExpressionStatement assignmentStatement =
+        assertInstanceOf(Ast.ExpressionStatement.class, syntax.statements().get(1));
+    Ast.Assignment assignment =
+        assertInstanceOf(Ast.Assignment.class, assignmentStatement.expression());
+    Ast.IndexTarget target = assertInstanceOf(Ast.IndexTarget.class, assignment.target());
+    Ast.IndexAccess parent = assertInstanceOf(Ast.IndexAccess.class, target.collection());
+    assertInstanceOf(Ast.Identifier.class, parent.collection());
+    assertEquals(
+        """
+        l = {{1, 2}, {1, 2}};
+        l[1][2] = 9;
+        return l;""",
+        MooUnparser.unparse(syntax));
+
+    BytecodeProgram program = new MooCompiler().compile(syntax);
+    assertEquals(
+        """
+        0 BUILD_LIST 0
+        1 BUILD_LIST 0
+        2 PUSH_INTEGER 1
+        3 LIST_APPEND
+        4 PUSH_INTEGER 2
+        5 LIST_APPEND
+        6 LIST_APPEND
+        7 BUILD_LIST 0
+        8 PUSH_INTEGER 1
+        9 LIST_APPEND
+        10 PUSH_INTEGER 2
+        11 LIST_APPEND
+        12 LIST_APPEND
+        13 DUP
+        14 STORE_LOCAL l
+        15 POP
+        16 LOAD_LOCAL l
+        17 ENTER_INDEX
+        18 PUSH_INTEGER 1
+        19 INDEX 1
+        20 ENTER_INDEX
+        21 PUSH_INTEGER 2
+        22 PUSH_INTEGER 9
+        23 SET_INDEX_LOCAL 1 l
+        24 POP
+        25 LOAD_LOCAL l
+        26 RETURN""",
+        program.disassemble());
+    VmState state = new VmState();
+
+    new MooVm().execute(program, state);
+
+    assertEquals(VmState.Outcome.RETURNED, state.outcome());
+    assertTrue(state.uncaughtError().isEmpty());
+    assertEquals(
+        new ListValue(
+            List.of(
+                new ListValue(List.of(new IntegerValue(1), new IntegerValue(9))),
+                new ListValue(List.of(new IntegerValue(1), new IntegerValue(2))))),
+        state.returnValue().orElseThrow());
+  }
+
+  @Test
   void assignsAnInvertedListRangeThroughTheCompleteCollectionPipeline() {
     byte[] source =
         "t = {1, 2, 3, 4, 5, 6, 7}; t[7..1] = {\"a\", \"b\", \"c\"}; return t;"
