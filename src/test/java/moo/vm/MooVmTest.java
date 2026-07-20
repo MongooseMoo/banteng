@@ -100,6 +100,30 @@ final class MooVmTest {
   }
 
   @Test
+  void objectMapKeysUseToastComparatorIdentityThroughBuiltinDispatch() {
+    VmState state = new VmState();
+
+    executeAndClose(
+        new MooCompiler()
+            .compile(
+                MooParser.parse(
+                    "mapping = [#0 -> \"small\", #4294967296 -> \"large\"]; "
+                        + "return {length(mapping), mapping[#0], mapping[#4294967296]};")),
+        state,
+        new WorldTxn(List.of(), List.of()),
+        new BuiltinCatalog());
+
+    assertEquals(VmState.Outcome.RETURNED, state.outcome());
+    assertEquals(
+        new ListValue(
+            List.of(
+                new IntegerValue(1),
+                new StringValue("large".getBytes(StandardCharsets.ISO_8859_1)),
+                new StringValue("large".getBytes(StandardCharsets.ISO_8859_1)))),
+        state.returnValue().orElseThrow());
+  }
+
+  @Test
   void executesIfBranchThroughTheCompleteControlFlowPipeline() {
     byte[] source = "if (1) return 2; endif".getBytes(StandardCharsets.ISO_8859_1);
     Ast.Program syntax = MooParser.parse(source);

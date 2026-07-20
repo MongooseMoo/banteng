@@ -576,7 +576,12 @@ public sealed interface MooValue
     /** Returns the value for an equal scalar key, if present. */
     public Optional<MooValue> get(MooValue key) {
       requireScalarKey(key);
-      return Optional.ofNullable(entries.get(key));
+      for (Map.Entry<MooValue, MooValue> entry : entries.entrySet()) {
+        if (compareKeys(entry.getKey(), key) == 0) {
+          return Optional.of(entry.getValue());
+        }
+      }
+      return Optional.empty();
     }
 
     /** Returns an immutable map with {@code key} bound to {@code value}. */
@@ -677,8 +682,8 @@ public sealed interface MooValue
       }
       return switch (left) {
         case IntegerValue integer ->
-            Long.compare(integer.value(), ((IntegerValue) right).value());
-        case ObjectValue object -> Long.compare(object.value(), ((ObjectValue) right).value());
+            (int) (integer.value() - ((IntegerValue) right).value());
+        case ObjectValue object -> (int) (object.value() - ((ObjectValue) right).value());
         case ErrorValue error -> Integer.compare(error.code(), ((ErrorValue) right).code());
         case FloatValue floating -> {
           double leftValue = floating.value();

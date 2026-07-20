@@ -69,7 +69,7 @@ public final class BuiltinCatalog {
             "length",
             List.of(
                 new CallShape(
-                    List.of(Set.of(ArgType.STRING, ArgType.LIST)),
+                    List.of(Set.of(ArgType.STRING, ArgType.LIST, ArgType.MAP)),
                     List.of(),
                     Optional.empty())),
             BuiltinPermissionRule.ANY,
@@ -711,6 +711,9 @@ public final class BuiltinCatalog {
     }
     if (value instanceof ListValue list) {
       return Result.value(new IntegerValue(list.size()));
+    }
+    if (value instanceof MapValue map) {
+      return Result.value(new IntegerValue(map.size()));
     }
     return Result.error(ErrorValue.E_TYPE);
   }
