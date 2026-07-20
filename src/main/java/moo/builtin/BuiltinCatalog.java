@@ -561,6 +561,15 @@ public final class BuiltinCatalog {
             (a, w, p, t, rt, rs, r, cp, c) -> serverLog(a)));
     entries.add(
         new BuiltinSpec(
+            "run_gc",
+            List.of(new CallShape(List.of(), List.of(), Optional.empty())),
+            BuiltinPermissionRule.WIZARD_ONLY,
+            BuiltinCostRule.fixed(0),
+            EffectClass.PURE,
+            BuiltinOwner.VM,
+            (a, w, p, t, rt, rs, r, cp, c) -> Result.zero()));
+    entries.add(
+        new BuiltinSpec(
             "suspend",
             List.of(new CallShape(List.of(), List.of(NUMBER), Optional.empty())),
             BuiltinPermissionRule.ANY,
@@ -1217,10 +1226,14 @@ public final class BuiltinCatalog {
   }
 
   private static Result valid(List<MooValue> arguments, WorldTxn world) {
-    if (!(arguments.getFirst() instanceof ObjectValue object)) {
-      return Result.error(ErrorValue.E_TYPE);
+    MooValue value = arguments.getFirst();
+    if (value instanceof ObjectValue object) {
+      return Result.value(new IntegerValue(world.object(object.value()).isPresent() ? 1 : 0));
     }
-    return Result.value(new IntegerValue(world.object(object.value()).isPresent() ? 1 : 0));
+    if (value instanceof AnonymousObjectValue anonymous) {
+      return Result.value(new IntegerValue(world.anonymousObject(anonymous).isPresent() ? 1 : 0));
+    }
+    return Result.error(ErrorValue.E_TYPE);
   }
 
   private static Result addVerb(
@@ -1735,19 +1748,32 @@ public final class BuiltinCatalog {
 
   private static Result recycle(
       List<MooValue> arguments, WorldTxn world, long programmer) {
-    if (!(arguments.getFirst() instanceof ObjectValue object)) {
-      return Result.error(ErrorValue.E_TYPE);
-    }
-    WorldObject target = world.object(object.value()).orElse(null);
-    if (target == null) {
-      return Result.error(ErrorValue.E_INVARG);
-    }
     WorldObject actor = world.object(programmer).orElse(null);
     boolean wizard = actor != null && (actor.flags() & 4) != 0;
-    if (target.owner() != programmer && !wizard) {
-      return Result.error(ErrorValue.E_PERM);
+    MooValue receiver = arguments.getFirst();
+    if (receiver instanceof AnonymousObjectValue anonymous) {
+      WorldAnonymousObject target = world.anonymousObject(anonymous).orElse(null);
+      if (target == null) {
+        return Result.error(ErrorValue.E_INVARG);
+      }
+      if (target.owner() != programmer && !wizard) {
+        return Result.error(ErrorValue.E_PERM);
+      }
+      return world.removeAnonymousObject(anonymous)
+          ? Result.zero()
+          : Result.error(ErrorValue.E_INVARG);
     }
-    return Result.recycle(object.value());
+    if (receiver instanceof ObjectValue object) {
+      WorldObject target = world.object(object.value()).orElse(null);
+      if (target == null) {
+        return Result.error(ErrorValue.E_INVARG);
+      }
+      if (target.owner() != programmer && !wizard) {
+        return Result.error(ErrorValue.E_PERM);
+      }
+      return Result.recycle(object.value());
+    }
+    return Result.error(ErrorValue.E_TYPE);
   }
 
   private static Result switchPlayer(List<MooValue> arguments) {

@@ -65,6 +65,7 @@ final class BuiltinCatalogTest {
           "raise",
           "recycle",
           "rindex",
+          "run_gc",
           "set_player_flag",
           "set_task_perms",
           "set_verb_code",

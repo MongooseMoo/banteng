@@ -11,6 +11,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.List;
+import java.util.Objects;
 import moo.server.MooServer;
 import moo.value.MooValue.AnonymousObjectValue;
 import moo.world.WorldAnonymousObject;
@@ -125,6 +126,77 @@ final class AnonymousObjectPersistenceTest {
     assertTrue(secondCheckpoint.world().snapshot().pendingFinalization().isEmpty());
     assertTrue(secondCheckpoint.world().snapshot().anonymousObjects().isEmpty());
     assertArrayEquals(inputBytes, Files.readAllBytes(second));
+  }
+
+  @Test
+  void anon4PreservesThenCollectsAnAnonymousChainAcrossThreeProductionBoots(
+      @TempDir Path temporaryDirectory) throws Exception {
+    LambdaMooV17Codec codec = new LambdaMooV17Codec();
+    Path input = STARTUP_FIXTURES.resolve("Anon4.db");
+    byte[] inputBytes = Files.readAllBytes(input);
+    Path first = temporaryDirectory.resolve("Anon4.db.new");
+
+    runUntilFixtureShutdown(codec.read(input), first);
+    LambdaMooV17Codec.Checkpoint firstCheckpoint = codec.read(first);
+    WorldSnapshot firstWorld = firstCheckpoint.world().snapshot();
+    assertTrue(firstWorld.pendingFinalization().isEmpty());
+    assertEquals(1, firstWorld.anonymousObjects().size());
+    var firstOneProperty =
+        Objects.requireNonNull(firstWorld.objects().get(0L)).properties().stream()
+            .filter(property -> property.name().equals("one"))
+            .findFirst()
+            .orElseThrow();
+    AnonymousObjectValue firstOne =
+        assertInstanceOf(AnonymousObjectValue.class, firstOneProperty.value());
+    WorldAnonymousObject firstOneBody =
+        Objects.requireNonNull(firstWorld.anonymousObjects().get(firstOne));
+    assertEquals("One One One!", firstOneBody.name());
+    assertEquals(1, firstOneBody.parent());
+    assertTrue(firstOneBody.verbs().isEmpty());
+    var firstTwoProperty =
+        firstOneBody.properties().stream()
+            .filter(property -> property.name().equals("two"))
+            .findFirst()
+            .orElseThrow();
+    AnonymousObjectValue firstTwo =
+        assertInstanceOf(AnonymousObjectValue.class, firstTwoProperty.value());
+    assertTrue(!firstWorld.anonymousObjects().containsKey(firstTwo));
+
+    Path second = temporaryDirectory.resolve("Anon4.db.second");
+    runUntilFixtureShutdown(firstCheckpoint, second);
+    LambdaMooV17Codec.Checkpoint secondCheckpoint = codec.read(second);
+    WorldSnapshot secondWorld = secondCheckpoint.world().snapshot();
+    assertEquals(1, secondWorld.pendingFinalization().size());
+    assertEquals(1, secondWorld.anonymousObjects().size());
+    AnonymousObjectValue pending =
+        assertInstanceOf(AnonymousObjectValue.class, secondWorld.pendingFinalization().getFirst());
+    WorldAnonymousObject pendingBody =
+        Objects.requireNonNull(secondWorld.anonymousObjects().get(pending));
+    assertEquals("One One One!", pendingBody.name());
+    assertEquals(1, pendingBody.parent());
+    assertTrue(pendingBody.verbs().isEmpty());
+    var pendingTwoProperty =
+        pendingBody.properties().stream()
+            .filter(property -> property.name().equals("two"))
+            .findFirst()
+            .orElseThrow();
+    AnonymousObjectValue pendingTwo =
+        assertInstanceOf(AnonymousObjectValue.class, pendingTwoProperty.value());
+    assertTrue(!secondWorld.anonymousObjects().containsKey(pendingTwo));
+
+    Path third = temporaryDirectory.resolve("Anon4.db.third");
+    runUntilFixtureShutdown(secondCheckpoint, third);
+    LambdaMooV17Codec.Checkpoint thirdCheckpoint = codec.read(third);
+    WorldSnapshot thirdWorld = thirdCheckpoint.world().snapshot();
+    assertTrue(thirdWorld.pendingFinalization().isEmpty());
+    assertTrue(thirdWorld.anonymousObjects().isEmpty());
+    assertTrue(
+        Objects.requireNonNull(thirdWorld.objects().get(0L)).properties().stream()
+            .noneMatch(property -> property.name().equals("one")));
+    assertTrue(
+        Objects.requireNonNull(thirdWorld.objects().get(1L)).properties().stream()
+            .noneMatch(property -> property.name().equals("two")));
+    assertArrayEquals(inputBytes, Files.readAllBytes(third));
   }
 
   private static void runUntilFixtureShutdown(
