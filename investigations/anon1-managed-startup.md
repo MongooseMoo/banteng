@@ -16,6 +16,12 @@
 - The restored late-init window showed `Files.createTempFile` initializing `TempFileHelper`, `SecureRandom`, the JCA provider list, the SUN provider, native PRNG classes, and POSIX temp-permission machinery immediately before checkpoint file creation. This work is caused by randomized naming, not v17 serialization or atomic durability.
 - Toast `bf_suspend` always returns a suspend package; `enqueue_suspended_task` records a zero delay as start time `now` in the ordered `waiting_tasks` queue, and the next `run_ready_tasks()` pass moves it to the runnable background queue. Toast does not create a host timer thread for zero delay.
 - Banteng currently sends every numeric suspension delay, including zero, through `startTimer()`, which initializes and starts a virtual thread before requeueing the suspended VM.
+- Directly requeueing `suspend(0)` through the existing wake path passed the scheduler and Anon1 tests, but the unchanged managed row still missed the checkpoint at 500 ms; that source attempt was fully restored.
+- A fresh read-only startup review found no remaining single source change with enough measured latency to close the observed gap.
+- A high-effort source review found that startup correctly reruns the stored segment after the irrevocable `server_log` effect, so bypassing that rerun would violate the production transaction boundary.
+- The same review identified one untested cumulative hypothesis: the individually insufficient JFR guard, deterministic checkpoint temp, and direct zero-delay requeue remove distinct startup costs and may together close the measured gap.
+- Adversarial review rejected a shared `<target>.tmp`: concurrent processes could interleave writes or delete each other's temporary file, a predictable name could follow a symlink, and default POSIX creation could widen database permissions.
+- The adversarial verdict was `TEST` only with a PID-scoped temporary file, `CREATE_NEW`, owner-only POSIX permissions, and zero-delay requeue through the existing synchronized `enqueueWake` path.
 
 ## Theories (plausible)
 
@@ -38,16 +44,18 @@
 | Inspect restored 0.48-0.56 s class-init window | A removable pre-checkpoint operation remains | Randomized temp creation initialized the security-provider and PRNG stack immediately before file creation | No identifiable redundant work remains | 2 |
 | Deterministic sibling temp source attempt | Removing randomized temp initialization is sufficient | V17 and Anon1 tests passed, but the valid unchanged managed row still missed the file at 500 ms; source attempt fully reversed | Randomized temp initialization as a sufficient cause | 1 or 2 beyond that cost |
 | Compare zero-delay suspension owners | Banteng performs unnecessary host-timer work | Toast inserts start-time-now work into its waiting queue; Banteng starts a virtual timer even for zero | A host timer as required Toast behavior | 2 |
+| Direct zero-delay requeue source attempt | Removing the host timer is sufficient | Scheduler and Anon1 tests passed, but the unchanged managed row still missed the file at 500 ms; source attempt fully reversed | Zero-delay timer initialization as a sufficient cause | Distinct cumulative startup costs remain |
+| Read-only source and adversarial reviews | The three individually safe removals can be tested together unchanged | JFR guard and synchronized zero-delay requeue survived review; shared temp name failed review and was corrected to PID-scoped `CREATE_NEW` with owner-only POSIX permissions | Shared deterministic temp as production-safe | One corrected composed attempt |
 
 ## Current Best Theory
 
-The row interval includes the entire Java launch. Both prior removable costs were insufficient alone and remain reverted. The Anon1 fixture's `suspend(0)` now exposes a concrete behavioral mismatch: Toast preserves the boundary by ready-queue ordering, while Banteng unnecessarily enters the host virtual-timer path. Direct ready-queue resumption after publication preserves Toast's boundary and removes unrelated host initialization.
+The row interval includes the entire Java launch. The JFR event initialization, randomized checkpoint-temp initialization, and zero-delay host-timer initialization are distinct removable costs. Each was insufficient alone and remains reverted. A single composed attempt can test their cumulative effect without changing the row, harness, fixture, launcher, JVM flags, Picocli model, worker count, transaction boundary, or atomic checkpoint contract.
 
 ## Open Questions
 
-- Does direct zero-delay requeue preserve suspension publication, finalization, resumed return value, and ticket ordering?
-- Does that exact correction produce a measured reduction in the unchanged managed Anon1 target?
+- Does the corrected composed attempt produce the checkpoint within the unchanged managed Anon1 row's 500 ms interval?
+- Does a PID-scoped `CREATE_NEW` temporary file with owner-only POSIX permissions preserve byte-stable output, atomic replacement, cleanup, and JFR observability across the affected test authorities?
 
 ## Next Action
 
-Remain on Anon1 and do not widen. In `publishSuspension()`, enqueue a zero-delay suspension with wake value `0` directly after incrementing the publication ticket; retain `startTimer()` for positive delays and the host-wake path for non-timed suspensions. Run scheduler and Anon1 tests, reread Phase 3, and run the unchanged managed row. Do not alter the harness, timing, launcher, JVM flags, Picocli model, worker count, or fixture.
+Remain on Anon1 and continue the same target. Apply one composed source attempt: guard `TaskSegmentEvent` and `CheckpointEvent` construction until JFR is initialized; create the checkpoint temporary file as a PID-scoped sibling with `CREATE_NEW` and owner-only permissions on POSIX filesystems; and route `suspend(0)` directly through `enqueueWake` while retaining `startTimer()` for positive delays and the host-wake path for non-timed suspensions. Run the affected JFR, scheduler, v17, and Anon1 tests together, reread Phase 3, and run the unchanged managed row. Keep and commit only if that exact row shows a measured reduction; otherwise fully restore the composed attempt. Do not alter the row, harness, timing, fixture, launcher, JVM flags, Picocli model, worker count, or production transaction boundary.
