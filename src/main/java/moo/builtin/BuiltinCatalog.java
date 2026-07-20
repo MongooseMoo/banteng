@@ -413,14 +413,14 @@ public final class BuiltinCatalog {
             List.of(new CallShape(List.of(), List.of(), Optional.empty())),
             BuiltinPermissionRule.ANY,
             BuiltinCostRule.fixed(0),
-            EffectClass.TRANSACTION_READ,
+            EffectClass.TRANSACTION_WRITE,
             BuiltinOwner.WORLD,
             (a, w, p, t, rt, rs, r, cp, c) -> {
               if (!(r instanceof ObjectValue classObject)
                   || w.object(classObject.value()).isEmpty()) {
                 return Result.error(ErrorValue.E_INVIND);
               }
-              return Result.value(new WaifValue(classObject, new ObjectValue(p)));
+              return Result.value(w.createWaif(classObject.value(), p));
             }));
     entries.add(
         new BuiltinSpec(

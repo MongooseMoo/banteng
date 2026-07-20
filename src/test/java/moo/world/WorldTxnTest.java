@@ -14,6 +14,7 @@ import moo.value.MooValue.AnonymousObjectValue;
 import moo.value.MooValue.IntegerValue;
 import moo.value.MooValue.ListValue;
 import moo.value.MooValue.StringValue;
+import moo.value.MooValue.WaifValue;
 import org.junit.jupiter.api.Test;
 
 final class WorldTxnTest {
@@ -140,6 +141,48 @@ final class WorldTxnTest {
     try (WorldTxn view = root.begin()) {
       assertTrue(view.anonymousObject(rolledBack).isEmpty());
       assertEquals(1, view.snapshot().anonymousObjects().size());
+    }
+  }
+
+  @Test
+  void waifPropertyStateCommitsAndRollsBackByReferenceIdentity() {
+    WorldObject waifClass =
+        new WorldObject(
+            7,
+            "waif class",
+            0,
+            1,
+            -1,
+            -1,
+            List.of(),
+            List.of(),
+            List.of(),
+            List.of(new WorldProperty(":marker", new IntegerValue(0), 1, 0, false, true)));
+    WorldTxn root = root(waifClass);
+    WaifValue committed;
+
+    try (WorldTxn transaction = root.begin()) {
+      committed = transaction.createWaif(7, 1);
+      assertEquals(
+          new IntegerValue(0), transaction.readWaifProperty(committed, "marker").orElseThrow());
+      assertTrue(transaction.writeWaifProperty(committed, "marker", new IntegerValue(7)));
+      assertEquals(
+          new IntegerValue(7), transaction.readWaifProperty(committed, "marker").orElseThrow());
+      assertTrue(transaction.commit().isCommitted());
+    }
+
+    try (WorldTxn view = root.begin()) {
+      assertEquals(new IntegerValue(7), view.readWaifProperty(committed, "marker").orElseThrow());
+      assertEquals(1, view.snapshot().waifs().size());
+    }
+
+    try (WorldTxn rolledBack = root.begin()) {
+      assertTrue(rolledBack.writeWaifProperty(committed, "marker", new IntegerValue(42)));
+      assertEquals(
+          new IntegerValue(42), rolledBack.readWaifProperty(committed, "marker").orElseThrow());
+    }
+    try (WorldTxn view = root.begin()) {
+      assertEquals(new IntegerValue(7), view.readWaifProperty(committed, "marker").orElseThrow());
     }
   }
 

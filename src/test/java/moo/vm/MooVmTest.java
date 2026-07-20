@@ -27,6 +27,7 @@ import moo.value.MooValue.ObjectValue;
 import moo.value.MooValue.StringValue;
 import moo.value.MooValue.WaifValue;
 import moo.world.WorldObject;
+import moo.world.WorldProperty;
 import moo.world.WorldTxn;
 import moo.world.WorldVerb;
 import org.junit.jupiter.api.Test;
@@ -3345,6 +3346,53 @@ final class MooVmTest {
     WaifValue waif = assertInstanceOf(WaifValue.class, state.returnValue().orElseThrow());
     assertEquals(new ObjectValue(7), waif.classObject());
     assertEquals(new ObjectValue(1), waif.owner());
+  }
+
+  @Test
+  void waifPropertyAliasesUseTransactionOwnedStateThroughTheCompletePipeline() {
+    WorldVerb constructor =
+        new WorldVerb(
+            "new",
+            1,
+            4,
+            -1,
+            "set_task_perms(caller_perms()); player = caller_perms(); return new_waif();");
+    WorldObject wizard =
+        new WorldObject(
+            1, "wizard", 4, 1, -1, -1, List.of(), List.of(), List.of(), List.of());
+    WorldObject waifClass =
+        new WorldObject(
+            7,
+            "waif class",
+            0,
+            1,
+            -1,
+            -1,
+            List.of(),
+            List.of(),
+            List.of(constructor),
+            List.of(new WorldProperty(":marker", new IntegerValue(0), 1, 0, false, true)));
+    WorldTxn world = new WorldTxn(List.of(1L), List.of(wizard, waifClass));
+    VmState state =
+        new VmState(Map.of("player", new ObjectValue(1), "this", new ObjectValue(1)), 1);
+
+    executeAndCommit(
+        new MooCompiler()
+            .compile(
+                MooParser.parse(
+                    "waif = #7:new(); alias = waif; waif.marker = 7; alias.marker = 42; "
+                        + "return {waif == alias, waif.marker, alias.class == #7};")),
+        state,
+        world,
+        new BuiltinCatalog());
+
+    assertEquals(VmState.Outcome.RETURNED, state.outcome());
+    assertEquals(
+        new ListValue(List.of(new IntegerValue(1), new IntegerValue(42), new IntegerValue(1))),
+        state.returnValue().orElseThrow());
+    try (WorldTxn view = world.begin()) {
+      assertEquals(1, view.snapshot().waifs().size());
+    }
   }
 
   @Test

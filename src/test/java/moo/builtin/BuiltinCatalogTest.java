@@ -33,6 +33,8 @@ final class BuiltinCatalogTest {
       Set.of(
           "add_property",
           "add_verb",
+          "caller_perms",
+          "chr",
           "create",
           "clear_property",
           "decode_binary",
@@ -54,6 +56,7 @@ final class BuiltinCatalogTest {
           "mapkeys",
           "max",
           "move",
+          "new_waif",
           "notify",
           "parent",
           "properties",

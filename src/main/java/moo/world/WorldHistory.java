@@ -11,6 +11,7 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.TreeMap;
 import moo.value.MooValue.AnonymousObjectValue;
+import moo.value.MooValue.WaifValue;
 
 /** Owns committed revisions; all record access remains on {@link WorldTxn}. */
 final class WorldHistory {
@@ -19,16 +20,25 @@ final class WorldHistory {
   private World current;
 
   WorldHistory(List<Long> players, List<WorldObject> objects) {
-    this(players, objects, Map.of());
+    this(players, objects, Map.of(), Map.of());
   }
 
   WorldHistory(
       List<Long> players,
       List<WorldObject> objects,
       Map<AnonymousObjectValue, WorldAnonymousObject> anonymousObjects) {
+    this(players, objects, anonymousObjects, Map.of());
+  }
+
+  WorldHistory(
+      List<Long> players,
+      List<WorldObject> objects,
+      Map<AnonymousObjectValue, WorldAnonymousObject> anonymousObjects,
+      Map<WaifValue, WorldWaif> waifs) {
     Objects.requireNonNull(players, "players");
     Objects.requireNonNull(objects, "objects");
     Objects.requireNonNull(anonymousObjects, "anonymousObjects");
+    Objects.requireNonNull(waifs, "waifs");
     Map<Long, WorldObject> objectsById = new LinkedHashMap<>();
     for (WorldObject object : objects) {
       Objects.requireNonNull(object, "object");
@@ -36,7 +46,7 @@ final class WorldHistory {
         throw new IllegalArgumentException("duplicate object #" + object.id());
       }
     }
-    current = new World(new WorldRevision(0), players, objectsById, anonymousObjects);
+    current = new World(new WorldRevision(0), players, objectsById, anonymousObjects, waifs);
     validateTopology(current);
     revisions.put(0L, current);
   }
@@ -93,6 +103,15 @@ final class WorldHistory {
         anonymousObjects.put(identity, replacement);
       }
     }
+    Map<WaifValue, WorldWaif> waifs = new LinkedHashMap<>(current.waifs());
+    for (WaifValue identity : transaction.waifWrites()) {
+      WorldWaif replacement = transaction.workingWorld().waifs().get(identity);
+      if (replacement == null) {
+        waifs.remove(identity);
+      } else {
+        waifs.put(identity, replacement);
+      }
+    }
     List<Long> players =
         transaction.playersWritten() ? transaction.workingWorld().players() : current.players();
     World replacement =
@@ -100,7 +119,8 @@ final class WorldHistory {
             new WorldRevision(Math.incrementExact(current.revision().value())),
             players,
             objects,
-            anonymousObjects);
+            anonymousObjects,
+            waifs);
     validateTopology(replacement);
     current = replacement;
     revisions.put(replacement.revision().value(), replacement);

@@ -31,6 +31,7 @@ import moo.world.WorldProperty;
 import moo.world.WorldSnapshot;
 import moo.world.WorldTxn;
 import moo.world.WorldVerb;
+import moo.world.WorldWaif;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -159,6 +160,89 @@ final class V17RoundTripTest {
             .verbs()
             .getFirst()
             .programSource());
+  }
+
+  @Test
+  void preservesWaifPropertySlotsAndBackreferences(@TempDir Path temporaryDirectory)
+      throws IOException {
+    WaifValue waif = new WaifValue(new ObjectValue(7), new ObjectValue(1));
+    ListValue aliases = new ListValue(List.of(new ObjectValue(7), waif, waif));
+    WorldObject root =
+        new WorldObject(
+            1,
+            "root",
+            4,
+            1,
+            -1,
+            -1,
+            List.of(),
+            List.of(),
+            List.of(),
+            List.of(property("values", aliases)));
+    WorldObject waifClass =
+        new WorldObject(
+            7,
+            "waif class",
+            0,
+            1,
+            -1,
+            -1,
+            List.of(),
+            List.of(),
+            List.of(),
+            List.of(new WorldProperty(":marker", new IntegerValue(0), 1, 0, false, true)));
+    WorldWaif body =
+        new WorldWaif(
+            List.of(new WorldProperty(":marker", new IntegerValue(7), 1, 0, false, false)));
+    WorldSnapshot world =
+        new WorldSnapshot(
+            0,
+            List.of(1L),
+            Map.of(1L, root, 7L, waifClass),
+            Map.of(),
+            Map.of(waif, body));
+    LambdaMooV17Codec codec = new LambdaMooV17Codec();
+    Path first = temporaryDirectory.resolve("waif-first.db");
+
+    codec.writeAtomic(first, world, List.of());
+    LambdaMooV17Codec.Checkpoint firstCheckpoint = codec.read(first);
+    WorldSnapshot firstRestored = firstCheckpoint.world().snapshot();
+    ListValue firstAliases =
+        assertInstanceOf(
+            ListValue.class,
+            Objects.requireNonNull(firstRestored.objects().get(1L)).properties().getFirst().value());
+    WaifValue firstReference =
+        assertInstanceOf(WaifValue.class, firstAliases.elements().get(1));
+    assertSame(firstReference, firstAliases.elements().get(2));
+    assertEquals(new ObjectValue(7), firstReference.classObject());
+    assertEquals(
+        new IntegerValue(7),
+        Objects.requireNonNull(firstRestored.waifs().get(firstReference))
+            .properties()
+            .getFirst()
+            .value());
+
+    try (WorldTxn transaction = firstCheckpoint.world().begin()) {
+      transaction.writeWaifProperty(firstReference, "marker", new IntegerValue(42));
+      assertEquals(new IntegerValue(42), transaction.readWaifProperty(firstReference, "marker").orElseThrow());
+      assertEquals(true, transaction.commit().isCommitted());
+    }
+    Path second = temporaryDirectory.resolve("waif-second.db");
+    codec.writeAtomic(second, firstCheckpoint.world().snapshot(), List.of());
+    WorldSnapshot secondRestored = codec.read(second).world().snapshot();
+    ListValue secondAliases =
+        assertInstanceOf(
+            ListValue.class,
+            Objects.requireNonNull(secondRestored.objects().get(1L)).properties().getFirst().value());
+    WaifValue secondReference =
+        assertInstanceOf(WaifValue.class, secondAliases.elements().get(1));
+    assertSame(secondReference, secondAliases.elements().get(2));
+    assertEquals(
+        new IntegerValue(42),
+        Objects.requireNonNull(secondRestored.waifs().get(secondReference))
+            .properties()
+            .getFirst()
+            .value());
   }
 
   @Test

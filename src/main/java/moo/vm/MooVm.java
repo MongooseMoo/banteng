@@ -534,9 +534,35 @@ public final class MooVm {
       if (nameText.equalsIgnoreCase("class")) {
         frame.operandStack.push(waif.classObject());
         frame.instructionPointer++;
-      } else {
-        raiseError(state, ErrorValue.E_PROPNF, world);
+        return;
       }
+      if (nameText.equalsIgnoreCase("owner")) {
+        frame.operandStack.push(waif.owner());
+        frame.instructionPointer++;
+        return;
+      }
+      if (nameText.equalsIgnoreCase("wizard") || nameText.equalsIgnoreCase("programmer")) {
+        frame.operandStack.push(new IntegerValue(0));
+        frame.instructionPointer++;
+        return;
+      }
+      WorldProperty property = world.waifProperty(waif, nameText).orElse(null);
+      if (property != null) {
+        long programmer = state.programmer();
+        WorldObject programmerObject = world.object(programmer).orElse(null);
+        boolean wizard = programmerObject != null && (programmerObject.flags() & 4) != 0;
+        if (property.owner() != programmer && !wizard && (property.permissions() & 1) == 0) {
+          raiseError(state, ErrorValue.E_PERM, world);
+          return;
+        }
+      }
+      MooValue value = world.readWaifProperty(waif, nameText).orElse(null);
+      if (value == null) {
+        raiseError(state, ErrorValue.E_PROPNF, world);
+        return;
+      }
+      frame.operandStack.push(value);
+      frame.instructionPointer++;
       return;
     }
     if (!(receiver instanceof ObjectValue object)) {
@@ -566,11 +592,41 @@ public final class MooVm {
     MooValue value = frame.operandStack.pop();
     MooValue name = frame.operandStack.pop();
     MooValue receiver = frame.operandStack.pop();
-    if (!(receiver instanceof ObjectValue object) || !(name instanceof StringValue propertyName)) {
+    if (!(name instanceof StringValue propertyName)) {
       raiseError(state, ErrorValue.E_TYPE, world);
       return;
     }
     String nameText = new String(propertyName.bytes(), StandardCharsets.ISO_8859_1);
+    if (receiver instanceof WaifValue waif) {
+      if (nameText.equalsIgnoreCase("class")
+          || nameText.equalsIgnoreCase("owner")
+          || nameText.equalsIgnoreCase("wizard")
+          || nameText.equalsIgnoreCase("programmer")) {
+        raiseError(state, ErrorValue.E_PERM, world);
+        return;
+      }
+      WorldProperty property = world.waifProperty(waif, nameText).orElse(null);
+      if (property != null) {
+        long programmer = state.programmer();
+        WorldObject programmerObject = world.object(programmer).orElse(null);
+        boolean wizard = programmerObject != null && (programmerObject.flags() & 4) != 0;
+        if (property.owner() != programmer && !wizard && (property.permissions() & 2) == 0) {
+          raiseError(state, ErrorValue.E_PERM, world);
+          return;
+        }
+      }
+      if (!world.writeWaifProperty(waif, nameText, value)) {
+        raiseError(state, ErrorValue.E_PROPNF, world);
+        return;
+      }
+      frame.operandStack.push(value);
+      frame.instructionPointer++;
+      return;
+    }
+    if (!(receiver instanceof ObjectValue object)) {
+      raiseError(state, ErrorValue.E_TYPE, world);
+      return;
+    }
     WorldProperty property = world.property(object.value(), nameText).orElse(null);
     if (property != null) {
       long programmer = state.programmer();

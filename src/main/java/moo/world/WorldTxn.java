@@ -20,6 +20,7 @@ import moo.value.MooValue.ListValue;
 import moo.value.MooValue.MapValue;
 import moo.value.MooValue.ObjectValue;
 import moo.value.MooValue.StringValue;
+import moo.value.MooValue.WaifValue;
 
 /** The concrete transaction path for all runtime-visible world reads and writes. */
 public final class WorldTxn implements AutoCloseable {
@@ -44,6 +45,7 @@ public final class WorldTxn implements AutoCloseable {
   private final Set<Long> recordReads = new LinkedHashSet<>();
   private final Set<Long> recordWrites = new LinkedHashSet<>();
   private final Set<AnonymousObjectValue> anonymousWrites = new LinkedHashSet<>();
+  private final Set<WaifValue> waifWrites = new LinkedHashSet<>();
   private final Set<ScanPredicate> scanPredicates = new LinkedHashSet<>();
   private final List<MooValue> stagedEffects = new ArrayList<>();
   private World working;
@@ -52,7 +54,7 @@ public final class WorldTxn implements AutoCloseable {
 
   /** Creates the committed world owner from immutable snapshots of the supplied records. */
   public WorldTxn(List<Long> players, List<WorldObject> objects) {
-    this(players, objects, Map.of());
+    this(players, objects, Map.of(), Map.of());
   }
 
   /** Creates the committed world owner with permanent and anonymous records. */
@@ -60,7 +62,16 @@ public final class WorldTxn implements AutoCloseable {
       List<Long> players,
       List<WorldObject> objects,
       Map<AnonymousObjectValue, WorldAnonymousObject> anonymousObjects) {
-    history = new WorldHistory(players, objects, anonymousObjects);
+    this(players, objects, anonymousObjects, Map.of());
+  }
+
+  /** Creates the committed world owner with permanent, anonymous, and WAIF records. */
+  public WorldTxn(
+      List<Long> players,
+      List<WorldObject> objects,
+      Map<AnonymousObjectValue, WorldAnonymousObject> anonymousObjects,
+      Map<WaifValue, WorldWaif> waifs) {
+    history = new WorldHistory(players, objects, anonymousObjects, waifs);
     transaction = false;
     base = history.current();
     working = base;
@@ -263,6 +274,12 @@ public final class WorldTxn implements AutoCloseable {
     ensureActiveTransaction();
     return Optional.ofNullable(
         working.anonymousObjects().get(Objects.requireNonNull(identity, "identity")));
+  }
+
+  /** Returns one WAIF body by reference identity. */
+  public Optional<WorldWaif> waif(WaifValue identity) {
+    ensureActiveTransaction();
+    return Optional.ofNullable(working.waifs().get(Objects.requireNonNull(identity, "identity")));
   }
 
   /** Looks up a zero-based verb slot on an object. */
@@ -543,6 +560,84 @@ public final class WorldTxn implements AutoCloseable {
         identity,
         new WorldAnonymousObject("", 0, ownerId, parentId, List.of(), properties));
     return identity;
+  }
+
+  /** Allocates a WAIF whose ordered slots derive from its class's colon-prefixed properties. */
+  public WaifValue createWaif(long classId, long ownerId) {
+    WorldObject waifClass = object(classId).orElseThrow(
+        () -> new IllegalArgumentException("missing WAIF class #" + classId));
+    List<WorldProperty> properties = new ArrayList<>();
+    for (WorldProperty property : waifClass.properties()) {
+      if (property.name().startsWith(":")) {
+        properties.add(
+            new WorldProperty(
+                property.name(),
+                property.value(),
+                property.owner(),
+                property.permissions(),
+                true,
+                false));
+      }
+    }
+    WaifValue identity =
+        new WaifValue(new ObjectValue(classId), new ObjectValue(ownerId));
+    replaceWaif(identity, new WorldWaif(properties));
+    return identity;
+  }
+
+  /** Reads a WAIF override or falls back to the corresponding class property value. */
+  public Optional<MooValue> readWaifProperty(WaifValue identity, String propertyName) {
+    Objects.requireNonNull(propertyName, "propertyName");
+    WorldWaif body = waif(identity).orElse(null);
+    if (body == null) {
+      return Optional.empty();
+    }
+    String classPropertyName = ":" + propertyName;
+    for (WorldProperty property : body.properties()) {
+      if (property.name().equalsIgnoreCase(classPropertyName)) {
+        if (!property.clear()) {
+          return Optional.of(property.value());
+        }
+        return readObjectProperty(identity.classObject().value(), classPropertyName);
+      }
+    }
+    return Optional.empty();
+  }
+
+  /** Returns the class property definition that governs one WAIF property. */
+  public Optional<WorldProperty> waifProperty(WaifValue identity, String propertyName) {
+    Objects.requireNonNull(identity, "identity");
+    Objects.requireNonNull(propertyName, "propertyName");
+    return property(identity.classObject().value(), ":" + propertyName);
+  }
+
+  /** Writes one existing WAIF property override and returns whether the slot exists. */
+  public boolean writeWaifProperty(WaifValue identity, String propertyName, MooValue value) {
+    Objects.requireNonNull(propertyName, "propertyName");
+    Objects.requireNonNull(value, "value");
+    WorldWaif body = waif(identity).orElse(null);
+    if (body == null) {
+      return false;
+    }
+    String classPropertyName = ":" + propertyName;
+    List<WorldProperty> properties = new ArrayList<>(body.properties());
+    for (int index = 0; index < properties.size(); index++) {
+      WorldProperty property = properties.get(index);
+      if (property.name().equalsIgnoreCase(classPropertyName)) {
+        properties.set(
+            index,
+            new WorldProperty(
+                property.name(),
+                value,
+                property.owner(),
+                property.permissions(),
+                false,
+                property.defined()));
+        replaceWaif(identity, new WorldWaif(properties));
+        return true;
+      }
+    }
+    return false;
   }
 
   /** Removes one object from the current immutable world snapshot. */
@@ -1132,7 +1227,12 @@ public final class WorldTxn implements AutoCloseable {
         new LinkedHashMap<>(working.anonymousObjects());
     anonymousObjects.put(identity, replacement);
     World next =
-        new World(base.revision(), working.players(), working.objects(), anonymousObjects);
+        new World(
+            base.revision(),
+            working.players(),
+            working.objects(),
+            anonymousObjects,
+            working.waifs());
     if (Objects.equals(base.anonymousObjects().get(identity), replacement)) {
       anonymousWrites.remove(identity);
     } else {
@@ -1141,10 +1241,29 @@ public final class WorldTxn implements AutoCloseable {
     working = next;
   }
 
+  private void replaceWaif(WaifValue identity, WorldWaif replacement) {
+    ensureActiveTransaction();
+    Map<WaifValue, WorldWaif> waifs = new LinkedHashMap<>(working.waifs());
+    waifs.put(identity, replacement);
+    World next =
+        new World(
+            base.revision(),
+            working.players(),
+            working.objects(),
+            working.anonymousObjects(),
+            waifs);
+    if (Objects.equals(base.waifs().get(identity), replacement)) {
+      waifWrites.remove(identity);
+    } else {
+      waifWrites.add(identity);
+    }
+    working = next;
+  }
+
   private void replaceWorld(List<Long> players, Map<Long, WorldObject> objects) {
     ensureActiveTransaction();
     World replacement =
-        new World(base.revision(), players, objects, working.anonymousObjects());
+        new World(base.revision(), players, objects, working.anonymousObjects(), working.waifs());
     Set<Long> candidates = new LinkedHashSet<>(working.objects().keySet());
     candidates.addAll(replacement.objects().keySet());
     for (long objectId : candidates) {
@@ -1178,6 +1297,10 @@ public final class WorldTxn implements AutoCloseable {
 
   Set<AnonymousObjectValue> anonymousWrites() {
     return Collections.unmodifiableSet(anonymousWrites);
+  }
+
+  Set<WaifValue> waifWrites() {
+    return Collections.unmodifiableSet(waifWrites);
   }
 
   Set<ScanPredicate> scanPredicates() {

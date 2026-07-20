@@ -39,6 +39,7 @@ import moo.world.WorldProperty;
 import moo.world.WorldSnapshot;
 import moo.world.WorldTxn;
 import moo.world.WorldVerb;
+import moo.world.WorldWaif;
 import org.jspecify.annotations.Nullable;
 
 /** Streaming Latin-1 reader and atomic writer for the Phase 2 LambdaMOO v17 slice. */
@@ -164,7 +165,8 @@ public final class LambdaMooV17Codec {
       List<WorldObject> restored = restoreObjects(objects, programs, permanentSlotCount);
       Map<AnonymousObjectValue, WorldAnonymousObject> anonymousObjects =
           restoreAnonymousObjects(objects, programs, context, permanentSlotCount);
-      return new Checkpoint(new WorldTxn(players, restored, anonymousObjects), List.of());
+      Map<WaifValue, WorldWaif> waifs = restoreWaifs(restored, context);
+      return new Checkpoint(new WorldTxn(players, restored, anonymousObjects, waifs), List.of());
     }
   }
 
@@ -381,7 +383,19 @@ public final class LambdaMooV17Codec {
           line(output, "c " + index);
           line(output, waif.classObject().value());
           line(output, waif.owner().value());
-          line(output, 0);
+          WorldWaif body = context.world.waifs().get(waif);
+          line(output, body == null ? 0 : body.properties().size());
+          if (body != null) {
+            for (int propertyIndex = 0;
+                propertyIndex < body.properties().size();
+                propertyIndex++) {
+              WorldProperty property = body.properties().get(propertyIndex);
+              if (!property.clear()) {
+                line(output, propertyIndex);
+                writeValue(output, property.value(), context);
+              }
+            }
+          }
           line(output, -1);
           line(output, ".");
         }
@@ -572,6 +586,52 @@ public final class LambdaMooV17Codec {
     return restored;
   }
 
+  private static Map<WaifValue, WorldWaif> restoreWaifs(
+      List<WorldObject> objects, ReadContext context) throws IOException {
+    Map<Long, WorldObject> objectsById = new LinkedHashMap<>();
+    for (WorldObject object : objects) {
+      objectsById.put(object.id(), object);
+    }
+    Map<WaifValue, WorldWaif> restored = new LinkedHashMap<>();
+    for (WaifValue waif : context.waifs.values()) {
+      RawWaif raw = context.waifBodies.get(waif);
+      if (raw == null) {
+        throw malformed("WAIF creation has no property body");
+      }
+      WorldObject waifClass = objectsById.get(waif.classObject().value());
+      if (waifClass == null) {
+        throw malformed("WAIF names missing class #" + waif.classObject().value());
+      }
+      List<WorldProperty> classProperties =
+          waifClass.properties().stream().filter(property -> property.name().startsWith(":"))
+              .toList();
+      if (raw.propertyCount() != classProperties.size()) {
+        throw malformed(
+            "WAIF property count "
+                + raw.propertyCount()
+                + " does not match class #"
+                + waif.classObject().value()
+                + " layout size "
+                + classProperties.size());
+      }
+      List<WorldProperty> properties = new ArrayList<>(classProperties.size());
+      for (int index = 0; index < classProperties.size(); index++) {
+        WorldProperty classProperty = classProperties.get(index);
+        MooValue override = raw.overrides().get(index);
+        properties.add(
+            new WorldProperty(
+                classProperty.name(),
+                override == null ? classProperty.value() : override,
+                classProperty.owner(),
+                classProperty.permissions(),
+                override == null,
+                false));
+      }
+      restored.put(waif, new WorldWaif(properties));
+    }
+    return restored;
+  }
+
   private static List<WorldProperty> restoreProperties(
       RawObject object,
       Map<Long, RawObject> objects,
@@ -712,10 +772,21 @@ public final class LambdaMooV17Codec {
             new ObjectValue(readLong(input, "WAIF owner")));
     context.waifs.put(index, waif);
     int propertyCount = readCount(input, "WAIF property count");
-    if (propertyCount != 0) {
-      throw malformed("WAIF property slots are not represented by the current value model");
+    Map<Integer, MooValue> overrides = new LinkedHashMap<>();
+    while (true) {
+      int propertyIndex = readInt(input, "WAIF property index");
+      if (propertyIndex == -1) {
+        break;
+      }
+      if (propertyIndex < 0 || propertyIndex >= propertyCount) {
+        throw malformed("WAIF property index is out of range: " + propertyIndex);
+      }
+      MooValue value = readValue(input, context);
+      if (overrides.putIfAbsent(propertyIndex, value) != null) {
+        throw malformed("duplicate WAIF property index " + propertyIndex);
+      }
     }
-    requireExact(input, "-1", "WAIF property terminator");
+    context.waifBodies.put(waif, new RawWaif(propertyCount, overrides));
     requireExact(input, ".", "WAIF creation terminator");
     return waif;
   }
@@ -866,6 +937,7 @@ public final class LambdaMooV17Codec {
     private final Map<Long, AnonymousObjectValue> anonymousById = new LinkedHashMap<>();
     private final AnonymousObjectValue invalidAnonymous = new AnonymousObjectValue();
     private final Map<Integer, WaifValue> waifs = new LinkedHashMap<>();
+    private final IdentityHashMap<WaifValue, RawWaif> waifBodies = new IdentityHashMap<>();
   }
 
   private record ProgramSlot(long objectId, int verbIndex) {}
@@ -874,6 +946,12 @@ public final class LambdaMooV17Codec {
 
   private record RawPropertySlot(
       @Nullable MooValue value, boolean clear, long owner, int permissions) {}
+
+  private record RawWaif(int propertyCount, Map<Integer, MooValue> overrides) {
+    private RawWaif {
+      overrides = Map.copyOf(overrides);
+    }
+  }
 
   private record RawObject(
       long id,
