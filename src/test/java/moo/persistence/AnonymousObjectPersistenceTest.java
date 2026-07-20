@@ -105,6 +105,28 @@ final class AnonymousObjectPersistenceTest {
     }
   }
 
+  @Test
+  void anon3LeavesNoAnonymousGarbageAcrossTwoProductionBoots(
+      @TempDir Path temporaryDirectory) throws Exception {
+    LambdaMooV17Codec codec = new LambdaMooV17Codec();
+    Path input = STARTUP_FIXTURES.resolve("Anon3.db");
+    byte[] inputBytes = Files.readAllBytes(input);
+    Path first = temporaryDirectory.resolve("Anon3.db.new");
+
+    runUntilFixtureShutdown(codec.read(input), first);
+    LambdaMooV17Codec.Checkpoint firstCheckpoint = codec.read(first);
+    assertTrue(firstCheckpoint.world().snapshot().pendingFinalization().isEmpty());
+    assertTrue(firstCheckpoint.world().snapshot().anonymousObjects().isEmpty());
+    assertArrayEquals(inputBytes, Files.readAllBytes(first));
+
+    Path second = temporaryDirectory.resolve("Anon3.db.second");
+    runUntilFixtureShutdown(firstCheckpoint, second);
+    LambdaMooV17Codec.Checkpoint secondCheckpoint = codec.read(second);
+    assertTrue(secondCheckpoint.world().snapshot().pendingFinalization().isEmpty());
+    assertTrue(secondCheckpoint.world().snapshot().anonymousObjects().isEmpty());
+    assertArrayEquals(inputBytes, Files.readAllBytes(second));
+  }
+
   private static void runUntilFixtureShutdown(
       LambdaMooV17Codec.Checkpoint checkpoint, Path output) throws Exception {
     MooServer server = new MooServer("127.0.0.1", 0, checkpoint.world(), output);

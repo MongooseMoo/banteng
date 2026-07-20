@@ -1389,6 +1389,8 @@ public final class MooRuntime {
     closeRecycledPlayerConnections();
     if (task.outcome() == VmState.Outcome.SUSPENDED) {
       finalizePendingAnonymousObjects();
+      queueUnreachableAnonymousObjects(task.snapshot());
+      finalizePendingAnonymousObjects();
     } else if (task.outcome() == VmState.Outcome.RETURNED
         || task.outcome() == VmState.Outcome.ERRORED) {
       queueUnreachableAnonymousObjects();
@@ -1423,7 +1425,7 @@ public final class MooRuntime {
     world().replacePendingFinalization(remaining);
   }
 
-  private void queueUnreachableAnonymousObjects() {
+  private void queueUnreachableAnonymousObjects(VmSnapshot... taskRoots) {
     WorldSnapshot snapshot = world().snapshot();
     Set<AnonymousObjectValue> reachable = new LinkedHashSet<>();
     Set<WaifValue> visitedWaifs = new LinkedHashSet<>();
@@ -1432,6 +1434,63 @@ public final class MooRuntime {
         markReachableAnonymous(
             property.value(), snapshot, reachable, visitedWaifs);
       }
+    }
+    for (VmSnapshot task : taskRoots) {
+      for (MooValue value : task.initialLocals().values()) {
+        markReachableAnonymous(value, snapshot, reachable, visitedWaifs);
+      }
+      for (VmSnapshot.Frame frame : task.frames()) {
+        for (MooValue value : frame.operandStack()) {
+          markReachableAnonymous(value, snapshot, reachable, visitedWaifs);
+        }
+        for (VmSnapshot.IndexState index : frame.indexCollections()) {
+          markReachableAnonymous(index.collection(), snapshot, reachable, visitedWaifs);
+          index
+              .key()
+              .ifPresent(value -> markReachableAnonymous(value, snapshot, reachable, visitedWaifs));
+        }
+        for (MooValue value : frame.locals().values()) {
+          markReachableAnonymous(value, snapshot, reachable, visitedWaifs);
+        }
+        for (VmSnapshot.FinallyState state : frame.finallyStates()) {
+          state
+              .returnValue()
+              .ifPresent(value -> markReachableAnonymous(value, snapshot, reachable, visitedWaifs));
+        }
+        for (VmSnapshot.LoopState loop : frame.loops().values()) {
+          markReachableAnonymous(loop.values(), snapshot, reachable, visitedWaifs);
+          loop
+              .secondaryValues()
+              .ifPresent(value -> markReachableAnonymous(value, snapshot, reachable, visitedWaifs));
+        }
+        markReachableAnonymous(frame.receiver(), snapshot, reachable, visitedWaifs);
+      }
+      for (ConnectionOptionRequest request : task.connectionOptionRequests()) {
+        markReachableAnonymous(request.value(), snapshot, reachable, visitedWaifs);
+      }
+      task
+          .returnValue()
+          .ifPresent(value -> markReachableAnonymous(value, snapshot, reachable, visitedWaifs));
+      task
+          .forkRequest()
+          .ifPresent(
+              fork -> {
+                for (MooValue value : fork.locals().values()) {
+                  markReachableAnonymous(value, snapshot, reachable, visitedWaifs);
+                }
+              });
+      task
+          .pendingBuiltin()
+          .ifPresent(
+              pending -> {
+                for (MooValue value : pending.arguments()) {
+                  markReachableAnonymous(value, snapshot, reachable, visitedWaifs);
+                }
+                markReachableAnonymous(pending.taskLocal(), snapshot, reachable, visitedWaifs);
+                markReachableAnonymous(pending.receiver(), snapshot, reachable, visitedWaifs);
+                markReachableAnonymous(pending.callers(), snapshot, reachable, visitedWaifs);
+              });
+      markReachableAnonymous(task.taskLocal(), snapshot, reachable, visitedWaifs);
     }
 
     List<MooValue> pending = new ArrayList<>(snapshot.pendingFinalization());
