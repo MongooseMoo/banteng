@@ -12,6 +12,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.OptionalDouble;
 import java.util.OptionalLong;
 import java.util.Set;
 import moo.builtin.BuiltinCatalog.ConnectionOption;
@@ -108,7 +109,8 @@ final class BuiltinCatalogTest {
           "valid",
           "verb_args",
           "verb_code",
-          "verb_info");
+          "verb_info",
+          "yin");
 
   @Test
   void registersEveryReachableBuiltinExactlyOnceWithCompleteContracts() {
@@ -645,6 +647,101 @@ final class BuiltinCatalogTest {
       assertEquals(
           Optional.of(ErrorValue.E_ARGS),
           invoke(catalog, seconds, List.of(new IntegerValue(1)), transaction, 2).error());
+    }
+  }
+
+  @Test
+  void yinUsesToastThresholdsAndSuspensionContract() {
+    BuiltinCatalog catalog = new BuiltinCatalog();
+    BuiltinSpec spec = catalog.spec("yin").orElseThrow();
+
+    assertEquals(
+        List.of(
+            new CallShape(
+                List.of(),
+                List.of(
+                    Set.of(ArgType.NUMBER),
+                    Set.of(ArgType.INTEGER),
+                    Set.of(ArgType.INTEGER)),
+                Optional.empty())),
+        spec.callShapes());
+    assertSame(BuiltinPermissionRule.ANY, spec.permission());
+    assertEquals(EffectClass.PURE, spec.effect());
+    assertEquals(BuiltinOwner.VM, spec.owner());
+
+    try (WorldTxn transaction = world().begin()) {
+      List<MooValue> thresholds =
+          List.of(new IntegerValue(0), new IntegerValue(59_999), new IntegerValue(4));
+      Result tickYield =
+          catalog.invoke(
+              spec,
+              thresholds,
+              transaction,
+              2,
+              new MapValue(Map.of()),
+              17,
+              59_998,
+              5,
+              new ObjectValue(2),
+              2,
+              new ListValue(List.of()));
+      assertEquals(OptionalDouble.of(0), tickYield.delaySeconds());
+
+      Result secondYield =
+          catalog.invoke(
+              spec,
+              thresholds,
+              transaction,
+              2,
+              new MapValue(Map.of()),
+              17,
+              59_999,
+              3,
+              new ObjectValue(2),
+              2,
+              new ListValue(List.of()));
+      assertEquals(OptionalDouble.of(0), secondYield.delaySeconds());
+
+      Result noYield =
+          catalog.invoke(
+              spec,
+              thresholds,
+              transaction,
+              2,
+              new MapValue(Map.of()),
+              17,
+              59_999,
+              4,
+              new ObjectValue(2),
+              2,
+              new ListValue(List.of()));
+      assertEquals(Optional.of(new IntegerValue(0)), noYield.value());
+      assertTrue(noYield.delaySeconds().isEmpty());
+
+      assertEquals(
+          Optional.of(ErrorValue.E_INVARG),
+          invoke(
+                  catalog,
+                  spec,
+                  List.of(
+                      new IntegerValue(0),
+                      new IntegerValue(60_000),
+                      new IntegerValue(4)),
+                  transaction,
+                  2)
+              .error());
+      assertEquals(
+          Optional.of(ErrorValue.E_INVARG),
+          invoke(
+                  catalog,
+                  spec,
+                  List.of(
+                      new IntegerValue(-1),
+                      new IntegerValue(59_999),
+                      new IntegerValue(4)),
+                  transaction,
+                  2)
+              .error());
     }
   }
 

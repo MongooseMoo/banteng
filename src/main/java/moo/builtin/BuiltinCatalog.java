@@ -838,6 +838,17 @@ public final class BuiltinCatalog {
             (a, w, p, t, id, rt, rs, r, cp, c) -> suspend(a)));
     entries.add(
         new BuiltinSpec(
+            "yin",
+            List.of(
+                new CallShape(
+                    List.of(), List.of(NUMBER, INTEGER, INTEGER), Optional.empty())),
+            BuiltinPermissionRule.ANY,
+            BuiltinCostRule.fixed(0),
+            EffectClass.PURE,
+            BuiltinOwner.VM,
+            (a, w, p, t, id, rt, rs, r, cp, c) -> yin(a, w, rt, rs)));
+    entries.add(
+        new BuiltinSpec(
             "shutdown",
             List.of(new CallShape(List.of(), List.of(STRING, ANY), Optional.empty())),
             BuiltinPermissionRule.WIZARD_ONLY,
@@ -1195,6 +1206,48 @@ public final class BuiltinCatalog {
               : ((FloatValue) delay).value();
     }
     return seconds < 0 ? Result.error(ErrorValue.E_INVARG) : Result.suspend(seconds);
+  }
+
+  private static Result yin(
+      List<MooValue> arguments, WorldTxn world, long remainingTicks, long remainingSeconds) {
+    double delaySeconds = 0;
+    if (!arguments.isEmpty()) {
+      MooValue delay = arguments.getFirst();
+      delaySeconds =
+          delay instanceof IntegerValue integer
+              ? integer.value()
+              : ((FloatValue) delay).value();
+    }
+    long minimumTicks =
+        arguments.size() >= 2 ? ((IntegerValue) arguments.get(1)).value() : 2_000;
+    long minimumSeconds =
+        arguments.size() >= 3 ? ((IntegerValue) arguments.get(2)).value() : 2;
+
+    long foregroundTicks = 60_000;
+    long foregroundSeconds = 5;
+    MooValue serverOptions = world.readObjectProperty(0, "server_options").orElse(null);
+    if (serverOptions instanceof ObjectValue options) {
+      if (world.readObjectProperty(options.value(), "fg_ticks").orElse(null)
+          instanceof IntegerValue configuredTicks) {
+        foregroundTicks = configuredTicks.value();
+      }
+      if (world.readObjectProperty(options.value(), "fg_seconds").orElse(null)
+          instanceof IntegerValue configuredSeconds) {
+        foregroundSeconds = configuredSeconds.value();
+      }
+    }
+
+    if (!arguments.isEmpty()
+        && (delaySeconds < 0
+            || minimumTicks <= 0
+            || minimumSeconds <= 0
+            || minimumTicks >= foregroundTicks
+            || minimumSeconds >= foregroundSeconds)) {
+      return Result.error(ErrorValue.E_INVARG);
+    }
+    return remainingTicks < minimumTicks || remainingSeconds < minimumSeconds
+        ? Result.suspend(delaySeconds)
+        : Result.zero();
   }
 
   private static Result shutdown(List<MooValue> arguments) {
