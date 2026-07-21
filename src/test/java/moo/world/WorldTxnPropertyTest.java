@@ -8,24 +8,19 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import moo.value.MooValue.StringValue;
-import org.jetbrains.jetCheck.Generator;
-import org.jetbrains.jetCheck.PropertyChecker;
 import org.junit.jupiter.api.Test;
 
 final class WorldTxnPropertyTest {
   @Test
-  void generatedOverlappingWritesConflictWithoutPartialPublication() {
-    Generator<WritePair> writes =
-        Generator.zipWith(
-            Generator.integers(0, 7), Generator.integers(0, 7), WritePair::new);
-
-    PropertyChecker.customized()
-        .silent()
-        .withIterationCount(63)
-        .forAll(writes, WorldTxnPropertyTest::writePairPublishesAtomically);
+  void allOverlappingWritesConflictWithoutPartialPublication() {
+    for (int first = 0; first < 8; first++) {
+      for (int second = 0; second < 8; second++) {
+        writePairPublishesAtomically(new WritePair(first, second));
+      }
+    }
   }
 
-  private static boolean writePairPublishesAtomically(WritePair pair) {
+  private static void writePairPublishesAtomically(WritePair pair) {
     WorldTxn root = root(8);
     WorldTxn first = root.begin();
     WorldTxn second = root.begin();
@@ -53,7 +48,6 @@ final class WorldTxnPropertyTest {
         assertEquals("object-" + objectId, snapshotObject(root.snapshot(), objectId).name());
       }
     }
-    return true;
   }
 
   private static WorldTxn root(int objectCount) {
