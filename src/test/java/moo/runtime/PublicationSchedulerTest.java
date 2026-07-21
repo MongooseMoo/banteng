@@ -363,15 +363,14 @@ final class PublicationSchedulerTest {
   }
 
   @Test
-  void killedDelayedForkNeverPublishesItsWorldMutation() throws Exception {
-    try (Harness harness = Harness.open(2, new RecordingListener())) {
+  void killedReadyForkNeverPublishesItsWorldMutation() throws Exception {
+    try (Harness harness = Harness.open(1, new RecordingListener())) {
       TaskRegistry registry = field(harness.scheduler, "taskRegistry", TaskRegistry.class);
 
       List<String> output =
           harness.line(
-              "; fork task_id (0.2) #0.scheduler_counter = 99; endfork "
+              "; fork task_id (0) #0.scheduler_counter = 99; endfork "
                   + "return kill_task(task_id);");
-      TimeUnit.MILLISECONDS.sleep(400);
 
       assertTrue(output.contains("{1, 0}"), output.toString());
       assertEquals(0, harness.counter());

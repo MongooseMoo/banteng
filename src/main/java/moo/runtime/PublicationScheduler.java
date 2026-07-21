@@ -9,6 +9,7 @@ import java.util.Optional;
 import java.util.Queue;
 import java.util.TreeMap;
 import java.util.concurrent.ArrayBlockingQueue;
+import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.ThreadPoolExecutor;
@@ -120,7 +121,9 @@ final class PublicationScheduler implements AutoCloseable {
         restored.verbLocation(),
         restored.initialLocals());
     nextTaskId = Math.max(nextTaskId, Math.addExact(restored.taskId(), 1));
-    startTimer(new TimedWork(work, restored.scheduledEpochSecond(), false));
+    startTimer(
+        new TimedWork(
+            work, Math.multiplyExact(restored.scheduledEpochSecond(), 1_000L), false));
   }
 
   synchronized List<QueuedTask> queuedTasks() {
@@ -135,7 +138,7 @@ final class PublicationScheduler implements AutoCloseable {
               }
               return new QueuedTask(
                   work.taskId(),
-                  timed.scheduledEpochSecond(),
+                  Math.floorDiv(timed.scheduledEpochMilli(), 1_000L),
                   work.program().source(),
                   snapshot.initialLocals(),
                   snapshot.initialProgrammer(),
@@ -475,6 +478,11 @@ final class PublicationScheduler implements AutoCloseable {
   }
 
   private PublishedAttempt publishAttempt(Attempt attempt) {
+    if (taskRegistry.discardIfCanceled(attempt.entry().taskId())) {
+      attempt.transaction().close();
+      return PublishedAttempt.failed(
+          new CancellationException("task " + attempt.entry().taskId() + " was killed"));
+    }
     if (attempt.failure().isPresent()) {
       attempt.transaction().close();
       return PublishedAttempt.failed(attempt.failure().orElseThrow());
@@ -546,8 +554,10 @@ final class PublicationScheduler implements AutoCloseable {
         synchronized (this) {
           long childTaskId = nextTaskId++;
           VmSnapshot childState = fork.initialState();
-          long scheduledStart =
-              Math.round(System.currentTimeMillis() / 1_000.0 + fork.delaySeconds());
+          long scheduledStartMillis =
+              Math.addExact(
+                  System.currentTimeMillis(), Math.round(fork.delaySeconds() * 1_000.0));
+          long scheduledStart = Math.floorDiv(scheduledStartMillis, 1_000L);
           taskRegistry.registerFork(
               childTaskId,
               scheduledStart,
@@ -576,7 +586,7 @@ final class PublicationScheduler implements AutoCloseable {
             ready.add(child.ready(nextTicket++));
             timer = Optional.empty();
           } else {
-            timer = Optional.of(new TimedWork(child, scheduledStart, false));
+            timer = Optional.of(new TimedWork(child, scheduledStartMillis, false));
           }
           dispatch();
         }
@@ -608,9 +618,9 @@ final class PublicationScheduler implements AutoCloseable {
       if (delaySeconds == 0.0) {
         enqueueWake(suspended, new IntegerValue(0));
       } else {
-        long scheduledStart =
-            Math.round(System.currentTimeMillis() / 1_000.0 + delaySeconds);
-        startTimer(new TimedWork(suspended, scheduledStart, true));
+        long scheduledStartMillis =
+            Math.addExact(System.currentTimeMillis(), Math.round(delaySeconds * 1_000.0));
+        startTimer(new TimedWork(suspended, scheduledStartMillis, true));
       }
       return;
     }
@@ -636,9 +646,7 @@ final class PublicationScheduler implements AutoCloseable {
     long delayMillis =
         Math.max(
             0L,
-            Math.subtractExact(
-                Math.multiplyExact(timed.scheduledEpochSecond(), 1_000L),
-                System.currentTimeMillis()));
+            Math.subtractExact(timed.scheduledEpochMilli(), System.currentTimeMillis()));
     Thread.ofVirtual()
         .name("moo-timer-wake-" + timed.work().taskId())
         .start(
@@ -1016,7 +1024,7 @@ final class PublicationScheduler implements AutoCloseable {
   }
 
   private record TimedWork(
-      SuspendedWork work, long scheduledEpochSecond, boolean resume) {}
+      SuspendedWork work, long scheduledEpochMilli, boolean resume) {}
 
   private record RootCompletion(
       Optional<CompletableFuture<List<String>>> future,
