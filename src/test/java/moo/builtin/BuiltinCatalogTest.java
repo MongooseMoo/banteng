@@ -40,6 +40,7 @@ final class BuiltinCatalogTest {
           "caller_perms",
           "chr",
           "connection_info",
+          "connection_name",
           "connected_players",
           "create",
           "clear_property",
@@ -248,6 +249,69 @@ final class BuiltinCatalogTest {
           invoke(catalog, spec, List.of(new IntegerValue(2)), transaction, 1).error());
       assertEquals(
           Optional.of(ErrorValue.E_ARGS), invoke(catalog, spec, List.of(), transaction, 1).error());
+    }
+  }
+
+  @Test
+  void connectionNameUsesSavedRemoteAddressAndToastLegacyFormatting() {
+    BuiltinCatalog catalog = new BuiltinCatalog();
+    BuiltinSpec spec = catalog.spec("connection_name").orElseThrow();
+    MapValue info =
+        new MapValue(
+            Map.of(
+                string("source_address"), string("server.example"),
+                string("source_ip"), string("192.0.2.10"),
+                string("source_port"), new IntegerValue(7777),
+                string("destination_address"), string("client.example"),
+                string("destination_ip"), string("198.51.100.25"),
+                string("destination_port"), new IntegerValue(4242),
+                string("outbound"), new IntegerValue(0)));
+
+    assertEquals(
+        List.of(
+            new CallShape(
+                List.of(Set.of(ArgType.OBJECT)),
+                List.of(Set.of(ArgType.INTEGER)),
+                Optional.empty())),
+        spec.callShapes());
+    assertSame(BuiltinPermissionRule.ANY, spec.permission());
+    assertEquals(EffectClass.EXTERNAL_READ, spec.effect());
+    assertEquals(BuiltinOwner.CONNECTION, spec.owner());
+    try (WorldTxn transaction = world().begin()) {
+      transaction.openConnection(-2, info);
+      transaction.switchConnectionPlayer(-2, 2);
+
+      assertEquals(
+          Optional.of(string("client.example")),
+          invoke(catalog, spec, List.of(new ObjectValue(2)), transaction, 2).value());
+      assertEquals(
+          Optional.of(string("198.51.100.25")),
+          invoke(
+                  catalog,
+                  spec,
+                  List.of(new ObjectValue(2), new IntegerValue(1)),
+                  transaction,
+                  2)
+              .value());
+      assertEquals(
+          Optional.of(
+              string("port 7777 from client.example [198.51.100.25], port 4242")),
+          invoke(
+                  catalog,
+                  spec,
+                  List.of(new ObjectValue(2), new IntegerValue(0)),
+                  transaction,
+                  1)
+              .value());
+      assertEquals(
+          Optional.of(ErrorValue.E_PERM),
+          invoke(catalog, spec, List.of(new ObjectValue(1)), transaction, 2).error());
+      assertEquals(
+          Optional.of(ErrorValue.E_INVARG),
+          invoke(catalog, spec, List.of(new ObjectValue(99)), transaction, 1).error());
+      assertEquals(
+          Optional.of(ErrorValue.E_TYPE),
+          invoke(catalog, spec, List.of(new ObjectValue(2), string("0")), transaction, 2).error());
     }
   }
 

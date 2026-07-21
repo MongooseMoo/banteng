@@ -598,6 +598,15 @@ public final class BuiltinCatalog {
             (a, w, p, t, rt, rs, r, cp, c) -> connectionInfo(a, w, p)));
     entries.add(
         new BuiltinSpec(
+            "connection_name",
+            List.of(new CallShape(List.of(OBJECT), List.of(INTEGER), Optional.empty())),
+            BuiltinPermissionRule.ANY,
+            BuiltinCostRule.fixed(0),
+            EffectClass.EXTERNAL_READ,
+            BuiltinOwner.CONNECTION,
+            (a, w, p, t, rt, rs, r, cp, c) -> connectionName(a, w, p)));
+    entries.add(
+        new BuiltinSpec(
             "set_connection_option",
             List.of(new CallShape(List.of(OBJECT, STRING, ANY), List.of(), Optional.empty())),
             BuiltinPermissionRule.ANY,
@@ -790,6 +799,47 @@ public final class BuiltinCatalog {
       return Result.error(ErrorValue.E_PERM);
     }
     return Result.value(info.orElseThrow());
+  }
+
+  private static Result connectionName(
+      List<MooValue> arguments, WorldTxn world, long programmer) {
+    long target = ((ObjectValue) arguments.getFirst()).value();
+    if (target != programmer && !BuiltinPermissionRule.WIZARD_ONLY.allows(world, programmer)) {
+      return Result.error(ErrorValue.E_PERM);
+    }
+    MapValue info = world.connectionInfo(target).orElse(null);
+    if (info == null) {
+      return Result.error(ErrorValue.E_INVARG);
+    }
+    MooValue destinationAddress = info.get(encode("destination_address")).orElse(null);
+    MooValue destinationIp = info.get(encode("destination_ip")).orElse(null);
+    if (!(destinationAddress instanceof StringValue address)
+        || !(destinationIp instanceof StringValue ip)) {
+      return Result.error(ErrorValue.E_INVARG);
+    }
+    if (arguments.size() == 1) {
+      return Result.value(address);
+    }
+    if (((IntegerValue) arguments.get(1)).value() == 1) {
+      return Result.value(ip);
+    }
+    MooValue sourcePort = info.get(encode("source_port")).orElse(null);
+    MooValue destinationPort = info.get(encode("destination_port")).orElse(null);
+    MooValue outbound = info.get(encode("outbound")).orElse(null);
+    if (!(sourcePort instanceof IntegerValue source)
+        || !(destinationPort instanceof IntegerValue destination)
+        || outbound == null) {
+      return Result.error(ErrorValue.E_INVARG);
+    }
+    return Result.value(
+        encode(
+            "port %d %s %s [%s], port %d"
+                .formatted(
+                    source.value(),
+                    outbound.isTruthy() ? "to" : "from",
+                    decode(address),
+                    decode(ip),
+                    destination.value())));
   }
 
   private static Result bootPlayer(
