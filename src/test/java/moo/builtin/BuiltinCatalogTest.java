@@ -16,6 +16,7 @@ import java.util.OptionalLong;
 import java.util.Set;
 import moo.builtin.BuiltinCatalog.ConnectionOption;
 import moo.builtin.BuiltinCatalog.ConnectionOptionRequest;
+import moo.builtin.BuiltinCatalog.ForcedInputRequest;
 import moo.builtin.BuiltinCatalog.Result;
 import moo.value.MooValue;
 import moo.value.MooValue.ErrorValue;
@@ -52,6 +53,7 @@ final class BuiltinCatalogTest {
           "encode_binary",
           "equal",
           "eval",
+          "force_input",
           "function_info",
           "index",
           "is_player",
@@ -425,6 +427,66 @@ final class BuiltinCatalogTest {
                   transaction,
                   2)
               .error());
+    }
+  }
+
+  @Test
+  void forceInputStagesToastCompatibleConnectionInputWithoutTargetValidation() {
+    BuiltinCatalog catalog = new BuiltinCatalog();
+    BuiltinSpec spec = catalog.spec("force_input").orElseThrow();
+
+    assertEquals(
+        List.of(
+            new CallShape(
+                List.of(Set.of(ArgType.OBJECT), Set.of(ArgType.STRING)),
+                List.of(Set.of(ArgType.ANY)),
+                Optional.empty())),
+        spec.callShapes());
+    assertSame(BuiltinPermissionRule.ANY, spec.permission());
+    assertEquals(EffectClass.DEFERRED_COMMIT, spec.effect());
+    assertEquals(BuiltinOwner.CONNECTION, spec.owner());
+    try (WorldTxn transaction = world().begin()) {
+      Result negative =
+          invoke(
+              catalog,
+              spec,
+              List.of(new ObjectValue(-2), string("audit-queue-login")),
+              transaction,
+              1);
+      assertEquals(Optional.of(new IntegerValue(0)), negative.value());
+      assertEquals(
+          Optional.of(new ForcedInputRequest(-2, "audit-queue-login")),
+          negative.forcedInputRequest());
+
+      Result self =
+          invoke(
+              catalog,
+              spec,
+              List.of(new ObjectValue(2), string("auditq"), new IntegerValue(1)),
+              transaction,
+              2);
+      assertEquals(Optional.of(new ForcedInputRequest(2, "auditq")), self.forcedInputRequest());
+      assertEquals(
+          Optional.of(ErrorValue.E_PERM),
+          invoke(
+                  catalog,
+                  spec,
+                  List.of(new ObjectValue(1), string("auditq")),
+                  transaction,
+                  2)
+              .error());
+      assertEquals(
+          Optional.of(ErrorValue.E_TYPE),
+          invoke(
+                  catalog,
+                  spec,
+                  List.of(new ObjectValue(2), new IntegerValue(1)),
+                  transaction,
+                  2)
+              .error());
+      assertEquals(
+          Optional.of(ErrorValue.E_ARGS),
+          invoke(catalog, spec, List.of(new ObjectValue(2)), transaction, 2).error());
     }
   }
 
