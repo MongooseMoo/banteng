@@ -36,6 +36,7 @@ final class BuiltinCatalogTest {
       Set.of(
           "add_property",
           "add_verb",
+          "boot_player",
           "caller_perms",
           "chr",
           "connection_info",
@@ -323,6 +324,36 @@ final class BuiltinCatalogTest {
                   transaction,
                   2)
               .error());
+    }
+  }
+
+  @Test
+  void bootPlayerStagesOneAuthorizedConnectionClosureWithoutTargetValidation() {
+    BuiltinCatalog catalog = new BuiltinCatalog();
+    BuiltinSpec spec = catalog.spec("boot_player").orElseThrow();
+
+    assertEquals(
+        List.of(new CallShape(List.of(Set.of(ArgType.OBJECT)), List.of(), Optional.empty())),
+        spec.callShapes());
+    assertSame(BuiltinPermissionRule.ANY, spec.permission());
+    assertEquals(EffectClass.DEFERRED_COMMIT, spec.effect());
+    assertEquals(BuiltinOwner.CONNECTION, spec.owner());
+    try (WorldTxn transaction = world().begin()) {
+      Result self =
+          invoke(catalog, spec, List.of(new ObjectValue(2)), transaction, 2);
+      assertEquals(Optional.of(new IntegerValue(0)), self.value());
+      assertEquals(OptionalLong.of(2), self.bootPlayerTarget());
+
+      Result wizardMissing =
+          invoke(catalog, spec, List.of(new ObjectValue(99)), transaction, 1);
+      assertEquals(Optional.of(new IntegerValue(0)), wizardMissing.value());
+      assertEquals(OptionalLong.of(99), wizardMissing.bootPlayerTarget());
+      assertEquals(
+          Optional.of(ErrorValue.E_PERM),
+          invoke(catalog, spec, List.of(new ObjectValue(1)), transaction, 2).error());
+      assertEquals(
+          Optional.of(ErrorValue.E_TYPE),
+          invoke(catalog, spec, List.of(new IntegerValue(2)), transaction, 2).error());
     }
   }
 

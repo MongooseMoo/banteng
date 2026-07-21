@@ -565,6 +565,15 @@ public final class BuiltinCatalog {
             killTask));
     entries.add(
         new BuiltinSpec(
+            "boot_player",
+            List.of(new CallShape(List.of(OBJECT), List.of(), Optional.empty())),
+            BuiltinPermissionRule.ANY,
+            BuiltinCostRule.fixed(0),
+            EffectClass.DEFERRED_COMMIT,
+            BuiltinOwner.CONNECTION,
+            (a, w, p, t, rt, rs, r, cp, c) -> bootPlayer(a, w, p)));
+    entries.add(
+        new BuiltinSpec(
             "connection_info",
             List.of(new CallShape(List.of(OBJECT), List.of(), Optional.empty())),
             BuiltinPermissionRule.ANY,
@@ -766,6 +775,27 @@ public final class BuiltinCatalog {
       return Result.error(ErrorValue.E_PERM);
     }
     return Result.value(info.orElseThrow());
+  }
+
+  private static Result bootPlayer(
+      List<MooValue> arguments, WorldTxn world, long programmer) {
+    long target = ((ObjectValue) arguments.getFirst()).value();
+    if (target != programmer && !BuiltinPermissionRule.WIZARD_ONLY.allows(world, programmer)) {
+      return Result.error(ErrorValue.E_PERM);
+    }
+    return new Result(
+        Optional.of(new IntegerValue(0)),
+        Optional.empty(),
+        Optional.empty(),
+        Optional.empty(),
+        OptionalLong.empty(),
+        OptionalLong.empty(),
+        OptionalLong.empty(),
+        OptionalDouble.empty(),
+        Optional.empty(),
+        Optional.empty(),
+        OptionalLong.of(target),
+        Optional.empty());
   }
 
   private static Result setConnectionOption(
