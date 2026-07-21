@@ -73,7 +73,9 @@ final class BuiltinCatalogTest {
           "run_gc",
           "set_player_flag",
           "set_task_perms",
+          "set_verb_args",
           "set_verb_code",
+          "set_verb_info",
           "setadd",
           "server_log",
           "shutdown",
@@ -290,6 +292,257 @@ final class BuiltinCatalogTest {
                   List.of(new ObjectValue(99), new IntegerValue(23456)),
                   transaction,
                   1)
+              .error());
+    }
+  }
+
+  @Test
+  void setVerbInfoReplacesOwnerFlagsAndNamesWithToastPermissions() {
+    BuiltinCatalog catalog = new BuiltinCatalog();
+    BuiltinSpec spec = catalog.spec("set_verb_info").orElseThrow();
+
+    assertEquals(
+        List.of(
+            new CallShape(
+                List.of(Set.of(ArgType.ANY), Set.of(ArgType.ANY), Set.of(ArgType.LIST)),
+                List.of(),
+                Optional.empty())),
+        spec.callShapes());
+    assertSame(BuiltinPermissionRule.ANY, spec.permission());
+    assertEquals(EffectClass.TRANSACTION_WRITE, spec.effect());
+    assertEquals(BuiltinOwner.WORLD, spec.owner());
+    try (WorldTxn transaction = world().begin()) {
+      assertEquals(1, transaction.addVerb(2, "old-name", 2, 3, -1));
+      Result result =
+          invoke(
+              catalog,
+              spec,
+              List.of(
+                  new ObjectValue(2),
+                  string("old-name"),
+                  new ListValue(List.of(new ObjectValue(2), string("rxd"), string("  new-name")))),
+              transaction,
+              2);
+
+      assertEquals(Optional.of(new IntegerValue(0)), result.value());
+      WorldVerb updated = transaction.verb(2, 0).orElseThrow();
+      assertEquals("new-name", updated.names());
+      assertEquals(2, updated.owner());
+      assertEquals(13, updated.permissions() & 15);
+      assertEquals(
+          Optional.of(ErrorValue.E_PERM),
+          invoke(
+                  catalog,
+                  spec,
+                  List.of(
+                      new ObjectValue(2),
+                      new IntegerValue(1),
+                      new ListValue(List.of(new ObjectValue(1), string("r"), string("new-name")))),
+                  transaction,
+                  2)
+              .error());
+      assertEquals(
+          Optional.of(new IntegerValue(0)),
+          invoke(
+                  catalog,
+                  spec,
+                  List.of(
+                      new ObjectValue(2),
+                      new IntegerValue(1),
+                      new ListValue(
+                          List.of(new ObjectValue(1), string("rxd"), string("new-name")))),
+                  transaction,
+                  1)
+              .value());
+      assertEquals(1, transaction.verb(2, 0).orElseThrow().owner());
+      assertEquals(
+          Optional.of(ErrorValue.E_INVARG),
+          invoke(
+                  catalog,
+                  spec,
+                  List.of(
+                      new ObjectValue(2),
+                      new IntegerValue(1),
+                      new ListValue(List.of(new ObjectValue(99), string("r"), string("new-name")))),
+                  transaction,
+                  1)
+              .error());
+      assertEquals(
+          Optional.of(ErrorValue.E_INVARG),
+          invoke(
+                  catalog,
+                  spec,
+                  List.of(
+                      new ObjectValue(2),
+                      new IntegerValue(1),
+                      new ListValue(List.of(new ObjectValue(1), string("q"), string("new-name")))),
+                  transaction,
+                  1)
+              .error());
+      assertEquals(
+          Optional.of(ErrorValue.E_VERBNF),
+          invoke(
+                  catalog,
+                  spec,
+                  List.of(
+                      new ObjectValue(2),
+                      new IntegerValue(2),
+                      new ListValue(List.of(new ObjectValue(2), string("r"), string("new-name")))),
+                  transaction,
+                  1)
+              .error());
+      assertEquals(
+          Optional.of(ErrorValue.E_INVARG),
+          invoke(
+                  catalog,
+                  spec,
+                  List.of(
+                      new IntegerValue(2),
+                      new IntegerValue(0),
+                      new ListValue(List.of(new ObjectValue(1), string("r"), string("new-name")))),
+                  transaction,
+                  1)
+              .error());
+      assertEquals(
+          Optional.of(ErrorValue.E_TYPE),
+          invoke(
+                  catalog,
+                  spec,
+                  List.of(
+                      new ObjectValue(2),
+                      string("new-name"),
+                      new ListValue(List.of(new ObjectValue(2), new IntegerValue(1), string("x")))),
+                  transaction,
+                  1)
+              .error());
+    }
+  }
+
+  @Test
+  void setVerbArgsReplacesOnlyArgumentSpecificationsWithToastValidationOrder() {
+    BuiltinCatalog catalog = new BuiltinCatalog();
+    BuiltinSpec spec = catalog.spec("set_verb_args").orElseThrow();
+
+    assertEquals(
+        List.of(
+            new CallShape(
+                List.of(Set.of(ArgType.ANY), Set.of(ArgType.ANY), Set.of(ArgType.LIST)),
+                List.of(),
+                Optional.empty())),
+        spec.callShapes());
+    assertSame(BuiltinPermissionRule.ANY, spec.permission());
+    assertEquals(EffectClass.TRANSACTION_WRITE, spec.effect());
+    assertEquals(BuiltinOwner.WORLD, spec.owner());
+    try (WorldTxn transaction = world().begin()) {
+      assertEquals(1, transaction.addVerb(2, "target", 2, 3, 7));
+      Result result =
+          invoke(
+              catalog,
+              spec,
+              List.of(
+                  new ObjectValue(2),
+                  string("target"),
+                  new ListValue(List.of(string("this"), string("none"), string("this")))),
+              transaction,
+              2);
+
+      assertEquals(Optional.of(new IntegerValue(0)), result.value());
+      WorldVerb updated = transaction.verb(2, 0).orElseThrow();
+      assertEquals("target", updated.names());
+      assertEquals(2, updated.owner());
+      assertEquals(3 | (2 << 4) | (2 << 6), updated.permissions());
+      assertEquals(-1, updated.preposition());
+      assertEquals("", updated.programSource());
+
+      assertEquals(
+          Optional.of(new IntegerValue(0)),
+          invoke(
+                  catalog,
+                  spec,
+                  List.of(
+                      new ObjectValue(2),
+                      new IntegerValue(1),
+                      new ListValue(List.of(string("any"), string("with/using"), string("none")))),
+                  transaction,
+                  2)
+              .value());
+      updated = transaction.verb(2, 0).orElseThrow();
+      assertEquals(3 | (1 << 4), updated.permissions());
+      assertEquals(0, updated.preposition());
+
+      assertEquals(
+          Optional.of(ErrorValue.E_TYPE),
+          invoke(
+                  catalog,
+                  spec,
+                  List.of(
+                      new ObjectValue(2),
+                      string("missing"),
+                      new ListValue(List.of(string("this"), new IntegerValue(0), string("this")))),
+                  transaction,
+                  2)
+              .error());
+      assertEquals(
+          Optional.of(ErrorValue.E_INVARG),
+          invoke(
+                  catalog,
+                  spec,
+                  List.of(
+                      new ObjectValue(2),
+                      string("missing"),
+                      new ListValue(List.of(string("this"), string("nowhere"), string("this")))),
+                  transaction,
+                  2)
+              .error());
+      assertEquals(
+          Optional.of(ErrorValue.E_INVARG),
+          invoke(
+                  catalog,
+                  spec,
+                  List.of(
+                      new ObjectValue(2),
+                      string("target"),
+                      new ListValue(List.of(string("this"), string("+1"), string("this")))),
+                  transaction,
+                  2)
+              .error());
+      assertEquals(
+          Optional.of(ErrorValue.E_VERBNF),
+          invoke(
+                  catalog,
+                  spec,
+                  List.of(
+                      new ObjectValue(2),
+                      string("missing"),
+                      new ListValue(List.of(string("this"), string("none"), string("this")))),
+                  transaction,
+                  2)
+              .error());
+
+      assertEquals(2, transaction.addVerb(2, "private", 1, 1, -1));
+      assertEquals(
+          Optional.of(ErrorValue.E_PERM),
+          invoke(
+                  catalog,
+                  spec,
+                  List.of(
+                      new ObjectValue(2),
+                      string("private"),
+                      new ListValue(List.of(string("this"), string("none"), string("this")))),
+                  transaction,
+                  2)
+              .error());
+      assertEquals(
+          Optional.of(ErrorValue.E_INVARG),
+          invoke(
+                  catalog,
+                  spec,
+                  List.of(
+                      new IntegerValue(2),
+                      new IntegerValue(0),
+                      new ListValue(List.of(string("this"), string("none"), string("this")))),
+                  transaction,
+                  2)
               .error());
     }
   }

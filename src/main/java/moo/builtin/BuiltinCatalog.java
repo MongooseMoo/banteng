@@ -433,6 +433,32 @@ public final class BuiltinCatalog {
             (a, w, p, t, rt, rs, r, cp, c) -> setVerbCode(a, w, p)));
     entries.add(
         new BuiltinSpec(
+            "set_verb_args",
+            List.of(
+                new CallShape(
+                    List.of(ANY, ANY, Set.of(ArgType.LIST)),
+                    List.of(),
+                    Optional.empty())),
+            BuiltinPermissionRule.ANY,
+            BuiltinCostRule.fixed(0),
+            EffectClass.TRANSACTION_WRITE,
+            BuiltinOwner.WORLD,
+            (a, w, p, t, rt, rs, r, cp, c) -> setVerbArgs(a, w, p)));
+    entries.add(
+        new BuiltinSpec(
+            "set_verb_info",
+            List.of(
+                new CallShape(
+                    List.of(ANY, ANY, Set.of(ArgType.LIST)),
+                    List.of(),
+                    Optional.empty())),
+            BuiltinPermissionRule.ANY,
+            BuiltinCostRule.fixed(0),
+            EffectClass.TRANSACTION_WRITE,
+            BuiltinOwner.WORLD,
+            (a, w, p, t, rt, rs, r, cp, c) -> setVerbInfo(a, w, p)));
+    entries.add(
+        new BuiltinSpec(
             "verb_code",
             List.of(new CallShape(List.of(ANY, ANY), List.of(ANY, ANY), Optional.empty())),
             BuiltinPermissionRule.ANY,
@@ -1726,6 +1752,200 @@ public final class BuiltinCatalog {
     return world.setPlayerFlag(object.value(), enabled.isTruthy())
         ? Result.zero()
         : Result.error(ErrorValue.E_INVARG);
+  }
+
+  private static Result setVerbInfo(
+      List<MooValue> arguments, WorldTxn world, long programmer) {
+    MooValue descriptor = arguments.get(1);
+    if (!(descriptor instanceof StringValue) && !(descriptor instanceof IntegerValue)) {
+      return Result.error(ErrorValue.E_TYPE);
+    }
+    if (descriptor instanceof IntegerValue integer && integer.value() <= 0) {
+      return Result.error(ErrorValue.E_INVARG);
+    }
+
+    MooValue receiver = arguments.get(0);
+    if (!(receiver instanceof ObjectValue object)) {
+      return Result.error(ErrorValue.E_TYPE);
+    }
+    WorldObject target = world.object(object.value()).orElse(null);
+    if (target == null) {
+      return Result.error(ErrorValue.E_INVARG);
+    }
+    List<WorldVerb> targetVerbs = target.verbs();
+
+    ListValue info = (ListValue) arguments.get(2);
+    if (info.size() != 3
+        || !(info.elements().get(0) instanceof ObjectValue owner)
+        || !(info.elements().get(1) instanceof StringValue permissionValue)
+        || !(info.elements().get(2) instanceof StringValue namesValue)) {
+      return Result.error(ErrorValue.E_TYPE);
+    }
+    if (world.object(owner.value()).isEmpty()) {
+      return Result.error(ErrorValue.E_INVARG);
+    }
+    int permissions = 0;
+    String permissionText = decode(permissionValue);
+    for (int index = 0; index < permissionText.length(); index++) {
+      permissions |=
+          switch (Character.toLowerCase(permissionText.charAt(index))) {
+            case 'r' -> 1;
+            case 'w' -> 2;
+            case 'x' -> 4;
+            case 'd' -> 8;
+            default -> -1;
+          };
+      if (permissions < 0) {
+        return Result.error(ErrorValue.E_INVARG);
+      }
+    }
+    String names = decode(namesValue).stripLeading();
+    if (names.isEmpty()) {
+      return Result.error(ErrorValue.E_INVARG);
+    }
+
+    WorldVerb verb;
+    int verbIndex;
+    if (descriptor instanceof IntegerValue integer) {
+      long index = integer.value() - 1;
+      if (index >= targetVerbs.size()) {
+        return Result.error(ErrorValue.E_VERBNF);
+      }
+      verbIndex = (int) index;
+      verb = targetVerbs.get(verbIndex);
+    } else {
+      WorldVerb candidate =
+          world.verb(object.value(), decode((StringValue) descriptor), false).orElse(null);
+      if (candidate == null || !targetVerbs.contains(candidate)) {
+        return Result.error(ErrorValue.E_VERBNF);
+      }
+      verb = candidate;
+      verbIndex = targetVerbs.indexOf(verb);
+    }
+
+    boolean wizard = BuiltinPermissionRule.WIZARD_ONLY.allows(world, programmer);
+    if ((verb.owner() != programmer && !wizard && (verb.permissions() & 2) == 0)
+        || (!wizard && verb.owner() != owner.value())) {
+      return Result.error(ErrorValue.E_PERM);
+    }
+    boolean updated =
+        world.setVerbInfo(object.value(), verbIndex, names, owner.value(), permissions);
+    return updated ? Result.zero() : Result.error(ErrorValue.E_VERBNF);
+  }
+
+  private static Result setVerbArgs(
+      List<MooValue> arguments, WorldTxn world, long programmer) {
+    MooValue descriptor = arguments.get(1);
+    if (!(descriptor instanceof StringValue) && !(descriptor instanceof IntegerValue)) {
+      return Result.error(ErrorValue.E_TYPE);
+    }
+    if (descriptor instanceof IntegerValue integer && integer.value() <= 0) {
+      return Result.error(ErrorValue.E_INVARG);
+    }
+
+    MooValue receiver = arguments.get(0);
+    if (!(receiver instanceof ObjectValue object)) {
+      return Result.error(ErrorValue.E_TYPE);
+    }
+    WorldObject target = world.object(object.value()).orElse(null);
+    if (target == null) {
+      return Result.error(ErrorValue.E_INVARG);
+    }
+
+    ListValue verbArguments = (ListValue) arguments.get(2);
+    if (verbArguments.size() != 3
+        || verbArguments.elements().stream().anyMatch(value -> !(value instanceof StringValue))) {
+      return Result.error(ErrorValue.E_TYPE);
+    }
+    String directText = decode((StringValue) verbArguments.elements().get(0));
+    String prepositionText = decode((StringValue) verbArguments.elements().get(1));
+    String indirectText = decode((StringValue) verbArguments.elements().get(2));
+    int direct =
+        switch (directText.toLowerCase(Locale.ROOT)) {
+          case "none" -> 0;
+          case "any" -> 1;
+          case "this" -> 2;
+          default -> -1;
+        };
+    int indirect =
+        switch (indirectText.toLowerCase(Locale.ROOT)) {
+          case "none" -> 0;
+          case "any" -> 1;
+          case "this" -> 2;
+          default -> -1;
+        };
+    String normalizedPreposition = prepositionText.toLowerCase(Locale.ROOT);
+    int slash = normalizedPreposition.indexOf('/');
+    if (slash >= 0) {
+      normalizedPreposition = normalizedPreposition.substring(0, slash);
+    }
+    int preposition =
+        switch (normalizedPreposition) {
+          case "none" -> -1;
+          case "any" -> -2;
+          case "with", "using" -> 0;
+          case "at", "to" -> 1;
+          case "in front of" -> 2;
+          case "in", "inside", "into" -> 3;
+          case "on top of", "on", "onto", "upon" -> 4;
+          case "out of", "from inside", "from" -> 5;
+          case "over" -> 6;
+          case "through" -> 7;
+          case "under", "underneath", "beneath" -> 8;
+          case "behind" -> 9;
+          case "beside" -> 10;
+          case "for", "about" -> 11;
+          case "is" -> 12;
+          case "as" -> 13;
+          case "off", "off of" -> 14;
+          default -> {
+            String numeric =
+                normalizedPreposition.startsWith("#")
+                    ? normalizedPreposition.substring(1)
+                    : normalizedPreposition;
+            if (numeric.isEmpty()
+                || numeric.chars().anyMatch(character -> character < '0' || character > '9')) {
+              yield Integer.MIN_VALUE;
+            }
+            try {
+              int code = Integer.parseInt(numeric);
+              yield code >= 0 && code <= 14 ? code : Integer.MIN_VALUE;
+            } catch (NumberFormatException ignored) {
+              yield Integer.MIN_VALUE;
+            }
+          }
+        };
+    if (direct < 0 || indirect < 0 || preposition == Integer.MIN_VALUE) {
+      return Result.error(ErrorValue.E_INVARG);
+    }
+
+    List<WorldVerb> targetVerbs = target.verbs();
+    WorldVerb verb;
+    int verbIndex;
+    if (descriptor instanceof IntegerValue integer) {
+      long index = integer.value() - 1;
+      if (index >= targetVerbs.size()) {
+        return Result.error(ErrorValue.E_VERBNF);
+      }
+      verbIndex = (int) index;
+      verb = targetVerbs.get(verbIndex);
+    } else {
+      WorldVerb candidate =
+          world.verb(object.value(), decode((StringValue) descriptor), false).orElse(null);
+      if (candidate == null || !targetVerbs.contains(candidate)) {
+        return Result.error(ErrorValue.E_VERBNF);
+      }
+      verb = candidate;
+      verbIndex = targetVerbs.indexOf(verb);
+    }
+
+    boolean wizard = BuiltinPermissionRule.WIZARD_ONLY.allows(world, programmer);
+    if (verb.owner() != programmer && !wizard && (verb.permissions() & 2) == 0) {
+      return Result.error(ErrorValue.E_PERM);
+    }
+    boolean updated =
+        world.setVerbArgs(object.value(), verbIndex, direct, preposition, indirect);
+    return updated ? Result.zero() : Result.error(ErrorValue.E_VERBNF);
   }
 
   private static Result setVerbCode(
