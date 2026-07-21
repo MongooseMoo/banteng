@@ -1486,8 +1486,12 @@ public final class MooVm {
             case ADD -> left.value() + right.value();
             case SUBTRACT -> left.value() - right.value();
             case MULTIPLY -> left.value() * right.value();
-            case DIVIDE -> left.value() / right.value();
-            case REMAINDER -> left.value() % right.value();
+            case DIVIDE ->
+                left.value() == -Long.MAX_VALUE && right.value() == -1
+                    ? -Long.MAX_VALUE
+                    : left.value() / right.value();
+            case REMAINDER ->
+                (left.value() % right.value() + right.value()) % right.value();
             case POWER -> integerPower(left.value(), right.value());
             default -> throw new AssertionError(instruction.opcode());
           };

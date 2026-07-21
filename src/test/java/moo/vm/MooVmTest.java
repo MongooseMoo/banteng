@@ -3170,6 +3170,27 @@ final class MooVmTest {
   }
 
   @Test
+  void integerDivisionAndModuloUsePinnedToastBoundaries() {
+    for (Map.Entry<String, Long> test :
+        Map.of(
+                "return -9223372036854775807 / -1;", -Long.MAX_VALUE,
+                "return -15 % -4;", -3L,
+                "return -15 % 4;", 1L,
+                "return 15 % -4;", -1L,
+                "return 15 % 4;", 3L)
+            .entrySet()) {
+      BytecodeProgram program = new MooCompiler().compile(MooParser.parse(test.getKey()));
+      VmState state = new VmState();
+
+      new MooVm().execute(program, state);
+
+      assertEquals(VmState.Outcome.RETURNED, state.outcome(), test.getKey());
+      assertEquals(
+          new IntegerValue(test.getValue()), state.returnValue().orElseThrow(), test.getKey());
+    }
+  }
+
+  @Test
   void floatBaseIntegerPowerUsesFloatErrorBoundaries() {
     BytecodeProgram finite = new MooCompiler().compile(MooParser.parse("return 2.0 ^ 3;"));
     VmState finiteState = new VmState();
