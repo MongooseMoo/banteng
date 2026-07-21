@@ -535,17 +535,24 @@ Phase 4 task infrastructure, not Phase 6 concurrency work:
    second scheduler or executor. Submission rejection maps to `E_QUOTA`;
    completion re-enters the existing ready queue and publication-ticket path.
    Virtual threads may wait for completion but may not execute the CPU work.
-5. Register unconditional pinned builtin `all_members` as the first production
+5. Register every host-suspended task in the existing `TaskRegistry` before
+   submission. The registry owns cancellation of that task's submitted
+   `FutureTask`; `kill_task(task_id)` must cancel the host wait, prevent every
+   late value or error wake, complete any waiting ingress request without
+   hanging, remove the registry entry, and leave the scheduler able to publish
+   later tickets. Normal completion, `E_QUOTA` rejection, cancellation, and
+   scheduler failure are mutually exclusive terminal paths.
+6. Register unconditional pinned builtin `all_members` as the first production
    `SUSPENDING_HOST` producer, before `sort`, with contract `ANY, LIST`,
    `BuiltinPermissionRule.ANY`, fixed zero cost, `EffectClass.SUSPENDING_HOST`,
    and `BuiltinOwner.VM`. Enabled thread mode must suspend and resume through
    the production host path; disabled mode runs the same callback synchronously.
-6. Extend existing `VmSnapshotTest`, `MooVmTest`, `PublicationSchedulerTest`,
+7. Extend existing `VmSnapshotTest`, `MooVmTest`, `PublicationSchedulerTest`,
    `QueuedTaskV17CodecTest`, and `BuiltinCatalogTest` to prove thread-mode
    round-trip, caller/callee and task mode isolation, value resume,
-   catchable-MOO-error resume, `E_QUOTA` rejection, `all_members`
-   threaded/synchronous execution, and absence of an alternate scheduler or
-   executor.
+   catchable-MOO-error resume, `E_QUOTA` rejection, host-wait cancellation with
+   no late wake or ingress hang, `all_members` threaded/synchronous execution,
+   and absence of an alternate scheduler or executor.
 
 Do not add `background_test`. It is guarded by `#ifdef BACKGROUND_TEST` in both
 pinned Toast sources, neither pinned configuration defines that macro, and its
