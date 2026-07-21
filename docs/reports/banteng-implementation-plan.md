@@ -499,9 +499,8 @@ lifecycle, split-IAC Telnet parser, ordered input/output queues, login, command
 parsing, verb lookup, task creation, task IDs, task registry, suspend, read,
 resume, fork, kill, and queued-task inspection. Every operation uses the Phase 2
 production tickets, executor, `WorldTxn`, effect journal, and ordered
-publication path. Delete the placeholder `queued_tasks()` before other Phase 4
-source work only as part of the same kept slice that installs and registers its
-real task-registry-backed implementation; do not commit a deletion-only gap.
+publication path. Install and register the real task-registry-backed
+`queued_tasks()` implementation before other Phase 4 source work.
 Expand the builtin manifest with every task, object, property, verb, listener,
 connection, and server handler invoked by the exact Phase 4 suite paths below.
 Those handlers are Phase 4 vertical slice dependencies; Phase 5 completes only
