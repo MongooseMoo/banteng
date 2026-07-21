@@ -223,6 +223,12 @@ public final class VmState {
     outcome = Outcome.ABORTED;
   }
 
+  void abortSecondsExhaustion() {
+    pendingError = Optional.empty();
+    output.add("Task ran out of seconds");
+    outcome = Outcome.ABORTED;
+  }
+
   public void ensureRoot(BytecodeProgram program) {
     if (frames.isEmpty()) {
       MooValue receiver = initialLocals.getOrDefault("this", new ObjectValue(-1));

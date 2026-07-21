@@ -135,6 +135,55 @@ final class MooVmTest {
   }
 
   @Test
+  void uncatchableBuiltinConstructionLimitAbortsAsSecondsExhaustion() {
+    BytecodeProgram program =
+        new MooCompiler()
+            .compile(
+                MooParser.parse(
+                    "try return random_bytes(10000); "
+                        + "except (ANY) return \"caught\"; endtry"));
+    VmState state = new VmState();
+    WorldObject system =
+        new WorldObject(
+            0,
+            "System",
+            0,
+            1,
+            -1,
+            -1,
+            List.of(),
+            List.of(),
+            List.of(),
+            List.of(
+                new WorldProperty(
+                    "server_options", new ObjectValue(3), 1, 0, false, true)));
+    WorldObject options =
+        new WorldObject(
+            3,
+            "Options",
+            0,
+            1,
+            -1,
+            -1,
+            List.of(),
+            List.of(),
+            List.of(),
+            List.of(
+                new WorldProperty(
+                    "max_string_concat", new IntegerValue(1_021), 1, 0, false, true)));
+
+    executeAndClose(
+        program,
+        state,
+        new WorldTxn(List.of(), List.of(system, options)),
+        new BuiltinCatalog());
+
+    assertEquals(VmState.Outcome.ABORTED, state.outcome());
+    assertTrue(state.returnValue().isEmpty());
+    assertEquals(List.of("Task ran out of seconds"), state.output());
+  }
+
+  @Test
   void comparesErrorValuesByTheirNumericCodes() {
     byte[] source = "return E_NONE < E_TYPE;".getBytes(StandardCharsets.ISO_8859_1);
     Ast.Program syntax = MooParser.parse(source);

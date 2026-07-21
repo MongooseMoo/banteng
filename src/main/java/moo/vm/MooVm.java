@@ -1201,6 +1201,10 @@ public final class MooVm {
 
   private static void applyBuiltinResult(
       Result result, Frame frame, VmState state, WorldTxn world) {
+    if (result.abortSeconds()) {
+      state.abortSecondsExhaustion();
+      return;
+    }
     if (result.error().isPresent()) {
       if (result.errorDetails().isPresent()) {
         raiseError(

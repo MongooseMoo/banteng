@@ -21,6 +21,7 @@ java {
 
 application {
     mainClass = "moo.app.Banteng"
+    applicationDefaultJvmArgs = listOf("--enable-native-access=ALL-UNNAMED")
 }
 
 val jcstress = sourceSets.create("jcstress") {
@@ -91,6 +92,7 @@ tasks.named<JavaCompile>(jmh.compileJavaTaskName) {
 
 tasks.withType<Test>().configureEach {
     useJUnitPlatform()
+    jvmArgs("--enable-native-access=ALL-UNNAMED")
 }
 
 tasks.named<Test>("test") {

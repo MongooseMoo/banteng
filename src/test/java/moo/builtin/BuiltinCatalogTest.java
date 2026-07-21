@@ -2,6 +2,7 @@ package moo.builtin;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -42,27 +43,45 @@ final class BuiltinCatalogTest {
   private static final Set<String> REACHABLE_NAMES =
       Set.of(
           "abs",
+          "acos",
+          "acosh",
           "add_property",
           "add_verb",
           "all_members",
+          "asin",
+          "asinh",
+          "atan",
+          "atan2",
+          "atanh",
           "boot_player",
           "caller_perms",
+          "cbrt",
+          "ceil",
           "chr",
           "connection_info",
           "connection_name",
           "connected_players",
+          "cos",
+          "cosh",
           "create",
+          "ctime",
           "clear_property",
           "decode_binary",
           "delete_verb",
           "delete_property",
           "disassemble",
+          "distance",
           "dump_database",
           "encode_binary",
           "equal",
           "eval",
+          "exp",
           "explode",
+          "floatstr",
+          "floor",
           "force_input",
+          "frandom",
+          "ftime",
           "function_info",
           "index",
           "is_player",
@@ -71,6 +90,8 @@ final class BuiltinCatalogTest {
           "kill_task",
           "listen",
           "load_server_options",
+          "log",
+          "log10",
           "listappend",
           "listdelete",
           "listinsert",
@@ -86,12 +107,15 @@ final class BuiltinCatalogTest {
           "property_info",
           "queued_tasks",
           "random",
+          "random_bytes",
           "reseed_random",
           "raise",
           "read",
           "recycle",
           "reverse",
+          "relative_heading",
           "rindex",
+          "round",
           "run_gc",
           "seconds_left",
           "set_connection_option",
@@ -105,10 +129,15 @@ final class BuiltinCatalogTest {
           "setremove",
           "server_log",
           "shutdown",
+          "sin",
+          "sinh",
+          "sqrt",
           "strcmp",
           "strsub",
           "suspend",
           "switch_player",
+          "tan",
+          "tanh",
           "task_id",
           "task_perms",
           "thread_pool",
@@ -120,6 +149,7 @@ final class BuiltinCatalogTest {
           "toliteral",
           "toobj",
           "tostr",
+          "trunc",
           "typeof",
           "valid",
           "value_bytes",
@@ -250,6 +280,11 @@ final class BuiltinCatalogTest {
     Field randomField = BuiltinCatalog.class.getDeclaredField("random");
     randomField.setAccessible(true);
     randomField.set(catalog, recordingRandom);
+    RecordingRandom floatingRandom = new RecordingRandom();
+    floatingRandom.resetSeedCalls();
+    Field floatingRandomField = BuiltinCatalog.class.getDeclaredField("floatingRandom");
+    floatingRandomField.setAccessible(true);
+    floatingRandomField.set(catalog, floatingRandom);
 
     try (WorldTxn transaction = world().begin()) {
       assertEquals(
@@ -264,6 +299,7 @@ final class BuiltinCatalogTest {
           Optional.of(new IntegerValue(0)),
           invoke(catalog, spec, List.of(), transaction, 1).value());
       assertEquals(1, recordingRandom.seedCalls());
+      assertEquals(0, floatingRandom.seedCalls());
     }
   }
 
@@ -2159,6 +2195,404 @@ final class BuiltinCatalogTest {
   }
 
   @Test
+  void numbersFamilyMatchesPinnedContractsAndSemantics() {
+    BuiltinCatalog catalog = new BuiltinCatalog();
+    CallShape unaryFloat =
+        new CallShape(List.of(Set.of(ArgType.FLOAT)), List.of(), Optional.empty());
+    for (String name :
+        List.of(
+            "acos",
+            "acosh",
+            "asin",
+            "asinh",
+            "atanh",
+            "cbrt",
+            "ceil",
+            "cos",
+            "cosh",
+            "exp",
+            "floor",
+            "log",
+            "log10",
+            "round",
+            "sin",
+            "sinh",
+            "sqrt",
+            "tan",
+            "tanh",
+            "trunc")) {
+      assertPureVmContract(catalog, name, unaryFloat);
+    }
+    assertPureVmContract(
+        catalog,
+        "atan",
+        new CallShape(
+            List.of(Set.of(ArgType.FLOAT)),
+            List.of(Set.of(ArgType.FLOAT)),
+            Optional.empty()));
+    assertPureVmContract(
+        catalog,
+        "atan2",
+        new CallShape(
+            List.of(Set.of(ArgType.FLOAT), Set.of(ArgType.FLOAT)),
+            List.of(),
+            Optional.empty()));
+    CallShape twoLists =
+        new CallShape(
+            List.of(Set.of(ArgType.LIST), Set.of(ArgType.LIST)),
+            List.of(),
+            Optional.empty());
+    assertPureVmContract(catalog, "distance", twoLists);
+    assertPureVmContract(catalog, "relative_heading", twoLists);
+    assertPureVmContract(
+        catalog,
+        "floatstr",
+        new CallShape(
+            List.of(Set.of(ArgType.FLOAT), Set.of(ArgType.INTEGER)),
+            List.of(Set.of(ArgType.ANY)),
+            Optional.empty()));
+
+    BuiltinSpec frandom = catalog.spec("frandom").orElseThrow();
+    assertEquals(
+        List.of(
+            new CallShape(
+                List.of(Set.of(ArgType.FLOAT)),
+                List.of(Set.of(ArgType.FLOAT)),
+                Optional.empty())),
+        frandom.callShapes());
+    BuiltinSpec randomBytes = catalog.spec("random_bytes").orElseThrow();
+    assertEquals(
+        List.of(
+            new CallShape(
+                List.of(Set.of(ArgType.INTEGER)), List.of(), Optional.empty())),
+        randomBytes.callShapes());
+    for (BuiltinSpec spec : List.of(frandom, randomBytes)) {
+      assertSame(BuiltinPermissionRule.ANY, spec.permission());
+      assertEquals(0, spec.tickCost().charge(List.of()));
+      assertEquals(EffectClass.IRREVOCABLE, spec.effect());
+      assertEquals(BuiltinOwner.VM, spec.owner());
+    }
+    for (String name : List.of("ctime", "ftime")) {
+      BuiltinSpec spec = catalog.spec(name).orElseThrow();
+      assertEquals(
+          List.of(
+              new CallShape(
+                  List.of(), List.of(Set.of(ArgType.INTEGER)), Optional.empty())),
+          spec.callShapes());
+      assertSame(BuiltinPermissionRule.ANY, spec.permission());
+      assertEquals(0, spec.tickCost().charge(List.of()));
+      assertEquals(EffectClass.IRREVOCABLE, spec.effect());
+      assertEquals(BuiltinOwner.VM, spec.owner());
+    }
+
+    try (WorldTxn transaction = world().begin()) {
+      assertEquals(
+          Optional.of(new FloatValue(0.0)),
+          invoke(catalog, catalog.spec("acos").orElseThrow(), List.of(new FloatValue(1.0)), transaction, 1)
+              .value());
+      assertEquals(
+          Optional.of(new FloatValue(0.0)),
+          invoke(catalog, catalog.spec("acosh").orElseThrow(), List.of(new FloatValue(1.0)), transaction, 1)
+              .value());
+      Result largeAcosh =
+          invoke(
+              catalog,
+              catalog.spec("acosh").orElseThrow(),
+              List.of(new FloatValue(Double.MAX_VALUE)),
+              transaction,
+              1);
+      assertTrue(((FloatValue) largeAcosh.value().orElseThrow()).value() > 700.0);
+      Result largeNegativeAsinh =
+          invoke(
+              catalog,
+              catalog.spec("asinh").orElseThrow(),
+              List.of(new FloatValue(-Double.MAX_VALUE)),
+              transaction,
+              1);
+      assertTrue(((FloatValue) largeNegativeAsinh.value().orElseThrow()).value() < -700.0);
+      assertEquals(
+          Optional.of(new FloatValue(1.0e-20)),
+          invoke(
+                  catalog,
+                  catalog.spec("atanh").orElseThrow(),
+                  List.of(new FloatValue(1.0e-20)),
+                  transaction,
+                  1)
+              .value());
+      assertEquals(
+          Optional.of(new FloatValue(-2.0)),
+          invoke(catalog, catalog.spec("cbrt").orElseThrow(), List.of(new FloatValue(-8.0)), transaction, 1)
+              .value());
+      assertEquals(
+          Optional.of(new FloatValue(3.0)),
+          invoke(catalog, catalog.spec("round").orElseThrow(), List.of(new FloatValue(2.5)), transaction, 1)
+              .value());
+      assertEquals(
+          Optional.of(new FloatValue(-3.0)),
+          invoke(catalog, catalog.spec("round").orElseThrow(), List.of(new FloatValue(-2.5)), transaction, 1)
+              .value());
+      assertEquals(
+          Optional.of(new FloatValue(0.0)),
+          invoke(
+                  catalog,
+                  catalog.spec("round").orElseThrow(),
+                  List.of(new FloatValue(0.49999999999999994)),
+                  transaction,
+                  1)
+              .value());
+      assertEquals(
+          Optional.of(ErrorValue.E_INVARG),
+          invoke(catalog, catalog.spec("sqrt").orElseThrow(), List.of(new FloatValue(-1.0)), transaction, 1)
+              .error());
+      assertEquals(
+          Optional.of(ErrorValue.E_FLOAT),
+          invoke(
+                  catalog,
+                  catalog.spec("sqrt").orElseThrow(),
+                  List.of(new FloatValue(Double.NaN)),
+                  transaction,
+                  1)
+              .error());
+      assertEquals(
+          Optional.of(ErrorValue.E_FLOAT),
+          invoke(catalog, catalog.spec("atanh").orElseThrow(), List.of(new FloatValue(1.0)), transaction, 1)
+              .error());
+      assertEquals(
+          Optional.of(string("3.14")),
+          invoke(
+                  catalog,
+                  catalog.spec("floatstr").orElseThrow(),
+                  List.of(new FloatValue(3.14159), new IntegerValue(2)),
+                  transaction,
+                  1)
+              .value());
+      assertEquals(
+          Optional.of(string("2")),
+          invoke(
+                  catalog,
+                  catalog.spec("floatstr").orElseThrow(),
+                  List.of(new FloatValue(2.5), new IntegerValue(0)),
+                  transaction,
+                  1)
+              .value());
+      assertEquals(
+          Optional.of(string("2e+00")),
+          invoke(
+                  catalog,
+                  catalog.spec("floatstr").orElseThrow(),
+                  List.of(new FloatValue(2.5), new IntegerValue(0), new IntegerValue(1)),
+                  transaction,
+                  1)
+              .value());
+      assertEquals(
+          Optional.of(new FloatValue(5.0)),
+          invoke(
+                  catalog,
+                  catalog.spec("distance").orElseThrow(),
+                  List.of(
+                      new ListValue(List.of(new IntegerValue(0), new IntegerValue(0))),
+                      new ListValue(List.of(new IntegerValue(3), new IntegerValue(4)))),
+                  transaction,
+                  1)
+              .value());
+      assertEquals(
+          Optional.of(ErrorValue.E_TYPE),
+          invoke(
+                  catalog,
+                  catalog.spec("distance").orElseThrow(),
+                  List.of(
+                      new ListValue(List.of(new IntegerValue(1), new IntegerValue(2))),
+                      new ListValue(List.of(new IntegerValue(1)))),
+                  transaction,
+                  1)
+              .error());
+      MooValue infiniteDistance =
+          invoke(
+                  catalog,
+                  catalog.spec("distance").orElseThrow(),
+                  List.of(
+                      new ListValue(List.of(new FloatValue(-Double.MAX_VALUE))),
+                      new ListValue(List.of(new FloatValue(Double.MAX_VALUE)))),
+                  transaction,
+                  1)
+              .value()
+              .orElseThrow();
+      assertTrue(Double.isInfinite(((FloatValue) infiniteDistance).value()));
+      assertEquals(
+          Optional.of(
+              new ListValue(List.of(new IntegerValue(89), new IntegerValue(0)))),
+          invoke(
+                  catalog,
+                  catalog.spec("relative_heading").orElseThrow(),
+                  List.of(
+                      new ListValue(
+                          List.of(new FloatValue(0.0), new FloatValue(0.0), new FloatValue(0.0))),
+                      new ListValue(
+                          List.of(new FloatValue(0.0), new FloatValue(1.0), new FloatValue(0.0)))),
+                  transaction,
+                  1)
+              .value());
+      assertEquals(
+          Optional.of(string("")),
+          invoke(catalog, randomBytes, List.of(new IntegerValue(0)), transaction, 1).value());
+      Result invalidRandomBytes =
+          invoke(catalog, randomBytes, List.of(new IntegerValue(10_001)), transaction, 1);
+      assertEquals(Optional.of(ErrorValue.E_INVARG), invalidRandomBytes.error());
+      assertEquals(
+          Optional.of(
+              new ListValue(
+                  List.of(
+                      string("Invalid count"),
+                      new IntegerValue(10_001),
+                      new ListValue(List.of())))),
+          invalidRandomBytes.errorDetails());
+      MooValue floatingRandom =
+          invoke(catalog, frandom, List.of(new FloatValue(5.0), new FloatValue(10.0)), transaction, 1)
+              .value()
+              .orElseThrow();
+      assertTrue(floatingRandom instanceof FloatValue);
+      assertTrue(((FloatValue) floatingRandom).value() >= 5.0);
+      assertTrue(((FloatValue) floatingRandom).value() <= 10.0);
+      assertTrue(
+          invoke(catalog, catalog.spec("ctime").orElseThrow(), List.of(new IntegerValue(0)), transaction, 1)
+                  .value()
+                  .orElseThrow()
+              instanceof StringValue);
+      String expandedYear =
+          decode(
+              (StringValue)
+                  invoke(
+                          catalog,
+                          catalog.spec("ctime").orElseThrow(),
+                          List.of(new IntegerValue(253_402_387_200L)),
+                          transaction,
+                          1)
+                      .value()
+                      .orElseThrow());
+      assertTrue(expandedYear.contains("10000"), expandedYear);
+      assertFalse(expandedYear.contains("+10000"));
+      assertEquals(
+          invoke(
+                  catalog,
+                  catalog.spec("ctime").orElseThrow(),
+                  List.of(new IntegerValue((long) Integer.MAX_VALUE * 31_536_000L)),
+                  transaction,
+                  1)
+              .value(),
+          invoke(
+                  catalog,
+                  catalog.spec("ctime").orElseThrow(),
+                  List.of(new IntegerValue(Long.MAX_VALUE)),
+                  transaction,
+                  1)
+              .value());
+      MooValue fineTime =
+          invoke(catalog, catalog.spec("ftime").orElseThrow(), List.of(), transaction, 1)
+              .value()
+              .orElseThrow();
+      assertTrue(fineTime instanceof FloatValue);
+      assertTrue(((FloatValue) fineTime).value() > 0.0);
+      for (long selector : List.of(1L, 2L, 99L)) {
+        MooValue monotonicTime =
+            invoke(
+                    catalog,
+                    catalog.spec("ftime").orElseThrow(),
+                    List.of(new IntegerValue(selector)),
+                    transaction,
+                    1)
+                .value()
+                .orElseThrow();
+        assertTrue(monotonicTime instanceof FloatValue);
+        assertTrue(((FloatValue) monotonicTime).value() > 0.0);
+      }
+    }
+  }
+
+  @Test
+  void numericRandomAndConstructionLimitsMatchPinnedToast() throws ReflectiveOperationException {
+    BuiltinCatalog catalog = new BuiltinCatalog();
+    Field floatingRandomField = BuiltinCatalog.class.getDeclaredField("floatingRandom");
+    floatingRandomField.setAccessible(true);
+    floatingRandomField.set(catalog, new UpperEndpointRandom());
+
+    try (WorldTxn transaction = world().begin()) {
+      assertEquals(
+          Optional.of(new FloatValue(10.0)),
+          invoke(
+                  catalog,
+                  catalog.spec("frandom").orElseThrow(),
+                  List.of(new FloatValue(5.0), new FloatValue(10.0)),
+                  transaction,
+                  1)
+              .value());
+    }
+
+    WorldObject system =
+        new WorldObject(
+            0,
+            "System",
+            0,
+            1,
+            -1,
+            -1,
+            List.of(),
+            List.of(),
+            List.of(),
+            List.of(
+                new WorldProperty(
+                    "server_options", new ObjectValue(3), 1, 0, false, true)));
+    WorldObject wizard =
+        new WorldObject(1, "Wizard", 4, 1, -1, -1, List.of(), List.of(), List.of(), List.of());
+    WorldObject catchableOptions =
+        new WorldObject(
+            3,
+            "Options",
+            0,
+            1,
+            -1,
+            -1,
+            List.of(),
+            List.of(),
+            List.of(),
+            List.of(
+                new WorldProperty(
+                    "max_string_concat", new IntegerValue(1_021), 1, 0, false, true),
+                new WorldProperty(
+                    "max_concat_catchable", new IntegerValue(1), 1, 0, false, true)));
+    BuiltinSpec randomBytes = catalog.spec("random_bytes").orElseThrow();
+    try (WorldTxn transaction =
+        new WorldTxn(List.of(), List.of(system, wizard, catchableOptions)).begin()) {
+      assertEquals(
+          Optional.of(ErrorValue.E_QUOTA),
+          invoke(catalog, randomBytes, List.of(new IntegerValue(10_000)), transaction, 1)
+              .error());
+    }
+
+    WorldObject uncatchableOptions =
+        new WorldObject(
+            3,
+            "Options",
+            0,
+            1,
+            -1,
+            -1,
+            List.of(),
+            List.of(),
+            List.of(),
+            List.of(
+                new WorldProperty(
+                    "max_string_concat", new IntegerValue(1_021), 1, 0, false, true),
+                new WorldProperty(
+                    "max_concat_catchable", new IntegerValue(0), 1, 0, false, true)));
+    try (WorldTxn transaction =
+        new WorldTxn(List.of(), List.of(system, wizard, uncatchableOptions)).begin()) {
+      assertTrue(
+          invoke(catalog, randomBytes, List.of(new IntegerValue(10_000)), transaction, 1)
+              .abortSeconds());
+    }
+  }
+
+  @Test
   void minUsesTheCanonicalPureVmContractAndSelectsTheSmallestHomogeneousNumber() {
     BuiltinCatalog catalog = new BuiltinCatalog();
     CallShape shape =
@@ -3121,6 +3555,15 @@ final class BuiltinCatalogTest {
 
     private void resetSeedCalls() {
       seedCalls = 0;
+    }
+  }
+
+  private static final class UpperEndpointRandom extends Random {
+    private static final long serialVersionUID = 1L;
+
+    @Override
+    public int nextInt() {
+      return -1;
     }
   }
 

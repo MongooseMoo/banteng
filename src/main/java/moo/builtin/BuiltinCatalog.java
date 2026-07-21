@@ -2,9 +2,18 @@ package moo.builtin;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.lang.foreign.Arena;
+import java.lang.foreign.FunctionDescriptor;
+import java.lang.foreign.Linker;
+import java.lang.foreign.MemorySegment;
+import java.lang.foreign.ValueLayout;
+import java.lang.invoke.MethodHandle;
+import java.math.RoundingMode;
 import java.nio.charset.StandardCharsets;
 import java.security.SecureRandom;
 import java.time.Instant;
+import java.text.DecimalFormat;
+import java.text.DecimalFormatSymbols;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.LinkedHashMap;
@@ -41,6 +50,35 @@ import moo.world.WorldVerb;
 
 /** The explicit builtin catalog required by the first managed runtime path. */
 public final class BuiltinCatalog {
+  private static final int CLOCK_REALTIME = 0;
+  private static final int CLOCK_MONOTONIC = 1;
+  private static final int CLOCK_MONOTONIC_RAW = 4;
+  private static final long CTIME_MAX_SECONDS = (long) Integer.MAX_VALUE * 31_536_000L;
+  @SuppressWarnings("restricted")
+  private static final MethodHandle CLOCK_GETTIME =
+      Linker.nativeLinker()
+          .downcallHandle(
+              Linker.nativeLinker().defaultLookup().findOrThrow("clock_gettime"),
+              FunctionDescriptor.of(
+                  ValueLayout.JAVA_INT, ValueLayout.JAVA_INT, ValueLayout.ADDRESS));
+  @SuppressWarnings("restricted")
+  private static final MethodHandle LOCALTIME_R =
+      Linker.nativeLinker()
+          .downcallHandle(
+              Linker.nativeLinker().defaultLookup().findOrThrow("localtime_r"),
+              FunctionDescriptor.of(
+                  ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+  @SuppressWarnings("restricted")
+  private static final MethodHandle STRFTIME =
+      Linker.nativeLinker()
+          .downcallHandle(
+              Linker.nativeLinker().defaultLookup().findOrThrow("strftime"),
+              FunctionDescriptor.of(
+                  ValueLayout.JAVA_LONG,
+                  ValueLayout.ADDRESS,
+                  ValueLayout.JAVA_LONG,
+                  ValueLayout.ADDRESS,
+                  ValueLayout.ADDRESS));
   private static final Set<ArgType> ANY = Set.of(ArgType.ANY);
   private static final Set<ArgType> INTEGER = Set.of(ArgType.INTEGER);
   private static final Set<ArgType> NUMBER = Set.of(ArgType.NUMBER);
@@ -55,6 +93,7 @@ public final class BuiltinCatalog {
   private final BuiltinHandler threadPool;
   private final BuiltinHandler threads;
   private final Random random;
+  private final Random floatingRandom;
   private final Map<String, BuiltinSpec> specs;
 
   /** Creates a catalog without host listener access for focused VM execution. */
@@ -91,6 +130,7 @@ public final class BuiltinCatalog {
     this.threads = Objects.requireNonNull(threads, "threads");
     listenerControl = Optional.empty();
     random = new Random();
+    floatingRandom = new Random();
     manifest = buildManifest();
     specs = indexManifest(manifest);
   }
@@ -132,6 +172,7 @@ public final class BuiltinCatalog {
     this.threadPool = Objects.requireNonNull(threadPool, "threadPool");
     this.threads = Objects.requireNonNull(threads, "threads");
     random = new Random();
+    floatingRandom = new Random();
     manifest = buildManifest();
     specs = indexManifest(manifest);
   }
@@ -256,6 +297,251 @@ public final class BuiltinCatalog {
             (a, w, p, t, id, rt, rs, r, cp, c) -> absoluteValue(a)));
     entries.add(
         new BuiltinSpec(
+            "acos",
+            List.of(new CallShape(List.of(Set.of(ArgType.FLOAT)), List.of(), Optional.empty())),
+            BuiltinPermissionRule.ANY,
+            BuiltinCostRule.fixed(0),
+            EffectClass.PURE,
+            BuiltinOwner.VM,
+            (a, w, p, t, id, rt, rs, r, cp, c) -> acos(a)));
+    entries.add(
+        new BuiltinSpec(
+            "acosh",
+            List.of(new CallShape(List.of(Set.of(ArgType.FLOAT)), List.of(), Optional.empty())),
+            BuiltinPermissionRule.ANY,
+            BuiltinCostRule.fixed(0),
+            EffectClass.PURE,
+            BuiltinOwner.VM,
+            (a, w, p, t, id, rt, rs, r, cp, c) -> acosh(a)));
+    entries.add(
+        new BuiltinSpec(
+            "asin",
+            List.of(new CallShape(List.of(Set.of(ArgType.FLOAT)), List.of(), Optional.empty())),
+            BuiltinPermissionRule.ANY,
+            BuiltinCostRule.fixed(0),
+            EffectClass.PURE,
+            BuiltinOwner.VM,
+            (a, w, p, t, id, rt, rs, r, cp, c) -> asin(a)));
+    entries.add(
+        new BuiltinSpec(
+            "asinh",
+            List.of(new CallShape(List.of(Set.of(ArgType.FLOAT)), List.of(), Optional.empty())),
+            BuiltinPermissionRule.ANY,
+            BuiltinCostRule.fixed(0),
+            EffectClass.PURE,
+            BuiltinOwner.VM,
+            (a, w, p, t, id, rt, rs, r, cp, c) -> asinh(a)));
+    entries.add(
+        new BuiltinSpec(
+            "atan",
+            List.of(
+                new CallShape(
+                    List.of(Set.of(ArgType.FLOAT)),
+                    List.of(Set.of(ArgType.FLOAT)),
+                    Optional.empty())),
+            BuiltinPermissionRule.ANY,
+            BuiltinCostRule.fixed(0),
+            EffectClass.PURE,
+            BuiltinOwner.VM,
+            (a, w, p, t, id, rt, rs, r, cp, c) -> atan(a)));
+    entries.add(
+        new BuiltinSpec(
+            "atan2",
+            List.of(
+                new CallShape(
+                    List.of(Set.of(ArgType.FLOAT), Set.of(ArgType.FLOAT)),
+                    List.of(),
+                    Optional.empty())),
+            BuiltinPermissionRule.ANY,
+            BuiltinCostRule.fixed(0),
+            EffectClass.PURE,
+            BuiltinOwner.VM,
+            (a, w, p, t, id, rt, rs, r, cp, c) -> atan2(a)));
+    entries.add(
+        new BuiltinSpec(
+            "atanh",
+            List.of(new CallShape(List.of(Set.of(ArgType.FLOAT)), List.of(), Optional.empty())),
+            BuiltinPermissionRule.ANY,
+            BuiltinCostRule.fixed(0),
+            EffectClass.PURE,
+            BuiltinOwner.VM,
+            (a, w, p, t, id, rt, rs, r, cp, c) -> atanh(a)));
+    entries.add(
+        new BuiltinSpec(
+            "cbrt",
+            List.of(new CallShape(List.of(Set.of(ArgType.FLOAT)), List.of(), Optional.empty())),
+            BuiltinPermissionRule.ANY,
+            BuiltinCostRule.fixed(0),
+            EffectClass.PURE,
+            BuiltinOwner.VM,
+            (a, w, p, t, id, rt, rs, r, cp, c) -> cbrt(a)));
+    entries.add(
+        new BuiltinSpec(
+            "ceil",
+            List.of(new CallShape(List.of(Set.of(ArgType.FLOAT)), List.of(), Optional.empty())),
+            BuiltinPermissionRule.ANY,
+            BuiltinCostRule.fixed(0),
+            EffectClass.PURE,
+            BuiltinOwner.VM,
+            (a, w, p, t, id, rt, rs, r, cp, c) -> ceil(a)));
+    entries.add(
+        new BuiltinSpec(
+            "cos",
+            List.of(new CallShape(List.of(Set.of(ArgType.FLOAT)), List.of(), Optional.empty())),
+            BuiltinPermissionRule.ANY,
+            BuiltinCostRule.fixed(0),
+            EffectClass.PURE,
+            BuiltinOwner.VM,
+            (a, w, p, t, id, rt, rs, r, cp, c) -> cosine(a)));
+    entries.add(
+        new BuiltinSpec(
+            "cosh",
+            List.of(new CallShape(List.of(Set.of(ArgType.FLOAT)), List.of(), Optional.empty())),
+            BuiltinPermissionRule.ANY,
+            BuiltinCostRule.fixed(0),
+            EffectClass.PURE,
+            BuiltinOwner.VM,
+            (a, w, p, t, id, rt, rs, r, cp, c) -> cosh(a)));
+    entries.add(
+        new BuiltinSpec(
+            "distance",
+            List.of(
+                new CallShape(
+                    List.of(Set.of(ArgType.LIST), Set.of(ArgType.LIST)),
+                    List.of(),
+                    Optional.empty())),
+            BuiltinPermissionRule.ANY,
+            BuiltinCostRule.fixed(0),
+            EffectClass.PURE,
+            BuiltinOwner.VM,
+            (a, w, p, t, id, rt, rs, r, cp, c) -> distance(a)));
+    entries.add(
+        new BuiltinSpec(
+            "exp",
+            List.of(new CallShape(List.of(Set.of(ArgType.FLOAT)), List.of(), Optional.empty())),
+            BuiltinPermissionRule.ANY,
+            BuiltinCostRule.fixed(0),
+            EffectClass.PURE,
+            BuiltinOwner.VM,
+            (a, w, p, t, id, rt, rs, r, cp, c) -> exp(a)));
+    entries.add(
+        new BuiltinSpec(
+            "floatstr",
+            List.of(
+                new CallShape(
+                    List.of(Set.of(ArgType.FLOAT), INTEGER),
+                    List.of(ANY),
+                    Optional.empty())),
+            BuiltinPermissionRule.ANY,
+            BuiltinCostRule.fixed(0),
+            EffectClass.PURE,
+            BuiltinOwner.VM,
+            (a, w, p, t, id, rt, rs, r, cp, c) -> floatstr(a)));
+    entries.add(
+        new BuiltinSpec(
+            "floor",
+            List.of(new CallShape(List.of(Set.of(ArgType.FLOAT)), List.of(), Optional.empty())),
+            BuiltinPermissionRule.ANY,
+            BuiltinCostRule.fixed(0),
+            EffectClass.PURE,
+            BuiltinOwner.VM,
+            (a, w, p, t, id, rt, rs, r, cp, c) -> floor(a)));
+    entries.add(
+        new BuiltinSpec(
+            "log",
+            List.of(new CallShape(List.of(Set.of(ArgType.FLOAT)), List.of(), Optional.empty())),
+            BuiltinPermissionRule.ANY,
+            BuiltinCostRule.fixed(0),
+            EffectClass.PURE,
+            BuiltinOwner.VM,
+            (a, w, p, t, id, rt, rs, r, cp, c) -> log(a)));
+    entries.add(
+        new BuiltinSpec(
+            "log10",
+            List.of(new CallShape(List.of(Set.of(ArgType.FLOAT)), List.of(), Optional.empty())),
+            BuiltinPermissionRule.ANY,
+            BuiltinCostRule.fixed(0),
+            EffectClass.PURE,
+            BuiltinOwner.VM,
+            (a, w, p, t, id, rt, rs, r, cp, c) -> log10(a)));
+    entries.add(
+        new BuiltinSpec(
+            "relative_heading",
+            List.of(
+                new CallShape(
+                    List.of(Set.of(ArgType.LIST), Set.of(ArgType.LIST)),
+                    List.of(),
+                    Optional.empty())),
+            BuiltinPermissionRule.ANY,
+            BuiltinCostRule.fixed(0),
+            EffectClass.PURE,
+            BuiltinOwner.VM,
+            (a, w, p, t, id, rt, rs, r, cp, c) -> relativeHeading(a)));
+    entries.add(
+        new BuiltinSpec(
+            "round",
+            List.of(new CallShape(List.of(Set.of(ArgType.FLOAT)), List.of(), Optional.empty())),
+            BuiltinPermissionRule.ANY,
+            BuiltinCostRule.fixed(0),
+            EffectClass.PURE,
+            BuiltinOwner.VM,
+            (a, w, p, t, id, rt, rs, r, cp, c) -> round(a)));
+    entries.add(
+        new BuiltinSpec(
+            "sin",
+            List.of(new CallShape(List.of(Set.of(ArgType.FLOAT)), List.of(), Optional.empty())),
+            BuiltinPermissionRule.ANY,
+            BuiltinCostRule.fixed(0),
+            EffectClass.PURE,
+            BuiltinOwner.VM,
+            (a, w, p, t, id, rt, rs, r, cp, c) -> sine(a)));
+    entries.add(
+        new BuiltinSpec(
+            "sinh",
+            List.of(new CallShape(List.of(Set.of(ArgType.FLOAT)), List.of(), Optional.empty())),
+            BuiltinPermissionRule.ANY,
+            BuiltinCostRule.fixed(0),
+            EffectClass.PURE,
+            BuiltinOwner.VM,
+            (a, w, p, t, id, rt, rs, r, cp, c) -> sinh(a)));
+    entries.add(
+        new BuiltinSpec(
+            "sqrt",
+            List.of(new CallShape(List.of(Set.of(ArgType.FLOAT)), List.of(), Optional.empty())),
+            BuiltinPermissionRule.ANY,
+            BuiltinCostRule.fixed(0),
+            EffectClass.PURE,
+            BuiltinOwner.VM,
+            (a, w, p, t, id, rt, rs, r, cp, c) -> sqrt(a)));
+    entries.add(
+        new BuiltinSpec(
+            "tan",
+            List.of(new CallShape(List.of(Set.of(ArgType.FLOAT)), List.of(), Optional.empty())),
+            BuiltinPermissionRule.ANY,
+            BuiltinCostRule.fixed(0),
+            EffectClass.PURE,
+            BuiltinOwner.VM,
+            (a, w, p, t, id, rt, rs, r, cp, c) -> tangent(a)));
+    entries.add(
+        new BuiltinSpec(
+            "tanh",
+            List.of(new CallShape(List.of(Set.of(ArgType.FLOAT)), List.of(), Optional.empty())),
+            BuiltinPermissionRule.ANY,
+            BuiltinCostRule.fixed(0),
+            EffectClass.PURE,
+            BuiltinOwner.VM,
+            (a, w, p, t, id, rt, rs, r, cp, c) -> tanh(a)));
+    entries.add(
+        new BuiltinSpec(
+            "trunc",
+            List.of(new CallShape(List.of(Set.of(ArgType.FLOAT)), List.of(), Optional.empty())),
+            BuiltinPermissionRule.ANY,
+            BuiltinCostRule.fixed(0),
+            EffectClass.PURE,
+            BuiltinOwner.VM,
+            (a, w, p, t, id, rt, rs, r, cp, c) -> trunc(a)));
+    entries.add(
+        new BuiltinSpec(
             "random",
             List.of(new CallShape(List.of(), List.of(INTEGER, INTEGER), Optional.empty())),
             BuiltinPermissionRule.ANY,
@@ -277,6 +563,28 @@ public final class BuiltinCatalog {
             }));
     entries.add(
         new BuiltinSpec(
+            "frandom",
+            List.of(
+                new CallShape(
+                    List.of(Set.of(ArgType.FLOAT)),
+                    List.of(Set.of(ArgType.FLOAT)),
+                    Optional.empty())),
+            BuiltinPermissionRule.ANY,
+            BuiltinCostRule.fixed(0),
+            EffectClass.IRREVOCABLE,
+            BuiltinOwner.VM,
+            (a, w, p, t, id, rt, rs, r, cp, c) -> floatingRandom(a)));
+    entries.add(
+        new BuiltinSpec(
+            "random_bytes",
+            List.of(new CallShape(List.of(INTEGER), List.of(), Optional.empty())),
+            BuiltinPermissionRule.ANY,
+            BuiltinCostRule.fixed(0),
+            EffectClass.IRREVOCABLE,
+            BuiltinOwner.VM,
+            (a, w, p, t, id, rt, rs, r, cp, c) -> randomBytes(a, w)));
+    entries.add(
+        new BuiltinSpec(
             "time",
             List.of(new CallShape(List.of(), List.of(), Optional.empty())),
             BuiltinPermissionRule.ANY,
@@ -285,6 +593,24 @@ public final class BuiltinCatalog {
             BuiltinOwner.VM,
             (a, w, p, t, id, rt, rs, r, cp, c) ->
                 Result.value(new IntegerValue(Instant.now().getEpochSecond()))));
+    entries.add(
+        new BuiltinSpec(
+            "ctime",
+            List.of(new CallShape(List.of(), List.of(INTEGER), Optional.empty())),
+            BuiltinPermissionRule.ANY,
+            BuiltinCostRule.fixed(0),
+            EffectClass.IRREVOCABLE,
+            BuiltinOwner.VM,
+            (a, w, p, t, id, rt, rs, r, cp, c) -> ctime(a)));
+    entries.add(
+        new BuiltinSpec(
+            "ftime",
+            List.of(new CallShape(List.of(), List.of(INTEGER), Optional.empty())),
+            BuiltinPermissionRule.ANY,
+            BuiltinCostRule.fixed(0),
+            EffectClass.IRREVOCABLE,
+            BuiltinOwner.VM,
+            (a, w, p, t, id, rt, rs, r, cp, c) -> ftime(a)));
     entries.add(
         new BuiltinSpec(
             "raise",
@@ -1633,6 +1959,416 @@ public final class BuiltinCatalog {
       return Result.value(new IntegerValue(Math.abs(integer.value())));
     }
     return Result.value(new FloatValue(Math.abs(((FloatValue) argument).value())));
+  }
+
+  private static Result acos(List<MooValue> arguments) {
+    double value = ((FloatValue) arguments.getFirst()).value();
+    if (Double.isNaN(value)) {
+      return Result.error(ErrorValue.E_FLOAT);
+    }
+    if (value < -1.0 || value > 1.0) {
+      return Result.error(ErrorValue.E_INVARG);
+    }
+    return Result.value(new FloatValue(Math.acos(value)));
+  }
+
+  private static Result acosh(List<MooValue> arguments) {
+    double value = ((FloatValue) arguments.getFirst()).value();
+    if (value < 1.0) {
+      return Result.error(ErrorValue.E_INVARG);
+    }
+    double result =
+        Math.log(value)
+            + Math.log1p(
+                Math.sqrt(1.0 - 1.0 / value) * Math.sqrt(1.0 + 1.0 / value));
+    return Double.isFinite(result)
+        ? Result.value(new FloatValue(result))
+        : Result.error(ErrorValue.E_FLOAT);
+  }
+
+  private static Result asin(List<MooValue> arguments) {
+    double value = ((FloatValue) arguments.getFirst()).value();
+    if (Double.isNaN(value)) {
+      return Result.error(ErrorValue.E_FLOAT);
+    }
+    if (value < -1.0 || value > 1.0) {
+      return Result.error(ErrorValue.E_INVARG);
+    }
+    return Result.value(new FloatValue(Math.asin(value)));
+  }
+
+  private static Result asinh(List<MooValue> arguments) {
+    double value = ((FloatValue) arguments.getFirst()).value();
+    double absolute = Math.abs(value);
+    double magnitude =
+        absolute > Math.sqrt(Double.MAX_VALUE)
+            ? Math.log(absolute) + Math.log(2.0)
+            : Math.log1p(
+                absolute + absolute * absolute / (1.0 + Math.hypot(1.0, absolute)));
+    double result = Math.copySign(magnitude, value);
+    return Double.isFinite(result)
+        ? Result.value(new FloatValue(result))
+        : Result.error(ErrorValue.E_FLOAT);
+  }
+
+  private static Result atan(List<MooValue> arguments) {
+    double y = ((FloatValue) arguments.getFirst()).value();
+    double result =
+        arguments.size() == 2
+            ? Math.atan2(y, ((FloatValue) arguments.get(1)).value())
+            : Math.atan(y);
+    return Double.isFinite(result)
+        ? Result.value(new FloatValue(result))
+        : Result.error(ErrorValue.E_FLOAT);
+  }
+
+  private static Result atan2(List<MooValue> arguments) {
+    double y = ((FloatValue) arguments.get(0)).value();
+    double x = ((FloatValue) arguments.get(1)).value();
+    return Result.value(new FloatValue(Math.atan2(y, x)));
+  }
+
+  private static Result atanh(List<MooValue> arguments) {
+    double value = ((FloatValue) arguments.getFirst()).value();
+    if (Math.abs(value) > 1.0) {
+      return Result.error(ErrorValue.E_INVARG);
+    }
+    if (Math.abs(value) == 1.0) {
+      return Result.error(ErrorValue.E_FLOAT);
+    }
+    double result = 0.5 * (Math.log1p(value) - Math.log1p(-value));
+    return Double.isFinite(result)
+        ? Result.value(new FloatValue(result))
+        : Result.error(ErrorValue.E_FLOAT);
+  }
+
+  private static Result cbrt(List<MooValue> arguments) {
+    double result = Math.cbrt(((FloatValue) arguments.getFirst()).value());
+    return Double.isFinite(result)
+        ? Result.value(new FloatValue(result))
+        : Result.error(ErrorValue.E_FLOAT);
+  }
+
+  private static Result ceil(List<MooValue> arguments) {
+    double result = Math.ceil(((FloatValue) arguments.getFirst()).value());
+    return Double.isFinite(result)
+        ? Result.value(new FloatValue(result))
+        : Result.error(ErrorValue.E_FLOAT);
+  }
+
+  private static Result cosine(List<MooValue> arguments) {
+    double value = ((FloatValue) arguments.getFirst()).value();
+    if (Double.isInfinite(value)) {
+      return Result.error(ErrorValue.E_INVARG);
+    }
+    double result = Math.cos(value);
+    return Double.isFinite(result)
+        ? Result.value(new FloatValue(result))
+        : Result.error(ErrorValue.E_FLOAT);
+  }
+
+  private static Result cosh(List<MooValue> arguments) {
+    double result = Math.cosh(((FloatValue) arguments.getFirst()).value());
+    return Double.isFinite(result)
+        ? Result.value(new FloatValue(result))
+        : Result.error(ErrorValue.E_FLOAT);
+  }
+
+  private static Result exp(List<MooValue> arguments) {
+    double result = Math.exp(((FloatValue) arguments.getFirst()).value());
+    return Double.isFinite(result)
+        ? Result.value(new FloatValue(result))
+        : Result.error(ErrorValue.E_FLOAT);
+  }
+
+  private static Result floor(List<MooValue> arguments) {
+    double result = Math.floor(((FloatValue) arguments.getFirst()).value());
+    return Double.isFinite(result)
+        ? Result.value(new FloatValue(result))
+        : Result.error(ErrorValue.E_FLOAT);
+  }
+
+  private static Result log(List<MooValue> arguments) {
+    double value = ((FloatValue) arguments.getFirst()).value();
+    if (value < 0.0) {
+      return Result.error(ErrorValue.E_INVARG);
+    }
+    if (value == 0.0) {
+      return Result.error(ErrorValue.E_FLOAT);
+    }
+    double result = Math.log(value);
+    return Double.isFinite(result)
+        ? Result.value(new FloatValue(result))
+        : Result.error(ErrorValue.E_FLOAT);
+  }
+
+  private static Result log10(List<MooValue> arguments) {
+    double value = ((FloatValue) arguments.getFirst()).value();
+    if (value < 0.0) {
+      return Result.error(ErrorValue.E_INVARG);
+    }
+    if (value == 0.0) {
+      return Result.error(ErrorValue.E_FLOAT);
+    }
+    double result = Math.log10(value);
+    return Double.isFinite(result)
+        ? Result.value(new FloatValue(result))
+        : Result.error(ErrorValue.E_FLOAT);
+  }
+
+  private static Result round(List<MooValue> arguments) {
+    double value = ((FloatValue) arguments.getFirst()).value();
+    double truncated = value < 0.0 ? Math.ceil(value) : Math.floor(value);
+    double result =
+        Math.abs(value - truncated) >= 0.5
+            ? truncated + Math.copySign(1.0, value)
+            : truncated;
+    return Result.value(new FloatValue(result));
+  }
+
+  private static Result sine(List<MooValue> arguments) {
+    double value = ((FloatValue) arguments.getFirst()).value();
+    if (Double.isInfinite(value)) {
+      return Result.error(ErrorValue.E_INVARG);
+    }
+    double result = Math.sin(value);
+    return Double.isFinite(result)
+        ? Result.value(new FloatValue(result))
+        : Result.error(ErrorValue.E_FLOAT);
+  }
+
+  private static Result sinh(List<MooValue> arguments) {
+    double result = Math.sinh(((FloatValue) arguments.getFirst()).value());
+    return Double.isFinite(result)
+        ? Result.value(new FloatValue(result))
+        : Result.error(ErrorValue.E_FLOAT);
+  }
+
+  private static Result sqrt(List<MooValue> arguments) {
+    double value = ((FloatValue) arguments.getFirst()).value();
+    if (Double.isNaN(value)) {
+      return Result.error(ErrorValue.E_FLOAT);
+    }
+    if (value < 0.0) {
+      return Result.error(ErrorValue.E_INVARG);
+    }
+    double result = Math.sqrt(value);
+    return Double.isFinite(result)
+        ? Result.value(new FloatValue(result))
+        : Result.error(ErrorValue.E_FLOAT);
+  }
+
+  private static Result tangent(List<MooValue> arguments) {
+    double value = ((FloatValue) arguments.getFirst()).value();
+    if (Double.isInfinite(value)) {
+      return Result.error(ErrorValue.E_INVARG);
+    }
+    double result = Math.tan(value);
+    return Double.isFinite(result)
+        ? Result.value(new FloatValue(result))
+        : Result.error(ErrorValue.E_FLOAT);
+  }
+
+  private static Result tanh(List<MooValue> arguments) {
+    double result = Math.tanh(((FloatValue) arguments.getFirst()).value());
+    return Double.isFinite(result)
+        ? Result.value(new FloatValue(result))
+        : Result.error(ErrorValue.E_FLOAT);
+  }
+
+  private static Result trunc(List<MooValue> arguments) {
+    double value = ((FloatValue) arguments.getFirst()).value();
+    double result = value < 0.0 ? Math.ceil(value) : Math.floor(value);
+    return Double.isFinite(result)
+        ? Result.value(new FloatValue(result))
+        : Result.error(ErrorValue.E_FLOAT);
+  }
+
+  private static Result distance(List<MooValue> arguments) {
+    ListValue from = (ListValue) arguments.get(0);
+    ListValue to = (ListValue) arguments.get(1);
+    if (to.size() < from.size()) {
+      return Result.error(ErrorValue.E_TYPE);
+    }
+    double squared = 0.0;
+    for (int index = 0; index < from.size(); index++) {
+      MooValue fromValue = from.elements().get(index);
+      MooValue toValue = to.elements().get(index);
+      if (!(fromValue instanceof IntegerValue || fromValue instanceof FloatValue)
+          || !(toValue instanceof IntegerValue || toValue instanceof FloatValue)) {
+        return Result.error(ErrorValue.E_TYPE);
+      }
+      double left =
+          fromValue instanceof IntegerValue integer ? integer.value() : ((FloatValue) fromValue).value();
+      double right =
+          toValue instanceof IntegerValue integer ? integer.value() : ((FloatValue) toValue).value();
+      double difference = right - left;
+      squared += difference * difference;
+    }
+    return Result.value(new FloatValue(Math.sqrt(squared)));
+  }
+
+  private static Result floatstr(List<MooValue> arguments) {
+    double value = ((FloatValue) arguments.get(0)).value();
+    long requestedPrecision = ((IntegerValue) arguments.get(1)).value();
+    if (requestedPrecision < 0) {
+      return Result.error(ErrorValue.E_INVARG);
+    }
+    int precision = (int) Math.min(requestedPrecision, 21);
+    boolean scientific = arguments.size() == 3 && arguments.get(2).isTruthy();
+    StringBuilder pattern = new StringBuilder("0");
+    if (precision > 0) {
+      pattern.append('.').append("0".repeat(precision));
+    }
+    if (scientific) {
+      pattern.append("E00");
+    }
+    DecimalFormatSymbols symbols = DecimalFormatSymbols.getInstance(Locale.ROOT);
+    symbols.setNaN("nan");
+    symbols.setInfinity("inf");
+    DecimalFormat formatter = new DecimalFormat(pattern.toString(), symbols);
+    formatter.setGroupingUsed(false);
+    formatter.setRoundingMode(RoundingMode.HALF_EVEN);
+    String formatted = formatter.format(value);
+    if (scientific) {
+      int exponent = formatted.indexOf('E');
+      char sign = exponent + 1 < formatted.length() ? formatted.charAt(exponent + 1) : '+';
+      formatted =
+          formatted.substring(0, exponent)
+              + 'e'
+              + (sign == '-' ? "" : "+")
+              + formatted.substring(exponent + 1);
+    }
+    return Result.value(encode(formatted));
+  }
+
+  private static Result relativeHeading(List<MooValue> arguments) {
+    ListValue from = (ListValue) arguments.get(0);
+    ListValue to = (ListValue) arguments.get(1);
+    if (from.size() < 3 || to.size() < 3) {
+      return Result.error(ErrorValue.E_TYPE);
+    }
+    for (int index = 0; index < 3; index++) {
+      if (!(from.elements().get(index) instanceof FloatValue)
+          || !(to.elements().get(index) instanceof FloatValue)) {
+        return Result.error(ErrorValue.E_TYPE);
+      }
+    }
+    double dx = ((FloatValue) to.elements().get(0)).value() - ((FloatValue) from.elements().get(0)).value();
+    double dy = ((FloatValue) to.elements().get(1)).value() - ((FloatValue) from.elements().get(1)).value();
+    double dz = ((FloatValue) to.elements().get(2)).value() - ((FloatValue) from.elements().get(2)).value();
+    double horizontal = Math.atan2(dy, dx) * 57.2957795130823;
+    if (horizontal < 0.0) {
+      horizontal += 360.0;
+    }
+    double vertical = Math.atan2(dz, Math.sqrt(dx * dx + dy * dy)) * 57.2957795130823;
+    return Result.value(
+        new ListValue(
+            List.of(new IntegerValue((long) horizontal), new IntegerValue((long) vertical))));
+  }
+
+  private Result floatingRandom(List<MooValue> arguments) {
+    double minimum = arguments.size() == 2 ? ((FloatValue) arguments.get(0)).value() : 0.0;
+    double maximum =
+        ((FloatValue) arguments.get(arguments.size() == 2 ? 1 : 0)).value();
+    double fraction = (floatingRandom.nextInt() >>> 1) / (double) Integer.MAX_VALUE;
+    return Result.value(new FloatValue(minimum + fraction * (maximum - minimum)));
+  }
+
+  private static Result randomBytes(List<MooValue> arguments, WorldTxn world) {
+    long requested = ((IntegerValue) arguments.getFirst()).value();
+    if (requested < 0 || requested > 10_000) {
+      return Result.raised(
+          ErrorValue.E_INVARG, encode("Invalid count"), arguments.getFirst());
+    }
+    byte[] random = new byte[(int) requested];
+    new SecureRandom().nextBytes(random);
+    ByteArrayOutputStream encoded = new ByteArrayOutputStream(random.length);
+    for (byte current : random) {
+      int value = Byte.toUnsignedInt(current);
+      if (value != '~' && ((value >= 0x21 && value <= 0x7e) || value == ' ')) {
+        encoded.write(value);
+      } else {
+        encoded.write('~');
+        encoded.write(Character.toUpperCase(Character.forDigit(value >>> 4, 16)));
+        encoded.write(Character.toUpperCase(Character.forDigit(value & 0x0f, 16)));
+      }
+    }
+    long maximumLength = 64_537_861L;
+    boolean catchable = false;
+    MooValue serverOptions = world.readObjectProperty(0, "server_options").orElse(null);
+    if (serverOptions instanceof ObjectValue options) {
+      if (world.readObjectProperty(options.value(), "max_string_concat").orElse(null)
+          instanceof IntegerValue configured) {
+        maximumLength =
+            configured.value() <= 0
+                ? Long.MAX_VALUE
+                : Math.max(1_021L, Math.min(2_147_482_626L, configured.value()));
+      }
+      catchable =
+          world.readObjectProperty(options.value(), "max_concat_catchable")
+              .map(MooValue::isTruthy)
+              .orElse(false);
+    }
+    if (encoded.size() > maximumLength) {
+      return catchable ? Result.error(ErrorValue.E_QUOTA) : Result.secondsAbort();
+    }
+    return Result.value(new StringValue(encoded.toByteArray()));
+  }
+
+  private static Result ctime(List<MooValue> arguments) {
+    long epochSecond =
+        arguments.isEmpty()
+            ? Instant.now().getEpochSecond()
+            : Math.min(((IntegerValue) arguments.getFirst()).value(), CTIME_MAX_SECONDS);
+    try (Arena arena = Arena.ofConfined()) {
+      MemorySegment time = arena.allocate(ValueLayout.JAVA_LONG);
+      time.set(ValueLayout.JAVA_LONG, 0, epochSecond);
+      MemorySegment localTime = arena.allocate(64, Long.BYTES);
+      MemorySegment converted =
+          (MemorySegment) LOCALTIME_R.invokeExact(time, localTime);
+      if (converted.address() == 0) {
+        return Result.error(ErrorValue.E_INVARG);
+      }
+      MemorySegment format = arena.allocate(32);
+      format.setString(0, "%a %b %d %H:%M:%S %Y %Z");
+      MemorySegment buffer = arena.allocate(128);
+      long length =
+          (long) STRFTIME.invokeExact(buffer, 128L, format, localTime);
+      if (length == 0) {
+        return Result.error(ErrorValue.E_INVARG);
+      }
+      String text = buffer.getString(0);
+      if (text.charAt(8) == '0') {
+        text = text.substring(0, 8) + ' ' + text.substring(9);
+      }
+      return Result.value(encode(text));
+    } catch (Throwable error) {
+      throw new IllegalStateException("libc ctime formatting failed", error);
+    }
+  }
+
+  private static Result ftime(List<MooValue> arguments) {
+    int clockId = CLOCK_REALTIME;
+    if (!arguments.isEmpty()) {
+      clockId =
+          ((IntegerValue) arguments.getFirst()).value() == 2
+              ? CLOCK_MONOTONIC_RAW
+              : CLOCK_MONOTONIC;
+    }
+    try (Arena arena = Arena.ofConfined()) {
+      MemorySegment timespec = arena.allocate(16, Long.BYTES);
+      int status = (int) CLOCK_GETTIME.invokeExact(clockId, timespec);
+      if (status != 0) {
+        return Result.error(ErrorValue.E_FLOAT);
+      }
+      long seconds = timespec.get(ValueLayout.JAVA_LONG, 0);
+      long nanoseconds = timespec.get(ValueLayout.JAVA_LONG, Long.BYTES);
+      return Result.value(
+          new FloatValue(seconds + nanoseconds / 1_000_000_000.0));
+    } catch (Throwable error) {
+      throw new IllegalStateException("clock_gettime invocation failed", error);
+    }
   }
 
   private Result randomInteger(List<MooValue> arguments) {
@@ -3422,7 +4158,8 @@ public final class BuiltinCatalog {
       OptionalLong moveDestination,
       Optional<ListValue> errorDetails,
       Optional<CheckpointRequest> checkpointRequest,
-      Optional<Boolean> threadMode) {
+      Optional<Boolean> threadMode,
+      boolean abortSeconds) {
     private Result(
         Optional<MooValue> value,
         Optional<ErrorValue> error,
@@ -3459,7 +4196,8 @@ public final class BuiltinCatalog {
           moveDestination,
           errorDetails,
           checkpointRequest,
-          Optional.empty());
+          Optional.empty(),
+          false);
     }
 
     private Result(
@@ -3491,7 +4229,6 @@ public final class BuiltinCatalog {
           Optional.empty(),
           OptionalLong.empty(),
           OptionalLong.empty(),
-          Optional.empty(),
           Optional.empty(),
           Optional.empty());
     }
@@ -3626,7 +4363,31 @@ public final class BuiltinCatalog {
           OptionalLong.empty(),
           Optional.empty(),
           Optional.empty(),
-          Optional.of(enabled));
+          Optional.of(enabled),
+          false);
+    }
+
+    static Result secondsAbort() {
+      return new Result(
+          Optional.empty(),
+          Optional.empty(),
+          Optional.empty(),
+          Optional.empty(),
+          OptionalLong.empty(),
+          OptionalLong.empty(),
+          OptionalLong.empty(),
+          OptionalDouble.empty(),
+          Optional.empty(),
+          Optional.empty(),
+          OptionalLong.empty(),
+          Optional.empty(),
+          Optional.empty(),
+          OptionalLong.empty(),
+          OptionalLong.empty(),
+          Optional.empty(),
+          Optional.empty(),
+          Optional.empty(),
+          true);
     }
 
     public static Result raised(ErrorValue error, StringValue message, MooValue value) {

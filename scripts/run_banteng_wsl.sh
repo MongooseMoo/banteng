@@ -32,6 +32,7 @@ promote_numbers="$(
 )"
 
 exec /opt/java/25/bin/java \
+  --enable-native-access=ALL-UNNAMED \
   -classpath "$distribution_lib/*" \
   moo.app.Banteng \
   --database "$database" \
