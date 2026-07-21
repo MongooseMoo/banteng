@@ -509,6 +509,46 @@ Phase 4 also includes v17 round-trip and startup restoration of the delayed
 fork state exercised by `audit_suspended_task_survives_restart` and
 `audit_pending_forked_task_survives_genuine_offline_restart`.
 
+Before Phase 5, complete the one production `SUSPENDING_HOST` path. This is
+Phase 4 task infrastructure, not Phase 6 concurrency work:
+
+1. Add per-task thread mode to `VmState` and `VmSnapshot`, defaulting to enabled
+   for both pinned profiles. `LambdaMooV17Codec` must read, retain, write, and
+   restore both valid v17 thread-mode values instead of accepting only literal
+   `1` and discarding it.
+2. Register `set_thread_mode` in the single manifest with its pinned contract:
+   zero or one `INTEGER` argument, `BuiltinPermissionRule.ANY`, fixed zero cost,
+   `EffectClass.DEFERRED_COMMIT`, and `BuiltinOwner.VM`. A zero-argument call
+   returns the current activation's mode; a one-argument call applies MOO
+   truthiness to that activation only and returns zero. The state change must
+   survive suspension, retry, and v17 round-trip without leaking to another
+   task.
+3. Replace the value-only host wake across `BuiltinCatalog.Result`, `MooVm`,
+   `VmState`, `VmSnapshot`, and `PublicationScheduler` with one completion that
+   can resume the same activation with either a value or a catchable MOO error.
+   A Java exception remains scheduler failure and must not substitute for a MOO
+   error.
+4. `PublicationScheduler` owns host-work submission through its existing
+   bounded CPU executor after the invoking VM segment yields. Do not add a
+   second scheduler or executor. Submission rejection maps to `E_QUOTA`;
+   completion re-enters the existing ready queue and publication-ticket path.
+   Virtual threads may wait for completion but may not execute the CPU work.
+5. Register unconditional pinned builtin `all_members` as the first production
+   `SUSPENDING_HOST` producer, before `sort`, with contract `ANY, LIST`,
+   `BuiltinPermissionRule.ANY`, fixed zero cost, `EffectClass.SUSPENDING_HOST`,
+   and `BuiltinOwner.VM`. Enabled thread mode must suspend and resume through
+   the production host path; disabled mode runs the same callback synchronously.
+6. Extend existing `VmSnapshotTest`, `PublicationSchedulerTest`,
+   `QueuedTaskV17CodecTest`, and `BuiltinCatalogTest` to prove thread-mode
+   round-trip, value resume, catchable-MOO-error resume, `E_QUOTA` rejection,
+   task-local mode isolation, `all_members` threaded/synchronous execution, and
+   absence of an alternate scheduler or executor.
+
+Do not add `background_test`. It is guarded by `#ifdef BACKGROUND_TEST` in both
+pinned Toast sources, neither pinned configuration defines that macro, and its
+managed rows explicitly skip when the builtin is absent. Adding it to Banteng
+would create a canonical name absent from the pinned production runtimes.
+
 The task CPU limit uses Toast's virtual/process-CPU semantics, not wall time.
 The exact authority is
 `audit_task_scheduling_toast_oracle::audit_server_options_fg_seconds_runtime`
@@ -535,6 +575,23 @@ scripts/run_managed_wsl.sh banteng stock \
   src/moo_conformance/_tests/capabilities/queued_tasks.yaml \
   src/moo_conformance/_tests/audit/connection_lifecycle_toast_oracle.yaml \
   src/moo_conformance/_tests/audit/task_scheduling_toast_oracle.yaml
+scripts/run_managed_wsl.sh toast stock \
+  src/moo_conformance/_tests/builtins/background_threads.yaml \
+  src/moo_conformance/_tests/builtins/set_thread_mode_call_shapes.yaml \
+  src/moo_conformance/_tests/generated_builtins/set_thread_mode.yaml \
+  src/moo_conformance/_tests/builtins/all_members_call_shapes.yaml \
+  src/moo_conformance/_tests/generated_builtins/all_members.yaml
+scripts/run_managed_wsl.sh banteng stock \
+  src/moo_conformance/_tests/builtins/background_threads.yaml \
+  src/moo_conformance/_tests/builtins/set_thread_mode_call_shapes.yaml \
+  src/moo_conformance/_tests/generated_builtins/set_thread_mode.yaml \
+  src/moo_conformance/_tests/builtins/all_members_call_shapes.yaml \
+  src/moo_conformance/_tests/generated_builtins/all_members.yaml
+JAVA_HOME=/opt/java/25 ./gradlew test \
+  --tests moo.vm.VmSnapshotTest \
+  --tests moo.runtime.PublicationSchedulerTest \
+  --tests moo.persistence.QueuedTaskV17CodecTest \
+  --tests moo.builtin.BuiltinCatalogTest
 JAVA_HOME=/opt/java/25 ./gradlew check
 git diff --check
 ```
