@@ -3,6 +3,7 @@ package moo.builtin;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.LinkedHashMap;
@@ -109,6 +110,16 @@ public final class BuiltinCatalog {
             EffectClass.IRREVOCABLE,
             BuiltinOwner.VM,
             (a, w, p, t, rt, rs, r, cp, c) -> randomInteger(a)));
+    entries.add(
+        new BuiltinSpec(
+            "time",
+            List.of(new CallShape(List.of(), List.of(), Optional.empty())),
+            BuiltinPermissionRule.ANY,
+            BuiltinCostRule.fixed(0),
+            EffectClass.IRREVOCABLE,
+            BuiltinOwner.VM,
+            (a, w, p, t, rt, rs, r, cp, c) ->
+                Result.value(new IntegerValue(Instant.now().getEpochSecond()))));
     entries.add(
         new BuiltinSpec(
             "raise",

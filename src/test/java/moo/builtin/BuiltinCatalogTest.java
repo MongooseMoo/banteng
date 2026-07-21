@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.nio.charset.StandardCharsets;
+import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -78,6 +79,7 @@ final class BuiltinCatalogTest {
           "suspend",
           "switch_player",
           "task_perms",
+          "time",
           "tofloat",
           "toint",
           "toliteral",
@@ -144,6 +146,26 @@ final class BuiltinCatalogTest {
                   transaction,
                   1)
               .error());
+    }
+  }
+
+  @Test
+  void timeReturnsCurrentEpochSecondsThroughTheIrrevocableVmOwner() {
+    BuiltinCatalog catalog = new BuiltinCatalog();
+    BuiltinSpec spec = catalog.spec("time").orElseThrow();
+    long before = Instant.now().getEpochSecond();
+
+    try (WorldTxn transaction = world().begin()) {
+      Result result = invoke(catalog, spec, List.of(), transaction, 1);
+      long after = Instant.now().getEpochSecond();
+      long value = ((IntegerValue) result.value().orElseThrow()).value();
+
+      assertEquals(
+          List.of(new CallShape(List.of(), List.of(), Optional.empty())), spec.callShapes());
+      assertSame(BuiltinPermissionRule.ANY, spec.permission());
+      assertEquals(EffectClass.IRREVOCABLE, spec.effect());
+      assertEquals(BuiltinOwner.VM, spec.owner());
+      assertTrue(value >= before && value <= after);
     }
   }
 
