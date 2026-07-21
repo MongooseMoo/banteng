@@ -512,17 +512,19 @@ fork state exercised by `audit_suspended_task_survives_restart` and
 Before Phase 5, complete the one production `SUSPENDING_HOST` path. This is
 Phase 4 task infrastructure, not Phase 6 concurrency work:
 
-1. Add per-task thread mode to `VmState` and `VmSnapshot`, defaulting to enabled
-   for both pinned profiles. `LambdaMooV17Codec` must read, retain, write, and
-   restore both valid v17 thread-mode values instead of accepting only literal
-   `1` and discarding it.
+1. Add per-activation thread mode to `VmState.Frame` and `VmSnapshot.Frame`.
+   New root and fork activations default to enabled for both pinned profiles;
+   called verb and eval activations inherit their caller's mode, and returning
+   restores the caller's unchanged mode. `LambdaMooV17Codec` must read, retain,
+   write, and restore both valid v17 values for the queued root activation
+   instead of accepting only literal `1` and discarding it.
 2. Register `set_thread_mode` in the single manifest with its pinned contract:
    zero or one `INTEGER` argument, `BuiltinPermissionRule.ANY`, fixed zero cost,
    `EffectClass.DEFERRED_COMMIT`, and `BuiltinOwner.VM`. A zero-argument call
    returns the current activation's mode; a one-argument call applies MOO
    truthiness to that activation only and returns zero. The state change must
-   survive suspension, retry, and v17 round-trip without leaking to another
-   task.
+   survive suspension, retry, and v17 round-trip without leaking back to a
+   caller activation or into another task.
 3. Replace the value-only host wake across `BuiltinCatalog.Result`, `MooVm`,
    `VmState`, `VmSnapshot`, and `PublicationScheduler` with one completion that
    can resume the same activation with either a value or a catchable MOO error.
@@ -540,9 +542,10 @@ Phase 4 task infrastructure, not Phase 6 concurrency work:
    the production host path; disabled mode runs the same callback synchronously.
 6. Extend existing `VmSnapshotTest`, `MooVmTest`, `PublicationSchedulerTest`,
    `QueuedTaskV17CodecTest`, and `BuiltinCatalogTest` to prove thread-mode
-   round-trip, value resume, catchable-MOO-error resume, `E_QUOTA` rejection,
-   task-local mode isolation, `all_members` threaded/synchronous execution, and
-   absence of an alternate scheduler or executor.
+   round-trip, caller/callee and task mode isolation, value resume,
+   catchable-MOO-error resume, `E_QUOTA` rejection, `all_members`
+   threaded/synchronous execution, and absence of an alternate scheduler or
+   executor.
 
 Do not add `background_test`. It is guarded by `#ifdef BACKGROUND_TEST` in both
 pinned Toast sources, neither pinned configuration defines that macro, and its
