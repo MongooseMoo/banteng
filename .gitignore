@@ -8,3 +8,4 @@ out/
 *.iml
 hs_err_pid*
 replay_pid*
+/fixtures/mongoose.db
