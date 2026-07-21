@@ -645,6 +645,15 @@ public final class BuiltinCatalog {
             (a, w, p, t, rt, rs, r, cp, c) -> Result.value(new ObjectValue(p))));
     entries.add(
         new BuiltinSpec(
+            "ticks_left",
+            List.of(new CallShape(List.of(), List.of(), Optional.empty())),
+            BuiltinPermissionRule.ANY,
+            BuiltinCostRule.fixed(0),
+            EffectClass.PURE,
+            BuiltinOwner.VM,
+            (a, w, p, t, rt, rs, r, cp, c) -> Result.value(new IntegerValue(rt))));
+    entries.add(
+        new BuiltinSpec(
             "set_task_perms",
             List.of(new CallShape(List.of(OBJECT), List.of(), Optional.empty())),
             BuiltinPermissionRule.ANY,
@@ -751,6 +760,15 @@ public final class BuiltinCatalog {
             EffectClass.IRREVOCABLE,
             BuiltinOwner.SERVER,
             (a, w, p, t, rt, rs, r, cp, c) -> serverLog(a)));
+    entries.add(
+        new BuiltinSpec(
+            "load_server_options",
+            List.of(new CallShape(List.of(), List.of(), Optional.empty())),
+            BuiltinPermissionRule.WIZARD_ONLY,
+            BuiltinCostRule.fixed(0),
+            EffectClass.PURE,
+            BuiltinOwner.SERVER,
+            (a, w, p, t, rt, rs, r, cp, c) -> Result.zero()));
     entries.add(
         new BuiltinSpec(
             "run_gc",

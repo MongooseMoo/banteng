@@ -61,6 +61,7 @@ final class BuiltinCatalogTest {
           "length",
           "kill_task",
           "listen",
+          "load_server_options",
           "listappend",
           "listdelete",
           "listinsert",
@@ -93,6 +94,7 @@ final class BuiltinCatalogTest {
           "suspend",
           "switch_player",
           "task_perms",
+          "ticks_left",
           "time",
           "tofloat",
           "toint",
@@ -487,6 +489,51 @@ final class BuiltinCatalogTest {
       assertEquals(
           Optional.of(ErrorValue.E_ARGS),
           invoke(catalog, spec, List.of(new ObjectValue(2)), transaction, 2).error());
+    }
+  }
+
+  @Test
+  void exposesCurrentTickBudgetAndAcknowledgesLiveServerOptions() {
+    BuiltinCatalog catalog = new BuiltinCatalog();
+    BuiltinSpec load = catalog.spec("load_server_options").orElseThrow();
+    BuiltinSpec ticks = catalog.spec("ticks_left").orElseThrow();
+    CallShape noArguments = new CallShape(List.of(), List.of(), Optional.empty());
+
+    assertEquals(List.of(noArguments), load.callShapes());
+    assertSame(BuiltinPermissionRule.WIZARD_ONLY, load.permission());
+    assertEquals(EffectClass.PURE, load.effect());
+    assertEquals(BuiltinOwner.SERVER, load.owner());
+    assertEquals(List.of(noArguments), ticks.callShapes());
+    assertSame(BuiltinPermissionRule.ANY, ticks.permission());
+    assertEquals(EffectClass.PURE, ticks.effect());
+    assertEquals(BuiltinOwner.VM, ticks.owner());
+    try (WorldTxn transaction = world().begin()) {
+      assertEquals(
+          Optional.of(new IntegerValue(0)),
+          invoke(catalog, load, List.of(), transaction, 1).value());
+      assertEquals(
+          Optional.of(ErrorValue.E_PERM),
+          invoke(catalog, load, List.of(), transaction, 2).error());
+      assertEquals(
+          Optional.of(ErrorValue.E_ARGS),
+          invoke(catalog, load, List.of(new IntegerValue(1)), transaction, 1).error());
+
+      Result remaining =
+          catalog.invoke(
+              ticks,
+              List.of(),
+              transaction,
+              2,
+              new MapValue(Map.of()),
+              59_321,
+              5,
+              new ObjectValue(2),
+              2,
+              new ListValue(List.of()));
+      assertEquals(Optional.of(new IntegerValue(59_321)), remaining.value());
+      assertEquals(
+          Optional.of(ErrorValue.E_ARGS),
+          invoke(catalog, ticks, List.of(new IntegerValue(1)), transaction, 2).error());
     }
   }
 
