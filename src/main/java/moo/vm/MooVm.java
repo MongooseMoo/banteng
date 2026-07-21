@@ -46,16 +46,20 @@ public final class MooVm {
   void execute(BytecodeProgram program, VmState state) {
     WorldTxn root = new WorldTxn(List.of(), List.of());
     try (WorldTxn transaction = root.begin()) {
-      execute(program, state, transaction, new BuiltinCatalog());
+      execute(program, state, transaction, new BuiltinCatalog(), 0L);
       if (state.outcome() == VmState.Outcome.PENDING_BUILTIN) {
         throw new IllegalStateException("pure VM execution reached an irrevocable builtin");
       }
     }
   }
 
-  /** Executes with the one concrete world transaction and builtin catalog. */
+  /** Executes with the one concrete world transaction, builtin catalog, and scheduler task ID. */
   public void execute(
-      BytecodeProgram program, VmState state, WorldTxn world, BuiltinCatalog builtins) {
+      BytecodeProgram program,
+      VmState state,
+      WorldTxn world,
+      BuiltinCatalog builtins,
+      long taskId) {
     state.beginSegment();
     state.ensureRoot(program);
     while (state.outcome() == VmState.Outcome.RUNNING) {
@@ -65,12 +69,20 @@ public final class MooVm {
         continue;
       }
       executeInstruction(
-          frame.program.instructions().get(frame.instructionPointer), state, world, builtins);
+          frame.program.instructions().get(frame.instructionPointer),
+          state,
+          world,
+          builtins,
+          taskId);
     }
   }
 
   private static void executeInstruction(
-      Instruction instruction, VmState state, WorldTxn world, BuiltinCatalog builtins) {
+      Instruction instruction,
+      VmState state,
+      WorldTxn world,
+      BuiltinCatalog builtins,
+      long taskId) {
     Frame frame = state.currentFrame();
     if (isCountedInstruction(instruction, frame)) {
       state.decrementRemainingTicks();
@@ -149,7 +161,7 @@ public final class MooVm {
       case CALL -> {
         String callName = instruction.text().orElseThrow();
         if (!callName.equalsIgnoreCase("pass")) {
-          invokeBuiltin(instruction, frame, state, world, builtins);
+          invokeBuiltin(instruction, frame, state, world, builtins, taskId);
         } else {
           MooValue argumentValue = frame.operandStack.pop();
           MooValue thisValue = frame.locals.get("this");
@@ -1116,7 +1128,8 @@ public final class MooVm {
       Frame frame,
       VmState state,
       WorldTxn world,
-      BuiltinCatalog builtins) {
+      BuiltinCatalog builtins,
+      long taskId) {
     MooValue argumentValue = frame.operandStack.pop();
     if (!(argumentValue instanceof ListValue arguments)) {
       raiseError(state, ErrorValue.E_TYPE, world);
@@ -1150,6 +1163,7 @@ public final class MooVm {
             world,
             state.programmer(),
             state.taskLocal(),
+            taskId,
             state.remainingTicks(),
             state.remainingSeconds(),
             frame.receiver,
@@ -1158,9 +1172,9 @@ public final class MooVm {
     applyBuiltinResult(result, frame, state, world);
   }
 
-  /** Authorizes and applies the exact builtin request held at a publication boundary. */
+  /** Authorizes and applies the exact builtin request for its scheduler task ID. */
   public void authorizePendingBuiltin(
-      VmState state, WorldTxn world, BuiltinCatalog builtins) {
+      VmState state, WorldTxn world, BuiltinCatalog builtins, long taskId) {
     VmSnapshot.PendingBuiltin request = state.authorizePendingBuiltin();
     BuiltinSpec spec = builtins.spec(request.name()).orElseThrow();
     Result result =
@@ -1170,6 +1184,7 @@ public final class MooVm {
             world,
             request.programmer(),
             request.taskLocal(),
+            taskId,
             request.remainingTicks(),
             request.remainingSeconds(),
             request.receiver(),

@@ -94,6 +94,7 @@ final class BuiltinCatalogTest {
           "strsub",
           "suspend",
           "switch_player",
+          "task_id",
           "task_perms",
           "ticks_left",
           "time",
@@ -138,7 +139,7 @@ final class BuiltinCatalogTest {
                         new IntegerValue(1234),
                         new IntegerValue(0)))));
     BuiltinCatalog catalog =
-        new BuiltinCatalog((a, w, p, t, rt, rs, r, cp, c) -> Result.value(tasks));
+        new BuiltinCatalog((a, w, p, t, id, rt, rs, r, cp, c) -> Result.value(tasks));
     BuiltinSpec spec = catalog.spec("queued_tasks").orElseThrow();
 
     assertEquals(
@@ -192,8 +193,8 @@ final class BuiltinCatalogTest {
   void killTaskUsesTheRegisteredTaskOwnerWithOneIntegerArgument() {
     BuiltinCatalog catalog =
         new BuiltinCatalog(
-            (a, w, p, t, rt, rs, r, cp, c) -> Result.value(new ListValue(List.of())),
-            (a, w, p, t, rt, rs, r, cp, c) -> Result.value(new IntegerValue(23)));
+            (a, w, p, t, id, rt, rs, r, cp, c) -> Result.value(new ListValue(List.of())),
+            (a, w, p, t, id, rt, rs, r, cp, c) -> Result.value(new IntegerValue(23)));
     BuiltinSpec spec = catalog.spec("kill_task").orElseThrow();
 
     assertEquals(
@@ -494,9 +495,10 @@ final class BuiltinCatalogTest {
   }
 
   @Test
-  void exposesCurrentTaskBudgetsAndAcknowledgesLiveServerOptions() {
+  void exposesCurrentTaskIdentityAndBudgetsAndAcknowledgesLiveServerOptions() {
     BuiltinCatalog catalog = new BuiltinCatalog();
     BuiltinSpec load = catalog.spec("load_server_options").orElseThrow();
+    BuiltinSpec taskId = catalog.spec("task_id").orElseThrow();
     BuiltinSpec ticks = catalog.spec("ticks_left").orElseThrow();
     BuiltinSpec seconds = catalog.spec("seconds_left").orElseThrow();
     CallShape noArguments = new CallShape(List.of(), List.of(), Optional.empty());
@@ -505,6 +507,10 @@ final class BuiltinCatalogTest {
     assertSame(BuiltinPermissionRule.WIZARD_ONLY, load.permission());
     assertEquals(EffectClass.PURE, load.effect());
     assertEquals(BuiltinOwner.SERVER, load.owner());
+    assertEquals(List.of(noArguments), taskId.callShapes());
+    assertSame(BuiltinPermissionRule.ANY, taskId.permission());
+    assertEquals(EffectClass.PURE, taskId.effect());
+    assertEquals(BuiltinOwner.VM, taskId.owner());
     assertEquals(List.of(noArguments), ticks.callShapes());
     assertSame(BuiltinPermissionRule.ANY, ticks.permission());
     assertEquals(EffectClass.PURE, ticks.effect());
@@ -524,6 +530,24 @@ final class BuiltinCatalogTest {
           Optional.of(ErrorValue.E_ARGS),
           invoke(catalog, load, List.of(new IntegerValue(1)), transaction, 1).error());
 
+      Result identity =
+          catalog.invoke(
+              taskId,
+              List.of(),
+              transaction,
+              2,
+              new MapValue(Map.of()),
+              8_123,
+              60_000,
+              5,
+              new ObjectValue(2),
+              2,
+              new ListValue(List.of()));
+      assertEquals(Optional.of(new IntegerValue(8_123)), identity.value());
+      assertEquals(
+          Optional.of(ErrorValue.E_ARGS),
+          invoke(catalog, taskId, List.of(new IntegerValue(1)), transaction, 2).error());
+
       Result remaining =
           catalog.invoke(
               ticks,
@@ -531,6 +555,7 @@ final class BuiltinCatalogTest {
               transaction,
               2,
               new MapValue(Map.of()),
+              0,
               59_321,
               5,
               new ObjectValue(2),
@@ -548,6 +573,7 @@ final class BuiltinCatalogTest {
               transaction,
               2,
               new MapValue(Map.of()),
+              0,
               59_321,
               11,
               new ObjectValue(2),
@@ -2232,6 +2258,7 @@ final class BuiltinCatalogTest {
         world,
         programmer,
         new MapValue(Map.of()),
+        0,
         60_000,
         5,
         new ObjectValue(programmer),

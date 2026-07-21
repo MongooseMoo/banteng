@@ -55,15 +55,15 @@ public final class BuiltinCatalog {
   /** Creates a catalog without host listener access for focused VM execution. */
   public BuiltinCatalog() {
     this(
-        (a, w, p, t, rt, rs, r, cp, c) -> emptyQueuedTasks(a),
-        (a, w, p, t, rt, rs, r, cp, c) -> Result.error(ErrorValue.E_INVARG));
+        (a, w, p, t, id, rt, rs, r, cp, c) -> emptyQueuedTasks(a),
+        (a, w, p, t, id, rt, rs, r, cp, c) -> Result.error(ErrorValue.E_INVARG));
   }
 
   /** Creates a catalog with the production task-registry handler. */
   public BuiltinCatalog(BuiltinHandler queuedTasks) {
     this(
         queuedTasks,
-        (a, w, p, t, rt, rs, r, cp, c) -> Result.error(ErrorValue.E_INVARG));
+        (a, w, p, t, id, rt, rs, r, cp, c) -> Result.error(ErrorValue.E_INVARG));
   }
 
   /** Creates a catalog with the production task-registry handlers. */
@@ -80,8 +80,8 @@ public final class BuiltinCatalog {
   public BuiltinCatalog(ListenerControl listenerControl) {
     this(
         listenerControl,
-        (a, w, p, t, rt, rs, r, cp, c) -> emptyQueuedTasks(a),
-        (a, w, p, t, rt, rs, r, cp, c) -> Result.error(ErrorValue.E_INVARG));
+        (a, w, p, t, id, rt, rs, r, cp, c) -> emptyQueuedTasks(a),
+        (a, w, p, t, id, rt, rs, r, cp, c) -> Result.error(ErrorValue.E_INVARG));
   }
 
   /** Creates the production catalog with concrete listener and task owners. */
@@ -89,7 +89,7 @@ public final class BuiltinCatalog {
     this(
         listenerControl,
         queuedTasks,
-        (a, w, p, t, rt, rs, r, cp, c) -> Result.error(ErrorValue.E_INVARG));
+        (a, w, p, t, id, rt, rs, r, cp, c) -> Result.error(ErrorValue.E_INVARG));
   }
 
   /** Creates the production catalog with concrete listener and task owners. */
@@ -117,7 +117,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.PURE,
             BuiltinOwner.VM,
-            (a, w, p, t, rt, rs, r, cp, c) -> length(a)));
+            (a, w, p, t, id, rt, rs, r, cp, c) -> length(a)));
     entries.add(
         new BuiltinSpec(
             "max",
@@ -126,7 +126,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.PURE,
             BuiltinOwner.VM,
-            (a, w, p, t, rt, rs, r, cp, c) -> maximum(a)));
+            (a, w, p, t, id, rt, rs, r, cp, c) -> maximum(a)));
     entries.add(
         new BuiltinSpec(
             "random",
@@ -135,7 +135,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.IRREVOCABLE,
             BuiltinOwner.VM,
-            (a, w, p, t, rt, rs, r, cp, c) -> randomInteger(a)));
+            (a, w, p, t, id, rt, rs, r, cp, c) -> randomInteger(a)));
     entries.add(
         new BuiltinSpec(
             "time",
@@ -144,7 +144,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.IRREVOCABLE,
             BuiltinOwner.VM,
-            (a, w, p, t, rt, rs, r, cp, c) ->
+            (a, w, p, t, id, rt, rs, r, cp, c) ->
                 Result.value(new IntegerValue(Instant.now().getEpochSecond()))));
     entries.add(
         new BuiltinSpec(
@@ -154,7 +154,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.PURE,
             BuiltinOwner.VM,
-            (a, w, p, t, rt, rs, r, cp, c) -> raise(a)));
+            (a, w, p, t, id, rt, rs, r, cp, c) -> raise(a)));
     entries.add(
         new BuiltinSpec(
             "listappend",
@@ -167,7 +167,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.PURE,
             BuiltinOwner.VM,
-            (a, w, p, t, rt, rs, r, cp, c) -> listInsert(a, true)));
+            (a, w, p, t, id, rt, rs, r, cp, c) -> listInsert(a, true)));
     entries.add(
         new BuiltinSpec(
             "listinsert",
@@ -180,7 +180,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.PURE,
             BuiltinOwner.VM,
-            (a, w, p, t, rt, rs, r, cp, c) -> listInsert(a, false)));
+            (a, w, p, t, id, rt, rs, r, cp, c) -> listInsert(a, false)));
     entries.add(
         new BuiltinSpec(
             "listdelete",
@@ -191,7 +191,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.PURE,
             BuiltinOwner.VM,
-            (a, w, p, t, rt, rs, r, cp, c) -> listDelete(a)));
+            (a, w, p, t, id, rt, rs, r, cp, c) -> listDelete(a)));
     entries.add(
         new BuiltinSpec(
             "listset",
@@ -204,7 +204,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.PURE,
             BuiltinOwner.VM,
-            (a, w, p, t, rt, rs, r, cp, c) -> listSet(a)));
+            (a, w, p, t, id, rt, rs, r, cp, c) -> listSet(a)));
     entries.add(
         new BuiltinSpec(
             "mapkeys",
@@ -215,7 +215,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.PURE,
             BuiltinOwner.VM,
-            (a, w, p, t, rt, rs, r, cp, c) -> mapKeys(a)));
+            (a, w, p, t, id, rt, rs, r, cp, c) -> mapKeys(a)));
     entries.add(
         new BuiltinSpec(
             "setadd",
@@ -224,7 +224,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.PURE,
             BuiltinOwner.VM,
-            (a, w, p, t, rt, rs, r, cp, c) -> setAdd(a)));
+            (a, w, p, t, id, rt, rs, r, cp, c) -> setAdd(a)));
     entries.add(
         new BuiltinSpec(
             "strsub",
@@ -233,7 +233,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.PURE,
             BuiltinOwner.VM,
-            (a, w, p, t, rt, rs, r, cp, c) -> stringSubstitute(a)));
+            (a, w, p, t, id, rt, rs, r, cp, c) -> stringSubstitute(a)));
     entries.add(
         new BuiltinSpec(
             "index",
@@ -242,7 +242,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.PURE,
             BuiltinOwner.VM,
-            (a, w, p, t, rt, rs, r, cp, c) -> stringIndex(a, false)));
+            (a, w, p, t, id, rt, rs, r, cp, c) -> stringIndex(a, false)));
     entries.add(
         new BuiltinSpec(
             "rindex",
@@ -251,7 +251,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.PURE,
             BuiltinOwner.VM,
-            (a, w, p, t, rt, rs, r, cp, c) -> stringIndex(a, true)));
+            (a, w, p, t, id, rt, rs, r, cp, c) -> stringIndex(a, true)));
     entries.add(
         new BuiltinSpec(
             "strcmp",
@@ -260,7 +260,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.PURE,
             BuiltinOwner.VM,
-            (a, w, p, t, rt, rs, r, cp, c) -> stringCompare(a)));
+            (a, w, p, t, id, rt, rs, r, cp, c) -> stringCompare(a)));
     entries.add(
         new BuiltinSpec(
             "decode_binary",
@@ -269,7 +269,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.PURE,
             BuiltinOwner.VM,
-            (a, w, p, t, rt, rs, r, cp, c) -> decodeBinary(a)));
+            (a, w, p, t, id, rt, rs, r, cp, c) -> decodeBinary(a)));
     entries.add(
         new BuiltinSpec(
             "disassemble",
@@ -278,7 +278,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.TRANSACTION_READ,
             BuiltinOwner.WORLD,
-            (a, w, p, t, rt, rs, r, cp, c) -> disassemble(a, w, p)));
+            (a, w, p, t, id, rt, rs, r, cp, c) -> disassemble(a, w, p)));
     entries.add(
         new BuiltinSpec(
             "encode_binary",
@@ -287,7 +287,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.PURE,
             BuiltinOwner.VM,
-            (a, w, p, t, rt, rs, r, cp, c) -> encodeBinary(a)));
+            (a, w, p, t, id, rt, rs, r, cp, c) -> encodeBinary(a)));
     entries.add(
         new BuiltinSpec(
             "chr",
@@ -296,7 +296,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.PURE,
             BuiltinOwner.VM,
-            (a, w, p, t, rt, rs, r, cp, c) -> {
+            (a, w, p, t, id, rt, rs, r, cp, c) -> {
               long code = ((IntegerValue) a.getFirst()).value();
               return code < 0 || code > 255
                   ? Result.error(ErrorValue.E_INVARG)
@@ -314,7 +314,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.TRANSACTION_WRITE,
             BuiltinOwner.WORLD,
-            (a, w, p, t, rt, rs, r, cp, c) -> addProperty(a, w, p)));
+            (a, w, p, t, id, rt, rs, r, cp, c) -> addProperty(a, w, p)));
     entries.add(
         new BuiltinSpec(
             "properties",
@@ -323,7 +323,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.TRANSACTION_READ,
             BuiltinOwner.WORLD,
-            (a, w, p, t, rt, rs, r, cp, c) -> properties(a, w, p)));
+            (a, w, p, t, id, rt, rs, r, cp, c) -> properties(a, w, p)));
     entries.add(
         new BuiltinSpec(
             "property_info",
@@ -332,7 +332,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.TRANSACTION_READ,
             BuiltinOwner.WORLD,
-            (a, w, p, t, rt, rs, r, cp, c) -> propertyInfo(a, w, p)));
+            (a, w, p, t, id, rt, rs, r, cp, c) -> propertyInfo(a, w, p)));
     entries.add(
         new BuiltinSpec(
             "is_clear_property",
@@ -341,7 +341,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.TRANSACTION_READ,
             BuiltinOwner.WORLD,
-            (a, w, p, t, rt, rs, r, cp, c) -> isClearProperty(a, w, p)));
+            (a, w, p, t, id, rt, rs, r, cp, c) -> isClearProperty(a, w, p)));
     entries.add(
         new BuiltinSpec(
             "clear_property",
@@ -350,7 +350,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.TRANSACTION_WRITE,
             BuiltinOwner.WORLD,
-            (a, w, p, t, rt, rs, r, cp, c) -> clearProperty(a, w, p)));
+            (a, w, p, t, id, rt, rs, r, cp, c) -> clearProperty(a, w, p)));
     entries.add(
         new BuiltinSpec(
             "delete_property",
@@ -359,7 +359,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.TRANSACTION_WRITE,
             BuiltinOwner.WORLD,
-            (a, w, p, t, rt, rs, r, cp, c) -> deleteProperty(a, w, p)));
+            (a, w, p, t, id, rt, rs, r, cp, c) -> deleteProperty(a, w, p)));
     entries.add(
         new BuiltinSpec(
             "delete_verb",
@@ -368,7 +368,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.TRANSACTION_WRITE,
             BuiltinOwner.WORLD,
-            (a, w, p, t, rt, rs, r, cp, c) -> deleteVerb(a, w, p)));
+            (a, w, p, t, id, rt, rs, r, cp, c) -> deleteVerb(a, w, p)));
     entries.add(
         new BuiltinSpec(
             "add_verb",
@@ -381,7 +381,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.TRANSACTION_WRITE,
             BuiltinOwner.WORLD,
-            (a, w, p, t, rt, rs, r, cp, c) -> addVerb(a, w, p)));
+            (a, w, p, t, id, rt, rs, r, cp, c) -> addVerb(a, w, p)));
     entries.add(
         new BuiltinSpec(
             "create",
@@ -390,7 +390,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.TRANSACTION_WRITE,
             BuiltinOwner.WORLD,
-            (a, w, p, t, rt, rs, r, cp, c) -> create(a, w, p)));
+            (a, w, p, t, id, rt, rs, r, cp, c) -> create(a, w, p)));
     entries.add(
         new BuiltinSpec(
             "parent",
@@ -399,7 +399,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.TRANSACTION_READ,
             BuiltinOwner.WORLD,
-            (a, w, p, t, rt, rs, r, cp, c) -> parent(a, w)));
+            (a, w, p, t, id, rt, rs, r, cp, c) -> parent(a, w)));
     entries.add(
         new BuiltinSpec(
             "is_player",
@@ -408,7 +408,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.TRANSACTION_READ,
             BuiltinOwner.WORLD,
-            (a, w, p, t, rt, rs, r, cp, c) -> isPlayer(a, w)));
+            (a, w, p, t, id, rt, rs, r, cp, c) -> isPlayer(a, w)));
     entries.add(
         new BuiltinSpec(
             "valid",
@@ -417,7 +417,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.TRANSACTION_READ,
             BuiltinOwner.WORLD,
-            (a, w, p, t, rt, rs, r, cp, c) -> valid(a, w)));
+            (a, w, p, t, id, rt, rs, r, cp, c) -> valid(a, w)));
     entries.add(
         new BuiltinSpec(
             "set_player_flag",
@@ -426,7 +426,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.TRANSACTION_WRITE,
             BuiltinOwner.WORLD,
-            (a, w, p, t, rt, rs, r, cp, c) -> setPlayerFlag(a, w)));
+            (a, w, p, t, id, rt, rs, r, cp, c) -> setPlayerFlag(a, w)));
     entries.add(
         new BuiltinSpec(
             "set_verb_code",
@@ -439,7 +439,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.TRANSACTION_WRITE,
             BuiltinOwner.WORLD,
-            (a, w, p, t, rt, rs, r, cp, c) -> setVerbCode(a, w, p)));
+            (a, w, p, t, id, rt, rs, r, cp, c) -> setVerbCode(a, w, p)));
     entries.add(
         new BuiltinSpec(
             "set_verb_args",
@@ -452,7 +452,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.TRANSACTION_WRITE,
             BuiltinOwner.WORLD,
-            (a, w, p, t, rt, rs, r, cp, c) -> setVerbArgs(a, w, p)));
+            (a, w, p, t, id, rt, rs, r, cp, c) -> setVerbArgs(a, w, p)));
     entries.add(
         new BuiltinSpec(
             "set_verb_info",
@@ -465,7 +465,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.TRANSACTION_WRITE,
             BuiltinOwner.WORLD,
-            (a, w, p, t, rt, rs, r, cp, c) -> setVerbInfo(a, w, p)));
+            (a, w, p, t, id, rt, rs, r, cp, c) -> setVerbInfo(a, w, p)));
     entries.add(
         new BuiltinSpec(
             "verb_args",
@@ -474,7 +474,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.TRANSACTION_READ,
             BuiltinOwner.WORLD,
-            (a, w, p, t, rt, rs, r, cp, c) -> verbArgs(a, w, p)));
+            (a, w, p, t, id, rt, rs, r, cp, c) -> verbArgs(a, w, p)));
     entries.add(
         new BuiltinSpec(
             "verb_code",
@@ -483,7 +483,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.TRANSACTION_READ,
             BuiltinOwner.WORLD,
-            (a, w, p, t, rt, rs, r, cp, c) -> verbCode(a, w, p)));
+            (a, w, p, t, id, rt, rs, r, cp, c) -> verbCode(a, w, p)));
     entries.add(
         new BuiltinSpec(
             "verb_info",
@@ -492,7 +492,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.TRANSACTION_READ,
             BuiltinOwner.WORLD,
-            (a, w, p, t, rt, rs, r, cp, c) -> verbInfo(a, w, p)));
+            (a, w, p, t, id, rt, rs, r, cp, c) -> verbInfo(a, w, p)));
     entries.add(
         new BuiltinSpec(
             "move",
@@ -501,7 +501,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.TRANSACTION_WRITE,
             BuiltinOwner.WORLD,
-            (a, w, p, t, rt, rs, r, cp, c) -> move(a, w, p)));
+            (a, w, p, t, id, rt, rs, r, cp, c) -> move(a, w, p)));
     entries.add(
         new BuiltinSpec(
             "recycle",
@@ -510,7 +510,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.TRANSACTION_WRITE,
             BuiltinOwner.WORLD,
-            (a, w, p, t, rt, rs, r, cp, c) -> recycle(a, w, p)));
+            (a, w, p, t, id, rt, rs, r, cp, c) -> recycle(a, w, p)));
     entries.add(
         new BuiltinSpec(
             "new_waif",
@@ -519,7 +519,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.TRANSACTION_WRITE,
             BuiltinOwner.WORLD,
-            (a, w, p, t, rt, rs, r, cp, c) -> {
+            (a, w, p, t, id, rt, rs, r, cp, c) -> {
               if (!(r instanceof ObjectValue classObject)
                   || w.object(classObject.value()).isEmpty()) {
                 return Result.error(ErrorValue.E_INVIND);
@@ -534,7 +534,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.DEFERRED_COMMIT,
             BuiltinOwner.CONNECTION,
-            (a, w, p, t, rt, rs, r, cp, c) -> switchPlayer(a)));
+            (a, w, p, t, id, rt, rs, r, cp, c) -> switchPlayer(a)));
     entries.add(
         new BuiltinSpec(
             "caller_perms",
@@ -543,7 +543,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.PURE,
             BuiltinOwner.VM,
-            (a, w, p, t, rt, rs, r, cp, c) ->
+            (a, w, p, t, id, rt, rs, r, cp, c) ->
                 Result.value(new ObjectValue(c.size() == 0 ? -1 : cp))));
     entries.add(
         new BuiltinSpec(
@@ -571,7 +571,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.EXTERNAL_READ,
             BuiltinOwner.CONNECTION,
-            (a, w, p, t, rt, rs, r, cp, c) ->
+            (a, w, p, t, id, rt, rs, r, cp, c) ->
                 Result.value(
                     new ListValue(
                         w.connectedPlayers(!a.isEmpty() && a.getFirst().isTruthy()).stream()
@@ -586,7 +586,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.DEFERRED_COMMIT,
             BuiltinOwner.CONNECTION,
-            (a, w, p, t, rt, rs, r, cp, c) -> bootPlayer(a, w, p)));
+            (a, w, p, t, id, rt, rs, r, cp, c) -> bootPlayer(a, w, p)));
     entries.add(
         new BuiltinSpec(
             "connection_info",
@@ -595,7 +595,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.EXTERNAL_READ,
             BuiltinOwner.CONNECTION,
-            (a, w, p, t, rt, rs, r, cp, c) -> connectionInfo(a, w, p)));
+            (a, w, p, t, id, rt, rs, r, cp, c) -> connectionInfo(a, w, p)));
     entries.add(
         new BuiltinSpec(
             "connection_name",
@@ -604,7 +604,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.EXTERNAL_READ,
             BuiltinOwner.CONNECTION,
-            (a, w, p, t, rt, rs, r, cp, c) -> connectionName(a, w, p)));
+            (a, w, p, t, id, rt, rs, r, cp, c) -> connectionName(a, w, p)));
     entries.add(
         new BuiltinSpec(
             "set_connection_option",
@@ -613,7 +613,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.DEFERRED_COMMIT,
             BuiltinOwner.CONNECTION,
-            (a, w, p, t, rt, rs, r, cp, c) -> setConnectionOption(a, w, p)));
+            (a, w, p, t, id, rt, rs, r, cp, c) -> setConnectionOption(a, w, p)));
     entries.add(
         new BuiltinSpec(
             "force_input",
@@ -622,7 +622,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.DEFERRED_COMMIT,
             BuiltinOwner.CONNECTION,
-            (a, w, p, t, rt, rs, r, cp, c) -> forceInput(a, w, p)));
+            (a, w, p, t, id, rt, rs, r, cp, c) -> forceInput(a, w, p)));
     entries.add(
         new BuiltinSpec(
             "listen",
@@ -633,7 +633,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.IRREVOCABLE,
             BuiltinOwner.SERVER,
-            (a, w, p, t, rt, rs, r, cp, c) -> listen(a, w)));
+            (a, w, p, t, id, rt, rs, r, cp, c) -> listen(a, w)));
     entries.add(
         new BuiltinSpec(
             "task_perms",
@@ -642,7 +642,16 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.PURE,
             BuiltinOwner.VM,
-            (a, w, p, t, rt, rs, r, cp, c) -> Result.value(new ObjectValue(p))));
+            (a, w, p, t, id, rt, rs, r, cp, c) -> Result.value(new ObjectValue(p))));
+    entries.add(
+        new BuiltinSpec(
+            "task_id",
+            List.of(new CallShape(List.of(), List.of(), Optional.empty())),
+            BuiltinPermissionRule.ANY,
+            BuiltinCostRule.fixed(0),
+            EffectClass.PURE,
+            BuiltinOwner.VM,
+            (a, w, p, t, id, rt, rs, r, cp, c) -> Result.value(new IntegerValue(id))));
     entries.add(
         new BuiltinSpec(
             "ticks_left",
@@ -651,7 +660,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.PURE,
             BuiltinOwner.VM,
-            (a, w, p, t, rt, rs, r, cp, c) -> Result.value(new IntegerValue(rt))));
+            (a, w, p, t, id, rt, rs, r, cp, c) -> Result.value(new IntegerValue(rt))));
     entries.add(
         new BuiltinSpec(
             "seconds_left",
@@ -660,7 +669,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.PURE,
             BuiltinOwner.VM,
-            (a, w, p, t, rt, rs, r, cp, c) -> Result.value(new IntegerValue(rs))));
+            (a, w, p, t, id, rt, rs, r, cp, c) -> Result.value(new IntegerValue(rs))));
     entries.add(
         new BuiltinSpec(
             "set_task_perms",
@@ -669,7 +678,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.DEFERRED_COMMIT,
             BuiltinOwner.VM,
-            (a, w, p, t, rt, rs, r, cp, c) -> setTaskPerms(a)));
+            (a, w, p, t, id, rt, rs, r, cp, c) -> setTaskPerms(a)));
     entries.add(
         new BuiltinSpec(
             "notify",
@@ -678,7 +687,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.DEFERRED_COMMIT,
             BuiltinOwner.CONNECTION,
-            (a, w, p, t, rt, rs, r, cp, c) -> notifyLine(a)));
+            (a, w, p, t, id, rt, rs, r, cp, c) -> notifyLine(a)));
     entries.add(
         new BuiltinSpec(
             "tostr",
@@ -687,7 +696,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.PURE,
             BuiltinOwner.VM,
-            (a, w, p, t, rt, rs, r, cp, c) -> toStringValue(a)));
+            (a, w, p, t, id, rt, rs, r, cp, c) -> toStringValue(a)));
     entries.add(
         new BuiltinSpec(
             "tofloat",
@@ -696,7 +705,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.PURE,
             BuiltinOwner.VM,
-            (a, w, p, t, rt, rs, r, cp, c) -> toFloat(a)));
+            (a, w, p, t, id, rt, rs, r, cp, c) -> toFloat(a)));
     entries.add(
         new BuiltinSpec(
             "toint",
@@ -705,7 +714,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.PURE,
             BuiltinOwner.VM,
-            (a, w, p, t, rt, rs, r, cp, c) -> toInteger(a)));
+            (a, w, p, t, id, rt, rs, r, cp, c) -> toInteger(a)));
     entries.add(
         new BuiltinSpec(
             "toliteral",
@@ -714,7 +723,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.PURE,
             BuiltinOwner.VM,
-            (a, w, p, t, rt, rs, r, cp, c) -> toLiteral(a)));
+            (a, w, p, t, id, rt, rs, r, cp, c) -> toLiteral(a)));
     entries.add(
         new BuiltinSpec(
             "toobj",
@@ -723,7 +732,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.PURE,
             BuiltinOwner.VM,
-            (a, w, p, t, rt, rs, r, cp, c) -> toObject(a)));
+            (a, w, p, t, id, rt, rs, r, cp, c) -> toObject(a)));
     entries.add(
         new BuiltinSpec(
             "equal",
@@ -732,7 +741,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.PURE,
             BuiltinOwner.VM,
-            (a, w, p, t, rt, rs, r, cp, c) -> equalValues(a)));
+            (a, w, p, t, id, rt, rs, r, cp, c) -> equalValues(a)));
     entries.add(
         new BuiltinSpec(
             "eval",
@@ -741,7 +750,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.PURE,
             BuiltinOwner.VM,
-            (a, w, p, t, rt, rs, r, cp, c) -> dynamicEval(a)));
+            (a, w, p, t, id, rt, rs, r, cp, c) -> dynamicEval(a)));
     entries.add(
         new BuiltinSpec(
             "typeof",
@@ -750,7 +759,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.PURE,
             BuiltinOwner.VM,
-            (a, w, p, t, rt, rs, r, cp, c) -> typeOf(a)));
+            (a, w, p, t, id, rt, rs, r, cp, c) -> typeOf(a)));
     entries.add(
         new BuiltinSpec(
             "function_info",
@@ -759,7 +768,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.PURE,
             BuiltinOwner.VM,
-            (a, w, p, t, rt, rs, r, cp, c) -> functionInfo(a)));
+            (a, w, p, t, id, rt, rs, r, cp, c) -> functionInfo(a)));
     entries.add(
         new BuiltinSpec(
             "server_log",
@@ -768,7 +777,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.IRREVOCABLE,
             BuiltinOwner.SERVER,
-            (a, w, p, t, rt, rs, r, cp, c) -> serverLog(a)));
+            (a, w, p, t, id, rt, rs, r, cp, c) -> serverLog(a)));
     entries.add(
         new BuiltinSpec(
             "load_server_options",
@@ -777,7 +786,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.PURE,
             BuiltinOwner.SERVER,
-            (a, w, p, t, rt, rs, r, cp, c) -> Result.zero()));
+            (a, w, p, t, id, rt, rs, r, cp, c) -> Result.zero()));
     entries.add(
         new BuiltinSpec(
             "run_gc",
@@ -786,7 +795,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.PURE,
             BuiltinOwner.VM,
-            (a, w, p, t, rt, rs, r, cp, c) -> Result.zero()));
+            (a, w, p, t, id, rt, rs, r, cp, c) -> Result.zero()));
     entries.add(
         new BuiltinSpec(
             "suspend",
@@ -795,7 +804,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.PURE,
             BuiltinOwner.VM,
-            (a, w, p, t, rt, rs, r, cp, c) -> suspend(a)));
+            (a, w, p, t, id, rt, rs, r, cp, c) -> suspend(a)));
     entries.add(
         new BuiltinSpec(
             "shutdown",
@@ -804,7 +813,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.DEFERRED_COMMIT,
             BuiltinOwner.SERVER,
-            (a, w, p, t, rt, rs, r, cp, c) -> shutdown(a)));
+            (a, w, p, t, id, rt, rs, r, cp, c) -> shutdown(a)));
     entries.add(
         new BuiltinSpec(
             "dump_database",
@@ -1009,6 +1018,7 @@ public final class BuiltinCatalog {
       WorldTxn world,
       long programmer,
       MooValue taskLocal,
+      long taskId,
       long remainingTicks,
       long remainingSeconds,
       MooValue receiver,
@@ -1024,6 +1034,7 @@ public final class BuiltinCatalog {
         world,
         programmer,
         taskLocal,
+        taskId,
         remainingTicks,
         remainingSeconds,
         receiver,
@@ -1038,6 +1049,7 @@ public final class BuiltinCatalog {
       WorldTxn world,
       long programmer,
       MooValue taskLocal,
+      long taskId,
       long remainingTicks,
       long remainingSeconds,
       MooValue receiver,
@@ -1058,6 +1070,7 @@ public final class BuiltinCatalog {
             world,
             programmer,
             taskLocal,
+            taskId,
             remainingTicks,
             remainingSeconds,
             receiver,
@@ -1126,6 +1139,7 @@ public final class BuiltinCatalog {
       WorldTxn world,
       long programmer,
       MooValue taskLocal,
+      long taskId,
       long remainingTicks,
       long remainingSeconds,
       MooValue receiver,

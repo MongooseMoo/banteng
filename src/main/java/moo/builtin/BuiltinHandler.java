@@ -13,6 +13,7 @@ public interface BuiltinHandler {
       WorldTxn world,
       long programmer,
       MooValue taskLocal,
+      long taskId,
       long remainingTicks,
       long remainingSeconds,
       MooValue receiver,

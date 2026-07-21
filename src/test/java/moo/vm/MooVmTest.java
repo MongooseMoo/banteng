@@ -3496,10 +3496,10 @@ final class MooVmTest {
   private static void executeWithAuthorizedIrrevocables(
       BytecodeProgram program, VmState state, WorldTxn transaction, BuiltinCatalog builtins) {
     MooVm vm = new MooVm();
-    vm.execute(program, state, transaction, builtins);
+    vm.execute(program, state, transaction, builtins, 0);
     while (state.outcome() == VmState.Outcome.PENDING_BUILTIN) {
-      vm.authorizePendingBuiltin(state, transaction, builtins);
-      vm.execute(program, state, transaction, builtins);
+      vm.authorizePendingBuiltin(state, transaction, builtins, 0);
+      vm.execute(program, state, transaction, builtins, 0);
     }
   }
 }

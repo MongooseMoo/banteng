@@ -200,7 +200,14 @@ final class PublicationScheduler implements AutoCloseable {
       wakeValue = Optional.empty();
 
       while (true) {
-        runtime.vm().execute(program.orElseThrow(), state, transaction, runtime.builtins());
+        runtime
+            .vm()
+            .execute(
+                program.orElseThrow(),
+                state,
+                transaction,
+                runtime.builtins(),
+                start.taskId());
         runtime.publishVmState(state, taskPlayer);
         if (state.outcome() == VmState.Outcome.FORKED) {
           VmSnapshot.Fork fork = state.snapshot().forkRequest().orElseThrow();
@@ -227,7 +234,10 @@ final class PublicationScheduler implements AutoCloseable {
           if (!start.irrevocableAuthorized()) {
             return SegmentResult.irrevocable(pendingForks);
           }
-          runtime.vm().authorizePendingBuiltin(state, transaction, runtime.builtins());
+          runtime
+              .vm()
+              .authorizePendingBuiltin(
+                  state, transaction, runtime.builtins(), start.taskId());
           runtime.publishVmState(state, taskPlayer);
           continue;
         }
