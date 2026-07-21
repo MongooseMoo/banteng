@@ -258,6 +258,12 @@ final class BuiltinCatalogTest {
                   1)
               .value());
       assertEquals(
+          Optional.of(ErrorValue.E_PERM),
+          invoke(catalog, spec, List.of(), transaction, 2).error());
+      assertEquals(
+          Optional.of(new IntegerValue(0)),
+          invoke(catalog, spec, List.of(), transaction, 1).value());
+      assertEquals(
           Optional.of(ErrorValue.E_TYPE),
           invoke(catalog, spec, List.of(new IntegerValue(1)), transaction, 2).error());
       assertEquals(

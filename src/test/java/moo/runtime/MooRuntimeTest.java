@@ -38,6 +38,24 @@ final class MooRuntimeTest {
   }
 
   @Test
+  void noArgumentReadFromForkIsNotTheLastInputTask() throws Exception {
+    WorldTxn world = new LambdaMooV4Reader().read(FIXTURE);
+    MooRuntime runtime = new MooRuntime(world);
+    long connectionId = -47;
+    assertEquals(List.of(), runtime.openConnection(connectionId));
+    assertEquals(List.of("*** Connected ***"), runtime.executeLine(connectionId, "connect Wizard"));
+
+    assertEquals(
+        List.of(CONNECTION_PREFIX, "{1, E_PERM}", CONNECTION_SUFFIX),
+        runtime.executeLine(
+            connectionId,
+            "; try add_property(#0, \"runtime_read_error\", $nothing, {#0, \"rw\"}); "
+                + "except (E_INVARG) endtry "
+                + "fork (0) #0.runtime_read_error = `read() ! E_PERM => E_PERM'; endfork "
+                + "suspend(0); return #0.runtime_read_error;"));
+  }
+
+  @Test
   void writesIntrinsicFertileFlagAsIntegerZero() throws Exception {
     WorldTxn world = new LambdaMooV4Reader().read(FIXTURE);
     MooRuntime runtime = new MooRuntime(world);

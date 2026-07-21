@@ -583,6 +583,9 @@ public final class BuiltinCatalog {
             EffectClass.SUSPENDING_HOST,
             BuiltinOwner.CONNECTION,
             (a, w, p, t, id, rt, rs, r, cp, c) -> {
+              if (a.isEmpty() && !BuiltinPermissionRule.WIZARD_ONLY.allows(w, p)) {
+                return Result.error(ErrorValue.E_PERM);
+              }
               if (!a.isEmpty() && !BuiltinPermissionRule.WIZARD_ONLY.allows(w, p)) {
                 WorldObject target = w.object(((ObjectValue) a.getFirst()).value()).orElse(null);
                 if (target == null || target.owner() != p) {

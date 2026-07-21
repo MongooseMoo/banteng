@@ -1573,6 +1573,9 @@ public final class MooRuntime {
       MooValue receiver,
       long callerProgrammer,
       ListValue callers) {
+    if (arguments.isEmpty() && !scheduler.isLastInputTask(taskId)) {
+      return BuiltinCatalog.Result.error(ErrorValue.E_PERM);
+    }
     if (arguments.size() != 2 || !arguments.get(1).isTruthy()) {
       return BuiltinCatalog.Result.error(ErrorValue.E_INVARG);
     }

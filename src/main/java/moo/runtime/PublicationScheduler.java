@@ -32,6 +32,7 @@ final class PublicationScheduler implements AutoCloseable {
   private final Queue<Entry> ready = new ArrayDeque<>();
   private final Map<Long, Attempt> completed = new TreeMap<>();
   private final Map<Long, CompletableFuture<List<String>>> ingress = new TreeMap<>();
+  private final Map<Long, Long> lastInputTasks = new TreeMap<>();
   private long nextTicket;
   private long nextTaskId;
   private long nextPublicationTicket;
@@ -84,6 +85,12 @@ final class PublicationScheduler implements AutoCloseable {
       ensureOpen();
       long taskId = nextTaskId++;
       long ticket = nextTicket++;
+      if (request.operation() == MooRuntime.Operation.LINE) {
+        long player = runtime.connectionPlayer(request.connectionId()).orElse(-1);
+        if (player >= 0) {
+          lastInputTasks.put(player, taskId);
+        }
+      }
       ingress.put(taskId, published);
       ready.add(Entry.runtime(ticket, taskId, MooRuntime.RuntimeContinuation.ingress(request)));
       dispatch();
@@ -104,10 +111,21 @@ final class PublicationScheduler implements AutoCloseable {
 
   synchronized void enqueueDetached(MooRuntime.RuntimeRequest request) {
     ensureOpen();
+    long taskId = nextTaskId++;
+    if (request.operation() == MooRuntime.Operation.LINE) {
+      long player = runtime.connectionPlayer(request.connectionId()).orElse(-1);
+      if (player >= 0) {
+        lastInputTasks.put(player, taskId);
+      }
+    }
     ready.add(
         Entry.runtime(
-            nextTicket++, nextTaskId++, MooRuntime.RuntimeContinuation.ingress(request)));
+            nextTicket++, taskId, MooRuntime.RuntimeContinuation.ingress(request)));
     dispatch();
+  }
+
+  synchronized boolean isLastInputTask(long taskId) {
+    return lastInputTasks.containsValue(taskId);
   }
 
   private void dispatch() {
