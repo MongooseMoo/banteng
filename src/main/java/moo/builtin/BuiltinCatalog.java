@@ -131,6 +131,15 @@ public final class BuiltinCatalog {
             (a, w, p, t, id, rt, rs, r, cp, c) -> length(a)));
     entries.add(
         new BuiltinSpec(
+            "min",
+            List.of(new CallShape(List.of(NUMBER), List.of(), Optional.of(NUMBER))),
+            BuiltinPermissionRule.ANY,
+            BuiltinCostRule.fixed(0),
+            EffectClass.PURE,
+            BuiltinOwner.VM,
+            (a, w, p, t, id, rt, rs, r, cp, c) -> minimum(a)));
+    entries.add(
+        new BuiltinSpec(
             "max",
             List.of(new CallShape(List.of(NUMBER), List.of(), Optional.of(NUMBER))),
             BuiltinPermissionRule.ANY,
@@ -1276,6 +1285,31 @@ public final class BuiltinCatalog {
     }
     if (value instanceof MapValue map) {
       return Result.value(new IntegerValue(map.size()));
+    }
+    return Result.error(ErrorValue.E_TYPE);
+  }
+
+  private static Result minimum(List<MooValue> arguments) {
+    MooValue first = arguments.getFirst();
+    if (first instanceof IntegerValue integer) {
+      long minimum = integer.value();
+      for (MooValue argument : arguments) {
+        if (!(argument instanceof IntegerValue value)) {
+          return Result.error(ErrorValue.E_TYPE);
+        }
+        minimum = Math.min(minimum, value.value());
+      }
+      return Result.value(new IntegerValue(minimum));
+    }
+    if (first instanceof FloatValue floating) {
+      double minimum = floating.value();
+      for (MooValue argument : arguments) {
+        if (!(argument instanceof FloatValue value)) {
+          return Result.error(ErrorValue.E_TYPE);
+        }
+        minimum = Math.min(minimum, value.value());
+      }
+      return Result.value(new FloatValue(minimum));
     }
     return Result.error(ErrorValue.E_TYPE);
   }

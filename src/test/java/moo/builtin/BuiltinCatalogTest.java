@@ -70,6 +70,7 @@ final class BuiltinCatalogTest {
           "listset",
           "mapkeys",
           "max",
+          "min",
           "move",
           "new_waif",
           "notify",
@@ -1779,6 +1780,54 @@ final class BuiltinCatalogTest {
               new ListValue(
                   List.of(string("custom message"), customValue, new ListValue(List.of())))),
           custom.errorDetails());
+    }
+  }
+
+  @Test
+  void minUsesTheCanonicalPureVmContractAndSelectsTheSmallestHomogeneousNumber() {
+    BuiltinCatalog catalog = new BuiltinCatalog();
+    CallShape shape =
+        new CallShape(
+            List.of(Set.of(ArgType.NUMBER)),
+            List.of(),
+            Optional.of(Set.of(ArgType.NUMBER)));
+    assertPureVmContract(catalog, "min", shape);
+
+    try (WorldTxn transaction = world().begin()) {
+      BuiltinSpec spec = catalog.spec("min").orElseThrow();
+      assertEquals(
+          Optional.of(new IntegerValue(1)),
+          invoke(
+                  catalog,
+                  spec,
+                  List.of(new IntegerValue(3), new IntegerValue(1), new IntegerValue(7)),
+                  transaction,
+                  1)
+              .value());
+      assertEquals(
+          Optional.of(new FloatValue(1.5)),
+          invoke(
+                  catalog,
+                  spec,
+                  List.of(new FloatValue(3.5), new FloatValue(1.5)),
+                  transaction,
+                  1)
+              .value());
+      assertEquals(
+          Optional.of(ErrorValue.E_TYPE),
+          invoke(
+                  catalog,
+                  spec,
+                  List.of(new IntegerValue(1), new FloatValue(2.0)),
+                  transaction,
+                  1)
+              .error());
+      assertEquals(
+          Optional.of(ErrorValue.E_TYPE),
+          invoke(catalog, spec, List.of(string("x")), transaction, 1).error());
+      assertEquals(
+          Optional.of(ErrorValue.E_ARGS),
+          invoke(catalog, spec, List.of(), transaction, 1).error());
     }
   }
 
