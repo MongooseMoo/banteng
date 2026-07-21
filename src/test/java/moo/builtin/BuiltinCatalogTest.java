@@ -14,6 +14,8 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.Set;
+import moo.builtin.BuiltinCatalog.ConnectionOption;
+import moo.builtin.BuiltinCatalog.ConnectionOptionRequest;
 import moo.builtin.BuiltinCatalog.Result;
 import moo.value.MooValue;
 import moo.value.MooValue.ErrorValue;
@@ -72,6 +74,7 @@ final class BuiltinCatalogTest {
           "recycle",
           "rindex",
           "run_gc",
+          "set_connection_option",
           "set_player_flag",
           "set_task_perms",
           "set_verb_args",
@@ -243,6 +246,83 @@ final class BuiltinCatalogTest {
           invoke(catalog, spec, List.of(new IntegerValue(2)), transaction, 1).error());
       assertEquals(
           Optional.of(ErrorValue.E_ARGS), invoke(catalog, spec, List.of(), transaction, 1).error());
+    }
+  }
+
+  @Test
+  void setConnectionOptionStagesOneAuthorizedDeferredConnectionMutation() {
+    BuiltinCatalog catalog = new BuiltinCatalog();
+    BuiltinSpec spec = catalog.spec("set_connection_option").orElseThrow();
+    MapValue info = new MapValue(Map.of(string("destination_ip"), string("127.0.0.1")));
+
+    assertEquals(
+        List.of(
+            new CallShape(
+                List.of(
+                    Set.of(ArgType.OBJECT), Set.of(ArgType.STRING), Set.of(ArgType.ANY)),
+                List.of(),
+                Optional.empty())),
+        spec.callShapes());
+    assertSame(BuiltinPermissionRule.ANY, spec.permission());
+    assertEquals(EffectClass.DEFERRED_COMMIT, spec.effect());
+    assertEquals(BuiltinOwner.CONNECTION, spec.owner());
+    try (WorldTxn transaction = world().begin()) {
+      transaction.openConnection(-2, info);
+      transaction.switchConnectionPlayer(-2, 2);
+      transaction.openConnection(-3, info);
+      transaction.switchConnectionPlayer(-3, 1);
+
+      Result held =
+          invoke(
+              catalog,
+              spec,
+              List.of(new ObjectValue(2), string("HoLd-InPuT"), new IntegerValue(1)),
+              transaction,
+              2);
+      assertEquals(Optional.of(new IntegerValue(0)), held.value());
+      assertEquals(
+          Optional.of(
+              new ConnectionOptionRequest(2, ConnectionOption.HOLD_INPUT, new IntegerValue(1))),
+          held.connectionOptionRequest());
+
+      Result flush =
+          invoke(
+              catalog,
+              spec,
+              List.of(new ObjectValue(2), string("flush-command"), string(".flush")),
+              transaction,
+              1);
+      assertEquals(
+          Optional.of(
+              new ConnectionOptionRequest(2, ConnectionOption.FLUSH_COMMAND, string(".flush"))),
+          flush.connectionOptionRequest());
+      assertEquals(
+          Optional.of(ErrorValue.E_PERM),
+          invoke(
+                  catalog,
+                  spec,
+                  List.of(new ObjectValue(1), string("hold-input"), new IntegerValue(1)),
+                  transaction,
+                  2)
+              .error());
+      assertEquals(
+          Optional.of(ErrorValue.E_INVARG),
+          invoke(
+                  catalog,
+                  spec,
+                  List.of(new ObjectValue(99), string("hold-input"), new IntegerValue(1)),
+                  transaction,
+                  1)
+              .error());
+      assertEquals(
+          Optional.of(ErrorValue.E_INVARG),
+          invoke(
+                  catalog,
+                  spec,
+                  List.of(new ObjectValue(2), string("unknown"), new IntegerValue(1)),
+                  transaction,
+                  2)
+              .error());
     }
   }
 

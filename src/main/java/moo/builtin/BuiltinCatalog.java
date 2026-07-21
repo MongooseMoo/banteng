@@ -574,6 +574,15 @@ public final class BuiltinCatalog {
             (a, w, p, t, rt, rs, r, cp, c) -> connectionInfo(a, w, p)));
     entries.add(
         new BuiltinSpec(
+            "set_connection_option",
+            List.of(new CallShape(List.of(OBJECT, STRING, ANY), List.of(), Optional.empty())),
+            BuiltinPermissionRule.ANY,
+            BuiltinCostRule.fixed(0),
+            EffectClass.DEFERRED_COMMIT,
+            BuiltinOwner.CONNECTION,
+            (a, w, p, t, rt, rs, r, cp, c) -> setConnectionOption(a, w, p)));
+    entries.add(
+        new BuiltinSpec(
             "listen",
             List.of(
                 new CallShape(
@@ -757,6 +766,41 @@ public final class BuiltinCatalog {
       return Result.error(ErrorValue.E_PERM);
     }
     return Result.value(info.orElseThrow());
+  }
+
+  private static Result setConnectionOption(
+      List<MooValue> arguments, WorldTxn world, long programmer) {
+    long target = ((ObjectValue) arguments.get(0)).value();
+    if (target != programmer && !BuiltinPermissionRule.WIZARD_ONLY.allows(world, programmer)) {
+      return Result.error(ErrorValue.E_PERM);
+    }
+    if (world.connectionInfo(target).isEmpty()) {
+      return Result.error(ErrorValue.E_INVARG);
+    }
+    ConnectionOption option =
+        switch (decode((StringValue) arguments.get(1)).toLowerCase(Locale.ROOT)) {
+          case "hold-input" -> ConnectionOption.HOLD_INPUT;
+          case "flush-command" -> ConnectionOption.FLUSH_COMMAND;
+          case "disable-oob" -> ConnectionOption.DISABLE_OOB;
+          case "binary" -> ConnectionOption.BINARY;
+          default -> null;
+        };
+    if (option == null) {
+      return Result.error(ErrorValue.E_INVARG);
+    }
+    return new Result(
+        Optional.of(new IntegerValue(0)),
+        Optional.empty(),
+        Optional.empty(),
+        Optional.empty(),
+        OptionalLong.empty(),
+        OptionalLong.empty(),
+        OptionalLong.empty(),
+        OptionalDouble.empty(),
+        Optional.empty(),
+        Optional.of(new ConnectionOptionRequest(target, option, arguments.get(2))),
+        OptionalLong.empty(),
+        Optional.empty());
   }
 
   private Result listen(List<MooValue> arguments, WorldTxn world) {
