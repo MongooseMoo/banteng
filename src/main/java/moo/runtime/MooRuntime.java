@@ -488,6 +488,15 @@ public final class MooRuntime {
       long room = world().object(player).orElseThrow().location();
       Optional<WorldVerb> playerCommandVerb = world().verb(player, words.getFirst(), false);
       Optional<WorldVerb> roomCommandVerb = world().verb(room, words.getFirst(), false);
+      long huhReceiver = room;
+      MooValue serverOptions = world().readObjectProperty(0, "server_options").orElse(null);
+      if (serverOptions instanceof ObjectValue options
+          && world().readObjectProperty(options.value(), "player_huh").orElse(null)
+              instanceof IntegerValue playerHuh
+          && playerHuh.value() != 0) {
+        huhReceiver = player;
+      }
+      Optional<WorldVerb> huhVerb = world().verb(huhReceiver, "huh");
       if (roomCommandVerb.isEmpty() && words.getFirst().equalsIgnoreCase("eval")) {
         Optional<WorldVerb> fixtureEval = world().verb(room, 0);
         if (fixtureEval.isPresent()
@@ -495,7 +504,7 @@ public final class MooRuntime {
           roomCommandVerb = fixtureEval;
         }
       }
-      if (playerCommandVerb.isPresent() || roomCommandVerb.isPresent()) {
+      if (playerCommandVerb.isPresent() || roomCommandVerb.isPresent() || huhVerb.isPresent()) {
         List<MooValue> arguments = new ArrayList<>();
         for (int index = 1; index < words.size(); index++) {
           arguments.add(encode(words.get(index)));
@@ -766,8 +775,8 @@ public final class MooRuntime {
           }
         }
         if (selectedVerb == null) {
-          selectedVerb = world().verb(room, "huh").orElse(null);
-          thisObject = room;
+          selectedVerb = huhVerb.orElse(null);
+          thisObject = huhReceiver;
         }
         if (selectedVerb == null) {
           output.add("I couldn't understand that.");

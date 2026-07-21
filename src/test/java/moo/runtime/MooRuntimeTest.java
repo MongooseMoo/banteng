@@ -107,6 +107,49 @@ final class MooRuntimeTest {
   }
 
   @Test
+  void dispatchesUnknownCommandsThroughSelectedHuhVerb() throws Exception {
+    WorldTxn world = new LambdaMooV4Reader().read(FIXTURE);
+    MooRuntime runtime = new MooRuntime(world);
+    long connectionId = -47;
+
+    assertEquals(List.of(), runtime.openConnection(connectionId));
+    assertEquals(List.of("*** Connected ***"), runtime.executeLine(connectionId, "connect Wizard"));
+    assertEquals(
+        List.of(CONNECTION_PREFIX, "{1, 1}", CONNECTION_SUFFIX),
+        runtime.executeLine(
+            connectionId,
+            """
+            ; try
+                delete_property($server_options, "player_huh");
+              except (ANY)
+              endtry
+              add_verb(player, {player, "xd", "huh"}, {"none", "none", "none"});
+              set_verb_code(player, "huh", {"notify(player, \\\"PLAYER_HUH\\\");"});
+              room = player.location;
+              add_verb(room, {player, "xd", "huh"}, {"none", "none", "none"});
+              set_verb_code(room, "huh", {"notify(player, \\\"LOCATION_HUH\\\");"});
+              return 1;
+            """));
+
+    assertEquals(List.of("LOCATION_HUH"), runtime.executeLine(connectionId, "zip"));
+    assertEquals(
+        List.of(CONNECTION_PREFIX, "{1, 1}", CONNECTION_SUFFIX),
+        runtime.executeLine(
+            connectionId,
+            "; add_property($server_options, \"player_huh\", 1, {player, \"r\"}); return 1;"));
+    assertEquals(List.of("PLAYER_HUH"), runtime.executeLine(connectionId, "zap"));
+    assertEquals(
+        List.of(CONNECTION_PREFIX, "{1, 1}", CONNECTION_SUFFIX),
+        runtime.executeLine(connectionId, "; $server_options.player_huh = 0; return 1;"));
+    assertEquals(List.of("LOCATION_HUH"), runtime.executeLine(connectionId, "zop"));
+    assertEquals(
+        List.of(CONNECTION_PREFIX, "{1, 1}", CONNECTION_SUFFIX),
+        runtime.executeLine(
+            connectionId, "; $server_options.player_huh = \"yes\"; return 1;"));
+    assertEquals(List.of("LOCATION_HUH"), runtime.executeLine(connectionId, "zaz"));
+  }
+
+  @Test
   void evalRuntimeErrorUnwindsIntoPersistedCallerExceptAndFinally() throws Exception {
     WorldTxn world = new LambdaMooV4Reader().read(FIXTURE);
     MooRuntime runtime = new MooRuntime(world);
