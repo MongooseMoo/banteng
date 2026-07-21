@@ -61,6 +61,7 @@ final class BuiltinCatalogTest {
           "parent",
           "properties",
           "property_info",
+          "queued_tasks",
           "random",
           "raise",
           "recycle",
@@ -102,6 +103,47 @@ final class BuiltinCatalogTest {
       assertTrue(!spec.callShapes().isEmpty(), spec.name());
       assertTrue(spec.tickCost().charge(List.of()) >= 0, spec.name());
       assertSame(spec, catalog.spec(spec.name().toUpperCase(java.util.Locale.ROOT)).orElseThrow());
+    }
+  }
+
+  @Test
+  void queuedTasksUsesTheRegisteredTaskOwnerWithToastArgumentShapes() {
+    ListValue tasks =
+        new ListValue(
+            List.of(
+                new ListValue(
+                    List.of(
+                        new IntegerValue(17),
+                        new IntegerValue(1234),
+                        new IntegerValue(0)))));
+    BuiltinCatalog catalog =
+        new BuiltinCatalog((a, w, p, t, rt, rs, r, cp, c) -> Result.value(tasks));
+    BuiltinSpec spec = catalog.spec("queued_tasks").orElseThrow();
+
+    assertEquals(
+        List.of(
+            new CallShape(
+                List.of(),
+                List.of(Set.of(ArgType.INTEGER), Set.of(ArgType.INTEGER)),
+                Optional.empty())),
+        spec.callShapes());
+    assertSame(BuiltinPermissionRule.ANY, spec.permission());
+    assertEquals(EffectClass.IRREVOCABLE, spec.effect());
+    assertEquals(BuiltinOwner.TASK, spec.owner());
+    try (WorldTxn transaction = world().begin()) {
+      assertEquals(Optional.of(tasks), invoke(catalog, spec, List.of(), transaction, 1).value());
+      assertEquals(
+          Optional.of(ErrorValue.E_TYPE),
+          invoke(catalog, spec, List.of(string("bad")), transaction, 1).error());
+      assertEquals(
+          Optional.of(ErrorValue.E_ARGS),
+          invoke(
+                  catalog,
+                  spec,
+                  List.of(new IntegerValue(0), new IntegerValue(0), new IntegerValue(0)),
+                  transaction,
+                  1)
+              .error());
     }
   }
 

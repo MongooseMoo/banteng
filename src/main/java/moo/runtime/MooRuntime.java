@@ -69,8 +69,11 @@ public final class MooRuntime {
   public MooRuntime(WorldTxn world) {
     listenerControl = Optional.empty();
     checkpoint = Optional.empty();
-    builtins = new BuiltinCatalog();
-    scheduler = new PublicationScheduler(Objects.requireNonNull(world, "world"), this);
+    TaskRegistry taskRegistry = new TaskRegistry();
+    builtins = new BuiltinCatalog(taskRegistry::queuedTasks);
+    scheduler =
+        new PublicationScheduler(
+            Objects.requireNonNull(world, "world"), this, taskRegistry);
   }
 
   /** Creates the production runtime with its concrete listener and checkpoint owners. */
@@ -90,8 +93,11 @@ public final class MooRuntime {
       WorldTxn world, ListenerControl listenerControl, int workers, Optional<Path> checkpoint) {
     this.listenerControl = Optional.of(Objects.requireNonNull(listenerControl, "listenerControl"));
     this.checkpoint = Objects.requireNonNull(checkpoint, "checkpoint");
-    builtins = new BuiltinCatalog(listenerControl);
-    scheduler = new PublicationScheduler(Objects.requireNonNull(world, "world"), this, workers);
+    TaskRegistry taskRegistry = new TaskRegistry();
+    builtins = new BuiltinCatalog(listenerControl, taskRegistry::queuedTasks);
+    scheduler =
+        new PublicationScheduler(
+            Objects.requireNonNull(world, "world"), this, workers, taskRegistry);
   }
 
   /** Runs the database's server_started verb through the production scheduler. */

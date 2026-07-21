@@ -45,11 +45,18 @@ public final class BuiltinCatalog {
   private static final Set<ArgType> OBJECT = Set.of(ArgType.OBJECT);
 
   private final List<BuiltinSpec> manifest;
+  private final BuiltinHandler queuedTasks;
   private final Random random;
   private final Map<String, BuiltinSpec> specs;
 
   /** Creates a catalog without host listener access for focused VM execution. */
   public BuiltinCatalog() {
+    this((a, w, p, t, rt, rs, r, cp, c) -> emptyQueuedTasks(a));
+  }
+
+  /** Creates a catalog with the production task-registry handler. */
+  public BuiltinCatalog(BuiltinHandler queuedTasks) {
+    this.queuedTasks = Objects.requireNonNull(queuedTasks, "queuedTasks");
     random = new Random();
     manifest = buildManifest();
     specs = indexManifest(manifest);
@@ -57,7 +64,13 @@ public final class BuiltinCatalog {
 
   /** Creates the production catalog with the concrete server listener owner. */
   public BuiltinCatalog(ListenerControl listenerControl) {
+    this(listenerControl, (a, w, p, t, rt, rs, r, cp, c) -> emptyQueuedTasks(a));
+  }
+
+  /** Creates the production catalog with concrete listener and task owners. */
+  public BuiltinCatalog(ListenerControl listenerControl, BuiltinHandler queuedTasks) {
     Objects.requireNonNull(listenerControl, "listenerControl");
+    this.queuedTasks = Objects.requireNonNull(queuedTasks, "queuedTasks");
     random = new Random();
     manifest = buildManifest();
     specs = indexManifest(manifest);
@@ -444,6 +457,15 @@ public final class BuiltinCatalog {
                 Result.value(new ObjectValue(c.size() == 0 ? -1 : cp))));
     entries.add(
         new BuiltinSpec(
+            "queued_tasks",
+            List.of(new CallShape(List.of(), List.of(INTEGER, INTEGER), Optional.empty())),
+            BuiltinPermissionRule.ANY,
+            BuiltinCostRule.fixed(0),
+            EffectClass.IRREVOCABLE,
+            BuiltinOwner.TASK,
+            queuedTasks));
+    entries.add(
+        new BuiltinSpec(
             "task_perms",
             List.of(new CallShape(List.of(), List.of(), Optional.empty())),
             BuiltinPermissionRule.ANY,
@@ -596,6 +618,13 @@ public final class BuiltinCatalog {
             BuiltinOwner.SERVER,
             BuiltinCatalog::dumpDatabase));
     return List.copyOf(entries);
+  }
+
+  private static Result emptyQueuedTasks(List<MooValue> arguments) {
+    return Result.value(
+        arguments.size() == 2 && arguments.get(1).isTruthy()
+            ? new IntegerValue(0)
+            : new ListValue(List.of()));
   }
 
   private static Map<String, BuiltinSpec> indexManifest(List<BuiltinSpec> manifest) {
@@ -2084,7 +2113,7 @@ public final class BuiltinCatalog {
           Optional.empty());
     }
 
-    static Result value(MooValue value) {
+    public static Result value(MooValue value) {
       return new Result(
           Optional.of(value),
           Optional.empty(),

@@ -22,6 +22,7 @@ import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
 import jdk.jfr.Recording;
 import jdk.jfr.consumer.RecordedEvent;
 import jdk.jfr.consumer.RecordingFile;
@@ -202,6 +203,36 @@ final class PublicationSchedulerTest {
     assertTrue(
         List.of(MooRuntime.class.getDeclaredFields()).stream()
             .noneMatch(field -> field.getName().toLowerCase(Locale.ROOT).contains("serial")));
+  }
+
+  @Test
+  void completesForkParentBeforeChildAndNeverPublishesChildOutputToParent() throws Exception {
+    try (Harness harness = Harness.open(2, new RecordingListener())) {
+      TaskRegistry registry = field(harness.scheduler, "taskRegistry", TaskRegistry.class);
+
+      CompletableFuture<List<String>> parent =
+          harness.lineAsync("; fork (0) suspend(5); return 99; endfork return 1;");
+      List<String> output = parent.get(3, TimeUnit.SECONDS);
+
+      assertTrue(output.stream().noneMatch(line -> line.contains("99")), output.toString());
+      assertEquals(1, registry.size());
+    }
+  }
+
+  @Test
+  void removesForkFromRegistryAfterChildTerminalCompletion() throws Exception {
+    try (Harness harness = Harness.open(2, new RecordingListener())) {
+      TaskRegistry registry = field(harness.scheduler, "taskRegistry", TaskRegistry.class);
+
+      harness
+          .lineAsync("; fork (0) suspend(0.1); return 99; endfork return 1;")
+          .get(3, TimeUnit.SECONDS);
+      long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(3);
+      while (registry.size() != 0 && System.nanoTime() < deadline) {
+        Thread.onSpinWait();
+      }
+      assertEquals(0, registry.size());
+    }
   }
 
   private static ConflictScenario startConflictScenario(Harness harness) throws IOException {

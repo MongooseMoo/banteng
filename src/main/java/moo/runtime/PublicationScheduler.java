@@ -7,9 +7,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Queue;
-import java.util.Set;
 import java.util.TreeMap;
-import java.util.TreeSet;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
@@ -28,16 +26,12 @@ import org.jspecify.annotations.Nullable;
 final class PublicationScheduler implements AutoCloseable {
   private final WorldTxn committedWorld;
   private final MooRuntime runtime;
+  private final TaskRegistry taskRegistry;
   private final int workers;
   private final ThreadPoolExecutor executor;
   private final Queue<Entry> ready = new ArrayDeque<>();
   private final Map<Long, Attempt> completed = new TreeMap<>();
   private final Map<Long, CompletableFuture<List<String>>> ingress = new TreeMap<>();
-  private final Map<Long, Long> rootTaskByTask = new TreeMap<>();
-  private final Map<Long, Integer> pendingChildren = new TreeMap<>();
-  private final Map<Long, List<String>> rootOutput = new TreeMap<>();
-  private final Map<Long, List<String>> childOutput = new TreeMap<>();
-  private final Set<Long> returnedRoots = new TreeSet<>();
   private long nextTicket;
   private long nextTaskId;
   private long nextPublicationTicket;
@@ -45,12 +39,30 @@ final class PublicationScheduler implements AutoCloseable {
   private boolean closed;
 
   PublicationScheduler(WorldTxn committedWorld, MooRuntime runtime) {
-    this(committedWorld, runtime, Math.max(2, Runtime.getRuntime().availableProcessors()));
+    this(
+        committedWorld,
+        runtime,
+        Math.max(2, Runtime.getRuntime().availableProcessors()),
+        new TaskRegistry());
+  }
+
+  PublicationScheduler(WorldTxn committedWorld, MooRuntime runtime, TaskRegistry taskRegistry) {
+    this(
+        committedWorld,
+        runtime,
+        Math.max(2, Runtime.getRuntime().availableProcessors()),
+        taskRegistry);
   }
 
   PublicationScheduler(WorldTxn committedWorld, MooRuntime runtime, int workers) {
+    this(committedWorld, runtime, workers, new TaskRegistry());
+  }
+
+  PublicationScheduler(
+      WorldTxn committedWorld, MooRuntime runtime, int workers, TaskRegistry taskRegistry) {
     this.committedWorld = Objects.requireNonNull(committedWorld, "committedWorld");
     this.runtime = Objects.requireNonNull(runtime, "runtime");
+    this.taskRegistry = Objects.requireNonNull(taskRegistry, "taskRegistry");
     if (workers < 1) {
       throw new IllegalArgumentException("workers must be positive");
     }
@@ -291,7 +303,7 @@ final class PublicationScheduler implements AutoCloseable {
         for (MooRuntime.RuntimeStep spawned : published.spawned()) {
           enqueueSpawned(spawned);
         }
-        forkTimers = enqueuePendingForks(attempt.entry(), result.pendingForks());
+        forkTimers = enqueuePendingForks(result.pendingForks());
         dispatch();
       }
       forkTimers.forEach(this::startTimer);
@@ -383,13 +395,19 @@ final class PublicationScheduler implements AutoCloseable {
     }
   }
 
-  private List<TimedWork> enqueuePendingForks(Entry parent, List<PendingFork> pendingForks) {
+  private List<TimedWork> enqueuePendingForks(List<PendingFork> pendingForks) {
     List<TimedWork> timers = new ArrayList<>();
-    long rootTask = rootTaskByTask.getOrDefault(parent.taskId(), parent.taskId());
     for (PendingFork fork : pendingForks) {
       long childTaskId = nextTaskId++;
-      rootTaskByTask.put(childTaskId, rootTask);
-      pendingChildren.merge(rootTask, 1, Math::addExact);
+      VmSnapshot childState = fork.initialState();
+      long scheduledStart =
+          Math.round(System.currentTimeMillis() / 1_000.0 + fork.delaySeconds());
+      taskRegistry.registerFork(
+          childTaskId,
+          scheduledStart,
+          childState.initialProgrammer(),
+          childState.initialVerbLocation(),
+          childState.initialLocals());
       SuspendedWork child =
           new SuspendedWork(
               childTaskId,
@@ -512,49 +530,18 @@ final class PublicationScheduler implements AutoCloseable {
 
   private RootCompletion finishSuccess(Entry entry, List<String> output) {
     nextPublicationTicket++;
-    long rootTask = rootTaskByTask.getOrDefault(entry.taskId(), entry.taskId());
-    if (entry.taskId() == rootTask) {
-      rootOutput.put(rootTask, List.copyOf(output));
-      returnedRoots.add(rootTask);
-    } else {
-      childOutput.computeIfAbsent(rootTask, ignored -> new ArrayList<>()).addAll(output);
-      rootTaskByTask.remove(entry.taskId());
-      pendingChildren.computeIfPresent(rootTask, (ignored, count) -> count - 1);
-    }
-    if (returnedRoots.contains(rootTask) && pendingChildren.getOrDefault(rootTask, 0) == 0) {
-      CompletableFuture<List<String>> future = ingress.remove(rootTask);
-      RootCompletion completion =
-          future == null
-              ? RootCompletion.none()
-              : RootCompletion.success(
-                  future, combinedOutput(rootTask));
-      returnedRoots.remove(rootTask);
-      pendingChildren.remove(rootTask);
-      rootOutput.remove(rootTask);
-      childOutput.remove(rootTask);
-      return completion;
-    }
-    return RootCompletion.none();
+    taskRegistry.remove(entry.taskId());
+    CompletableFuture<List<String>> future = ingress.remove(entry.taskId());
+    return future == null ? RootCompletion.none() : RootCompletion.success(future, output);
   }
 
   private RootCompletion finishFailure(Entry entry, Throwable failure) {
     nextPublicationTicket++;
-    long rootTask = rootTaskByTask.getOrDefault(entry.taskId(), entry.taskId());
-    CompletableFuture<List<String>> future = ingress.remove(rootTask);
-    rootTaskByTask.remove(entry.taskId());
-    returnedRoots.remove(rootTask);
-    pendingChildren.remove(rootTask);
-    rootOutput.remove(rootTask);
-    childOutput.remove(rootTask);
+    taskRegistry.remove(entry.taskId());
+    CompletableFuture<List<String>> future = ingress.remove(entry.taskId());
     return future == null
         ? RootCompletion.none()
         : RootCompletion.failure(future, failure);
-  }
-
-  private List<String> combinedOutput(long rootTask) {
-    List<String> output = new ArrayList<>(rootOutput.getOrDefault(rootTask, List.of()));
-    output.addAll(childOutput.getOrDefault(rootTask, List.of()));
-    return List.copyOf(output);
   }
 
   synchronized long nextTicket() {
