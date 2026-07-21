@@ -80,6 +80,7 @@ final class BuiltinCatalogTest {
           "recycle",
           "rindex",
           "run_gc",
+          "seconds_left",
           "set_connection_option",
           "set_player_flag",
           "set_task_perms",
@@ -493,10 +494,11 @@ final class BuiltinCatalogTest {
   }
 
   @Test
-  void exposesCurrentTickBudgetAndAcknowledgesLiveServerOptions() {
+  void exposesCurrentTaskBudgetsAndAcknowledgesLiveServerOptions() {
     BuiltinCatalog catalog = new BuiltinCatalog();
     BuiltinSpec load = catalog.spec("load_server_options").orElseThrow();
     BuiltinSpec ticks = catalog.spec("ticks_left").orElseThrow();
+    BuiltinSpec seconds = catalog.spec("seconds_left").orElseThrow();
     CallShape noArguments = new CallShape(List.of(), List.of(), Optional.empty());
 
     assertEquals(List.of(noArguments), load.callShapes());
@@ -507,6 +509,10 @@ final class BuiltinCatalogTest {
     assertSame(BuiltinPermissionRule.ANY, ticks.permission());
     assertEquals(EffectClass.PURE, ticks.effect());
     assertEquals(BuiltinOwner.VM, ticks.owner());
+    assertEquals(List.of(noArguments), seconds.callShapes());
+    assertSame(BuiltinPermissionRule.ANY, seconds.permission());
+    assertEquals(EffectClass.PURE, seconds.effect());
+    assertEquals(BuiltinOwner.VM, seconds.owner());
     try (WorldTxn transaction = world().begin()) {
       assertEquals(
           Optional.of(new IntegerValue(0)),
@@ -534,6 +540,23 @@ final class BuiltinCatalogTest {
       assertEquals(
           Optional.of(ErrorValue.E_ARGS),
           invoke(catalog, ticks, List.of(new IntegerValue(1)), transaction, 2).error());
+
+      Result remainingSeconds =
+          catalog.invoke(
+              seconds,
+              List.of(),
+              transaction,
+              2,
+              new MapValue(Map.of()),
+              59_321,
+              11,
+              new ObjectValue(2),
+              2,
+              new ListValue(List.of()));
+      assertEquals(Optional.of(new IntegerValue(11)), remainingSeconds.value());
+      assertEquals(
+          Optional.of(ErrorValue.E_ARGS),
+          invoke(catalog, seconds, List.of(new IntegerValue(1)), transaction, 2).error());
     }
   }
 

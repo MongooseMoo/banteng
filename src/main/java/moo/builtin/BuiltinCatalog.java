@@ -654,6 +654,15 @@ public final class BuiltinCatalog {
             (a, w, p, t, rt, rs, r, cp, c) -> Result.value(new IntegerValue(rt))));
     entries.add(
         new BuiltinSpec(
+            "seconds_left",
+            List.of(new CallShape(List.of(), List.of(), Optional.empty())),
+            BuiltinPermissionRule.ANY,
+            BuiltinCostRule.fixed(0),
+            EffectClass.PURE,
+            BuiltinOwner.VM,
+            (a, w, p, t, rt, rs, r, cp, c) -> Result.value(new IntegerValue(rs))));
+    entries.add(
+        new BuiltinSpec(
             "set_task_perms",
             List.of(new CallShape(List.of(OBJECT), List.of(), Optional.empty())),
             BuiltinPermissionRule.ANY,
