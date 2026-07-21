@@ -288,6 +288,15 @@ public final class BuiltinCatalog {
             (a, w, p, t, id, rt, rs, r, cp, c) -> setRemove(a)));
     entries.add(
         new BuiltinSpec(
+            "explode",
+            List.of(new CallShape(List.of(STRING), List.of(STRING, INTEGER), Optional.empty())),
+            BuiltinPermissionRule.ANY,
+            BuiltinCostRule.fixed(0),
+            EffectClass.PURE,
+            BuiltinOwner.VM,
+            (a, w, p, t, id, rt, rs, r, cp, c) -> explode(a)));
+    entries.add(
+        new BuiltinSpec(
             "strsub",
             List.of(new CallShape(List.of(STRING, STRING, STRING), List.of(ANY), Optional.empty())),
             BuiltinPermissionRule.ANY,
@@ -1680,6 +1689,41 @@ public final class BuiltinCatalog {
     }
     substituted.write(source, position, source.length - position);
     return Result.value(new StringValue(substituted.toByteArray()));
+  }
+
+  private static Result explode(List<MooValue> arguments) {
+    byte[] source = ((StringValue) arguments.getFirst()).bytes();
+    byte[] delimiterArgument =
+        arguments.size() >= 2 ? ((StringValue) arguments.get(1)).bytes() : new byte[0];
+    byte delimiter = delimiterArgument.length == 0 ? (byte) ' ' : delimiterArgument[0];
+    boolean preserveEmpty = arguments.size() == 3 && arguments.get(2).isTruthy();
+    List<MooValue> pieces = new ArrayList<>();
+
+    if (preserveEmpty) {
+      int start = 0;
+      for (int end = 0; end <= source.length; end++) {
+        if (end == source.length || source[end] == delimiter) {
+          pieces.add(new StringValue(Arrays.copyOfRange(source, start, end)));
+          start = end + 1;
+        }
+      }
+    } else {
+      int start = 0;
+      while (start < source.length) {
+        while (start < source.length && source[start] == delimiter) {
+          start++;
+        }
+        int end = start;
+        while (end < source.length && source[end] != delimiter) {
+          end++;
+        }
+        if (start < end) {
+          pieces.add(new StringValue(Arrays.copyOfRange(source, start, end)));
+        }
+        start = end;
+      }
+    }
+    return Result.value(new ListValue(pieces));
   }
 
   private static Result stringIndex(List<MooValue> arguments, boolean reverse) {

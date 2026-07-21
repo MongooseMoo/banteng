@@ -60,6 +60,7 @@ final class BuiltinCatalogTest {
           "encode_binary",
           "equal",
           "eval",
+          "explode",
           "force_input",
           "function_info",
           "index",
@@ -258,6 +259,127 @@ final class BuiltinCatalogTest {
           Optional.of(new IntegerValue(0)),
           invoke(catalog, spec, List.of(), transaction, 1).value());
       assertEquals(1, recordingRandom.seedCalls());
+    }
+  }
+
+  @Test
+  void explodePreservesToastByteDelimiterEmptyFieldAndErrorSemantics() {
+    BuiltinCatalog catalog = new BuiltinCatalog();
+    BuiltinSpec spec = catalog.spec("explode").orElseThrow();
+
+    assertEquals(
+        List.of(
+            new CallShape(
+                List.of(Set.of(ArgType.STRING)),
+                List.of(Set.of(ArgType.STRING), Set.of(ArgType.INTEGER)),
+                Optional.empty())),
+        spec.callShapes());
+    assertSame(BuiltinPermissionRule.ANY, spec.permission());
+    assertEquals(0, spec.tickCost().charge(List.of(string("value"))));
+    assertEquals(EffectClass.PURE, spec.effect());
+    assertEquals(BuiltinOwner.VM, spec.owner());
+
+    try (WorldTxn transaction = world().begin()) {
+      assertEquals(
+          Optional.of(new ListValue(List.of(string("alpha"), string("beta")))),
+          invoke(catalog, spec, List.of(string(" alpha  beta ")), transaction, 1).value());
+      assertEquals(
+          Optional.of(new ListValue(List.of(string("a"), string("b")))),
+          invoke(
+                  catalog,
+                  spec,
+                  List.of(string("::a::b:"), string(":"), new IntegerValue(0)),
+                  transaction,
+                  1)
+              .value());
+      assertEquals(
+          Optional.of(
+              new ListValue(
+                  List.of(
+                      string(""),
+                      string(""),
+                      string("a"),
+                      string(""),
+                      string("b"),
+                      string("")))),
+          invoke(
+                  catalog,
+                  spec,
+                  List.of(string("::a::b:"), string(":"), new IntegerValue(1)),
+                  transaction,
+                  1)
+              .value());
+      assertEquals(
+          Optional.of(new ListValue(List.of(string("a"), string("b;c")))),
+          invoke(catalog, spec, List.of(string("a,b;c"), string(",;")), transaction, 1).value());
+      assertEquals(
+          Optional.of(new ListValue(List.of(string("a"), string("b")))),
+          invoke(catalog, spec, List.of(string("a b"), string("")), transaction, 1).value());
+      assertEquals(
+          Optional.of(new ListValue(List.of())),
+          invoke(catalog, spec, List.of(string("")), transaction, 1).value());
+      assertEquals(
+          Optional.of(new ListValue(List.of(string("")))),
+          invoke(
+                  catalog,
+                  spec,
+                  List.of(string(""), string(":"), new IntegerValue(1)),
+                  transaction,
+                  1)
+              .value());
+
+      StringValue highBitSource =
+          new StringValue(new byte[] {(byte) 0xe9, (byte) ':', (byte) 0xff});
+      assertEquals(
+          Optional.of(
+              new ListValue(
+                  List.of(
+                      new StringValue(new byte[] {(byte) 0xe9}),
+                      new StringValue(new byte[] {(byte) 0xff})))),
+          invoke(catalog, spec, List.of(highBitSource, string(":")), transaction, 1).value());
+
+      assertEquals(
+          Optional.of(ErrorValue.E_ARGS), invoke(catalog, spec, List.of(), transaction, 1).error());
+      assertEquals(
+          Optional.of(ErrorValue.E_ARGS),
+          invoke(
+                  catalog,
+                  spec,
+                  List.of(string("a"), string(":"), new IntegerValue(0), new IntegerValue(1)),
+                  transaction,
+                  1)
+              .error());
+      assertEquals(
+          Optional.of(ErrorValue.E_TYPE),
+          invoke(catalog, spec, List.of(new IntegerValue(1)), transaction, 1).error());
+      assertEquals(
+          Optional.of(ErrorValue.E_TYPE),
+          invoke(catalog, spec, List.of(string("a"), new IntegerValue(1)), transaction, 1).error());
+      assertEquals(
+          Optional.of(ErrorValue.E_TYPE),
+          invoke(catalog, spec, List.of(string("a"), string(":"), string("1")), transaction, 1)
+              .error());
+
+      Result functionInfo =
+          invoke(
+              catalog,
+              catalog.spec("function_info").orElseThrow(),
+              List.of(string("explode")),
+              transaction,
+              1);
+      assertEquals(
+          Optional.of(
+              new ListValue(
+                  List.of(
+                      string("explode"),
+                      new IntegerValue(1),
+                      new IntegerValue(3),
+                      new ListValue(
+                          List.of(
+                              new IntegerValue(2),
+                              new IntegerValue(2),
+                              new IntegerValue(0)))))),
+          functionInfo.value());
     }
   }
 
