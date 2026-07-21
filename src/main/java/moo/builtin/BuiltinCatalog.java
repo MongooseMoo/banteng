@@ -47,6 +47,7 @@ public final class BuiltinCatalog {
 
   private final List<BuiltinSpec> manifest;
   private final BuiltinHandler killTask;
+  private final Optional<ListenerControl> listenerControl;
   private final BuiltinHandler queuedTasks;
   private final Random random;
   private final Map<String, BuiltinSpec> specs;
@@ -69,6 +70,7 @@ public final class BuiltinCatalog {
   public BuiltinCatalog(BuiltinHandler queuedTasks, BuiltinHandler killTask) {
     this.queuedTasks = Objects.requireNonNull(queuedTasks, "queuedTasks");
     this.killTask = Objects.requireNonNull(killTask, "killTask");
+    listenerControl = Optional.empty();
     random = new Random();
     manifest = buildManifest();
     specs = indexManifest(manifest);
@@ -93,7 +95,7 @@ public final class BuiltinCatalog {
   /** Creates the production catalog with concrete listener and task owners. */
   public BuiltinCatalog(
       ListenerControl listenerControl, BuiltinHandler queuedTasks, BuiltinHandler killTask) {
-    Objects.requireNonNull(listenerControl, "listenerControl");
+    this.listenerControl = Optional.of(Objects.requireNonNull(listenerControl, "listenerControl"));
     this.queuedTasks = Objects.requireNonNull(queuedTasks, "queuedTasks");
     this.killTask = Objects.requireNonNull(killTask, "killTask");
     random = new Random();
@@ -510,6 +512,17 @@ public final class BuiltinCatalog {
             killTask));
     entries.add(
         new BuiltinSpec(
+            "listen",
+            List.of(
+                new CallShape(
+                    List.of(OBJECT, ANY), List.of(Set.of(ArgType.MAP)), Optional.empty())),
+            BuiltinPermissionRule.WIZARD_ONLY,
+            BuiltinCostRule.fixed(0),
+            EffectClass.IRREVOCABLE,
+            BuiltinOwner.SERVER,
+            (a, w, p, t, rt, rs, r, cp, c) -> listen(a, w)));
+    entries.add(
+        new BuiltinSpec(
             "task_perms",
             List.of(new CallShape(List.of(), List.of(), Optional.empty())),
             BuiltinPermissionRule.ANY,
@@ -669,6 +682,32 @@ public final class BuiltinCatalog {
         arguments.size() == 2 && arguments.get(1).isTruthy()
             ? new IntegerValue(0)
             : new ListValue(List.of()));
+  }
+
+  private Result listen(List<MooValue> arguments, WorldTxn world) {
+    ObjectValue handler = (ObjectValue) arguments.getFirst();
+    if (world.object(handler.value()).isEmpty()
+        || !(arguments.get(1) instanceof IntegerValue descriptor)) {
+      return Result.error(ErrorValue.E_INVARG);
+    }
+    boolean printMessages =
+        arguments.size() == 3
+            && ((MapValue) arguments.get(2))
+                .get(encode("print-messages"))
+                .map(MooValue::isTruthy)
+                .orElse(false);
+    if (listenerControl.isEmpty()) {
+      return Result.error(ErrorValue.E_INVARG);
+    }
+    try {
+      int port = Math.toIntExact(descriptor.value());
+      int listening = listenerControl.orElseThrow().listen(handler.value(), port, printMessages);
+      return Result.value(new IntegerValue(listening));
+    } catch (IllegalArgumentException invalid) {
+      return Result.error(ErrorValue.E_INVARG);
+    } catch (IOException bindFailure) {
+      return Result.error(ErrorValue.E_QUOTA);
+    }
   }
 
   private static Map<String, BuiltinSpec> indexManifest(List<BuiltinSpec> manifest) {

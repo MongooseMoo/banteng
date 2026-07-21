@@ -51,6 +51,7 @@ final class BuiltinCatalogTest {
           "is_clear_property",
           "length",
           "kill_task",
+          "listen",
           "listappend",
           "listdelete",
           "listinsert",
@@ -194,6 +195,59 @@ final class BuiltinCatalogTest {
       assertEquals(
           Optional.of(ErrorValue.E_ARGS),
           invoke(catalog, spec, List.of(), transaction, 1).error());
+    }
+  }
+
+  @Test
+  void listenBindsTheWizardSelectedHandlerPortAndPrintOption() {
+    RecordingListener listener = new RecordingListener();
+    BuiltinCatalog catalog = new BuiltinCatalog(listener);
+    BuiltinSpec spec = catalog.spec("listen").orElseThrow();
+
+    assertEquals(
+        List.of(
+            new CallShape(
+                List.of(Set.of(ArgType.OBJECT), Set.of(ArgType.ANY)),
+                List.of(Set.of(ArgType.MAP)),
+                Optional.empty())),
+        spec.callShapes());
+    assertSame(BuiltinPermissionRule.WIZARD_ONLY, spec.permission());
+    assertEquals(EffectClass.IRREVOCABLE, spec.effect());
+    assertEquals(BuiltinOwner.SERVER, spec.owner());
+    try (WorldTxn transaction = world().begin()) {
+      Result result =
+          invoke(
+              catalog,
+              spec,
+              List.of(
+                  new ObjectValue(2),
+                  new IntegerValue(12345),
+                  new MapValue(Map.of(string("print-messages"), new IntegerValue(1)))),
+              transaction,
+              1);
+
+      assertEquals(Optional.of(new IntegerValue(12345)), result.value());
+      assertEquals(2, listener.handler);
+      assertEquals(12345, listener.port);
+      assertTrue(listener.printMessages);
+      assertEquals(
+          Optional.of(ErrorValue.E_PERM),
+          invoke(
+                  catalog,
+                  spec,
+                  List.of(new ObjectValue(2), new IntegerValue(23456)),
+                  transaction,
+                  2)
+              .error());
+      assertEquals(
+          Optional.of(ErrorValue.E_INVARG),
+          invoke(
+                  catalog,
+                  spec,
+                  List.of(new ObjectValue(99), new IntegerValue(23456)),
+                  transaction,
+                  1)
+              .error());
     }
   }
 
@@ -1384,5 +1438,36 @@ final class BuiltinCatalogTest {
     WorldObject programmer =
         new WorldObject(2, "Programmer", 0, 2, -1, -1, List.of(), List.of(), List.of(), List.of());
     return new WorldTxn(List.of(), List.of(wizard, programmer));
+  }
+
+  private static final class RecordingListener implements BuiltinCatalog.ListenerControl {
+    private long handler;
+    private int port;
+    private boolean printMessages;
+
+    @Override
+    public int listen(long handler, int port, boolean printMessages) {
+      this.handler = handler;
+      this.port = port;
+      this.printMessages = printMessages;
+      return port;
+    }
+
+    @Override
+    public boolean unlisten(int port) {
+      return false;
+    }
+
+    @Override
+    public void writeConnection(long connectionId, List<String> output) {}
+
+    @Override
+    public void bootConnection(long connectionId, List<String> output) {}
+
+    @Override
+    public void setConnectionBinary(long connectionId, boolean binary) {}
+
+    @Override
+    public void shutdown() {}
   }
 }
