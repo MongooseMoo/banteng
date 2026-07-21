@@ -23,6 +23,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
+import java.util.stream.IntStream;
 import jdk.jfr.Recording;
 import jdk.jfr.consumer.RecordedEvent;
 import jdk.jfr.consumer.RecordingFile;
@@ -31,6 +32,7 @@ import moo.persistence.LambdaMooV4Reader;
 import moo.value.MooValue.IntegerValue;
 import moo.value.MooValue.MapValue;
 import moo.value.MooValue.ObjectValue;
+import moo.world.WorldObject;
 import moo.world.WorldProperty;
 import moo.world.WorldTxn;
 import org.junit.jupiter.api.Test;
@@ -203,6 +205,45 @@ final class PublicationSchedulerTest {
               CONNECTION_SUFFIX),
           output);
       assertEquals(0, harness.counter());
+    }
+  }
+
+  @Test
+  void invokesTaskTimeoutHandlerAfterBackgroundTickAbort() throws Exception {
+    try (Harness harness = Harness.open(1, new RecordingListener())) {
+      try (WorldTxn transaction = harness.root.begin()) {
+        ObjectValue serverOptions =
+            (ObjectValue) transaction.readObjectProperty(0, "server_options").orElseThrow();
+        boolean configured =
+            transaction.property(serverOptions.value(), "bg_ticks").isPresent()
+                ? transaction.writeObjectProperty(
+                    serverOptions.value(), "bg_ticks", new IntegerValue(100))
+                : transaction.addProperty(
+                    serverOptions.value(), "bg_ticks", new IntegerValue(100), 0, 3);
+        assertTrue(configured);
+        WorldObject system = transaction.object(0).orElseThrow();
+        int handlerIndex =
+            IntStream.range(0, system.verbs().size())
+                .filter(index -> system.verbs().get(index).names().equals("handle_task_timeout"))
+                .findFirst()
+                .orElseThrow();
+        assertTrue(
+            transaction.setVerbCode(
+                0,
+                handlerIndex,
+                "#0.scheduler_counter = length(args) == 3 && args[1] == \"ticks\" "
+                    + "&& typeof(args[2]) == LIST && length(args[2]) > 0 "
+                    + "&& typeof(args[3]) == LIST && length(args[3]) > 0; return 1;"));
+        assertTrue(transaction.commit().isCommitted());
+      }
+
+      harness.line("; fork (0) while (1) endwhile endfork return 1;");
+      long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(3);
+      while (harness.counter() == 0 && System.nanoTime() < deadline) {
+        Thread.onSpinWait();
+      }
+
+      assertEquals(1, harness.counter());
     }
   }
 

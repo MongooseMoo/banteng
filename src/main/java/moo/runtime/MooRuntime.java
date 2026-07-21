@@ -1321,6 +1321,53 @@ public final class MooRuntime {
     return RuntimeStep.returned(List.of());
   }
 
+  private RuntimeStep startTaskTimeout(RuntimeContinuation continuation) {
+    VmSnapshot timedOut = continuation.timeoutSnapshot().orElseThrow();
+    Optional<WorldVerb> handler = world().verb(0, "handle_task_timeout");
+    if (handler.isEmpty()) {
+      return RuntimeStep.returned(continuation.output());
+    }
+
+    List<MooValue> stack = new ArrayList<>();
+    for (VmSnapshot.Frame frame : timedOut.frames()) {
+      MooValue thisValue = frame.locals().getOrDefault("this", frame.receiver());
+      MooValue verbValue = frame.locals().getOrDefault("verb", encode(""));
+      MooValue playerValue =
+          frame.locals().getOrDefault("player", new ObjectValue(continuation.first()));
+      stack.add(
+          new ListValue(
+              List.of(
+                  thisValue,
+                  verbValue,
+                  new ObjectValue(frame.programmer()),
+                  frame.verbLocation(),
+                  playerValue,
+                  new IntegerValue(0))));
+    }
+    if (stack.isEmpty()) {
+      stack.add(
+          new ListValue(
+              List.of(
+                  timedOut.initialLocals().getOrDefault("this", new ObjectValue(-1)),
+                  timedOut.initialLocals().getOrDefault("verb", encode("")),
+                  new ObjectValue(timedOut.initialProgrammer()),
+                  timedOut.initialVerbLocation(),
+                  timedOut
+                      .initialLocals()
+                      .getOrDefault("player", new ObjectValue(continuation.first())),
+                  new IntegerValue(0))));
+    }
+    ListValue traceback =
+        new ListValue(
+            List.of(encode("Task ran out of ticks"), encode("(End of traceback)")));
+    ListValue arguments =
+        new ListValue(List.of(encode("ticks"), new ListValue(stack), traceback));
+    return startStored(
+        handler.orElseThrow(),
+        verbLocals(0, continuation.first(), -1, "handle_task_timeout", arguments, ""),
+        RuntimeContinuation.timeoutReturn(continuation.output()));
+  }
+
   private RuntimeStep startStored(
       WorldVerb verb, Map<String, MooValue> locals, RuntimeContinuation continuation) {
     BytecodeProgram program =
@@ -1826,6 +1873,12 @@ public final class MooRuntime {
         case TIMEOUT -> checkLoginTimeoutNow(request.connectionId, request.generation);
       };
     }
+    if (continuation.transition().orElseThrow() == RuntimeTransition.TASK_TIMEOUT_START) {
+      if (completedVm.isPresent()) {
+        throw new IllegalArgumentException("timeout start continuation has completed VM state");
+      }
+      return startTaskTimeout(continuation);
+    }
     VmState state = VmState.restore(completedVm.orElseThrow());
     return resumeRuntime(continuation, state);
   }
@@ -1865,6 +1918,15 @@ public final class MooRuntime {
           finishLoginTimeout(continuation.connectionId(), continuation.output());
       case BOOT_PLAYER_USER_DISCONNECTED_THEN_BOOT ->
           finishBootPlayer(continuation.connectionId(), continuation.output());
+      case TASK_TIMEOUT_START ->
+          throw new IllegalStateException("timeout start cannot resume completed VM state");
+      case TASK_TIMEOUT_RETURN -> {
+        List<String> output = new ArrayList<>(state.output());
+        if (state.returnValue().isEmpty() || !state.returnValue().orElseThrow().isTruthy()) {
+          output.addAll(continuation.output());
+        }
+        yield RuntimeStep.returned(output);
+      }
     };
   }
 
@@ -2075,7 +2137,9 @@ public final class MooRuntime {
     LOGIN_USER_CREATED_THEN_CONNECTED,
     LOGIN_EXISTING_USER_CONNECTED_THEN_RETURN,
     LOGIN_TIMEOUT_USER_DISCONNECTED_THEN_BOOT,
-    BOOT_PLAYER_USER_DISCONNECTED_THEN_BOOT
+    BOOT_PLAYER_USER_DISCONNECTED_THEN_BOOT,
+    TASK_TIMEOUT_START,
+    TASK_TIMEOUT_RETURN
   }
 
   record RuntimeContinuation(
@@ -2086,11 +2150,13 @@ public final class MooRuntime {
       List<String> output,
       long first,
       long second,
-      boolean flag) {
+      boolean flag,
+      Optional<VmSnapshot> timeoutSnapshot) {
     RuntimeContinuation {
       Objects.requireNonNull(ingress, "ingress");
       Objects.requireNonNull(transition, "transition");
       Objects.requireNonNull(text, "text");
+      Objects.requireNonNull(timeoutSnapshot, "timeoutSnapshot");
       output = List.copyOf(output);
       if (ingress.isPresent() == transition.isPresent()) {
         throw new IllegalArgumentException(
@@ -2100,7 +2166,15 @@ public final class MooRuntime {
 
     static RuntimeContinuation ingress(RuntimeRequest request) {
       return new RuntimeContinuation(
-          Optional.of(request), Optional.empty(), 0, "", List.of(), 0, 0, false);
+          Optional.of(request),
+          Optional.empty(),
+          0,
+          "",
+          List.of(),
+          0,
+          0,
+          false,
+          Optional.empty());
     }
 
     static RuntimeContinuation after(
@@ -2119,7 +2193,35 @@ public final class MooRuntime {
           output,
           first,
           second,
-          flag);
+          flag,
+          Optional.empty());
+    }
+
+    static RuntimeContinuation timeout(
+        VmSnapshot snapshot, long player, List<String> fallbackOutput) {
+      return new RuntimeContinuation(
+          Optional.empty(),
+          Optional.of(RuntimeTransition.TASK_TIMEOUT_START),
+          0,
+          "",
+          fallbackOutput,
+          player,
+          0,
+          false,
+          Optional.of(snapshot));
+    }
+
+    static RuntimeContinuation timeoutReturn(List<String> fallbackOutput) {
+      return new RuntimeContinuation(
+          Optional.empty(),
+          Optional.of(RuntimeTransition.TASK_TIMEOUT_RETURN),
+          0,
+          "",
+          fallbackOutput,
+          0,
+          0,
+          false,
+          Optional.empty());
     }
   }
 
