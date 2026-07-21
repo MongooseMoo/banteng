@@ -77,6 +77,7 @@ final class BuiltinCatalogTest {
           "queued_tasks",
           "random",
           "raise",
+          "read",
           "recycle",
           "rindex",
           "run_gc",
@@ -213,6 +214,47 @@ final class BuiltinCatalogTest {
       assertEquals(
           Optional.of(ErrorValue.E_ARGS),
           invoke(catalog, spec, List.of(), transaction, 1).error());
+    }
+  }
+
+  @Test
+  void readDeclaresSuspendingConnectionContractAndDeniesAnUnrelatedProgrammer() {
+    BuiltinCatalog catalog = new BuiltinCatalog();
+    BuiltinSpec spec = catalog.spec("read").orElseThrow();
+
+    assertEquals(
+        List.of(
+            new CallShape(
+                List.of(),
+                List.of(Set.of(ArgType.OBJECT), Set.of(ArgType.ANY)),
+                Optional.empty())),
+        spec.callShapes());
+    assertSame(BuiltinPermissionRule.ANY, spec.permission());
+    assertEquals(0, spec.tickCost().charge(List.of()));
+    assertEquals(EffectClass.SUSPENDING_HOST, spec.effect());
+    assertEquals(BuiltinOwner.CONNECTION, spec.owner());
+    try (WorldTxn transaction = world().begin()) {
+      assertEquals(
+          Optional.of(ErrorValue.E_PERM),
+          invoke(
+                  catalog,
+                  spec,
+                  List.of(new ObjectValue(1), new IntegerValue(1)),
+                  transaction,
+                  2)
+              .error());
+      assertEquals(
+          Optional.of(ErrorValue.E_TYPE),
+          invoke(catalog, spec, List.of(new IntegerValue(1)), transaction, 2).error());
+      assertEquals(
+          Optional.of(ErrorValue.E_ARGS),
+          invoke(
+                  catalog,
+                  spec,
+                  List.of(new ObjectValue(1), new IntegerValue(1), new IntegerValue(1)),
+                  transaction,
+                  2)
+              .error());
     }
   }
 

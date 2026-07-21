@@ -565,6 +565,23 @@ public final class BuiltinCatalog {
             killTask));
     entries.add(
         new BuiltinSpec(
+            "read",
+            List.of(new CallShape(List.of(), List.of(OBJECT, ANY), Optional.empty())),
+            BuiltinPermissionRule.ANY,
+            BuiltinCostRule.fixed(0),
+            EffectClass.SUSPENDING_HOST,
+            BuiltinOwner.CONNECTION,
+            (a, w, p, t, id, rt, rs, r, cp, c) -> {
+              if (!a.isEmpty() && !BuiltinPermissionRule.WIZARD_ONLY.allows(w, p)) {
+                WorldObject target = w.object(((ObjectValue) a.getFirst()).value()).orElse(null);
+                if (target == null || target.owner() != p) {
+                  return Result.error(ErrorValue.E_PERM);
+                }
+              }
+              return Result.error(ErrorValue.E_INVARG);
+            }));
+    entries.add(
+        new BuiltinSpec(
             "connected_players",
             List.of(new CallShape(List.of(), List.of(ANY), Optional.empty())),
             BuiltinPermissionRule.ANY,
