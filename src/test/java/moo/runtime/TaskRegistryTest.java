@@ -8,6 +8,7 @@ import java.util.List;
 import java.util.Map;
 import moo.builtin.BuiltinCatalog.Result;
 import moo.value.MooValue;
+import moo.value.MooValue.ErrorValue;
 import moo.value.MooValue.IntegerValue;
 import moo.value.MooValue.ListValue;
 import moo.value.MooValue.MapValue;
@@ -59,10 +60,36 @@ final class TaskRegistryTest {
           new IntegerValue(2),
           result(registry, List.of(new IntegerValue(0), new IntegerValue(1)), transaction, 1));
       assertEquals(2, value(registry, List.of(), transaction, 1).size());
+
+      assertEquals(
+          ErrorValue.E_PERM,
+          killResult(registry, 18, transaction, 2).error().orElseThrow());
+      assertEquals(
+          ErrorValue.E_INVARG,
+          killResult(registry, 99, transaction, 1).error().orElseThrow());
+      assertEquals(
+          new IntegerValue(0),
+          killResult(registry, 18, transaction, 1).value().orElseThrow());
+      assertEquals(1, registry.size());
+      assertEquals(true, registry.discardIfCanceled(18));
     }
 
     registry.remove(17);
-    assertEquals(1, registry.size());
+    assertEquals(0, registry.size());
+  }
+
+  private static Result killResult(
+      TaskRegistry registry, long taskId, WorldTxn world, long programmer) {
+    return registry.killTask(
+        List.of(new IntegerValue(taskId)),
+        world,
+        programmer,
+        new MapValue(Map.of()),
+        60_000,
+        5,
+        new ObjectValue(programmer),
+        programmer,
+        new ListValue(List.of()));
   }
 
   private static ListValue value(

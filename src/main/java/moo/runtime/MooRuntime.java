@@ -70,7 +70,7 @@ public final class MooRuntime {
     listenerControl = Optional.empty();
     checkpoint = Optional.empty();
     TaskRegistry taskRegistry = new TaskRegistry();
-    builtins = new BuiltinCatalog(taskRegistry::queuedTasks);
+    builtins = new BuiltinCatalog(taskRegistry::queuedTasks, taskRegistry::killTask);
     scheduler =
         new PublicationScheduler(
             Objects.requireNonNull(world, "world"), this, taskRegistry);
@@ -94,7 +94,9 @@ public final class MooRuntime {
     this.listenerControl = Optional.of(Objects.requireNonNull(listenerControl, "listenerControl"));
     this.checkpoint = Objects.requireNonNull(checkpoint, "checkpoint");
     TaskRegistry taskRegistry = new TaskRegistry();
-    builtins = new BuiltinCatalog(listenerControl, taskRegistry::queuedTasks);
+    builtins =
+        new BuiltinCatalog(
+            listenerControl, taskRegistry::queuedTasks, taskRegistry::killTask);
     scheduler =
         new PublicationScheduler(
             Objects.requireNonNull(world, "world"), this, workers, taskRegistry);

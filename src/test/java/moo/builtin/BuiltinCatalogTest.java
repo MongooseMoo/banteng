@@ -50,6 +50,7 @@ final class BuiltinCatalogTest {
           "is_player",
           "is_clear_property",
           "length",
+          "kill_task",
           "listappend",
           "listdelete",
           "listinsert",
@@ -166,6 +167,33 @@ final class BuiltinCatalogTest {
       assertEquals(EffectClass.IRREVOCABLE, spec.effect());
       assertEquals(BuiltinOwner.VM, spec.owner());
       assertTrue(value >= before && value <= after);
+    }
+  }
+
+  @Test
+  void killTaskUsesTheRegisteredTaskOwnerWithOneIntegerArgument() {
+    BuiltinCatalog catalog =
+        new BuiltinCatalog(
+            (a, w, p, t, rt, rs, r, cp, c) -> Result.value(new ListValue(List.of())),
+            (a, w, p, t, rt, rs, r, cp, c) -> Result.value(new IntegerValue(23)));
+    BuiltinSpec spec = catalog.spec("kill_task").orElseThrow();
+
+    assertEquals(
+        List.of(new CallShape(List.of(Set.of(ArgType.INTEGER)), List.of(), Optional.empty())),
+        spec.callShapes());
+    assertSame(BuiltinPermissionRule.ANY, spec.permission());
+    assertEquals(EffectClass.IRREVOCABLE, spec.effect());
+    assertEquals(BuiltinOwner.TASK, spec.owner());
+    try (WorldTxn transaction = world().begin()) {
+      assertEquals(
+          Optional.of(new IntegerValue(23)),
+          invoke(catalog, spec, List.of(new IntegerValue(17)), transaction, 1).value());
+      assertEquals(
+          Optional.of(ErrorValue.E_TYPE),
+          invoke(catalog, spec, List.of(string("bad")), transaction, 1).error());
+      assertEquals(
+          Optional.of(ErrorValue.E_ARGS),
+          invoke(catalog, spec, List.of(), transaction, 1).error());
     }
   }
 

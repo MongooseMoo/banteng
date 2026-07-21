@@ -2,12 +2,15 @@ package moo.runtime;
 
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.TreeMap;
 import moo.builtin.BuiltinCatalog;
 import moo.value.MooValue;
+import moo.value.MooValue.ErrorValue;
 import moo.value.MooValue.IntegerValue;
 import moo.value.MooValue.ListValue;
 import moo.value.MooValue.MapValue;
@@ -21,6 +24,7 @@ final class TaskRegistry {
   private static final long BACKGROUND_TICKS = 30_000;
 
   private final Map<Long, TaskInfo> tasks = new TreeMap<>();
+  private final Set<Long> canceled = new HashSet<>();
 
   synchronized void registerFork(
       long taskId,
@@ -47,10 +51,40 @@ final class TaskRegistry {
 
   synchronized void remove(long taskId) {
     tasks.remove(taskId);
+    canceled.remove(taskId);
   }
 
   synchronized int size() {
     return tasks.size();
+  }
+
+  synchronized boolean discardIfCanceled(long taskId) {
+    return canceled.remove(taskId);
+  }
+
+  synchronized BuiltinCatalog.Result killTask(
+      List<MooValue> arguments,
+      WorldTxn world,
+      long programmer,
+      MooValue taskLocal,
+      long remainingTicks,
+      long remainingSeconds,
+      MooValue receiver,
+      long callerProgrammer,
+      ListValue callers) {
+    long taskId = ((IntegerValue) arguments.getFirst()).value();
+    TaskInfo task = tasks.get(taskId);
+    if (task == null) {
+      return BuiltinCatalog.Result.error(ErrorValue.E_INVARG);
+    }
+    WorldObject actor = world.object(programmer).orElse(null);
+    boolean wizard = actor != null && (actor.flags() & 4) != 0;
+    if (!wizard && task.programmer() != programmer) {
+      return BuiltinCatalog.Result.error(ErrorValue.E_PERM);
+    }
+    tasks.remove(taskId);
+    canceled.add(taskId);
+    return BuiltinCatalog.Result.value(new IntegerValue(0));
   }
 
   BuiltinCatalog.Result queuedTasks(

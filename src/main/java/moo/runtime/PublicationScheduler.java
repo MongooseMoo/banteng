@@ -510,14 +510,14 @@ final class PublicationScheduler implements AutoCloseable {
   }
 
   private synchronized void enqueueWake(SuspendedWork work, MooValue value) {
-    if (!closed) {
+    if (!closed && !taskRegistry.discardIfCanceled(work.taskId())) {
       ready.add(work.wake(nextTicket++, value));
       dispatch();
     }
   }
 
   private synchronized void enqueueReady(SuspendedWork work) {
-    if (!closed) {
+    if (!closed && !taskRegistry.discardIfCanceled(work.taskId())) {
       ready.add(work.ready(nextTicket++));
       dispatch();
     }
