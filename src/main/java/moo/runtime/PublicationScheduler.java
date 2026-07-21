@@ -599,7 +599,7 @@ final class PublicationScheduler implements AutoCloseable {
             snapshot,
             entry.taskPlayer(),
             entry.continuation(),
-            false);
+            true);
     synchronized (this) {
       nextPublicationTicket++;
     }

@@ -530,14 +530,39 @@ public final class VmState {
 
   /** Restores a task from a value-only retry or checkpoint snapshot. */
   public static VmState restore(VmSnapshot snapshot) {
+    return restore(
+        snapshot,
+        snapshot.remainingTicks(),
+        snapshot.elapsedCpuNanos(),
+        snapshot.remainingCpuNanos(),
+        snapshot.maxStackDepth());
+  }
+
+  /** Restores a suspended task with a fresh background execution budget. */
+  public static VmState restoreBackground(
+      VmSnapshot snapshot, long remainingTicks, long secondsLimit, long maxStackDepth) {
+    return restore(
+        snapshot,
+        remainingTicks,
+        0,
+        Math.max(0L, TimeUnit.SECONDS.toNanos(secondsLimit)),
+        maxStackDepth);
+  }
+
+  private static VmState restore(
+      VmSnapshot snapshot,
+      long remainingTicks,
+      long elapsedCpuNanos,
+      long remainingCpuNanos,
+      long maxStackDepth) {
     VmState state =
         new VmState(
             snapshot.initialLocals(),
             snapshot.initialProgrammer(),
             snapshot.initialVerbLocation(),
-            snapshot.remainingTicks(),
+            remainingTicks,
             0,
-            snapshot.maxStackDepth());
+            maxStackDepth);
     for (VmSnapshot.Frame frame : snapshot.frames()) {
       state.frames.addLast(restore(frame));
     }
@@ -567,8 +592,8 @@ public final class VmState {
     state.hostResult = Optional.empty();
     state.pendingBuiltin = snapshot.pendingBuiltin();
     state.taskLocal = snapshot.taskLocal();
-    state.elapsedCpuNanos = snapshot.elapsedCpuNanos();
-    state.remainingCpuNanos = snapshot.remainingCpuNanos();
+    state.elapsedCpuNanos = elapsedCpuNanos;
+    state.remainingCpuNanos = remainingCpuNanos;
     state.segmentCpuAnchorNanos = -1;
     return state;
   }

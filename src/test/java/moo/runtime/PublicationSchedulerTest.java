@@ -248,6 +248,49 @@ final class PublicationSchedulerTest {
   }
 
   @Test
+  void resumesSuspendedForegroundTaskWithBackgroundLimits() throws Exception {
+    try (Harness harness = Harness.open(1, new RecordingListener())) {
+      harness.line(
+          """
+          ; try
+              add_property($server_options, "fg_ticks", 50000, {player, "r"});
+            except (E_INVARG)
+              $server_options.fg_ticks = 50000;
+            endtry
+            try
+              add_property($server_options, "bg_ticks", 9000, {player, "r"});
+            except (E_INVARG)
+              $server_options.bg_ticks = 9000;
+            endtry
+            try
+              add_property($server_options, "bg_seconds", 7, {player, "r"});
+            except (E_INVARG)
+              $server_options.bg_seconds = 7;
+            endtry
+            load_server_options();
+            return 1;
+          """);
+
+      List<String> output =
+          harness.line(
+              """
+              ; before_ticks = ticks_left();
+                suspend(0);
+                after_ticks = ticks_left();
+                after_seconds = seconds_left();
+                return {
+                  before_ticks <= 50000 && before_ticks > 49000,
+                  after_ticks <= 9000 && after_ticks > 8500,
+                  after_seconds <= 7 && after_seconds > 4
+                };
+              """);
+
+      assertEquals(
+          List.of(CONNECTION_PREFIX, "{1, {1, 1, 1}}", CONNECTION_SUFFIX), output);
+    }
+  }
+
+  @Test
   void releasesEveryChildRevisionAfterCommitConflictAndFailure() throws Exception {
     RecordingListener listener = new RecordingListener();
     try (Harness harness = Harness.open(2, listener)) {

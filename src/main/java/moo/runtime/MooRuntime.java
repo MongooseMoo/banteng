@@ -1456,13 +1456,8 @@ public final class MooRuntime {
         backgroundMaxStackDepth = Math.max(DEFAULT_MAX_STACK_DEPTH, depth.value());
       }
     }
-    return new VmState(
-        initial.initialLocals(),
-        initial.initialProgrammer(),
-        initial.initialVerbLocation(),
-        backgroundTicks,
-        backgroundSeconds,
-        backgroundMaxStackDepth);
+    return VmState.restoreBackground(
+        initial, backgroundTicks, backgroundSeconds, backgroundMaxStackDepth);
   }
 
   void publishVmState(VmState task, long taskPlayer) {
