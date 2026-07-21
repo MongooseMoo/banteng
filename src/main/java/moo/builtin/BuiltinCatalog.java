@@ -297,6 +297,15 @@ public final class BuiltinCatalog {
             (a, w, p, t, id, rt, rs, r, cp, c) -> explode(a)));
     entries.add(
         new BuiltinSpec(
+            "reverse",
+            List.of(new CallShape(List.of(ANY), List.of(), Optional.empty())),
+            BuiltinPermissionRule.ANY,
+            BuiltinCostRule.fixed(0),
+            EffectClass.PURE,
+            BuiltinOwner.VM,
+            (a, w, p, t, id, rt, rs, r, cp, c) -> reverse(a)));
+    entries.add(
+        new BuiltinSpec(
             "strsub",
             List.of(new CallShape(List.of(STRING, STRING, STRING), List.of(ANY), Optional.empty())),
             BuiltinPermissionRule.ANY,
@@ -1724,6 +1733,28 @@ public final class BuiltinCatalog {
       }
     }
     return Result.value(new ListValue(pieces));
+  }
+
+  private static Result reverse(List<MooValue> arguments) {
+    MooValue value = arguments.getFirst();
+    if (value instanceof StringValue string) {
+      byte[] bytes = string.bytes();
+      for (int left = 0, right = bytes.length - 1; left < right; left++, right--) {
+        byte exchanged = bytes[left];
+        bytes[left] = bytes[right];
+        bytes[right] = exchanged;
+      }
+      return Result.value(new StringValue(bytes));
+    }
+    if (value instanceof ListValue list) {
+      List<MooValue> elements = list.elements();
+      List<MooValue> reversed = new ArrayList<>(elements.size());
+      for (int index = elements.size() - 1; index >= 0; index--) {
+        reversed.add(elements.get(index));
+      }
+      return Result.value(new ListValue(reversed));
+    }
+    return Result.error(ErrorValue.E_INVARG);
   }
 
   private static Result stringIndex(List<MooValue> arguments, boolean reverse) {

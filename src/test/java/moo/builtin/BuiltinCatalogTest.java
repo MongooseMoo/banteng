@@ -89,6 +89,7 @@ final class BuiltinCatalogTest {
           "raise",
           "read",
           "recycle",
+          "reverse",
           "rindex",
           "run_gc",
           "seconds_left",
@@ -381,6 +382,120 @@ final class BuiltinCatalogTest {
                               new IntegerValue(0)))))),
           functionInfo.value());
     }
+  }
+
+  @Test
+  void reversePreservesToastBytewiseShallowAndUnsupportedValueSemantics() {
+    BuiltinCatalog catalog = new BuiltinCatalog();
+    BuiltinSpec spec = catalog.spec("reverse").orElseThrow();
+    WorldTxn root = world();
+    var committedBefore = root.snapshot();
+
+    try (WorldTxn transaction = root.begin()) {
+      var transactionBefore = transaction.snapshot();
+
+      StringValue raw = new StringValue(new byte[] {0x41, (byte) 0xe9, (byte) 0xff});
+      StringValue rawReversed =
+          (StringValue)
+              invoke(catalog, spec, List.of(raw), transaction, 1).value().orElseThrow();
+      assertArrayEquals(new byte[] {(byte) 0xff, (byte) 0xe9, 0x41}, rawReversed.bytes());
+      assertEquals(
+          Optional.of(string("")),
+          invoke(catalog, spec, List.of(string("")), transaction, 1).value());
+      assertEquals(
+          Optional.of(new StringValue(new byte[] {(byte) 0xe9})),
+          invoke(
+                  catalog,
+                  spec,
+                  List.of(new StringValue(new byte[] {(byte) 0xe9})),
+                  transaction,
+                  1)
+              .value());
+      assertEquals(
+          Optional.of(string("olleh")),
+          invoke(catalog, spec, List.of(string("hello")), transaction, 1).value());
+      assertEquals(
+          Optional.of(string("abcba")),
+          invoke(catalog, spec, List.of(string("abcba")), transaction, 1).value());
+
+      assertEquals(
+          Optional.of(
+              new ListValue(
+                  List.of(new IntegerValue(3), new IntegerValue(2), new IntegerValue(1)))),
+          invoke(
+                  catalog,
+                  spec,
+                  List.of(
+                      new ListValue(
+                          List.of(
+                              new IntegerValue(1),
+                              new IntegerValue(2),
+                              new IntegerValue(3)))),
+                  transaction,
+                  1)
+              .value());
+      assertEquals(
+          Optional.of(new ListValue(List.of())),
+          invoke(catalog, spec, List.of(new ListValue(List.of())), transaction, 1).value());
+      assertEquals(
+          Optional.of(new ListValue(List.of(new IntegerValue(42)))),
+          invoke(
+                  catalog,
+                  spec,
+                  List.of(new ListValue(List.of(new IntegerValue(42)))),
+                  transaction,
+                  1)
+              .value());
+
+      ListValue nested = new ListValue(List.of(new IntegerValue(2), new IntegerValue(3)));
+      ListValue mixed =
+          new ListValue(
+              List.of(string("a"), new IntegerValue(1), new ObjectValue(0), nested));
+      ListValue mixedReversed =
+          (ListValue)
+              invoke(catalog, spec, List.of(mixed), transaction, 1).value().orElseThrow();
+      assertEquals(
+          new ListValue(List.of(nested, new ObjectValue(0), new IntegerValue(1), string("a"))),
+          mixedReversed);
+      assertSame(nested, mixedReversed.elements().getFirst());
+
+      for (MooValue unsupported :
+          List.of(
+              new IntegerValue(1),
+              new FloatValue(1.0),
+              new ObjectValue(0),
+              ErrorValue.E_PERM,
+              new MapValue(Map.of()))) {
+        Result result = invoke(catalog, spec, List.of(unsupported), transaction, 1);
+        assertEquals(Optional.of(ErrorValue.E_INVARG), result.error());
+        assertTrue(result.error().filter(ErrorValue.E_TYPE::equals).isEmpty());
+      }
+
+      assertEquals(
+          Optional.of(ErrorValue.E_ARGS), invoke(catalog, spec, List.of(), transaction, 1).error());
+      assertEquals(
+          Optional.of(ErrorValue.E_ARGS),
+          invoke(catalog, spec, List.of(string("a"), string("b")), transaction, 1).error());
+
+      assertEquals(
+          Optional.of(
+              new ListValue(
+                  List.of(
+                      string("reverse"),
+                      new IntegerValue(1),
+                      new IntegerValue(1),
+                      new ListValue(List.of(new IntegerValue(-1)))))),
+          invoke(
+                  catalog,
+                  catalog.spec("function_info").orElseThrow(),
+                  List.of(string("reverse")),
+                  transaction,
+                  1)
+              .value());
+
+      assertEquals(transactionBefore, transaction.snapshot());
+    }
+    assertEquals(committedBefore, root.snapshot());
   }
 
   @Test
@@ -2551,6 +2666,8 @@ final class BuiltinCatalogTest {
       assertPureVmContract(
           catalog, name, new CallShape(List.of(list, any), List.of(), Optional.empty()));
     }
+    assertPureVmContract(
+        catalog, "reverse", new CallShape(List.of(any), List.of(), Optional.empty()));
   }
 
   @Test
