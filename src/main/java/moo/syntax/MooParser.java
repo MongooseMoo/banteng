@@ -181,10 +181,15 @@ public final class MooParser {
 
   private Ast.Fork parseFork() {
     advance();
+    Optional<String> taskIdVariable = Optional.empty();
+    if (current.kind() == TokenKind.IDENTIFIER) {
+      taskIdVariable = Optional.of(current.lexeme());
+      advance();
+    }
     Ast.Expression delay = parseParenthesizedExpression("fork");
     List<Ast.Statement> body = parseStatementsUntil(TokenKind.ENDFORK);
     expectAndAdvance(TokenKind.ENDFORK, "endfork");
-    return new Ast.Fork(delay, body);
+    return new Ast.Fork(taskIdVariable, delay, body);
   }
 
   private Ast.Try parseTry() {

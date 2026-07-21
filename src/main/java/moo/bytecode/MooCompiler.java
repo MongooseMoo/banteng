@@ -167,6 +167,11 @@ public final class MooCompiler {
       }
       forkVectors.add(new BytecodeProgram(childInstructions, childForkVectors));
       instructions.add(new Instruction(Opcode.FORK, vectorIndex));
+      instructions.add(
+          forkStatement
+              .taskIdVariable()
+              .<Instruction>map(variable -> new Instruction(Opcode.STORE_LOCAL, variable))
+              .orElseGet(() -> new Instruction(Opcode.POP)));
       return;
     }
     if (statement instanceof Ast.Try tryStatement) {

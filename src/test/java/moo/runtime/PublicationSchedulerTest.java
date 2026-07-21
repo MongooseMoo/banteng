@@ -211,10 +211,15 @@ final class PublicationSchedulerTest {
       TaskRegistry registry = field(harness.scheduler, "taskRegistry", TaskRegistry.class);
 
       CompletableFuture<List<String>> parent =
-          harness.lineAsync("; fork (0) suspend(5); return 99; endfork return 1;");
+          harness.lineAsync(
+              "; fork task_id (5) suspend(5); return 99; endfork "
+                  + "tasks = queued_tasks(); "
+                  + "return length(tasks) > 0 "
+                  + "&& tasks[length(tasks)][1] == task_id;");
       List<String> output = parent.get(3, TimeUnit.SECONDS);
 
       assertTrue(output.stream().noneMatch(line -> line.contains("99")), output.toString());
+      assertTrue(output.contains("{1, 1}"), output.toString());
       assertEquals(1, registry.size());
     }
   }

@@ -20,6 +20,7 @@ import moo.bytecode.BytecodeProgram;
 import moo.bytecode.BytecodeProgram.HandlerSpec;
 import moo.value.MooValue;
 import moo.value.MooValue.ErrorValue;
+import moo.value.MooValue.IntegerValue;
 import moo.value.MooValue.ListValue;
 import moo.value.MooValue.MapValue;
 import moo.value.MooValue.ObjectValue;
@@ -421,12 +422,13 @@ public final class VmState {
     outcome = Outcome.FORKED;
   }
 
-  /** Clears a queued fork boundary so the parent continues before its child runs. */
-  public void continueAfterFork() {
+  /** Clears a published fork boundary and supplies its assigned child task ID. */
+  public void continueAfterFork(IntegerValue taskId) {
     if (outcome != Outcome.FORKED || forkRequest.isEmpty()) {
       throw new IllegalStateException("VM is not at a fork boundary");
     }
     forkRequest = Optional.empty();
+    currentFrame().operandStack.push(taskId);
     outcome = Outcome.RUNNING;
   }
 

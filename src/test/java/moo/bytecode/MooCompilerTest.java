@@ -71,28 +71,29 @@ final class MooCompilerTest {
         """
         0 PUSH_INTEGER 1
         1 FORK 0
-        2 BUILD_LIST 0
-        3 PUSH_INTEGER 1
-        4 LIST_APPEND
-        5 BUILD_LIST 0
-        6 PUSH_INTEGER 2
-        7 LIST_APPEND
+        2 POP
+        3 BUILD_LIST 0
+        4 PUSH_INTEGER 1
+        5 LIST_APPEND
+        6 BUILD_LIST 0
+        7 PUSH_INTEGER 2
         8 LIST_APPEND
-        9 BUILD_LIST 0
+        9 LIST_APPEND
         10 BUILD_LIST 0
-        11 PUSH_INTEGER 0
-        12 LIST_APPEND
+        11 BUILD_LIST 0
+        12 PUSH_INTEGER 0
         13 LIST_APPEND
-        14 BUILD_LIST 0
-        15 PUSH_INTEGER 1
-        16 LIST_APPEND
-        17 BUILD_LIST 0
-        18 PUSH_INTEGER 2
-        19 LIST_APPEND
+        14 LIST_APPEND
+        15 BUILD_LIST 0
+        16 PUSH_INTEGER 1
+        17 LIST_APPEND
+        18 BUILD_LIST 0
+        19 PUSH_INTEGER 2
         20 LIST_APPEND
         21 LIST_APPEND
-        22 IN
-        23 RETURN
+        22 LIST_APPEND
+        23 IN
+        24 RETURN
         fork 0:
           0 BUILD_LIST 0
           1 PUSH_INTEGER 1
@@ -106,6 +107,27 @@ final class MooCompilerTest {
           9 POP
           10 PUSH_INTEGER 0
           11 RETURN""",
+        program.disassemble());
+  }
+
+  @Test
+  void lowersNamedForkTaskIdToExistingStoreLocalOpcode() {
+    BytecodeProgram program =
+        new MooCompiler()
+            .compile(
+                MooParser.parse(
+                    "fork task_id (2) return 0; endfork return task_id;"));
+
+    assertEquals(
+        """
+        0 PUSH_INTEGER 2
+        1 FORK 0
+        2 STORE_LOCAL task_id
+        3 LOAD_LOCAL task_id
+        4 RETURN
+        fork 0:
+          0 PUSH_INTEGER 0
+          1 RETURN""",
         program.disassemble());
   }
 

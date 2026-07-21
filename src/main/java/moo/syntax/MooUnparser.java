@@ -136,7 +136,12 @@ public final class MooUnparser {
       }
       if (statement instanceof Ast.Fork forkStatement) {
         line(
-            indentation, "fork (" + expression(forkStatement.delay(), ASSIGNMENT_PRECEDENCE) + ")");
+            indentation,
+            "fork"
+                + forkStatement.taskIdVariable().map(variable -> " " + variable).orElse("")
+                + " ("
+                + expression(forkStatement.delay(), ASSIGNMENT_PRECEDENCE)
+                + ")");
         statements(forkStatement.body(), indentation + 1);
         line(indentation, "endfork");
         return;

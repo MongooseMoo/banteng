@@ -2985,6 +2985,11 @@ final class MooVmTest {
     assertEquals(Map.of("marker", captured), request.locals());
     assertEquals(8, request.programmer());
 
+    state.continueAfterFork(new IntegerValue(41));
+    new MooVm().execute(program, state);
+    assertEquals(VmState.Outcome.RETURNED, state.outcome());
+    assertEquals(new IntegerValue(99), state.returnValue().orElseThrow());
+
     VmState child = new VmState(request.locals(), request.programmer());
     new MooVm().execute(request.program(), child);
     assertEquals(VmState.Outcome.RETURNED, child.outcome());

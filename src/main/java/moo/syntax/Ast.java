@@ -106,8 +106,10 @@ public sealed interface Ast
 
   record Continue(Optional<String> loopVariable) implements Statement {}
 
-  record Fork(Expression delay, List<Statement> body) implements Statement {
+  record Fork(Optional<String> taskIdVariable, Expression delay, List<Statement> body)
+      implements Statement {
     public Fork {
+      Objects.requireNonNull(taskIdVariable, "taskIdVariable");
       body = List.copyOf(body);
     }
   }

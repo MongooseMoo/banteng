@@ -13,6 +13,7 @@ import java.util.HexFormat;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import org.junit.jupiter.api.Test;
 
 final class MooParserTest {
@@ -70,6 +71,7 @@ final class MooParserTest {
             """);
 
     Ast.Fork fork = assertInstanceOf(Ast.Fork.class, program.statements().get(0));
+    assertEquals(Optional.empty(), fork.taskIdVariable());
     assertEquals(new Ast.IntegerLiteral(1), fork.delay());
     assertEquals(
         List.of(
@@ -98,6 +100,17 @@ final class MooParserTest {
                         new Ast.IntegerLiteral(1),
                         new Ast.ListLiteral(List.of(new Ast.IntegerLiteral(2))))))),
         membership.right());
+  }
+
+  @Test
+  void parsesNamedForkTaskIdVariable() {
+    Ast.Program program = MooParser.parse("fork task_id (2) return task_id; endfork");
+
+    Ast.Fork fork = assertInstanceOf(Ast.Fork.class, program.statements().getFirst());
+    assertEquals(Optional.of("task_id"), fork.taskIdVariable());
+    assertEquals(new Ast.IntegerLiteral(2), fork.delay());
+    assertEquals(
+        List.of(new Ast.Return(Optional.of(new Ast.Identifier("task_id")))), fork.body());
   }
 
   @Test

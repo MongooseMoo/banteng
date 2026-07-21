@@ -189,7 +189,12 @@ final class PublicationScheduler implements AutoCloseable {
               ? runtime.startBackgroundTask(snapshot.orElseThrow())
               : VmState.restore(snapshot.orElseThrow());
       if (wakeValue.isPresent()) {
-        state.resume(wakeValue.orElseThrow());
+        MooValue value = wakeValue.orElseThrow();
+        if (state.outcome() == VmState.Outcome.FORKED) {
+          state.continueAfterFork((IntegerValue) value);
+        } else {
+          state.resume(value);
+        }
       }
       startingBackground = false;
       wakeValue = Optional.empty();
@@ -210,8 +215,13 @@ final class PublicationScheduler implements AutoCloseable {
           pendingForks.add(
               new PendingFork(
                   fork.program(), child.snapshot(), taskPlayer, fork.delaySeconds()));
-          state.continueAfterFork();
-          continue;
+          return SegmentResult.boundary(
+              program.orElseThrow(),
+              state.snapshot(),
+              taskPlayer,
+              continuation,
+              Optional.empty(),
+              pendingForks);
         }
         if (state.outcome() == VmState.Outcome.PENDING_BUILTIN) {
           if (!start.irrevocableAuthorized()) {
@@ -298,15 +308,12 @@ final class PublicationScheduler implements AutoCloseable {
         continue;
       }
       SegmentResult result = attempt.result().orElseThrow();
-      List<TimedWork> forkTimers;
       synchronized (this) {
         for (MooRuntime.RuntimeStep spawned : published.spawned()) {
           enqueueSpawned(spawned);
         }
-        forkTimers = enqueuePendingForks(result.pendingForks());
         dispatch();
       }
-      forkTimers.forEach(this::startTimer);
       publishSegmentResultOutsideMonitor(attempt.entry(), result);
     }
   }
@@ -329,7 +336,10 @@ final class PublicationScheduler implements AutoCloseable {
             result.taskPlayer(),
             result.continuation());
     publishVmCompletionOutsideMonitor(
-        boundary, result.snapshot().orElseThrow(), result.hostWake());
+        boundary,
+        result.snapshot().orElseThrow(),
+        result.hostWake(),
+        result.pendingForks());
   }
 
   private PublishedAttempt publishAttempt(Attempt attempt) {
@@ -386,43 +396,59 @@ final class PublicationScheduler implements AutoCloseable {
   private void publishVmCompletionOutsideMonitor(
       Entry entry,
       VmSnapshot snapshot,
-      Optional<CompletableFuture<MooValue>> hostWake) {
+      Optional<CompletableFuture<MooValue>> hostWake,
+      List<PendingFork> pendingForks) {
     switch (snapshot.outcome()) {
       case SUSPENDED -> publishSuspension(entry, snapshot, hostWake);
-      case PENDING_BUILTIN, FORKED, RETURNED, ERRORED, RUNNING ->
+      case FORKED -> {
+        if (pendingForks.size() != 1) {
+          throw new IllegalStateException("fork boundary requires exactly one child");
+        }
+        PendingFork fork = pendingForks.getFirst();
+        Optional<TimedWork> timer;
+        synchronized (this) {
+          long childTaskId = nextTaskId++;
+          VmSnapshot childState = fork.initialState();
+          long scheduledStart =
+              Math.round(System.currentTimeMillis() / 1_000.0 + fork.delaySeconds());
+          taskRegistry.registerFork(
+              childTaskId,
+              scheduledStart,
+              childState.initialProgrammer(),
+              childState.initialVerbLocation(),
+              childState.initialLocals());
+          SuspendedWork child =
+              new SuspendedWork(
+                  childTaskId,
+                  fork.program(),
+                  childState,
+                  fork.taskPlayer(),
+                  Optional.empty(),
+                  true);
+          SuspendedWork parent =
+              new SuspendedWork(
+                  entry.taskId(),
+                  entry.program().orElseThrow(),
+                  snapshot,
+                  entry.taskPlayer(),
+                  entry.continuation(),
+                  false);
+          nextPublicationTicket++;
+          ready.add(parent.wake(nextTicket++, new IntegerValue(childTaskId)));
+          if (fork.delaySeconds() == 0.0) {
+            ready.add(child.ready(nextTicket++));
+            timer = Optional.empty();
+          } else {
+            timer = Optional.of(new TimedWork(child, fork.delaySeconds(), false));
+          }
+          dispatch();
+        }
+        timer.ifPresent(this::startTimer);
+      }
+      case PENDING_BUILTIN, RETURNED, ERRORED, RUNNING ->
           throw new IllegalStateException(
               "worker returned a non-boundary VM outcome: " + snapshot.outcome());
     }
-  }
-
-  private List<TimedWork> enqueuePendingForks(List<PendingFork> pendingForks) {
-    List<TimedWork> timers = new ArrayList<>();
-    for (PendingFork fork : pendingForks) {
-      long childTaskId = nextTaskId++;
-      VmSnapshot childState = fork.initialState();
-      long scheduledStart =
-          Math.round(System.currentTimeMillis() / 1_000.0 + fork.delaySeconds());
-      taskRegistry.registerFork(
-          childTaskId,
-          scheduledStart,
-          childState.initialProgrammer(),
-          childState.initialVerbLocation(),
-          childState.initialLocals());
-      SuspendedWork child =
-          new SuspendedWork(
-              childTaskId,
-              fork.program(),
-              fork.initialState(),
-              fork.taskPlayer(),
-              Optional.empty(),
-              true);
-      if (fork.delaySeconds() == 0.0) {
-        ready.add(child.ready(nextTicket++));
-      } else {
-        timers.add(new TimedWork(child, fork.delaySeconds(), false));
-      }
-    }
-    return List.copyOf(timers);
   }
 
   private void publishSuspension(

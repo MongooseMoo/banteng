@@ -81,6 +81,19 @@ final class MooUnparserTest {
   }
 
   @Test
+  void rendersAndRoundTripsNamedForkTaskIdVariable() {
+    Ast.Program parsed = MooParser.parse("fork task_id(2) return task_id; endfork");
+    String expected =
+        """
+        fork task_id (2)
+          return task_id;
+        endfork""";
+
+    assertEquals(expected, MooUnparser.unparse(parsed));
+    assertEquals(parsed, MooParser.parse(expected));
+  }
+
+  @Test
   void roundTripsEveryCurrentExpressionAndAssignmentTargetVariant() {
     String source =
         """
