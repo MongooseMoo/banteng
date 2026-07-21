@@ -140,6 +140,15 @@ public final class BuiltinCatalog {
             (a, w, p, t, id, rt, rs, r, cp, c) -> maximum(a)));
     entries.add(
         new BuiltinSpec(
+            "abs",
+            List.of(new CallShape(List.of(NUMBER), List.of(), Optional.empty())),
+            BuiltinPermissionRule.ANY,
+            BuiltinCostRule.fixed(0),
+            EffectClass.PURE,
+            BuiltinOwner.VM,
+            (a, w, p, t, id, rt, rs, r, cp, c) -> absoluteValue(a)));
+    entries.add(
+        new BuiltinSpec(
             "random",
             List.of(new CallShape(List.of(), List.of(INTEGER, INTEGER), Optional.empty())),
             BuiltinPermissionRule.ANY,
@@ -1294,6 +1303,14 @@ public final class BuiltinCatalog {
       return Result.value(new FloatValue(maximum));
     }
     return Result.error(ErrorValue.E_TYPE);
+  }
+
+  private static Result absoluteValue(List<MooValue> arguments) {
+    MooValue argument = arguments.getFirst();
+    if (argument instanceof IntegerValue integer) {
+      return Result.value(new IntegerValue(Math.abs(integer.value())));
+    }
+    return Result.value(new FloatValue(Math.abs(((FloatValue) argument).value())));
   }
 
   private Result randomInteger(List<MooValue> arguments) {

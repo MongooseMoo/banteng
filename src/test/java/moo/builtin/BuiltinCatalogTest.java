@@ -36,6 +36,7 @@ import org.junit.jupiter.api.Test;
 final class BuiltinCatalogTest {
   private static final Set<String> REACHABLE_NAMES =
       Set.of(
+          "abs",
           "add_property",
           "add_verb",
           "boot_player",
@@ -1814,6 +1815,25 @@ final class BuiltinCatalogTest {
                   transaction,
                   1)
               .error());
+    }
+  }
+
+  @Test
+  void absPreservesTheNumericTypeAndReturnsItsMagnitude() {
+    BuiltinCatalog catalog = new BuiltinCatalog();
+    assertPureVmContract(
+        catalog,
+        "abs",
+        new CallShape(List.of(Set.of(ArgType.NUMBER)), List.of(), Optional.empty()));
+
+    try (WorldTxn transaction = world().begin()) {
+      BuiltinSpec spec = catalog.spec("abs").orElseThrow();
+      assertEquals(
+          Optional.of(new IntegerValue(7)),
+          invoke(catalog, spec, List.of(new IntegerValue(-7)), transaction, 1).value());
+      assertEquals(
+          Optional.of(new FloatValue(7.5)),
+          invoke(catalog, spec, List.of(new FloatValue(-7.5)), transaction, 1).value());
     }
   }
 
