@@ -505,6 +505,9 @@ Expand the builtin manifest with every task, object, property, verb, listener,
 connection, and server handler invoked by the exact Phase 4 suite paths below.
 Those handlers are Phase 4 vertical slice dependencies; Phase 5 completes only
 the remaining manifest surface.
+Phase 4 also includes v17 round-trip and startup restoration of the delayed
+fork state exercised by `audit_suspended_task_survives_restart` and
+`audit_pending_forked_task_survives_genuine_offline_restart`.
 
 The task CPU limit uses Toast's virtual/process-CPU semantics, not wall time.
 The exact authority is
@@ -635,8 +638,9 @@ world state, and output.
 
 ## Phase 7 - Operational checkpoint and restart
 
-Extend the Phase 2 checkpoint path with queued and suspended task round trips,
-checkpoint-time revision retention, bounded reclamation, and graceful shutdown.
+Extend the Phase 4 delayed-fork checkpoint path with complete queued and
+suspended task round trips, checkpoint-time revision retention, bounded
+reclamation, and graceful shutdown.
 There is no panic-dump feature in this plan.
 
 Add:
