@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.lang.reflect.Field;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.LinkedHashMap;
@@ -14,6 +15,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalDouble;
 import java.util.OptionalLong;
+import java.util.Random;
 import java.util.Set;
 import moo.builtin.BuiltinCatalog.ConnectionOption;
 import moo.builtin.BuiltinCatalog.ConnectionOptionRequest;
@@ -82,6 +84,7 @@ final class BuiltinCatalogTest {
           "property_info",
           "queued_tasks",
           "random",
+          "reseed_random",
           "raise",
           "read",
           "recycle",
@@ -221,6 +224,41 @@ final class BuiltinCatalogTest {
       assertEquals(transactionBefore, transaction.snapshot());
     }
     assertEquals(committedBefore, root.snapshot());
+  }
+
+  @Test
+  void reseedRandomUsesEntropyToMutateTheSharedWizardOnlyGenerator()
+      throws ReflectiveOperationException {
+    BuiltinCatalog catalog = new BuiltinCatalog();
+    BuiltinSpec spec = catalog.spec("reseed_random").orElseThrow();
+
+    assertEquals(
+        List.of(new CallShape(List.of(), List.of(), Optional.empty())), spec.callShapes());
+    assertSame(BuiltinPermissionRule.WIZARD_ONLY, spec.permission());
+    assertEquals(0, spec.tickCost().charge(List.of()));
+    assertEquals(EffectClass.IRREVOCABLE, spec.effect());
+    assertEquals(BuiltinOwner.VM, spec.owner());
+
+    RecordingRandom recordingRandom = new RecordingRandom();
+    recordingRandom.resetSeedCalls();
+    Field randomField = BuiltinCatalog.class.getDeclaredField("random");
+    randomField.setAccessible(true);
+    randomField.set(catalog, recordingRandom);
+
+    try (WorldTxn transaction = world().begin()) {
+      assertEquals(
+          Optional.of(ErrorValue.E_ARGS),
+          invoke(catalog, spec, List.of(new IntegerValue(1)), transaction, 1).error());
+      assertEquals(
+          Optional.of(ErrorValue.E_PERM),
+          invoke(catalog, spec, List.of(), transaction, 2).error());
+      assertEquals(0, recordingRandom.seedCalls());
+
+      assertEquals(
+          Optional.of(new IntegerValue(0)),
+          invoke(catalog, spec, List.of(), transaction, 1).value());
+      assertEquals(1, recordingRandom.seedCalls());
+    }
   }
 
   @Test
@@ -2668,6 +2706,26 @@ final class BuiltinCatalogTest {
     WorldObject programmer =
         new WorldObject(2, "Programmer", 0, 2, -1, -1, List.of(), List.of(), List.of(), List.of());
     return new WorldTxn(List.of(), List.of(wizard, programmer));
+  }
+
+  private static final class RecordingRandom extends Random {
+    private static final long serialVersionUID = 1L;
+
+    private int seedCalls;
+
+    @Override
+    public synchronized void setSeed(long seed) {
+      super.setSeed(seed);
+      seedCalls++;
+    }
+
+    private int seedCalls() {
+      return seedCalls;
+    }
+
+    private void resetSeedCalls() {
+      seedCalls = 0;
+    }
   }
 
   private static final class RecordingListener implements BuiltinCatalog.ListenerControl {

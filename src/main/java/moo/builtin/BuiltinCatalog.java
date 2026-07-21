@@ -3,6 +3,7 @@ package moo.builtin;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.security.SecureRandom;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -175,6 +176,18 @@ public final class BuiltinCatalog {
             EffectClass.IRREVOCABLE,
             BuiltinOwner.VM,
             (a, w, p, t, id, rt, rs, r, cp, c) -> randomInteger(a)));
+    entries.add(
+        new BuiltinSpec(
+            "reseed_random",
+            List.of(new CallShape(List.of(), List.of(), Optional.empty())),
+            BuiltinPermissionRule.WIZARD_ONLY,
+            BuiltinCostRule.fixed(0),
+            EffectClass.IRREVOCABLE,
+            BuiltinOwner.VM,
+            (a, w, p, t, id, rt, rs, r, cp, c) -> {
+              random.setSeed(new SecureRandom().nextLong());
+              return Result.zero();
+            }));
     entries.add(
         new BuiltinSpec(
             "time",
