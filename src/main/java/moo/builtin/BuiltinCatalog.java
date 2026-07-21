@@ -512,6 +512,15 @@ public final class BuiltinCatalog {
             killTask));
     entries.add(
         new BuiltinSpec(
+            "connection_info",
+            List.of(new CallShape(List.of(OBJECT), List.of(), Optional.empty())),
+            BuiltinPermissionRule.ANY,
+            BuiltinCostRule.fixed(0),
+            EffectClass.EXTERNAL_READ,
+            BuiltinOwner.CONNECTION,
+            (a, w, p, t, rt, rs, r, cp, c) -> connectionInfo(a, w, p)));
+    entries.add(
+        new BuiltinSpec(
             "listen",
             List.of(
                 new CallShape(
@@ -682,6 +691,19 @@ public final class BuiltinCatalog {
         arguments.size() == 2 && arguments.get(1).isTruthy()
             ? new IntegerValue(0)
             : new ListValue(List.of()));
+  }
+
+  private static Result connectionInfo(
+      List<MooValue> arguments, WorldTxn world, long programmer) {
+    long target = ((ObjectValue) arguments.getFirst()).value();
+    Optional<MapValue> info = world.connectionInfo(target);
+    if (info.isEmpty()) {
+      return Result.error(ErrorValue.E_INVARG);
+    }
+    if (target != programmer && !BuiltinPermissionRule.WIZARD_ONLY.allows(world, programmer)) {
+      return Result.error(ErrorValue.E_PERM);
+    }
+    return Result.value(info.orElseThrow());
   }
 
   private Result listen(List<MooValue> arguments, WorldTxn world) {

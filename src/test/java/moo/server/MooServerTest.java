@@ -46,6 +46,19 @@ final class MooServerTest {
       writeLine(output, "; return 6 * 7;");
       assertEquals(
           List.of(CONNECTION_PREFIX, "{1, 42}", CONNECTION_SUFFIX), readLines(input, 3));
+      writeLine(
+          output,
+          "; info = connection_info(player); return {info[\"source_ip\"], info[\"source_port\"], info[\"destination_ip\"], info[\"destination_port\"], info[\"protocol\"], info[\"outbound\"], info[\"TLS\"][\"active\"]};");
+      assertEquals(
+          List.of(
+              CONNECTION_PREFIX,
+              "{1, {\"127.0.0.1\", "
+                  + first.port()
+                  + ", \"127.0.0.1\", "
+                  + socket.getLocalPort()
+                  + ", \"IPv4\", 0, 0}}",
+              CONNECTION_SUFFIX),
+          readLines(input, 3));
       writeLine(output, "; return dump_database();");
       assertEquals(
           List.of(CONNECTION_PREFIX, "{1, 0}", CONNECTION_SUFFIX), readLines(input, 3));

@@ -123,6 +123,9 @@ public final class MooServer implements AutoCloseable, ListenerControl {
           encode("protocol"),
           encode(socket.getInetAddress().getAddress().length == 16 ? "IPv6" : "IPv4"));
       connectionInfo.put(encode("outbound"), new IntegerValue(0));
+      connectionInfo.put(
+          encode("TLS"),
+          new MapValue(Map.of(encode("active"), new IntegerValue(0))));
       List<String> initialOutput =
           runtime.openConnection(
               connectionId, listener.handler, listener.printMessages, new MapValue(connectionInfo));

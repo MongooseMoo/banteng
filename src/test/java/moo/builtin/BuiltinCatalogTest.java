@@ -36,6 +36,7 @@ final class BuiltinCatalogTest {
           "add_verb",
           "caller_perms",
           "chr",
+          "connection_info",
           "create",
           "clear_property",
           "decode_binary",
@@ -195,6 +196,48 @@ final class BuiltinCatalogTest {
       assertEquals(
           Optional.of(ErrorValue.E_ARGS),
           invoke(catalog, spec, List.of(), transaction, 1).error());
+    }
+  }
+
+  @Test
+  void connectionInfoReadsTheLiveConnectionWithToastPermissions() {
+    BuiltinCatalog catalog = new BuiltinCatalog();
+    BuiltinSpec spec = catalog.spec("connection_info").orElseThrow();
+    MapValue info =
+        new MapValue(
+            Map.of(
+                string("destination_ip"), string("127.0.0.1"),
+                string("outbound"), new IntegerValue(0)));
+
+    assertEquals(
+        List.of(new CallShape(List.of(Set.of(ArgType.OBJECT)), List.of(), Optional.empty())),
+        spec.callShapes());
+    assertSame(BuiltinPermissionRule.ANY, spec.permission());
+    assertEquals(EffectClass.EXTERNAL_READ, spec.effect());
+    assertEquals(BuiltinOwner.CONNECTION, spec.owner());
+    try (WorldTxn transaction = world().begin()) {
+      transaction.openConnection(-2, info);
+      transaction.switchConnectionPlayer(-2, 2);
+      transaction.openConnection(-3, info);
+      transaction.switchConnectionPlayer(-3, 1);
+
+      assertEquals(
+          Optional.of(info),
+          invoke(catalog, spec, List.of(new ObjectValue(2)), transaction, 2).value());
+      assertEquals(
+          Optional.of(info),
+          invoke(catalog, spec, List.of(new ObjectValue(2)), transaction, 1).value());
+      assertEquals(
+          Optional.of(ErrorValue.E_PERM),
+          invoke(catalog, spec, List.of(new ObjectValue(1)), transaction, 2).error());
+      assertEquals(
+          Optional.of(ErrorValue.E_INVARG),
+          invoke(catalog, spec, List.of(new ObjectValue(99)), transaction, 1).error());
+      assertEquals(
+          Optional.of(ErrorValue.E_TYPE),
+          invoke(catalog, spec, List.of(new IntegerValue(2)), transaction, 1).error());
+      assertEquals(
+          Optional.of(ErrorValue.E_ARGS), invoke(catalog, spec, List.of(), transaction, 1).error());
     }
   }
 
