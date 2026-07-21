@@ -5,12 +5,13 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.Callable;
 import moo.persistence.LambdaMooV17Codec;
+import moo.persistence.LambdaMooV17Codec.Checkpoint;
 import moo.persistence.LambdaMooV4Reader;
 import moo.server.MooServer;
-import moo.world.WorldTxn;
 import org.jspecify.annotations.Nullable;
 import picocli.CommandLine;
 import picocli.CommandLine.Command;
@@ -71,20 +72,22 @@ public final class Banteng implements Callable<Integer> {
       throw new CommandLine.ParameterException(spec.commandLine(), "--checkpoint is required");
     }
 
-    WorldTxn world;
+    Checkpoint loaded;
     try (BufferedReader input =
         Files.newBufferedReader(databasePath, StandardCharsets.ISO_8859_1)) {
       String header = input.readLine();
-      world =
+      loaded =
           switch (Objects.requireNonNullElse(header, "")) {
             case "** LambdaMOO Database, Format Version 4 **" ->
-                new LambdaMooV4Reader().read(databasePath);
+                new Checkpoint(new LambdaMooV4Reader().read(databasePath), List.of());
             case "** LambdaMOO Database, Format Version 17 **" ->
-                new LambdaMooV17Codec().read(databasePath).world();
+                new LambdaMooV17Codec().read(databasePath);
             default -> throw new IOException("unsupported database header: " + header);
           };
     }
-    try (MooServer server = new MooServer(listenAddress, port, world, checkpointPath)) {
+    try (MooServer server =
+        new MooServer(
+            listenAddress, port, loaded.world(), checkpointPath, loaded.tasks())) {
       server.serve();
     }
     return CommandLine.ExitCode.OK;

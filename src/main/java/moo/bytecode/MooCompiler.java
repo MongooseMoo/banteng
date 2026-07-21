@@ -8,6 +8,7 @@ import moo.bytecode.BytecodeProgram.Instruction;
 import moo.bytecode.BytecodeProgram.Opcode;
 import moo.syntax.Ast;
 import moo.syntax.MooParser;
+import moo.syntax.MooUnparser;
 
 /** Lowers the authorized syntax slice directly into executable bytecode. */
 public final class MooCompiler {
@@ -36,7 +37,7 @@ public final class MooCompiler {
       instructions.add(new Instruction(Opcode.PUSH_INTEGER, 0));
       instructions.add(new Instruction(Opcode.RETURN));
     }
-    return new BytecodeProgram(instructions, forkVectors);
+    return new BytecodeProgram(instructions, forkVectors, MooUnparser.unparse(program));
   }
 
   private void compileStatement(
@@ -165,7 +166,11 @@ public final class MooCompiler {
         childInstructions.add(new Instruction(Opcode.PUSH_INTEGER, 0));
         childInstructions.add(new Instruction(Opcode.RETURN));
       }
-      forkVectors.add(new BytecodeProgram(childInstructions, childForkVectors));
+      forkVectors.add(
+          new BytecodeProgram(
+              childInstructions,
+              childForkVectors,
+              MooUnparser.unparse(new Ast.Program(forkStatement.body()))));
       instructions.add(new Instruction(Opcode.FORK, vectorIndex));
       instructions.add(
           forkStatement

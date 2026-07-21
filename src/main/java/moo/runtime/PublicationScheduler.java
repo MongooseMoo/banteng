@@ -15,6 +15,8 @@ import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import jdk.jfr.FlightRecorder;
 import moo.bytecode.BytecodeProgram;
+import moo.bytecode.MooCompiler;
+import moo.persistence.LambdaMooV17Codec.QueuedTask;
 import moo.value.MooValue;
 import moo.value.MooValue.IntegerValue;
 import moo.vm.VmSnapshot;
@@ -33,6 +35,7 @@ final class PublicationScheduler implements AutoCloseable {
   private final Map<Long, Attempt> completed = new TreeMap<>();
   private final Map<Long, CompletableFuture<List<String>>> ingress = new TreeMap<>();
   private final Map<Long, Long> lastInputTasks = new TreeMap<>();
+  private final Map<Long, TimedWork> timedWork = new TreeMap<>();
   private long nextTicket;
   private long nextTaskId;
   private long nextPublicationTicket;
@@ -61,9 +64,19 @@ final class PublicationScheduler implements AutoCloseable {
 
   PublicationScheduler(
       WorldTxn committedWorld, MooRuntime runtime, int workers, TaskRegistry taskRegistry) {
+    this(committedWorld, runtime, workers, taskRegistry, List.of());
+  }
+
+  PublicationScheduler(
+      WorldTxn committedWorld,
+      MooRuntime runtime,
+      int workers,
+      TaskRegistry taskRegistry,
+      List<QueuedTask> restoredTasks) {
     this.committedWorld = Objects.requireNonNull(committedWorld, "committedWorld");
     this.runtime = Objects.requireNonNull(runtime, "runtime");
     this.taskRegistry = Objects.requireNonNull(taskRegistry, "taskRegistry");
+    Objects.requireNonNull(restoredTasks, "restoredTasks");
     if (workers < 1) {
       throw new IllegalArgumentException("workers must be positive");
     }
@@ -77,6 +90,59 @@ final class PublicationScheduler implements AutoCloseable {
             new ArrayBlockingQueue<>(Math.multiplyExact(workers, 4)),
             Thread.ofPlatform().name("moo-vm-", 0).factory(),
             new ThreadPoolExecutor.AbortPolicy());
+    for (QueuedTask restored : restoredTasks) {
+      restoreQueuedTask(restored);
+    }
+  }
+
+  private void restoreQueuedTask(QueuedTask restored) {
+    BytecodeProgram program = new MooCompiler().compile(restored.programSource());
+    VmState state =
+        new VmState(
+            restored.initialLocals(),
+            restored.programmer(),
+            restored.verbLocation(),
+            MooRuntime.DEFAULT_BACKGROUND_TICKS,
+            MooRuntime.DEFAULT_BACKGROUND_SECONDS,
+            MooRuntime.DEFAULT_MAX_STACK_DEPTH);
+    SuspendedWork work =
+        new SuspendedWork(
+            restored.taskId(),
+            program,
+            state.snapshot(),
+            restored.taskPlayer(),
+            Optional.empty(),
+            true);
+    taskRegistry.registerFork(
+        restored.taskId(),
+        restored.scheduledEpochSecond(),
+        restored.programmer(),
+        restored.verbLocation(),
+        restored.initialLocals());
+    nextTaskId = Math.max(nextTaskId, Math.addExact(restored.taskId(), 1));
+    startTimer(new TimedWork(work, restored.scheduledEpochSecond(), false));
+  }
+
+  synchronized List<QueuedTask> queuedTasks() {
+    return timedWork.values().stream()
+        .filter(timed -> !timed.resume())
+        .map(
+            timed -> {
+              SuspendedWork work = timed.work();
+              VmSnapshot snapshot = work.snapshot();
+              if (work.program().source().isEmpty()) {
+                throw new IllegalStateException("queued fork has no durable source");
+              }
+              return new QueuedTask(
+                  work.taskId(),
+                  timed.scheduledEpochSecond(),
+                  work.program().source(),
+                  snapshot.initialLocals(),
+                  snapshot.initialProgrammer(),
+                  snapshot.initialVerbLocation(),
+                  work.taskPlayer());
+            })
+        .toList();
   }
 
   List<String> submit(MooRuntime.RuntimeRequest request) {
@@ -510,7 +576,7 @@ final class PublicationScheduler implements AutoCloseable {
             ready.add(child.ready(nextTicket++));
             timer = Optional.empty();
           } else {
-            timer = Optional.of(new TimedWork(child, fork.delaySeconds(), false));
+            timer = Optional.of(new TimedWork(child, scheduledStart, false));
           }
           dispatch();
         }
@@ -542,7 +608,9 @@ final class PublicationScheduler implements AutoCloseable {
       if (delaySeconds == 0.0) {
         enqueueWake(suspended, new IntegerValue(0));
       } else {
-        startTimer(new TimedWork(suspended, delaySeconds, true));
+        long scheduledStart =
+            Math.round(System.currentTimeMillis() / 1_000.0 + delaySeconds);
+        startTimer(new TimedWork(suspended, scheduledStart, true));
       }
       return;
     }
@@ -560,14 +628,28 @@ final class PublicationScheduler implements AutoCloseable {
   }
 
   private void startTimer(TimedWork timed) {
-    long delayNanos =
-        Math.max(0L, Math.round(timed.delaySeconds() * 1_000_000_000.0));
+    synchronized (this) {
+      if (timedWork.putIfAbsent(timed.work().taskId(), timed) != null) {
+        throw new IllegalStateException("task already has a pending timer");
+      }
+    }
+    long delayMillis =
+        Math.max(
+            0L,
+            Math.subtractExact(
+                Math.multiplyExact(timed.scheduledEpochSecond(), 1_000L),
+                System.currentTimeMillis()));
     Thread.ofVirtual()
         .name("moo-timer-wake-" + timed.work().taskId())
         .start(
             () -> {
               try {
-                TimeUnit.NANOSECONDS.sleep(delayNanos);
+                TimeUnit.MILLISECONDS.sleep(delayMillis);
+                synchronized (this) {
+                  if (!timedWork.remove(timed.work().taskId(), timed)) {
+                    return;
+                  }
+                }
                 if (timed.resume()) {
                   enqueueWake(timed.work(), new IntegerValue(0));
                 } else {
@@ -575,6 +657,9 @@ final class PublicationScheduler implements AutoCloseable {
                 }
               } catch (InterruptedException interrupted) {
                 Thread.currentThread().interrupt();
+                synchronized (this) {
+                  timedWork.remove(timed.work().taskId(), timed);
+                }
                 failWaiting(timed.work(), interrupted);
               }
             });
@@ -930,7 +1015,8 @@ final class PublicationScheduler implements AutoCloseable {
     }
   }
 
-  private record TimedWork(SuspendedWork work, double delaySeconds, boolean resume) {}
+  private record TimedWork(
+      SuspendedWork work, long scheduledEpochSecond, boolean resume) {}
 
   private record RootCompletion(
       Optional<CompletableFuture<List<String>>> future,

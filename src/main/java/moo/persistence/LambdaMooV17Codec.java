@@ -16,6 +16,7 @@ import java.nio.file.StandardOpenOption;
 import java.nio.file.attribute.FileAttribute;
 import java.nio.file.attribute.PosixFilePermissions;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Comparator;
 import java.util.IdentityHashMap;
 import java.util.LinkedHashMap;
@@ -36,7 +37,6 @@ import moo.value.MooValue.MapValue;
 import moo.value.MooValue.ObjectValue;
 import moo.value.MooValue.StringValue;
 import moo.value.MooValue.WaifValue;
-import moo.vm.VmSnapshot;
 import moo.world.WorldObject;
 import moo.world.WorldAnonymousObject;
 import moo.world.WorldProperty;
@@ -50,8 +50,8 @@ import org.jspecify.annotations.Nullable;
 public final class LambdaMooV17Codec {
   private static final String HEADER = "** LambdaMOO Database, Format Version 17 **";
 
-  /** A restored committed world and its durable task snapshots. */
-  public record Checkpoint(WorldTxn world, List<VmSnapshot> tasks) {
+  /** A restored committed world and its durable queued tasks. */
+  public record Checkpoint(WorldTxn world, List<QueuedTask> tasks) {
     /** Takes an immutable snapshot of the restored task list. */
     public Checkpoint {
       Objects.requireNonNull(world, "world");
@@ -59,15 +59,31 @@ public final class LambdaMooV17Codec {
     }
   }
 
+  /** The durable state needed to restart one delayed fork. */
+  public record QueuedTask(
+      long taskId,
+      long scheduledEpochSecond,
+      String programSource,
+      Map<String, MooValue> initialLocals,
+      long programmer,
+      ObjectValue verbLocation,
+      long taskPlayer) {
+    /** Takes immutable copies of task-owned state. */
+    public QueuedTask {
+      Objects.requireNonNull(programSource, "programSource");
+      Objects.requireNonNull(initialLocals, "initialLocals");
+      Objects.requireNonNull(verbLocation, "verbLocation");
+      initialLocals =
+          Collections.unmodifiableMap(new LinkedHashMap<>(initialLocals));
+    }
+  }
+
   /** Writes a byte-stable v17 checkpoint through an atomic same-directory replacement. */
-  public void writeAtomic(Path checkpoint, WorldSnapshot world, List<VmSnapshot> tasks)
+  public void writeAtomic(Path checkpoint, WorldSnapshot world, List<QueuedTask> tasks)
       throws IOException {
     Objects.requireNonNull(checkpoint, "checkpoint");
     Objects.requireNonNull(world, "world");
     Objects.requireNonNull(tasks, "tasks");
-    if (!tasks.isEmpty()) {
-      throw new IOException("Phase 2 v17 checkpoints require an empty durable task list");
-    }
 
     Path target = checkpoint.toAbsolutePath().normalize();
     Path directory = Objects.requireNonNull(target.getParent(), "checkpoint parent directory");
@@ -102,7 +118,7 @@ public final class LambdaMooV17Codec {
               new BufferedWriter(
                   new OutputStreamWriter(
                       Channels.newOutputStream(channel), StandardCharsets.ISO_8859_1))) {
-        write(output, world);
+        write(output, world, tasks);
         output.flush();
         channel.force(true);
       }
@@ -144,7 +160,11 @@ public final class LambdaMooV17Codec {
         pendingFinalization.add(readValue(input, context));
       }
       requireExact(input, "0 clocks", "clocks count");
-      requireExact(input, "0 queued tasks", "queued-task count");
+      int queuedTaskCount = readSectionCount(input, " queued tasks", "queued-task count");
+      List<QueuedTask> tasks = new ArrayList<>(queuedTaskCount);
+      for (int index = 0; index < queuedTaskCount; index++) {
+        tasks.add(readQueuedTask(input, context));
+      }
       requireExact(input, "0 suspended tasks", "suspended-task count");
       requireExact(input, "0 interrupted tasks", "interrupted-task count");
       requireExact(input, "0 active connections with listeners", "active-connection count");
@@ -192,11 +212,12 @@ public final class LambdaMooV17Codec {
           restoreAnonymousObjects(objects, programs, context, permanentSlotCount);
       Map<WaifValue, WorldWaif> waifs = restoreWaifs(restored, context);
       return new Checkpoint(
-          new WorldTxn(players, restored, anonymousObjects, waifs, pendingFinalization), List.of());
+          new WorldTxn(players, restored, anonymousObjects, waifs, pendingFinalization), tasks);
     }
   }
 
-  private static void write(BufferedWriter output, WorldSnapshot world) throws IOException {
+  private static void write(
+      BufferedWriter output, WorldSnapshot world, List<QueuedTask> tasks) throws IOException {
     List<WorldObject> objects =
         world.objects().values().stream()
             .sorted(Comparator.comparingLong(WorldObject::id))
@@ -217,7 +238,10 @@ public final class LambdaMooV17Codec {
       writeValue(output, pending, context);
     }
     line(output, "0 clocks");
-    line(output, "0 queued tasks");
+    line(output, tasks.size() + " queued tasks");
+    for (QueuedTask task : tasks) {
+      writeQueuedTask(output, task, context);
+    }
     line(output, "0 suspended tasks");
     line(output, "0 interrupted tasks");
     line(output, "0 active connections with listeners");
@@ -295,6 +319,166 @@ public final class LambdaMooV17Codec {
         }
         line(output, ".");
       }
+    }
+  }
+
+  private static void writeQueuedTask(
+      BufferedWriter output, QueuedTask task, WriteContext context) throws IOException {
+    line(output, "0 1 " + task.scheduledEpochSecond() + " " + task.taskId());
+    writeValue(output, new IntegerValue(-111), context);
+    MooValue receiver =
+        task.initialLocals().getOrDefault("this", new ObjectValue(-1));
+    writeValue(output, receiver, context);
+    writeValue(output, task.verbLocation(), context);
+    line(output, 1);
+    long receiverObject = receiver instanceof ObjectValue object ? object.value() : -1;
+    line(
+        output,
+        receiverObject
+            + " -7 -8 "
+            + task.taskPlayer()
+            + " -9 "
+            + task.programmer()
+            + " "
+            + task.verbLocation().value()
+            + " -10 1");
+    line(output, "No");
+    line(output, "More");
+    line(output, "Parse");
+    line(output, "Infos");
+    String verb = taskVerb(task.initialLocals());
+    lineString(output, verb, "queued-task verb");
+    lineString(output, verb, "queued-task verb names");
+    line(output, task.initialLocals().size() + " variables");
+    for (Map.Entry<String, MooValue> local : task.initialLocals().entrySet()) {
+      lineString(output, local.getKey(), "queued-task variable name");
+      writeValue(output, local.getValue(), context);
+    }
+    writeProgramSource(output, task.programSource(), "queued-task program");
+  }
+
+  private static QueuedTask readQueuedTask(BufferedReader input, ReadContext context)
+      throws IOException {
+    String header = requiredLine(input, "queued-task header");
+    String[] fields = header.split(" ", -1);
+    if (fields.length != 4 || !fields[0].equals("0")) {
+      throw malformed("invalid queued-task header: " + header);
+    }
+    int firstLine = readParsedInt(fields[1], "queued-task first line");
+    if (firstLine != 1) {
+      throw malformed("unsupported queued-task first line: " + firstLine);
+    }
+    long scheduledEpochSecond = parseLong(fields[2], "queued-task scheduled epoch second");
+    long taskId = parseLong(fields[3], "queued-task id");
+
+    MooValue sentinel = readValue(input, context);
+    if (!sentinel.equals(new IntegerValue(-111))) {
+      throw malformed("invalid queued-task activation sentinel");
+    }
+    MooValue receiver = readValue(input, context);
+    MooValue typedVerbLocation = readValue(input, context);
+    if (!(typedVerbLocation instanceof ObjectValue verbLocation)) {
+      throw malformed("queued-task verb location must be an object reference");
+    }
+    if (readLong(input, "queued-task thread mode") != 1) {
+      throw malformed("unsupported queued-task thread mode");
+    }
+
+    String compatibility = requiredLine(input, "queued-task compatibility fields");
+    String[] compatibilityFields = compatibility.split(" ", -1);
+    if (compatibilityFields.length != 9) {
+      throw malformed("invalid queued-task compatibility fields: " + compatibility);
+    }
+    long receiverObject = parseLong(compatibilityFields[0], "queued-task receiver");
+    if (!compatibilityFields[1].equals("-7")
+        || !compatibilityFields[2].equals("-8")
+        || !compatibilityFields[4].equals("-9")
+        || !compatibilityFields[7].equals("-10")
+        || !compatibilityFields[8].equals("1")) {
+      throw malformed("invalid queued-task compatibility sentinels: " + compatibility);
+    }
+    long taskPlayer = parseLong(compatibilityFields[3], "queued-task player");
+    long programmer = parseLong(compatibilityFields[5], "queued-task programmer");
+    long oldVerbLocation =
+        parseLong(compatibilityFields[6], "queued-task compatibility verb location");
+    if (oldVerbLocation != verbLocation.value()) {
+      throw malformed("queued-task verb-location encodings disagree");
+    }
+
+    requireExact(input, "No", "queued-task obsolete argstr");
+    requireExact(input, "More", "queued-task obsolete dobjstr");
+    requireExact(input, "Parse", "queued-task obsolete iobjstr");
+    requireExact(input, "Infos", "queued-task obsolete prepstr");
+    String verb = requiredLine(input, "queued-task verb");
+    String verbNames = requiredLine(input, "queued-task verb names");
+    if (!verbNames.equals(verb)) {
+      throw malformed("unsupported queued-task verb aliases: " + verbNames);
+    }
+
+    int variableCount = readSectionCount(input, " variables", "queued-task variable count");
+    Map<String, MooValue> locals = new LinkedHashMap<>();
+    for (int index = 0; index < variableCount; index++) {
+      String name = requiredLine(input, "queued-task variable name");
+      if (locals.putIfAbsent(name, readValue(input, context)) != null) {
+        throw malformed("duplicate queued-task variable: " + name);
+      }
+    }
+    MooValue localReceiver = locals.get("this");
+    if (receiver instanceof ObjectValue object
+        && object.value() != receiverObject) {
+      throw malformed("queued-task receiver encodings disagree");
+    }
+    if (localReceiver != null && !localReceiver.equals(receiver)) {
+      throw malformed("queued-task activation and runtime receivers disagree");
+    }
+    if (locals.get("verb") instanceof StringValue localVerb
+        && !latin1(localVerb).equals(verb)) {
+      throw malformed("queued-task activation and runtime verbs disagree");
+    }
+
+    return new QueuedTask(
+        taskId,
+        scheduledEpochSecond,
+        readProgramSource(input, "queued-task program"),
+        locals,
+        programmer,
+        verbLocation,
+        taskPlayer);
+  }
+
+  private static String taskVerb(Map<String, MooValue> locals) {
+    return locals.get("verb") instanceof StringValue verb ? latin1(verb) : "";
+  }
+
+  private static String latin1(StringValue value) {
+    return new String(value.bytes(), StandardCharsets.ISO_8859_1);
+  }
+
+  private static void writeProgramSource(
+      BufferedWriter output, String source, String field) throws IOException {
+    if (source.indexOf('\r') >= 0) {
+      throw new IOException(field + " cannot contain carriage returns");
+    }
+    for (String sourceLine : source.split("\\n", -1)) {
+      if (sourceLine.equals(".")) {
+        throw new IOException(field + " cannot contain a standalone dot line");
+      }
+    }
+    output.write(source);
+    if (!source.isEmpty() && source.charAt(source.length() - 1) != '\n') {
+      output.write('\n');
+    }
+    line(output, ".");
+  }
+
+  private static String readProgramSource(BufferedReader input, String field) throws IOException {
+    StringBuilder source = new StringBuilder();
+    while (true) {
+      String sourceLine = requiredLine(input, field);
+      if (sourceLine.equals(".")) {
+        return source.toString();
+      }
+      source.append(sourceLine).append('\n');
     }
   }
 
@@ -886,6 +1070,15 @@ public final class LambdaMooV17Codec {
     }
     return parseCount(
         line.substring(0, line.length() - suffix.length()), "pending-finalization count");
+  }
+
+  private static int readSectionCount(BufferedReader input, String suffix, String field)
+      throws IOException {
+    String line = requiredLine(input, field);
+    if (!line.endsWith(suffix)) {
+      throw malformed("invalid " + field + ": " + line);
+    }
+    return parseCount(line.substring(0, line.length() - suffix.length()), field);
   }
 
   private static int parseCount(String text, String field) throws IOException {

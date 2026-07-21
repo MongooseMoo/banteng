@@ -21,6 +21,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import moo.builtin.BuiltinCatalog.ListenerControl;
+import moo.persistence.LambdaMooV17Codec;
 import moo.runtime.MooRuntime;
 import moo.value.MooValue;
 import moo.value.MooValue.IntegerValue;
@@ -45,6 +46,17 @@ public final class MooServer implements AutoCloseable, ListenerControl {
 
   /** Binds the configured address and port. Port zero requests an ephemeral test port. */
   public MooServer(String address, int port, WorldTxn world, Path checkpoint) throws IOException {
+    this(address, port, world, checkpoint, List.of());
+  }
+
+  /** Binds the listener and restores delayed fork tasks from the loaded checkpoint. */
+  public MooServer(
+      String address,
+      int port,
+      WorldTxn world,
+      Path checkpoint,
+      List<LambdaMooV17Codec.QueuedTask> restoredTasks)
+      throws IOException {
     listenAddress = InetAddress.getByName(address);
     primaryListener = new ServerSocket();
     primaryListener.bind(new InetSocketAddress(listenAddress, port));
@@ -55,7 +67,8 @@ public final class MooServer implements AutoCloseable, ListenerControl {
         new MooRuntime(
             Objects.requireNonNull(world, "world"),
             this,
-            Objects.requireNonNull(checkpoint, "checkpoint"));
+            Objects.requireNonNull(checkpoint, "checkpoint"),
+            Objects.requireNonNull(restoredTasks, "restoredTasks"));
   }
 
   /** Returns the bound port, including the assigned ephemeral port in tests. */

@@ -1,19 +1,27 @@
 package moo.bytecode;
 
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.OptionalLong;
 
 /** Immutable bytecode for the executable language slice. */
-public record BytecodeProgram(List<Instruction> instructions, List<BytecodeProgram> forkVectors) {
+public record BytecodeProgram(
+    List<Instruction> instructions, List<BytecodeProgram> forkVectors, String source) {
   public BytecodeProgram {
     instructions = List.copyOf(instructions);
     forkVectors = List.copyOf(forkVectors);
+    Objects.requireNonNull(source, "source");
   }
 
-  /** Creates a program with no fork vectors. */
+  /** Creates a manually built program with explicit fork vectors and no source syntax. */
+  public BytecodeProgram(List<Instruction> instructions, List<BytecodeProgram> forkVectors) {
+    this(instructions, forkVectors, "");
+  }
+
+  /** Creates a manually built program with no fork vectors or source syntax. */
   public BytecodeProgram(List<Instruction> instructions) {
-    this(instructions, List.of());
+    this(instructions, List.of(), "");
   }
 
   /** Returns a stable, line-oriented representation of this program. */

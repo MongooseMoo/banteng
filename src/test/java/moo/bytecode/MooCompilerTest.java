@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.nio.file.Path;
+import java.util.List;
 import moo.persistence.LambdaMooV4Reader;
 import moo.syntax.Ast;
 import moo.syntax.MooParser;
@@ -129,6 +130,32 @@ final class MooCompilerTest {
           0 PUSH_INTEGER 0
           1 RETURN""",
         program.disassemble());
+  }
+
+  @Test
+  void preservesCanonicalSourceForNestedForkVectorRecompilation() {
+    BytecodeProgram program =
+        new MooCompiler()
+            .compile(
+                MooParser.parse(
+                    """
+                    fork (1)
+                      fork nested_task (2)
+                        return 7;
+                      endfork
+                    endfork
+                    return 0;
+                    """));
+
+    BytecodeProgram outerFork = program.forkVectors().getFirst();
+    BytecodeProgram nestedFork = outerFork.forkVectors().getFirst();
+
+    assertEquals(
+        outerFork.disassemble(), new MooCompiler().compile(outerFork.source()).disassemble());
+    assertEquals(
+        nestedFork.disassemble(), new MooCompiler().compile(nestedFork.source()).disassemble());
+    assertEquals("", new BytecodeProgram(List.of()).source());
+    assertEquals("", new BytecodeProgram(List.of(), List.of()).source());
   }
 
   @Test

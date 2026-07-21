@@ -84,15 +84,34 @@ public final class MooRuntime {
         world,
         listenerControl,
         Math.max(2, Runtime.getRuntime().availableProcessors()),
-        Optional.of(Objects.requireNonNull(checkpoint, "checkpoint")));
+        Optional.of(Objects.requireNonNull(checkpoint, "checkpoint")),
+        List.of());
+  }
+
+  /** Creates the production runtime and restores delayed fork tasks from one checkpoint. */
+  public MooRuntime(
+      WorldTxn world,
+      ListenerControl listenerControl,
+      Path checkpoint,
+      List<LambdaMooV17Codec.QueuedTask> restoredTasks) {
+    this(
+        world,
+        listenerControl,
+        Math.max(2, Runtime.getRuntime().availableProcessors()),
+        Optional.of(Objects.requireNonNull(checkpoint, "checkpoint")),
+        restoredTasks);
   }
 
   MooRuntime(WorldTxn world, ListenerControl listenerControl, int workers) {
-    this(world, listenerControl, workers, Optional.empty());
+    this(world, listenerControl, workers, Optional.empty(), List.of());
   }
 
   private MooRuntime(
-      WorldTxn world, ListenerControl listenerControl, int workers, Optional<Path> checkpoint) {
+      WorldTxn world,
+      ListenerControl listenerControl,
+      int workers,
+      Optional<Path> checkpoint,
+      List<LambdaMooV17Codec.QueuedTask> restoredTasks) {
     this.listenerControl = Optional.of(Objects.requireNonNull(listenerControl, "listenerControl"));
     this.checkpoint = Objects.requireNonNull(checkpoint, "checkpoint");
     TaskRegistry taskRegistry = new TaskRegistry();
@@ -104,7 +123,11 @@ public final class MooRuntime {
             this::read);
     scheduler =
         new PublicationScheduler(
-            Objects.requireNonNull(world, "world"), this, workers, taskRegistry);
+            Objects.requireNonNull(world, "world"),
+            this,
+            workers,
+            taskRegistry,
+            Objects.requireNonNull(restoredTasks, "restoredTasks"));
   }
 
   /** Runs the database's server_started verb through the production scheduler. */
@@ -2065,7 +2088,7 @@ public final class MooRuntime {
                 () -> new IllegalStateException("dump_database() requires --checkpoint"));
         System.err.println("CHECKPOINTING to " + target);
         try {
-          checkpointCodec.writeAtomic(target, committedWorld, List.of());
+          checkpointCodec.writeAtomic(target, committedWorld, scheduler.queuedTasks());
         } catch (IOException error) {
           throw new UncheckedIOException("checkpoint failed: " + target, error);
         }
