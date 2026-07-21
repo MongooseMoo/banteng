@@ -20,6 +20,7 @@ import moo.builtin.BuiltinCatalog.ConnectionOptionRequest;
 import moo.builtin.BuiltinCatalog.ForcedInputRequest;
 import moo.builtin.BuiltinCatalog.Result;
 import moo.value.MooValue;
+import moo.value.MooValue.BooleanValue;
 import moo.value.MooValue.ErrorValue;
 import moo.value.MooValue.FloatValue;
 import moo.value.MooValue.IntegerValue;
@@ -92,6 +93,7 @@ final class BuiltinCatalogTest {
           "set_verb_code",
           "set_verb_info",
           "setadd",
+          "setremove",
           "server_log",
           "shutdown",
           "strcmp",
@@ -2297,10 +2299,10 @@ final class BuiltinCatalogTest {
         catalog,
         "listset",
         new CallShape(List.of(list, any, integer), List.of(), Optional.empty()));
-    assertPureVmContract(
-        catalog,
-        "setadd",
-        new CallShape(List.of(list, any), List.of(), Optional.empty()));
+    for (String name : List.of("setadd", "setremove")) {
+      assertPureVmContract(
+          catalog, name, new CallShape(List.of(list, any), List.of(), Optional.empty()));
+    }
   }
 
   @Test
@@ -2411,6 +2413,61 @@ final class BuiltinCatalogTest {
                 .error(),
             name);
       }
+    }
+  }
+
+  @Test
+  void setRemoveUsesRecursiveCaseInsensitiveMooEqualityAndRemovesOnlyTheFirstMatch() {
+    BuiltinCatalog catalog = new BuiltinCatalog();
+    BuiltinSpec spec = catalog.spec("setremove").orElseThrow();
+    MapValue first =
+        new MapValue(
+            Map.of(
+                string("Key"),
+                new ListValue(List.of(string("Value"), BooleanValue.TRUE))));
+    MapValue duplicate =
+        new MapValue(
+            Map.of(
+                string("KEY"),
+                new ListValue(List.of(string("VALUE"), new IntegerValue(1)))));
+    MapValue sought =
+        new MapValue(
+            Map.of(
+                string("key"),
+                new ListValue(List.of(string("value"), new IntegerValue(1)))));
+    ListValue source = new ListValue(List.of(first, new IntegerValue(7), duplicate));
+    ListValue absent = new ListValue(List.of(string("present")));
+
+    try (WorldTxn transaction = world().begin()) {
+      assertEquals(
+          Optional.of(new ListValue(List.of(new IntegerValue(7), duplicate))),
+          invoke(catalog, spec, List.of(source, sought), transaction, 1).value());
+      assertSame(
+          absent,
+          invoke(catalog, spec, List.of(absent, string("missing")), transaction, 1)
+              .value()
+              .orElseThrow());
+      assertEquals(
+          Optional.of(ErrorValue.E_ARGS),
+          invoke(catalog, spec, List.of(), transaction, 1).error());
+      assertEquals(
+          Optional.of(ErrorValue.E_ARGS),
+          invoke(
+                  catalog,
+                  spec,
+                  List.of(absent, new IntegerValue(1), new IntegerValue(2)),
+                  transaction,
+                  1)
+              .error());
+      assertEquals(
+          Optional.of(ErrorValue.E_TYPE),
+          invoke(
+                  catalog,
+                  spec,
+                  List.of(new IntegerValue(1), new IntegerValue(1)),
+                  transaction,
+                  1)
+              .error());
     }
   }
 

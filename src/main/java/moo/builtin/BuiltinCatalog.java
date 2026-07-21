@@ -256,6 +256,15 @@ public final class BuiltinCatalog {
             (a, w, p, t, id, rt, rs, r, cp, c) -> setAdd(a)));
     entries.add(
         new BuiltinSpec(
+            "setremove",
+            List.of(new CallShape(List.of(Set.of(ArgType.LIST), ANY), List.of(), Optional.empty())),
+            BuiltinPermissionRule.ANY,
+            BuiltinCostRule.fixed(0),
+            EffectClass.PURE,
+            BuiltinOwner.VM,
+            (a, w, p, t, id, rt, rs, r, cp, c) -> setRemove(a)));
+    entries.add(
+        new BuiltinSpec(
             "strsub",
             List.of(new CallShape(List.of(STRING, STRING, STRING), List.of(ANY), Optional.empty())),
             BuiltinPermissionRule.ANY,
@@ -1489,6 +1498,102 @@ public final class BuiltinCatalog {
     ListValue list = (ListValue) arguments.get(0);
     MooValue value = arguments.get(1);
     return Result.value(list.elements().contains(value) ? list : list.append(value));
+  }
+
+  private static Result setRemove(List<MooValue> arguments) {
+    ListValue list = (ListValue) arguments.get(0);
+    MooValue value = arguments.get(1);
+    for (int index = 0; index < list.size(); index++) {
+      List<MooValue> pendingLeft = new ArrayList<>();
+      List<MooValue> pendingRight = new ArrayList<>();
+      pendingLeft.add(list.elements().get(index));
+      pendingRight.add(value);
+      boolean equal = true;
+      while (!pendingLeft.isEmpty()) {
+        int last = pendingLeft.size() - 1;
+        MooValue left = pendingLeft.remove(last);
+        MooValue right = pendingRight.remove(last);
+        if (left instanceof BooleanValue bool && right instanceof IntegerValue integer) {
+          if (integer.value() != (bool.value() ? 1 : 0)) {
+            equal = false;
+            break;
+          }
+          continue;
+        }
+        if (left instanceof IntegerValue integer && right instanceof BooleanValue bool) {
+          if (integer.value() != (bool.value() ? 1 : 0)) {
+            equal = false;
+            break;
+          }
+          continue;
+        }
+        if (left instanceof ListValue leftList) {
+          if (!(right instanceof ListValue rightList) || leftList.size() != rightList.size()) {
+            equal = false;
+            break;
+          }
+          for (int nested = 0; nested < leftList.size(); nested++) {
+            pendingLeft.add(leftList.elements().get(nested));
+            pendingRight.add(rightList.elements().get(nested));
+          }
+          continue;
+        }
+        if (left instanceof MapValue leftMap) {
+          if (!(right instanceof MapValue rightMap) || leftMap.size() != rightMap.size()) {
+            equal = false;
+            break;
+          }
+          List<Map.Entry<MooValue, MooValue>> rightEntries =
+              new ArrayList<>(rightMap.entries().entrySet());
+          boolean[] matched = new boolean[rightEntries.size()];
+          for (Map.Entry<MooValue, MooValue> leftEntry : leftMap.entries().entrySet()) {
+            int matching = -1;
+            for (int candidate = 0; candidate < rightEntries.size(); candidate++) {
+              if (matched[candidate]) {
+                continue;
+              }
+              MooValue leftKey = leftEntry.getKey();
+              MooValue rightKey = rightEntries.get(candidate).getKey();
+              boolean keysEqual;
+              if (leftKey instanceof BooleanValue bool
+                  && rightKey instanceof IntegerValue integer) {
+                keysEqual = integer.value() == (bool.value() ? 1 : 0);
+              } else if (leftKey instanceof IntegerValue integer
+                  && rightKey instanceof BooleanValue bool) {
+                keysEqual = integer.value() == (bool.value() ? 1 : 0);
+              } else {
+                keysEqual = leftKey.equals(rightKey);
+              }
+              if (keysEqual) {
+                matching = candidate;
+                break;
+              }
+            }
+            if (matching < 0) {
+              equal = false;
+              break;
+            }
+            matched[matching] = true;
+            pendingLeft.add(leftEntry.getValue());
+            pendingRight.add(rightEntries.get(matching).getValue());
+          }
+          if (!equal) {
+            break;
+          }
+          continue;
+        }
+        if (!left.equals(right)) {
+          equal = false;
+          break;
+        }
+      }
+      if (equal) {
+        List<MooValue> remaining = new ArrayList<>(list.elements());
+        remaining.remove(index);
+        return Result.value(new ListValue(remaining));
+      }
+    }
+    return Result.value(list);
   }
 
   private static Result stringSubstitute(List<MooValue> arguments) {
