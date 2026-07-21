@@ -541,18 +541,30 @@ Phase 4 task infrastructure, not Phase 6 concurrency work:
    late value or error wake, complete any waiting ingress request without
    hanging, remove the registry entry, and leave the scheduler able to publish
    later tickets. Normal completion, `E_QUOTA` rejection, cancellation, and
-   scheduler failure are mutually exclusive terminal paths.
+   scheduler failure are mutually exclusive terminal paths. A fork task must
+   replace its existing delayed/ready registry row when it enters host
+   suspension; killing it during the yielding VM segment must prevent host
+   submission. Host-wait `queued_tasks()` rows use Toast's 10-field external
+   row even for `queued_tasks(1)`: `waiting on thread <handle>` in field 2,
+   current-activation programmer, verb location, verb name, source line, and
+   receiver, plus the suspended VM byte size. Before emitting that row, retain
+   a source line on every compiled instruction and define recursive VM-state
+   byte sizing; an instruction pointer, Java identity size, serialized text
+   length, or zero must not substitute for either value.
 6. Register unconditional pinned builtin `all_members` as the first production
    `SUSPENDING_HOST` producer, before `sort`, with contract `ANY, LIST`,
    `BuiltinPermissionRule.ANY`, fixed zero cost, `EffectClass.SUSPENDING_HOST`,
    and `BuiltinOwner.VM`. Enabled thread mode must suspend and resume through
    the production host path; disabled mode runs the same callback synchronously.
-7. Extend existing `VmSnapshotTest`, `MooVmTest`, `PublicationSchedulerTest`,
-   `QueuedTaskV17CodecTest`, and `BuiltinCatalogTest` to prove thread-mode
-   round-trip, caller/callee and task mode isolation, value resume,
-   catchable-MOO-error resume, `E_QUOTA` rejection, host-wait cancellation with
-   no late wake or ingress hang, `all_members` threaded/synchronous execution,
-   and absence of an alternate scheduler or executor.
+7. Extend existing `MooCompilerTest`, `VmSnapshotTest`, `MooVmTest`,
+   `TaskRegistryTest`, `PublicationSchedulerTest`, `QueuedTaskV17CodecTest`, and
+   `BuiltinCatalogTest` to prove instruction source-line retention, recursive
+   VM-state byte sizing, thread-mode round-trip, caller/callee and task mode
+   isolation, value resume, catchable-MOO-error resume, `E_QUOTA` rejection,
+   fork-to-host transition, exact external host-wait rows, host-wait
+   cancellation with no late wake or ingress hang, `all_members`
+   threaded/synchronous execution, and absence of an alternate scheduler or
+   executor.
 
 Do not add `background_test`. It is guarded by `#ifdef BACKGROUND_TEST` in both
 pinned Toast sources, neither pinned configuration defines that macro, and its
@@ -598,8 +610,10 @@ scripts/run_managed_wsl.sh banteng stock \
   src/moo_conformance/_tests/builtins/all_members_call_shapes.yaml \
   src/moo_conformance/_tests/generated_builtins/all_members.yaml
 JAVA_HOME=/opt/java/25 ./gradlew test \
+  --tests moo.bytecode.MooCompilerTest \
   --tests moo.vm.VmSnapshotTest \
   --tests moo.vm.MooVmTest \
+  --tests moo.runtime.TaskRegistryTest \
   --tests moo.runtime.PublicationSchedulerTest \
   --tests moo.persistence.QueuedTaskV17CodecTest \
   --tests moo.builtin.BuiltinCatalogTest
