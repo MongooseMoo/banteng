@@ -121,8 +121,10 @@ Deliverables:
 
 1. Add `scripts/verify_toast_profile_wsl.sh MANIFEST`. For a profile manifest, it must
    verify the WSL source HEAD, executable SHA-256 and executable bit,
-   configuration SHA-256, fixture SHA-256, and support status before launch.
-2. Add the required Toast source path, executable checksum, and canonical
+   source-option, generated-configuration, and target compile-flags SHA-256
+   values, fixture SHA-256, and support status before launch.
+2. Add the required Toast source path, executable checksum, both configuration
+   paths and checksums, target compile-flags path and checksum, and canonical
    fixture path to all three manifests under `profiles/toast/`. The ToastCore
    manifest also records fixture source path `/root/src/toastcore` and fixture
    source commit `1887eacd591d97fdc55d258a76e2167899b1951d`; its preflight verifies
@@ -177,10 +179,11 @@ Deliverables:
    nonempty `test_suites` array.
 10. Add `scripts/test_verify_toast_profile_wsl.sh`. It must prove the verifier
    returns nonzero for a wrong source HEAD, executable checksum, configuration
-   checksum, fixture checksum, and unsupported status, using temporary manifest
-   and fixture copies only. For every failure case, repeat the invocation with
-   valid alternate paths supplied through `TOAST_SOURCE_DIR`,
-   `TOAST_EXECUTABLE`, `TOAST_CONFIG`, `TOAST_FIXTURE`, and
+   checksum, generated-configuration checksum, compile-flags checksum, fixture
+   checksum, and unsupported status, using temporary manifest and fixture copies
+   only. For every failure case, repeat the invocation with valid alternate paths
+   supplied through `TOAST_SOURCE_DIR`, `TOAST_EXECUTABLE`, `TOAST_CONFIG`,
+   `TOAST_GENERATED_CONFIG`, `TOAST_COMPILE_FLAGS`, `TOAST_FIXTURE`, and
    `TOAST_SUPPORT_STATUS=supported`; it must still return nonzero from the
    manifest failure.
 11. Add `scripts/test_managed_runners_wsl.sh`. Using only temporary Git
@@ -630,12 +633,14 @@ independent dispatch-name and effect-class switches, aliases absent from Toast,
 and every placeholder result.
 
 Add `scripts/extract_toast_builtin_names_wsl.sh MANIFEST OUTPUT`. It verifies the
-manifest first, reads only that manifest's pinned Toast source, and writes the
-sorted canonical registered-name set. Commit exact stock and Mongoose name
-fixtures under `src/test/resources/moo/builtin/`. `BuiltinCatalogTest` compares
-the production manifest with those fixtures without accessing an external
-checkout. The separate extraction gate below regenerates temporary files from
-the pinned sources and compares them byte-for-byte with the fixtures.
+manifest first, preprocesses only that manifest's pinned Toast source with its
+pinned source-option and generated-configuration headers and exact target compile
+flags, and writes the sorted canonical registered-name set. Commit exact stock
+and Mongoose name fixtures under `src/test/resources/moo/builtin/`.
+`BuiltinCatalogTest` compares the production manifest with those fixtures without
+accessing an external checkout. The separate extraction gate below regenerates
+temporary files from the pinned sources and compares them byte-for-byte with the
+fixtures.
 
 `BuiltinCatalogTest` proves one-to-one correspondence between manifest entries
 and dispatch implementations, complete contract fields, and complete canonical

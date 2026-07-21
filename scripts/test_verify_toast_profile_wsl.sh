@@ -8,11 +8,14 @@ trap 'rm -rf -- "$tmp"' EXIT
 
 source_dir="$tmp/toast"
 fixture_source_dir="$tmp/fixture-source"
-mkdir -p "$source_dir" "$fixture_source_dir"
+mkdir -p "$source_dir/build-release/CMakeFiles/moo.dir" "$fixture_source_dir"
 
 printf '#!/usr/bin/env bash\nexit 0\n' > "$source_dir/moo"
 chmod +x "$source_dir/moo"
 printf '#define TEST_CONFIG 1\n' > "$source_dir/options.h"
+printf '#define TEST_GENERATED_CONFIG 1\n' > "$source_dir/build-release/config.h"
+printf 'CXX_FLAGS = -O3 -DNDEBUG -std=gnu++14\n' \
+  > "$source_dir/build-release/CMakeFiles/moo.dir/flags.make"
 printf 'fixture\n' > "$fixture_source_dir/Test.db"
 
 git -C "$source_dir" init -q
@@ -26,6 +29,8 @@ source_ref="$(git -C "$source_dir" rev-parse HEAD)"
 fixture_source_ref="$(git -C "$fixture_source_dir" rev-parse HEAD)"
 binary_checksum="$(sha256sum "$source_dir/moo" | cut -d' ' -f1)"
 config_checksum="$(sha256sum "$source_dir/options.h" | cut -d' ' -f1)"
+generated_config_checksum="$(sha256sum "$source_dir/build-release/config.h" | cut -d' ' -f1)"
+compile_flags_checksum="$(sha256sum "$source_dir/build-release/CMakeFiles/moo.dir/flags.make" | cut -d' ' -f1)"
 fixture_checksum="$(sha256sum "$fixture_source_dir/Test.db" | cut -d' ' -f1)"
 base_manifest="$tmp/base.json"
 
@@ -36,6 +41,10 @@ jq -n \
   --arg binary_checksum "$binary_checksum" \
   --arg config_file "$source_dir/options.h" \
   --arg config_checksum "$config_checksum" \
+  --arg generated_config_file "$source_dir/build-release/config.h" \
+  --arg generated_config_checksum "$generated_config_checksum" \
+  --arg compile_flags_file "$source_dir/build-release/CMakeFiles/moo.dir/flags.make" \
+  --arg compile_flags_checksum "$compile_flags_checksum" \
   --arg fixture_path "$fixture_source_dir/Test.db" \
   --arg fixture_checksum "$fixture_checksum" \
   --arg fixture_source_path "$fixture_source_dir" \
@@ -47,6 +56,10 @@ jq -n \
     binary_checksum: $binary_checksum,
     config_file: $config_file,
     config_checksum: $config_checksum,
+    generated_config_file: $generated_config_file,
+    generated_config_checksum: $generated_config_checksum,
+    compile_flags_file: $compile_flags_file,
+    compile_flags_checksum: $compile_flags_checksum,
     fixture_path: $fixture_path,
     database_checksum: $fixture_checksum,
     fixture_source_path: $fixture_source_path,
@@ -67,6 +80,8 @@ expect_failure() {
     TOAST_SOURCE_DIR="$source_dir" \
     TOAST_EXECUTABLE="$source_dir/moo" \
     TOAST_CONFIG="$source_dir/options.h" \
+    TOAST_GENERATED_CONFIG="$source_dir/build-release/config.h" \
+    TOAST_COMPILE_FLAGS="$source_dir/build-release/CMakeFiles/moo.dir/flags.make" \
     TOAST_FIXTURE="$fixture_source_dir/Test.db" \
     TOAST_SUPPORT_STATUS=supported \
     "$verifier" "$manifest" >/dev/null 2>&1; then
@@ -87,6 +102,12 @@ chmod +x "$source_dir/moo"
 
 jq '.config_checksum = "00"' "$base_manifest" > "$tmp/config-checksum.json"
 expect_failure config-checksum "$tmp/config-checksum.json"
+
+jq '.generated_config_checksum = "00"' "$base_manifest" > "$tmp/generated-config-checksum.json"
+expect_failure generated-config-checksum "$tmp/generated-config-checksum.json"
+
+jq '.compile_flags_checksum = "00"' "$base_manifest" > "$tmp/compile-flags-checksum.json"
+expect_failure compile-flags-checksum "$tmp/compile-flags-checksum.json"
 
 jq '.database_checksum = "00"' "$base_manifest" > "$tmp/fixture-checksum.json"
 expect_failure fixture-checksum "$tmp/fixture-checksum.json"

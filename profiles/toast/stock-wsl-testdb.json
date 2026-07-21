@@ -13,6 +13,10 @@
   "database_checksum": "1a3f23ebb549e02ccf5341668425118fcdc935b977096add87bc2a8ef29d408e",
   "config_file": "/root/src/toaststunt/src/include/options.h",
   "config_checksum": "a88a8c6c37b66ca65a08a318988361827f131421edeff25e5b4af83fb3fa8036",
+  "generated_config_file": "/root/src/toaststunt/build-release/config.h",
+  "generated_config_checksum": "fe460a03f467e79293e5855bd604a44b2961921f155f711d256cd9bb65cf37d7",
+  "compile_flags_file": "/root/src/toaststunt/build-release/CMakeFiles/moo.dir/flags.make",
+  "compile_flags_checksum": "5a24a1fefeec72d96fa85ab78ecf2d5e6d4e0181aa759038c0377936fbfe7397",
   "features": {
     "option.OUTBOUND_NETWORK": true,
     "option.PROMOTE_NUMBERS": false,

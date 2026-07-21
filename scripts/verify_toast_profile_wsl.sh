@@ -39,6 +39,10 @@ binary_path="$(read_string binary_path)"
 binary_checksum="$(read_string binary_checksum)"
 config_path="$(read_string config_file)"
 config_checksum="$(read_string config_checksum)"
+generated_config_path="$(read_string generated_config_file)"
+generated_config_checksum="$(read_string generated_config_checksum)"
+compile_flags_path="$(read_string compile_flags_file)"
+compile_flags_checksum="$(read_string compile_flags_checksum)"
 fixture_path="$(read_string fixture_path)"
 fixture_checksum="$(read_string database_checksum)"
 support_status="$(read_string support_status)"
@@ -60,7 +64,12 @@ if [[ ! -x "$binary_path" ]]; then
 fi
 
 verify_checksum "Toast executable" "$binary_path" "$binary_checksum"
-verify_checksum "Toast configuration" "$config_path" "$config_checksum"
+verify_checksum "Toast source options" "$config_path" "$config_checksum"
+verify_checksum \
+  "Toast generated configuration" \
+  "$generated_config_path" \
+  "$generated_config_checksum"
+verify_checksum "Toast target compile flags" "$compile_flags_path" "$compile_flags_checksum"
 verify_checksum "database fixture" "$fixture_path" "$fixture_checksum"
 
 fixture_source_path="$(jq -r '.fixture_source_path // empty' "$manifest")"
