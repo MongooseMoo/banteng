@@ -49,6 +49,7 @@ public final class BuiltinCatalog {
   private final BuiltinHandler killTask;
   private final Optional<ListenerControl> listenerControl;
   private final BuiltinHandler queuedTasks;
+  private final BuiltinHandler read;
   private final Random random;
   private final Map<String, BuiltinSpec> specs;
 
@@ -56,6 +57,7 @@ public final class BuiltinCatalog {
   public BuiltinCatalog() {
     this(
         (a, w, p, t, id, rt, rs, r, cp, c) -> emptyQueuedTasks(a),
+        (a, w, p, t, id, rt, rs, r, cp, c) -> Result.error(ErrorValue.E_INVARG),
         (a, w, p, t, id, rt, rs, r, cp, c) -> Result.error(ErrorValue.E_INVARG));
   }
 
@@ -63,13 +65,16 @@ public final class BuiltinCatalog {
   public BuiltinCatalog(BuiltinHandler queuedTasks) {
     this(
         queuedTasks,
+        (a, w, p, t, id, rt, rs, r, cp, c) -> Result.error(ErrorValue.E_INVARG),
         (a, w, p, t, id, rt, rs, r, cp, c) -> Result.error(ErrorValue.E_INVARG));
   }
 
-  /** Creates a catalog with the production task-registry handlers. */
-  public BuiltinCatalog(BuiltinHandler queuedTasks, BuiltinHandler killTask) {
+  /** Creates a catalog with the production task-registry and input handlers. */
+  public BuiltinCatalog(
+      BuiltinHandler queuedTasks, BuiltinHandler killTask, BuiltinHandler read) {
     this.queuedTasks = Objects.requireNonNull(queuedTasks, "queuedTasks");
     this.killTask = Objects.requireNonNull(killTask, "killTask");
+    this.read = Objects.requireNonNull(read, "read");
     listenerControl = Optional.empty();
     random = new Random();
     manifest = buildManifest();
@@ -81,6 +86,7 @@ public final class BuiltinCatalog {
     this(
         listenerControl,
         (a, w, p, t, id, rt, rs, r, cp, c) -> emptyQueuedTasks(a),
+        (a, w, p, t, id, rt, rs, r, cp, c) -> Result.error(ErrorValue.E_INVARG),
         (a, w, p, t, id, rt, rs, r, cp, c) -> Result.error(ErrorValue.E_INVARG));
   }
 
@@ -89,15 +95,20 @@ public final class BuiltinCatalog {
     this(
         listenerControl,
         queuedTasks,
+        (a, w, p, t, id, rt, rs, r, cp, c) -> Result.error(ErrorValue.E_INVARG),
         (a, w, p, t, id, rt, rs, r, cp, c) -> Result.error(ErrorValue.E_INVARG));
   }
 
-  /** Creates the production catalog with concrete listener and task owners. */
+  /** Creates the production catalog with concrete listener, task, and input owners. */
   public BuiltinCatalog(
-      ListenerControl listenerControl, BuiltinHandler queuedTasks, BuiltinHandler killTask) {
+      ListenerControl listenerControl,
+      BuiltinHandler queuedTasks,
+      BuiltinHandler killTask,
+      BuiltinHandler read) {
     this.listenerControl = Optional.of(Objects.requireNonNull(listenerControl, "listenerControl"));
     this.queuedTasks = Objects.requireNonNull(queuedTasks, "queuedTasks");
     this.killTask = Objects.requireNonNull(killTask, "killTask");
+    this.read = Objects.requireNonNull(read, "read");
     random = new Random();
     manifest = buildManifest();
     specs = indexManifest(manifest);
@@ -578,7 +589,7 @@ public final class BuiltinCatalog {
                   return Result.error(ErrorValue.E_PERM);
                 }
               }
-              return Result.error(ErrorValue.E_INVARG);
+              return read.invoke(a, w, p, t, id, rt, rs, r, cp, c);
             }));
     entries.add(
         new BuiltinSpec(

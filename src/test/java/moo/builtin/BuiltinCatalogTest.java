@@ -195,7 +195,8 @@ final class BuiltinCatalogTest {
     BuiltinCatalog catalog =
         new BuiltinCatalog(
             (a, w, p, t, id, rt, rs, r, cp, c) -> Result.value(new ListValue(List.of())),
-            (a, w, p, t, id, rt, rs, r, cp, c) -> Result.value(new IntegerValue(23)));
+            (a, w, p, t, id, rt, rs, r, cp, c) -> Result.value(new IntegerValue(23)),
+            (a, w, p, t, id, rt, rs, r, cp, c) -> Result.error(ErrorValue.E_INVARG));
     BuiltinSpec spec = catalog.spec("kill_task").orElseThrow();
 
     assertEquals(
@@ -219,7 +220,11 @@ final class BuiltinCatalogTest {
 
   @Test
   void readDeclaresSuspendingConnectionContractAndDeniesAnUnrelatedProgrammer() {
-    BuiltinCatalog catalog = new BuiltinCatalog();
+    BuiltinCatalog catalog =
+        new BuiltinCatalog(
+            (a, w, p, t, id, rt, rs, r, cp, c) -> Result.value(new ListValue(List.of())),
+            (a, w, p, t, id, rt, rs, r, cp, c) -> Result.error(ErrorValue.E_INVARG),
+            (a, w, p, t, id, rt, rs, r, cp, c) -> Result.value(new IntegerValue(0)));
     BuiltinSpec spec = catalog.spec("read").orElseThrow();
 
     assertEquals(
@@ -243,6 +248,15 @@ final class BuiltinCatalogTest {
                   transaction,
                   2)
               .error());
+      assertEquals(
+          Optional.of(new IntegerValue(0)),
+          invoke(
+                  catalog,
+                  spec,
+                  List.of(new ObjectValue(1), new IntegerValue(1)),
+                  transaction,
+                  1)
+              .value());
       assertEquals(
           Optional.of(ErrorValue.E_TYPE),
           invoke(catalog, spec, List.of(new IntegerValue(1)), transaction, 2).error());

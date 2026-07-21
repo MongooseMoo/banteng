@@ -28,6 +28,7 @@ import moo.bytecode.MooCompiler;
 import moo.persistence.LambdaMooV17Codec;
 import moo.value.MooValue;
 import moo.value.MooValue.AnonymousObjectValue;
+import moo.value.MooValue.ErrorValue;
 import moo.value.MooValue.IntegerValue;
 import moo.value.MooValue.ListValue;
 import moo.value.MooValue.MapValue;
@@ -70,7 +71,8 @@ public final class MooRuntime {
     listenerControl = Optional.empty();
     checkpoint = Optional.empty();
     TaskRegistry taskRegistry = new TaskRegistry();
-    builtins = new BuiltinCatalog(taskRegistry::queuedTasks, taskRegistry::killTask);
+    builtins =
+        new BuiltinCatalog(taskRegistry::queuedTasks, taskRegistry::killTask, this::read);
     scheduler =
         new PublicationScheduler(
             Objects.requireNonNull(world, "world"), this, taskRegistry);
@@ -96,7 +98,10 @@ public final class MooRuntime {
     TaskRegistry taskRegistry = new TaskRegistry();
     builtins =
         new BuiltinCatalog(
-            listenerControl, taskRegistry::queuedTasks, taskRegistry::killTask);
+            listenerControl,
+            taskRegistry::queuedTasks,
+            taskRegistry::killTask,
+            this::read);
     scheduler =
         new PublicationScheduler(
             Objects.requireNonNull(world, "world"), this, workers, taskRegistry);
@@ -1555,6 +1560,39 @@ public final class MooRuntime {
         markReachableAnonymous(entry.getValue(), world, reachable, visitedWaifs);
       }
     }
+  }
+
+  private BuiltinCatalog.Result read(
+      List<MooValue> arguments,
+      WorldTxn world,
+      long programmer,
+      MooValue taskLocal,
+      long taskId,
+      long remainingTicks,
+      long remainingSeconds,
+      MooValue receiver,
+      long callerProgrammer,
+      ListValue callers) {
+    if (arguments.size() != 2 || !arguments.get(1).isTruthy()) {
+      return BuiltinCatalog.Result.error(ErrorValue.E_INVARG);
+    }
+    long target = ((ObjectValue) arguments.getFirst()).value();
+    ConnectionState connection = connections().get(target);
+    if (connection == null) {
+      for (Map.Entry<Long, ConnectionState> entry : connections().entrySet()) {
+        if (world.connectionPlayer(entry.getKey()).orElse(Long.MIN_VALUE) == target) {
+          connection = entry.getValue();
+          break;
+        }
+      }
+    }
+    if (connection == null) {
+      return BuiltinCatalog.Result.error(ErrorValue.E_INVARG);
+    }
+    if (connection.pendingInput.isEmpty()) {
+      return BuiltinCatalog.Result.value(new IntegerValue(0));
+    }
+    return BuiltinCatalog.Result.value(encode(connection.pendingInput.removeFirst()));
   }
 
   private void applyConnectionOptionRequests(VmState task) {
