@@ -40,6 +40,7 @@ final class BuiltinCatalogTest {
           "caller_perms",
           "chr",
           "connection_info",
+          "connected_players",
           "create",
           "clear_property",
           "decode_binary",
@@ -247,6 +248,42 @@ final class BuiltinCatalogTest {
           invoke(catalog, spec, List.of(new IntegerValue(2)), transaction, 1).error());
       assertEquals(
           Optional.of(ErrorValue.E_ARGS), invoke(catalog, spec, List.of(), transaction, 1).error());
+    }
+  }
+
+  @Test
+  void connectedPlayersReturnsNewestConnectionsWithOptionalNegativePlayers() {
+    BuiltinCatalog catalog = new BuiltinCatalog();
+    BuiltinSpec spec = catalog.spec("connected_players").orElseThrow();
+
+    assertEquals(
+        List.of(
+            new CallShape(
+                List.of(), List.of(Set.of(ArgType.ANY)), Optional.empty())),
+        spec.callShapes());
+    assertSame(BuiltinPermissionRule.ANY, spec.permission());
+    assertEquals(EffectClass.EXTERNAL_READ, spec.effect());
+    assertEquals(BuiltinOwner.CONNECTION, spec.owner());
+    try (WorldTxn transaction = world().begin()) {
+      transaction.openConnection(-2);
+      transaction.switchConnectionPlayer(-2, 2);
+      transaction.openConnection(-3);
+
+      assertEquals(
+          Optional.of(new ListValue(List.of(new ObjectValue(2)))),
+          invoke(catalog, spec, List.of(), transaction, 2).value());
+      assertEquals(
+          Optional.of(new ListValue(List.of(new ObjectValue(-3), new ObjectValue(2)))),
+          invoke(catalog, spec, List.of(new IntegerValue(1)), transaction, 2).value());
+      assertEquals(
+          Optional.of(ErrorValue.E_ARGS),
+          invoke(
+                  catalog,
+                  spec,
+                  List.of(new IntegerValue(1), new IntegerValue(1)),
+                  transaction,
+                  2)
+              .error());
     }
   }
 

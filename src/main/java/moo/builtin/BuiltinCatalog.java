@@ -565,6 +565,21 @@ public final class BuiltinCatalog {
             killTask));
     entries.add(
         new BuiltinSpec(
+            "connected_players",
+            List.of(new CallShape(List.of(), List.of(ANY), Optional.empty())),
+            BuiltinPermissionRule.ANY,
+            BuiltinCostRule.fixed(0),
+            EffectClass.EXTERNAL_READ,
+            BuiltinOwner.CONNECTION,
+            (a, w, p, t, rt, rs, r, cp, c) ->
+                Result.value(
+                    new ListValue(
+                        w.connectedPlayers(!a.isEmpty() && a.getFirst().isTruthy()).stream()
+                            .map(ObjectValue::new)
+                            .map(MooValue.class::cast)
+                            .toList()))));
+    entries.add(
+        new BuiltinSpec(
             "boot_player",
             List.of(new CallShape(List.of(OBJECT), List.of(), Optional.empty())),
             BuiltinPermissionRule.ANY,
