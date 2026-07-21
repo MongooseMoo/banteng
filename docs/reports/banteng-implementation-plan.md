@@ -538,7 +538,7 @@ Phase 4 task infrastructure, not Phase 6 concurrency work:
    `BuiltinPermissionRule.ANY`, fixed zero cost, `EffectClass.SUSPENDING_HOST`,
    and `BuiltinOwner.VM`. Enabled thread mode must suspend and resume through
    the production host path; disabled mode runs the same callback synchronously.
-6. Extend existing `VmSnapshotTest`, `PublicationSchedulerTest`,
+6. Extend existing `VmSnapshotTest`, `MooVmTest`, `PublicationSchedulerTest`,
    `QueuedTaskV17CodecTest`, and `BuiltinCatalogTest` to prove thread-mode
    round-trip, value resume, catchable-MOO-error resume, `E_QUOTA` rejection,
    task-local mode isolation, `all_members` threaded/synchronous execution, and
@@ -589,6 +589,7 @@ scripts/run_managed_wsl.sh banteng stock \
   src/moo_conformance/_tests/generated_builtins/all_members.yaml
 JAVA_HOME=/opt/java/25 ./gradlew test \
   --tests moo.vm.VmSnapshotTest \
+  --tests moo.vm.MooVmTest \
   --tests moo.runtime.PublicationSchedulerTest \
   --tests moo.persistence.QueuedTaskV17CodecTest \
   --tests moo.builtin.BuiltinCatalogTest
