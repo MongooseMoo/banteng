@@ -62,6 +62,42 @@ final class MooVmTest {
   }
 
   @Test
+  void abortsAtZeroBeforeDispatchingTheCountedInstruction() {
+    BytecodeProgram program = new MooCompiler().compile(MooParser.parse("x = 1; return x;"));
+    VmState state = new VmState(Map.of(), -1, new ObjectValue(-1), 1);
+
+    assertEquals(
+        "0 PUSH_INTEGER 1\n1 DUP\n2 STORE_LOCAL x\n3 POP\n4 LOAD_LOCAL x\n5 RETURN",
+        program.disassemble());
+
+    new MooVm().execute(program, state);
+
+    assertEquals(VmState.Outcome.ABORTED, state.outcome());
+    assertEquals(2, state.instructionPointer());
+    assertEquals(0, state.remainingTicks());
+    assertTrue(state.returnValue().isEmpty());
+    assertEquals(List.of("Task ran out of ticks"), state.output());
+  }
+
+  @Test
+  void tickExhaustionBypassesAnActiveAnyHandler() {
+    BytecodeProgram program =
+        new MooCompiler()
+            .compile(
+                MooParser.parse(
+                    "try i = 0; while (1) i = i + 1; endwhile "
+                        + "except (ANY) return \"caught\"; endtry return \"completed\";"));
+    VmState state = new VmState(Map.of(), -1, new ObjectValue(-1), 3);
+
+    new MooVm().execute(program, state);
+
+    assertEquals(VmState.Outcome.ABORTED, state.outcome());
+    assertEquals(0, state.remainingTicks());
+    assertTrue(state.returnValue().isEmpty());
+    assertEquals(List.of("Task ran out of ticks"), state.output());
+  }
+
+  @Test
   void comparesErrorValuesByTheirNumericCodes() {
     byte[] source = "return E_NONE < E_TYPE;".getBytes(StandardCharsets.ISO_8859_1);
     Ast.Program syntax = MooParser.parse(source);

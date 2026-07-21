@@ -186,13 +186,14 @@ final class PublicationScheduler implements AutoCloseable {
     boolean startingBackground = start.startingBackground();
     Optional<MooValue> wakeValue = start.wakeValue();
     List<PendingFork> pendingForks = new ArrayList<>();
+    boolean aborted = false;
 
     while (true) {
       if (program.isEmpty()) {
         MooRuntime.RuntimeStep step =
             runtime.execute(continuation.orElseThrow(), completedVm);
         if (step.output().isPresent()) {
-          return SegmentResult.returned(step.output().orElseThrow(), pendingForks);
+          return SegmentResult.returned(step.output().orElseThrow(), pendingForks, aborted);
         }
         program = step.program();
         snapshot = step.snapshot();
@@ -226,7 +227,9 @@ final class PublicationScheduler implements AutoCloseable {
                 transaction,
                 runtime.builtins(),
                 start.taskId());
-        runtime.publishVmState(state, taskPlayer);
+        if (state.outcome() != VmState.Outcome.ABORTED) {
+          runtime.publishVmState(state, taskPlayer);
+        }
         if (state.outcome() == VmState.Outcome.FORKED) {
           VmSnapshot.Fork fork = state.snapshot().forkRequest().orElseThrow();
           VmState child =
@@ -261,8 +264,12 @@ final class PublicationScheduler implements AutoCloseable {
         }
 
         VmSnapshot completed = state.snapshot();
+        if (state.outcome() == VmState.Outcome.ABORTED) {
+          aborted = true;
+        }
         if ((state.outcome() == VmState.Outcome.RETURNED
-                || state.outcome() == VmState.Outcome.ERRORED)
+                || state.outcome() == VmState.Outcome.ERRORED
+                || state.outcome() == VmState.Outcome.ABORTED)
             && continuation.isPresent()) {
           completedVm = Optional.of(completed);
           program = Optional.empty();
@@ -270,8 +277,9 @@ final class PublicationScheduler implements AutoCloseable {
           break;
         }
         if (state.outcome() == VmState.Outcome.RETURNED
-            || state.outcome() == VmState.Outcome.ERRORED) {
-          return SegmentResult.returned(completed.output(), pendingForks);
+            || state.outcome() == VmState.Outcome.ERRORED
+            || state.outcome() == VmState.Outcome.ABORTED) {
+          return SegmentResult.returned(completed.output(), pendingForks, aborted);
         }
         if (state.outcome() == VmState.Outcome.SUSPENDED) {
           return SegmentResult.boundary(
@@ -375,6 +383,11 @@ final class PublicationScheduler implements AutoCloseable {
       attempt.transaction().close();
       return PublishedAttempt.failed(attempt.failure().orElseThrow());
     }
+    SegmentResult segment = attempt.result().orElseThrow();
+    if (segment.aborted()) {
+      attempt.transaction().close();
+      return PublishedAttempt.published(List.of());
+    }
     MooRuntime.AttemptContext context = attempt.context().orElseThrow();
     if (!runtime.sessionsAreCurrent(context)) {
       attempt.transaction().close();
@@ -384,7 +397,7 @@ final class PublicationScheduler implements AutoCloseable {
       }
       return PublishedAttempt.retryAttempt();
     }
-    if (attempt.result().orElseThrow().needsIrrevocable()) {
+    if (segment.needsIrrevocable()) {
       WorldTxn.ValidationResult validation = attempt.transaction().validate();
       if (!validation.isValid()) {
         WorldConflictEvent conflict = new WorldConflictEvent();
@@ -473,7 +486,7 @@ final class PublicationScheduler implements AutoCloseable {
         }
         timer.ifPresent(this::startTimer);
       }
-      case PENDING_BUILTIN, RETURNED, ERRORED, RUNNING ->
+      case PENDING_BUILTIN, RETURNED, ERRORED, ABORTED, RUNNING ->
           throw new IllegalStateException(
               "worker returned a non-boundary VM outcome: " + snapshot.outcome());
     }
@@ -767,6 +780,7 @@ final class PublicationScheduler implements AutoCloseable {
       long taskPlayer,
       Optional<MooRuntime.RuntimeContinuation> continuation,
       Optional<CompletableFuture<MooValue>> hostWake,
+      boolean aborted,
       boolean needsIrrevocable,
       List<PendingFork> pendingForks) {
     SegmentResult {
@@ -781,7 +795,8 @@ final class PublicationScheduler implements AutoCloseable {
       }
     }
 
-    static SegmentResult returned(List<String> output, List<PendingFork> pendingForks) {
+    static SegmentResult returned(
+        List<String> output, List<PendingFork> pendingForks, boolean aborted) {
       return new SegmentResult(
           Optional.of(output),
           Optional.empty(),
@@ -789,6 +804,7 @@ final class PublicationScheduler implements AutoCloseable {
           Long.MIN_VALUE,
           Optional.empty(),
           Optional.empty(),
+          aborted,
           false,
           pendingForks);
     }
@@ -808,6 +824,7 @@ final class PublicationScheduler implements AutoCloseable {
           continuation,
           hostWake,
           false,
+          false,
           pendingForks);
     }
 
@@ -819,6 +836,7 @@ final class PublicationScheduler implements AutoCloseable {
           Long.MIN_VALUE,
           Optional.empty(),
           Optional.empty(),
+          false,
           true,
           pendingForks);
     }

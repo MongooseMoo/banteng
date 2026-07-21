@@ -86,6 +86,10 @@ public final class MooVm {
     Frame frame = state.currentFrame();
     if (isCountedInstruction(instruction, frame)) {
       state.decrementRemainingTicks();
+      if (state.remainingTicks() == 0) {
+        state.abortTickExhaustion();
+        return;
+      }
     }
     switch (instruction.opcode()) {
       case PUSH_INTEGER -> {

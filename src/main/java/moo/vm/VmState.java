@@ -206,6 +206,12 @@ public final class VmState {
     remainingTicks--;
   }
 
+  void abortTickExhaustion() {
+    pendingError = Optional.empty();
+    output.add("Task ran out of ticks");
+    outcome = Outcome.ABORTED;
+  }
+
   void ensureRoot(BytecodeProgram program) {
     if (frames.isEmpty()) {
       MooValue receiver = initialLocals.getOrDefault("this", new ObjectValue(-1));
@@ -793,6 +799,7 @@ public final class VmState {
     SUSPENDED,
     PENDING_BUILTIN,
     RETURNED,
-    ERRORED
+    ERRORED,
+    ABORTED
   }
 }

@@ -30,6 +30,7 @@ import moo.builtin.BuiltinCatalog.ListenerControl;
 import moo.persistence.LambdaMooV4Reader;
 import moo.value.MooValue.IntegerValue;
 import moo.value.MooValue.MapValue;
+import moo.value.MooValue.ObjectValue;
 import moo.world.WorldProperty;
 import moo.world.WorldTxn;
 import org.junit.jupiter.api.Test;
@@ -39,6 +40,8 @@ final class PublicationSchedulerTest {
       Path.of("..", "moo-conformance-tests", "src", "moo_conformance", "_db", "Test.db");
   private static final long CONNECTION_ID = -47;
   private static final long SECOND_CONNECTION_ID = -48;
+  private static final String CONNECTION_PREFIX = "-=!-^-!=-";
+  private static final String CONNECTION_SUFFIX = "-=!-v-!=-";
 
   @Test
   void assignsMonotonicallyIncreasingTicketsInReadyOrder() throws Exception {
@@ -169,6 +172,41 @@ final class PublicationSchedulerTest {
   }
 
   @Test
+  void rollsBackTickAbortedMutationAndCompletesWithFramedOutput() throws Exception {
+    try (Harness harness = Harness.open(1, new RecordingListener())) {
+      try (WorldTxn transaction = harness.root.begin()) {
+        ObjectValue serverOptions =
+            (ObjectValue) transaction.readObjectProperty(0, "server_options").orElseThrow();
+        boolean configured =
+            transaction.property(serverOptions.value(), "fg_ticks").isPresent()
+                ? transaction.writeObjectProperty(
+                    serverOptions.value(), "fg_ticks", new IntegerValue(100))
+                : transaction.addProperty(
+                    serverOptions.value(), "fg_ticks", new IntegerValue(100), 0, 3);
+        assertTrue(configured);
+        assertTrue(transaction.commit().isCommitted());
+      }
+      harness.line("PREFIX " + CONNECTION_PREFIX);
+      harness.line("SUFFIX " + CONNECTION_SUFFIX);
+
+      List<String> output =
+          harness.line(
+              "; #0.scheduler_counter = 99; "
+                  + "try i = 0; while (1) i = i + 1; endwhile "
+                  + "except (ANY) return \"caught\"; endtry return \"completed\";");
+
+      assertEquals(
+          List.of(
+              CONNECTION_PREFIX,
+              CONNECTION_PREFIX,
+              "Task ran out of ticks",
+              CONNECTION_SUFFIX),
+          output);
+      assertEquals(0, harness.counter());
+    }
+  }
+
+  @Test
   void releasesEveryChildRevisionAfterCommitConflictAndFailure() throws Exception {
     RecordingListener listener = new RecordingListener();
     try (Harness harness = Harness.open(2, listener)) {
@@ -258,6 +296,18 @@ final class PublicationSchedulerTest {
   }
 
   private static ConflictScenario startConflictScenario(Harness harness) throws IOException {
+    try (WorldTxn transaction = harness.root.begin()) {
+      ObjectValue serverOptions =
+          (ObjectValue) transaction.readObjectProperty(0, "server_options").orElseThrow();
+      boolean configured =
+          transaction.property(serverOptions.value(), "fg_ticks").isPresent()
+              ? transaction.writeObjectProperty(
+                  serverOptions.value(), "fg_ticks", new IntegerValue(20_000_000))
+              : transaction.addProperty(
+                  serverOptions.value(), "fg_ticks", new IntegerValue(20_000_000), 0, 3);
+      assertTrue(configured);
+      assertTrue(transaction.commit().isCommitted());
+    }
     harness.resetCounter();
     Recording events = new Recording();
     events.enable(TaskSegmentEvent.class).withoutThreshold();
