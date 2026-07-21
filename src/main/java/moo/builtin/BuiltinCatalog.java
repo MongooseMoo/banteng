@@ -118,6 +118,16 @@ public final class BuiltinCatalog {
     List<BuiltinSpec> entries = new ArrayList<>();
     entries.add(
         new BuiltinSpec(
+            "value_bytes",
+            List.of(new CallShape(List.of(ANY), List.of(), Optional.empty())),
+            BuiltinPermissionRule.ANY,
+            BuiltinCostRule.fixed(0),
+            EffectClass.TRANSACTION_READ,
+            BuiltinOwner.WORLD,
+            (a, w, p, t, id, rt, rs, r, cp, c) ->
+                Result.value(new IntegerValue(valueBytes(a.getFirst(), w)))));
+    entries.add(
+        new BuiltinSpec(
             "length",
             List.of(
                 new CallShape(
@@ -1296,6 +1306,46 @@ public final class BuiltinCatalog {
       return Result.value(new IntegerValue(map.size()));
     }
     return Result.error(ErrorValue.E_TYPE);
+  }
+
+  private static long valueBytes(MooValue value, WorldTxn world) {
+    return switch (value) {
+      case IntegerValue ignored -> 16;
+      case BooleanValue ignored -> 16;
+      case ObjectValue ignored -> 16;
+      case ErrorValue ignored -> 16;
+      case AnonymousObjectValue ignored -> 16;
+      case FloatValue ignored -> 24;
+      case StringValue string -> 17L + string.length();
+      case ListValue list -> {
+        long bytes = 32;
+        for (MooValue element : list.elements()) {
+          bytes += valueBytes(element, world);
+        }
+        yield bytes;
+      }
+      case MapValue map -> {
+        long bytes = 32;
+        for (Map.Entry<MooValue, MooValue> entry : map.entries().entrySet()) {
+          bytes += 24;
+          bytes += valueBytes(entry.getKey(), world);
+          bytes += valueBytes(entry.getValue(), world);
+        }
+        yield bytes;
+      }
+      case WaifValue waif -> {
+        long bytes = 72;
+        var body = world.waif(waif).orElse(null);
+        if (body != null) {
+          for (WorldProperty property : body.properties()) {
+            if (!property.clear()) {
+              bytes += valueBytes(property.value(), world);
+            }
+          }
+        }
+        yield bytes;
+      }
+    };
   }
 
   private static Result minimum(List<MooValue> arguments) {

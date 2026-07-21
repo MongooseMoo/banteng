@@ -20,6 +20,7 @@ import moo.builtin.BuiltinCatalog.ConnectionOptionRequest;
 import moo.builtin.BuiltinCatalog.ForcedInputRequest;
 import moo.builtin.BuiltinCatalog.Result;
 import moo.value.MooValue;
+import moo.value.MooValue.AnonymousObjectValue;
 import moo.value.MooValue.BooleanValue;
 import moo.value.MooValue.ErrorValue;
 import moo.value.MooValue.FloatValue;
@@ -28,6 +29,7 @@ import moo.value.MooValue.ListValue;
 import moo.value.MooValue.MapValue;
 import moo.value.MooValue.ObjectValue;
 import moo.value.MooValue.StringValue;
+import moo.value.MooValue.WaifValue;
 import moo.world.WorldObject;
 import moo.world.WorldProperty;
 import moo.world.WorldTxn;
@@ -111,6 +113,7 @@ final class BuiltinCatalogTest {
           "tostr",
           "typeof",
           "valid",
+          "value_bytes",
           "verb_args",
           "verb_code",
           "verb_info",
@@ -133,6 +136,91 @@ final class BuiltinCatalogTest {
       assertTrue(spec.tickCost().charge(List.of()) >= 0, spec.name());
       assertSame(spec, catalog.spec(spec.name().toUpperCase(java.util.Locale.ROOT)).orElseThrow());
     }
+  }
+
+  @Test
+  void valueBytesUsesTheExactStock64BitLayoutWithoutMutatingCommittedWorld() {
+    BuiltinCatalog catalog = new BuiltinCatalog();
+    BuiltinSpec spec = catalog.spec("value_bytes").orElseThrow();
+
+    assertEquals(
+        List.of(new CallShape(List.of(Set.of(ArgType.ANY)), List.of(), Optional.empty())),
+        spec.callShapes());
+    assertSame(BuiltinPermissionRule.ANY, spec.permission());
+    assertEquals(0, spec.tickCost().charge(List.of(new IntegerValue(1))));
+    assertEquals(EffectClass.TRANSACTION_READ, spec.effect());
+    assertEquals(BuiltinOwner.WORLD, spec.owner());
+
+    WorldObject wizard =
+        new WorldObject(1, "Wizard", 4, 1, -1, -1, List.of(), List.of(), List.of(), List.of());
+    WorldObject waifClass =
+        new WorldObject(
+            7,
+            "Waif class",
+            0,
+            1,
+            -1,
+            -1,
+            List.of(),
+            List.of(),
+            List.of(),
+            List.of(
+                new WorldProperty(":marker", new IntegerValue(0), 1, 0, false, true),
+                new WorldProperty(":inherited", string("not counted"), 1, 0, false, true)));
+    WorldTxn root = new WorldTxn(List.of(), List.of(wizard, waifClass));
+    WaifValue waif;
+    try (WorldTxn setup = root.begin()) {
+      waif = setup.createWaif(7, 1);
+      assertTrue(setup.writeWaifProperty(waif, "marker", new IntegerValue(42)));
+      assertTrue(setup.commit().isCommitted());
+    }
+
+    var committedBefore = root.snapshot();
+    try (WorldTxn transaction = root.begin()) {
+      var transactionBefore = transaction.snapshot();
+      MapValue map =
+          new MapValue(Map.of(new IntegerValue(1), new FloatValue(1.0)));
+      ListValue list =
+          new ListValue(List.of(new IntegerValue(1), BooleanValue.TRUE, string("x")));
+
+      Map<MooValue, Long> expected = new LinkedHashMap<>();
+      expected.put(new IntegerValue(42), 16L);
+      expected.put(BooleanValue.TRUE, 16L);
+      expected.put(new ObjectValue(7), 16L);
+      expected.put(ErrorValue.E_INVARG, 16L);
+      expected.put(new AnonymousObjectValue(), 16L);
+      expected.put(new FloatValue(1.0), 24L);
+      expected.put(string(""), 17L);
+      expected.put(string("hello"), 22L);
+      expected.put(new ListValue(List.of()), 32L);
+      expected.put(list, 82L);
+      expected.put(new ListValue(List.of(list, list)), 196L);
+      expected.put(new MapValue(Map.of()), 32L);
+      expected.put(map, 96L);
+      expected.put(waif, 88L);
+
+      for (Map.Entry<MooValue, Long> entry : expected.entrySet()) {
+        assertEquals(
+            Optional.of(new IntegerValue(entry.getValue())),
+            invoke(catalog, spec, List.of(entry.getKey()), transaction, 1).value(),
+            entry.getKey().type().name());
+      }
+
+      assertEquals(
+          Optional.of(ErrorValue.E_ARGS),
+          invoke(catalog, spec, List.of(), transaction, 1).error());
+      assertEquals(
+          Optional.of(ErrorValue.E_ARGS),
+          invoke(
+                  catalog,
+                  spec,
+                  List.of(new IntegerValue(1), new IntegerValue(2)),
+                  transaction,
+                  1)
+              .error());
+      assertEquals(transactionBefore, transaction.snapshot());
+    }
+    assertEquals(committedBefore, root.snapshot());
   }
 
   @Test
