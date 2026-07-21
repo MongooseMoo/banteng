@@ -44,6 +44,7 @@ final class BuiltinCatalogTest {
           "abs",
           "add_property",
           "add_verb",
+          "all_members",
           "boot_player",
           "caller_perms",
           "chr",
@@ -96,6 +97,7 @@ final class BuiltinCatalogTest {
           "set_connection_option",
           "set_player_flag",
           "set_task_perms",
+          "set_thread_mode",
           "set_verb_args",
           "set_verb_code",
           "set_verb_info",
@@ -109,6 +111,8 @@ final class BuiltinCatalogTest {
           "switch_player",
           "task_id",
           "task_perms",
+          "thread_pool",
+          "threads",
           "ticks_left",
           "time",
           "tofloat",
@@ -565,7 +569,10 @@ final class BuiltinCatalogTest {
         new BuiltinCatalog(
             (a, w, p, t, id, rt, rs, r, cp, c) -> Result.value(new ListValue(List.of())),
             (a, w, p, t, id, rt, rs, r, cp, c) -> Result.value(new IntegerValue(23)),
-            (a, w, p, t, id, rt, rs, r, cp, c) -> Result.error(ErrorValue.E_INVARG));
+            (a, w, p, t, id, rt, rs, r, cp, c) -> Result.error(ErrorValue.E_INVARG),
+            (a, w, p, t, id, rt, rs, r, cp, c) -> Result.error(ErrorValue.E_INVARG),
+            (a, w, p, t, id, rt, rs, r, cp, c) ->
+                Result.value(new ListValue(List.of())));
     BuiltinSpec spec = catalog.spec("kill_task").orElseThrow();
 
     assertEquals(
@@ -593,7 +600,10 @@ final class BuiltinCatalogTest {
         new BuiltinCatalog(
             (a, w, p, t, id, rt, rs, r, cp, c) -> Result.value(new ListValue(List.of())),
             (a, w, p, t, id, rt, rs, r, cp, c) -> Result.error(ErrorValue.E_INVARG),
-            (a, w, p, t, id, rt, rs, r, cp, c) -> Result.value(new IntegerValue(0)));
+            (a, w, p, t, id, rt, rs, r, cp, c) -> Result.value(new IntegerValue(0)),
+            (a, w, p, t, id, rt, rs, r, cp, c) -> Result.error(ErrorValue.E_INVARG),
+            (a, w, p, t, id, rt, rs, r, cp, c) ->
+                Result.value(new ListValue(List.of())));
     BuiltinSpec spec = catalog.spec("read").orElseThrow();
 
     assertEquals(
@@ -2837,6 +2847,131 @@ final class BuiltinCatalogTest {
   }
 
   @Test
+  void setThreadModeAndAllMembersExposeCanonicalContractsAndExecutionModes() throws Exception {
+    BuiltinCatalog catalog = new BuiltinCatalog();
+    BuiltinSpec setThreadMode = catalog.spec("set_thread_mode").orElseThrow();
+    BuiltinSpec allMembers = catalog.spec("all_members").orElseThrow();
+    ListValue source =
+        new ListValue(List.of(string("A"), new IntegerValue(7), string("a")));
+
+    assertEquals(
+        List.of(new CallShape(List.of(), List.of(Set.of(ArgType.INTEGER)), Optional.empty())),
+        setThreadMode.callShapes());
+    assertSame(BuiltinPermissionRule.ANY, setThreadMode.permission());
+    assertEquals(0, setThreadMode.tickCost().charge(List.of()));
+    assertEquals(EffectClass.DEFERRED_COMMIT, setThreadMode.effect());
+    assertEquals(BuiltinOwner.VM, setThreadMode.owner());
+    assertEquals(
+        List.of(
+            new CallShape(
+                List.of(Set.of(ArgType.ANY), Set.of(ArgType.LIST)),
+                List.of(),
+                Optional.empty())),
+        allMembers.callShapes());
+    assertSame(BuiltinPermissionRule.ANY, allMembers.permission());
+    assertEquals(0, allMembers.tickCost().charge(List.of()));
+    assertEquals(EffectClass.SUSPENDING_HOST, allMembers.effect());
+    assertEquals(BuiltinOwner.VM, allMembers.owner());
+
+    try (WorldTxn transaction = world().begin()) {
+      assertEquals(
+          Optional.of(new IntegerValue(1)),
+          invoke(catalog, setThreadMode, List.of(), transaction, 1, true).value());
+      assertEquals(
+          Optional.of(false),
+          invoke(
+                  catalog,
+                  setThreadMode,
+                  List.of(new IntegerValue(0)),
+                  transaction,
+                  1,
+                  true)
+              .threadMode());
+      assertEquals(
+          Optional.of(ErrorValue.E_TYPE),
+          invoke(catalog, setThreadMode, List.of(string("no")), transaction, 1, true).error());
+
+      Result threaded =
+          invoke(catalog, allMembers, List.of(string("a"), source), transaction, 1, true);
+      assertTrue(threaded.value().isEmpty());
+      assertEquals(
+          Optional.of(new ListValue(List.of(new IntegerValue(1), new IntegerValue(3)))),
+          threaded.hostWork().orElseThrow().call().value());
+      assertEquals(
+          Optional.of(new ListValue(List.of(new IntegerValue(1), new IntegerValue(3)))),
+          invoke(catalog, allMembers, List.of(string("a"), source), transaction, 1, false)
+              .value());
+    }
+  }
+
+  @Test
+  void threadPoolAndThreadsExposePinnedTaskContractsAndValidation() {
+    BuiltinCatalog catalog = new BuiltinCatalog();
+    BuiltinSpec threadPool = catalog.spec("thread_pool").orElseThrow();
+    BuiltinSpec threads = catalog.spec("threads").orElseThrow();
+
+    assertEquals(
+        List.of(
+            new CallShape(
+                List.of(Set.of(ArgType.STRING), Set.of(ArgType.STRING)),
+                List.of(Set.of(ArgType.INTEGER)),
+                Optional.empty())),
+        threadPool.callShapes());
+    assertSame(BuiltinPermissionRule.WIZARD_ONLY, threadPool.permission());
+    assertEquals(0, threadPool.tickCost().charge(List.of()));
+    assertEquals(EffectClass.IRREVOCABLE, threadPool.effect());
+    assertEquals(BuiltinOwner.TASK, threadPool.owner());
+    assertEquals(
+        List.of(new CallShape(List.of(), List.of(), Optional.empty())), threads.callShapes());
+    assertSame(BuiltinPermissionRule.WIZARD_ONLY, threads.permission());
+    assertEquals(0, threads.tickCost().charge(List.of()));
+    assertEquals(EffectClass.IRREVOCABLE, threads.effect());
+    assertEquals(BuiltinOwner.TASK, threads.owner());
+
+    try (WorldTxn transaction = world().begin()) {
+      assertEquals(
+          Optional.of(ErrorValue.E_PERM),
+          invoke(
+                  catalog,
+                  threadPool,
+                  List.of(string("INIT"), string("MAIN"), new IntegerValue(2)),
+                  transaction,
+                  2)
+              .error());
+      assertEquals(
+          Optional.of(ErrorValue.E_INVARG),
+          invoke(
+                  catalog,
+                  threadPool,
+                  List.of(string("INIT"), string("NOPE"), new IntegerValue(1)),
+                  transaction,
+                  1)
+              .error());
+      assertEquals(
+          Optional.of(ErrorValue.E_INVARG),
+          invoke(
+                  catalog,
+                  threadPool,
+                  List.of(string("RESET"), string("MAIN"), new IntegerValue(1)),
+                  transaction,
+                  1)
+              .error());
+      assertEquals(
+          Optional.of(ErrorValue.E_INVARG),
+          invoke(
+                  catalog,
+                  threadPool,
+                  List.of(string("INIT"), string("MAIN"), new IntegerValue(-1)),
+                  transaction,
+                  1)
+              .error());
+      assertEquals(
+          Optional.of(ErrorValue.E_PERM),
+          invoke(catalog, threads, List.of(), transaction, 2).error());
+    }
+  }
+
+  @Test
   void functionInfoDescribesDumpDatabaseFromTheManifest() {
     BuiltinCatalog catalog = new BuiltinCatalog();
     try (WorldTxn transaction = world().begin()) {
@@ -2914,6 +3049,28 @@ final class BuiltinCatalogTest {
         new ObjectValue(programmer),
         programmer,
         new ListValue(List.of()));
+  }
+
+  private static Result invoke(
+      BuiltinCatalog catalog,
+      BuiltinSpec spec,
+      List<MooValue> arguments,
+      WorldTxn world,
+      long programmer,
+      boolean threadMode) {
+    return catalog.invoke(
+        spec,
+        arguments,
+        world,
+        programmer,
+        new MapValue(Map.of()),
+        0,
+        60_000,
+        5,
+        new ObjectValue(programmer),
+        programmer,
+        new ListValue(List.of()),
+        threadMode);
   }
 
   private static void assertPureVmContract(

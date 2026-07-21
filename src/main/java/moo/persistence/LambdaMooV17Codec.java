@@ -67,7 +67,8 @@ public final class LambdaMooV17Codec {
       Map<String, MooValue> initialLocals,
       long programmer,
       ObjectValue verbLocation,
-      long taskPlayer) {
+      long taskPlayer,
+      boolean threadMode) {
     /** Takes immutable copies of task-owned state. */
     public QueuedTask {
       Objects.requireNonNull(programSource, "programSource");
@@ -330,7 +331,7 @@ public final class LambdaMooV17Codec {
         task.initialLocals().getOrDefault("this", new ObjectValue(-1));
     writeValue(output, receiver, context);
     writeValue(output, task.verbLocation(), context);
-    line(output, 1);
+    line(output, task.threadMode() ? 1 : 0);
     long receiverObject = receiver instanceof ObjectValue object ? object.value() : -1;
     line(
         output,
@@ -380,8 +381,9 @@ public final class LambdaMooV17Codec {
     if (!(typedVerbLocation instanceof ObjectValue verbLocation)) {
       throw malformed("queued-task verb location must be an object reference");
     }
-    if (readLong(input, "queued-task thread mode") != 1) {
-      throw malformed("unsupported queued-task thread mode");
+    long encodedThreadMode = readLong(input, "queued-task thread mode");
+    if (encodedThreadMode != 0 && encodedThreadMode != 1) {
+      throw malformed("invalid queued-task thread mode: " + encodedThreadMode);
     }
 
     String compatibility = requiredLine(input, "queued-task compatibility fields");
@@ -443,7 +445,8 @@ public final class LambdaMooV17Codec {
         locals,
         programmer,
         verbLocation,
-        taskPlayer);
+        taskPlayer,
+        encodedThreadMode == 1);
   }
 
   private static String taskVerb(Map<String, MooValue> locals) {

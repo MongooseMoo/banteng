@@ -3,6 +3,7 @@ package moo.bytecode;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.OptionalInt;
 import moo.bytecode.BytecodeProgram.HandlerSpec;
 import moo.bytecode.BytecodeProgram.Instruction;
 import moo.bytecode.BytecodeProgram.Opcode;
@@ -34,13 +35,29 @@ public final class MooCompiler {
       compileStatement(statement, instructions, forkVectors);
     }
     if (program.statements().isEmpty() || !(program.statements().getLast() instanceof Ast.Return)) {
+      int firstImplicitInstruction = instructions.size();
       instructions.add(new Instruction(Opcode.PUSH_INTEGER, 0));
       instructions.add(new Instruction(Opcode.RETURN));
+      assignSourceLine(
+          instructions,
+          firstImplicitInstruction,
+          instructions.size(),
+          instructions.size() == 2
+              ? OptionalInt.of(1)
+              : OptionalInt.of(instructions.get(firstImplicitInstruction - 1).sourceLine()));
     }
     return new BytecodeProgram(instructions, forkVectors, MooUnparser.unparse(program));
   }
 
   private void compileStatement(
+      Ast.Statement statement, List<Instruction> instructions, List<BytecodeProgram> forkVectors) {
+    int firstInstruction = instructions.size();
+    compileStatementBody(statement, instructions, forkVectors);
+    assignSourceLine(
+        instructions, firstInstruction, instructions.size(), statementSourceLine(statement));
+  }
+
+  private void compileStatementBody(
       Ast.Statement statement, List<Instruction> instructions, List<BytecodeProgram> forkVectors) {
     if (statement instanceof Ast.Return returnStatement) {
       if (returnStatement.value().isPresent()) {
@@ -163,8 +180,16 @@ public final class MooCompiler {
       compileStatements(forkStatement.body(), childInstructions, childForkVectors);
       if (forkStatement.body().isEmpty()
           || !(forkStatement.body().getLast() instanceof Ast.Return)) {
+        int firstImplicitInstruction = childInstructions.size();
         childInstructions.add(new Instruction(Opcode.PUSH_INTEGER, 0));
         childInstructions.add(new Instruction(Opcode.RETURN));
+        assignSourceLine(
+            childInstructions,
+            firstImplicitInstruction,
+            childInstructions.size(),
+            childInstructions.size() == 2
+                ? expressionSourceLine(forkStatement.delay())
+                : OptionalInt.of(childInstructions.get(firstImplicitInstruction - 1).sourceLine()));
       }
       forkVectors.add(
           new BytecodeProgram(
@@ -283,6 +308,13 @@ public final class MooCompiler {
   }
 
   private void compileExpression(Ast.Expression expression, List<Instruction> instructions) {
+    int firstInstruction = instructions.size();
+    compileExpressionBody(expression, instructions);
+    assignSourceLine(
+        instructions, firstInstruction, instructions.size(), expressionSourceLine(expression));
+  }
+
+  private void compileExpressionBody(Ast.Expression expression, List<Instruction> instructions) {
     if (expression instanceof Ast.IntegerLiteral integer) {
       instructions.add(new Instruction(Opcode.PUSH_INTEGER, integer.value()));
       return;
@@ -551,6 +583,112 @@ public final class MooCompiler {
                 endTarget)));
   }
 
+  private static OptionalInt statementSourceLine(Ast.Statement statement) {
+    if (statement instanceof Ast.Return returnStatement) {
+      return returnStatement
+          .span()
+          .map(span -> OptionalInt.of(span.line()))
+          .orElseGet(
+              () ->
+                  returnStatement
+                      .value()
+                      .map(MooCompiler::expressionSourceLine)
+                      .orElseGet(OptionalInt::empty));
+    }
+    if (statement instanceof Ast.ExpressionStatement expressionStatement) {
+      return expressionStatement
+          .span()
+          .map(span -> OptionalInt.of(span.line()))
+          .orElseGet(() -> expressionSourceLine(expressionStatement.expression()));
+    }
+    if (statement instanceof Ast.If ifStatement) {
+      return ifStatement
+          .span()
+          .map(span -> OptionalInt.of(span.line()))
+          .orElseGet(() -> expressionSourceLine(ifStatement.condition()));
+    }
+    if (statement instanceof Ast.While whileStatement) {
+      return expressionSourceLine(whileStatement.condition());
+    }
+    if (statement instanceof Ast.For forStatement) {
+      return expressionSourceLine(forStatement.iterable());
+    }
+    if (statement instanceof Ast.Fork forkStatement) {
+      return expressionSourceLine(forkStatement.delay());
+    }
+    if (statement instanceof Ast.Try tryStatement && !tryStatement.body().isEmpty()) {
+      return statementSourceLine(tryStatement.body().getFirst());
+    }
+    return OptionalInt.empty();
+  }
+
+  private static OptionalInt expressionSourceLine(Ast.Expression expression) {
+    Optional<Ast.SourceSpan> span =
+        switch (expression) {
+          case Ast.Identifier value -> value.span();
+          case Ast.IntegerLiteral value -> value.span();
+          case Ast.FloatLiteral value -> value.span();
+          case Ast.StringLiteral value -> value.span();
+          case Ast.ObjectLiteral value -> value.span();
+          case Ast.ErrorLiteral value -> value.span();
+          case Ast.ListLiteral value -> value.span();
+          case Ast.MapLiteral value -> value.span();
+          case Ast.Call value -> value.span();
+          case Ast.VerbCall value -> value.span();
+          case Ast.Assignment value -> value.span();
+          case Ast.IndexAccess value -> value.span();
+          case Ast.RangeAccess value -> value.span();
+          case Ast.FirstIndex value -> value.span();
+          case Ast.LastIndex value -> value.span();
+          case Ast.Unary value -> value.span();
+          case Ast.Binary value -> value.span();
+          case Ast.Ternary value -> value.span();
+          default -> Optional.empty();
+        };
+    if (span.isPresent()) {
+      return OptionalInt.of(span.orElseThrow().line());
+    }
+    if (expression instanceof Ast.Splice splice) {
+      return expressionSourceLine(splice.value());
+    }
+    if (expression instanceof Ast.ScatterElement scatter) {
+      return scatter.defaultValue().map(MooCompiler::expressionSourceLine).orElseGet(OptionalInt::empty);
+    }
+    if (expression instanceof Ast.VerbCall call) {
+      return expressionSourceLine(call.object());
+    }
+    if (expression instanceof Ast.PropertyAccess property) {
+      return expressionSourceLine(property.object());
+    }
+    if (expression instanceof Ast.Unary unary) {
+      return expressionSourceLine(unary.operand());
+    }
+    if (expression instanceof Ast.Catch catchExpression) {
+      return expressionSourceLine(catchExpression.guarded());
+    }
+    return OptionalInt.empty();
+  }
+
+  private static void assignSourceLine(
+      List<Instruction> instructions, int start, int end, OptionalInt sourceLine) {
+    if (sourceLine.isEmpty()) {
+      return;
+    }
+    for (int index = start; index < end; index++) {
+      Instruction instruction = instructions.get(index);
+      if (instruction.sourceLine() == 0) {
+        instructions.set(
+            index,
+            new Instruction(
+                instruction.opcode(),
+                instruction.operand(),
+                instruction.text(),
+                instruction.handler(),
+                sourceLine.orElseThrow()));
+      }
+    }
+  }
+
   private static Opcode binaryOpcode(Ast.BinaryOperator operator) {
     return switch (operator) {
       case ADD -> Opcode.ADD;
@@ -584,9 +722,12 @@ public final class MooCompiler {
       int instructionIndex, int target, List<Instruction> instructions) {
     Instruction previous = instructions.get(instructionIndex);
     Instruction replacement =
-        previous.text().isPresent()
-            ? new Instruction(previous.opcode(), target, previous.text().orElseThrow())
-            : new Instruction(previous.opcode(), target);
+        new Instruction(
+            previous.opcode(),
+            java.util.OptionalLong.of(target),
+            previous.text(),
+            previous.handler(),
+            previous.sourceLine());
     instructions.set(instructionIndex, replacement);
   }
 }

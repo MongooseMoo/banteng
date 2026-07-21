@@ -1172,7 +1172,8 @@ public final class MooVm {
             state.remainingSeconds(),
             frame.receiver,
             state.callerProgrammer(),
-            state.callers());
+            state.callers(),
+            state.threadMode());
     applyBuiltinResult(result, frame, state, world);
   }
 
@@ -1193,7 +1194,8 @@ public final class MooVm {
             request.remainingSeconds(),
             request.receiver(),
             request.callerProgrammer(),
-            request.callers());
+            request.callers(),
+            state.threadMode());
     applyBuiltinResult(result, state.currentFrame(), state, world);
   }
 
@@ -1209,6 +1211,7 @@ public final class MooVm {
       return;
     }
     result.taskLocal().ifPresent(state::setTaskLocal);
+    result.threadMode().ifPresent(state::setThreadMode);
     result.output().ifPresent(state::stageOutput);
     result.connectionOptionRequest().ifPresent(state::stageConnectionOptionRequest);
     result.forcedInputRequest().ifPresent(state::stageForcedInputRequest);
@@ -1222,8 +1225,8 @@ public final class MooVm {
     if (result.programmer().isPresent()) {
       state.setProgrammer(result.programmer().orElseThrow());
     }
-    if (result.delaySeconds().isPresent() || result.hostResult().isPresent()) {
-      state.suspend(result.delaySeconds(), result.hostResult());
+    if (result.delaySeconds().isPresent() || result.hostWork().isPresent()) {
+      state.suspend(result.delaySeconds(), result.hostWork());
       return;
     }
     if (result.dynamicSource().isPresent()) {
@@ -1343,6 +1346,20 @@ public final class MooVm {
       return;
     }
     frame.operandStack.push(result.value().orElseThrow());
+  }
+
+  /** Resumes a suspended builtin by routing its MOO error through this activation's handlers. */
+  public void resumeWithError(VmState state, Result completion, WorldTxn world) {
+    state.resumeError();
+    if (completion.errorDetails().isPresent()) {
+      raiseError(
+          state,
+          completion.error().orElseThrow(),
+          completion.errorDetails().orElseThrow(),
+          world);
+    } else {
+      raiseError(state, completion.error().orElseThrow(), world);
+    }
   }
 
   private static void membership(Frame frame, VmState state, WorldTxn world) {

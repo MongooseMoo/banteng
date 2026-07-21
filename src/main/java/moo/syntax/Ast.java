@@ -342,16 +342,56 @@ public sealed interface Ast
       String name, boolean rest, boolean optional, Optional<Expression> defaultValue)
       implements Expression {}
 
-  record Call(String name, List<Expression> arguments) implements Expression {
+  record Call(String name, List<Expression> arguments, Optional<SourceSpan> span)
+      implements Expression {
     public Call {
       arguments = List.copyOf(arguments);
     }
+
+    public Call(String name, List<Expression> arguments) {
+      this(name, arguments, Optional.empty());
+    }
+
+    @Override
+    public boolean equals(Object other) {
+      return this == other
+          || (other instanceof Call that
+              && name.equals(that.name)
+              && arguments.equals(that.arguments));
+    }
+
+    @Override
+    public int hashCode() {
+      return Objects.hash(name, arguments);
+    }
   }
 
-  record VerbCall(Expression object, Expression name, List<Expression> arguments)
+  record VerbCall(
+      Expression object,
+      Expression name,
+      List<Expression> arguments,
+      Optional<SourceSpan> span)
       implements Expression {
     public VerbCall {
       arguments = List.copyOf(arguments);
+    }
+
+    public VerbCall(Expression object, Expression name, List<Expression> arguments) {
+      this(object, name, arguments, Optional.empty());
+    }
+
+    @Override
+    public boolean equals(Object other) {
+      return this == other
+          || (other instanceof VerbCall that
+              && object.equals(that.object)
+              && name.equals(that.name)
+              && arguments.equals(that.arguments));
+    }
+
+    @Override
+    public int hashCode() {
+      return Objects.hash(object, name, arguments);
     }
   }
 

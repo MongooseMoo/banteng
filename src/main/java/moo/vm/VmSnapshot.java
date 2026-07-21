@@ -1,5 +1,6 @@
 package moo.vm;
 
+import java.nio.charset.StandardCharsets;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -13,10 +14,16 @@ import moo.builtin.CheckpointRequest;
 import moo.bytecode.BytecodeProgram;
 import moo.bytecode.BytecodeProgram.HandlerSpec;
 import moo.value.MooValue;
+import moo.value.MooValue.AnonymousObjectValue;
+import moo.value.MooValue.BooleanValue;
 import moo.value.MooValue.ErrorValue;
+import moo.value.MooValue.FloatValue;
 import moo.value.MooValue.IntegerValue;
 import moo.value.MooValue.ListValue;
+import moo.value.MooValue.MapValue;
 import moo.value.MooValue.ObjectValue;
+import moo.value.MooValue.StringValue;
+import moo.value.MooValue.WaifValue;
 
 /** Value-only durable state for one MOO task at an execution boundary. */
 public record VmSnapshot(
@@ -70,6 +77,237 @@ public record VmSnapshot(
     }
   }
 
+  /**
+   * Returns the deterministic logical byte size of the durable VM payload retained by this
+   * snapshot.
+   *
+   * <p>Fixed-width scalar fields contribute their primitive width. Collections contribute their
+   * element count and every retained occurrence recursively. MOO strings contribute their owned
+   * binary bytes, while Java text fields contribute their UTF-8 bytes. Programs include their
+   * instructions, handlers, source, and fork vectors. This is task billing, so shared values and
+   * programs are counted at each retained occurrence. It is neither a JVM object-layout estimate
+   * nor the length of a rendered or serialized snapshot.
+   */
+  public long byteSize() {
+    long size = stringValueMapSize(initialLocals);
+    size = add(size, Long.BYTES);
+    size = add(size, valueSize(initialVerbLocation));
+    size = add(size, Integer.BYTES);
+    for (Frame frame : frames) {
+      size = add(size, frameSize(frame));
+    }
+    size = add(size, Integer.BYTES);
+    for (String line : output) {
+      size = add(size, textSize(line));
+    }
+    size = add(size, Integer.BYTES);
+    for (ConnectionOptionRequest request : connectionOptionRequests) {
+      size = add(size, Long.BYTES);
+      size = add(size, Byte.BYTES);
+      size = add(size, valueSize(request.value()));
+    }
+    size = add(size, Integer.BYTES);
+    size = add(size, multiply(bootPlayerTargets.size(), Long.BYTES));
+    size = add(size, Integer.BYTES);
+    for (ForcedInputRequest request : forcedInputRequests) {
+      size = add(size, Long.BYTES);
+      size = add(size, textSize(request.line()));
+    }
+    size = add(size, Integer.BYTES);
+    size = add(size, multiply(checkpointRequests.size(), Byte.BYTES));
+    size = add(size, Byte.BYTES);
+    size = add(size, optionalValueSize(returnValue));
+    size = add(size, optionalValueSize(pendingError.map(error -> error)));
+    size = add(size, optionalValueSize(uncaughtError.map(error -> error)));
+    size = add(size, Byte.BYTES);
+    if (switchedPlayer.isPresent()) {
+      size = add(size, Long.BYTES);
+    }
+    size = add(size, Byte.BYTES);
+    if (forkRequest.isPresent()) {
+      size = add(size, forkSize(forkRequest.orElseThrow()));
+    }
+    size = add(size, Byte.BYTES);
+    if (suspensionDelaySeconds.isPresent()) {
+      size = add(size, Double.BYTES);
+    }
+    size = add(size, Byte.BYTES);
+    size = add(size, Byte.BYTES);
+    if (pendingBuiltin.isPresent()) {
+      size = add(size, pendingBuiltinSize(pendingBuiltin.orElseThrow()));
+    }
+    size = add(size, valueSize(taskLocal));
+    size = add(size, multiply(4, Long.BYTES));
+    return size;
+  }
+
+  private static long frameSize(Frame frame) {
+    long size = programSize(frame.program());
+    size = add(size, valueListSize(frame.operandStack()));
+    size = add(size, Integer.BYTES);
+    for (IndexState index : frame.indexCollections()) {
+      size = add(size, valueSize(index.collection()));
+      size = add(size, optionalValueSize(index.key()));
+      size = add(size, Integer.BYTES);
+    }
+    size = add(size, stringValueMapSize(frame.locals()));
+    size = add(size, Integer.BYTES);
+    for (HandlerState handler : frame.handlers()) {
+      size = add(size, handlerSpecSize(handler.specification()));
+      size = add(size, Integer.BYTES);
+      size = add(size, Byte.BYTES);
+    }
+    size = add(size, Integer.BYTES);
+    for (FinallyState state : frame.finallyStates()) {
+      size = add(size, Byte.BYTES);
+      size = add(size, Integer.BYTES);
+      size = add(size, optionalValueSize(state.returnValue()));
+      size = add(size, optionalValueSize(state.error().map(error -> error)));
+    }
+    size = add(size, Integer.BYTES);
+    for (Map.Entry<Integer, LoopState> entry : frame.loops().entrySet()) {
+      size = add(size, Integer.BYTES);
+      size = add(size, loopSize(entry.getValue()));
+    }
+    size = add(size, Byte.BYTES);
+    size = add(size, valueSize(frame.receiver()));
+    size = add(size, valueSize(frame.verbLocation()));
+    size = add(size, optionalLongSize(frame.recycleTarget()));
+    size = add(size, optionalLongSize(frame.moveObject()));
+    size = add(size, optionalLongSize(frame.moveDestination()));
+    size = add(size, Long.BYTES);
+    size = add(size, Byte.BYTES);
+    return add(size, Integer.BYTES);
+  }
+
+  private static long loopSize(LoopState loop) {
+    long size = valueSize(loop.values());
+    size = add(size, Byte.BYTES);
+    if (loop.secondaryValues().isPresent()) {
+      size = add(size, valueSize(loop.secondaryValues().orElseThrow()));
+    }
+    size = add(size, Long.BYTES);
+    return add(size, Byte.BYTES);
+  }
+
+  private static long forkSize(Fork fork) {
+    long size = programSize(fork.program());
+    size = add(size, stringValueMapSize(fork.locals()));
+    size = add(size, Long.BYTES);
+    size = add(size, valueSize(fork.verbLocation()));
+    return add(size, Double.BYTES);
+  }
+
+  private static long pendingBuiltinSize(PendingBuiltin pending) {
+    long size = textSize(pending.name());
+    size = add(size, valueListSize(pending.arguments()));
+    size = add(size, Long.BYTES);
+    size = add(size, valueSize(pending.taskLocal()));
+    size = add(size, multiply(2, Long.BYTES));
+    size = add(size, valueSize(pending.receiver()));
+    size = add(size, Long.BYTES);
+    return add(size, valueSize(pending.callers()));
+  }
+
+  private static long programSize(BytecodeProgram program) {
+    long size = Integer.BYTES;
+    for (BytecodeProgram.Instruction instruction : program.instructions()) {
+      size = add(size, Byte.BYTES);
+      size = add(size, Byte.BYTES);
+      if (instruction.operand().isPresent()) {
+        size = add(size, Long.BYTES);
+      }
+      size = add(size, Byte.BYTES);
+      if (instruction.text().isPresent()) {
+        size = add(size, textSize(instruction.text().orElseThrow()));
+      }
+      size = add(size, Byte.BYTES);
+      if (instruction.handler().isPresent()) {
+        size = add(size, handlerSpecSize(instruction.handler().orElseThrow()));
+      }
+      size = add(size, Integer.BYTES);
+    }
+    size = add(size, Integer.BYTES);
+    for (BytecodeProgram forkVector : program.forkVectors()) {
+      size = add(size, programSize(forkVector));
+    }
+    return add(size, textSize(program.source()));
+  }
+
+  private static long handlerSpecSize(HandlerSpec handler) {
+    long size = multiply(3, Integer.BYTES);
+    size = add(size, Byte.BYTES);
+    if (handler.catchVariable().isPresent()) {
+      size = add(size, textSize(handler.catchVariable().orElseThrow()));
+    }
+    size = add(size, Byte.BYTES);
+    size = add(size, Integer.BYTES);
+    for (String error : handler.caughtErrors()) {
+      size = add(size, textSize(error));
+    }
+    return add(size, Byte.BYTES);
+  }
+
+  private static long stringValueMapSize(Map<String, ? extends MooValue> values) {
+    long size = Integer.BYTES;
+    for (Map.Entry<String, ? extends MooValue> entry : values.entrySet()) {
+      size = add(size, textSize(entry.getKey()));
+      size = add(size, valueSize(entry.getValue()));
+    }
+    return size;
+  }
+
+  private static long valueListSize(List<? extends MooValue> values) {
+    long size = Integer.BYTES;
+    for (MooValue value : values) {
+      size = add(size, valueSize(value));
+    }
+    return size;
+  }
+
+  private static long optionalValueSize(Optional<? extends MooValue> value) {
+    return value.isPresent() ? add(Byte.BYTES, valueSize(value.orElseThrow())) : Byte.BYTES;
+  }
+
+  private static long optionalLongSize(OptionalLong value) {
+    return value.isPresent() ? Byte.BYTES + Long.BYTES : Byte.BYTES;
+  }
+
+  private static long valueSize(MooValue value) {
+    return switch (value) {
+      case IntegerValue ignored -> Byte.BYTES + Long.BYTES;
+      case BooleanValue ignored -> Byte.BYTES + Byte.BYTES;
+      case FloatValue ignored -> Byte.BYTES + Double.BYTES;
+      case StringValue string -> add(Byte.BYTES + Integer.BYTES, string.length());
+      case ObjectValue ignored -> Byte.BYTES + Long.BYTES;
+      case AnonymousObjectValue ignored -> Byte.BYTES + Long.BYTES;
+      case WaifValue waif ->
+          add(Byte.BYTES, add(valueSize(waif.classObject()), valueSize(waif.owner())));
+      case ErrorValue ignored -> Byte.BYTES + Integer.BYTES;
+      case ListValue list -> add(Byte.BYTES, valueListSize(list.elements()));
+      case MapValue map -> {
+        long size = Byte.BYTES + Integer.BYTES;
+        for (Map.Entry<MooValue, MooValue> entry : map.entries().entrySet()) {
+          size = add(size, valueSize(entry.getKey()));
+          size = add(size, valueSize(entry.getValue()));
+        }
+        yield size;
+      }
+    };
+  }
+
+  private static long textSize(String value) {
+    return add(Integer.BYTES, value.getBytes(StandardCharsets.UTF_8).length);
+  }
+
+  private static long add(long left, long right) {
+    return Math.addExact(left, right);
+  }
+
+  private static long multiply(long left, long right) {
+    return Math.multiplyExact(left, right);
+  }
+
   /** Value-only state for one activation frame, ordered from current to root. */
   public record Frame(
       BytecodeProgram program,
@@ -86,6 +324,7 @@ public record VmSnapshot(
       OptionalLong moveObject,
       OptionalLong moveDestination,
       long programmer,
+      boolean threadMode,
       int instructionPointer) {
     public Frame {
       operandStack = List.copyOf(operandStack);

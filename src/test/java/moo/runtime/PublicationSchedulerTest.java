@@ -19,8 +19,10 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Queue;
 import java.util.concurrent.ArrayBlockingQueue;
+import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.IntStream;
@@ -77,8 +79,187 @@ final class PublicationSchedulerTest {
       assertInstanceOf(ArrayBlockingQueue.class, executor.getQueue());
       assertEquals(12, scheduler.queueCapacity());
       assertEquals(12, executor.getQueue().remainingCapacity());
+      assertEquals(
+          1,
+          List.of(PublicationScheduler.class.getDeclaredFields()).stream()
+              .filter(field -> field.getType() == ThreadPoolExecutor.class)
+              .count());
     } finally {
       scheduler(runtime).close();
+    }
+  }
+
+  @Test
+  void threadPoolReconfiguresTheExistingExecutorAndZeroRejectsHostWork() throws Exception {
+    try (Harness harness = Harness.open(3, new RecordingListener())) {
+      List<String> result =
+          harness.line(
+              "; thread_pool(\"INIT\", \"MAIN\", 0); "
+                  + "try all_members(\"a\", {\"A\"}); "
+                  + "except (E_QUOTA) "
+                  + "thread_pool(\"INIT\", \"MAIN\", 2); return 1; "
+                  + "endtry");
+      ThreadPoolExecutor executor =
+          field(harness.scheduler, "executor", ThreadPoolExecutor.class);
+
+      assertTrue(result.contains("{1, 1}"), result.toString());
+      assertEquals(2, harness.scheduler.workers());
+      assertEquals(2, executor.getCorePoolSize());
+      assertEquals(2, executor.getMaximumPoolSize());
+      assertEquals(
+          executor.getQueue().size() + executor.getQueue().remainingCapacity(),
+          harness.scheduler.queueCapacity());
+      assertEquals(
+          1,
+          List.of(PublicationScheduler.class.getDeclaredFields()).stream()
+              .filter(field -> field.getType() == ThreadPoolExecutor.class)
+              .count());
+    }
+  }
+
+  @Test
+  void runsAllMembersThroughHostAndSynchronousModesWithoutLeakingMode() throws Exception {
+    try (Harness harness = Harness.open(1, new RecordingListener())) {
+      List<String> first =
+          harness.line(
+              "; threaded = all_members(\"a\", {\"A\", \"b\", \"a\"}); "
+                  + "set_thread_mode(0); "
+                  + "synchronous = all_members(\"a\", {\"A\", \"b\", \"a\"}); "
+                  + "return {threaded, synchronous, set_thread_mode()};");
+      List<String> second = harness.line("; return set_thread_mode();");
+
+      assertTrue(first.contains("{1, {{1, 3}, {1, 3}, 0}}"), first.toString());
+      assertTrue(second.contains("{1, 1}"), second.toString());
+    }
+  }
+
+  @Test
+  void forkedTaskCanEnterAndCompleteHostSuspension() throws Exception {
+    try (Harness harness = Harness.open(2, new RecordingListener())) {
+      TaskRegistry registry = field(harness.scheduler, "taskRegistry", TaskRegistry.class);
+
+      List<String> parent =
+          harness.line(
+              "; #0.scheduler_counter = 0; "
+                  + "fork (0) "
+                  + "#0.scheduler_counter = length(all_members(\"a\", {\"a\", \"b\", \"A\"})); "
+                  + "endfork "
+                  + "return 1;");
+
+      assertTrue(parent.contains("{1, 1}"), parent.toString());
+      long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(3);
+      while ((harness.counter() != 2 || registry.size() != 0)
+          && System.nanoTime() < deadline) {
+        Thread.onSpinWait();
+      }
+      assertEquals(2, harness.counter());
+      assertEquals(0, registry.size());
+      assertTrue(harness.line("; return 7;").contains("{1, 7}"));
+    }
+  }
+
+  @Test
+  void mapsRejectedHostSubmissionToCatchableQuotaError() throws Exception {
+    try (Harness harness = Harness.open(1, new RecordingListener())) {
+      try (WorldTxn transaction = harness.root.begin()) {
+        ObjectValue serverOptions =
+            (ObjectValue) transaction.readObjectProperty(0, "server_options").orElseThrow();
+        boolean configured =
+            transaction.property(serverOptions.value(), "fg_ticks").isPresent()
+                ? transaction.writeObjectProperty(
+                    serverOptions.value(), "fg_ticks", new IntegerValue(20_000_000))
+                : transaction.addProperty(
+                    serverOptions.value(), "fg_ticks", new IntegerValue(20_000_000), 0, 3);
+        assertTrue(configured);
+        assertTrue(transaction.commit().isCommitted());
+      }
+      ThreadPoolExecutor executor =
+          field(harness.scheduler, "executor", ThreadPoolExecutor.class);
+      CountDownLatch release = new CountDownLatch(1);
+      long ticket = harness.scheduler.nextTicket();
+      CompletableFuture<List<String>> result =
+          harness.lineAsync(
+              "; i = 0; while (i < 2000000) i = i + 1; endwhile "
+                  + "try return all_members(1, {1}); "
+                  + "except (E_QUOTA) return \"quota\"; endtry");
+      while (harness.scheduler.nextTicket() == ticket || executor.getActiveCount() == 0) {
+        Thread.onSpinWait();
+      }
+      for (int queued = 0; queued < 4; queued++) {
+        executor.execute(() -> awaitRelease(release));
+      }
+
+      try {
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(3);
+        while (readySize(harness.scheduler) == 0 && System.nanoTime() < deadline) {
+          Thread.onSpinWait();
+        }
+        assertTrue(readySize(harness.scheduler) > 0);
+      } finally {
+        release.countDown();
+      }
+      while (executor.getActiveCount() != 0 || !executor.getQueue().isEmpty()) {
+        Thread.onSpinWait();
+      }
+      harness.line("; return 1;");
+      assertTrue(result.get(3, TimeUnit.SECONDS).contains("{1, \"quota\"}"));
+    }
+  }
+
+  @Test
+  void killingRegisteredHostWaitCancelsWithoutLateWakeOrIngressHang() throws Exception {
+    try (Harness harness = Harness.open(2, new RecordingListener())) {
+      TaskRegistry registry = field(harness.scheduler, "taskRegistry", TaskRegistry.class);
+      String members = String.join(", ", Collections.nCopies(10_000, "nested"));
+      CompletableFuture<List<String>> waiting =
+          harness.lineAsync(
+              "; nested = 0; "
+                  + "for index in [1..1000] nested = {nested}; endfor "
+                  + "#0.scheduler_counter = task_id(); "
+                  + "return all_members(nested, {"
+                  + members
+                  + "});");
+      long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(3);
+      while ((harness.counter() == 0 || registry.size() == 0)
+          && System.nanoTime() < deadline) {
+        Thread.onSpinWait();
+      }
+      long waitingTaskId = harness.counter();
+      assertTrue(waitingTaskId > 0);
+      assertEquals(1, registry.size());
+
+      List<String> killed =
+          harness.runtime.executeLine(
+              SECOND_CONNECTION_ID,
+              "; return kill_task(" + waitingTaskId + ");");
+
+      assertTrue(killed.contains("{1, 0}"), killed.toString());
+      try {
+        waiting.get(3, TimeUnit.SECONDS);
+        fail("killed host wait must not complete normally");
+      } catch (ExecutionException failure) {
+        assertInstanceOf(CancellationException.class, failure.getCause());
+      }
+      assertEquals(0, registry.size());
+      assertFalse(
+          field(harness.scheduler, "ingress", Map.class).containsKey(waitingTaskId));
+
+      List<String> later =
+          harness.runtime.executeLine(
+              SECOND_CONNECTION_ID,
+              "; #0.scheduler_counter = 77; return #0.scheduler_counter;");
+      assertTrue(later.contains("{1, 77}"), later.toString());
+      assertEquals(77, harness.counter());
+      long stableTicket = harness.scheduler.nextTicket();
+      deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(3);
+      ThreadPoolExecutor executor =
+          field(harness.scheduler, "executor", ThreadPoolExecutor.class);
+      while ((executor.getActiveCount() != 0 || !executor.getQueue().isEmpty())
+          && System.nanoTime() < deadline) {
+        Thread.onSpinWait();
+      }
+      assertEquals(stableTicket, harness.scheduler.nextTicket());
+      assertEquals(0, readySize(harness.scheduler));
     }
   }
 

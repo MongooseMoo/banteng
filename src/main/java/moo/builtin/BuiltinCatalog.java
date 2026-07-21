@@ -17,7 +17,8 @@ import java.util.OptionalDouble;
 import java.util.OptionalLong;
 import java.util.Random;
 import java.util.Set;
-import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Callable;
+import java.util.concurrent.CancellationException;
 import moo.bytecode.MooCompiler;
 import moo.syntax.MooParser;
 import moo.syntax.MooUnparser;
@@ -51,6 +52,8 @@ public final class BuiltinCatalog {
   private final Optional<ListenerControl> listenerControl;
   private final BuiltinHandler queuedTasks;
   private final BuiltinHandler read;
+  private final BuiltinHandler threadPool;
+  private final BuiltinHandler threads;
   private final Random random;
   private final Map<String, BuiltinSpec> specs;
 
@@ -59,7 +62,9 @@ public final class BuiltinCatalog {
     this(
         (a, w, p, t, id, rt, rs, r, cp, c) -> emptyQueuedTasks(a),
         (a, w, p, t, id, rt, rs, r, cp, c) -> Result.error(ErrorValue.E_INVARG),
-        (a, w, p, t, id, rt, rs, r, cp, c) -> Result.error(ErrorValue.E_INVARG));
+        (a, w, p, t, id, rt, rs, r, cp, c) -> Result.error(ErrorValue.E_INVARG),
+        (a, w, p, t, id, rt, rs, r, cp, c) -> Result.error(ErrorValue.E_INVARG),
+        (a, w, p, t, id, rt, rs, r, cp, c) -> Result.value(new ListValue(List.of())));
   }
 
   /** Creates a catalog with the production task-registry handler. */
@@ -67,15 +72,23 @@ public final class BuiltinCatalog {
     this(
         queuedTasks,
         (a, w, p, t, id, rt, rs, r, cp, c) -> Result.error(ErrorValue.E_INVARG),
-        (a, w, p, t, id, rt, rs, r, cp, c) -> Result.error(ErrorValue.E_INVARG));
+        (a, w, p, t, id, rt, rs, r, cp, c) -> Result.error(ErrorValue.E_INVARG),
+        (a, w, p, t, id, rt, rs, r, cp, c) -> Result.error(ErrorValue.E_INVARG),
+        (a, w, p, t, id, rt, rs, r, cp, c) -> Result.value(new ListValue(List.of())));
   }
 
   /** Creates a catalog with the production task-registry and input handlers. */
   public BuiltinCatalog(
-      BuiltinHandler queuedTasks, BuiltinHandler killTask, BuiltinHandler read) {
+      BuiltinHandler queuedTasks,
+      BuiltinHandler killTask,
+      BuiltinHandler read,
+      BuiltinHandler threadPool,
+      BuiltinHandler threads) {
     this.queuedTasks = Objects.requireNonNull(queuedTasks, "queuedTasks");
     this.killTask = Objects.requireNonNull(killTask, "killTask");
     this.read = Objects.requireNonNull(read, "read");
+    this.threadPool = Objects.requireNonNull(threadPool, "threadPool");
+    this.threads = Objects.requireNonNull(threads, "threads");
     listenerControl = Optional.empty();
     random = new Random();
     manifest = buildManifest();
@@ -88,7 +101,9 @@ public final class BuiltinCatalog {
         listenerControl,
         (a, w, p, t, id, rt, rs, r, cp, c) -> emptyQueuedTasks(a),
         (a, w, p, t, id, rt, rs, r, cp, c) -> Result.error(ErrorValue.E_INVARG),
-        (a, w, p, t, id, rt, rs, r, cp, c) -> Result.error(ErrorValue.E_INVARG));
+        (a, w, p, t, id, rt, rs, r, cp, c) -> Result.error(ErrorValue.E_INVARG),
+        (a, w, p, t, id, rt, rs, r, cp, c) -> Result.error(ErrorValue.E_INVARG),
+        (a, w, p, t, id, rt, rs, r, cp, c) -> Result.value(new ListValue(List.of())));
   }
 
   /** Creates the production catalog with concrete listener and task owners. */
@@ -97,7 +112,9 @@ public final class BuiltinCatalog {
         listenerControl,
         queuedTasks,
         (a, w, p, t, id, rt, rs, r, cp, c) -> Result.error(ErrorValue.E_INVARG),
-        (a, w, p, t, id, rt, rs, r, cp, c) -> Result.error(ErrorValue.E_INVARG));
+        (a, w, p, t, id, rt, rs, r, cp, c) -> Result.error(ErrorValue.E_INVARG),
+        (a, w, p, t, id, rt, rs, r, cp, c) -> Result.error(ErrorValue.E_INVARG),
+        (a, w, p, t, id, rt, rs, r, cp, c) -> Result.value(new ListValue(List.of())));
   }
 
   /** Creates the production catalog with concrete listener, task, and input owners. */
@@ -105,11 +122,15 @@ public final class BuiltinCatalog {
       ListenerControl listenerControl,
       BuiltinHandler queuedTasks,
       BuiltinHandler killTask,
-      BuiltinHandler read) {
+      BuiltinHandler read,
+      BuiltinHandler threadPool,
+      BuiltinHandler threads) {
     this.listenerControl = Optional.of(Objects.requireNonNull(listenerControl, "listenerControl"));
     this.queuedTasks = Objects.requireNonNull(queuedTasks, "queuedTasks");
     this.killTask = Objects.requireNonNull(killTask, "killTask");
     this.read = Objects.requireNonNull(read, "read");
+    this.threadPool = Objects.requireNonNull(threadPool, "threadPool");
+    this.threads = Objects.requireNonNull(threads, "threads");
     random = new Random();
     manifest = buildManifest();
     specs = indexManifest(manifest);
@@ -117,6 +138,72 @@ public final class BuiltinCatalog {
 
   private List<BuiltinSpec> buildManifest() {
     List<BuiltinSpec> entries = new ArrayList<>();
+    BuiltinHandler setThreadMode =
+        new BuiltinHandler() {
+          @Override
+          public Result invoke(
+              List<MooValue> arguments,
+              WorldTxn world,
+              long programmer,
+              MooValue taskLocal,
+              long taskId,
+              long remainingTicks,
+              long remainingSeconds,
+              MooValue receiver,
+              long callerProgrammer,
+              ListValue callers) {
+            return setThreadMode(arguments, true);
+          }
+
+          @Override
+          public Result invoke(
+              List<MooValue> arguments,
+              WorldTxn world,
+              long programmer,
+              MooValue taskLocal,
+              long taskId,
+              long remainingTicks,
+              long remainingSeconds,
+              MooValue receiver,
+              long callerProgrammer,
+              ListValue callers,
+              boolean threadMode) {
+            return setThreadMode(arguments, threadMode);
+          }
+        };
+    BuiltinHandler allMembers =
+        new BuiltinHandler() {
+          @Override
+          public Result invoke(
+              List<MooValue> arguments,
+              WorldTxn world,
+              long programmer,
+              MooValue taskLocal,
+              long taskId,
+              long remainingTicks,
+              long remainingSeconds,
+              MooValue receiver,
+              long callerProgrammer,
+              ListValue callers) {
+            return allMembers(arguments);
+          }
+
+          @Override
+          public Result invoke(
+              List<MooValue> arguments,
+              WorldTxn world,
+              long programmer,
+              MooValue taskLocal,
+              long taskId,
+              long remainingTicks,
+              long remainingSeconds,
+              MooValue receiver,
+              long callerProgrammer,
+              ListValue callers,
+              boolean threadMode) {
+            return threadMode ? Result.hostWork(() -> allMembers(arguments)) : allMembers(arguments);
+          }
+        };
     entries.add(
         new BuiltinSpec(
             "value_bytes",
@@ -286,6 +373,17 @@ public final class BuiltinCatalog {
             EffectClass.PURE,
             BuiltinOwner.VM,
             (a, w, p, t, id, rt, rs, r, cp, c) -> setRemove(a)));
+    entries.add(
+        new BuiltinSpec(
+            "all_members",
+            List.of(
+                new CallShape(
+                    List.of(ANY, Set.of(ArgType.LIST)), List.of(), Optional.empty())),
+            BuiltinPermissionRule.ANY,
+            BuiltinCostRule.fixed(0),
+            EffectClass.SUSPENDING_HOST,
+            BuiltinOwner.VM,
+            allMembers));
     entries.add(
         new BuiltinSpec(
             "explode",
@@ -644,6 +742,27 @@ public final class BuiltinCatalog {
             killTask));
     entries.add(
         new BuiltinSpec(
+            "thread_pool",
+            List.of(
+                new CallShape(
+                    List.of(STRING, STRING), List.of(INTEGER), Optional.empty())),
+            BuiltinPermissionRule.WIZARD_ONLY,
+            BuiltinCostRule.fixed(0),
+            EffectClass.IRREVOCABLE,
+            BuiltinOwner.TASK,
+            (a, w, p, t, id, rt, rs, r, cp, c) ->
+                configureThreadPool(a, w, p, t, id, rt, rs, r, cp, c)));
+    entries.add(
+        new BuiltinSpec(
+            "threads",
+            List.of(new CallShape(List.of(), List.of(), Optional.empty())),
+            BuiltinPermissionRule.WIZARD_ONLY,
+            BuiltinCostRule.fixed(0),
+            EffectClass.IRREVOCABLE,
+            BuiltinOwner.TASK,
+            threads));
+    entries.add(
+        new BuiltinSpec(
             "read",
             List.of(new CallShape(List.of(), List.of(OBJECT, ANY), Optional.empty())),
             BuiltinPermissionRule.ANY,
@@ -778,6 +897,15 @@ public final class BuiltinCatalog {
             EffectClass.DEFERRED_COMMIT,
             BuiltinOwner.VM,
             (a, w, p, t, id, rt, rs, r, cp, c) -> setTaskPerms(a)));
+    entries.add(
+        new BuiltinSpec(
+            "set_thread_mode",
+            List.of(new CallShape(List.of(), List.of(INTEGER), Optional.empty())),
+            BuiltinPermissionRule.ANY,
+            BuiltinCostRule.fixed(0),
+            EffectClass.DEFERRED_COMMIT,
+            BuiltinOwner.VM,
+            setThreadMode));
     entries.add(
         new BuiltinSpec(
             "notify",
@@ -941,6 +1069,46 @@ public final class BuiltinCatalog {
         arguments.size() == 2 && arguments.get(1).isTruthy()
             ? new IntegerValue(0)
             : new ListValue(List.of()));
+  }
+
+  private Result configureThreadPool(
+      List<MooValue> arguments,
+      WorldTxn world,
+      long programmer,
+      MooValue taskLocal,
+      long taskId,
+      long remainingTicks,
+      long remainingSeconds,
+      MooValue receiver,
+      long callerProgrammer,
+      ListValue callers) {
+    StringValue function = (StringValue) arguments.get(0);
+    StringValue pool = (StringValue) arguments.get(1);
+    long requested =
+        arguments.size() == 3 ? ((IntegerValue) arguments.get(2)).value() : 0;
+    if (!decode(pool).equals("MAIN")) {
+      return Result.raised(ErrorValue.E_INVARG, encode("Invalid thread pool"), pool);
+    }
+    if (!decode(function).equals("INIT")) {
+      return Result.raised(ErrorValue.E_INVARG, encode("Invalid function"), function);
+    }
+    if (requested < 0 || requested > Integer.MAX_VALUE) {
+      return Result.raised(
+          ErrorValue.E_INVARG,
+          encode("Invalid number of threads"),
+          new IntegerValue(requested));
+    }
+    return threadPool.invoke(
+        arguments,
+        world,
+        programmer,
+        taskLocal,
+        taskId,
+        remainingTicks,
+        remainingSeconds,
+        receiver,
+        callerProgrammer,
+        callers);
   }
 
   private static Result connectionInfo(
@@ -1165,6 +1333,35 @@ public final class BuiltinCatalog {
       MooValue receiver,
       long callerProgrammer,
       ListValue callers) {
+    return invoke(
+        spec,
+        arguments,
+        world,
+        programmer,
+        taskLocal,
+        taskId,
+        remainingTicks,
+        remainingSeconds,
+        receiver,
+        callerProgrammer,
+        callers,
+        true);
+  }
+
+  /** Validates and invokes one exact manifest entry for the current activation mode. */
+  public Result invoke(
+      BuiltinSpec spec,
+      List<MooValue> arguments,
+      WorldTxn world,
+      long programmer,
+      MooValue taskLocal,
+      long taskId,
+      long remainingTicks,
+      long remainingSeconds,
+      MooValue receiver,
+      long callerProgrammer,
+      ListValue callers,
+      boolean threadMode) {
     if (spec.callShapes().stream().noneMatch(shape -> shape.acceptsArity(arguments.size()))) {
       return Result.error(ErrorValue.E_ARGS);
     }
@@ -1185,7 +1382,8 @@ public final class BuiltinCatalog {
             remainingSeconds,
             receiver,
             callerProgrammer,
-            callers);
+            callers,
+            threadMode);
   }
 
   private Result functionInfo(List<MooValue> arguments) {
@@ -1675,6 +1873,33 @@ public final class BuiltinCatalog {
       }
     }
     return Result.value(list);
+  }
+
+  private static Result allMembers(List<MooValue> arguments) {
+    MooValue value = arguments.get(0);
+    ListValue list = (ListValue) arguments.get(1);
+    List<MooValue> positions = new ArrayList<>();
+    for (int index = 0; index < list.size(); index++) {
+      if (Thread.currentThread().isInterrupted()) {
+        throw new CancellationException("all_members host work was canceled");
+      }
+      Result removed =
+          setRemove(
+              List.of(
+                  new ListValue(List.of(list.elements().get(index))),
+                  value));
+      if (((ListValue) removed.value().orElseThrow()).size() == 0) {
+        positions.add(new IntegerValue(index + 1L));
+      }
+    }
+    return Result.value(new ListValue(positions));
+  }
+
+  private static Result setThreadMode(List<MooValue> arguments, boolean threadMode) {
+    if (arguments.isEmpty()) {
+      return Result.value(new IntegerValue(threadMode ? 1 : 0));
+    }
+    return Result.threadMode(arguments.getFirst().isTruthy());
   }
 
   private static Result stringSubstitute(List<MooValue> arguments) {
@@ -3188,7 +3413,7 @@ public final class BuiltinCatalog {
       OptionalLong programmer,
       OptionalLong recycleTarget,
       OptionalDouble delaySeconds,
-      Optional<CompletableFuture<MooValue>> hostResult,
+      Optional<Callable<Result>> hostWork,
       Optional<ConnectionOptionRequest> connectionOptionRequest,
       OptionalLong bootPlayerTarget,
       Optional<ForcedInputRequest> forcedInputRequest,
@@ -3196,7 +3421,8 @@ public final class BuiltinCatalog {
       OptionalLong moveObject,
       OptionalLong moveDestination,
       Optional<ListValue> errorDetails,
-      Optional<CheckpointRequest> checkpointRequest) {
+      Optional<CheckpointRequest> checkpointRequest,
+      Optional<Boolean> threadMode) {
     private Result(
         Optional<MooValue> value,
         Optional<ErrorValue> error,
@@ -3206,7 +3432,46 @@ public final class BuiltinCatalog {
         OptionalLong programmer,
         OptionalLong recycleTarget,
         OptionalDouble delaySeconds,
-        Optional<CompletableFuture<MooValue>> hostResult,
+        Optional<Callable<Result>> hostWork,
+        Optional<ConnectionOptionRequest> connectionOptionRequest,
+        OptionalLong bootPlayerTarget,
+        Optional<ForcedInputRequest> forcedInputRequest,
+        Optional<MooValue> taskLocal,
+        OptionalLong moveObject,
+        OptionalLong moveDestination,
+        Optional<ListValue> errorDetails,
+        Optional<CheckpointRequest> checkpointRequest) {
+      this(
+          value,
+          error,
+          dynamicSource,
+          output,
+          switchedPlayer,
+          programmer,
+          recycleTarget,
+          delaySeconds,
+          hostWork,
+          connectionOptionRequest,
+          bootPlayerTarget,
+          forcedInputRequest,
+          taskLocal,
+          moveObject,
+          moveDestination,
+          errorDetails,
+          checkpointRequest,
+          Optional.empty());
+    }
+
+    private Result(
+        Optional<MooValue> value,
+        Optional<ErrorValue> error,
+        Optional<String> dynamicSource,
+        Optional<String> output,
+        OptionalLong switchedPlayer,
+        OptionalLong programmer,
+        OptionalLong recycleTarget,
+        OptionalDouble delaySeconds,
+        Optional<Callable<Result>> hostWork,
         Optional<ConnectionOptionRequest> connectionOptionRequest,
         OptionalLong bootPlayerTarget,
         Optional<ForcedInputRequest> forcedInputRequest) {
@@ -3219,13 +3484,14 @@ public final class BuiltinCatalog {
           programmer,
           recycleTarget,
           delaySeconds,
-          hostResult,
+          hostWork,
           connectionOptionRequest,
           bootPlayerTarget,
           forcedInputRequest,
           Optional.empty(),
           OptionalLong.empty(),
           OptionalLong.empty(),
+          Optional.empty(),
           Optional.empty(),
           Optional.empty());
     }
@@ -3324,7 +3590,46 @@ public final class BuiltinCatalog {
           Optional.empty());
     }
 
-    static Result raised(ErrorValue error, StringValue message, MooValue value) {
+    /** Suspends until the scheduler's existing bounded executor completes this host work. */
+    public static Result hostWork(Callable<Result> hostWork) {
+      return new Result(
+          Optional.empty(),
+          Optional.empty(),
+          Optional.empty(),
+          Optional.empty(),
+          OptionalLong.empty(),
+          OptionalLong.empty(),
+          OptionalLong.empty(),
+          OptionalDouble.empty(),
+          Optional.of(hostWork),
+          Optional.empty(),
+          OptionalLong.empty(),
+          Optional.empty());
+    }
+
+    static Result threadMode(boolean enabled) {
+      return new Result(
+          Optional.of(new IntegerValue(0)),
+          Optional.empty(),
+          Optional.empty(),
+          Optional.empty(),
+          OptionalLong.empty(),
+          OptionalLong.empty(),
+          OptionalLong.empty(),
+          OptionalDouble.empty(),
+          Optional.empty(),
+          Optional.empty(),
+          OptionalLong.empty(),
+          Optional.empty(),
+          Optional.empty(),
+          OptionalLong.empty(),
+          OptionalLong.empty(),
+          Optional.empty(),
+          Optional.empty(),
+          Optional.of(enabled));
+    }
+
+    public static Result raised(ErrorValue error, StringValue message, MooValue value) {
       return new Result(
           Optional.empty(),
           Optional.of(error),

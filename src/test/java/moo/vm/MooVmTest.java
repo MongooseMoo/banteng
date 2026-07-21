@@ -34,6 +34,43 @@ import org.junit.jupiter.api.Test;
 
 final class MooVmTest {
   @Test
+  void routesSuspendedHostMooErrorDetailsThroughTheCapturedHandler() {
+    BytecodeProgram program =
+        new MooCompiler()
+            .compile(
+                MooParser.parse(
+                    "try return all_members(1, {1}); "
+                        + "except error (E_INVARG) return error; endtry"));
+    VmState state = new VmState();
+    MooVm vm = new MooVm();
+    WorldTxn root = new WorldTxn(List.of(), List.of());
+    StringValue message =
+        new StringValue("host failure".getBytes(StandardCharsets.ISO_8859_1));
+
+    try (WorldTxn transaction = root.begin()) {
+      vm.execute(program, state, transaction, new BuiltinCatalog(), 1);
+      assertEquals(VmState.Outcome.SUSPENDED, state.outcome());
+
+      vm.resumeWithError(
+          state,
+          BuiltinCatalog.Result.raised(
+              ErrorValue.E_INVARG, message, new IntegerValue(17)),
+          transaction);
+      vm.execute(program, state, transaction, new BuiltinCatalog(), 1);
+    }
+
+    assertEquals(VmState.Outcome.RETURNED, state.outcome());
+    assertEquals(
+        new ListValue(
+            List.of(
+                ErrorValue.E_INVARG,
+                message,
+                new IntegerValue(17),
+                new ListValue(List.of()))),
+        state.returnValue().orElseThrow());
+  }
+
+  @Test
   void executesDynamicSourceThroughParserCompilerAndExplicitVmState() {
     byte[] source = "return 1 + 1;".getBytes(StandardCharsets.ISO_8859_1);
     Ast.Program syntax = MooParser.parse(source);
@@ -3356,6 +3393,54 @@ final class MooVmTest {
       assertEquals(9, view.object(5).orElseThrow().owner());
       assertEquals(3, view.object(6).orElseThrow().owner());
     }
+  }
+
+  @Test
+  void nestedVerbAndEvalThreadModesInheritWithoutLeakingToCallers() {
+    WorldVerb mode =
+        new WorldVerb(
+            "mode",
+            1,
+            4,
+            -1,
+            "before = set_thread_mode(); "
+                + "evaluated = eval(\"inside = set_thread_mode(); set_thread_mode(1); "
+                + "return {inside, set_thread_mode()};\"); "
+                + "after_eval = set_thread_mode(); set_thread_mode(1); "
+                + "return {before, evaluated, after_eval, set_thread_mode()};");
+    WorldObject object =
+        new WorldObject(
+            1, "mode object", 4, 1, -1, -1, List.of(), List.of(), List.of(mode), List.of());
+    WorldTxn world = new WorldTxn(List.of(1L), List.of(object));
+    VmState state =
+        new VmState(Map.of("player", new ObjectValue(1), "this", new ObjectValue(1)), 1);
+
+    executeAndClose(
+        new MooCompiler()
+            .compile(
+                MooParser.parse(
+                    "set_thread_mode(0); nested = #1:mode(); "
+                        + "return {nested, set_thread_mode()};")),
+        state,
+        world,
+        new BuiltinCatalog());
+
+    assertEquals(VmState.Outcome.RETURNED, state.outcome());
+    assertEquals(
+        new ListValue(
+            List.of(
+                new ListValue(
+                    List.of(
+                        new IntegerValue(0),
+                        new ListValue(
+                            List.of(
+                                new IntegerValue(1),
+                                new ListValue(
+                                    List.of(new IntegerValue(0), new IntegerValue(1))))),
+                        new IntegerValue(0),
+                        new IntegerValue(1))),
+                new IntegerValue(0))),
+        state.returnValue().orElseThrow());
   }
 
   @Test

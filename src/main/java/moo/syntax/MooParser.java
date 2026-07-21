@@ -550,7 +550,7 @@ public final class MooParser {
 
   private Ast.Expression parsePostfix(Ast.Expression receiver, Token firstToken) {
     return switch (current.kind()) {
-      case LEFT_PAREN -> parseCall(receiver);
+      case LEFT_PAREN -> parseCall(receiver, firstToken);
       case DOT -> parseProperty(receiver);
       case COLON -> {
         advance();
@@ -572,15 +572,25 @@ public final class MooParser {
             arguments.add(splice ? new Ast.Splice(argument) : argument);
           } while (match(TokenKind.COMMA));
         }
+        Token rightParen = current;
         expectAndAdvance(TokenKind.RIGHT_PAREN, "')' after verb arguments");
-        yield new Ast.VerbCall(receiver, name, arguments);
+        yield new Ast.VerbCall(
+            receiver,
+            name,
+            arguments,
+            Optional.of(
+                new Ast.SourceSpan(
+                    firstToken.startOffset(),
+                    rightParen.endOffset(),
+                    firstToken.line(),
+                    firstToken.column())));
       }
       case LEFT_BRACKET -> parseIndex(receiver, firstToken);
       default -> throw error("expected postfix expression");
     };
   }
 
-  private Ast.Call parseCall(Ast.Expression receiver) {
+  private Ast.Call parseCall(Ast.Expression receiver, Token firstToken) {
     if (!(receiver instanceof Ast.Identifier identifier)) {
       throw error("only named functions can be called");
     }
@@ -593,8 +603,17 @@ public final class MooParser {
         arguments.add(splice ? new Ast.Splice(argument) : argument);
       } while (match(TokenKind.COMMA));
     }
+    Token rightParen = current;
     expectAndAdvance(TokenKind.RIGHT_PAREN, "')' after call arguments");
-    return new Ast.Call(identifier.name(), arguments);
+    return new Ast.Call(
+        identifier.name(),
+        arguments,
+        Optional.of(
+            new Ast.SourceSpan(
+                firstToken.startOffset(),
+                rightParen.endOffset(),
+                firstToken.line(),
+                firstToken.column())));
   }
 
   private Ast.PropertyAccess parseProperty(Ast.Expression receiver) {

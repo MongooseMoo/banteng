@@ -11,8 +11,9 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalDouble;
 import java.util.OptionalLong;
-import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Callable;
 import java.util.concurrent.TimeUnit;
+import moo.builtin.BuiltinCatalog.Result;
 import moo.builtin.BuiltinCatalog.ConnectionOptionRequest;
 import moo.builtin.BuiltinCatalog.ForcedInputRequest;
 import moo.builtin.CheckpointRequest;
@@ -46,7 +47,7 @@ public final class VmState {
   private OptionalLong switchedPlayer = OptionalLong.empty();
   private Optional<ForkRequest> forkRequest = Optional.empty();
   private OptionalDouble suspensionDelaySeconds = OptionalDouble.empty();
-  private Optional<CompletableFuture<MooValue>> hostResult = Optional.empty();
+  private Optional<Callable<Result>> hostWork = Optional.empty();
   private boolean awaitingHostResult;
   private Optional<VmSnapshot.PendingBuiltin> pendingBuiltin = Optional.empty();
   private MooValue taskLocal = new MapValue(Map.of());
@@ -143,8 +144,18 @@ public final class VmState {
   }
 
   /** Returns the external result that will resume the current suspended task. */
-  public Optional<CompletableFuture<MooValue>> hostResult() {
-    return hostResult;
+  public Optional<Callable<Result>> hostWork() {
+    return hostWork;
+  }
+
+  /** Returns whether this activation dispatches background-capable builtins to host work. */
+  public boolean threadMode() {
+    return currentFrame().threadMode;
+  }
+
+  /** Applies background-thread mode to this activation only. */
+  public void setThreadMode(boolean enabled) {
+    currentFrame().threadMode = enabled;
   }
 
   /** Returns the value-only builtin invocation waiting for publication authorization. */
@@ -212,7 +223,7 @@ public final class VmState {
     outcome = Outcome.ABORTED;
   }
 
-  void ensureRoot(BytecodeProgram program) {
+  public void ensureRoot(BytecodeProgram program) {
     if (frames.isEmpty()) {
       MooValue receiver = initialLocals.getOrDefault("this", new ObjectValue(-1));
       frames.push(
@@ -225,7 +236,8 @@ public final class VmState {
               initialVerbLocation,
               OptionalLong.empty(),
               OptionalLong.empty(),
-              OptionalLong.empty()));
+              OptionalLong.empty(),
+              true));
     }
   }
 
@@ -262,7 +274,8 @@ public final class VmState {
             caller.verbLocation,
             OptionalLong.empty(),
             OptionalLong.empty(),
-            OptionalLong.empty()));
+            OptionalLong.empty(),
+            caller.threadMode));
     return true;
   }
 
@@ -278,6 +291,7 @@ public final class VmState {
     if (frames.size() >= maxStackDepth) {
       return false;
     }
+    boolean inheritedThreadMode = currentFrame().threadMode;
     frames.push(
         new Frame(
             program,
@@ -288,7 +302,8 @@ public final class VmState {
             verbLocation,
             recycleTarget,
             moveObject,
-            moveDestination));
+            moveDestination,
+            inheritedThreadMode));
     return true;
   }
 
@@ -438,13 +453,13 @@ public final class VmState {
     outcome = Outcome.RUNNING;
   }
 
-  void suspend(OptionalDouble delaySeconds, Optional<CompletableFuture<MooValue>> externalResult) {
-    if (delaySeconds.isPresent() == externalResult.isPresent()) {
+  void suspend(OptionalDouble delaySeconds, Optional<Callable<Result>> externalWork) {
+    if (delaySeconds.isPresent() == externalWork.isPresent()) {
       throw new IllegalArgumentException("suspension requires exactly one wake source");
     }
     suspensionDelaySeconds = delaySeconds;
-    hostResult = externalResult;
-    awaitingHostResult = externalResult.isPresent();
+    hostWork = externalWork;
+    awaitingHostResult = externalWork.isPresent();
     outcome = Outcome.SUSPENDED;
   }
 
@@ -454,9 +469,19 @@ public final class VmState {
       throw new IllegalStateException("VM is not suspended");
     }
     suspensionDelaySeconds = OptionalDouble.empty();
-    hostResult = Optional.empty();
+    hostWork = Optional.empty();
     awaitingHostResult = false;
     currentFrame().operandStack.push(value);
+    outcome = Outcome.RUNNING;
+  }
+
+  void resumeError() {
+    if (outcome != Outcome.SUSPENDED) {
+      throw new IllegalStateException("VM is not suspended");
+    }
+    suspensionDelaySeconds = OptionalDouble.empty();
+    hostWork = Optional.empty();
+    awaitingHostResult = false;
     outcome = Outcome.RUNNING;
   }
 
@@ -589,7 +614,7 @@ public final class VmState {
                         request.delaySeconds()));
     state.suspensionDelaySeconds = snapshot.suspensionDelaySeconds();
     state.awaitingHostResult = snapshot.awaitingHostResult();
-    state.hostResult = Optional.empty();
+    state.hostWork = Optional.empty();
     state.pendingBuiltin = snapshot.pendingBuiltin();
     state.taskLocal = snapshot.taskLocal();
     state.elapsedCpuNanos = elapsedCpuNanos;
@@ -646,6 +671,7 @@ public final class VmState {
         frame.moveObject,
         frame.moveDestination,
         frame.programmer,
+        frame.threadMode,
         frame.instructionPointer);
   }
 
@@ -660,7 +686,8 @@ public final class VmState {
             snapshot.verbLocation(),
             snapshot.recycleTarget(),
             snapshot.moveObject(),
-            snapshot.moveDestination());
+            snapshot.moveDestination(),
+            snapshot.threadMode());
     frame.operandStack.addAll(snapshot.operandStack());
     for (VmSnapshot.IndexState index : snapshot.indexCollections()) {
       frame.indexCollections.addLast(
@@ -728,6 +755,7 @@ public final class VmState {
     final OptionalLong moveObject;
     final OptionalLong moveDestination;
     long programmer;
+    boolean threadMode;
     int instructionPointer;
 
     Frame(
@@ -739,7 +767,8 @@ public final class VmState {
         ObjectValue verbLocation,
         OptionalLong recycleTarget,
         OptionalLong moveObject,
-        OptionalLong moveDestination) {
+        OptionalLong moveDestination,
+        boolean threadMode) {
       this.program = program;
       this.locals = normalizedLocals(locals);
       this.returnMode = returnMode;
@@ -749,6 +778,7 @@ public final class VmState {
       this.recycleTarget = recycleTarget;
       this.moveObject = moveObject;
       this.moveDestination = moveDestination;
+      this.threadMode = threadMode;
     }
   }
 

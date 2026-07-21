@@ -49,6 +49,35 @@ final class QueuedTaskV17CodecTest {
     assertArrayEquals(Files.readAllBytes(first), Files.readAllBytes(second));
   }
 
+  @Test
+  void roundTripsDisabledThreadModeWithoutNormalizingIt(@TempDir Path temporaryDirectory)
+      throws IOException {
+    LambdaMooV17Codec codec = new LambdaMooV17Codec();
+    QueuedTask disabled =
+        new QueuedTask(
+            task().taskId(),
+            task().scheduledEpochSecond(),
+            task().programSource(),
+            task().initialLocals(),
+            task().programmer(),
+            task().verbLocation(),
+            task().taskPlayer(),
+            false);
+    Path checkpoint = temporaryDirectory.resolve("disabled.db");
+
+    codec.writeAtomic(checkpoint, emptyWorld(), List.of(disabled));
+
+    assertEquals(List.of(disabled), codec.read(checkpoint).tasks());
+    assertEquals(
+        0,
+        Files.readString(checkpoint, StandardCharsets.ISO_8859_1)
+            .lines()
+            .skip(12)
+            .findFirst()
+            .map(Integer::parseInt)
+            .orElseThrow());
+  }
+
   private static QueuedTask task() {
     Map<String, MooValue> locals = new LinkedHashMap<>();
     locals.put("this", new ObjectValue(7));
@@ -62,7 +91,8 @@ final class QueuedTaskV17CodecTest {
         locals,
         3,
         new ObjectValue(8),
-        9);
+        9,
+        true);
   }
 
   private static WorldSnapshot emptyWorld() {

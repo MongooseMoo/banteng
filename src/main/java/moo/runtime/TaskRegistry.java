@@ -8,6 +8,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.TreeMap;
+import java.util.concurrent.FutureTask;
 import moo.builtin.BuiltinCatalog;
 import moo.value.MooValue;
 import moo.value.MooValue.ErrorValue;
@@ -16,6 +17,7 @@ import moo.value.MooValue.ListValue;
 import moo.value.MooValue.MapValue;
 import moo.value.MooValue.ObjectValue;
 import moo.value.MooValue.StringValue;
+import moo.vm.VmSnapshot;
 import moo.world.WorldObject;
 import moo.world.WorldTxn;
 
@@ -24,7 +26,9 @@ final class TaskRegistry {
   private static final long BACKGROUND_TICKS = 30_000;
 
   private final Map<Long, TaskInfo> tasks = new TreeMap<>();
+  private final Map<Long, FutureTask<BuiltinCatalog.Result>> hostWork = new TreeMap<>();
   private final Set<Long> canceled = new HashSet<>();
+  private long nextHostHandle = 1;
 
   synchronized void registerFork(
       long taskId,
@@ -36,14 +40,16 @@ final class TaskRegistry {
             taskId,
             new TaskInfo(
                 taskId,
-                scheduledStart,
+                new IntegerValue(scheduledStart),
                 programmer,
                 verbLocation,
                 stringVariable(variables, "verb"),
                 0,
                 variables.getOrDefault("this", verbLocation),
                 0,
-                variables))
+                variables,
+                0,
+                true))
         != null) {
       throw new IllegalStateException("duplicate live task " + taskId);
     }
@@ -51,11 +57,77 @@ final class TaskRegistry {
 
   synchronized void remove(long taskId) {
     tasks.remove(taskId);
+    hostWork.remove(taskId);
+    if (hostWork.isEmpty()) {
+      nextHostHandle = 1;
+    }
     canceled.remove(taskId);
+  }
+
+  synchronized boolean registerHost(
+      long taskId,
+      VmSnapshot snapshot,
+      FutureTask<BuiltinCatalog.Result> submitted) {
+    if (canceled.contains(taskId)) {
+      return false;
+    }
+    if (hostWork.putIfAbsent(taskId, submitted) != null) {
+      throw new IllegalStateException("duplicate host work " + taskId);
+    }
+    VmSnapshot.Frame activation = snapshot.frames().getFirst();
+    int suspendedInstruction = Math.subtractExact(activation.instructionPointer(), 1);
+    long handle = nextHostHandle++;
+    tasks.put(
+        taskId,
+        new TaskInfo(
+            taskId,
+            string("waiting on thread " + handle),
+            activation.programmer(),
+            activation.verbLocation(),
+            stringVariable(activation.locals(), "verb"),
+            activation.program().sourceLine(suspendedInstruction),
+            activation.receiver(),
+            snapshot.byteSize(),
+            Map.of(),
+            handle,
+            false));
+    return true;
+  }
+
+  synchronized boolean claimHostTerminal(long taskId) {
+    if (!tasks.containsKey(taskId) || canceled.contains(taskId)) {
+      return false;
+    }
+    tasks.remove(taskId);
+    hostWork.remove(taskId);
+    if (hostWork.isEmpty()) {
+      nextHostHandle = 1;
+    }
+    return true;
   }
 
   synchronized int size() {
     return tasks.size();
+  }
+
+  synchronized BuiltinCatalog.Result threads(
+      List<MooValue> arguments,
+      WorldTxn world,
+      long programmer,
+      MooValue taskLocal,
+      long currentTaskId,
+      long remainingTicks,
+      long remainingSeconds,
+      MooValue receiver,
+      long callerProgrammer,
+      ListValue callers) {
+    return BuiltinCatalog.Result.value(
+        new ListValue(
+            tasks.values().stream()
+                .map(TaskInfo::hostHandle)
+                .filter(handle -> handle > 0)
+                .map(IntegerValue::new)
+                .toList()));
   }
 
   synchronized boolean discardIfCanceled(long taskId) {
@@ -84,7 +156,14 @@ final class TaskRegistry {
       return BuiltinCatalog.Result.error(ErrorValue.E_PERM);
     }
     tasks.remove(taskId);
+    FutureTask<BuiltinCatalog.Result> submitted = hostWork.remove(taskId);
+    if (hostWork.isEmpty()) {
+      nextHostHandle = 1;
+    }
     canceled.add(taskId);
+    if (submitted != null) {
+      submitted.cancel(true);
+    }
     return BuiltinCatalog.Result.value(new IntegerValue(0));
   }
 
@@ -130,22 +209,25 @@ final class TaskRegistry {
 
   private record TaskInfo(
       long taskId,
-      long scheduledStart,
+      MooValue status,
       long programmer,
       ObjectValue verbLocation,
       StringValue verbName,
       long sourceLine,
       MooValue receiver,
       long bytes,
-      Map<String, MooValue> variables) {
+      Map<String, MooValue> variables,
+      long hostHandle,
+      boolean variablesVisible) {
     TaskInfo {
       variables = Map.copyOf(variables);
     }
 
     ListValue row(boolean includeVariables) {
-      List<MooValue> fields = new ArrayList<>(includeVariables ? 11 : 10);
+      boolean appendVariables = includeVariables && variablesVisible;
+      List<MooValue> fields = new ArrayList<>(appendVariables ? 11 : 10);
       fields.add(new IntegerValue(taskId));
-      fields.add(new IntegerValue(scheduledStart));
+      fields.add(status);
       fields.add(new IntegerValue(0));
       fields.add(new IntegerValue(BACKGROUND_TICKS));
       fields.add(new ObjectValue(programmer));
@@ -154,7 +236,7 @@ final class TaskRegistry {
       fields.add(new IntegerValue(sourceLine));
       fields.add(receiver);
       fields.add(new IntegerValue(bytes));
-      if (includeVariables) {
+      if (appendVariables) {
         Map<MooValue, MooValue> runtimeVariables = new LinkedHashMap<>();
         variables.forEach((name, value) -> runtimeVariables.put(string(name), value));
         fields.add(new MapValue(runtimeVariables));

@@ -19,4 +19,30 @@ public interface BuiltinHandler {
       MooValue receiver,
       long callerProgrammer,
       ListValue callers);
+
+  /** Invokes this builtin with the current activation's background-thread mode. */
+  default BuiltinCatalog.Result invoke(
+      List<MooValue> arguments,
+      WorldTxn world,
+      long programmer,
+      MooValue taskLocal,
+      long taskId,
+      long remainingTicks,
+      long remainingSeconds,
+      MooValue receiver,
+      long callerProgrammer,
+      ListValue callers,
+      boolean threadMode) {
+    return invoke(
+        arguments,
+        world,
+        programmer,
+        taskLocal,
+        taskId,
+        remainingTicks,
+        remainingSeconds,
+        receiver,
+        callerProgrammer,
+        callers);
+  }
 }

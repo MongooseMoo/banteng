@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.nio.file.Path;
 import java.util.List;
+import java.util.stream.IntStream;
 import moo.persistence.LambdaMooV4Reader;
 import moo.syntax.Ast;
 import moo.syntax.MooParser;
@@ -15,6 +16,37 @@ import moo.world.WorldVerb;
 import org.junit.jupiter.api.Test;
 
 final class MooCompilerTest {
+  @Test
+  void retainsExactOneBasedSourceLineForEveryInstruction() {
+    BytecodeProgram program =
+        new MooCompiler()
+            .compile(
+                """
+                value = 1;
+                return
+                  value + 2;
+                """);
+
+    assertEquals(
+        List.of(1, 1, 1, 1, 3, 3, 3, 2),
+        IntStream.range(0, program.instructions().size()).mapToObj(program::sourceLine).toList());
+    assertTrue(program.instructions().stream().allMatch(instruction -> instruction.sourceLine() > 0));
+
+    BytecodeProgram hostCall =
+        new MooCompiler()
+            .compile(
+                """
+                return
+                  all_members("a", {"A", "b"});
+                """);
+    int callInstruction =
+        IntStream.range(0, hostCall.instructions().size())
+            .filter(index -> hostCall.instructions().get(index).opcode() == BytecodeProgram.Opcode.CALL)
+            .findFirst()
+            .orElseThrow();
+    assertEquals(2, hostCall.sourceLine(callInstruction));
+  }
+
   @Test
   void lowersIntegerAdditionAndReturnToDeterministicBytecode() {
     Ast.Program syntax = MooParser.parse("return 1 + 1;");

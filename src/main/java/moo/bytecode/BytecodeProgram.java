@@ -9,7 +9,19 @@ import java.util.OptionalLong;
 public record BytecodeProgram(
     List<Instruction> instructions, List<BytecodeProgram> forkVectors, String source) {
   public BytecodeProgram {
-    instructions = List.copyOf(instructions);
+    instructions =
+        instructions.stream()
+            .map(
+                instruction ->
+                    instruction.sourceLine() == 0
+                        ? new Instruction(
+                            instruction.opcode(),
+                            instruction.operand(),
+                            instruction.text(),
+                            instruction.handler(),
+                            1)
+                        : instruction)
+            .toList();
     forkVectors = List.copyOf(forkVectors);
     Objects.requireNonNull(source, "source");
   }
@@ -22,6 +34,11 @@ public record BytecodeProgram(
   /** Creates a manually built program with no fork vectors or source syntax. */
   public BytecodeProgram(List<Instruction> instructions) {
     this(instructions, List.of(), "");
+  }
+
+  /** Returns the exact one-based source line retained for one instruction. */
+  public int sourceLine(int instructionIndex) {
+    return instructions.get(instructionIndex).sourceLine();
   }
 
   /** Returns a stable, line-oriented representation of this program. */
@@ -104,8 +121,15 @@ public record BytecodeProgram(
 
   /** One validated instruction and its explicit operands. */
   public record Instruction(
-      Opcode opcode, OptionalLong operand, Optional<String> text, Optional<HandlerSpec> handler) {
+      Opcode opcode,
+      OptionalLong operand,
+      Optional<String> text,
+      Optional<HandlerSpec> handler,
+      int sourceLine) {
     public Instruction {
+      if (sourceLine < 0) {
+        throw new IllegalArgumentException("source line must not be negative");
+      }
       boolean numberRequired =
           switch (opcode) {
             case PUSH_INTEGER,
@@ -152,29 +176,50 @@ public record BytecodeProgram(
       }
     }
 
+    @Override
+    public boolean equals(Object other) {
+      return this == other
+          || (other instanceof Instruction that
+              && opcode == that.opcode
+              && operand.equals(that.operand)
+              && text.equals(that.text)
+              && handler.equals(that.handler));
+    }
+
+    @Override
+    public int hashCode() {
+      return Objects.hash(opcode, operand, text, handler);
+    }
+
+    /** Creates an instruction with explicit operands before source location is assigned. */
+    public Instruction(
+        Opcode opcode, OptionalLong operand, Optional<String> text, Optional<HandlerSpec> handler) {
+      this(opcode, operand, text, handler, 0);
+    }
+
     /** Creates an instruction without operands. */
     public Instruction(Opcode opcode) {
-      this(opcode, OptionalLong.empty(), Optional.empty(), Optional.empty());
+      this(opcode, OptionalLong.empty(), Optional.empty(), Optional.empty(), 0);
     }
 
     /** Creates an instruction with one numeric operand. */
     public Instruction(Opcode opcode, long operand) {
-      this(opcode, OptionalLong.of(operand), Optional.empty(), Optional.empty());
+      this(opcode, OptionalLong.of(operand), Optional.empty(), Optional.empty(), 0);
     }
 
     /** Creates an instruction with one text operand. */
     public Instruction(Opcode opcode, String text) {
-      this(opcode, OptionalLong.empty(), Optional.of(text), Optional.empty());
+      this(opcode, OptionalLong.empty(), Optional.of(text), Optional.empty(), 0);
     }
 
     /** Creates an instruction with numeric and text operands. */
     public Instruction(Opcode opcode, long operand, String text) {
-      this(opcode, OptionalLong.of(operand), Optional.of(text), Optional.empty());
+      this(opcode, OptionalLong.of(operand), Optional.of(text), Optional.empty(), 0);
     }
 
     /** Creates an explicit handler entry instruction. */
     public Instruction(HandlerSpec handler) {
-      this(Opcode.ENTER_HANDLER, OptionalLong.empty(), Optional.empty(), Optional.of(handler));
+      this(Opcode.ENTER_HANDLER, OptionalLong.empty(), Optional.empty(), Optional.of(handler), 0);
     }
   }
 

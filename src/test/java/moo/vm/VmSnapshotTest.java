@@ -11,8 +11,8 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalDouble;
 import java.util.OptionalLong;
-import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
+import moo.builtin.BuiltinCatalog.Result;
 import moo.builtin.BuiltinCatalog.ConnectionOption;
 import moo.builtin.BuiltinCatalog.ConnectionOptionRequest;
 import moo.builtin.BuiltinCatalog.ForcedInputRequest;
@@ -20,9 +20,11 @@ import moo.bytecode.BytecodeProgram;
 import moo.bytecode.BytecodeProgram.HandlerSpec;
 import moo.bytecode.BytecodeProgram.Instruction;
 import moo.bytecode.BytecodeProgram.Opcode;
+import moo.value.MooValue.AnonymousObjectValue;
 import moo.value.MooValue.ErrorValue;
 import moo.value.MooValue.IntegerValue;
 import moo.value.MooValue.ListValue;
+import moo.value.MooValue.MapValue;
 import moo.value.MooValue.ObjectValue;
 import moo.value.MooValue.StringValue;
 import org.junit.jupiter.api.Test;
@@ -79,6 +81,7 @@ final class VmSnapshotTest {
     state.stageForcedInputRequest(new ForcedInputRequest(47, "look"));
     state.switchPlayer(53);
     state.setTaskLocal(new ListValue(List.of(new IntegerValue(59))));
+    state.setThreadMode(false);
     state.beginError(ErrorValue.E_INVARG);
     state.requestFork(forkProgram, 2.5);
 
@@ -119,16 +122,74 @@ final class VmSnapshotTest {
         new BytecodeProgram(List.of(new Instruction(Opcode.PUSH_INTEGER, 0), new Instruction(Opcode.RETURN)));
     VmState state = new VmState();
     state.ensureRoot(program);
-    state.suspend(OptionalDouble.empty(), Optional.of(new CompletableFuture<>()));
+    state.suspend(
+        OptionalDouble.empty(),
+        Optional.of(() -> Result.value(new IntegerValue(41))));
 
     VmSnapshot snapshot = state.snapshot(0);
     VmState restored = VmState.restore(snapshot);
 
     assertTrue(snapshot.awaitingHostResult());
     assertEquals(VmState.Outcome.SUSPENDED, restored.outcome());
-    assertTrue(restored.hostResult().isEmpty());
+    assertTrue(restored.hostWork().isEmpty());
     assertFalse(restored.suspensionDelaySeconds().isPresent());
+    assertTrue(restored.threadMode());
     assertEquals(snapshot, restored.snapshot(0));
+  }
+
+  @Test
+  void byteSizeCountsRecursiveBinaryPayloadRatherThanInstructionPointerOrTextRendering() {
+    BytecodeProgram program =
+        new BytecodeProgram(List.of(new Instruction(Opcode.RETURN)));
+    VmState smaller = new VmState();
+    smaller.ensureRoot(program);
+    smaller
+        .currentFrame()
+        .operandStack
+        .push(
+            new ListValue(
+                List.of(
+                    new MapValue(
+                        Map.of(
+                            new IntegerValue(1),
+                            new StringValue(new byte[] {'"'}))))));
+    smaller.currentFrame().instructionPointer = 0;
+
+    VmState larger = new VmState();
+    larger.ensureRoot(program);
+    larger
+        .currentFrame()
+        .operandStack
+        .push(
+            new ListValue(
+                List.of(
+                    new MapValue(
+                        Map.of(
+                            new IntegerValue(1),
+                            new StringValue(new byte[] {'"', '\\', 'x', 'y', 'z'}))))));
+    larger.currentFrame().instructionPointer = 1;
+
+    VmSnapshot smallerSnapshot = smaller.snapshot(0);
+    VmSnapshot largerSnapshot = larger.snapshot(0);
+
+    assertTrue(smallerSnapshot.byteSize() > 0);
+    assertEquals(smallerSnapshot.byteSize() + 4, largerSnapshot.byteSize());
+    assertEquals(largerSnapshot.byteSize(), largerSnapshot.byteSize());
+  }
+
+  @Test
+  void byteSizeCountsAnonymousObjectIdentityPayload() {
+    BytecodeProgram program =
+        new BytecodeProgram(List.of(new Instruction(Opcode.RETURN)));
+    VmState withoutAnonymous = new VmState();
+    withoutAnonymous.ensureRoot(program);
+    VmState withAnonymous = new VmState();
+    withAnonymous.ensureRoot(program);
+    withAnonymous.currentFrame().operandStack.push(new AnonymousObjectValue());
+
+    assertEquals(
+        withoutAnonymous.snapshot(0).byteSize() + Byte.BYTES + Long.BYTES,
+        withAnonymous.snapshot(0).byteSize());
   }
 
   private static StringValue text(String value) {

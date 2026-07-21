@@ -71,11 +71,16 @@ public final class MooRuntime {
     listenerControl = Optional.empty();
     checkpoint = Optional.empty();
     TaskRegistry taskRegistry = new TaskRegistry();
-    builtins =
-        new BuiltinCatalog(taskRegistry::queuedTasks, taskRegistry::killTask, this::read);
     scheduler =
         new PublicationScheduler(
             Objects.requireNonNull(world, "world"), this, taskRegistry);
+    builtins =
+        new BuiltinCatalog(
+            taskRegistry::queuedTasks,
+            taskRegistry::killTask,
+            this::read,
+            scheduler::threadPool,
+            taskRegistry::threads);
   }
 
   /** Creates the production runtime with its concrete listener and checkpoint owners. */
@@ -115,19 +120,21 @@ public final class MooRuntime {
     this.listenerControl = Optional.of(Objects.requireNonNull(listenerControl, "listenerControl"));
     this.checkpoint = Objects.requireNonNull(checkpoint, "checkpoint");
     TaskRegistry taskRegistry = new TaskRegistry();
-    builtins =
-        new BuiltinCatalog(
-            listenerControl,
-            taskRegistry::queuedTasks,
-            taskRegistry::killTask,
-            this::read);
     scheduler =
         new PublicationScheduler(
             Objects.requireNonNull(world, "world"),
             this,
             workers,
-            taskRegistry,
-            Objects.requireNonNull(restoredTasks, "restoredTasks"));
+            taskRegistry);
+    builtins =
+        new BuiltinCatalog(
+            listenerControl,
+            taskRegistry::queuedTasks,
+            taskRegistry::killTask,
+            this::read,
+            scheduler::threadPool,
+            taskRegistry::threads);
+    scheduler.restoreQueuedTasks(Objects.requireNonNull(restoredTasks, "restoredTasks"));
   }
 
   /** Runs the database's server_started verb through the production scheduler. */
