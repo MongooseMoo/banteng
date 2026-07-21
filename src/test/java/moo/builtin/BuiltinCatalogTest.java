@@ -40,6 +40,7 @@ final class BuiltinCatalogTest {
           "create",
           "clear_property",
           "decode_binary",
+          "delete_verb",
           "delete_property",
           "disassemble",
           "dump_database",
@@ -92,7 +93,9 @@ final class BuiltinCatalogTest {
           "tostr",
           "typeof",
           "valid",
-          "verb_code");
+          "verb_args",
+          "verb_code",
+          "verb_info");
 
   @Test
   void registersEveryReachableBuiltinExactlyOnceWithCompleteContracts() {
@@ -541,6 +544,193 @@ final class BuiltinCatalogTest {
                       new IntegerValue(2),
                       new IntegerValue(0),
                       new ListValue(List.of(string("this"), string("none"), string("this")))),
+                  transaction,
+                  2)
+              .error());
+    }
+  }
+
+  @Test
+  void verbInfoAndVerbArgsReturnCanonicalLocalMetadataWithToastReadAuthority() {
+    BuiltinCatalog catalog = new BuiltinCatalog();
+    BuiltinSpec infoSpec = catalog.spec("verb_info").orElseThrow();
+    BuiltinSpec argsSpec = catalog.spec("verb_args").orElseThrow();
+
+    CallShape twoAny =
+        new CallShape(
+            List.of(Set.of(ArgType.ANY), Set.of(ArgType.ANY)),
+            List.of(),
+            Optional.empty());
+    assertEquals(List.of(twoAny), infoSpec.callShapes());
+    assertEquals(List.of(twoAny), argsSpec.callShapes());
+    assertSame(BuiltinPermissionRule.ANY, infoSpec.permission());
+    assertSame(BuiltinPermissionRule.ANY, argsSpec.permission());
+    assertEquals(EffectClass.TRANSACTION_READ, infoSpec.effect());
+    assertEquals(EffectClass.TRANSACTION_READ, argsSpec.effect());
+    assertEquals(BuiltinOwner.WORLD, infoSpec.owner());
+    assertEquals(BuiltinOwner.WORLD, argsSpec.owner());
+
+    WorldObject wizard =
+        new WorldObject(1, "Wizard", 4, 1, -1, -1, List.of(), List.of(), List.of(), List.of());
+    WorldObject programmer =
+        new WorldObject(2, "Programmer", 0, 2, -1, -1, List.of(), List.of(), List.of(), List.of());
+    WorldObject target =
+        new WorldObject(
+            3,
+            "Target",
+            0,
+            2,
+            -1,
+            -1,
+            List.of(),
+            List.of(),
+            List.of(
+                new WorldVerb("alpha aliases", 2, 15 | (2 << 4) | (1 << 6), 0, "return 1;"),
+                new WorldVerb("private", 1, 0, -1, "return 2;")),
+            List.of());
+    try (WorldTxn transaction =
+        new WorldTxn(List.of(), List.of(wizard, programmer, target)).begin()) {
+      assertEquals(
+          Optional.of(
+              new ListValue(List.of(new ObjectValue(2), string("rwxd"), string("alpha aliases")))),
+          invoke(
+                  catalog,
+                  infoSpec,
+                  List.of(new ObjectValue(3), string("alpha")),
+                  transaction,
+                  2)
+              .value());
+      assertEquals(
+          Optional.of(
+              new ListValue(List.of(string("this"), string("with/using"), string("any")))),
+          invoke(
+                  catalog,
+                  argsSpec,
+                  List.of(new ObjectValue(3), new IntegerValue(1)),
+                  transaction,
+                  2)
+              .value());
+      assertEquals(
+          Optional.of(ErrorValue.E_PERM),
+          invoke(
+                  catalog,
+                  infoSpec,
+                  List.of(new ObjectValue(3), string("private")),
+                  transaction,
+                  2)
+              .error());
+      assertEquals(
+          Optional.of(ErrorValue.E_VERBNF),
+          invoke(
+                  catalog,
+                  argsSpec,
+                  List.of(new ObjectValue(3), string("missing")),
+                  transaction,
+                  2)
+              .error());
+      assertEquals(
+          Optional.of(ErrorValue.E_TYPE),
+          invoke(
+                  catalog,
+                  infoSpec,
+                  List.of(new IntegerValue(3), new IntegerValue(0)),
+                  transaction,
+                  2)
+              .error());
+      assertEquals(
+          Optional.of(ErrorValue.E_INVARG),
+          invoke(
+                  catalog,
+                  argsSpec,
+                  List.of(new ObjectValue(3), new IntegerValue(0)),
+                  transaction,
+                  2)
+              .error());
+    }
+  }
+
+  @Test
+  void deleteVerbRequiresObjectWriteAuthorityAndRemovesOneLocalDefinition() {
+    BuiltinCatalog catalog = new BuiltinCatalog();
+    BuiltinSpec spec = catalog.spec("delete_verb").orElseThrow();
+
+    assertEquals(
+        List.of(
+            new CallShape(
+                List.of(Set.of(ArgType.ANY), Set.of(ArgType.ANY)),
+                List.of(),
+                Optional.empty())),
+        spec.callShapes());
+    assertSame(BuiltinPermissionRule.ANY, spec.permission());
+    assertEquals(EffectClass.TRANSACTION_WRITE, spec.effect());
+    assertEquals(BuiltinOwner.WORLD, spec.owner());
+
+    WorldObject wizard =
+        new WorldObject(1, "Wizard", 4, 1, -1, -1, List.of(), List.of(), List.of(), List.of());
+    WorldObject programmer =
+        new WorldObject(2, "Programmer", 0, 2, -1, -1, List.of(), List.of(), List.of(), List.of());
+    WorldObject writable =
+        new WorldObject(
+            3,
+            "Writable",
+            0,
+            2,
+            -1,
+            -1,
+            List.of(),
+            List.of(),
+            List.of(
+                new WorldVerb("first", 1, 0, -1, "return 1;"),
+                new WorldVerb("second", 1, 0, -1, "return 2;")),
+            List.of());
+    WorldObject denied =
+        new WorldObject(4, "Denied", 0, 1, -1, -1, List.of(), List.of(), List.of(), List.of());
+    try (WorldTxn transaction =
+        new WorldTxn(List.of(), List.of(wizard, programmer, writable, denied)).begin()) {
+      assertEquals(
+          Optional.of(new IntegerValue(0)),
+          invoke(
+                  catalog,
+                  spec,
+                  List.of(new ObjectValue(3), string("first")),
+                  transaction,
+                  2)
+              .value());
+      assertEquals("second", transaction.verb(3, 0).orElseThrow().names());
+      assertEquals(Optional.empty(), transaction.verb(3, 1));
+      assertEquals(
+          Optional.of(ErrorValue.E_PERM),
+          invoke(
+                  catalog,
+                  spec,
+                  List.of(new ObjectValue(4), string("missing")),
+                  transaction,
+                  2)
+              .error());
+      assertEquals(
+          Optional.of(ErrorValue.E_VERBNF),
+          invoke(
+                  catalog,
+                  spec,
+                  List.of(new ObjectValue(3), string("missing")),
+                  transaction,
+                  2)
+              .error());
+      assertEquals(
+          Optional.of(ErrorValue.E_INVARG),
+          invoke(
+                  catalog,
+                  spec,
+                  List.of(new IntegerValue(3), new IntegerValue(0)),
+                  transaction,
+                  2)
+              .error());
+      assertEquals(
+          Optional.of(ErrorValue.E_TYPE),
+          invoke(
+                  catalog,
+                  spec,
+                  List.of(new IntegerValue(3), string("first")),
                   transaction,
                   2)
               .error());
