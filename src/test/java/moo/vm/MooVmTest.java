@@ -26,6 +26,7 @@ import moo.value.MooValue.MapValue;
 import moo.value.MooValue.ObjectValue;
 import moo.value.MooValue.StringValue;
 import moo.value.MooValue.WaifValue;
+import moo.world.WorldAnonymousObject;
 import moo.world.WorldObject;
 import moo.world.WorldProperty;
 import moo.world.WorldTxn;
@@ -33,6 +34,162 @@ import moo.world.WorldVerb;
 import org.junit.jupiter.api.Test;
 
 final class MooVmTest {
+  @Test
+  void nonDebugActivationTurnsFailuresIntoValuesWithoutEnteringHandlers() {
+    BytecodeProgram program =
+        new MooCompiler()
+            .compile(
+                "try x = 1 + \"wrong\"; except (ANY) return \"caught\"; endtry "
+                    + "return {x, raise(E_PERM), 7};");
+    VmState state =
+        new VmState(
+            Map.of("this", new ObjectValue(-1), "player", new ObjectValue(8)),
+            8,
+            new ObjectValue(-1),
+            10_000,
+            5,
+            64,
+            false);
+
+    try (WorldTxn transaction = new WorldTxn(List.of(), List.of()).begin()) {
+      new MooVm().execute(program, state, transaction, new BuiltinCatalog(), 1);
+    }
+
+    assertEquals(VmState.Outcome.RETURNED, state.outcome());
+    assertEquals(
+        new ListValue(List.of(ErrorValue.E_TYPE, ErrorValue.E_PERM, new IntegerValue(7))),
+        state.returnValue().orElseThrow());
+  }
+
+  @Test
+  void calledVerbUsesItsOwnDebugPermission() {
+    WorldVerb nonDebug =
+        new WorldVerb(
+            "work", 1, 4, -1, "x = 1 + \"wrong\"; return {\"continued\", x};");
+    WorldObject subject =
+        new WorldObject(
+            1, "subject", 1, 1, -1, -1, List.of(), List.of(), List.of(nonDebug), List.of());
+    WorldTxn world = new WorldTxn(List.of(), List.of(subject));
+    VmState state =
+        new VmState(
+            Map.of("subject", new ObjectValue(1), "this", new ObjectValue(1)),
+            1,
+            new ObjectValue(1));
+
+    executeAndClose(
+        new MooCompiler().compile("return subject:work();"),
+        state,
+        world,
+        new BuiltinCatalog());
+
+    assertEquals(VmState.Outcome.RETURNED, state.outcome());
+    assertEquals(
+        new ListValue(List.of(text("continued"), ErrorValue.E_TYPE)),
+        state.returnValue().orElseThrow());
+  }
+
+  @Test
+  void structuredCatchReceivesCompleteDefaultErrorAndTraceback() {
+    BytecodeProgram program =
+        new MooCompiler()
+            .compile(
+                MooParser.parse(
+                    "try x = 1 / 0; except e (ANY) "
+                        + "return {length(e), e[1], e[2], e[3], length(e[4]), "
+                        + "length(e[4][1]), e[4][1][6]}; endtry"));
+    VmState state =
+        new VmState(
+            Map.of("this", new ObjectValue(-1), "player", new ObjectValue(8)),
+            8,
+            new ObjectValue(-1));
+
+    try (WorldTxn transaction = new WorldTxn(List.of(), List.of()).begin()) {
+      new MooVm().execute(program, state, transaction, new BuiltinCatalog(), 1);
+    }
+
+    assertEquals(VmState.Outcome.RETURNED, state.outcome());
+    assertEquals(
+        new ListValue(
+            List.of(
+                new IntegerValue(4),
+                ErrorValue.E_DIV,
+                new StringValue("Division by zero".getBytes(StandardCharsets.ISO_8859_1)),
+                new IntegerValue(0),
+                new IntegerValue(1),
+                new IntegerValue(6),
+                new IntegerValue(1))),
+        state.returnValue().orElseThrow());
+  }
+
+  @Test
+  void ordinaryProgrammerCannotAssignProgrammerOrWizardBuiltInFlags() {
+    WorldObject programmer =
+        new WorldObject(
+            1, "programmer", 2, 1, -1, -1, List.of(), List.of(), List.of(), List.of());
+    WorldTxn root = new WorldTxn(List.of(1L), List.of(programmer));
+    MooVm vm = new MooVm();
+
+    for (String property : List.of("wizard", "programmer")) {
+      BytecodeProgram program =
+          new MooCompiler()
+              .compile(
+                  MooParser.parse(
+                      "try player."
+                          + property
+                          + " = 1; return E_NONE; except error (ANY) return error[1]; endtry"));
+      VmState state =
+          new VmState(Map.of("player", new ObjectValue(1)), 1, new ObjectValue(1));
+
+      try (WorldTxn transaction = root.begin()) {
+        vm.execute(program, state, transaction, new BuiltinCatalog(), 1);
+        assertEquals(2, transaction.object(1).orElseThrow().flags());
+      }
+
+      assertEquals(VmState.Outcome.RETURNED, state.outcome());
+      assertEquals(ErrorValue.E_PERM, state.returnValue().orElseThrow());
+    }
+  }
+
+  @Test
+  void intrinsifiedDefaultYinPreservesItsValueAndSuspensionThreshold() {
+    BytecodeProgram program = new MooCompiler().compile(MooParser.parse("return yin();"));
+    MooVm vm = new MooVm();
+    WorldTxn root = new WorldTxn(List.of(), List.of());
+
+    try (WorldTxn transaction = root.begin()) {
+      VmState noYield = new VmState(Map.of(), -1, new ObjectValue(-1), 2_001, 5);
+      vm.execute(program, noYield, transaction, new BuiltinCatalog(), 1);
+      assertEquals(VmState.Outcome.RETURNED, noYield.outcome());
+      assertEquals(new IntegerValue(0), noYield.returnValue().orElseThrow());
+
+      VmState yielded = new VmState(Map.of(), -1, new ObjectValue(-1), 2_000, 5);
+      vm.execute(program, yielded, transaction, new BuiltinCatalog(), 1);
+      assertEquals(VmState.Outcome.SUSPENDED, yielded.outcome());
+      assertEquals(0.0, yielded.suspensionDelaySeconds().orElseThrow());
+    }
+  }
+
+  @Test
+  void finalStraightLineReadsMoveTemporaryValuesOutOfSuspendedLocals() {
+    WaifValue waif = new WaifValue(new ObjectValue(9), new ObjectValue(3));
+    AnonymousObjectValue anonymous = new AnonymousObjectValue();
+    BytecodeProgram program =
+        new MooCompiler()
+            .compile(
+                "WAIF = seed_waif; ANON = seed_anon; "
+                    + "state = {WAIF, ANON}; suspend(60);");
+    VmState state =
+        new VmState(Map.of("seed_waif", waif, "seed_anon", anonymous), 3, new ObjectValue(0));
+
+    executeAndClose(program, state, new WorldTxn(List.of(), List.of()), new BuiltinCatalog());
+
+    assertEquals(VmState.Outcome.SUSPENDED, state.outcome());
+    Map<String, MooValue> locals = state.snapshot().frames().getFirst().locals();
+    assertFalse(locals.containsKey("waif"));
+    assertFalse(locals.containsKey("anon"));
+    assertEquals(new ListValue(List.of(waif, anonymous)), locals.get("state"));
+  }
+
   @Test
   void routesSuspendedHostMooErrorDetailsThroughTheCapturedHandler() {
     BytecodeProgram program =
@@ -66,7 +223,16 @@ final class MooVmTest {
                 ErrorValue.E_INVARG,
                 message,
                 new IntegerValue(17),
-                new ListValue(List.of()))),
+                new ListValue(
+                    List.of(
+                        new ListValue(
+                            List.of(
+                                new ObjectValue(-1),
+                                new StringValue(new byte[0]),
+                                new ObjectValue(-1),
+                                new ObjectValue(-1),
+                                new ObjectValue(-1),
+                                new IntegerValue(1))))))),
         state.returnValue().orElseThrow());
   }
 
@@ -96,6 +262,70 @@ final class MooVmTest {
     assertTrue(state.operandStack().isEmpty());
     assertEquals(VmState.Outcome.RETURNED, state.outcome());
     assertEquals(new IntegerValue(2), state.returnValue().orElseThrow());
+  }
+
+  @Test
+  void executesToastBitwiseOperatorsAndShiftBoundaries() {
+    BytecodeProgram program =
+        new MooCompiler()
+            .compile(
+                MooParser.parse(
+                    "return {1 &. 2, 1 |. 2, 1 ^. 3, ~0, 1 << 63, ~0 >> 63, 1 << 64, "
+                        + "`1 &. 1.0 ! E_TYPE => E_TYPE', "
+                        + "`1 << -1 ! E_INVARG => E_INVARG', "
+                        + "`1 >> 65 ! E_INVARG => E_INVARG'};"));
+    VmState state = new VmState();
+
+    new MooVm().execute(program, state);
+
+    assertEquals(VmState.Outcome.RETURNED, state.outcome());
+    assertEquals(
+        new ListValue(
+            List.of(
+                new IntegerValue(0),
+                new IntegerValue(3),
+                new IntegerValue(2),
+                new IntegerValue(-1),
+                new IntegerValue(Long.MIN_VALUE),
+                new IntegerValue(1),
+                new IntegerValue(0),
+                ErrorValue.E_TYPE,
+                ErrorValue.E_INVARG,
+                ErrorValue.E_INVARG)),
+        state.returnValue().orElseThrow());
+    assertTrue(program.disassemble().contains("BITAND"));
+    assertTrue(program.disassemble().contains("BITOR"));
+    assertTrue(program.disassemble().contains("BITXOR"));
+    assertTrue(program.disassemble().contains("BITSHL"));
+    assertTrue(program.disassemble().contains("BITSHR"));
+    assertTrue(program.disassemble().contains("COMPLEMENT"));
+  }
+
+  @Test
+  void ordersFullWidthObjectsSeparatelyFromTheNarrowedMapComparator() {
+    BytecodeProgram program =
+        new MooCompiler()
+            .compile(
+                MooParser.parse(
+                    "values = [#0 -> \"small\", #4294967296 -> \"large\"]; "
+                        + "return {#0 < #4294967296, #4294967296 > #0, "
+                        + "length(values), values[#0], values[#4294967296]};"));
+    VmState state = new VmState();
+
+    executeAndClose(
+        program, state, new WorldTxn(List.of(), List.of()), new BuiltinCatalog());
+
+    MooValue large = new StringValue("large".getBytes(StandardCharsets.ISO_8859_1));
+    assertEquals(VmState.Outcome.RETURNED, state.outcome());
+    assertEquals(
+        new ListValue(
+            List.of(
+                new IntegerValue(1),
+                new IntegerValue(1),
+                new IntegerValue(1),
+                large,
+                large)),
+        state.returnValue().orElseThrow());
   }
 
   @Test
@@ -184,6 +414,56 @@ final class MooVmTest {
   }
 
   @Test
+  void builtinArgumentListConstructionEnforcesTheCatchableListValueLimit() {
+    BytecodeProgram program =
+        new MooCompiler()
+            .compile(
+                MooParser.parse(
+                    "try x = {}; for i in [1..90] x = setadd(x, i); endfor "
+                        + "return E_NONE; except error (E_QUOTA) return error[1]; endtry"));
+    VmState state = new VmState();
+    WorldObject system =
+        new WorldObject(
+            0,
+            "System",
+            0,
+            1,
+            -1,
+            -1,
+            List.of(),
+            List.of(),
+            List.of(),
+            List.of(
+                new WorldProperty(
+                    "server_options", new ObjectValue(3), 1, 0, false, true)));
+    WorldObject options =
+        new WorldObject(
+            3,
+            "Options",
+            0,
+            1,
+            -1,
+            -1,
+            List.of(),
+            List.of(),
+            List.of(),
+            List.of(
+                new WorldProperty(
+                    "max_list_value_bytes", new IntegerValue(1_488), 1, 0, false, true),
+                new WorldProperty(
+                    "max_concat_catchable", new IntegerValue(1), 1, 0, false, true)));
+
+    executeAndClose(
+        program,
+        state,
+        new WorldTxn(List.of(), List.of(system, options)),
+        new BuiltinCatalog());
+
+    assertEquals(VmState.Outcome.RETURNED, state.outcome());
+    assertEquals(ErrorValue.E_QUOTA, state.returnValue().orElseThrow());
+  }
+
+  @Test
   void comparesErrorValuesByTheirNumericCodes() {
     byte[] source = "return E_NONE < E_TYPE;".getBytes(StandardCharsets.ISO_8859_1);
     Ast.Program syntax = MooParser.parse(source);
@@ -204,6 +484,33 @@ final class MooVmTest {
 
     assertEquals(VmState.Outcome.RETURNED, state.outcome());
     assertEquals(new IntegerValue(1), state.returnValue().orElseThrow());
+  }
+
+  @Test
+  void comparesTwoBooleansRelationallyAsTheSameDefaultZeroValue() {
+    VmState state = new VmState();
+    BytecodeProgram program =
+        new MooCompiler()
+            .compile(
+                MooParser.parse(
+                    "return {false < true, false <= true, false > true, false >= true, "
+                        + "true < false, true <= false, true > false, true >= false};"));
+
+    new MooVm().execute(program, state);
+
+    assertEquals(VmState.Outcome.RETURNED, state.outcome());
+    assertEquals(
+        new ListValue(
+            List.of(
+                new IntegerValue(0),
+                new IntegerValue(1),
+                new IntegerValue(0),
+                new IntegerValue(1),
+                new IntegerValue(0),
+                new IntegerValue(1),
+                new IntegerValue(0),
+                new IntegerValue(1))),
+        state.returnValue().orElseThrow());
   }
 
   @Test
@@ -1556,6 +1863,39 @@ final class MooVmTest {
   }
 
   @Test
+  void assignsThroughArbitrarilyNestedListAndMapPathsWithCopyOnWrite() {
+    BytecodeProgram program =
+        new MooCompiler()
+            .compile(
+                MooParser.parse(
+                    "x = [1 -> { [1 -> 1] }]; y = x; x[1][1][1] = 9; return {x, y};"));
+    VmState state = new VmState();
+
+    new MooVm().execute(program, state);
+
+    assertEquals(VmState.Outcome.RETURNED, state.outcome());
+    assertTrue(state.uncaughtError().isEmpty());
+    assertEquals(
+        new ListValue(
+            List.of(
+                new MapValue(
+                    Map.of(
+                        new IntegerValue(1),
+                        new ListValue(
+                            List.of(
+                                new MapValue(
+                                    Map.of(new IntegerValue(1), new IntegerValue(9))))))),
+                new MapValue(
+                    Map.of(
+                        new IntegerValue(1),
+                        new ListValue(
+                            List.of(
+                                new MapValue(
+                                    Map.of(new IntegerValue(1), new IntegerValue(1))))))))),
+        state.returnValue().orElseThrow());
+  }
+
+  @Test
   void assignsAnInvertedListRangeThroughTheCompleteCollectionPipeline() {
     byte[] source =
         "t = {1, 2, 3, 4, 5, 6, 7}; t[7..1] = {\"a\", \"b\", \"c\"}; return t;"
@@ -2549,6 +2889,50 @@ final class MooVmTest {
   }
 
   @Test
+  void assignsAnIndexedObjectPropertyAndReturnsTheAssignedValue() {
+    WorldProperty numbers =
+        new WorldProperty(
+            "numbers",
+            new ListValue(List.of(new IntegerValue(1), new IntegerValue(2))),
+            1,
+            0,
+            false,
+            true);
+    WorldObject wizard =
+        new WorldObject(
+            1,
+            "wizard",
+            4,
+            1,
+            -1,
+            -1,
+            List.of(),
+            List.of(),
+            List.of(),
+            List.of(numbers));
+    WorldTxn world = new WorldTxn(List.of(1L), List.of(wizard));
+    VmState state =
+        new VmState(Map.of("player", new ObjectValue(1), "this", new ObjectValue(1)), 1);
+
+    executeAndCommit(
+        new MooCompiler()
+            .compile(
+                MooParser.parse(
+                    "assigned = this.numbers[2] = 9; return {assigned, this.numbers};")),
+        state,
+        world,
+        new BuiltinCatalog());
+
+    ListValue updated =
+        new ListValue(List.of(new IntegerValue(1), new IntegerValue(9)));
+    assertEquals(
+        new ListValue(List.of(new IntegerValue(9), updated)), state.returnValue().orElseThrow());
+    try (WorldTxn transaction = world.begin()) {
+      assertEquals(updated, transaction.readObjectProperty(1, "numbers").orElseThrow());
+    }
+  }
+
+  @Test
   void assignsTheFirstStringByteThroughTheCompleteCollectionPipeline() {
     byte[] source =
         "s = \"foobar\"; s[^] = \"x\"; return s;".getBytes(StandardCharsets.ISO_8859_1);
@@ -3051,6 +3435,17 @@ final class MooVmTest {
   }
 
   @Test
+  void evaluatesToastAndOrWithSharedLeftAssociativePrecedence() {
+    VmState state = new VmState();
+
+    new MooVm()
+        .execute(new MooCompiler().compile(MooParser.parse("return 1 || 1 && 0;")), state);
+
+    assertEquals(VmState.Outcome.RETURNED, state.outcome());
+    assertEquals(new IntegerValue(0), state.returnValue().orElseThrow());
+  }
+
+  @Test
   void integerZeroRaisedToNegativeExponentRaisesDivisionError() {
     BytecodeProgram program = new MooCompiler().compile(MooParser.parse("return 0 ^ -1;"));
     VmState state = new VmState();
@@ -3084,6 +3479,29 @@ final class MooVmTest {
 
     assertEquals(VmState.Outcome.ERRORED, invalidState.outcome());
     assertEquals(ErrorValue.E_TYPE, invalidState.uncaughtError().orElseThrow());
+  }
+
+  @Test
+  void findsCaseInsensitiveSubstringMembershipAtOneBasedBytePosition() {
+    BytecodeProgram program =
+        new MooCompiler()
+            .compile(
+                MooParser.parse(
+                    "return {\"bar\" in \"foobar\", \"BAR\" in \"foobar\", "
+                        + "\"\" in \"foobar\", \"xyz\" in \"foobar\"};"));
+    VmState state = new VmState();
+
+    new MooVm().execute(program, state);
+
+    assertEquals(VmState.Outcome.RETURNED, state.outcome());
+    assertEquals(
+        new ListValue(
+            List.of(
+                new IntegerValue(4),
+                new IntegerValue(4),
+                new IntegerValue(1),
+                new IntegerValue(0))),
+        state.returnValue().orElseThrow());
   }
 
   @Test
@@ -3410,6 +3828,341 @@ final class MooVmTest {
   }
 
   @Test
+  void multipleInheritanceVerbLookupAndPassFollowCanonicalAncestorOrder() {
+    WorldVerb rootVerb = new WorldVerb("which", 1, 4, -1, "return \"root\";");
+    WorldVerb leftVerb =
+        new WorldVerb("which", 2, 4, -1, "return {\"left\", pass()};");
+    WorldVerb rightVerb = new WorldVerb("which", 3, 4, -1, "return \"right\";");
+    WorldObject root =
+        new WorldObject(
+            1, "root", 0, 1, -1, List.of(), List.of(), List.of(2L, 3L), List.of(rootVerb), List.of());
+    WorldObject left =
+        new WorldObject(
+            2, "left", 0, 2, -1, List.of(1L), List.of(), List.of(4L), List.of(leftVerb), List.of());
+    WorldObject right =
+        new WorldObject(
+            3,
+            "right",
+            0,
+            3,
+            -1,
+            List.of(1L),
+            List.of(),
+            List.of(4L),
+            List.of(rightVerb),
+            List.of());
+    WorldObject child =
+        new WorldObject(
+            4,
+            "child",
+            0,
+            4,
+            -1,
+            List.of(2L, 3L),
+            List.of(),
+            List.of(),
+            List.of(),
+            List.of());
+    WorldTxn world = new WorldTxn(List.of(), List.of(root, left, right, child));
+    VmState state =
+        new VmState(Map.of("player", new ObjectValue(4), "this", new ObjectValue(4)), 4);
+
+    executeAndClose(
+        new MooCompiler().compile(MooParser.parse("return #4:which();")),
+        state,
+        world,
+        new BuiltinCatalog());
+
+    assertEquals(VmState.Outcome.RETURNED, state.outcome());
+    assertEquals(
+        new ListValue(
+            List.of(
+                new StringValue("left".getBytes(StandardCharsets.ISO_8859_1)),
+                new StringValue("root".getBytes(StandardCharsets.ISO_8859_1)))),
+        state.returnValue().orElseThrow());
+  }
+
+  @Test
+  void passNeverFallsThroughIntoALaterSiblingSubtree() {
+    WorldVerb leftVerb = new WorldVerb("which", 2, 12, -1, "return pass();");
+    WorldVerb rightVerb = new WorldVerb("which", 3, 4, -1, "return \"wrong sibling\";");
+    WorldObject root =
+        new WorldObject(
+            1, "root", 0, 1, -1, List.of(), List.of(), List.of(2L, 3L), List.of(), List.of());
+    WorldObject left =
+        new WorldObject(
+            2, "left", 0, 2, -1, List.of(1L), List.of(), List.of(4L), List.of(leftVerb), List.of());
+    WorldObject right =
+        new WorldObject(
+            3,
+            "right",
+            0,
+            3,
+            -1,
+            List.of(1L),
+            List.of(),
+            List.of(4L),
+            List.of(rightVerb),
+            List.of());
+    WorldObject child =
+        new WorldObject(
+            4, "child", 0, 4, -1, List.of(2L, 3L), List.of(), List.of(), List.of(), List.of());
+    VmState state =
+        new VmState(Map.of("player", new ObjectValue(4), "this", new ObjectValue(4)), 4);
+
+    executeAndClose(
+        new MooCompiler()
+            .compile(MooParser.parse("return `#4:which() ! E_VERBNF => \"none\"';")),
+        state,
+        new WorldTxn(List.of(), List.of(root, left, right, child)),
+        new BuiltinCatalog());
+
+    assertEquals(
+        new StringValue("none".getBytes(StandardCharsets.ISO_8859_1)),
+        state.returnValue().orElseThrow());
+  }
+
+  @Test
+  void passFromALocationWithoutParentsRaisesInvalidIndirection() {
+    WorldVerb verb = new WorldVerb("which", 1, 12, -1, "return pass();");
+    WorldObject object =
+        new WorldObject(
+            1, "root", 0, 1, -1, -1, List.of(), List.of(), List.of(verb), List.of());
+    VmState state =
+        new VmState(Map.of("player", new ObjectValue(1), "this", new ObjectValue(1)), 1);
+
+    executeAndClose(
+        new MooCompiler()
+            .compile(MooParser.parse("return `#1:which() ! E_INVIND => \"none\"';")),
+        state,
+        new WorldTxn(List.of(), List.of(object)),
+        new BuiltinCatalog());
+
+    assertEquals(
+        new StringValue("none".getBytes(StandardCharsets.ISO_8859_1)),
+        state.returnValue().orElseThrow());
+  }
+
+  @Test
+  void anonymousVerbCallsAndPassRetainAnonymousReceiverAndLocation() {
+    AnonymousObjectValue identity = new AnonymousObjectValue();
+    WorldVerb parentVerb = new WorldVerb("which", 1, 4, -1, "return this;");
+    WorldVerb anonymousVerb =
+        new WorldVerb("which", 1, 4, -1, "return {this, pass()};");
+    WorldObject parent =
+        new WorldObject(
+            1, "parent", 0, 1, -1, -1, List.of(), List.of(), List.of(parentVerb), List.of());
+    WorldAnonymousObject anonymous =
+        new WorldAnonymousObject("anonymous", 0, 1, List.of(1L), List.of(anonymousVerb), List.of());
+    VmState state =
+        new VmState(
+            Map.of("player", new ObjectValue(1), "this", new ObjectValue(1), "anon", identity),
+            1);
+
+    executeAndClose(
+        new MooCompiler().compile(MooParser.parse("return anon:which();")),
+        state,
+        new WorldTxn(List.of(), List.of(parent), Map.of(identity, anonymous)),
+        new BuiltinCatalog());
+
+    assertEquals(
+        new ListValue(List.of(identity, identity)), state.returnValue().orElseThrow());
+  }
+
+  @Test
+  void primitiveVerbCallsUseSystemPrototypeAndRetainPrimitiveThis() {
+    WorldVerb inspect = new WorldVerb("inspect", 1, 4, -1, "return this;");
+    WorldObject system =
+        new WorldObject(
+            0,
+            "system",
+            4,
+            1,
+            -1,
+            -1,
+            List.of(),
+            List.of(),
+            List.of(),
+            List.of(new WorldProperty("list_proto", new ObjectValue(2), 1, 0, false, false)));
+    WorldObject prototype =
+        new WorldObject(
+            2, "list prototype", 0, 1, -1, -1, List.of(), List.of(), List.of(inspect), List.of());
+    ListValue receiver = new ListValue(List.of(new IntegerValue(7), new IntegerValue(8)));
+    VmState state =
+        new VmState(
+            Map.of("player", new ObjectValue(1), "this", new ObjectValue(1), "value", receiver),
+            1);
+
+    executeAndClose(
+        new MooCompiler().compile(MooParser.parse("return value:inspect();")),
+        state,
+        new WorldTxn(List.of(), List.of(system, prototype)),
+        new BuiltinCatalog());
+
+    assertEquals(VmState.Outcome.RETURNED, state.outcome());
+    assertEquals(receiver, state.returnValue().orElseThrow());
+  }
+
+  @Test
+  void primitiveVerbCallsDistinguishMissingPrototypeFromMissingVerb() {
+    WorldObject systemWithoutPrototype =
+        new WorldObject(
+            0, "system", 4, 1, -1, -1, List.of(), List.of(), List.of(), List.of());
+    WorldObject systemWithPrototype =
+        new WorldObject(
+            0,
+            "system",
+            4,
+            1,
+            -1,
+            -1,
+            List.of(),
+            List.of(),
+            List.of(),
+            List.of(new WorldProperty("int_proto", new ObjectValue(2), 1, 0, false, false)));
+    WorldObject prototype =
+        new WorldObject(
+            2, "integer prototype", 0, 1, -1, -1, List.of(), List.of(), List.of(), List.of());
+
+    List<WorldTxn> worlds =
+        List.of(
+            new WorldTxn(List.of(), List.of(systemWithoutPrototype)),
+            new WorldTxn(List.of(), List.of(systemWithPrototype, prototype)));
+    List<ErrorValue> expectedErrors = List.of(ErrorValue.E_TYPE, ErrorValue.E_VERBNF);
+    for (int index = 0; index < worlds.size(); index++) {
+      WorldTxn world = worlds.get(index);
+      VmState state =
+          new VmState(Map.of("player", new ObjectValue(1), "this", new ObjectValue(1)), 1);
+      executeAndClose(
+          new MooCompiler().compile(MooParser.parse("return 123:missing();")),
+          state,
+          world,
+          new BuiltinCatalog());
+
+      assertEquals(VmState.Outcome.ERRORED, state.outcome());
+      assertEquals(expectedErrors.get(index), state.uncaughtError().orElseThrow());
+    }
+  }
+
+  @Test
+  void passFromPrimitivePrototypeRetainsPrimitiveReceiver() {
+    WorldVerb inherited = new WorldVerb("length", 1, 4, -1, "return length(this);");
+    WorldVerb override = new WorldVerb("length", 1, 4, -1, "return pass();");
+    WorldObject system =
+        new WorldObject(
+            0,
+            "system",
+            4,
+            1,
+            -1,
+            -1,
+            List.of(),
+            List.of(),
+            List.of(),
+            List.of(new WorldProperty("list_proto", new ObjectValue(3), 1, 0, false, false)));
+    WorldObject base =
+        new WorldObject(
+            2, "base", 0, 1, -1, -1, List.of(), List.of(3L), List.of(inherited), List.of());
+    WorldObject prototype =
+        new WorldObject(
+            3, "list prototype", 0, 1, -1, 2, List.of(), List.of(), List.of(override), List.of());
+    VmState state =
+        new VmState(Map.of("player", new ObjectValue(1), "this", new ObjectValue(1)), 1);
+
+    executeAndClose(
+        new MooCompiler().compile(MooParser.parse("return {1, 2, 3}:length();")),
+        state,
+        new WorldTxn(List.of(), List.of(system, base, prototype)),
+        new BuiltinCatalog());
+
+    assertEquals(VmState.Outcome.RETURNED, state.outcome());
+    assertEquals(new IntegerValue(3), state.returnValue().orElseThrow());
+  }
+
+  @Test
+  void createRunsInitializeWithSuppliedArgumentsAndReturnsTheCreatedObject() {
+    WorldProperty marker =
+        new WorldProperty("marker", new IntegerValue(0), 1, 0, false, true);
+    WorldVerb initialize =
+        new WorldVerb("initialize", 1, 4, -1, "this.marker = args[1]; return 999;");
+    WorldObject parent =
+        new WorldObject(
+            0,
+            "parent",
+            128,
+            0,
+            -1,
+            -1,
+            List.of(),
+            List.of(),
+            List.of(initialize),
+            List.of(marker));
+    WorldObject wizard =
+        new WorldObject(1, "wizard", 4, 1, -1, -1, List.of(), List.of(), List.of(), List.of());
+    WorldTxn world = new WorldTxn(List.of(1L), List.of(parent, wizard));
+    VmState state =
+        new VmState(Map.of("player", new ObjectValue(1), "this", new ObjectValue(1)), 1);
+
+    executeAndCommit(
+        new MooCompiler()
+            .compile(
+                MooParser.parse(
+                    "created = create(#0, {42}); return {created, created.marker};")),
+        state,
+        world,
+        new BuiltinCatalog());
+
+    assertEquals(
+        new ListValue(List.of(new ObjectValue(2), new IntegerValue(42))),
+        state.returnValue().orElseThrow());
+  }
+
+  @Test
+  void createReturnOverrideCannotCollideWithAnOrdinaryLegalLocalName() {
+    WorldVerb initialize =
+        new WorldVerb(
+            "initialize",
+            1,
+            4,
+            -1,
+            "__banteng_create_result = 77; return __banteng_create_result;");
+    WorldVerb ordinary =
+        new WorldVerb(
+            "ordinary",
+            1,
+            4,
+            -1,
+            "__banteng_create_result = 88; return __banteng_create_result;");
+    WorldObject parent =
+        new WorldObject(
+            0,
+            "parent",
+            128,
+            0,
+            -1,
+            -1,
+            List.of(),
+            List.of(),
+            List.of(initialize, ordinary),
+            List.of());
+    WorldObject wizard =
+        new WorldObject(1, "wizard", 4, 1, -1, -1, List.of(), List.of(), List.of(), List.of());
+    VmState state =
+        new VmState(Map.of("player", new ObjectValue(1), "this", new ObjectValue(1)), 1);
+
+    executeAndClose(
+        new MooCompiler()
+            .compile(MooParser.parse("return {#0:ordinary(), create(#0)};")),
+        state,
+        new WorldTxn(List.of(1L), List.of(parent, wizard)),
+        new BuiltinCatalog());
+
+    assertEquals(
+        new ListValue(List.of(new IntegerValue(88), new ObjectValue(2))),
+        state.returnValue().orElseThrow());
+  }
+
+  @Test
   void verbFramesSkipNonExecutableMatchesPopulateLocalsAndScopeProgrammer() {
     WorldVerb executable =
         new WorldVerb(
@@ -3430,7 +4183,10 @@ final class MooVmTest {
         new WorldObject(3, "player", 0, 3, -1, -1, List.of(), List.of(), List.of(), List.of());
     WorldObject caller =
         new WorldObject(4, "caller", 0, 4, -1, -1, List.of(), List.of(), List.of(), List.of());
-    WorldTxn world = new WorldTxn(List.of(), List.of(parent, child, player, caller));
+    WorldObject delegatedProgrammer =
+        new WorldObject(9, "delegated", 0, 9, -1, -1, List.of(), List.of(), List.of(), List.of());
+    WorldTxn world =
+        new WorldTxn(List.of(), List.of(parent, child, player, caller, delegatedProgrammer));
     VmState state =
         new VmState(Map.of("player", new ObjectValue(3), "this", new ObjectValue(4)), 3);
 
@@ -3456,12 +4212,12 @@ final class MooVmTest {
                         new StringValue("MIXED".getBytes(StandardCharsets.ISO_8859_1)),
                         new ListValue(List.of(new IntegerValue(42))),
                         new StringValue(new byte[0]),
-                        new ObjectValue(5))),
-                new ObjectValue(6))),
+                        new ObjectValue(10))),
+                new ObjectValue(11))),
         state.returnValue().orElseThrow());
     try (WorldTxn view = world.begin()) {
-      assertEquals(9, view.object(5).orElseThrow().owner());
-      assertEquals(3, view.object(6).orElseThrow().owner());
+      assertEquals(9, view.object(10).orElseThrow().owner());
+      assertEquals(3, view.object(11).orElseThrow().owner());
     }
   }
 
@@ -3480,7 +4236,7 @@ final class MooVmTest {
                 + "return {before, evaluated, after_eval, set_thread_mode()};");
     WorldObject object =
         new WorldObject(
-            1, "mode object", 4, 1, -1, -1, List.of(), List.of(), List.of(mode), List.of());
+            1, "mode object", 6, 1, -1, -1, List.of(), List.of(), List.of(mode), List.of());
     WorldTxn world = new WorldTxn(List.of(1L), List.of(object));
     VmState state =
         new VmState(Map.of("player", new ObjectValue(1), "this", new ObjectValue(1)), 1);
@@ -3511,6 +4267,241 @@ final class MooVmTest {
                         new IntegerValue(1))),
                 new IntegerValue(0))),
         state.returnValue().orElseThrow());
+  }
+
+  @Test
+  void evalUsesFreshToastPredefinedVariables() {
+    WorldObject programmer =
+        new WorldObject(
+            7, "programmer", 6, 7, -1, -1, List.of(), List.of(), List.of(), List.of());
+    WorldTxn world = new WorldTxn(List.of(7L), List.of(programmer));
+    MooValue source = new StringValue("source".getBytes(StandardCharsets.ISO_8859_1));
+    VmState state =
+        new VmState(
+            Map.of(
+                "player", new ObjectValue(3),
+                "this", new ObjectValue(7),
+                "caller", new ObjectValue(5),
+                "verb", new StringValue("outer".getBytes(StandardCharsets.ISO_8859_1)),
+                "args", new ListValue(List.of(source)),
+                "argstr", source),
+            7);
+
+    executeAndClose(
+        new MooCompiler()
+            .compile(
+                MooParser.parse(
+                    "return eval(\"return {player, caller, this, dobj, iobj, "
+                        + "dobjstr, iobjstr, argstr, prepstr, verb, args};\");")),
+        state,
+        world,
+        new BuiltinCatalog());
+
+    MooValue emptyString = new StringValue(new byte[0]);
+    assertEquals(VmState.Outcome.RETURNED, state.outcome());
+    assertEquals(
+        new ListValue(
+            List.of(
+                new IntegerValue(1),
+                new ListValue(
+                    List.of(
+                        new ObjectValue(3),
+                        new ObjectValue(7),
+                        new ObjectValue(-1),
+                        new ObjectValue(-1),
+                        new ObjectValue(-1),
+                        emptyString,
+                        emptyString,
+                        emptyString,
+                        emptyString,
+                        emptyString,
+                        new ListValue(List.of()))))),
+        state.returnValue().orElseThrow());
+  }
+
+  @Test
+  void callersReturnsCallerFramesAndOptionallyAppendsSourceLines() {
+    WorldVerb inspect =
+        new WorldVerb("inspect", 1, 4, -1, "return {callers(), callers(1)};");
+    WorldObject object =
+        new WorldObject(
+            1, "caller object", 4, 1, -1, -1, List.of(), List.of(), List.of(inspect), List.of());
+    WorldTxn world = new WorldTxn(List.of(1L), List.of(object));
+    VmState state =
+        new VmState(Map.of("player", new ObjectValue(1), "this", new ObjectValue(1)), 1);
+
+    executeAndClose(
+        new MooCompiler().compile(MooParser.parse("return #1:inspect();")),
+        state,
+        world,
+        new BuiltinCatalog());
+
+    ListValue caller =
+        new ListValue(
+            List.of(
+                new ObjectValue(1),
+                new StringValue(new byte[0]),
+                new ObjectValue(1),
+                new ObjectValue(1),
+                new ObjectValue(1)));
+    assertEquals(VmState.Outcome.RETURNED, state.outcome());
+    assertEquals(
+        new ListValue(
+            List.of(
+                new ListValue(List.of(caller)),
+                new ListValue(
+                    List.of(
+                        new ListValue(
+                            List.of(
+                                new ObjectValue(1),
+                                new StringValue(new byte[0]),
+                                new ObjectValue(1),
+                                new ObjectValue(1),
+                                new ObjectValue(1),
+                                new IntegerValue(1))))))),
+        state.returnValue().orElseThrow());
+  }
+
+  @Test
+  void callersIncludesTheSuspendedEvalBuiltinContinuation() {
+    WorldObject wizard =
+        new WorldObject(
+            1, "wizard", 6, 1, -1, -1, List.of(), List.of(), List.of(), List.of());
+    WorldTxn world = new WorldTxn(List.of(1L), List.of(wizard));
+    VmState state =
+        new VmState(Map.of("player", new ObjectValue(1), "this", new ObjectValue(1)), 1);
+
+    executeAndClose(
+        new MooCompiler()
+            .compile(MooParser.parse("return eval(\"return {callers(), callers(1)};\");")),
+        state,
+        world,
+        new BuiltinCatalog());
+
+    ListValue evalBuiltin =
+        new ListValue(
+            List.of(
+                new ObjectValue(-1),
+                new StringValue("eval".getBytes(StandardCharsets.ISO_8859_1)),
+                new ObjectValue(-1),
+                new ObjectValue(-1),
+                new ObjectValue(1)));
+    ListValue root =
+        new ListValue(
+            List.of(
+                new ObjectValue(1),
+                new StringValue(new byte[0]),
+                new ObjectValue(1),
+                new ObjectValue(1),
+                new ObjectValue(1)));
+    ListValue evalBuiltinWithLine =
+        new ListValue(
+            List.of(
+                new ObjectValue(-1),
+                new StringValue("eval".getBytes(StandardCharsets.ISO_8859_1)),
+                new ObjectValue(-1),
+                new ObjectValue(-1),
+                new ObjectValue(1),
+                new IntegerValue(2)));
+    ListValue rootWithLine =
+        new ListValue(
+            List.of(
+                new ObjectValue(1),
+                new StringValue(new byte[0]),
+                new ObjectValue(1),
+                new ObjectValue(1),
+                new ObjectValue(1),
+                new IntegerValue(1)));
+    assertEquals(VmState.Outcome.RETURNED, state.outcome());
+    assertEquals(
+        new ListValue(
+            List.of(
+                new IntegerValue(1),
+                new ListValue(
+                    List.of(
+                        new ListValue(List.of(evalBuiltin, root)),
+                        new ListValue(
+                            List.of(evalBuiltinWithLine, rootWithLine)))))),
+        state.returnValue().orElseThrow());
+  }
+
+  @Test
+  void nestedVerbCallsInheritCommandParsingLocals() {
+    WorldVerb inspect =
+        new WorldVerb(
+            "inspect",
+            1,
+            4,
+            -1,
+            "return {argstr, dobj, dobjstr, prepstr, iobj, iobjstr};");
+    WorldObject object =
+        new WorldObject(
+            1, "object", 4, 1, -1, -1, List.of(), List.of(), List.of(inspect), List.of());
+    WorldTxn world = new WorldTxn(List.of(1L), List.of(object));
+    VmState state =
+        new VmState(
+            Map.of(
+                "player", new ObjectValue(1),
+                "this", new ObjectValue(1),
+                "argstr", text("widget in box"),
+                "dobj", new ObjectValue(2),
+                "dobjstr", text("widget"),
+                "prepstr", text("in"),
+                "iobj", new ObjectValue(3),
+                "iobjstr", text("box")),
+            1);
+
+    executeAndClose(
+        new MooCompiler().compile(MooParser.parse("return #1:inspect();")),
+        state,
+        world,
+        new BuiltinCatalog());
+
+    assertEquals(VmState.Outcome.RETURNED, state.outcome());
+    assertEquals(
+        new ListValue(
+            List.of(
+                text("widget in box"),
+                new ObjectValue(2),
+                text("widget"),
+                text("in"),
+                new ObjectValue(3),
+                text("box"))),
+        state.returnValue().orElseThrow());
+  }
+
+  @Test
+  void movePositionSurvivesDestinationAcceptVerbContinuation() {
+    WorldVerb accept = new WorldVerb("accept", 1, 4, -1, "return 1;");
+    WorldObject room =
+        new WorldObject(
+            0, "room", 0, 1, -1, -1, List.of(2L, 3L), List.of(), List.of(accept), List.of());
+    WorldObject wizard =
+        new WorldObject(
+            1, "wizard", 4, 1, -1, -1, List.of(), List.of(), List.of(), List.of());
+    WorldObject first =
+        new WorldObject(
+            2, "first", 0, 1, 0, -1, List.of(), List.of(), List.of(), List.of());
+    WorldObject second =
+        new WorldObject(
+            3, "second", 0, 1, 0, -1, List.of(), List.of(), List.of(), List.of());
+    WorldTxn world = new WorldTxn(List.of(1L), List.of(room, wizard, first, second));
+    VmState state =
+        new VmState(Map.of("player", new ObjectValue(1), "this", new ObjectValue(1)), 1);
+
+    executeAndCommit(
+        new MooCompiler().compile(MooParser.parse("move(#3, #0, 1); return #0.contents;")),
+        state,
+        world,
+        new BuiltinCatalog());
+
+    assertEquals(VmState.Outcome.RETURNED, state.outcome());
+    assertEquals(
+        new ListValue(List.of(new ObjectValue(3), new ObjectValue(2))),
+        state.returnValue().orElseThrow());
+    assertEquals(
+        List.of(3L, 2L),
+        assertInstanceOf(WorldObject.class, world.snapshot().objects().get(0L)).contents());
   }
 
   @Test
@@ -3592,6 +4583,60 @@ final class MooVmTest {
   }
 
   @Test
+  void recyclingWaifClassMakesExistingInstanceReportNothingAsItsClass() {
+    WorldVerb constructor =
+        new WorldVerb(
+            "new",
+            1,
+            4,
+            -1,
+            "set_task_perms(caller_perms()); player = caller_perms(); return new_waif();");
+    WorldObject wizard =
+        new WorldObject(
+            1, "wizard", 4, 1, -1, -1, List.of(), List.of(), List.of(), List.of());
+    WorldObject waifClass =
+        new WorldObject(
+            7, "waif class", 0, 1, -1, -1, List.of(), List.of(), List.of(constructor), List.of());
+    WorldTxn world = new WorldTxn(List.of(1L), List.of(wizard, waifClass));
+    VmState state =
+        new VmState(Map.of("player", new ObjectValue(1), "this", new ObjectValue(1)), 1);
+
+    executeAndCommit(
+        new MooCompiler()
+            .compile(MooParser.parse("waif = #7:new(); recycle(#7); return waif.class;")),
+        state,
+        world,
+        new BuiltinCatalog());
+
+    assertEquals(VmState.Outcome.RETURNED, state.outcome());
+    assertEquals(new ObjectValue(-1), state.returnValue().orElseThrow());
+  }
+
+  @Test
+  void newWaifRejectsAnonymousCallingReceiverWithInvalidArgument() {
+    WorldVerb constructor = new WorldVerb("new", 1, 12, -1, "return new_waif();");
+    WorldObject wizard =
+        new WorldObject(
+            1, "wizard", 4, 1, -1, -1, List.of(), List.of(), List.of(), List.of());
+    WorldObject parent =
+        new WorldObject(
+            7, "parent", 0, 1, -1, -1, List.of(), List.of(), List.of(constructor), List.of());
+    WorldTxn world = new WorldTxn(List.of(1L), List.of(wizard, parent));
+    VmState state =
+        new VmState(Map.of("player", new ObjectValue(1), "this", new ObjectValue(1)), 1);
+
+    executeAndClose(
+        new MooCompiler()
+            .compile(MooParser.parse("anonymous = create(#7, 1); return anonymous:new();")),
+        state,
+        world,
+        new BuiltinCatalog());
+
+    assertEquals(VmState.Outcome.ERRORED, state.outcome());
+    assertEquals(ErrorValue.E_INVARG, state.uncaughtError().orElseThrow());
+  }
+
+  @Test
   void createWithAnonymousFlagCommitsAnonymousIdentityWithoutPermanentAllocation() {
     WorldObject parent =
         new WorldObject(
@@ -3618,6 +4663,216 @@ final class MooVmTest {
       assertEquals(0, view.anonymousObject(identity).orElseThrow().parent());
       assertEquals(1, view.anonymousObject(identity).orElseThrow().owner());
       assertTrue(view.object(0).orElseThrow().children().isEmpty());
+    }
+  }
+
+  @Test
+  void anonymousOwnerIsIntrinsicAndWizardControlled() {
+    AnonymousObjectValue identity = new AnonymousObjectValue();
+    WorldObject parent =
+        new WorldObject(0, "parent", 0, 1, -1, -1, List.of(), List.of(), List.of(), List.of());
+    WorldObject wizard =
+        new WorldObject(1, "wizard", 4, 1, -1, -1, List.of(), List.of(), List.of(), List.of());
+    WorldObject programmer =
+        new WorldObject(2, "programmer", 2, 2, -1, -1, List.of(), List.of(), List.of(), List.of());
+    WorldObject replacement =
+        new WorldObject(3, "replacement", 0, 3, -1, -1, List.of(), List.of(), List.of(), List.of());
+    WorldAnonymousObject anonymous =
+        new WorldAnonymousObject("anonymous", 0, 2, List.of(0L), List.of(), List.of());
+    WorldTxn world =
+        new WorldTxn(
+            List.of(),
+            List.of(parent, wizard, programmer, replacement),
+            Map.of(identity, anonymous));
+
+    VmState wizardWrite =
+        new VmState(Map.of("subject", identity, "this", new ObjectValue(1)), 1);
+    executeAndCommit(
+        new MooCompiler().compile("subject.owner = #3; return subject.owner;"),
+        wizardWrite,
+        world,
+        new BuiltinCatalog());
+    assertEquals(new ObjectValue(3), wizardWrite.returnValue().orElseThrow());
+    try (WorldTxn view = world.begin()) {
+      assertEquals(3, view.anonymousObject(identity).orElseThrow().owner());
+    }
+
+    VmState programmerWrite =
+        new VmState(Map.of("subject", identity, "this", new ObjectValue(2)), 2);
+    executeAndClose(
+        new MooCompiler().compile("subject.owner = #2;"),
+        programmerWrite,
+        world,
+        new BuiltinCatalog());
+    assertEquals(ErrorValue.E_PERM, programmerWrite.uncaughtError().orElseThrow());
+
+    VmState wrongType =
+        new VmState(Map.of("subject", identity, "this", new ObjectValue(1)), 1);
+    executeAndClose(
+        new MooCompiler().compile("subject.owner = 1;"),
+        wrongType,
+        world,
+        new BuiltinCatalog());
+    assertEquals(ErrorValue.E_TYPE, wrongType.uncaughtError().orElseThrow());
+
+    VmState programmerFlag =
+        new VmState(Map.of("subject", identity, "this", new ObjectValue(2)), 2);
+    executeAndClose(
+        new MooCompiler().compile("subject.wizard = 0;"),
+        programmerFlag,
+        world,
+        new BuiltinCatalog());
+    assertEquals(ErrorValue.E_PERM, programmerFlag.uncaughtError().orElseThrow());
+
+    VmState wizardFlag =
+        new VmState(Map.of("subject", identity, "this", new ObjectValue(1)), 1);
+    executeAndClose(
+        new MooCompiler().compile("subject.wizard = 0;"),
+        wizardFlag,
+        world,
+        new BuiltinCatalog());
+    assertEquals(ErrorValue.E_INVARG, wizardFlag.uncaughtError().orElseThrow());
+  }
+
+  @Test
+  void caughtErrorTracebackAlwaysInvalidatesAnonymousReceiverAndLocation() {
+    AnonymousObjectValue identity = new AnonymousObjectValue();
+    WorldVerb boom = new WorldVerb("boom", 1, 12, -1, "return 1 / 0;");
+    WorldObject parent =
+        new WorldObject(
+            0, "parent", 0, 1, -1, -1, List.of(), List.of(), List.of(boom), List.of());
+    WorldObject wizard =
+        new WorldObject(1, "wizard", 4, 1, -1, -1, List.of(), List.of(), List.of(), List.of());
+    WorldAnonymousObject anonymous =
+        new WorldAnonymousObject("anonymous", 0, 1, List.of(0L), List.of(), List.of());
+    WorldTxn world =
+        new WorldTxn(List.of(), List.of(parent, wizard), Map.of(identity, anonymous));
+    VmState state =
+        new VmState(
+            Map.of("subject", identity, "player", new ObjectValue(1), "this", new ObjectValue(1)),
+            1);
+
+    executeAndClose(
+        new MooCompiler()
+            .compile(
+                "try subject:boom(); except error (ANY) "
+                    + "value = error[4][1][1]; "
+                    + "return {typeof(value), valid(value), toliteral(value)}; endtry"),
+        state,
+        world,
+        new BuiltinCatalog());
+
+    assertEquals(VmState.Outcome.RETURNED, state.outcome());
+    assertEquals(
+        new ListValue(List.of(new IntegerValue(12), new IntegerValue(0), text("*anonymous*"))),
+        state.returnValue().orElseThrow());
+  }
+
+  @Test
+  void anonymousRecycleInvalidatesBeforeHookAndRejectsNestedRecycleOnce() {
+    AnonymousObjectValue identity = new AnonymousObjectValue();
+    WorldVerb recycle =
+        new WorldVerb(
+            "recycle",
+            1,
+            12,
+            -1,
+            "#0.recycle_called = #0.recycle_called + 1; recycle(this);");
+    WorldObject parent =
+        new WorldObject(
+            0,
+            "anonymous parent",
+            0,
+            1,
+            -1,
+            -1,
+            List.of(),
+            List.of(),
+            List.of(recycle),
+            List.of(
+                new WorldProperty(
+                    "recycle_called", new IntegerValue(0), 1, 0, false, true)));
+    WorldObject programmer =
+        new WorldObject(
+            1, "programmer", 4, 1, -1, -1, List.of(), List.of(), List.of(), List.of());
+    WorldAnonymousObject anonymous =
+        new WorldAnonymousObject("anonymous", 1, 0, List.of(0L), List.of(), List.of());
+    WorldTxn world =
+        new WorldTxn(List.of(1L), List.of(parent, programmer), Map.of(identity, anonymous));
+    VmState state =
+        new VmState(
+            Map.of(
+                "player", new ObjectValue(1),
+                "this", new ObjectValue(1),
+                "subject", identity),
+            1);
+
+    executeAndCommit(
+        new MooCompiler()
+            .compile(
+                MooParser.parse(
+                    "return {`recycle(subject) ! E_INVARG => 1', "
+                        + "#0.recycle_called, valid(subject)};")),
+        state,
+        world,
+        new BuiltinCatalog());
+
+    assertEquals(VmState.Outcome.RETURNED, state.outcome());
+    assertEquals(
+        new ListValue(List.of(new IntegerValue(1), new IntegerValue(1), new IntegerValue(0))),
+        state.returnValue().orElseThrow());
+    try (WorldTxn view = world.begin()) {
+      assertTrue(view.anonymousObject(identity).isEmpty());
+    }
+  }
+
+  @Test
+  void anonymousRecycleHookCanSaveTheNowInvalidTypedIdentity() {
+    AnonymousObjectValue identity = new AnonymousObjectValue();
+    WorldVerb recycle = new WorldVerb("recycle", 1, 4, -1, "#0.keep = this;");
+    WorldObject parent =
+        new WorldObject(
+            0,
+            "anonymous parent",
+            0,
+            1,
+            -1,
+            -1,
+            List.of(),
+            List.of(),
+            List.of(recycle),
+            List.of(new WorldProperty("keep", new IntegerValue(0), 1, 0, false, true)));
+    WorldObject programmer =
+        new WorldObject(
+            1, "programmer", 4, 1, -1, -1, List.of(), List.of(), List.of(), List.of());
+    WorldAnonymousObject anonymous =
+        new WorldAnonymousObject("anonymous", 1, 0, List.of(0L), List.of(), List.of());
+    WorldTxn world =
+        new WorldTxn(List.of(1L), List.of(parent, programmer), Map.of(identity, anonymous));
+    VmState state =
+        new VmState(
+            Map.of(
+                "player", new ObjectValue(1),
+                "this", new ObjectValue(1),
+                "subject", identity),
+            1);
+
+    executeAndCommit(
+        new MooCompiler()
+            .compile(
+                MooParser.parse(
+                    "recycle(subject); return {typeof(#0.keep) == ANON, valid(#0.keep)};")),
+        state,
+        world,
+        new BuiltinCatalog());
+
+    assertEquals(VmState.Outcome.RETURNED, state.outcome());
+    assertEquals(
+        new ListValue(List.of(new IntegerValue(1), new IntegerValue(0))),
+        state.returnValue().orElseThrow());
+    try (WorldTxn view = world.begin()) {
+      assertEquals(identity, view.readObjectProperty(0, "keep").orElseThrow());
+      assertTrue(view.anonymousObject(identity).isEmpty());
     }
   }
 
@@ -3692,5 +4947,9 @@ final class MooVmTest {
       vm.authorizePendingBuiltin(state, transaction, builtins, 0);
       vm.execute(program, state, transaction, builtins, 0);
     }
+  }
+
+  private static StringValue text(String value) {
+    return new StringValue(value.getBytes(StandardCharsets.ISO_8859_1));
   }
 }

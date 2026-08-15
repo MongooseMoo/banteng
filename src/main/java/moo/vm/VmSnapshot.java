@@ -5,6 +5,7 @@ import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.OptionalDouble;
 import java.util.OptionalLong;
@@ -29,13 +30,14 @@ import moo.value.MooValue.WaifValue;
 public record VmSnapshot(
     Map<String, MooValue> initialLocals,
     long initialProgrammer,
-    ObjectValue initialVerbLocation,
+    MooValue initialVerbLocation,
     List<Frame> frames,
     List<String> output,
     List<ConnectionOptionRequest> connectionOptionRequests,
     List<Long> bootPlayerTargets,
     List<ForcedInputRequest> forcedInputRequests,
     List<CheckpointRequest> checkpointRequests,
+    List<AnonymousObjectValue> anonymousCollectionDeferrals,
     VmState.Outcome outcome,
     Optional<MooValue> returnValue,
     Optional<ErrorValue> pendingError,
@@ -59,6 +61,7 @@ public record VmSnapshot(
     bootPlayerTargets = List.copyOf(bootPlayerTargets);
     forcedInputRequests = List.copyOf(forcedInputRequests);
     checkpointRequests = List.copyOf(checkpointRequests);
+    anonymousCollectionDeferrals = List.copyOf(anonymousCollectionDeferrals);
     if (elapsedCpuNanos < 0
         || remainingCpuNanos < 0
         || maxStackDepth < 1) {
@@ -115,6 +118,10 @@ public record VmSnapshot(
     }
     size = add(size, Integer.BYTES);
     size = add(size, multiply(checkpointRequests.size(), Byte.BYTES));
+    size = add(size, Integer.BYTES);
+    for (AnonymousObjectValue anonymous : anonymousCollectionDeferrals) {
+      size = add(size, valueSize(anonymous));
+    }
     size = add(size, Byte.BYTES);
     size = add(size, optionalValueSize(returnValue));
     size = add(size, optionalValueSize(pendingError.map(error -> error)));
@@ -159,10 +166,7 @@ public record VmSnapshot(
     }
     size = add(size, Integer.BYTES);
     for (FinallyState state : frame.finallyStates()) {
-      size = add(size, Byte.BYTES);
-      size = add(size, Integer.BYTES);
-      size = add(size, optionalValueSize(state.returnValue()));
-      size = add(size, optionalValueSize(state.error().map(error -> error)));
+      size = add(size, finallySize(state));
     }
     size = add(size, Integer.BYTES);
     for (Map.Entry<Integer, LoopState> entry : frame.loops().entrySet()) {
@@ -172,22 +176,46 @@ public record VmSnapshot(
     size = add(size, Byte.BYTES);
     size = add(size, valueSize(frame.receiver()));
     size = add(size, valueSize(frame.verbLocation()));
+    size = add(size, optionalValueSize(frame.createReturnOverride()));
     size = add(size, optionalLongSize(frame.recycleTarget()));
+    size = add(size, optionalValueSize(frame.anonymousRecycleTarget()));
     size = add(size, optionalLongSize(frame.moveObject()));
     size = add(size, optionalLongSize(frame.moveDestination()));
+    size = add(size, optionalLongSize(frame.movePosition()));
     size = add(size, Long.BYTES);
+    size = add(size, Byte.BYTES);
     size = add(size, Byte.BYTES);
     return add(size, Integer.BYTES);
   }
 
   private static long loopSize(LoopState loop) {
-    long size = valueSize(loop.values());
-    size = add(size, Byte.BYTES);
-    if (loop.secondaryValues().isPresent()) {
-      size = add(size, valueSize(loop.secondaryValues().orElseThrow()));
+    if (loop instanceof CollectionLoop collection) {
+      long size = add(Byte.BYTES, valueSize(collection.base()));
+      return add(size, optionalValueSize(collection.next()));
     }
-    size = add(size, Long.BYTES);
-    return add(size, Byte.BYTES);
+    RangeLoop range = (RangeLoop) loop;
+    long size = add(Byte.BYTES, valueSize(range.next()));
+    return add(size, valueSize(range.end()));
+  }
+
+  private static long finallySize(FinallyState state) {
+    long size = Byte.BYTES;
+    if (state instanceof FallThrough) {
+      return add(size, Integer.BYTES);
+    }
+    if (state instanceof Raise raise) {
+      return add(size, valueSize(raise.exception()));
+    }
+    if (state instanceof Uncaught uncaught) {
+      return add(size, valueSize(uncaught.value()));
+    }
+    if (state instanceof Return returned) {
+      return add(size, valueSize(returned.value()));
+    }
+    if (!(state instanceof Exit)) {
+      throw new AssertionError(state);
+    }
+    return add(size, multiply(2, Integer.BYTES));
   }
 
   private static long forkSize(Fork fork) {
@@ -195,6 +223,7 @@ public record VmSnapshot(
     size = add(size, stringValueMapSize(fork.locals()));
     size = add(size, Long.BYTES);
     size = add(size, valueSize(fork.verbLocation()));
+    size = add(size, Byte.BYTES);
     return add(size, Double.BYTES);
   }
 
@@ -319,13 +348,59 @@ public record VmSnapshot(
       Map<Integer, LoopState> loops,
       ReturnMode returnMode,
       MooValue receiver,
-      ObjectValue verbLocation,
+      MooValue verbLocation,
+      Optional<MooValue> createReturnOverride,
       OptionalLong recycleTarget,
       OptionalLong moveObject,
       OptionalLong moveDestination,
+      OptionalLong movePosition,
       long programmer,
+      boolean debug,
       boolean threadMode,
-      int instructionPointer) {
+      int instructionPointer,
+      Optional<AnonymousObjectValue> anonymousRecycleTarget) {
+    public Frame(
+        BytecodeProgram program,
+        List<MooValue> operandStack,
+        List<IndexState> indexCollections,
+        Map<String, MooValue> locals,
+        List<HandlerState> handlers,
+        List<FinallyState> finallyStates,
+        Map<Integer, LoopState> loops,
+        ReturnMode returnMode,
+        MooValue receiver,
+        MooValue verbLocation,
+        Optional<MooValue> createReturnOverride,
+        OptionalLong recycleTarget,
+        OptionalLong moveObject,
+        OptionalLong moveDestination,
+        OptionalLong movePosition,
+        long programmer,
+        boolean threadMode,
+        int instructionPointer) {
+      this(
+          program,
+          operandStack,
+          indexCollections,
+          locals,
+          handlers,
+          finallyStates,
+          loops,
+          returnMode,
+          receiver,
+          verbLocation,
+          createReturnOverride,
+          recycleTarget,
+          moveObject,
+          moveDestination,
+          movePosition,
+          programmer,
+          true,
+          threadMode,
+          instructionPointer,
+          Optional.empty());
+    }
+
     public Frame {
       operandStack = List.copyOf(operandStack);
       indexCollections = List.copyOf(indexCollections);
@@ -357,28 +432,122 @@ public record VmSnapshot(
     }
   }
 
-  /** One explicit pending action after a finally block. */
-  public record FinallyState(
-      FinallyKind kind,
-      int normalTarget,
-      Optional<MooValue> returnValue,
-      Optional<ErrorValue> error) {}
+  /** Typed action retained while one finally handler runs. */
+  public sealed interface FinallyState
+      permits FallThrough, Raise, Uncaught, Return, Exit {}
 
-  /** One resumable loop cursor. */
-  public record LoopState(
-      ListValue values, Optional<ListValue> secondaryValues, long nextIndex, boolean range) {
-    public LoopState {
-      if (nextIndex < 0 || (!range && nextIndex > values.size())) {
-        throw new IllegalArgumentException("loop cursor outside values");
-      }
-      if (range
-          && (values.size() != 2
-              || !(values.elements().get(0) instanceof IntegerValue)
-              || !(values.elements().get(1) instanceof IntegerValue)
-              || secondaryValues.isPresent())) {
-        throw new IllegalArgumentException("invalid range loop cursor");
+  /** Continue after a normally completed protected region. */
+  public record FallThrough(int target) implements FinallyState {
+    public FallThrough {
+      if (target < 0) {
+        throw new IllegalArgumentException("negative finally fall-through target");
       }
     }
+  }
+
+  /** Re-raise Toast's exact four-element exception tuple. */
+  public record Raise(ListValue exception) implements FinallyState {
+    public Raise {
+      Objects.requireNonNull(exception, "exception");
+      if (exception.size() != 4 || !(exception.elements().getFirst() instanceof ErrorValue)) {
+        throw new IllegalArgumentException("raise continuation requires a full exception tuple");
+      }
+    }
+  }
+
+  /** Continue unwinding an already-recorded uncaught exception. */
+  public record Uncaught(MooValue value) implements FinallyState {
+    public Uncaught {
+      Objects.requireNonNull(value, "value");
+    }
+  }
+
+  /** Return an arbitrary MOO value after the finally handler. */
+  public record Return(MooValue value) implements FinallyState {
+    public Return {
+      Objects.requireNonNull(value, "value");
+    }
+  }
+
+  /** Exit to a compiled target after unwinding to the exact operand depth. */
+  public record Exit(int operandDepth, int target) implements FinallyState {
+    public Exit {
+      if (operandDepth < 0 || target < 0) {
+        throw new IllegalArgumentException("invalid finally exit target");
+      }
+    }
+  }
+
+  /** Typed state retained by one active collection or range loop. */
+  public sealed interface LoopState permits CollectionLoop, RangeLoop {}
+
+  /** Original collection and exact next Toast cursor. */
+  public record CollectionLoop(CollectionKind kind, MooValue base, Optional<MooValue> next)
+      implements LoopState {
+    public CollectionLoop {
+      Objects.requireNonNull(kind, "kind");
+      Objects.requireNonNull(base, "base");
+      Objects.requireNonNull(next, "next");
+      switch (kind) {
+        case LIST -> {
+          if (!(base instanceof ListValue list)) {
+            throw new IllegalArgumentException("list loop requires a list base");
+          }
+          validateIndexedCollection(next, list.size());
+        }
+        case STRING -> {
+          if (!(base instanceof StringValue string)) {
+            throw new IllegalArgumentException("string loop requires a string base");
+          }
+          validateIndexedCollection(next, string.length());
+        }
+        case MAP -> {
+          if (!(base instanceof MapValue map)) {
+            throw new IllegalArgumentException("map loop requires a map base");
+          }
+          if (next.isPresent() && map.get(next.orElseThrow()).isEmpty()) {
+            throw new IllegalArgumentException("map loop cursor is not a key in its base");
+          }
+        }
+      }
+    }
+
+    private static void validateIndexedCollection(Optional<MooValue> next, int length) {
+      if (next.isEmpty() || !(next.orElseThrow() instanceof IntegerValue cursor)) {
+        throw new IllegalArgumentException("indexed loop requires an integer cursor");
+      }
+      if (cursor.value() < 1 || cursor.value() > Math.addExact((long) length, 1L)) {
+        throw new IllegalArgumentException("indexed loop cursor outside collection");
+      }
+    }
+  }
+
+  /** Exact next and inclusive end values retained by one range loop. */
+  public record RangeLoop(RangeKind kind, MooValue next, MooValue end) implements LoopState {
+    public RangeLoop {
+      Objects.requireNonNull(kind, "kind");
+      Objects.requireNonNull(next, "next");
+      Objects.requireNonNull(end, "end");
+      if (kind == RangeKind.INTEGER
+          && (!(next instanceof IntegerValue) || !(end instanceof IntegerValue))) {
+        throw new IllegalArgumentException("integer range requires integer bounds");
+      }
+      if (kind == RangeKind.OBJECT
+          && (!(next instanceof ObjectValue) || !(end instanceof ObjectValue))) {
+        throw new IllegalArgumentException("object range requires object bounds");
+      }
+    }
+  }
+
+  public enum CollectionKind {
+    LIST,
+    STRING,
+    MAP
+  }
+
+  public enum RangeKind {
+    INTEGER,
+    OBJECT
   }
 
   /** One child task request captured at a fork boundary. */
@@ -386,8 +555,18 @@ public record VmSnapshot(
       BytecodeProgram program,
       Map<String, MooValue> locals,
       long programmer,
-      ObjectValue verbLocation,
+      MooValue verbLocation,
+      boolean debug,
       double delaySeconds) {
+    public Fork(
+        BytecodeProgram program,
+        Map<String, MooValue> locals,
+        long programmer,
+        MooValue verbLocation,
+        double delaySeconds) {
+      this(program, locals, programmer, verbLocation, true, delaySeconds);
+    }
+
     public Fork {
       locals = Collections.unmodifiableMap(new LinkedHashMap<>(locals));
     }
@@ -422,10 +601,4 @@ public record VmSnapshot(
     CATCH
   }
 
-  /** Action to take after a finally block. */
-  public enum FinallyKind {
-    NORMAL,
-    RETURN,
-    ERROR
-  }
 }

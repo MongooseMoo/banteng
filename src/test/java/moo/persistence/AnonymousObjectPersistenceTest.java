@@ -27,6 +27,34 @@ final class AnonymousObjectPersistenceTest {
       Path.of("..", "moo-conformance-tests", "src", "moo_conformance", "_db", "startup");
 
   @Test
+  void nestedWaifRecipeProducesTheOneCanonicalPendingRoot(@TempDir Path temporaryDirectory)
+      throws Exception {
+    LambdaMooV17Codec codec = new LambdaMooV17Codec();
+    Path output = temporaryDirectory.resolve("RecipePendingWaifNestedTopology.db.new");
+
+    runUntilFixtureShutdown(
+        codec.read(STARTUP_FIXTURES.resolve("RecipePendingWaifNestedTopology.db")), output);
+
+    assertArrayEquals(
+        Files.readAllBytes(STARTUP_FIXTURES.resolve("PendingWaifNestedTopology.db")),
+        Files.readAllBytes(output));
+  }
+
+  @Test
+  void pendingWaifRecycleHookCanShutdownAndCompletesFinalization(
+      @TempDir Path temporaryDirectory) throws Exception {
+    LambdaMooV17Codec codec = new LambdaMooV17Codec();
+    Path output = temporaryDirectory.resolve("PendingWaifRecycleShutdown.db.new");
+
+    runUntilFixtureShutdown(
+        codec.read(STARTUP_FIXTURES.resolve("PendingWaifRecycleShutdown.db")), output);
+
+    WorldSnapshot world = codec.read(output).world().snapshot();
+    assertTrue(world.pendingFinalization().isEmpty());
+    assertTrue(world.waifs().isEmpty());
+  }
+
+  @Test
   void anon1PreservesOnePendingAnonymousRootAcrossTwoProductionBoots(
       @TempDir Path temporaryDirectory) throws Exception {
     LambdaMooV17Codec codec = new LambdaMooV17Codec();

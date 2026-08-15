@@ -10,6 +10,7 @@ import java.io.OutputStreamWriter;
 import java.net.InetAddress;
 import java.net.Socket;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
@@ -31,7 +32,13 @@ final class MooServerTest {
     Path checkpoint = temporaryDirectory.resolve("Test.db.new");
     MooServer first =
         new MooServer(
-            "127.0.0.1", 0, new LambdaMooV4Reader().read(TEST_DATABASE), checkpoint);
+            "127.0.0.1",
+            0,
+            new LambdaMooV4Reader().read(TEST_DATABASE),
+            TEST_DATABASE,
+            checkpoint,
+            List.of(),
+            List.of());
     Thread firstServing = Thread.startVirtualThread(first::serve);
     try (Socket socket = new Socket(InetAddress.getLoopbackAddress(), first.port());
         BufferedReader input =
@@ -46,6 +53,13 @@ final class MooServerTest {
       writeLine(output, "; return 6 * 7;");
       assertEquals(
           List.of(CONNECTION_PREFIX, "{1, 42}", CONNECTION_SUFFIX), readLines(input, 3));
+      writeLine(output, "; return db_disk_size();");
+      assertEquals(
+          List.of(
+              CONNECTION_PREFIX,
+              "{1, " + Files.size(TEST_DATABASE) + "}",
+              CONNECTION_SUFFIX),
+          readLines(input, 3));
       writeLine(
           output,
           "; info = connection_info(player); return {info[\"source_ip\"], info[\"source_port\"], info[\"destination_ip\"], info[\"destination_port\"], info[\"protocol\"], info[\"outbound\"], info[\"TLS\"][\"active\"]};");
@@ -62,6 +76,11 @@ final class MooServerTest {
       writeLine(output, "; return dump_database();");
       assertEquals(
           List.of(CONNECTION_PREFIX, "{1, 0}", CONNECTION_SUFFIX), readLines(input, 3));
+      writeLine(output, "; return db_disk_size();");
+      assertEquals(
+          List.of(
+              CONNECTION_PREFIX, "{1, " + Files.size(checkpoint) + "}", CONNECTION_SUFFIX),
+          readLines(input, 3));
     } finally {
       first.close();
       firstServing.join(Duration.ofSeconds(5));

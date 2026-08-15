@@ -54,6 +54,7 @@ final class MooLexer {
     SLASH,
     PERCENT,
     CARET,
+    TILDE,
     BANG,
     EQUAL,
     EQUAL_EQUAL,
@@ -62,6 +63,11 @@ final class MooLexer {
     LESS_THAN_OR_EQUAL,
     GREATER_THAN,
     GREATER_THAN_OR_EQUAL,
+    BIT_AND,
+    BIT_OR,
+    BIT_XOR,
+    BIT_SHIFT_LEFT,
+    BIT_SHIFT_RIGHT,
     AND_AND,
     OR_OR,
     FAT_ARROW,
@@ -121,7 +127,14 @@ final class MooLexer {
       case '*' -> token(TokenKind.STAR, tokenLine, tokenColumn);
       case '/' -> token(TokenKind.SLASH, tokenLine, tokenColumn);
       case '%' -> token(TokenKind.PERCENT, tokenLine, tokenColumn);
-      case '^' -> token(TokenKind.CARET, tokenLine, tokenColumn);
+      case '^' -> {
+        if (!atEnd() && peek() == '.' && peekNext() != '.') {
+          advance();
+          yield token(TokenKind.BIT_XOR, tokenLine, tokenColumn);
+        }
+        yield token(TokenKind.CARET, tokenLine, tokenColumn);
+      }
+      case '~' -> token(TokenKind.TILDE, tokenLine, tokenColumn);
       case '!' -> token(match('=') ? TokenKind.NOT_EQUAL : TokenKind.BANG, tokenLine, tokenColumn);
       case '=' ->
           token(
@@ -132,20 +145,30 @@ final class MooLexer {
               tokenColumn);
       case '<' ->
           token(
-              match('=') ? TokenKind.LESS_THAN_OR_EQUAL : TokenKind.LESS_THAN,
+              match('<')
+                  ? TokenKind.BIT_SHIFT_LEFT
+                  : match('=') ? TokenKind.LESS_THAN_OR_EQUAL : TokenKind.LESS_THAN,
               tokenLine,
               tokenColumn);
       case '>' ->
           token(
-              match('=') ? TokenKind.GREATER_THAN_OR_EQUAL : TokenKind.GREATER_THAN,
+              match('>')
+                  ? TokenKind.BIT_SHIFT_RIGHT
+                  : match('=') ? TokenKind.GREATER_THAN_OR_EQUAL : TokenKind.GREATER_THAN,
               tokenLine,
               tokenColumn);
       case '&' -> {
+        if (match('.')) {
+          yield token(TokenKind.BIT_AND, tokenLine, tokenColumn);
+        }
         require('&', tokenLine, tokenColumn);
         yield token(TokenKind.AND_AND, tokenLine, tokenColumn);
       }
       case '|' ->
-          token(match('|') ? TokenKind.OR_OR : TokenKind.PIPE, tokenLine, tokenColumn);
+          token(
+              match('.') ? TokenKind.BIT_OR : match('|') ? TokenKind.OR_OR : TokenKind.PIPE,
+              tokenLine,
+              tokenColumn);
       case '"' -> string(tokenLine, tokenColumn);
       case '#' -> object(tokenLine, tokenColumn);
       default -> {

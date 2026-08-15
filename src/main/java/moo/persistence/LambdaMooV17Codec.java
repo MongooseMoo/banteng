@@ -20,10 +20,12 @@ import java.util.Collections;
 import java.util.Comparator;
 import java.util.IdentityHashMap;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 import jdk.jfr.FlightRecorder;
 import moo.value.MooValue;
@@ -49,13 +51,36 @@ import org.jspecify.annotations.Nullable;
 /** Streaming Latin-1 reader and atomic writer for the Phase 2 LambdaMOO v17 slice. */
 public final class LambdaMooV17Codec {
   private static final String HEADER = "** LambdaMOO Database, Format Version 17 **";
+  private final AtomicPromoter promoter;
 
-  /** A restored committed world and its durable queued tasks. */
-  public record Checkpoint(WorldTxn world, List<QueuedTask> tasks) {
+  /** Creates the production codec with mandatory atomic replacement. */
+  public LambdaMooV17Codec() {
+    this((source, target) -> Files.move(source, target, ATOMIC_MOVE, REPLACE_EXISTING));
+  }
+
+  LambdaMooV17Codec(AtomicPromoter promoter) {
+    this.promoter = Objects.requireNonNull(promoter, "promoter");
+  }
+
+  @FunctionalInterface
+  interface AtomicPromoter {
+    void promote(Path source, Path target) throws IOException;
+  }
+
+  /** A durable v17 task record. */
+  public sealed interface DurableTask permits QueuedTask, SuspendedTask {}
+
+  /** One connection that was active when a v17 checkpoint was written. */
+  public record ActiveConnection(long player, long listener) {}
+
+  /** A restored committed world, durable tasks, and checkpointed connections. */
+  public record Checkpoint(
+      WorldTxn world, List<DurableTask> tasks, List<ActiveConnection> activeConnections) {
     /** Takes an immutable snapshot of the restored task list. */
     public Checkpoint {
       Objects.requireNonNull(world, "world");
       tasks = List.copyOf(tasks);
+      activeConnections = List.copyOf(activeConnections);
     }
   }
 
@@ -66,9 +91,31 @@ public final class LambdaMooV17Codec {
       String programSource,
       Map<String, MooValue> initialLocals,
       long programmer,
-      ObjectValue verbLocation,
+      MooValue verbLocation,
       long taskPlayer,
-      boolean threadMode) {
+      boolean debug,
+      boolean threadMode) implements DurableTask {
+    public QueuedTask(
+        long taskId,
+        long scheduledEpochSecond,
+        String programSource,
+        Map<String, MooValue> initialLocals,
+        long programmer,
+        MooValue verbLocation,
+        long taskPlayer,
+        boolean threadMode) {
+      this(
+          taskId,
+          scheduledEpochSecond,
+          programSource,
+          initialLocals,
+          programmer,
+          verbLocation,
+          taskPlayer,
+          true,
+          threadMode);
+    }
+
     /** Takes immutable copies of task-owned state. */
     public QueuedTask {
       Objects.requireNonNull(programSource, "programSource");
@@ -79,12 +126,87 @@ public final class LambdaMooV17Codec {
     }
   }
 
+  /** One ordinary MOO value or one Toast control marker on a suspended runtime stack. */
+  public record SuspendedStackSlot(
+      Optional<MooValue> value, int controlTag, long controlValue) {
+    /** Requires exactly one supported slot representation. */
+    public SuspendedStackSlot {
+      Objects.requireNonNull(value, "value");
+      if (value.isPresent() == (controlTag >= 0)
+          || (controlTag >= 0 && controlTag != 6 && controlTag != 7 && controlTag != 8)
+          || (controlTag == 6 && controlValue != 0)) {
+        throw new IllegalArgumentException("invalid suspended stack slot");
+      }
+    }
+  }
+
+  /** One complete v17 activation retained for a suspended VM. */
+  public record SuspendedActivation(
+      int languageVersion,
+      String programSource,
+      Map<String, Optional<MooValue>> locals,
+      List<SuspendedStackSlot> operandStack,
+      MooValue receiver,
+      MooValue verbLocation,
+      boolean threadMode,
+      long taskPlayer,
+      long programmer,
+      boolean debug,
+      String verb,
+      String verbNames,
+      Optional<MooValue> temporary,
+      long programCounter,
+      long builtinFunctionCounter,
+      long errorCounter) {
+    /** Takes immutable copies of activation-owned state. */
+    public SuspendedActivation {
+      Objects.requireNonNull(programSource, "programSource");
+      Objects.requireNonNull(locals, "locals");
+      Objects.requireNonNull(operandStack, "operandStack");
+      Objects.requireNonNull(receiver, "receiver");
+      Objects.requireNonNull(verbLocation, "verbLocation");
+      Objects.requireNonNull(verb, "verb");
+      Objects.requireNonNull(verbNames, "verbNames");
+      Objects.requireNonNull(temporary, "temporary");
+      locals = Collections.unmodifiableMap(new LinkedHashMap<>(locals));
+      operandStack = List.copyOf(operandStack);
+    }
+  }
+
+  /** The durable state needed to resume one v17 VM. */
+  public record SuspendedTask(
+      long taskId,
+      long scheduledEpochSecond,
+      MooValue resumeValue,
+      MooValue taskLocal,
+      int rootActivationVector,
+      long functionId,
+      long maxStackDepth,
+      Optional<String> interruptionStatus,
+      List<SuspendedActivation> activations) implements DurableTask {
+    /** Takes immutable copies of task-owned state. */
+    public SuspendedTask {
+      Objects.requireNonNull(resumeValue, "resumeValue");
+      Objects.requireNonNull(taskLocal, "taskLocal");
+      Objects.requireNonNull(interruptionStatus, "interruptionStatus");
+      activations = List.copyOf(activations);
+      if (activations.isEmpty()) {
+        throw new IllegalArgumentException("suspended task requires an activation");
+      }
+    }
+  }
+
   /** Writes a byte-stable v17 checkpoint through an atomic same-directory replacement. */
-  public void writeAtomic(Path checkpoint, WorldSnapshot world, List<QueuedTask> tasks)
+  public void writeAtomic(
+      Path checkpoint,
+      WorldSnapshot world,
+      List<? extends DurableTask> tasks,
+      List<ActiveConnection> activeConnections)
       throws IOException {
     Objects.requireNonNull(checkpoint, "checkpoint");
     Objects.requireNonNull(world, "world");
     Objects.requireNonNull(tasks, "tasks");
+    Objects.requireNonNull(activeConnections, "activeConnections");
 
     Path target = checkpoint.toAbsolutePath().normalize();
     Path directory = Objects.requireNonNull(target.getParent(), "checkpoint parent directory");
@@ -93,8 +215,9 @@ public final class LambdaMooV17Codec {
         target.resolveSibling(
             target.getFileName() + "." + ProcessHandle.current().pid() + ".tmp");
     Files.deleteIfExists(temporary);
+    boolean supportsPosix = Files.getFileStore(directory).supportsFileAttributeView("posix");
     FileAttribute<?>[] attributes =
-        Files.getFileStore(directory).supportsFileAttributeView("posix")
+        supportsPosix
             ? new FileAttribute<?>[] {
               PosixFilePermissions.asFileAttribute(
                   PosixFilePermissions.fromString("rw-------"))
@@ -119,14 +242,16 @@ public final class LambdaMooV17Codec {
               new BufferedWriter(
                   new OutputStreamWriter(
                       Channels.newOutputStream(channel), StandardCharsets.ISO_8859_1))) {
-        write(output, world, tasks);
+        write(output, world, tasks, activeConnections);
         output.flush();
         channel.force(true);
       }
-      Files.move(temporary, target, ATOMIC_MOVE, REPLACE_EXISTING);
+      promoter.promote(temporary, target);
       promoted = true;
-      try (FileChannel directoryChannel = FileChannel.open(directory, StandardOpenOption.READ)) {
-        directoryChannel.force(true);
+      if (supportsPosix) {
+        try (FileChannel directoryChannel = FileChannel.open(directory, StandardOpenOption.READ)) {
+          directoryChannel.force(true);
+        }
       }
       if (event != null) {
         event.bytesWritten = Files.size(target);
@@ -139,6 +264,46 @@ public final class LambdaMooV17Codec {
       if (event != null) {
         event.commit();
       }
+    }
+  }
+
+  /** Writes a Toast-style panic database directly, without checkpoint promotion or rename. */
+  public void writePanic(
+      Path target,
+      WorldSnapshot world,
+      List<? extends DurableTask> tasks,
+      List<ActiveConnection> activeConnections)
+      throws IOException {
+    Objects.requireNonNull(target, "target");
+    Objects.requireNonNull(world, "world");
+    Objects.requireNonNull(tasks, "tasks");
+    Objects.requireNonNull(activeConnections, "activeConnections");
+
+    Path panicTarget = target.toAbsolutePath().normalize();
+    Path directory = Objects.requireNonNull(panicTarget.getParent(), "panic parent directory");
+    Files.createDirectories(directory);
+    FileAttribute<?>[] attributes =
+        Files.getFileStore(directory).supportsFileAttributeView("posix")
+            ? new FileAttribute<?>[] {
+              PosixFilePermissions.asFileAttribute(
+                  PosixFilePermissions.fromString("rw-------"))
+            }
+            : new FileAttribute<?>[0];
+    try (FileChannel channel =
+            FileChannel.open(
+                panicTarget,
+                Set.of(
+                    StandardOpenOption.CREATE,
+                    StandardOpenOption.TRUNCATE_EXISTING,
+                    StandardOpenOption.WRITE),
+                attributes);
+        BufferedWriter output =
+            new BufferedWriter(
+                new OutputStreamWriter(
+                    Channels.newOutputStream(channel), StandardCharsets.ISO_8859_1))) {
+      write(output, world, tasks, activeConnections);
+      output.flush();
+      channel.force(true);
     }
   }
 
@@ -162,13 +327,37 @@ public final class LambdaMooV17Codec {
       }
       requireExact(input, "0 clocks", "clocks count");
       int queuedTaskCount = readSectionCount(input, " queued tasks", "queued-task count");
-      List<QueuedTask> tasks = new ArrayList<>(queuedTaskCount);
+      List<DurableTask> tasks = new ArrayList<>(queuedTaskCount);
       for (int index = 0; index < queuedTaskCount; index++) {
         tasks.add(readQueuedTask(input, context));
       }
-      requireExact(input, "0 suspended tasks", "suspended-task count");
-      requireExact(input, "0 interrupted tasks", "interrupted-task count");
-      requireExact(input, "0 active connections with listeners", "active-connection count");
+      int suspendedTaskCount =
+          readSectionCount(input, " suspended tasks", "suspended-task count");
+      for (int index = 0; index < suspendedTaskCount; index++) {
+        tasks.add(readSuspendedTask(input, context));
+      }
+      int interruptedTaskCount =
+          readSectionCount(input, " interrupted tasks", "interrupted-task count");
+      for (int index = 0; index < interruptedTaskCount; index++) {
+        tasks.add(readInterruptedTask(input, context));
+      }
+      int activeConnectionCount =
+          readSectionCount(
+              input,
+              " active connections with listeners",
+              "active-connection count");
+      List<ActiveConnection> activeConnections = new ArrayList<>(activeConnectionCount);
+      for (int index = 0; index < activeConnectionCount; index++) {
+        String connectionLine = requiredLine(input, "active connection");
+        String[] connectionFields = connectionLine.split(" ", -1);
+        if (connectionFields.length != 2) {
+          throw malformed("invalid active connection: " + connectionLine);
+        }
+        activeConnections.add(
+            new ActiveConnection(
+                parseLong(connectionFields[0], "active connection player"),
+                parseLong(connectionFields[1], "active connection listener")));
+      }
 
       Map<Long, RawObject> objects = new LinkedHashMap<>();
       long expectedObjectId = 0;
@@ -204,26 +393,45 @@ public final class LambdaMooV17Codec {
       for (int index = 0; index < programCount; index++) {
         readProgram(input, objects, programs);
       }
-      if (input.readLine() != null) {
-        throw malformed("unexpected v17 data after program section");
+      String trailing;
+      while ((trailing = input.readLine()) != null) {
+        if (!trailing.isEmpty()) {
+          throw malformed("unexpected v17 data after program section");
+        }
       }
 
-      List<WorldObject> restored = restoreObjects(objects, programs, permanentSlotCount);
+      validateInheritanceGraph(objects, permanentSlotCount);
+      Map<Long, List<WorldProperty>> restoredProperties = restoreAllProperties(objects);
+      List<WorldObject> restored =
+          restoreObjects(objects, programs, restoredProperties, permanentSlotCount);
       Map<AnonymousObjectValue, WorldAnonymousObject> anonymousObjects =
-          restoreAnonymousObjects(objects, programs, context, permanentSlotCount);
+          restoreAnonymousObjects(
+              objects, programs, restoredProperties, context, permanentSlotCount);
       Map<WaifValue, WorldWaif> waifs = restoreWaifs(restored, context);
       return new Checkpoint(
-          new WorldTxn(players, restored, anonymousObjects, waifs, pendingFinalization), tasks);
+          new WorldTxn(
+              players,
+              restored,
+              anonymousObjects,
+              waifs,
+              pendingFinalization,
+              permanentSlotCount - 1L),
+          tasks,
+          activeConnections);
     }
   }
 
   private static void write(
-      BufferedWriter output, WorldSnapshot world, List<QueuedTask> tasks) throws IOException {
+      BufferedWriter output,
+      WorldSnapshot world,
+      List<? extends DurableTask> tasks,
+      List<ActiveConnection> activeConnections)
+      throws IOException {
     List<WorldObject> objects =
         world.objects().values().stream()
             .sorted(Comparator.comparingLong(WorldObject::id))
             .toList();
-    long maximumObjectId = objects.isEmpty() ? -1 : objects.getLast().id();
+    long maximumObjectId = world.lastUsedObjectId();
     if (maximumObjectId > Integer.MAX_VALUE - 1L) {
       throw new IOException("v17 object slot count exceeds supported range");
     }
@@ -239,13 +447,27 @@ public final class LambdaMooV17Codec {
       writeValue(output, pending, context);
     }
     line(output, "0 clocks");
-    line(output, tasks.size() + " queued tasks");
-    for (QueuedTask task : tasks) {
+    List<QueuedTask> queuedTasks = new ArrayList<>();
+    List<SuspendedTask> suspendedTasks = new ArrayList<>();
+    for (DurableTask task : tasks) {
+      switch (task) {
+        case QueuedTask queued -> queuedTasks.add(queued);
+        case SuspendedTask suspended -> suspendedTasks.add(suspended);
+      }
+    }
+    line(output, queuedTasks.size() + " queued tasks");
+    for (QueuedTask task : queuedTasks) {
       writeQueuedTask(output, task, context);
     }
-    line(output, "0 suspended tasks");
+    line(output, suspendedTasks.size() + " suspended tasks");
+    for (SuspendedTask task : suspendedTasks) {
+      writeSuspendedTask(output, task, context);
+    }
     line(output, "0 interrupted tasks");
-    line(output, "0 active connections with listeners");
+    line(output, activeConnections.size() + " active connections with listeners");
+    for (ActiveConnection connection : activeConnections) {
+      line(output, connection.player() + " " + connection.listener());
+    }
 
     line(output, maximumObjectId + 1);
     int objectIndex = 0;
@@ -332,7 +554,7 @@ public final class LambdaMooV17Codec {
     writeValue(output, receiver, context);
     writeValue(output, task.verbLocation(), context);
     line(output, task.threadMode() ? 1 : 0);
-    long receiverObject = receiver instanceof ObjectValue object ? object.value() : -1;
+    long receiverObject = encodedObjectNumber(receiver, context);
     line(
         output,
         receiverObject
@@ -341,8 +563,9 @@ public final class LambdaMooV17Codec {
             + " -9 "
             + task.programmer()
             + " "
-            + task.verbLocation().value()
-            + " -10 1");
+            + encodedObjectNumber(task.verbLocation(), context)
+            + " -10 "
+            + (task.debug() ? 1 : 0));
     line(output, "No");
     line(output, "More");
     line(output, "Parse");
@@ -356,6 +579,93 @@ public final class LambdaMooV17Codec {
       writeValue(output, local.getValue(), context);
     }
     writeProgramSource(output, task.programSource(), "queued-task program");
+  }
+
+  private static void writeSuspendedTask(
+      BufferedWriter output, SuspendedTask task, WriteContext context) throws IOException {
+    output.write(task.scheduledEpochSecond() + " " + task.taskId() + " ");
+    writeValue(output, task.resumeValue(), context);
+    writeValue(output, task.taskLocal(), context);
+    line(
+        output,
+        (task.activations().size() - 1)
+            + " "
+            + task.rootActivationVector()
+            + " "
+            + task.functionId()
+            + " "
+            + task.maxStackDepth());
+    for (SuspendedActivation activation : task.activations()) {
+      writeSuspendedActivation(output, activation, context);
+    }
+  }
+
+  private static void writeSuspendedActivation(
+      BufferedWriter output, SuspendedActivation activation, WriteContext context)
+      throws IOException {
+    if (activation.builtinFunctionCounter() != 0) {
+      throw new IOException("unsupported suspended builtin continuation");
+    }
+    line(output, "language version " + activation.languageVersion());
+    writeProgramSource(output, activation.programSource(), "suspended activation program");
+    line(output, activation.locals().size() + " variables");
+    for (Map.Entry<String, Optional<MooValue>> local : activation.locals().entrySet()) {
+      lineString(output, local.getKey(), "suspended activation variable name");
+      if (local.getValue().isPresent()) {
+        writeValue(output, local.getValue().orElseThrow(), context);
+      } else {
+        line(output, 6);
+      }
+    }
+    line(output, activation.operandStack().size() + " rt_stack slots in use");
+    for (int index = activation.operandStack().size() - 1; index >= 0; index--) {
+      SuspendedStackSlot slot = activation.operandStack().get(index);
+      if (slot.value().isPresent()) {
+        writeValue(output, slot.value().orElseThrow(), context);
+      } else {
+        line(output, slot.controlTag());
+        if (slot.controlTag() != 6) {
+          line(output, slot.controlValue());
+        }
+      }
+    }
+    writeValue(output, new IntegerValue(-111), context);
+    writeValue(output, activation.receiver(), context);
+    writeValue(output, activation.verbLocation(), context);
+    line(output, activation.threadMode() ? 1 : 0);
+    long receiverObject =
+        activation.receiver() instanceof ObjectValue object ? object.value() : -1;
+    long verbLocationObject =
+        activation.verbLocation() instanceof ObjectValue object ? object.value() : -1;
+    line(
+        output,
+        receiverObject
+            + " -7 -8 "
+            + activation.taskPlayer()
+            + " -9 "
+            + activation.programmer()
+            + " "
+            + verbLocationObject
+            + " -10 "
+            + (activation.debug() ? 1 : 0));
+    line(output, "No");
+    line(output, "More");
+    line(output, "Parse");
+    line(output, "Infos");
+    lineString(output, activation.verb(), "suspended activation verb");
+    lineString(output, activation.verbNames(), "suspended activation verb names");
+    if (activation.temporary().isPresent()) {
+      writeValue(output, activation.temporary().orElseThrow(), context);
+    } else {
+      line(output, 6);
+    }
+    line(
+        output,
+        activation.programCounter()
+            + " "
+            + activation.builtinFunctionCounter()
+            + " "
+            + activation.errorCounter());
   }
 
   private static QueuedTask readQueuedTask(BufferedReader input, ReadContext context)
@@ -378,7 +688,8 @@ public final class LambdaMooV17Codec {
     }
     MooValue receiver = readValue(input, context);
     MooValue typedVerbLocation = readValue(input, context);
-    if (!(typedVerbLocation instanceof ObjectValue verbLocation)) {
+    if (!(typedVerbLocation instanceof ObjectValue)
+        && !(typedVerbLocation instanceof AnonymousObjectValue)) {
       throw malformed("queued-task verb location must be an object reference");
     }
     long encodedThreadMode = readLong(input, "queued-task thread mode");
@@ -396,14 +707,14 @@ public final class LambdaMooV17Codec {
         || !compatibilityFields[2].equals("-8")
         || !compatibilityFields[4].equals("-9")
         || !compatibilityFields[7].equals("-10")
-        || !compatibilityFields[8].equals("1")) {
+        || (!compatibilityFields[8].equals("0") && !compatibilityFields[8].equals("1"))) {
       throw malformed("invalid queued-task compatibility sentinels: " + compatibility);
     }
     long taskPlayer = parseLong(compatibilityFields[3], "queued-task player");
     long programmer = parseLong(compatibilityFields[5], "queued-task programmer");
     long oldVerbLocation =
         parseLong(compatibilityFields[6], "queued-task compatibility verb location");
-    if (oldVerbLocation != verbLocation.value()) {
+    if (oldVerbLocation != encodedObjectNumber(typedVerbLocation, context)) {
       throw malformed("queued-task verb-location encodings disagree");
     }
 
@@ -444,9 +755,256 @@ public final class LambdaMooV17Codec {
         readProgramSource(input, "queued-task program"),
         locals,
         programmer,
-        verbLocation,
+        typedVerbLocation,
         taskPlayer,
+        compatibilityFields[8].equals("1"),
         encodedThreadMode == 1);
+  }
+
+  private static long encodedObjectNumber(MooValue value, WriteContext context) throws IOException {
+    if (value instanceof ObjectValue object) {
+      return object.value();
+    }
+    if (value instanceof AnonymousObjectValue anonymous) {
+      return context.anonymousId(anonymous);
+    }
+    return -1;
+  }
+
+  private static long encodedObjectNumber(MooValue value, ReadContext context) throws IOException {
+    if (value instanceof ObjectValue object) {
+      return object.value();
+    }
+    if (value instanceof AnonymousObjectValue anonymous) {
+      for (Map.Entry<Long, AnonymousObjectValue> entry : context.anonymousById.entrySet()) {
+        if (entry.getValue() == anonymous) {
+          return entry.getKey();
+        }
+      }
+      throw malformed("anonymous queued-task object has no encoded id");
+    }
+    return -1;
+  }
+
+  private static SuspendedTask readSuspendedTask(
+      BufferedReader input, ReadContext context) throws IOException {
+    String header = requiredLine(input, "suspended-task header");
+    int firstSpace = header.indexOf(' ');
+    int secondSpace = firstSpace < 0 ? -1 : header.indexOf(' ', firstSpace + 1);
+    if (firstSpace <= 0) {
+      throw malformed("invalid suspended-task header: " + header);
+    }
+    long scheduledEpochSecond =
+        parseLong(header.substring(0, firstSpace), "suspended-task scheduled epoch second");
+    long taskId =
+        parseLong(
+            header.substring(firstSpace + 1, secondSpace < 0 ? header.length() : secondSpace),
+            "suspended-task id");
+    MooValue resumeValue =
+        secondSpace < 0
+            ? new IntegerValue(0)
+            : readValue(
+                input,
+                readParsedInt(header.substring(secondSpace + 1), "suspended-task resume tag"),
+                context);
+    return readSuspendedVm(
+        input, context, taskId, scheduledEpochSecond, resumeValue, Optional.empty());
+  }
+
+  private static SuspendedTask readInterruptedTask(
+      BufferedReader input, ReadContext context) throws IOException {
+    String header = requiredLine(input, "interrupted-task header");
+    int separator = header.indexOf(' ');
+    if (separator <= 0 || separator == header.length() - 1) {
+      throw malformed("invalid interrupted-task header: " + header);
+    }
+    long taskId = parseLong(header.substring(0, separator), "interrupted-task id");
+    return readSuspendedVm(
+        input,
+        context,
+        taskId,
+        0,
+        ErrorValue.E_INTRPT,
+        Optional.of(header.substring(separator + 1)));
+  }
+
+  private static SuspendedTask readSuspendedVm(
+      BufferedReader input,
+      ReadContext context,
+      long taskId,
+      long scheduledEpochSecond,
+      MooValue resumeValue,
+      Optional<String> interruptionStatus)
+      throws IOException {
+    MooValue taskLocal = readValue(input, context);
+    String vmHeader = requiredLine(input, "suspended VM header");
+    String[] fields = vmHeader.split(" ", -1);
+    if (fields.length != 4) {
+      throw malformed("invalid suspended VM header: " + vmHeader);
+    }
+    int topActivation = readParsedInt(fields[0], "suspended VM top activation");
+    if (topActivation < 0) {
+      throw malformed("negative suspended VM top activation");
+    }
+    int rootActivationVector =
+        readParsedInt(fields[1], "suspended VM root activation vector");
+    long functionId = parseLong(fields[2], "suspended VM function id");
+    long maxStackDepth = parseLong(fields[3], "suspended VM maximum stack depth");
+    if (maxStackDepth < 1) {
+      throw malformed("invalid suspended VM maximum stack depth: " + maxStackDepth);
+    }
+    List<SuspendedActivation> activations = new ArrayList<>(topActivation + 1);
+    for (int index = 0; index <= topActivation; index++) {
+      activations.add(readSuspendedActivation(input, context));
+    }
+    return new SuspendedTask(
+        taskId,
+        scheduledEpochSecond,
+        resumeValue,
+        taskLocal,
+        rootActivationVector,
+        functionId,
+        maxStackDepth,
+        interruptionStatus,
+        activations);
+  }
+
+  private static SuspendedActivation readSuspendedActivation(
+      BufferedReader input, ReadContext context) throws IOException {
+    String versionLine = requiredLine(input, "suspended activation language version");
+    String versionPrefix = "language version ";
+    if (!versionLine.startsWith(versionPrefix)) {
+      throw malformed("invalid suspended activation language version: " + versionLine);
+    }
+    int languageVersion =
+        readParsedInt(versionLine.substring(versionPrefix.length()), "activation language version");
+    String programSource = readProgramSource(input, "suspended activation program");
+
+    int variableCount =
+        readSectionCount(input, " variables", "suspended activation variable count");
+    Map<String, Optional<MooValue>> locals = new LinkedHashMap<>();
+    for (int index = 0; index < variableCount; index++) {
+      String name = requiredLine(input, "suspended activation variable name");
+      int localTag = readInt(input, "suspended activation variable tag");
+      Optional<MooValue> value =
+          localTag == 6
+              ? Optional.empty()
+              : Optional.of(readValue(input, localTag, context));
+      if (locals.putIfAbsent(name, value) != null) {
+        throw malformed("duplicate suspended activation variable: " + name);
+      }
+    }
+
+    int stackCount =
+        readSectionCount(
+            input, " rt_stack slots in use", "suspended activation runtime stack count");
+    List<SuspendedStackSlot> operandStack = new ArrayList<>(stackCount);
+    for (int index = 0; index < stackCount; index++) {
+      int stackTag = readInt(input, "suspended activation runtime stack tag");
+      if (stackTag == 6) {
+        operandStack.add(
+            new SuspendedStackSlot(Optional.empty(), stackTag, 0));
+      } else if (stackTag == 7 || stackTag == 8) {
+        operandStack.add(
+            new SuspendedStackSlot(
+                Optional.empty(),
+                stackTag,
+                readLong(input, "suspended activation runtime control value")));
+      } else {
+        operandStack.add(
+            new SuspendedStackSlot(
+                Optional.of(readValue(input, stackTag, context)), -1, 0));
+      }
+    }
+    Collections.reverse(operandStack);
+
+    MooValue sentinel = readValue(input, context);
+    if (!sentinel.equals(new IntegerValue(-111))) {
+      throw malformed("invalid suspended activation sentinel");
+    }
+    MooValue receiver = readValue(input, context);
+    MooValue verbLocation = readValue(input, context);
+    long encodedThreadMode = readLong(input, "suspended activation thread mode");
+    if (encodedThreadMode != 0 && encodedThreadMode != 1) {
+      throw malformed("invalid suspended activation thread mode: " + encodedThreadMode);
+    }
+
+    String compatibility = requiredLine(input, "suspended activation compatibility fields");
+    String[] compatibilityFields = compatibility.split(" ", -1);
+    if (compatibilityFields.length != 9
+        || !compatibilityFields[1].equals("-7")
+        || !compatibilityFields[2].equals("-8")
+        || !compatibilityFields[4].equals("-9")
+        || !compatibilityFields[7].equals("-10")) {
+      throw malformed("invalid suspended activation compatibility fields: " + compatibility);
+    }
+    long encodedReceiver =
+        parseLong(compatibilityFields[0], "suspended activation receiver");
+    long taskPlayer =
+        parseLong(compatibilityFields[3], "suspended activation player");
+    long programmer =
+        parseLong(compatibilityFields[5], "suspended activation programmer");
+    long encodedVerbLocation =
+        parseLong(compatibilityFields[6], "suspended activation verb location");
+    long encodedDebug =
+        parseLong(compatibilityFields[8], "suspended activation debug mode");
+    if (encodedDebug != 0 && encodedDebug != 1) {
+      throw malformed("invalid suspended activation debug mode: " + encodedDebug);
+    }
+    if (receiver instanceof ObjectValue object && object.value() != encodedReceiver) {
+      throw malformed("suspended activation receiver encodings disagree");
+    }
+    if (verbLocation instanceof ObjectValue object && object.value() != encodedVerbLocation) {
+      throw malformed("suspended activation verb-location encodings disagree");
+    }
+
+    requireExact(input, "No", "suspended activation obsolete argstr");
+    requireExact(input, "More", "suspended activation obsolete dobjstr");
+    requireExact(input, "Parse", "suspended activation obsolete iobjstr");
+    requireExact(input, "Infos", "suspended activation obsolete prepstr");
+    String verb = requiredLine(input, "suspended activation verb");
+    String verbNames = requiredLine(input, "suspended activation verb names");
+
+    int temporaryTag = readInt(input, "suspended activation temporary tag");
+    Optional<MooValue> temporary =
+        temporaryTag == 6
+            ? Optional.empty()
+            : Optional.of(readValue(input, temporaryTag, context));
+    String counterLine = requiredLine(input, "suspended activation counters");
+    String[] counters = counterLine.split(" ", -1);
+    if (counters.length != 2 && counters.length != 3) {
+      throw malformed("invalid suspended activation counters: " + counterLine);
+    }
+    long programCounter = parseLong(counters[0], "suspended activation program counter");
+    long builtinFunctionCounter =
+        parseLong(counters[1], "suspended activation builtin function counter");
+    long errorCounter =
+        counters.length == 2
+            ? programCounter
+            : parseLong(counters[2], "suspended activation error counter");
+    if (builtinFunctionCounter != 0) {
+      throw malformed(
+          "unsupported suspended builtin continuation at program counter "
+              + builtinFunctionCounter);
+    }
+
+    return new SuspendedActivation(
+        languageVersion,
+        programSource,
+        locals,
+        operandStack,
+        receiver,
+        verbLocation,
+        encodedThreadMode == 1,
+        taskPlayer,
+        programmer,
+        encodedDebug == 1,
+        verb,
+        verbNames,
+        temporary,
+        programCounter,
+        builtinFunctionCounter,
+        errorCounter);
   }
 
   private static String taskVerb(Map<String, MooValue> locals) {
@@ -492,9 +1050,9 @@ public final class LambdaMooV17Codec {
     line(output, object.flags());
     line(output, object.owner());
     writeValue(output, new ObjectValue(object.location()), context);
-    writeValue(output, new IntegerValue(0), context);
+    writeValue(output, object.lastMove(), context);
     writeObjectList(output, object.contents(), context);
-    writeValue(output, new ObjectValue(object.parent()), context);
+    writeParents(output, object.parents(), context);
     writeObjectList(output, object.children(), context);
 
     line(output, object.verbs().size());
@@ -537,7 +1095,7 @@ public final class LambdaMooV17Codec {
     writeValue(output, new ObjectValue(-1), context);
     writeValue(output, new IntegerValue(0), context);
     writeObjectList(output, List.of(), context);
-    writeValue(output, new ObjectValue(object.parent()), context);
+    writeParents(output, object.parents(), context);
     writeObjectList(output, List.of(), context);
 
     line(output, object.verbs().size());
@@ -572,6 +1130,17 @@ public final class LambdaMooV17Codec {
       throws IOException {
     List<MooValue> values = objectIds.stream().map(ObjectValue::new).map(MooValue.class::cast).toList();
     writeValue(output, new ListValue(values), context);
+  }
+
+  private static void writeParents(
+      BufferedWriter output, List<Long> parents, WriteContext context) throws IOException {
+    if (parents.isEmpty()) {
+      writeValue(output, new ObjectValue(-1), context);
+    } else if (parents.size() == 1) {
+      writeValue(output, new ObjectValue(parents.getFirst()), context);
+    } else {
+      writeObjectList(output, parents, context);
+    }
   }
 
   private static void writeValue(BufferedWriter output, MooValue value, WriteContext context)
@@ -651,13 +1220,12 @@ public final class LambdaMooV17Codec {
     long owner = readLong(input, "object #" + expectedId + " owner");
     long location =
         requireObject(readValue(input, context), "object #" + expectedId + " location");
-    readValue(input, context); // last_move is not represented in the Phase 2 world record.
+    MooValue lastMove = readValue(input, context);
     List<Long> contents =
         requireObjectList(
             readValue(input, context), "object #" + expectedId + " contents");
-    long parent =
-        requireSingleParent(
-            readValue(input, context), "object #" + expectedId + " parents");
+    List<Long> parents =
+        requireParents(readValue(input, context), "object #" + expectedId + " parents");
     List<Long> children =
         requireObjectList(
             readValue(input, context), "object #" + expectedId + " children");
@@ -681,13 +1249,18 @@ public final class LambdaMooV17Codec {
     int propertyValueCount = readCount(input, "object #" + expectedId + " property-value count");
     List<RawPropertySlot> propertySlots = new ArrayList<>(propertyValueCount);
     for (int index = 0; index < propertyValueCount; index++) {
-      int tag = readInt(input, "property value tag");
-      propertySlots.add(
-          new RawPropertySlot(
-              tag == 5 ? null : readValue(input, tag, context),
-              tag == 5,
-              readLong(input, "property owner"),
-              readInt(input, "property permissions")));
+      try {
+        int tag = readInt(input, "property value tag");
+        propertySlots.add(
+            new RawPropertySlot(
+                tag == 5 ? null : readValue(input, tag, context),
+                tag == 5,
+                readLong(input, "property owner"),
+                readInt(input, "property permissions")));
+      } catch (IOException error) {
+        throw malformed(
+            "object #" + expectedId + " property slot " + index + ": " + error.getMessage());
+      }
     }
     return new RawObject(
         expectedId,
@@ -695,7 +1268,8 @@ public final class LambdaMooV17Codec {
         flags,
         owner,
         location,
-        parent,
+        lastMove,
+        parents,
         contents,
         children,
         verbs,
@@ -736,12 +1310,9 @@ public final class LambdaMooV17Codec {
   private static List<WorldObject> restoreObjects(
       Map<Long, RawObject> objects,
       Map<ProgramSlot, String> programs,
+      Map<Long, List<WorldProperty>> restoredProperties,
       int permanentSlotCount)
       throws IOException {
-    Map<Long, List<WorldProperty>> restoredProperties = new LinkedHashMap<>();
-    for (RawObject object : objects.values()) {
-      restoreProperties(object, objects, restoredProperties, new ArrayList<>());
-    }
     List<WorldObject> restored = new ArrayList<>(objects.size());
     for (RawObject object : objects.values()) {
       if (object.id() >= permanentSlotCount) {
@@ -762,7 +1333,8 @@ public final class LambdaMooV17Codec {
               object.flags(),
               object.owner(),
               object.location(),
-              object.parent(),
+              object.lastMove(),
+              object.parents(),
               object.contents(),
               object.children(),
               verbs,
@@ -774,13 +1346,10 @@ public final class LambdaMooV17Codec {
   private static Map<AnonymousObjectValue, WorldAnonymousObject> restoreAnonymousObjects(
       Map<Long, RawObject> objects,
       Map<ProgramSlot, String> programs,
+      Map<Long, List<WorldProperty>> restoredProperties,
       ReadContext context,
       int permanentSlotCount)
       throws IOException {
-    Map<Long, List<WorldProperty>> restoredProperties = new LinkedHashMap<>();
-    for (RawObject object : objects.values()) {
-      restoreProperties(object, objects, restoredProperties, new ArrayList<>());
-    }
     Map<AnonymousObjectValue, WorldAnonymousObject> restored = new LinkedHashMap<>();
     for (Map.Entry<Long, AnonymousObjectValue> entry : context.anonymousById.entrySet()) {
       if (entry.getKey() < permanentSlotCount) {
@@ -804,9 +1373,18 @@ public final class LambdaMooV17Codec {
               object.name(),
               object.flags(),
               object.owner(),
-              object.parent(),
+              object.parents(),
               verbs,
               Objects.requireNonNull(restoredProperties.get(object.id()))));
+    }
+    return restored;
+  }
+
+  private static Map<Long, List<WorldProperty>> restoreAllProperties(
+      Map<Long, RawObject> objects) throws IOException {
+    Map<Long, List<WorldProperty>> restored = new LinkedHashMap<>();
+    for (RawObject object : objects.values()) {
+      restoreProperties(object, objects, restored, new ArrayList<>());
     }
     return restored;
   }
@@ -872,15 +1450,23 @@ public final class LambdaMooV17Codec {
     }
     ancestry.add(object.id());
 
-    List<WorldProperty> inherited = List.of();
-    if (object.parent() != -1) {
-      RawObject parent = objects.get(object.parent());
+    for (long parentId : object.parents()) {
+      RawObject parent = objects.get(parentId);
       if (parent == null) {
-        throw malformed("object #" + object.id() + " has missing parent #" + object.parent());
+        throw malformed("object #" + object.id() + " has missing parent #" + parentId);
       }
-      inherited = restoreProperties(parent, objects, restored, ancestry);
+      restoreProperties(parent, objects, restored, ancestry);
     }
-    if (object.propertySlots().size() != object.propertyNames().size() + inherited.size()) {
+
+    List<Long> canonical = rawAncestry(object.id(), objects);
+    int expectedSlots = 0;
+    for (long ancestorId : canonical) {
+      expectedSlots =
+          Math.addExact(
+              expectedSlots,
+              Objects.requireNonNull(objects.get(ancestorId)).propertyNames().size());
+    }
+    if (object.propertySlots().size() != expectedSlots) {
       throw malformed(
           "object #"
               + object.id()
@@ -889,33 +1475,149 @@ public final class LambdaMooV17Codec {
               + " definitions and "
               + object.propertySlots().size()
               + " value slots for "
-              + inherited.size()
+              + (expectedSlots - object.propertyNames().size())
               + " inherited properties");
     }
 
     List<WorldProperty> properties = new ArrayList<>(object.propertySlots().size());
-    for (int index = 0; index < object.propertySlots().size(); index++) {
-      RawPropertySlot slot = object.propertySlots().get(index);
-      boolean defined = index < object.propertyNames().size();
-      String name =
-          defined
-              ? object.propertyNames().get(index)
-              : inherited.get(index - object.propertyNames().size()).name();
-      if (defined && slot.clear()) {
-        throw malformed("object #" + object.id() + " has a clear local property " + name);
+    int slotIndex = 0;
+    for (long definingId : canonical) {
+      RawObject defining = Objects.requireNonNull(objects.get(definingId));
+      for (String name : defining.propertyNames()) {
+        RawPropertySlot slot = object.propertySlots().get(slotIndex++);
+        boolean defined = definingId == object.id();
+        if (defined && slot.clear()) {
+          throw malformed("object #" + object.id() + " has a clear local property " + name);
+        }
+        MooValue value = slot.value();
+        if (value == null) {
+          value = clearFallback(object, name, restored);
+        }
+        properties.add(
+            new WorldProperty(
+                name, value, slot.owner(), slot.permissions(), slot.clear(), defined));
       }
-      MooValue value = slot.value();
-      if (value == null) {
-        value = inherited.get(index - object.propertyNames().size()).value();
-      }
-      properties.add(
-          new WorldProperty(
-              name, value, slot.owner(), slot.permissions(), slot.clear(), defined));
     }
     ancestry.removeLast();
     List<WorldProperty> result = List.copyOf(properties);
     restored.put(object.id(), result);
     return result;
+  }
+
+  private static MooValue clearFallback(
+      RawObject object, String propertyName, Map<Long, List<WorldProperty>> restored)
+      throws IOException {
+    for (long parentId : object.parents()) {
+      List<WorldProperty> parentProperties = restored.get(parentId);
+      if (parentProperties == null) {
+        continue;
+      }
+      for (WorldProperty property : parentProperties) {
+        if (property.name().equalsIgnoreCase(propertyName)) {
+          return property.value();
+        }
+      }
+    }
+    throw malformed(
+        "object #" + object.id() + " has clear property without direct-parent fallback "
+            + propertyName);
+  }
+
+  private static void validateInheritanceGraph(
+      Map<Long, RawObject> objects, int permanentSlotCount) throws IOException {
+    Map<Long, List<Long>> expectedChildren = new LinkedHashMap<>();
+    Map<Long, RawVisitState> inheritanceState = new LinkedHashMap<>();
+    for (RawObject object : objects.values()) {
+      if (new LinkedHashSet<>(object.parents()).size() != object.parents().size()) {
+        throw malformed("object #" + object.id() + " repeats an inheritance parent");
+      }
+      validateRawAcyclic(object.id(), objects, inheritanceState);
+      if (object.id() >= permanentSlotCount) {
+        continue;
+      }
+      for (long parentId : object.parents()) {
+        if (parentId >= permanentSlotCount) {
+          throw malformed("object #" + object.id() + " has non-permanent parent #" + parentId);
+        }
+        expectedChildren.computeIfAbsent(parentId, ignored -> new ArrayList<>()).add(object.id());
+      }
+    }
+    for (RawObject object : objects.values()) {
+      if (object.id() >= permanentSlotCount) {
+        continue;
+      }
+      if (new LinkedHashSet<>(object.children()).size() != object.children().size()) {
+        throw malformed("object #" + object.id() + " repeats an inheritance child");
+      }
+      List<Long> expected = expectedChildren.getOrDefault(object.id(), List.of());
+      if (!new LinkedHashSet<>(object.children()).equals(new LinkedHashSet<>(expected))) {
+        throw malformed("object #" + object.id() + " has non-reciprocal inheritance children");
+      }
+      for (long childId : object.children()) {
+        RawObject child = objects.get(childId);
+        if (child == null || childId >= permanentSlotCount || !child.parents().contains(object.id())) {
+          throw malformed("object #" + object.id() + " names non-reciprocal child #" + childId);
+        }
+      }
+    }
+  }
+
+  private static void validateRawAcyclic(
+      long objectId, Map<Long, RawObject> objects, Map<Long, RawVisitState> state)
+      throws IOException {
+    RawVisitState existing = state.get(objectId);
+    if (existing == RawVisitState.COMPLETE) {
+      return;
+    }
+    if (existing == RawVisitState.VISITING) {
+      throw malformed("cyclic property ancestry at object #" + objectId);
+    }
+    RawObject object = objects.get(objectId);
+    if (object == null) {
+      throw malformed("missing inheritance object #" + objectId);
+    }
+    state.put(objectId, RawVisitState.VISITING);
+    for (long parentId : object.parents()) {
+      validateRawAcyclic(parentId, objects, state);
+    }
+    state.put(objectId, RawVisitState.COMPLETE);
+  }
+
+  private enum RawVisitState {
+    VISITING,
+    COMPLETE
+  }
+
+  private static List<Long> rawAncestry(long objectId, Map<Long, RawObject> objects)
+      throws IOException {
+    List<Long> result = new ArrayList<>();
+    collectRawAncestry(objectId, objects, new LinkedHashSet<>(), new LinkedHashSet<>(), result);
+    return List.copyOf(result);
+  }
+
+  private static void collectRawAncestry(
+      long objectId,
+      Map<Long, RawObject> objects,
+      Set<Long> visiting,
+      Set<Long> visited,
+      List<Long> result)
+      throws IOException {
+    if (visited.contains(objectId)) {
+      return;
+    }
+    RawObject object = objects.get(objectId);
+    if (object == null) {
+      throw malformed("missing inheritance object #" + objectId);
+    }
+    if (!visiting.add(objectId)) {
+      throw malformed("cyclic property ancestry at object #" + objectId);
+    }
+    visited.add(objectId);
+    result.add(objectId);
+    for (long parentId : object.parents()) {
+      collectRawAncestry(parentId, objects, visiting, visited, result);
+    }
+    visiting.remove(objectId);
   }
 
   private static MooValue readValue(BufferedReader input, ReadContext context) throws IOException {
@@ -930,9 +1632,11 @@ public final class LambdaMooV17Codec {
       case 1 -> new ObjectValue(readLong(input, "object value"));
       case 2 ->
           new StringValue(requiredLine(input, "string value").getBytes(StandardCharsets.ISO_8859_1));
-      case 3 ->
-          ErrorValue.fromCode(readLong(input, "error value"))
-              .orElseThrow(() -> malformed("unsupported error value"));
+      case 3 -> {
+        long code = readLong(input, "error value");
+        yield ErrorValue.fromCode(code & 0xffff_ffffL)
+            .orElseThrow(() -> malformed("unsupported error value " + code));
+      }
       case 4 -> {
         int count = readCount(input, "list count");
         List<MooValue> values = new ArrayList<>(count);
@@ -944,13 +1648,17 @@ public final class LambdaMooV17Codec {
       case 9 -> new FloatValue(readDouble(input, "float value"));
       case 10 -> {
         int count = readCount(input, "map count");
+        List<MooValue> keys = new ArrayList<>(count);
         MapValue values = new MapValue(Map.of());
         for (int index = 0; index < count; index++) {
           MooValue key = readValue(input, context);
           MooValue value = readValue(input, context);
-          if (values.get(key).isPresent()) {
-            throw malformed("duplicate map key in v17 value");
+          for (MooValue existing : keys) {
+            if (MapValue.compareKeys(existing, key) == 0) {
+              throw malformed("duplicate map key in v17 value");
+            }
           }
+          keys.add(key);
           values = values.with(key, value);
         }
         yield values;
@@ -1023,18 +1731,11 @@ public final class LambdaMooV17Codec {
     throw malformed(field + " must be an object reference");
   }
 
-  private static long requireSingleParent(MooValue value, String field) throws IOException {
+  private static List<Long> requireParents(MooValue value, String field) throws IOException {
     if (value instanceof ObjectValue object) {
-      return object.value();
+      return object.value() == -1 ? List.of() : List.of(object.value());
     }
-    List<Long> parents = requireObjectList(value, field);
-    if (parents.isEmpty()) {
-      return -1;
-    }
-    if (parents.size() == 1) {
-      return parents.getFirst();
-    }
-    throw malformed(field + " requires unsupported multiple inheritance");
+    return requireObjectList(value, field);
   }
 
   private static List<Long> requireObjectList(MooValue value, String field) throws IOException {
@@ -1203,13 +1904,15 @@ public final class LambdaMooV17Codec {
       int flags,
       long owner,
       long location,
-      long parent,
+      MooValue lastMove,
+      List<Long> parents,
       List<Long> contents,
       List<Long> children,
       List<RawVerb> verbs,
       List<String> propertyNames,
       List<RawPropertySlot> propertySlots) {
     private RawObject {
+      parents = List.copyOf(parents);
       contents = List.copyOf(contents);
       children = List.copyOf(children);
       verbs = List.copyOf(verbs);

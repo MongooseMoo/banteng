@@ -597,7 +597,8 @@ public sealed interface Ast
 
   enum UnaryOperator {
     NEGATE,
-    NOT
+    NOT,
+    COMPLEMENT
   }
 
   enum BinaryOperator {
@@ -614,6 +615,11 @@ public sealed interface Ast
     GREATER_THAN,
     GREATER_THAN_OR_EQUAL,
     IN,
+    BITOR,
+    BITAND,
+    BITXOR,
+    BITSHL,
+    BITSHR,
     AND,
     OR
   }

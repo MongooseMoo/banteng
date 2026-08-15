@@ -2,7 +2,7 @@
 set -euo pipefail
 
 if [[ $# -lt 3 ]]; then
-  echo "usage: run_managed_wsl.sh {toast|banteng} {stock|mongoose|toastcore} SUITE..." >&2
+  echo "usage: run_managed_wsl.sh {toast|banteng} {stock|toastcore} SUITE..." >&2
   exit 64
 fi
 
@@ -16,7 +16,7 @@ case "$target" in
 esac
 
 case "$profile" in
-  stock|mongoose|toastcore) ;;
+  stock|toastcore) ;;
   *) echo "invalid profile: $profile" >&2; exit 64 ;;
 esac
 
@@ -26,7 +26,6 @@ conformance_repo="$(cd -- "$banteng_repo/../moo-conformance-tests" && pwd)"
 
 case "$profile" in
   stock) oracle_relative="profiles/toast/stock-wsl-testdb.json" ;;
-  mongoose) oracle_relative="profiles/toast/mongoose-wsl-mongoose.json" ;;
   toastcore) oracle_relative="profiles/toast/stock-wsl-toastcore.json" ;;
 esac
 oracle_manifest="$banteng_repo/$oracle_relative"

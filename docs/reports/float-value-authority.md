@@ -28,8 +28,8 @@ remains required before any further Java value representation is designed.
   `profiles/toast/stock-wsl-testdb.json` and `scripts/run_toast_wsl.sh`, using
   the bundled disposable `Test.db` fixture.
 - Selected stock profile has `option.PROMOTE_NUMBERS: false`; promoted-number
-  behavior remains a separately selected profile rather than an implicit FLOAT
-  rule.
+  behavior is optional, non-conformance product behavior rather than an
+  implicit FLOAT rule or selected profile.
 
 ## Normative Barn specification
 

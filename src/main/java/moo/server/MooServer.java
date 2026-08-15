@@ -6,6 +6,11 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStreamWriter;
 import java.io.UncheckedIOException;
+import java.lang.foreign.FunctionDescriptor;
+import java.lang.foreign.Linker;
+import java.lang.foreign.MemorySegment;
+import java.lang.foreign.ValueLayout;
+import java.lang.invoke.MethodHandle;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.ServerSocket;
@@ -13,13 +18,19 @@ import java.net.Socket;
 import java.net.SocketException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
+import moo.builtin.BuiltinCatalog.ListenerDescription;
 import moo.builtin.BuiltinCatalog.ListenerControl;
 import moo.persistence.LambdaMooV17Codec;
 import moo.runtime.MooRuntime;
@@ -42,11 +53,12 @@ public final class MooServer implements AutoCloseable, ListenerControl {
   private final Map<Long, Boolean> binaryConnections = new ConcurrentHashMap<>();
   private final AtomicBoolean serving = new AtomicBoolean();
   private final AtomicBoolean closed = new AtomicBoolean();
+  private final CountDownLatch closedLatch = new CountDownLatch(1);
   private final AtomicLong nextConnectionId = new AtomicLong(-2);
 
   /** Binds the configured address and port. Port zero requests an ephemeral test port. */
   public MooServer(String address, int port, WorldTxn world, Path checkpoint) throws IOException {
-    this(address, port, world, checkpoint, List.of());
+    this(address, port, world, checkpoint, List.of(), List.of());
   }
 
   /** Binds the listener and restores delayed fork tasks from the loaded checkpoint. */
@@ -55,20 +67,87 @@ public final class MooServer implements AutoCloseable, ListenerControl {
       int port,
       WorldTxn world,
       Path checkpoint,
-      List<LambdaMooV17Codec.QueuedTask> restoredTasks)
+      List<LambdaMooV17Codec.DurableTask> restoredTasks,
+      List<LambdaMooV17Codec.ActiveConnection> activeConnections)
+      throws IOException {
+    this(
+        address,
+        port,
+        world,
+        Optional.empty(),
+        checkpoint,
+        restoredTasks,
+        activeConnections);
+  }
+
+  /** Binds the listener with distinct loaded and checkpoint database files. */
+  public MooServer(
+      String address,
+      int port,
+      WorldTxn world,
+      Path database,
+      Path checkpoint,
+      List<LambdaMooV17Codec.DurableTask> restoredTasks,
+      List<LambdaMooV17Codec.ActiveConnection> activeConnections)
+      throws IOException {
+    this(
+        address,
+        port,
+        world,
+        Optional.of(Objects.requireNonNull(database, "database")),
+        checkpoint,
+        restoredTasks,
+        activeConnections);
+  }
+
+  private MooServer(
+      String address,
+      int port,
+      WorldTxn world,
+      Optional<Path> database,
+      Path checkpoint,
+      List<LambdaMooV17Codec.DurableTask> restoredTasks,
+      List<LambdaMooV17Codec.ActiveConnection> activeConnections)
       throws IOException {
     listenAddress = InetAddress.getByName(address);
     primaryListener = new ServerSocket();
-    primaryListener.bind(new InetSocketAddress(listenAddress, port));
-    primaryPort = primaryListener.getLocalPort();
-    primary = new Listener(primaryListener, 0, true);
-    listeners.put(primaryPort, primary);
+    WorldTxn runtimeWorld = Objects.requireNonNull(world, "world");
+    Path checkpointPath = Objects.requireNonNull(checkpoint, "checkpoint");
+    List<LambdaMooV17Codec.DurableTask> tasks =
+        Objects.requireNonNull(restoredTasks, "restoredTasks");
+    List<LambdaMooV17Codec.ActiveConnection> connectionsToRestore =
+        Objects.requireNonNull(activeConnections, "activeConnections");
     runtime =
-        new MooRuntime(
-            Objects.requireNonNull(world, "world"),
-            this,
-            Objects.requireNonNull(checkpoint, "checkpoint"),
-            Objects.requireNonNull(restoredTasks, "restoredTasks"));
+        database.isPresent()
+            ? new MooRuntime(
+                runtimeWorld,
+                this,
+                database.orElseThrow(),
+                checkpointPath,
+                tasks,
+                connectionsToRestore)
+            : new MooRuntime(
+                runtimeWorld, this, checkpointPath, tasks, connectionsToRestore);
+    try {
+      primaryListener.bind(new InetSocketAddress(listenAddress, port));
+    } catch (IOException | RuntimeException failure) {
+      try {
+        primaryListener.close();
+      } catch (IOException closeFailure) {
+        failure.addSuppressed(closeFailure);
+      }
+      throw failure;
+    }
+    primaryPort = primaryListener.getLocalPort();
+    primary =
+        new Listener(
+            primaryListener,
+            0,
+            primaryPort,
+            listenAddress.getAddress().length == 16,
+            true,
+            listenAddress.getHostAddress());
+    listeners.put(primaryPort, primary);
   }
 
   /** Returns the bound port, including the assigned ephemeral port in tests. */
@@ -123,25 +202,9 @@ public final class MooServer implements AutoCloseable, ListenerControl {
             new BufferedWriter(
                 new OutputStreamWriter(socket.getOutputStream(), StandardCharsets.ISO_8859_1))) {
       outputs.put(connectionId, output);
-      Map<MooValue, MooValue> connectionInfo = new LinkedHashMap<>();
-      String sourceAddress = socket.getLocalAddress().getHostAddress();
-      String destinationAddress = socket.getInetAddress().getHostAddress();
-      connectionInfo.put(encode("source_address"), encode(sourceAddress));
-      connectionInfo.put(encode("source_ip"), encode(sourceAddress));
-      connectionInfo.put(encode("source_port"), new IntegerValue(socket.getLocalPort()));
-      connectionInfo.put(encode("destination_address"), encode(destinationAddress));
-      connectionInfo.put(encode("destination_ip"), encode(destinationAddress));
-      connectionInfo.put(encode("destination_port"), new IntegerValue(socket.getPort()));
-      connectionInfo.put(
-          encode("protocol"),
-          encode(socket.getInetAddress().getAddress().length == 16 ? "IPv6" : "IPv4"));
-      connectionInfo.put(encode("outbound"), new IntegerValue(0));
-      connectionInfo.put(
-          encode("TLS"),
-          new MapValue(Map.of(encode("active"), new IntegerValue(0))));
       List<String> initialOutput =
           runtime.openConnection(
-              connectionId, listener.handler, listener.printMessages, new MapValue(connectionInfo));
+              connectionId, listener.handler, listener.printMessages, connectionInfo(socket, false));
       opened = true;
       writeLines(output, initialOutput);
       ByteArrayOutputStream line = new ByteArrayOutputStream();
@@ -269,20 +332,61 @@ public final class MooServer implements AutoCloseable, ListenerControl {
     return new StringValue(value.getBytes(StandardCharsets.ISO_8859_1));
   }
 
+  private static MapValue connectionInfo(Socket socket, boolean outbound) {
+    Map<MooValue, MooValue> connectionInfo = new LinkedHashMap<>();
+    String sourceAddress = socket.getLocalAddress().getHostAddress();
+    String destinationAddress = socket.getInetAddress().getHostAddress();
+    connectionInfo.put(encode("source_address"), encode(sourceAddress));
+    connectionInfo.put(encode("source_ip"), encode(sourceAddress));
+    connectionInfo.put(encode("source_port"), new IntegerValue(socket.getLocalPort()));
+    connectionInfo.put(encode("destination_address"), encode(destinationAddress));
+    connectionInfo.put(encode("destination_ip"), encode(destinationAddress));
+    connectionInfo.put(encode("destination_port"), new IntegerValue(socket.getPort()));
+    connectionInfo.put(
+        encode("protocol"),
+        encode(socket.getInetAddress().getAddress().length == 16 ? "IPv6" : "IPv4"));
+    connectionInfo.put(encode("outbound"), new IntegerValue(outbound ? 1 : 0));
+    connectionInfo.put(
+        encode("TLS"), new MapValue(Map.of(encode("active"), new IntegerValue(0))));
+    return new MapValue(connectionInfo);
+  }
+
   /** Binds and starts a dynamic listener owned by one MOO object. */
   @Override
-  public synchronized int listen(long handler, int port, boolean printMessages) throws IOException {
+  public synchronized int listen(
+      long handler,
+      int description,
+      boolean ipv6,
+      boolean printMessages,
+      String interfaceAddress)
+      throws IOException {
     if (closed.get()) {
       throw new IllegalArgumentException("server is closed");
     }
-    if (listeners.containsKey(port)) {
-      throw new IllegalArgumentException("listener already exists on port " + port);
+    if (listeners.containsKey(description)
+        || listeners.values().stream()
+            .anyMatch(listener -> listener.description == description && listener.ipv6 == ipv6)) {
+      throw new IllegalArgumentException("listener already exists for description " + description);
     }
     ServerSocket socket = new ServerSocket();
     try {
-      socket.bind(new InetSocketAddress(listenAddress, port));
-      Listener listener = new Listener(socket, handler, printMessages);
+      InetAddress bindAddress =
+          interfaceAddress.isEmpty()
+              ? (ipv6 ? InetAddress.getAllByName("::1")[0] : listenAddress)
+              : InetAddress.getByName(interfaceAddress);
+      if ((bindAddress.getAddress().length == 16) != ipv6) {
+        throw new IllegalArgumentException("listener interface address family does not match ipv6");
+      }
+      socket.bind(new InetSocketAddress(bindAddress, description));
       int descriptor = socket.getLocalPort();
+      Listener listener =
+          new Listener(
+              socket,
+              handler,
+              description,
+              ipv6,
+              printMessages,
+              bindAddress.getHostAddress());
       if (listeners.putIfAbsent(descriptor, listener) != null) {
         throw new IllegalArgumentException("listener already exists on port " + descriptor);
       }
@@ -298,22 +402,81 @@ public final class MooServer implements AutoCloseable, ListenerControl {
     }
   }
 
+  /** Returns a stable snapshot of the active listener inventory. */
+  @Override
+  public synchronized List<ListenerDescription> listeners() {
+    List<ListenerDescription> result = new ArrayList<>();
+    for (Listener listener : listeners.values()) {
+      result.add(
+          new ListenerDescription(
+              listener.handler,
+              listener.description,
+              listener.socket.getLocalPort(),
+              listener.ipv6,
+              listener.printMessages,
+              listener.interfaceAddress));
+    }
+    result.sort(Comparator.comparingInt(ListenerDescription::port));
+    return List.copyOf(result);
+  }
+
   /** Closes one dynamic listener without closing its accepted connections. */
   @Override
-  public synchronized boolean unlisten(int port) {
-    if (port == primaryPort) {
+  public synchronized boolean unlisten(int description, boolean ipv6) {
+    Map.Entry<Integer, Listener> selected =
+        listeners.entrySet().stream()
+            .filter(entry -> !Objects.equals(entry.getValue(), primary))
+            .filter(entry -> entry.getValue().description == description)
+            .filter(entry -> entry.getValue().ipv6 == ipv6)
+            .findFirst()
+            .orElse(null);
+    if (selected == null) {
       return false;
     }
-    Listener listener = listeners.get(port);
-    if (listener == null) {
-      return false;
-    }
+    Listener listener = selected.getValue();
     try {
       listener.socket.close();
-      listeners.remove(port, listener);
+      listeners.remove(selected.getKey(), listener);
       return true;
     } catch (IOException error) {
       return false;
+    }
+  }
+
+  /** Opens an outbound socket and registers its negative MOO connection object atomically. */
+  @Override
+  public long openNetworkConnection(String host, int port, boolean ipv6, long listenerHandler)
+      throws IOException {
+    if (closed.get() || port < 0 || port > 65_535) {
+      throw new IllegalArgumentException("invalid outbound connection");
+    }
+    InetAddress remote = null;
+    for (InetAddress candidate : InetAddress.getAllByName(host)) {
+      if ((candidate.getAddress().length == 16) == ipv6) {
+        remote = candidate;
+        break;
+      }
+    }
+    if (remote == null) {
+      throw new IllegalArgumentException("host has no requested address family");
+    }
+    Socket socket = new Socket();
+    long connectionId = nextConnectionId.getAndDecrement();
+    try {
+      socket.connect(new InetSocketAddress(remote, port));
+      BufferedWriter output =
+          new BufferedWriter(
+              new OutputStreamWriter(socket.getOutputStream(), StandardCharsets.ISO_8859_1));
+      connections.put(connectionId, socket);
+      outputs.put(connectionId, output);
+      runtime.registerOutboundConnection(
+          connectionId, listenerHandler, connectionInfo(socket, true));
+      return connectionId;
+    } catch (IOException | RuntimeException failure) {
+      outputs.remove(connectionId);
+      connections.remove(connectionId, socket);
+      closeSocket(socket);
+      throw failure;
     }
   }
 
@@ -360,6 +523,12 @@ public final class MooServer implements AutoCloseable, ListenerControl {
     }
   }
 
+  /** Output is flushed synchronously, so no bytes remain queued between writes. */
+  @Override
+  public long bufferedOutputLength(long connectionId) {
+    return 0L;
+  }
+
   /** Closes the production server after a committed shutdown checkpoint. */
   @Override
   public void shutdown() {
@@ -368,6 +537,82 @@ public final class MooServer implements AutoCloseable, ListenerControl {
     } catch (IOException error) {
       throw new UncheckedIOException("server shutdown failed", error);
     }
+  }
+
+  /** Requests a final checkpoint, then waits for listener and executor termination. */
+  public void gracefulShutdown() {
+    if (!closed.get()) {
+      runtime.requestGracefulShutdown();
+    }
+    try {
+      if (!closedLatch.await(30, TimeUnit.SECONDS)) {
+        throw new IllegalStateException("graceful shutdown did not close the server");
+      }
+      if (!runtime.awaitTermination(30, TimeUnit.SECONDS)) {
+        throw new IllegalStateException("graceful shutdown did not terminate VM workers");
+      }
+    } catch (InterruptedException interrupted) {
+      Thread.currentThread().interrupt();
+      throw new IllegalStateException("graceful shutdown interrupted", interrupted);
+    }
+  }
+
+  /** Aborts the process after the runtime has durably published its panic database. */
+  @Override
+  public void panic() {
+    try {
+      int dumpableResult =
+          (int)
+              NativeAbort.PRCTL.invokeExact(
+                  NativeAbort.PR_SET_DUMPABLE, 0L, 0L, 0L, 0L);
+      if (dumpableResult != 0) {
+        Runtime.getRuntime().halt(134);
+      }
+      MemorySegment previous =
+          (MemorySegment) NativeAbort.SIGNAL.invokeExact(NativeAbort.SIGABRT, MemorySegment.NULL);
+      if (previous.equals(MemorySegment.ofAddress(-1))) {
+        Runtime.getRuntime().halt(134);
+      }
+      int result = (int) NativeAbort.RAISE.invokeExact(NativeAbort.SIGABRT);
+      Runtime.getRuntime().halt(result == 0 ? 134 : 135);
+    } catch (Throwable failure) {
+      Runtime.getRuntime().halt(134);
+    }
+  }
+
+  private static final class NativeAbort {
+    private static final int SIGABRT = 6;
+    private static final int PR_SET_DUMPABLE = 4;
+
+    @SuppressWarnings("restricted")
+    private static final MethodHandle PRCTL =
+        Linker.nativeLinker()
+            .downcallHandle(
+                Linker.nativeLinker().defaultLookup().findOrThrow("prctl"),
+                FunctionDescriptor.of(
+                    ValueLayout.JAVA_INT,
+                    ValueLayout.JAVA_INT,
+                    ValueLayout.JAVA_LONG,
+                    ValueLayout.JAVA_LONG,
+                    ValueLayout.JAVA_LONG,
+                    ValueLayout.JAVA_LONG));
+
+    @SuppressWarnings("restricted")
+    private static final MethodHandle SIGNAL =
+        Linker.nativeLinker()
+            .downcallHandle(
+                Linker.nativeLinker().defaultLookup().findOrThrow("signal"),
+                FunctionDescriptor.of(
+                    ValueLayout.ADDRESS, ValueLayout.JAVA_INT, ValueLayout.ADDRESS));
+
+    @SuppressWarnings("restricted")
+    private static final MethodHandle RAISE =
+        Linker.nativeLinker()
+            .downcallHandle(
+                Linker.nativeLinker().defaultLookup().findOrThrow("raise"),
+                FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.JAVA_INT));
+
+    private NativeAbort() {}
   }
 
   /** Closes the listener and every accepted socket. */
@@ -401,6 +646,8 @@ public final class MooServer implements AutoCloseable, ListenerControl {
         }
       }
     }
+    runtime.close();
+    closedLatch.countDown();
     if (failure != null) {
       throw failure;
     }
@@ -414,9 +661,16 @@ public final class MooServer implements AutoCloseable, ListenerControl {
     }
   }
 
-  private record Listener(ServerSocket socket, long handler, boolean printMessages) {
+  private record Listener(
+      ServerSocket socket,
+      long handler,
+      int description,
+      boolean ipv6,
+      boolean printMessages,
+      String interfaceAddress) {
     private Listener {
       Objects.requireNonNull(socket, "socket");
+      Objects.requireNonNull(interfaceAddress, "interfaceAddress");
     }
   }
 }

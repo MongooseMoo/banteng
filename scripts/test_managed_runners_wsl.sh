@@ -96,7 +96,6 @@ test "$(cat "$tmp/toast.trace")" = preflight
 cp "$script_dir/run_managed_wsl.sh" "$repo/scripts/"
 mkdir -p "$repo/profiles/toast" "$repo/profiles/banteng" "$repo/fixtures"
 printf 'stock\n' > "$repo/fixtures/stock.db"
-printf 'mongoose\n' > "$repo/fixtures/mongoose.db"
 printf 'toastcore\n' > "$repo/fixtures/toastcore.db"
 
 write_profile() {
@@ -125,14 +124,10 @@ stock_suite='src/moo_conformance/_tests/selected/stock.yaml'
 toastcore_suite='src/moo_conformance/_tests/selected/toastcore.yaml'
 write_profile "$repo/profiles/toast/stock-wsl-testdb.json" \
   "$repo/fixtures/stock.db" "[\"$stock_suite\"]" '[]' false false
-write_profile "$repo/profiles/toast/mongoose-wsl-mongoose.json" \
-  "$repo/fixtures/mongoose.db" "[\"$stock_suite\"]" '[]' false true
 write_profile "$repo/profiles/toast/stock-wsl-toastcore.json" \
   "$repo/fixtures/toastcore.db" '[]' '["connect wizard"]' true false
 write_profile "$repo/profiles/banteng/stock.json" \
   "$repo/fixtures/stock.db" "[\"$stock_suite\"]" '[]' false false
-write_profile "$repo/profiles/banteng/mongoose.json" \
-  "$repo/fixtures/mongoose.db" "[\"$stock_suite\"]" '[]' false true
 write_profile "$repo/profiles/banteng/toastcore.json" \
   "$repo/fixtures/toastcore.db" '[]' '["connect wizard"]' true false
 
@@ -197,6 +192,7 @@ managed_rejected() {
 managed_rejected toast stock
 managed_rejected other stock profile
 managed_rejected toast other profile
+managed_rejected toast mongoose profile
 managed_rejected toast stock profile "$stock_suite"
 managed_rejected toast toastcore profile
 managed_rejected toast stock outside.yaml

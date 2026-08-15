@@ -1,5 +1,7 @@
 package moo.vm;
 
+import java.lang.management.ManagementFactory;
+import java.lang.management.ThreadMXBean;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -20,6 +22,7 @@ import moo.builtin.CheckpointRequest;
 import moo.bytecode.BytecodeProgram;
 import moo.bytecode.BytecodeProgram.HandlerSpec;
 import moo.value.MooValue;
+import moo.value.MooValue.AnonymousObjectValue;
 import moo.value.MooValue.ErrorValue;
 import moo.value.MooValue.IntegerValue;
 import moo.value.MooValue.ListValue;
@@ -32,6 +35,7 @@ public final class VmState {
   private static final long DEFAULT_FOREGROUND_TICKS = 60_000;
   private static final long DEFAULT_FOREGROUND_SECONDS = 5;
   private static final long DEFAULT_MAX_STACK_DEPTH = 50;
+  private static final ThreadMXBean THREAD_CPU = ManagementFactory.getThreadMXBean();
 
   private final Deque<Frame> frames = new ArrayDeque<>();
   private final Map<String, MooValue> initialLocals;
@@ -40,6 +44,7 @@ public final class VmState {
   private final List<Long> bootPlayerTargets = new ArrayList<>();
   private final List<ForcedInputRequest> forcedInputRequests = new ArrayList<>();
   private final List<CheckpointRequest> checkpointRequests = new ArrayList<>();
+  private final List<AnonymousObjectValue> anonymousCollectionDeferrals = new ArrayList<>();
   private Outcome outcome = Outcome.RUNNING;
   private Optional<MooValue> returnValue = Optional.empty();
   private Optional<ErrorValue> pendingError = Optional.empty();
@@ -57,7 +62,8 @@ public final class VmState {
   private final long maxStackDepth;
   private long segmentCpuAnchorNanos = -1;
   private final long initialProgrammer;
-  private final ObjectValue initialVerbLocation;
+  private final MooValue initialVerbLocation;
+  private final boolean initialDebug;
 
   /** Creates an empty state for a pure root program. */
   public VmState() {
@@ -77,7 +83,7 @@ public final class VmState {
   }
 
   /** Creates a state with explicit root verb metadata. */
-  public VmState(Map<String, MooValue> locals, long programmer, ObjectValue verbLocation) {
+  public VmState(Map<String, MooValue> locals, long programmer, MooValue verbLocation) {
     this(locals, programmer, verbLocation, DEFAULT_FOREGROUND_TICKS, DEFAULT_FOREGROUND_SECONDS);
   }
 
@@ -85,7 +91,7 @@ public final class VmState {
   public VmState(
       Map<String, MooValue> locals,
       long programmer,
-      ObjectValue verbLocation,
+      MooValue verbLocation,
       long remainingTicks) {
     this(locals, programmer, verbLocation, remainingTicks, 0);
   }
@@ -94,7 +100,7 @@ public final class VmState {
   public VmState(
       Map<String, MooValue> locals,
       long programmer,
-      ObjectValue verbLocation,
+      MooValue verbLocation,
       long remainingTicks,
       long secondsLimit) {
     this(locals, programmer, verbLocation, remainingTicks, secondsLimit, DEFAULT_MAX_STACK_DEPTH);
@@ -104,13 +110,26 @@ public final class VmState {
   public VmState(
       Map<String, MooValue> locals,
       long programmer,
-      ObjectValue verbLocation,
+      MooValue verbLocation,
       long remainingTicks,
       long secondsLimit,
       long maxStackDepth) {
+    this(locals, programmer, verbLocation, remainingTicks, secondsLimit, maxStackDepth, true);
+  }
+
+  /** Creates a state with explicit root metadata, execution limits, and verb debug mode. */
+  public VmState(
+      Map<String, MooValue> locals,
+      long programmer,
+      MooValue verbLocation,
+      long remainingTicks,
+      long secondsLimit,
+      long maxStackDepth,
+      boolean debug) {
     initialLocals = normalizedLocals(locals);
     initialProgrammer = programmer;
     initialVerbLocation = verbLocation;
+    initialDebug = debug;
     this.remainingTicks = remainingTicks;
     remainingCpuNanos = Math.max(0L, TimeUnit.SECONDS.toNanos(secondsLimit));
     this.maxStackDepth = maxStackDepth;
@@ -207,7 +226,7 @@ public final class VmState {
   }
 
   long remainingSeconds() {
-    long elapsedNanos = segmentElapsedCpuNanos(currentProcessCpuNanos());
+    long elapsedNanos = segmentElapsedCpuNanos(currentThreadCpuNanos());
     long remainingNanos =
         Math.max(0L, remainingCpuNanos - Math.min(remainingCpuNanos, elapsedNanos));
     return TimeUnit.NANOSECONDS.toSeconds(remainingNanos);
@@ -240,20 +259,23 @@ public final class VmState {
               initialProgrammer,
               receiver,
               initialVerbLocation,
+              Optional.empty(),
               OptionalLong.empty(),
               OptionalLong.empty(),
               OptionalLong.empty(),
+              OptionalLong.empty(),
+              initialDebug,
               true));
     }
   }
 
   void beginSegment() {
-    beginSegment(currentProcessCpuNanos());
+    beginSegment(currentThreadCpuNanos());
   }
 
-  void beginSegment(long currentProcessCpuNanos) {
+  void beginSegment(long currentThreadCpuNanos) {
     if (segmentCpuAnchorNanos < 0) {
-      segmentCpuAnchorNanos = currentProcessCpuNanos;
+      segmentCpuAnchorNanos = currentThreadCpuNanos;
     }
   }
 
@@ -265,22 +287,41 @@ public final class VmState {
     return frame;
   }
 
+  List<Frame> activeFrames() {
+    return List.copyOf(frames);
+  }
+
   boolean pushEvalFrame(BytecodeProgram program) {
     if (frames.size() >= maxStackDepth) {
       return false;
     }
     Frame caller = currentFrame();
+    Map<String, MooValue> locals = new LinkedHashMap<>();
+    locals.put("player", caller.locals.getOrDefault("player", new ObjectValue(-1)));
+    locals.put("caller", caller.receiver);
+    locals.put("this", new ObjectValue(-1));
+    locals.put("dobj", new ObjectValue(-1));
+    locals.put("iobj", new ObjectValue(-1));
+    locals.put("dobjstr", new StringValue(new byte[0]));
+    locals.put("iobjstr", new StringValue(new byte[0]));
+    locals.put("argstr", new StringValue(new byte[0]));
+    locals.put("prepstr", new StringValue(new byte[0]));
+    locals.put("verb", new StringValue(new byte[0]));
+    locals.put("args", new ListValue(List.of()));
     frames.push(
         new Frame(
             program,
-            caller.locals,
+            locals,
             ReturnMode.EVAL,
             caller.programmer,
-            caller.receiver,
-            caller.verbLocation,
+            new ObjectValue(-1),
+            new ObjectValue(-1),
+            Optional.empty(),
             OptionalLong.empty(),
             OptionalLong.empty(),
             OptionalLong.empty(),
+            OptionalLong.empty(),
+            true,
             caller.threadMode));
     return true;
   }
@@ -290,10 +331,197 @@ public final class VmState {
       Map<String, MooValue> locals,
       long programmer,
       MooValue receiver,
-      ObjectValue verbLocation,
+      MooValue verbLocation,
       OptionalLong recycleTarget,
       OptionalLong moveObject,
       OptionalLong moveDestination) {
+    return pushVerbFrame(
+        program,
+        locals,
+        programmer,
+        receiver,
+        verbLocation,
+        recycleTarget,
+        moveObject,
+        moveDestination,
+        true);
+  }
+
+  boolean pushVerbFrame(
+      BytecodeProgram program,
+      Map<String, MooValue> locals,
+      long programmer,
+      MooValue receiver,
+      MooValue verbLocation,
+      OptionalLong recycleTarget,
+      OptionalLong moveObject,
+      OptionalLong moveDestination,
+      boolean debug) {
+    return pushVerbFrame(
+        program,
+        locals,
+        programmer,
+        receiver,
+        verbLocation,
+        recycleTarget,
+        moveObject,
+        moveDestination,
+        OptionalLong.empty(),
+        debug);
+  }
+
+  boolean pushVerbFrame(
+      BytecodeProgram program,
+      Map<String, MooValue> locals,
+      long programmer,
+      MooValue receiver,
+      MooValue verbLocation,
+      OptionalLong recycleTarget,
+      OptionalLong moveObject,
+      OptionalLong moveDestination,
+      OptionalLong movePosition) {
+    return pushVerbFrame(
+        program,
+        locals,
+        programmer,
+        receiver,
+        verbLocation,
+        recycleTarget,
+        moveObject,
+        moveDestination,
+        movePosition,
+        true);
+  }
+
+  boolean pushVerbFrame(
+      BytecodeProgram program,
+      Map<String, MooValue> locals,
+      long programmer,
+      MooValue receiver,
+      MooValue verbLocation,
+      OptionalLong recycleTarget,
+      OptionalLong moveObject,
+      OptionalLong moveDestination,
+      OptionalLong movePosition,
+      boolean debug) {
+    return pushVerbFrame(
+        program,
+        locals,
+        programmer,
+        receiver,
+        verbLocation,
+        Optional.empty(),
+        recycleTarget,
+        moveObject,
+        moveDestination,
+        movePosition,
+        debug);
+  }
+
+  boolean pushCreateInitializeFrame(
+      BytecodeProgram program,
+      Map<String, MooValue> locals,
+      long programmer,
+      MooValue receiver,
+      MooValue verbLocation,
+      MooValue created) {
+    return pushCreateInitializeFrame(
+        program, locals, programmer, receiver, verbLocation, created, true);
+  }
+
+  boolean pushCreateInitializeFrame(
+      BytecodeProgram program,
+      Map<String, MooValue> locals,
+      long programmer,
+      MooValue receiver,
+      MooValue verbLocation,
+      MooValue created,
+      boolean debug) {
+    return pushVerbFrame(
+        program,
+        locals,
+        programmer,
+        receiver,
+        verbLocation,
+        Optional.of(created),
+        OptionalLong.empty(),
+        OptionalLong.empty(),
+        OptionalLong.empty(),
+        OptionalLong.empty(),
+        debug);
+  }
+
+  boolean pushAnonymousRecycleFrame(
+      BytecodeProgram program,
+      Map<String, MooValue> locals,
+      long programmer,
+      AnonymousObjectValue receiver,
+      MooValue verbLocation) {
+    return pushAnonymousRecycleFrame(program, locals, programmer, receiver, verbLocation, true);
+  }
+
+  boolean pushAnonymousRecycleFrame(
+      BytecodeProgram program,
+      Map<String, MooValue> locals,
+      long programmer,
+      AnonymousObjectValue receiver,
+      MooValue verbLocation,
+      boolean debug) {
+    return pushVerbFrame(
+        program,
+        locals,
+        programmer,
+        receiver,
+        verbLocation,
+        Optional.empty(),
+        OptionalLong.empty(),
+        OptionalLong.empty(),
+        OptionalLong.empty(),
+        OptionalLong.empty(),
+        Optional.of(receiver),
+        debug);
+  }
+
+  private boolean pushVerbFrame(
+      BytecodeProgram program,
+      Map<String, MooValue> locals,
+      long programmer,
+      MooValue receiver,
+      MooValue verbLocation,
+      Optional<MooValue> createReturnOverride,
+      OptionalLong recycleTarget,
+      OptionalLong moveObject,
+      OptionalLong moveDestination,
+      OptionalLong movePosition,
+      boolean debug) {
+    return pushVerbFrame(
+        program,
+        locals,
+        programmer,
+        receiver,
+        verbLocation,
+        createReturnOverride,
+        recycleTarget,
+        moveObject,
+        moveDestination,
+        movePosition,
+        Optional.empty(),
+        debug);
+  }
+
+  private boolean pushVerbFrame(
+      BytecodeProgram program,
+      Map<String, MooValue> locals,
+      long programmer,
+      MooValue receiver,
+      MooValue verbLocation,
+      Optional<MooValue> createReturnOverride,
+      OptionalLong recycleTarget,
+      OptionalLong moveObject,
+      OptionalLong moveDestination,
+      OptionalLong movePosition,
+      Optional<AnonymousObjectValue> anonymousRecycleTarget,
+      boolean debug) {
     if (frames.size() >= maxStackDepth) {
       return false;
     }
@@ -306,9 +534,13 @@ public final class VmState {
             programmer,
             receiver,
             verbLocation,
+            createReturnOverride,
             recycleTarget,
             moveObject,
             moveDestination,
+            movePosition,
+            anonymousRecycleTarget,
+            debug,
             inheritedThreadMode));
     return true;
   }
@@ -326,21 +558,48 @@ public final class VmState {
   }
 
   ListValue callers() {
+    return callers(false);
+  }
+
+  ListValue callers(boolean lineNumbers) {
     List<MooValue> callers = new ArrayList<>();
     boolean current = true;
     for (Frame frame : frames) {
-      if (current) {
+      if (!current) {
+        List<MooValue> fields = new ArrayList<>();
+        fields.add(frame.receiver);
+        fields.add(frame.locals.getOrDefault("verb", new StringValue(new byte[0])));
+        fields.add(new ObjectValue(frame.programmer));
+        fields.add(frame.verbLocation);
+        fields.add(frame.locals.getOrDefault("player", new ObjectValue(-1)));
+        if (lineNumbers) {
+          int callInstruction =
+              Math.max(
+                  0,
+                  Math.min(
+                      frame.instructionPointer - 1, frame.program.instructions().size() - 1));
+          fields.add(
+              new moo.value.MooValue.IntegerValue(
+                  frame.program.instructions().get(callInstruction).sourceLine()));
+        }
+        callers.add(new ListValue(fields));
+      } else {
         current = false;
-        continue;
       }
-      callers.add(
-          new ListValue(
-              List.of(
-                  frame.receiver,
-                  frame.locals.getOrDefault("verb", new StringValue(new byte[0])),
-                  new ObjectValue(frame.programmer),
-                  frame.verbLocation,
-                  frame.locals.getOrDefault("player", new ObjectValue(-1)))));
+      if (frame.returnMode == ReturnMode.EVAL) {
+        List<MooValue> fields =
+            new ArrayList<>(
+                List.of(
+                    new ObjectValue(-1),
+                    new StringValue("eval".getBytes(java.nio.charset.StandardCharsets.ISO_8859_1)),
+                    new ObjectValue(-1),
+                    new ObjectValue(-1),
+                    frame.locals.getOrDefault("player", new ObjectValue(-1))));
+        if (lineNumbers) {
+          fields.add(new moo.value.MooValue.IntegerValue(2));
+        }
+        callers.add(new ListValue(fields));
+      }
     }
     return new ListValue(callers);
   }
@@ -358,7 +617,7 @@ public final class VmState {
           .operandStack
           .push(new ListValue(List.of(new moo.value.MooValue.IntegerValue(1), value)));
     } else {
-      currentFrame().operandStack.push(value);
+      currentFrame().operandStack.push(frame.createReturnOverride.orElse(value));
     }
   }
 
@@ -379,8 +638,17 @@ public final class VmState {
   }
 
   void failUncaught(ErrorValue error) {
+    failUncaught(error, Optional.empty());
+  }
+
+  void failUncaught(ErrorValue error, ListValue exception) {
+    failUncaught(error, Optional.of(exception));
+  }
+
+  private void failUncaught(ErrorValue error, Optional<ListValue> exception) {
     pendingError = Optional.empty();
     uncaughtError = Optional.of(error);
+    returnValue = exception.map(value -> (MooValue) value);
     outcome = Outcome.ERRORED;
   }
 
@@ -432,6 +700,19 @@ public final class VmState {
     return requests;
   }
 
+  void deferAnonymousCollection(List<AnonymousObjectValue> identities) {
+    for (AnonymousObjectValue identity : identities) {
+      if (!anonymousCollectionDeferrals.contains(identity)) {
+        anonymousCollectionDeferrals.add(identity);
+      }
+    }
+  }
+
+  /** Returns anonymous identities excluded from collection for this task's publication. */
+  public List<AnonymousObjectValue> anonymousCollectionDeferrals() {
+    return List.copyOf(anonymousCollectionDeferrals);
+  }
+
   void switchPlayer(long player) {
     switchedPlayer = OptionalLong.of(player);
   }
@@ -445,7 +726,12 @@ public final class VmState {
     forkRequest =
         Optional.of(
             new ForkRequest(
-                program, frame.locals, frame.programmer, frame.verbLocation, delaySeconds));
+                program,
+                frame.locals,
+                frame.programmer,
+                frame.verbLocation,
+                frame.debug,
+                delaySeconds));
     outcome = Outcome.FORKED;
   }
 
@@ -511,11 +797,11 @@ public final class VmState {
 
   /** Captures this task as value-only state for retry or checkpoint storage. */
   public VmSnapshot snapshot() {
-    return snapshot(currentProcessCpuNanos());
+    return snapshot(currentThreadCpuNanos());
   }
 
-  VmSnapshot snapshot(long currentProcessCpuNanos) {
-    long segmentElapsedCpuNanos = segmentElapsedCpuNanos(currentProcessCpuNanos);
+  VmSnapshot snapshot(long currentThreadCpuNanos) {
+    long segmentElapsedCpuNanos = segmentElapsedCpuNanos(currentThreadCpuNanos);
     long chargedCpuNanos = Math.min(remainingCpuNanos, segmentElapsedCpuNanos);
     long capturedRemainingCpuNanos = remainingCpuNanos - chargedCpuNanos;
     long capturedElapsedCpuNanos = saturatedAdd(elapsedCpuNanos, chargedCpuNanos);
@@ -532,6 +818,7 @@ public final class VmState {
                     request.locals(),
                     request.programmer(),
                     request.verbLocation(),
+                    request.debug(),
                     request.delaySeconds()));
     return new VmSnapshot(
         initialLocals,
@@ -543,6 +830,7 @@ public final class VmState {
         bootPlayerTargets,
         forcedInputRequests,
         checkpointRequests,
+        anonymousCollectionDeferrals,
         outcome,
         returnValue,
         pendingError,
@@ -593,7 +881,8 @@ public final class VmState {
             snapshot.initialVerbLocation(),
             remainingTicks,
             0,
-            maxStackDepth);
+            maxStackDepth,
+            snapshot.frames().isEmpty() || snapshot.frames().getLast().debug());
     for (VmSnapshot.Frame frame : snapshot.frames()) {
       state.frames.addLast(restore(frame));
     }
@@ -602,6 +891,7 @@ public final class VmState {
     state.bootPlayerTargets.addAll(snapshot.bootPlayerTargets());
     state.forcedInputRequests.addAll(snapshot.forcedInputRequests());
     state.checkpointRequests.addAll(snapshot.checkpointRequests());
+    state.anonymousCollectionDeferrals.addAll(snapshot.anonymousCollectionDeferrals());
     state.outcome = snapshot.outcome();
     state.returnValue = snapshot.returnValue();
     state.pendingError = snapshot.pendingError();
@@ -617,6 +907,7 @@ public final class VmState {
                         request.locals(),
                         request.programmer(),
                         request.verbLocation(),
+                        request.debug(),
                         request.delaySeconds()));
     state.suspensionDelaySeconds = snapshot.suspensionDelaySeconds();
     state.awaitingHostResult = snapshot.awaitingHostResult();
@@ -639,15 +930,7 @@ public final class VmState {
               VmSnapshot.HandlerPhase.valueOf(handler.phase.name())));
     }
     List<VmSnapshot.FinallyState> finallyStates =
-        new ArrayList<>(frame.finallyContinuations.size());
-    for (FinallyContinuation continuation : frame.finallyContinuations) {
-      finallyStates.add(
-          new VmSnapshot.FinallyState(
-              VmSnapshot.FinallyKind.valueOf(continuation.kind().name()),
-              continuation.normalTarget(),
-              continuation.returnValue(),
-              continuation.error()));
-    }
+        List.copyOf(frame.finallyContinuations);
     List<VmSnapshot.IndexState> indexStates =
         new ArrayList<>(frame.indexCollections.size());
     for (IndexContext context : frame.indexCollections) {
@@ -658,10 +941,7 @@ public final class VmState {
     Map<Integer, VmSnapshot.LoopState> loops = new LinkedHashMap<>();
     frame.loops.forEach(
         (instruction, cursor) ->
-            loops.put(
-                instruction,
-                new VmSnapshot.LoopState(
-                    cursor.values, cursor.secondaryValues, cursor.nextIndex, cursor.range)));
+            loops.put(instruction, cursor.snapshot()));
     return new VmSnapshot.Frame(
         frame.program,
         List.copyOf(frame.operandStack),
@@ -673,12 +953,16 @@ public final class VmState {
         VmSnapshot.ReturnMode.valueOf(frame.returnMode.name()),
         frame.receiver,
         frame.verbLocation,
+        frame.createReturnOverride,
         frame.recycleTarget,
         frame.moveObject,
         frame.moveDestination,
+        frame.movePosition,
         frame.programmer,
+        frame.debug,
         frame.threadMode,
-        frame.instructionPointer);
+        frame.instructionPointer,
+        frame.anonymousRecycleTarget);
   }
 
   private static Frame restore(VmSnapshot.Frame snapshot) {
@@ -690,9 +974,13 @@ public final class VmState {
             snapshot.programmer(),
             snapshot.receiver(),
             snapshot.verbLocation(),
+            snapshot.createReturnOverride(),
             snapshot.recycleTarget(),
             snapshot.moveObject(),
             snapshot.moveDestination(),
+            snapshot.movePosition(),
+            snapshot.anonymousRecycleTarget(),
+            snapshot.debug(),
             snapshot.threadMode());
     frame.operandStack.addAll(snapshot.operandStack());
     for (VmSnapshot.IndexState index : snapshot.indexCollections()) {
@@ -705,35 +993,37 @@ public final class VmState {
       restored.phase = HandlerPhase.valueOf(handler.phase().name());
       frame.handlers.addLast(restored);
     }
-    for (VmSnapshot.FinallyState finallyState : snapshot.finallyStates()) {
-      frame.finallyContinuations.addLast(
-          new FinallyContinuation(
-              ContinuationKind.valueOf(finallyState.kind().name()),
-              finallyState.normalTarget(),
-              finallyState.returnValue(),
-              finallyState.error()));
-    }
+    frame.finallyContinuations.addAll(snapshot.finallyStates());
     snapshot
         .loops()
         .forEach(
             (instruction, loop) -> {
               LoopCursor cursor =
-                  new LoopCursor(loop.values(), loop.secondaryValues(), loop.range());
-              cursor.nextIndex = loop.nextIndex();
+                  switch (loop) {
+                    case VmSnapshot.CollectionLoop collection ->
+                        new CollectionCursor(
+                            collection.kind(), collection.base(), collection.next());
+                    case VmSnapshot.RangeLoop range ->
+                        new RangeCursor(range.kind(), range.next(), range.end());
+                  };
               frame.loops.put(instruction, cursor);
             });
     frame.instructionPointer = snapshot.instructionPointer();
     return frame;
   }
 
-  private long segmentElapsedCpuNanos(long currentProcessCpuNanos) {
+  private long segmentElapsedCpuNanos(long currentThreadCpuNanos) {
     return segmentCpuAnchorNanos < 0
         ? 0
-        : Math.max(0L, currentProcessCpuNanos - segmentCpuAnchorNanos);
+        : Math.max(0L, currentThreadCpuNanos - segmentCpuAnchorNanos);
   }
 
-  private static long currentProcessCpuNanos() {
-    return ProcessHandle.current().info().totalCpuDuration().orElseThrow().toNanos();
+  private static long currentThreadCpuNanos() {
+    long nanos = THREAD_CPU.getCurrentThreadCpuTime();
+    if (nanos < 0) {
+      throw new IllegalStateException("current-thread CPU time is unavailable");
+    }
+    return nanos;
   }
 
   private static long saturatedAdd(long left, long right) {
@@ -752,14 +1042,18 @@ public final class VmState {
     final Deque<IndexContext> indexCollections = new ArrayDeque<>();
     final Map<String, MooValue> locals;
     final Deque<ActiveHandler> handlers = new ArrayDeque<>();
-    final Deque<FinallyContinuation> finallyContinuations = new ArrayDeque<>();
+    final Deque<VmSnapshot.FinallyState> finallyContinuations = new ArrayDeque<>();
     final Map<Integer, LoopCursor> loops = new LinkedHashMap<>();
     final ReturnMode returnMode;
     final MooValue receiver;
-    final ObjectValue verbLocation;
+    final MooValue verbLocation;
+    final Optional<MooValue> createReturnOverride;
     final OptionalLong recycleTarget;
     final OptionalLong moveObject;
     final OptionalLong moveDestination;
+    final OptionalLong movePosition;
+    final Optional<AnonymousObjectValue> anonymousRecycleTarget;
+    final boolean debug;
     long programmer;
     boolean threadMode;
     int instructionPointer;
@@ -770,10 +1064,45 @@ public final class VmState {
         ReturnMode returnMode,
         long programmer,
         MooValue receiver,
-        ObjectValue verbLocation,
+        MooValue verbLocation,
+        Optional<MooValue> createReturnOverride,
         OptionalLong recycleTarget,
         OptionalLong moveObject,
         OptionalLong moveDestination,
+        OptionalLong movePosition,
+        boolean debug,
+        boolean threadMode) {
+      this(
+          program,
+          locals,
+          returnMode,
+          programmer,
+          receiver,
+          verbLocation,
+          createReturnOverride,
+          recycleTarget,
+          moveObject,
+          moveDestination,
+          movePosition,
+          Optional.empty(),
+          debug,
+          threadMode);
+    }
+
+    Frame(
+        BytecodeProgram program,
+        Map<String, MooValue> locals,
+        ReturnMode returnMode,
+        long programmer,
+        MooValue receiver,
+        MooValue verbLocation,
+        Optional<MooValue> createReturnOverride,
+        OptionalLong recycleTarget,
+        OptionalLong moveObject,
+        OptionalLong moveDestination,
+        OptionalLong movePosition,
+        Optional<AnonymousObjectValue> anonymousRecycleTarget,
+        boolean debug,
         boolean threadMode) {
       this.program = program;
       this.locals = normalizedLocals(locals);
@@ -781,9 +1110,13 @@ public final class VmState {
       this.programmer = programmer;
       this.receiver = receiver;
       this.verbLocation = verbLocation;
+      this.createReturnOverride = createReturnOverride;
       this.recycleTarget = recycleTarget;
       this.moveObject = moveObject;
       this.moveDestination = moveDestination;
+      this.movePosition = movePosition;
+      this.anonymousRecycleTarget = anonymousRecycleTarget;
+      this.debug = debug;
       this.threadMode = threadMode;
     }
   }
@@ -799,18 +1132,13 @@ public final class VmState {
     }
   }
 
-  record FinallyContinuation(
-      ContinuationKind kind,
-      int normalTarget,
-      Optional<MooValue> returnValue,
-      Optional<ErrorValue> error) {}
-
   /** Immutable child state captured when a fork instruction queues work. */
   public record ForkRequest(
       BytecodeProgram program,
       Map<String, MooValue> locals,
       long programmer,
-      ObjectValue verbLocation,
+      MooValue verbLocation,
+      boolean debug,
       double delaySeconds) {
     public ForkRequest {
       locals = Collections.unmodifiableMap(new LinkedHashMap<>(locals));
@@ -819,20 +1147,42 @@ public final class VmState {
 
   record IndexContext(MooValue collection, Optional<MooValue> key, int operandDepth) {}
 
-  static final class LoopCursor {
-    final ListValue values;
-    final Optional<ListValue> secondaryValues;
-    final boolean range;
-    long nextIndex;
+  sealed interface LoopCursor permits CollectionCursor, RangeCursor {
+    VmSnapshot.LoopState snapshot();
+  }
 
-    LoopCursor(ListValue values, Optional<ListValue> secondaryValues) {
-      this(values, secondaryValues, false);
+  static final class CollectionCursor implements LoopCursor {
+    final VmSnapshot.CollectionKind kind;
+    final MooValue base;
+    Optional<MooValue> next;
+
+    CollectionCursor(
+        VmSnapshot.CollectionKind kind, MooValue base, Optional<MooValue> next) {
+      this.kind = kind;
+      this.base = base;
+      this.next = next;
     }
 
-    LoopCursor(ListValue values, Optional<ListValue> secondaryValues, boolean range) {
-      this.values = values;
-      this.secondaryValues = secondaryValues;
-      this.range = range;
+    @Override
+    public VmSnapshot.CollectionLoop snapshot() {
+      return new VmSnapshot.CollectionLoop(kind, base, next);
+    }
+  }
+
+  static final class RangeCursor implements LoopCursor {
+    final VmSnapshot.RangeKind kind;
+    MooValue next;
+    MooValue end;
+
+    RangeCursor(VmSnapshot.RangeKind kind, MooValue next, MooValue end) {
+      this.kind = kind;
+      this.next = next;
+      this.end = end;
+    }
+
+    @Override
+    public VmSnapshot.RangeLoop snapshot() {
+      return new VmSnapshot.RangeLoop(kind, next, end);
     }
   }
 
@@ -845,12 +1195,6 @@ public final class VmState {
   enum HandlerPhase {
     TRY,
     CATCH
-  }
-
-  enum ContinuationKind {
-    NORMAL,
-    RETURN,
-    ERROR
   }
 
   /** Terminal status held directly in VM state. */

@@ -9,6 +9,7 @@ import com.tngtech.archunit.core.importer.ImportOption;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import moo.persistence.ToastV17ProgramLayout;
 import org.junit.jupiter.api.Test;
 
 final class ArchitectureTest {
@@ -49,7 +50,17 @@ final class ArchitectureTest {
         "value",
         "vm",
         "world");
-    assertOnlyDependsOn(productionClasses, "persistence", "bytecode", "value", "vm", "world");
+    assertOnlyDependsOn(
+        productionClasses, "persistence", "bytecode", "syntax", "value", "vm", "world");
+    noClasses()
+        .that()
+        .resideInAPackage("moo.persistence..")
+        .and()
+        .doNotBelongToAnyOf(ToastV17ProgramLayout.class)
+        .should()
+        .dependOnClassesThat()
+        .resideInAPackage("moo.syntax..")
+        .check(productionClasses);
     assertOnlyDependsOn(
         productionClasses, "server", "builtin", "persistence", "runtime", "value", "world");
     assertOnlyDependsOn(

@@ -5,11 +5,13 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -37,6 +39,118 @@ import org.junit.jupiter.api.io.TempDir;
 
 final class V17RoundTripTest {
   @Test
+  void acceptsTrailingBlankLinesAfterTheProgramSection(@TempDir Path temporaryDirectory)
+      throws IOException {
+    WorldObject root =
+        new WorldObject(0, "root", 0, 0, -1, List.of(), List.of(), List.of(), List.of(), List.of());
+    Path checkpoint = temporaryDirectory.resolve("trailing-blank.db");
+    LambdaMooV17Codec codec = new LambdaMooV17Codec();
+    codec.writeAtomic(
+        checkpoint,
+        new WorldTxn(List.of(), List.of(root)).snapshot(),
+        List.of(),
+        List.of());
+    Files.writeString(
+        checkpoint, "\n\n", StandardCharsets.ISO_8859_1, StandardOpenOption.APPEND);
+
+    assertEquals(1, codec.read(checkpoint).world().snapshot().objects().size());
+  }
+
+  @Test
+  void roundTripsTrailingRecycledPermanentSlots(@TempDir Path temporaryDirectory)
+      throws IOException {
+    WorldObject root =
+        new WorldObject(0, "root", 0, 0, -1, List.of(), List.of(), List.of(), List.of(), List.of());
+    WorldTxn world =
+        new WorldTxn(List.of(), List.of(root), Map.of(), Map.of(), List.of(), 3);
+    Path checkpoint = temporaryDirectory.resolve("trailing-recycled.db");
+    LambdaMooV17Codec codec = new LambdaMooV17Codec();
+
+    codec.writeAtomic(checkpoint, world.snapshot(), List.of(), List.of());
+    WorldSnapshot restored = codec.read(checkpoint).world().snapshot();
+
+    assertEquals(3, restored.lastUsedObjectId());
+    assertEquals(world.snapshot().objects(), restored.objects());
+    String checkpointText = Files.readString(checkpoint, StandardCharsets.ISO_8859_1);
+    assertTrue(checkpointText.contains("#3 recycled\n"));
+  }
+
+  @Test
+  void roundTripsLastMoveMetadata(@TempDir Path temporaryDirectory) throws IOException {
+    Map<MooValue, MooValue> entries = new LinkedHashMap<>();
+    entries.put(string("time"), new IntegerValue(1_725_000_000L));
+    entries.put(string("source"), new ObjectValue(4));
+    MapValue lastMove = new MapValue(entries);
+    WorldObject moved =
+        new WorldObject(
+            0,
+            "moved",
+            0,
+            0,
+            -1,
+            lastMove,
+            List.of(),
+            List.of(),
+            List.of(),
+            List.of(),
+            List.of());
+    Path checkpoint = temporaryDirectory.resolve("last-move.db");
+
+    LambdaMooV17Codec codec = new LambdaMooV17Codec();
+    codec.writeAtomic(
+        checkpoint,
+        new WorldTxn(List.of(), List.of(moved)).snapshot(),
+        List.of(),
+        List.of());
+
+    WorldObject restored =
+        Objects.requireNonNull(codec.read(checkpoint).world().snapshot().objects().get(0L));
+    assertEquals(lastMove, restored.lastMove());
+  }
+
+  @Test
+  void roundTripsOrderedMultipleParents(
+      @TempDir Path temporaryDirectory) throws IOException {
+    WorldObject firstParent =
+        new WorldObject(
+            5, "first", 0, 5, -1, List.of(), List.of(), List.of(8L), List.of(), List.of());
+    WorldObject child =
+        new WorldObject(
+            8,
+            "child",
+            0,
+            8,
+            -1,
+            List.of(5L, 20679L),
+            List.of(),
+            List.of(),
+            List.of(),
+            List.of());
+    WorldObject secondParent =
+        new WorldObject(
+            20679,
+            "second",
+            0,
+            20679,
+            -1,
+            List.of(),
+            List.of(),
+            List.of(8L),
+            List.of(),
+            List.of());
+    WorldTxn world = new WorldTxn(List.of(), List.of(firstParent, child, secondParent));
+    Path checkpoint = temporaryDirectory.resolve("multiple-parents.db");
+
+    LambdaMooV17Codec codec = new LambdaMooV17Codec();
+    codec.writeAtomic(checkpoint, world.snapshot(), List.of(), List.of());
+    WorldSnapshot restored = codec.read(checkpoint).world().snapshot();
+
+    assertEquals(List.of(5L, 20679L), Objects.requireNonNull(restored.objects().get(8L)).parents());
+    assertEquals(List.of(8L), Objects.requireNonNull(restored.objects().get(5L)).children());
+    assertEquals(List.of(8L), Objects.requireNonNull(restored.objects().get(20679L)).children());
+  }
+
+  @Test
   void restoresWorldAndTaskStateWithByteStableAtomicOutput(@TempDir Path temporaryDirectory)
       throws IOException {
     WorldSnapshot expected = world().snapshot();
@@ -44,7 +158,7 @@ final class V17RoundTripTest {
     Files.writeString(first, "old checkpoint", StandardCharsets.ISO_8859_1);
     LambdaMooV17Codec codec = new LambdaMooV17Codec();
 
-    codec.writeAtomic(first, expected, List.of());
+    codec.writeAtomic(first, expected, List.of(), List.of());
     LambdaMooV17Codec.Checkpoint restored = codec.read(first);
 
     assertEquals(expected.players(), restored.world().snapshot().players());
@@ -52,7 +166,8 @@ final class V17RoundTripTest {
     assertEquals(List.of(), restored.tasks());
 
     Path second = temporaryDirectory.resolve("second.db");
-    codec.writeAtomic(second, restored.world().snapshot(), restored.tasks());
+    codec.writeAtomic(
+        second, restored.world().snapshot(), restored.tasks(), restored.activeConnections());
     assertArrayEquals(Files.readAllBytes(first), Files.readAllBytes(second));
 
     LambdaMooV17Codec.Checkpoint repeated = codec.read(first);
@@ -120,7 +235,7 @@ final class V17RoundTripTest {
     LambdaMooV17Codec codec = new LambdaMooV17Codec();
     Path first = temporaryDirectory.resolve("first.db");
 
-    codec.writeAtomic(first, world, List.of());
+    codec.writeAtomic(first, world, List.of(), List.of());
     WorldSnapshot restored = codec.read(first).world().snapshot();
 
     ListValue restoredGraph =
@@ -204,7 +319,7 @@ final class V17RoundTripTest {
     LambdaMooV17Codec codec = new LambdaMooV17Codec();
     Path first = temporaryDirectory.resolve("waif-first.db");
 
-    codec.writeAtomic(first, world, List.of());
+    codec.writeAtomic(first, world, List.of(), List.of());
     LambdaMooV17Codec.Checkpoint firstCheckpoint = codec.read(first);
     WorldSnapshot firstRestored = firstCheckpoint.world().snapshot();
     ListValue firstAliases =
@@ -228,7 +343,7 @@ final class V17RoundTripTest {
       assertEquals(true, transaction.commit().isCommitted());
     }
     Path second = temporaryDirectory.resolve("waif-second.db");
-    codec.writeAtomic(second, firstCheckpoint.world().snapshot(), List.of());
+    codec.writeAtomic(second, firstCheckpoint.world().snapshot(), List.of(), List.of());
     WorldSnapshot secondRestored = codec.read(second).world().snapshot();
     ListValue secondAliases =
         assertInstanceOf(
@@ -342,7 +457,7 @@ final class V17RoundTripTest {
     LambdaMooV17Codec codec = new LambdaMooV17Codec();
     Path checkpoint = temporaryDirectory.resolve("topology.db");
 
-    codec.writeAtomic(checkpoint, world, List.of());
+    codec.writeAtomic(checkpoint, world, List.of(), List.of());
     WorldSnapshot restored = codec.read(checkpoint).world().snapshot();
 
     ListValue restoredState =

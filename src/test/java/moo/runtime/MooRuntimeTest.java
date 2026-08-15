@@ -56,6 +56,128 @@ final class MooRuntimeTest {
   }
 
   @Test
+  void blockingReadResumesWithForcedInputForImplicitAndExplicitPlayer() throws Exception {
+    WorldTxn world = new LambdaMooV4Reader().read(FIXTURE);
+    MooRuntime runtime = new MooRuntime(world);
+    long connectionId = -47;
+    assertEquals(List.of(), runtime.openConnection(connectionId));
+    assertEquals(List.of("*** Connected ***"), runtime.executeLine(connectionId, "connect Wizard"));
+
+    assertEquals(
+        List.of(CONNECTION_PREFIX, "{1, \"implicit-line\"}", CONNECTION_SUFFIX),
+        runtime.executeLine(
+            connectionId,
+            "; fork (0) force_input(player, \"implicit-line\"); endfork return read();"));
+    assertEquals(
+        List.of(CONNECTION_PREFIX, "{1, \"explicit-line\"}", CONNECTION_SUFFIX),
+        runtime.executeLine(
+            connectionId,
+            "; fork (0) force_input(player, \"explicit-line\"); endfork "
+                + "return read(player);"));
+  }
+
+  @Test
+  void flushInputUsesToastSelfOrWizardPermissionWithoutRequiringALiveTarget() throws Exception {
+    WorldTxn world = new LambdaMooV4Reader().read(FIXTURE);
+    MooRuntime runtime = new MooRuntime(world);
+    long wizardConnection = -47;
+    long programmerConnection = -48;
+
+    assertEquals(List.of(), runtime.openConnection(wizardConnection));
+    assertEquals(
+        List.of("*** Connected ***"), runtime.executeLine(wizardConnection, "connect Wizard"));
+    assertEquals(
+        List.of(CONNECTION_PREFIX, "{1, 0}", CONNECTION_SUFFIX),
+        runtime.executeLine(wizardConnection, "; return flush_input(#999999, 1);"));
+
+    assertEquals(List.of(), runtime.openConnection(programmerConnection));
+    assertEquals(
+        List.of("*** Connected ***"),
+        runtime.executeLine(programmerConnection, "connect Programmer"));
+    assertEquals(
+        List.of(
+            CONNECTION_PREFIX,
+            "{2, {E_PERM, \"Permission denied\", 0, "
+                + "{{#-1, \"\", #-1, #-1, #9, 1}, {#2, \"eval\", #9, #2, #9, 5}}}}",
+            CONNECTION_SUFFIX),
+        runtime.executeLine(programmerConnection, "; return flush_input(#0);"));
+  }
+
+  @Test
+  void outputDelimitersReturnsLiveSessionValuesWithToastPermissionOrder() throws Exception {
+    WorldTxn world = new LambdaMooV4Reader().read(FIXTURE);
+    MooRuntime runtime = new MooRuntime(world);
+    long programmerConnection = -47;
+    long wizardConnection = -48;
+
+    assertEquals(List.of(), runtime.openConnection(programmerConnection));
+    assertEquals(
+        List.of("*** Connected ***"),
+        runtime.executeLine(programmerConnection, "connect Programmer"));
+    assertEquals(List.of(), runtime.executeLine(programmerConnection, "PREFIX PRE"));
+    assertEquals(List.of(), runtime.executeLine(programmerConnection, "SUFFIX POST"));
+    assertEquals(
+        List.of(
+            "PRE",
+            CONNECTION_PREFIX,
+            "{1, {\"PRE\", \"POST\"}}",
+            CONNECTION_SUFFIX,
+            "POST"),
+        runtime.executeLine(
+            programmerConnection, "; return output_delimiters(player);"));
+    assertEquals(
+        List.of(
+            "PRE",
+            CONNECTION_PREFIX,
+            "{2, {E_PERM, \"Permission denied\", 0, "
+                + "{{#-1, \"\", #-1, #-1, #8, 1}, {#2, \"eval\", #8, #2, #8, 5}}}}",
+            CONNECTION_SUFFIX,
+            "POST"),
+        runtime.executeLine(programmerConnection, "; return output_delimiters(#0);"));
+
+    assertEquals(List.of(), runtime.openConnection(wizardConnection));
+    assertEquals(
+        List.of("*** Connected ***"), runtime.executeLine(wizardConnection, "connect Wizard"));
+    assertEquals(
+        List.of(
+            CONNECTION_PREFIX,
+            "{2, {E_INVARG, \"Invalid argument\", 0, "
+                + "{{#-1, \"\", #-1, #-1, #9, 1}, {#2, \"eval\", #9, #2, #9, 5}}}}",
+            CONNECTION_SUFFIX),
+        runtime.executeLine(wizardConnection, "; return output_delimiters(#999999);"));
+  }
+
+  @Test
+  void queueInfoReadsTheExistingConnectionAndTaskOwners() throws Exception {
+    WorldTxn world = new LambdaMooV4Reader().read(FIXTURE);
+    MooRuntime runtime = new MooRuntime(world);
+    long programmerConnection = -47;
+    long wizardConnection = -48;
+
+    assertEquals(List.of(), runtime.openConnection(programmerConnection));
+    assertEquals(
+        List.of("*** Connected ***"),
+        runtime.executeLine(programmerConnection, "connect Programmer"));
+    assertEquals(
+        List.of(CONNECTION_PREFIX, "{1, {4, 0, 0, 1}}", CONNECTION_SUFFIX),
+        runtime.executeLine(
+            programmerConnection,
+            "; return {typeof(queue_info()), typeof(queue_info(player)), "
+                + "queue_info(player), (player in queue_info()) > 0};"));
+
+    assertEquals(List.of(), runtime.openConnection(wizardConnection));
+    assertEquals(
+        List.of("*** Connected ***"), runtime.executeLine(wizardConnection, "connect Wizard"));
+    assertEquals(
+        List.of(CONNECTION_PREFIX, "{1, {10, #9, true, 0, 0}}", CONNECTION_SUFFIX),
+        runtime.executeLine(
+            wizardConnection,
+            "; info = queue_info(player); "
+                + "return {typeof(info), info[\"player\"], info[\"connected\"], "
+                + "info[\"num_bg_tasks\"], queue_info(#999999)};"));
+  }
+
+  @Test
   void writesIntrinsicFertileFlagAsIntegerZero() throws Exception {
     WorldTxn world = new LambdaMooV4Reader().read(FIXTURE);
     MooRuntime runtime = new MooRuntime(world);
@@ -164,7 +286,8 @@ final class MooRuntimeTest {
         List.of(
             CONNECTION_PREFIX,
             CONNECTION_PREFIX,
-            "{2, {E_TYPE, \"\"}}",
+            "{2, {E_TYPE, \"Type mismatch\", 0, "
+                + "{{#-1, \"\", #-1, #-1, #8, 1}, {#2, \"eval\", #8, #2, #8, 5}}}}",
             CONNECTION_SUFFIX,
             CONNECTION_SUFFIX),
         runtime.executeLine(connectionId, "; return 1.0 + 1;"));
@@ -229,6 +352,101 @@ final class MooRuntimeTest {
         runtime.executeLine(
             connectionId,
             "; return {\"10\" == \"1\" + \"0\", [] == {}, {\"A\" == \"a\", \"À\" == \"à\"}};"));
+  }
+
+  @Test
+  void anonymousRecycleHookFinishesBeforeZeroDelayTaskResumes() throws Exception {
+    WorldTxn world = new LambdaMooV4Reader().read(FIXTURE);
+    MooRuntime runtime = new MooRuntime(world);
+    long connectionId = -47;
+    assertEquals(List.of(), runtime.openConnection(connectionId));
+    assertEquals(List.of("*** Connected ***"), runtime.executeLine(connectionId, "connect Wizard"));
+    long anonymousClass = world.snapshot().objects().size();
+
+    assertEquals(
+        List.of(CONNECTION_PREFIX, "{1, 0}", CONNECTION_SUFFIX),
+        runtime.executeLine(
+            connectionId,
+            """
+            ; class = create(#-1);
+            add_property(class, "next", 0, {player, ""});
+            add_property(class, "subject", 0, {player, ""});
+            add_property(class, "stash", 0, {player, ""});
+            add_property(class, "recycle_called", 0, {player, ""});
+            add_verb(class, {player, "xd", "recycle"}, {"this", "none", "this"});
+            set_verb_code(class, "recycle", {
+              tostr(class) + ".recycle_called = " + tostr(class) + ".recycle_called + 1;",
+              tostr(class) + ".stash = create(" + tostr(class) + ", 1);"
+            });
+            orphan = create(class, 1);
+            orphan.next = orphan;
+            class.subject = orphan;
+            return 0;
+            """));
+    assertEquals(
+        List.of(CONNECTION_PREFIX, "{1, 0}", CONNECTION_SUFFIX),
+        runtime.executeLine(
+            connectionId,
+            "; #" + anonymousClass + ".subject = 0; run_gc(); return 0;"));
+
+    assertEquals(
+        List.of(CONNECTION_PREFIX, "{1, {1, 1}}", CONNECTION_SUFFIX),
+        runtime.executeLine(
+            connectionId,
+            "; suspend(0); return {#"
+                + anonymousClass
+                + ".recycle_called, valid(#"
+                + anonymousClass
+                + ".stash)};"));
+  }
+
+  @Test
+  void locallyDefinedAnonymousPropertyDoesNotJoinTheSameRecycleWave() throws Exception {
+    WorldTxn world = new LambdaMooV4Reader().read(FIXTURE);
+    MooRuntime runtime = new MooRuntime(world);
+    long connectionId = -47;
+    assertEquals(List.of(), runtime.openConnection(connectionId));
+    assertEquals(List.of("*** Connected ***"), runtime.executeLine(connectionId, "connect Wizard"));
+    long anonymousClass = world.snapshot().objects().size();
+
+    assertEquals(
+        List.of(CONNECTION_PREFIX, "{1, #" + anonymousClass + "}", CONNECTION_SUFFIX),
+        runtime.executeLine(
+            connectionId,
+            """
+            ; class = create(#-1);
+            add_property(class, "recycle_called", 0, {player, ""});
+            add_verb(class, {player, "xd", "recycle"}, {"this", "none", "this"});
+            set_verb_code(class, "recycle", {
+              tostr(class) + ".recycle_called = " + tostr(class) + ".recycle_called + 1;"
+            });
+            add_verb(class, {player, "xd", "go"}, {"this", "none", "this"});
+            set_verb_code(class, "go", {
+              "x = create(" + tostr(class) + ", 1);",
+              "add_property(x, \\\"next\\\", 0, {player, \\\"\\\"});",
+              "x.next = create(" + tostr(class) + ", 1);",
+              "args || recycle(x);"
+            });
+            return class;
+            """));
+
+    assertEquals(
+        List.of(CONNECTION_PREFIX, "{1, 0}", CONNECTION_SUFFIX),
+        runtime.executeLine(
+            connectionId,
+            "; #" + anonymousClass + ".recycle_called = 0; return #" + anonymousClass + ":go();"));
+    assertEquals(
+        List.of(CONNECTION_PREFIX, "{1, 1}", CONNECTION_SUFFIX),
+        runtime.executeLine(connectionId, "; return #" + anonymousClass + ".recycle_called;"));
+
+    assertEquals(
+        List.of(CONNECTION_PREFIX, "{1, 0}", CONNECTION_SUFFIX),
+        runtime.executeLine(
+            connectionId,
+            "; #" + anonymousClass + ".recycle_called = 0; return #" + anonymousClass + ":go(1);"));
+    assertEquals(
+        List.of(CONNECTION_PREFIX, "{1, 1}", CONNECTION_SUFFIX),
+        runtime.executeLine(connectionId, "; return #" + anonymousClass + ".recycle_called;"));
   }
 
   private static Optional<WorldObject> readObject(WorldTxn root, long objectId) {

@@ -2,6 +2,8 @@ package moo.app;
 
 import java.io.BufferedReader;
 import java.io.IOException;
+import java.lang.reflect.Method;
+import java.lang.reflect.Proxy;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -11,6 +13,7 @@ import java.util.concurrent.Callable;
 import moo.persistence.LambdaMooV17Codec;
 import moo.persistence.LambdaMooV17Codec.Checkpoint;
 import moo.persistence.LambdaMooV4Reader;
+import moo.persistence.LambdaMooV5Reader;
 import moo.server.MooServer;
 import org.jspecify.annotations.Nullable;
 import picocli.CommandLine;
@@ -79,7 +82,11 @@ public final class Banteng implements Callable<Integer> {
       loaded =
           switch (Objects.requireNonNullElse(header, "")) {
             case "** LambdaMOO Database, Format Version 4 **" ->
-                new Checkpoint(new LambdaMooV4Reader().read(databasePath), List.of());
+                new Checkpoint(
+                    new LambdaMooV4Reader().read(databasePath), List.of(), List.of());
+            case "** LambdaMOO Database, Format Version 5 **" ->
+                new Checkpoint(
+                    new LambdaMooV5Reader().read(databasePath), List.of(), List.of());
             case "** LambdaMOO Database, Format Version 17 **" ->
                 new LambdaMooV17Codec().read(databasePath);
             default -> throw new IOException("unsupported database header: " + header);
@@ -87,7 +94,16 @@ public final class Banteng implements Callable<Integer> {
     }
     try (MooServer server =
         new MooServer(
-            listenAddress, port, loaded.world(), checkpointPath, loaded.tasks())) {
+            listenAddress,
+            port,
+            loaded.world(),
+            databasePath,
+            checkpointPath,
+            loaded.tasks(),
+            loaded.activeConnections());
+        SignalRegistration signalRegistration =
+            SignalRegistration.install("TERM", server::gracefulShutdown)) {
+      signalRegistration.keepAlive();
       server.serve();
     }
     return CommandLine.ExitCode.OK;
@@ -97,5 +113,48 @@ public final class Banteng implements Callable<Integer> {
   public static void main(String[] args) {
     int exitCode = new CommandLine(new Banteng()).execute(args);
     System.exit(exitCode);
+  }
+
+  private static final class SignalRegistration implements AutoCloseable {
+    private final Method handle;
+    private final Object signal;
+    private final Object previous;
+    @SuppressWarnings("unused")
+    private final Object installed;
+
+    private SignalRegistration(Method handle, Object signal, Object previous, Object installed) {
+      this.handle = handle;
+      this.signal = signal;
+      this.previous = previous;
+      this.installed = installed;
+    }
+
+    static SignalRegistration install(String name, Runnable action) throws ReflectiveOperationException {
+      Class<?> signalType = Class.forName("sun.misc.Signal");
+      Class<?> handlerType = Class.forName("sun.misc.SignalHandler");
+      Object signal = signalType.getConstructor(String.class).newInstance(name);
+      Object handler =
+          Proxy.newProxyInstance(
+              ClassLoader.getSystemClassLoader(),
+              new Class<?>[] {handlerType},
+              (proxy, method, arguments) -> {
+                if (method.getName().equals("handle")) {
+                  Thread.ofPlatform().name("banteng-sigterm").start(action);
+                }
+                return null;
+              });
+      Method handle = signalType.getMethod("handle", signalType, handlerType);
+      Object previous = handle.invoke(null, signal, handler);
+      return new SignalRegistration(handle, signal, previous, handler);
+    }
+
+    @Override
+    public void close() throws ReflectiveOperationException {
+      handle.invoke(null, signal, previous);
+    }
+
+    void keepAlive() {
+      // Referenced by the serving scope so javac verifies the registration remains live.
+    }
   }
 }

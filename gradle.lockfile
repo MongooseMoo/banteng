@@ -36,6 +36,7 @@ net.sf.jopt-simple:jopt-simple:4.6=jcstressAnnotationProcessor,jcstressCompileCl
 net.sf.jopt-simple:jopt-simple:5.0.4=jmhAnnotationProcessor,jmhCompileClasspath,jmhRuntimeClasspath
 org.apache.commons:commons-math3:3.6.1=jmhAnnotationProcessor,jmhCompileClasspath,jmhRuntimeClasspath
 org.apiguardian:apiguardian-api:1.1.2=testCompileClasspath
+org.bouncycastle:bcprov-jdk18on:1.84=compileClasspath,jcstressCompileClasspath,jcstressRuntimeClasspath,jmhCompileClasspath,jmhRuntimeClasspath,runtimeClasspath,testCompileClasspath,testRuntimeClasspath
 org.checkerframework:checker-qual:4.0.0=annotationProcessor,testAnnotationProcessor
 org.checkerframework:dataflow-nullaway:4.0.0=annotationProcessor,testAnnotationProcessor
 org.jetbrains:annotations:13.0=testCompileClasspath,testRuntimeClasspath

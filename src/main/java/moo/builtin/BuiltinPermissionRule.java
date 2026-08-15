@@ -8,6 +8,12 @@ import moo.world.WorldTxn;
 public interface BuiltinPermissionRule {
   BuiltinPermissionRule ANY = (world, programmer) -> true;
 
+  BuiltinPermissionRule PROGRAMMER_ONLY =
+      (world, programmer) -> {
+        WorldObject actor = world.object(programmer).orElse(null);
+        return actor != null && (actor.flags() & 2) != 0;
+      };
+
   BuiltinPermissionRule WIZARD_ONLY =
       (world, programmer) -> {
         WorldObject actor = world.object(programmer).orElse(null);

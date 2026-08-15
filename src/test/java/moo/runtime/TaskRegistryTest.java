@@ -27,6 +27,41 @@ import org.junit.jupiter.api.Test;
 
 final class TaskRegistryTest {
   @Test
+  void exposesEveryOtherDurableSnapshotAsAGarbageCollectionRoot() {
+    TaskRegistry registry = new TaskRegistry();
+    VmSnapshot first =
+        new VmState(Map.of("held", new IntegerValue(1)), 2, new ObjectValue(7)).snapshot();
+    VmSnapshot second =
+        new VmState(Map.of("held", new IntegerValue(2)), 2, new ObjectValue(7)).snapshot();
+    registry.registerFork(17, 1234, 2, new ObjectValue(7), first.initialLocals(), first);
+    registry.registerFork(18, 1234, 2, new ObjectValue(7), second.initialLocals(), second);
+
+    assertEquals(List.of(second), registry.snapshotsExcluding(17));
+    assertEquals(List.of(first), registry.snapshotsExcluding(18));
+  }
+
+  @Test
+  void ordersWaitingTasksByScheduledStartThenInsertionRatherThanTaskId() {
+    TaskRegistry registry = new TaskRegistry();
+    Map<String, MooValue> locals =
+        Map.of("verb", string("alpha"), "this", new ObjectValue(8));
+    registry.registerFork(30, 2345, 2, new ObjectValue(7), locals);
+    registry.registerFork(20, 1234, 2, new ObjectValue(7), locals);
+    registry.registerFork(10, 1234, 2, new ObjectValue(7), locals);
+
+    try (WorldTxn transaction = world().begin()) {
+      ListValue rows = value(registry, List.of(), transaction, 2);
+      assertEquals(3, rows.size());
+      assertEquals(
+          List.of(new IntegerValue(20), new IntegerValue(10), new IntegerValue(30)),
+          rows.elements().stream()
+              .map(ListValue.class::cast)
+              .map(row -> row.get(1).orElseThrow())
+              .toList());
+    }
+  }
+
+  @Test
   void hostWaitReplacesForkRowWithExactExternalMetadata() {
     TaskRegistry registry = new TaskRegistry();
     Map<String, MooValue> locals =
@@ -145,6 +180,65 @@ final class TaskRegistryTest {
     assertEquals(0, registry.size());
   }
 
+  @Test
+  void taskStackRendersSuspendedSnapshotAndEnforcesOwnerOrWizardAccess() {
+    TaskRegistry registry = new TaskRegistry();
+    Map<String, MooValue> locals =
+        Map.of(
+            "player", new ObjectValue(2),
+            "verb", string("alpha"),
+            "this", new ObjectValue(8));
+    BytecodeProgram program = new MooCompiler().compile("x = 9;\nsuspend(100);");
+    VmState state = new VmState(locals, 2, new ObjectValue(7));
+    try (WorldTxn transaction = world().begin()) {
+      new MooVm().execute(program, state, transaction, new BuiltinCatalog(), 17);
+    }
+    VmSnapshot snapshot = state.snapshot();
+    registry.updateSuspended(99, 1234, snapshot);
+    assertEquals(0, registry.size());
+    registry.registerSuspended(17, 1234, snapshot);
+
+    try (WorldTxn transaction = world().begin()) {
+      Result owner =
+          taskStackResult(
+              registry,
+              List.of(new IntegerValue(17), new IntegerValue(1), new IntegerValue(1)),
+              transaction,
+              2,
+              99);
+      ListValue stack = assertInstanceOf(ListValue.class, owner.value().orElseThrow());
+      ListValue frame = assertInstanceOf(ListValue.class, stack.get(1).orElseThrow());
+      assertEquals(7, frame.size());
+      assertEquals(new ObjectValue(8), frame.get(1).orElseThrow());
+      assertEquals(string("alpha"), frame.get(2).orElseThrow());
+      assertEquals(new ObjectValue(2), frame.get(3).orElseThrow());
+      assertEquals(new ObjectValue(7), frame.get(4).orElseThrow());
+      assertEquals(new ObjectValue(2), frame.get(5).orElseThrow());
+      assertEquals(new IntegerValue(2), frame.get(6).orElseThrow());
+      MapValue variables = assertInstanceOf(MapValue.class, frame.get(7).orElseThrow());
+      assertEquals(new IntegerValue(9), variables.get(string("x")).orElseThrow());
+
+      assertEquals(
+          ErrorValue.E_PERM,
+          taskStackResult(
+                  registry, List.of(new IntegerValue(17)), transaction, 3, 99)
+              .error()
+              .orElseThrow());
+      assertEquals(
+          ErrorValue.E_INVARG,
+          taskStackResult(
+                  registry, List.of(new IntegerValue(17)), transaction, 2, 17)
+              .error()
+              .orElseThrow());
+      assertInstanceOf(
+          ListValue.class,
+          taskStackResult(
+                  registry, List.of(new IntegerValue(17)), transaction, 1, 99)
+              .value()
+              .orElseThrow());
+    }
+  }
+
   private static Result killResult(
       TaskRegistry registry, long taskId, WorldTxn world, long programmer) {
     return registry.killTask(
@@ -175,6 +269,25 @@ final class TaskRegistryTest {
             new ListValue(List.of()))
         .value()
         .orElseThrow();
+  }
+
+  private static Result taskStackResult(
+      TaskRegistry registry,
+      List<MooValue> arguments,
+      WorldTxn world,
+      long programmer,
+      long currentTaskId) {
+    return registry.taskStack(
+        arguments,
+        world,
+        programmer,
+        new MapValue(Map.of()),
+        currentTaskId,
+        60_000,
+        5,
+        new ObjectValue(programmer),
+        programmer,
+        new ListValue(List.of()));
   }
 
   private static ListValue value(

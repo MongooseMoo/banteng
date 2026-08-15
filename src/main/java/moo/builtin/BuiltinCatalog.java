@@ -6,17 +6,24 @@ import java.lang.foreign.Arena;
 import java.lang.foreign.FunctionDescriptor;
 import java.lang.foreign.Linker;
 import java.lang.foreign.MemorySegment;
+import java.lang.foreign.SymbolLookup;
 import java.lang.foreign.ValueLayout;
 import java.lang.invoke.MethodHandle;
+import java.math.BigInteger;
 import java.math.RoundingMode;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.security.MessageDigest;
 import java.security.SecureRandom;
 import java.time.Instant;
 import java.text.DecimalFormat;
 import java.text.DecimalFormatSymbols;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Base64;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -26,8 +33,10 @@ import java.util.OptionalDouble;
 import java.util.OptionalLong;
 import java.util.Random;
 import java.util.Set;
+import java.util.StringTokenizer;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CancellationException;
+import java.util.function.Function;
 import moo.bytecode.MooCompiler;
 import moo.syntax.MooParser;
 import moo.syntax.MooUnparser;
@@ -47,6 +56,8 @@ import moo.world.WorldObject;
 import moo.world.WorldProperty;
 import moo.world.WorldTxn;
 import moo.world.WorldVerb;
+import org.bouncycastle.crypto.generators.Argon2BytesGenerator;
+import org.bouncycastle.crypto.params.Argon2Parameters;
 
 /** The explicit builtin catalog required by the first managed runtime path. */
 public final class BuiltinCatalog {
@@ -54,11 +65,29 @@ public final class BuiltinCatalog {
   private static final int CLOCK_MONOTONIC = 1;
   private static final int CLOCK_MONOTONIC_RAW = 4;
   private static final long CTIME_MAX_SECONDS = (long) Integer.MAX_VALUE * 31_536_000L;
+  private static final SecureRandom SECURE_RANDOM = new SecureRandom();
+  @SuppressWarnings("restricted")
+  private static final SymbolLookup CRYPT_LIBRARY =
+      SymbolLookup.libraryLookup("libcrypt.so.1", Arena.global());
+  @SuppressWarnings("restricted")
+  private static final MethodHandle CRYPT =
+      Linker.nativeLinker()
+          .downcallHandle(
+              CRYPT_LIBRARY.findOrThrow("crypt"),
+              FunctionDescriptor.of(
+                  ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS));
   @SuppressWarnings("restricted")
   private static final MethodHandle CLOCK_GETTIME =
       Linker.nativeLinker()
           .downcallHandle(
               Linker.nativeLinker().defaultLookup().findOrThrow("clock_gettime"),
+              FunctionDescriptor.of(
+                  ValueLayout.JAVA_INT, ValueLayout.JAVA_INT, ValueLayout.ADDRESS));
+  @SuppressWarnings("restricted")
+  private static final MethodHandle GETRUSAGE =
+      Linker.nativeLinker()
+          .downcallHandle(
+              Linker.nativeLinker().defaultLookup().findOrThrow("getrusage"),
               FunctionDescriptor.of(
                   ValueLayout.JAVA_INT, ValueLayout.JAVA_INT, ValueLayout.ADDRESS));
   @SuppressWarnings("restricted")
@@ -84,15 +113,33 @@ public final class BuiltinCatalog {
   private static final Set<ArgType> NUMBER = Set.of(ArgType.NUMBER);
   private static final Set<ArgType> STRING = Set.of(ArgType.STRING);
   private static final Set<ArgType> OBJECT = Set.of(ArgType.OBJECT);
+  private static final int WIZARD_FLAG = 4;
+  private static final int FERTILE_FLAG = 1 << 7;
+  private static final int ANONYMOUS_FLAG = 1 << 8;
+  private static final int DEFAULT_MAX_QUEUED_OUTPUT = 65_536;
+  private static final long DEFAULT_MAX_LIST_VALUE_BYTES = 64_537_861L;
+  private static final long MIN_LIST_VALUE_BYTES_LIMIT = 1_021L;
+  private static final long MAX_LIST_VALUE_BYTES_LIMIT = 2_147_482_626L;
+  private static final String SERVER_VERSION = "0.1.0-SNAPSHOT";
 
   private final List<BuiltinSpec> manifest;
+  private final BuiltinHandler connectionOptions;
+  private final BuiltinHandler dbDiskSize;
+  private final BuiltinHandler flushInput;
+  private final FileIoService fileIo;
   private final BuiltinHandler killTask;
+  private final BuiltinHandler outputDelimiters;
+  private final PcreService pcre = new PcreService();
+  private final BuiltinHandler queueInfo;
   private final Optional<ListenerControl> listenerControl;
   private final BuiltinHandler queuedTasks;
+  private final BuiltinHandler resumeTask;
+  private final BuiltinHandler taskStack;
   private final BuiltinHandler read;
   private final BuiltinHandler threadPool;
   private final BuiltinHandler threads;
   private final Random random;
+  private final SqliteService sqlite;
   private final Random floatingRandom;
   private final Map<String, BuiltinSpec> specs;
 
@@ -123,11 +170,182 @@ public final class BuiltinCatalog {
       BuiltinHandler read,
       BuiltinHandler threadPool,
       BuiltinHandler threads) {
+    this(
+        queuedTasks,
+        killTask,
+        read,
+        threadPool,
+        threads,
+        (a, w, p, t, id, rt, rs, r, cp, c) -> Result.error(ErrorValue.E_INVARG));
+  }
+
+  /** Creates a catalog with task, input, and transient connection readers. */
+  public BuiltinCatalog(
+      BuiltinHandler queuedTasks,
+      BuiltinHandler killTask,
+      BuiltinHandler read,
+      BuiltinHandler threadPool,
+      BuiltinHandler threads,
+      BuiltinHandler connectionOptions) {
+    this(
+        queuedTasks,
+        killTask,
+        read,
+        threadPool,
+        threads,
+        connectionOptions,
+        (a, w, p, t, id, rt, rs, r, cp, c) -> Result.zero());
+  }
+
+  /** Creates a catalog with task, input, connection, and database-file readers. */
+  public BuiltinCatalog(
+      BuiltinHandler queuedTasks,
+      BuiltinHandler killTask,
+      BuiltinHandler read,
+      BuiltinHandler threadPool,
+      BuiltinHandler threads,
+      BuiltinHandler connectionOptions,
+      BuiltinHandler dbDiskSize) {
+    this(
+        queuedTasks,
+        killTask,
+        read,
+        threadPool,
+        threads,
+        connectionOptions,
+        dbDiskSize,
+        (a, w, p, t, id, rt, rs, r, cp, c) -> Result.zero());
+  }
+
+  /** Creates a catalog with every transient host reader and input mutator. */
+  public BuiltinCatalog(
+      BuiltinHandler queuedTasks,
+      BuiltinHandler killTask,
+      BuiltinHandler read,
+      BuiltinHandler threadPool,
+      BuiltinHandler threads,
+      BuiltinHandler connectionOptions,
+      BuiltinHandler dbDiskSize,
+      BuiltinHandler flushInput) {
+    this(
+        queuedTasks,
+        killTask,
+        read,
+        threadPool,
+        threads,
+        connectionOptions,
+        dbDiskSize,
+        flushInput,
+        (a, w, p, t, id, rt, rs, r, cp, c) -> Result.error(ErrorValue.E_INVARG));
+  }
+
+  /** Creates a catalog with every transient host operation and reader. */
+  public BuiltinCatalog(
+      BuiltinHandler queuedTasks,
+      BuiltinHandler killTask,
+      BuiltinHandler read,
+      BuiltinHandler threadPool,
+      BuiltinHandler threads,
+      BuiltinHandler connectionOptions,
+      BuiltinHandler dbDiskSize,
+      BuiltinHandler flushInput,
+      BuiltinHandler outputDelimiters) {
+    this(
+        queuedTasks,
+        killTask,
+        read,
+        threadPool,
+        threads,
+        connectionOptions,
+        dbDiskSize,
+        flushInput,
+        outputDelimiters,
+        (a, w, p, t, id, rt, rs, r, cp, c) -> Result.value(new ListValue(List.of())));
+  }
+
+  /** Creates a catalog with every transient host operation and reader. */
+  public BuiltinCatalog(
+      BuiltinHandler queuedTasks,
+      BuiltinHandler killTask,
+      BuiltinHandler read,
+      BuiltinHandler threadPool,
+      BuiltinHandler threads,
+      BuiltinHandler connectionOptions,
+      BuiltinHandler dbDiskSize,
+      BuiltinHandler flushInput,
+      BuiltinHandler outputDelimiters,
+      BuiltinHandler queueInfo) {
+    this(
+        queuedTasks,
+        killTask,
+        read,
+        threadPool,
+        threads,
+        connectionOptions,
+        dbDiskSize,
+        flushInput,
+        outputDelimiters,
+        queueInfo,
+        (a, w, p, t, id, rt, rs, r, cp, c) -> Result.error(ErrorValue.E_INVARG));
+  }
+
+  /** Creates a catalog with every transient host operation, reader, and task stack owner. */
+  public BuiltinCatalog(
+      BuiltinHandler queuedTasks,
+      BuiltinHandler killTask,
+      BuiltinHandler read,
+      BuiltinHandler threadPool,
+      BuiltinHandler threads,
+      BuiltinHandler connectionOptions,
+      BuiltinHandler dbDiskSize,
+      BuiltinHandler flushInput,
+      BuiltinHandler outputDelimiters,
+      BuiltinHandler queueInfo,
+      BuiltinHandler taskStack) {
+    this(
+        queuedTasks,
+        killTask,
+        read,
+        threadPool,
+        threads,
+        connectionOptions,
+        dbDiskSize,
+        flushInput,
+        outputDelimiters,
+        queueInfo,
+        taskStack,
+        (a, w, p, t, id, rt, rs, r, cp, c) -> Result.error(ErrorValue.E_INVARG));
+  }
+
+  /** Creates a catalog with every transient owner and task-control operation. */
+  public BuiltinCatalog(
+      BuiltinHandler queuedTasks,
+      BuiltinHandler killTask,
+      BuiltinHandler read,
+      BuiltinHandler threadPool,
+      BuiltinHandler threads,
+      BuiltinHandler connectionOptions,
+      BuiltinHandler dbDiskSize,
+      BuiltinHandler flushInput,
+      BuiltinHandler outputDelimiters,
+      BuiltinHandler queueInfo,
+      BuiltinHandler taskStack,
+      BuiltinHandler resumeTask) {
     this.queuedTasks = Objects.requireNonNull(queuedTasks, "queuedTasks");
+    this.taskStack = Objects.requireNonNull(taskStack, "taskStack");
+    this.resumeTask = Objects.requireNonNull(resumeTask, "resumeTask");
     this.killTask = Objects.requireNonNull(killTask, "killTask");
     this.read = Objects.requireNonNull(read, "read");
     this.threadPool = Objects.requireNonNull(threadPool, "threadPool");
     this.threads = Objects.requireNonNull(threads, "threads");
+    this.connectionOptions = Objects.requireNonNull(connectionOptions, "connectionOptions");
+    this.dbDiskSize = Objects.requireNonNull(dbDiskSize, "dbDiskSize");
+    this.flushInput = Objects.requireNonNull(flushInput, "flushInput");
+    this.outputDelimiters = Objects.requireNonNull(outputDelimiters, "outputDelimiters");
+    this.queueInfo = Objects.requireNonNull(queueInfo, "queueInfo");
+    ConfinedFileRoot files = new ConfinedFileRoot(Path.of("files"));
+    fileIo = new FileIoService(files);
+    sqlite = new SqliteService(files);
     listenerControl = Optional.empty();
     random = new Random();
     floatingRandom = new Random();
@@ -165,12 +383,197 @@ public final class BuiltinCatalog {
       BuiltinHandler read,
       BuiltinHandler threadPool,
       BuiltinHandler threads) {
+    this(
+        listenerControl,
+        queuedTasks,
+        killTask,
+        read,
+        threadPool,
+        threads,
+        (a, w, p, t, id, rt, rs, r, cp, c) -> Result.error(ErrorValue.E_INVARG));
+  }
+
+  /** Creates the production catalog with concrete connection, listener, and task owners. */
+  public BuiltinCatalog(
+      ListenerControl listenerControl,
+      BuiltinHandler queuedTasks,
+      BuiltinHandler killTask,
+      BuiltinHandler read,
+      BuiltinHandler threadPool,
+      BuiltinHandler threads,
+      BuiltinHandler connectionOptions) {
+    this(
+        listenerControl,
+        queuedTasks,
+        killTask,
+        read,
+        threadPool,
+        threads,
+        connectionOptions,
+        (a, w, p, t, id, rt, rs, r, cp, c) -> Result.zero());
+  }
+
+  /** Creates the production catalog with every transient host reader. */
+  public BuiltinCatalog(
+      ListenerControl listenerControl,
+      BuiltinHandler queuedTasks,
+      BuiltinHandler killTask,
+      BuiltinHandler read,
+      BuiltinHandler threadPool,
+      BuiltinHandler threads,
+      BuiltinHandler connectionOptions,
+      BuiltinHandler dbDiskSize) {
+    this(
+        listenerControl,
+        queuedTasks,
+        killTask,
+        read,
+        threadPool,
+        threads,
+        connectionOptions,
+        dbDiskSize,
+        (a, w, p, t, id, rt, rs, r, cp, c) -> Result.zero());
+  }
+
+  /** Creates the production catalog with every transient host operation. */
+  public BuiltinCatalog(
+      ListenerControl listenerControl,
+      BuiltinHandler queuedTasks,
+      BuiltinHandler killTask,
+      BuiltinHandler read,
+      BuiltinHandler threadPool,
+      BuiltinHandler threads,
+      BuiltinHandler connectionOptions,
+      BuiltinHandler dbDiskSize,
+      BuiltinHandler flushInput) {
+    this(
+        listenerControl,
+        queuedTasks,
+        killTask,
+        read,
+        threadPool,
+        threads,
+        connectionOptions,
+        dbDiskSize,
+        flushInput,
+        (a, w, p, t, id, rt, rs, r, cp, c) -> Result.error(ErrorValue.E_INVARG));
+  }
+
+  /** Creates the production catalog with every transient host operation and reader. */
+  public BuiltinCatalog(
+      ListenerControl listenerControl,
+      BuiltinHandler queuedTasks,
+      BuiltinHandler killTask,
+      BuiltinHandler read,
+      BuiltinHandler threadPool,
+      BuiltinHandler threads,
+      BuiltinHandler connectionOptions,
+      BuiltinHandler dbDiskSize,
+      BuiltinHandler flushInput,
+      BuiltinHandler outputDelimiters) {
+    this(
+        listenerControl,
+        queuedTasks,
+        killTask,
+        read,
+        threadPool,
+        threads,
+        connectionOptions,
+        dbDiskSize,
+        flushInput,
+        outputDelimiters,
+        (a, w, p, t, id, rt, rs, r, cp, c) -> Result.value(new ListValue(List.of())));
+  }
+
+  /** Creates the production catalog with every transient host operation and reader. */
+  public BuiltinCatalog(
+      ListenerControl listenerControl,
+      BuiltinHandler queuedTasks,
+      BuiltinHandler killTask,
+      BuiltinHandler read,
+      BuiltinHandler threadPool,
+      BuiltinHandler threads,
+      BuiltinHandler connectionOptions,
+      BuiltinHandler dbDiskSize,
+      BuiltinHandler flushInput,
+      BuiltinHandler outputDelimiters,
+      BuiltinHandler queueInfo) {
+    this(
+        listenerControl,
+        queuedTasks,
+        killTask,
+        read,
+        threadPool,
+        threads,
+        connectionOptions,
+        dbDiskSize,
+        flushInput,
+        outputDelimiters,
+        queueInfo,
+        (a, w, p, t, id, rt, rs, r, cp, c) -> Result.error(ErrorValue.E_INVARG));
+  }
+
+  /** Creates the production catalog with every transient owner and task stack reader. */
+  public BuiltinCatalog(
+      ListenerControl listenerControl,
+      BuiltinHandler queuedTasks,
+      BuiltinHandler killTask,
+      BuiltinHandler read,
+      BuiltinHandler threadPool,
+      BuiltinHandler threads,
+      BuiltinHandler connectionOptions,
+      BuiltinHandler dbDiskSize,
+      BuiltinHandler flushInput,
+      BuiltinHandler outputDelimiters,
+      BuiltinHandler queueInfo,
+      BuiltinHandler taskStack) {
+    this(
+        listenerControl,
+        queuedTasks,
+        killTask,
+        read,
+        threadPool,
+        threads,
+        connectionOptions,
+        dbDiskSize,
+        flushInput,
+        outputDelimiters,
+        queueInfo,
+        taskStack,
+        (a, w, p, t, id, rt, rs, r, cp, c) -> Result.error(ErrorValue.E_INVARG));
+  }
+
+  /** Creates the production catalog with every transient owner and task-control operation. */
+  public BuiltinCatalog(
+      ListenerControl listenerControl,
+      BuiltinHandler queuedTasks,
+      BuiltinHandler killTask,
+      BuiltinHandler read,
+      BuiltinHandler threadPool,
+      BuiltinHandler threads,
+      BuiltinHandler connectionOptions,
+      BuiltinHandler dbDiskSize,
+      BuiltinHandler flushInput,
+      BuiltinHandler outputDelimiters,
+      BuiltinHandler queueInfo,
+      BuiltinHandler taskStack,
+      BuiltinHandler resumeTask) {
     this.listenerControl = Optional.of(Objects.requireNonNull(listenerControl, "listenerControl"));
     this.queuedTasks = Objects.requireNonNull(queuedTasks, "queuedTasks");
+    this.taskStack = Objects.requireNonNull(taskStack, "taskStack");
+    this.resumeTask = Objects.requireNonNull(resumeTask, "resumeTask");
     this.killTask = Objects.requireNonNull(killTask, "killTask");
     this.read = Objects.requireNonNull(read, "read");
     this.threadPool = Objects.requireNonNull(threadPool, "threadPool");
     this.threads = Objects.requireNonNull(threads, "threads");
+    this.connectionOptions = Objects.requireNonNull(connectionOptions, "connectionOptions");
+    this.dbDiskSize = Objects.requireNonNull(dbDiskSize, "dbDiskSize");
+    this.flushInput = Objects.requireNonNull(flushInput, "flushInput");
+    this.outputDelimiters = Objects.requireNonNull(outputDelimiters, "outputDelimiters");
+    this.queueInfo = Objects.requireNonNull(queueInfo, "queueInfo");
+    ConfinedFileRoot files = new ConfinedFileRoot(Path.of("files"));
+    fileIo = new FileIoService(files);
+    sqlite = new SqliteService(files);
     random = new Random();
     floatingRandom = new Random();
     manifest = buildManifest();
@@ -243,6 +646,96 @@ public final class BuiltinCatalog {
               ListValue callers,
               boolean threadMode) {
             return threadMode ? Result.hostWork(() -> allMembers(arguments)) : allMembers(arguments);
+          }
+        };
+    BuiltinHandler sort =
+        new BuiltinHandler() {
+          @Override
+          public Result invoke(
+              List<MooValue> arguments,
+              WorldTxn world,
+              long programmer,
+              MooValue taskLocal,
+              long taskId,
+              long remainingTicks,
+              long remainingSeconds,
+              MooValue receiver,
+              long callerProgrammer,
+              ListValue callers) {
+            return sortValues(arguments);
+          }
+
+          @Override
+          public Result invoke(
+              List<MooValue> arguments,
+              WorldTxn world,
+              long programmer,
+              MooValue taskLocal,
+              long taskId,
+              long remainingTicks,
+              long remainingSeconds,
+              MooValue receiver,
+              long callerProgrammer,
+              ListValue callers,
+              boolean threadMode) {
+            return threadMode
+                ? Result.hostWork(() -> sortValues(arguments))
+                : sortValues(arguments);
+          }
+        };
+    BuiltinHandler callFunction =
+        new BuiltinHandler() {
+          @Override
+          public Result invoke(
+              List<MooValue> arguments,
+              WorldTxn world,
+              long programmer,
+              MooValue taskLocal,
+              long taskId,
+              long remainingTicks,
+              long remainingSeconds,
+              MooValue receiver,
+              long callerProgrammer,
+              ListValue callers) {
+            return callFunction(
+                arguments,
+                world,
+                programmer,
+                taskLocal,
+                taskId,
+                remainingTicks,
+                remainingSeconds,
+                receiver,
+                callerProgrammer,
+                callers,
+                true);
+          }
+
+          @Override
+          public Result invoke(
+              List<MooValue> arguments,
+              WorldTxn world,
+              long programmer,
+              MooValue taskLocal,
+              long taskId,
+              long remainingTicks,
+              long remainingSeconds,
+              MooValue receiver,
+              long callerProgrammer,
+              ListValue callers,
+              boolean threadMode) {
+            return callFunction(
+                arguments,
+                world,
+                programmer,
+                taskLocal,
+                taskId,
+                remainingTicks,
+                remainingSeconds,
+                receiver,
+                callerProgrammer,
+                callers,
+                threadMode);
           }
         };
     entries.add(
@@ -630,9 +1123,9 @@ public final class BuiltinCatalog {
                     Optional.empty())),
             BuiltinPermissionRule.ANY,
             BuiltinCostRule.fixed(0),
-            EffectClass.PURE,
-            BuiltinOwner.VM,
-            (a, w, p, t, id, rt, rs, r, cp, c) -> listInsert(a, true)));
+            EffectClass.TRANSACTION_READ,
+            BuiltinOwner.WORLD,
+            (a, w, p, t, id, rt, rs, r, cp, c) -> listInsert(a, true, w)));
     entries.add(
         new BuiltinSpec(
             "listinsert",
@@ -643,9 +1136,9 @@ public final class BuiltinCatalog {
                     Optional.empty())),
             BuiltinPermissionRule.ANY,
             BuiltinCostRule.fixed(0),
-            EffectClass.PURE,
-            BuiltinOwner.VM,
-            (a, w, p, t, id, rt, rs, r, cp, c) -> listInsert(a, false)));
+            EffectClass.TRANSACTION_READ,
+            BuiltinOwner.WORLD,
+            (a, w, p, t, id, rt, rs, r, cp, c) -> listInsert(a, false, w)));
     entries.add(
         new BuiltinSpec(
             "listdelete",
@@ -654,9 +1147,9 @@ public final class BuiltinCatalog {
                     List.of(Set.of(ArgType.LIST), INTEGER), List.of(), Optional.empty())),
             BuiltinPermissionRule.ANY,
             BuiltinCostRule.fixed(0),
-            EffectClass.PURE,
-            BuiltinOwner.VM,
-            (a, w, p, t, id, rt, rs, r, cp, c) -> listDelete(a)));
+            EffectClass.TRANSACTION_READ,
+            BuiltinOwner.WORLD,
+            (a, w, p, t, id, rt, rs, r, cp, c) -> listDelete(a, w)));
     entries.add(
         new BuiltinSpec(
             "listset",
@@ -667,9 +1160,18 @@ public final class BuiltinCatalog {
                     Optional.empty())),
             BuiltinPermissionRule.ANY,
             BuiltinCostRule.fixed(0),
+            EffectClass.TRANSACTION_READ,
+            BuiltinOwner.WORLD,
+            (a, w, p, t, id, rt, rs, r, cp, c) -> listSet(a, w)));
+    entries.add(
+        new BuiltinSpec(
+            "mapdelete",
+            List.of(new CallShape(List.of(Set.of(ArgType.MAP), ANY), List.of(), Optional.empty())),
+            BuiltinPermissionRule.ANY,
+            BuiltinCostRule.fixed(0),
             EffectClass.PURE,
             BuiltinOwner.VM,
-            (a, w, p, t, id, rt, rs, r, cp, c) -> listSet(a)));
+            (a, w, p, t, id, rt, rs, r, cp, c) -> mapDelete(a)));
     entries.add(
         new BuiltinSpec(
             "mapkeys",
@@ -683,22 +1185,62 @@ public final class BuiltinCatalog {
             (a, w, p, t, id, rt, rs, r, cp, c) -> mapKeys(a)));
     entries.add(
         new BuiltinSpec(
-            "setadd",
-            List.of(new CallShape(List.of(Set.of(ArgType.LIST), ANY), List.of(), Optional.empty())),
+            "mapvalues",
+            List.of(
+                new CallShape(
+                    List.of(Set.of(ArgType.MAP)), List.of(), Optional.of(ANY))),
             BuiltinPermissionRule.ANY,
             BuiltinCostRule.fixed(0),
             EffectClass.PURE,
             BuiltinOwner.VM,
-            (a, w, p, t, id, rt, rs, r, cp, c) -> setAdd(a)));
+            (a, w, p, t, id, rt, rs, r, cp, c) -> mapValues(a)));
+    entries.add(
+        new BuiltinSpec(
+            "maphaskey",
+            List.of(
+                new CallShape(
+                    List.of(Set.of(ArgType.MAP), ANY), List.of(INTEGER), Optional.empty())),
+            BuiltinPermissionRule.ANY,
+            BuiltinCostRule.fixed(0),
+            EffectClass.PURE,
+            BuiltinOwner.VM,
+            (a, w, p, t, id, rt, rs, r, cp, c) -> mapHasKey(a)));
+    entries.add(
+        new BuiltinSpec(
+            "generate_json",
+            List.of(new CallShape(List.of(ANY), List.of(STRING, ANY), Optional.empty())),
+            BuiltinPermissionRule.ANY,
+            BuiltinCostRule.fixed(0),
+            EffectClass.PURE,
+            BuiltinOwner.VM,
+            (a, w, p, t, id, rt, rs, r, cp, c) -> generateJson(a)));
+    entries.add(
+        new BuiltinSpec(
+            "parse_json",
+            List.of(new CallShape(List.of(STRING), List.of(STRING), Optional.empty())),
+            BuiltinPermissionRule.ANY,
+            BuiltinCostRule.fixed(0),
+            EffectClass.PURE,
+            BuiltinOwner.VM,
+            (a, w, p, t, id, rt, rs, r, cp, c) -> parseJson(a)));
+    entries.add(
+        new BuiltinSpec(
+            "setadd",
+            List.of(new CallShape(List.of(Set.of(ArgType.LIST), ANY), List.of(), Optional.empty())),
+            BuiltinPermissionRule.ANY,
+            BuiltinCostRule.fixed(0),
+            EffectClass.TRANSACTION_READ,
+            BuiltinOwner.WORLD,
+            (a, w, p, t, id, rt, rs, r, cp, c) -> setAdd(a, w)));
     entries.add(
         new BuiltinSpec(
             "setremove",
             List.of(new CallShape(List.of(Set.of(ArgType.LIST), ANY), List.of(), Optional.empty())),
             BuiltinPermissionRule.ANY,
             BuiltinCostRule.fixed(0),
-            EffectClass.PURE,
-            BuiltinOwner.VM,
-            (a, w, p, t, id, rt, rs, r, cp, c) -> setRemove(a)));
+            EffectClass.TRANSACTION_READ,
+            BuiltinOwner.WORLD,
+            (a, w, p, t, id, rt, rs, r, cp, c) -> setRemove(a, w)));
     entries.add(
         new BuiltinSpec(
             "all_members",
@@ -710,6 +1252,22 @@ public final class BuiltinCatalog {
             EffectClass.SUSPENDING_HOST,
             BuiltinOwner.VM,
             allMembers));
+    entries.add(
+        new BuiltinSpec(
+            "sort",
+            List.of(
+                new CallShape(
+                    List.of(Set.of(ArgType.LIST)),
+                    List.of(
+                        Set.of(ArgType.LIST),
+                        Set.of(ArgType.INTEGER),
+                        Set.of(ArgType.INTEGER)),
+                    Optional.empty())),
+            BuiltinPermissionRule.ANY,
+            BuiltinCostRule.fixed(0),
+            EffectClass.SUSPENDING_HOST,
+            BuiltinOwner.VM,
+            sort));
     entries.add(
         new BuiltinSpec(
             "explode",
@@ -739,6 +1297,42 @@ public final class BuiltinCatalog {
             (a, w, p, t, id, rt, rs, r, cp, c) -> stringSubstitute(a)));
     entries.add(
         new BuiltinSpec(
+            "strtr",
+            List.of(new CallShape(List.of(STRING, STRING, STRING), List.of(ANY), Optional.empty())),
+            BuiltinPermissionRule.ANY,
+            BuiltinCostRule.fixed(0),
+            EffectClass.PURE,
+            BuiltinOwner.VM,
+            (a, w, p, t, id, rt, rs, r, cp, c) -> stringTranslate(a)));
+    entries.add(
+        new BuiltinSpec(
+            "parse_ansi",
+            List.of(new CallShape(List.of(STRING), List.of(), Optional.empty())),
+            BuiltinPermissionRule.ANY,
+            BuiltinCostRule.fixed(0),
+            EffectClass.IRREVOCABLE,
+            BuiltinOwner.VM,
+            (a, w, p, t, id, rt, rs, r, cp, c) -> parseAnsi(a)));
+    entries.add(
+        new BuiltinSpec(
+            "remove_ansi",
+            List.of(new CallShape(List.of(STRING), List.of(), Optional.empty())),
+            BuiltinPermissionRule.ANY,
+            BuiltinCostRule.fixed(0),
+            EffectClass.PURE,
+            BuiltinOwner.VM,
+            (a, w, p, t, id, rt, rs, r, cp, c) -> removeAnsi(a)));
+    entries.add(
+        new BuiltinSpec(
+            "simplex_noise",
+            List.of(new CallShape(List.of(Set.of(ArgType.LIST)), List.of(), Optional.empty())),
+            BuiltinPermissionRule.ANY,
+            BuiltinCostRule.fixed(0),
+            EffectClass.PURE,
+            BuiltinOwner.VM,
+            (a, w, p, t, id, rt, rs, r, cp, c) -> simplexNoise(a)));
+    entries.add(
+        new BuiltinSpec(
             "index",
             List.of(new CallShape(List.of(STRING, STRING), List.of(ANY, INTEGER), Optional.empty())),
             BuiltinPermissionRule.ANY,
@@ -764,6 +1358,37 @@ public final class BuiltinCatalog {
             EffectClass.PURE,
             BuiltinOwner.VM,
             (a, w, p, t, id, rt, rs, r, cp, c) -> stringCompare(a)));
+    entries.add(
+        new BuiltinSpec(
+            "crypt",
+            List.of(new CallShape(List.of(STRING), List.of(STRING), Optional.empty())),
+            BuiltinPermissionRule.ANY,
+            BuiltinCostRule.fixed(0),
+            EffectClass.IRREVOCABLE,
+            BuiltinOwner.VM,
+            (a, w, p, t, id, rt, rs, r, cp, c) -> crypt(a, w, p)));
+    entries.add(
+        new BuiltinSpec(
+            "argon2",
+            List.of(
+                new CallShape(
+                    List.of(STRING, STRING),
+                    List.of(INTEGER, INTEGER, INTEGER),
+                    Optional.empty())),
+            BuiltinPermissionRule.WIZARD_ONLY,
+            BuiltinCostRule.fixed(0),
+            EffectClass.PURE,
+            BuiltinOwner.VM,
+            (a, w, p, t, id, rt, rs, r, cp, c) -> argon2(a)));
+    entries.add(
+        new BuiltinSpec(
+            "argon2_verify",
+            List.of(new CallShape(List.of(STRING, STRING), List.of(), Optional.empty())),
+            BuiltinPermissionRule.WIZARD_ONLY,
+            BuiltinCostRule.fixed(0),
+            EffectClass.PURE,
+            BuiltinOwner.VM,
+            (a, w, p, t, id, rt, rs, r, cp, c) -> argon2Verify(a)));
     entries.add(
         new BuiltinSpec(
             "decode_binary",
@@ -794,17 +1419,12 @@ public final class BuiltinCatalog {
     entries.add(
         new BuiltinSpec(
             "chr",
-            List.of(new CallShape(List.of(INTEGER), List.of(), Optional.empty())),
+            List.of(new CallShape(List.of(), List.of(), Optional.of(ANY))),
             BuiltinPermissionRule.ANY,
             BuiltinCostRule.fixed(0),
             EffectClass.PURE,
             BuiltinOwner.VM,
-            (a, w, p, t, id, rt, rs, r, cp, c) -> {
-              long code = ((IntegerValue) a.getFirst()).value();
-              return code < 0 || code > 255
-                  ? Result.error(ErrorValue.E_INVARG)
-                  : Result.value(new StringValue(new byte[] {(byte) code}));
-            }));
+            (a, w, p, t, id, rt, rs, r, cp, c) -> chr(a, w, p)));
     entries.add(
         new BuiltinSpec(
             "add_property",
@@ -888,12 +1508,25 @@ public final class BuiltinCatalog {
     entries.add(
         new BuiltinSpec(
             "create",
-            List.of(new CallShape(List.of(OBJECT), List.of(INTEGER), Optional.empty())),
+            List.of(
+                new CallShape(
+                    List.of(Set.of(ArgType.OBJECT, ArgType.LIST)),
+                    List.of(ANY, ANY, ANY),
+                    Optional.empty())),
             BuiltinPermissionRule.ANY,
             BuiltinCostRule.fixed(0),
             EffectClass.TRANSACTION_WRITE,
             BuiltinOwner.WORLD,
             (a, w, p, t, id, rt, rs, r, cp, c) -> create(a, w, p)));
+    entries.add(
+        new BuiltinSpec(
+            "recreate",
+            List.of(new CallShape(List.of(OBJECT, OBJECT), List.of(OBJECT), Optional.empty())),
+            BuiltinPermissionRule.ANY,
+            BuiltinCostRule.fixed(0),
+            EffectClass.TRANSACTION_WRITE,
+            BuiltinOwner.WORLD,
+            (a, w, p, t, id, rt, rs, r, cp, c) -> recreate(a, w, p)));
     entries.add(
         new BuiltinSpec(
             "parent",
@@ -903,6 +1536,51 @@ public final class BuiltinCatalog {
             EffectClass.TRANSACTION_READ,
             BuiltinOwner.WORLD,
             (a, w, p, t, id, rt, rs, r, cp, c) -> parent(a, w)));
+    entries.add(
+        new BuiltinSpec(
+            "parents",
+            List.of(new CallShape(List.of(ANY), List.of(), Optional.empty())),
+            BuiltinPermissionRule.ANY,
+            BuiltinCostRule.fixed(0),
+            EffectClass.TRANSACTION_READ,
+            BuiltinOwner.WORLD,
+            (a, w, p, t, id, rt, rs, r, cp, c) -> parents(a, w)));
+    entries.add(
+        new BuiltinSpec(
+            "ancestors",
+            List.of(new CallShape(List.of(ANY), List.of(ANY), Optional.empty())),
+            BuiltinPermissionRule.ANY,
+            BuiltinCostRule.fixed(0),
+            EffectClass.TRANSACTION_READ,
+            BuiltinOwner.WORLD,
+            (a, w, p, t, id, rt, rs, r, cp, c) -> ancestors(a, w)));
+    entries.add(
+        new BuiltinSpec(
+            "children",
+            List.of(new CallShape(List.of(ANY), List.of(), Optional.empty())),
+            BuiltinPermissionRule.ANY,
+            BuiltinCostRule.fixed(0),
+            EffectClass.TRANSACTION_READ,
+            BuiltinOwner.WORLD,
+            (a, w, p, t, id, rt, rs, r, cp, c) -> children(a, w)));
+    entries.add(
+        new BuiltinSpec(
+            "chparent",
+            List.of(new CallShape(List.of(ANY, ANY), List.of(), Optional.empty())),
+            BuiltinPermissionRule.ANY,
+            BuiltinCostRule.fixed(0),
+            EffectClass.TRANSACTION_WRITE,
+            BuiltinOwner.WORLD,
+            (a, w, p, t, id, rt, rs, r, cp, c) -> changeParents(a, w, p)));
+    entries.add(
+        new BuiltinSpec(
+            "chparents",
+            List.of(new CallShape(List.of(ANY, ANY), List.of(), Optional.empty())),
+            BuiltinPermissionRule.ANY,
+            BuiltinCostRule.fixed(0),
+            EffectClass.TRANSACTION_WRITE,
+            BuiltinOwner.WORLD,
+            (a, w, p, t, id, rt, rs, r, cp, c) -> changeParents(a, w, p)));
     entries.add(
         new BuiltinSpec(
             "is_player",
@@ -923,8 +1601,63 @@ public final class BuiltinCatalog {
             (a, w, p, t, id, rt, rs, r, cp, c) -> valid(a, w)));
     entries.add(
         new BuiltinSpec(
+            "max_object",
+            List.of(new CallShape(List.of(), List.of(), Optional.empty())),
+            BuiltinPermissionRule.ANY,
+            BuiltinCostRule.fixed(0),
+            EffectClass.TRANSACTION_READ,
+            BuiltinOwner.WORLD,
+            (a, w, p, t, id, rt, rs, r, cp, c) ->
+                Result.value(new ObjectValue(w.maximumObjectId()))));
+    entries.add(
+        new BuiltinSpec(
+            "locate_by_name",
+            List.of(new CallShape(List.of(STRING), List.of(INTEGER), Optional.empty())),
+            BuiltinPermissionRule.WIZARD_ONLY,
+            BuiltinCostRule.fixed(0),
+            EffectClass.TRANSACTION_READ,
+            BuiltinOwner.WORLD,
+            (a, w, p, t, id, rt, rs, r, cp, c) -> locateByName(a, w)));
+    entries.add(
+        new BuiltinSpec(
+            "locations",
+            List.of(new CallShape(List.of(OBJECT), List.of(OBJECT, INTEGER), Optional.empty())),
+            BuiltinPermissionRule.ANY,
+            BuiltinCostRule.fixed(0),
+            EffectClass.TRANSACTION_READ,
+            BuiltinOwner.WORLD,
+            (a, w, p, t, id, rt, rs, r, cp, c) -> locations(a, w)));
+    entries.add(
+        new BuiltinSpec(
+            "recycled_objects",
+            List.of(new CallShape(List.of(), List.of(), Optional.empty())),
+            BuiltinPermissionRule.ANY,
+            BuiltinCostRule.fixed(0),
+            EffectClass.TRANSACTION_READ,
+            BuiltinOwner.WORLD,
+            (a, w, p, t, id, rt, rs, r, cp, c) -> recycledObjects(w)));
+    entries.add(
+        new BuiltinSpec(
+            "next_recycled_object",
+            List.of(new CallShape(List.of(), List.of(OBJECT), Optional.empty())),
+            BuiltinPermissionRule.ANY,
+            BuiltinCostRule.fixed(0),
+            EffectClass.TRANSACTION_READ,
+            BuiltinOwner.WORLD,
+            (a, w, p, t, id, rt, rs, r, cp, c) -> nextRecycledObject(a, w)));
+    entries.add(
+        new BuiltinSpec(
+            "owned_objects",
+            List.of(new CallShape(List.of(OBJECT), List.of(), Optional.empty())),
+            BuiltinPermissionRule.ANY,
+            BuiltinCostRule.fixed(0),
+            EffectClass.TRANSACTION_READ,
+            BuiltinOwner.WORLD,
+            (a, w, p, t, id, rt, rs, r, cp, c) -> ownedObjects(a, w)));
+    entries.add(
+        new BuiltinSpec(
             "set_player_flag",
-            List.of(new CallShape(List.of(OBJECT, INTEGER), List.of(), Optional.empty())),
+            List.of(new CallShape(List.of(OBJECT, ANY), List.of(), Optional.empty())),
             BuiltinPermissionRule.ANY,
             BuiltinCostRule.fixed(0),
             EffectClass.TRANSACTION_WRITE,
@@ -971,6 +1704,15 @@ public final class BuiltinCatalog {
             (a, w, p, t, id, rt, rs, r, cp, c) -> setVerbInfo(a, w, p)));
     entries.add(
         new BuiltinSpec(
+            "verbs",
+            List.of(new CallShape(List.of(ANY), List.of(), Optional.empty())),
+            BuiltinPermissionRule.ANY,
+            BuiltinCostRule.fixed(0),
+            EffectClass.TRANSACTION_READ,
+            BuiltinOwner.WORLD,
+            (a, w, p, t, id, rt, rs, r, cp, c) -> verbs(a, w, p)));
+    entries.add(
+        new BuiltinSpec(
             "verb_args",
             List.of(new CallShape(List.of(ANY, ANY), List.of(), Optional.empty())),
             BuiltinPermissionRule.ANY,
@@ -999,7 +1741,7 @@ public final class BuiltinCatalog {
     entries.add(
         new BuiltinSpec(
             "move",
-            List.of(new CallShape(List.of(OBJECT, OBJECT), List.of(), Optional.empty())),
+            List.of(new CallShape(List.of(OBJECT, OBJECT), List.of(INTEGER), Optional.empty())),
             BuiltinPermissionRule.ANY,
             BuiltinCostRule.fixed(0),
             EffectClass.TRANSACTION_WRITE,
@@ -1023,6 +1765,10 @@ public final class BuiltinCatalog {
             EffectClass.TRANSACTION_WRITE,
             BuiltinOwner.WORLD,
             (a, w, p, t, id, rt, rs, r, cp, c) -> {
+              if (r instanceof AnonymousObjectValue anonymous
+                  && w.anonymousObject(anonymous).isPresent()) {
+                return Result.error(ErrorValue.E_INVARG);
+              }
               if (!(r instanceof ObjectValue classObject)
                   || w.object(classObject.value()).isEmpty()) {
                 return Result.error(ErrorValue.E_INVIND);
@@ -1031,13 +1777,22 @@ public final class BuiltinCatalog {
             }));
     entries.add(
         new BuiltinSpec(
-            "switch_player",
-            List.of(new CallShape(List.of(OBJECT, OBJECT), List.of(), Optional.empty())),
+            "waif_stats",
+            List.of(new CallShape(List.of(), List.of(), Optional.empty())),
             BuiltinPermissionRule.ANY,
+            BuiltinCostRule.fixed(0),
+            EffectClass.TRANSACTION_READ,
+            BuiltinOwner.WORLD,
+            (a, w, p, t, id, rt, rs, r, cp, c) -> waifStats(w)));
+    entries.add(
+        new BuiltinSpec(
+            "switch_player",
+            List.of(new CallShape(List.of(OBJECT, OBJECT), List.of(INTEGER), Optional.empty())),
+            BuiltinPermissionRule.WIZARD_ONLY,
             BuiltinCostRule.fixed(0),
             EffectClass.DEFERRED_COMMIT,
             BuiltinOwner.CONNECTION,
-            (a, w, p, t, id, rt, rs, r, cp, c) -> switchPlayer(a)));
+            (a, w, p, t, id, rt, rs, r, cp, c) -> switchPlayer(a, w)));
     entries.add(
         new BuiltinSpec(
             "caller_perms",
@@ -1050,6 +1805,33 @@ public final class BuiltinCatalog {
                 Result.value(new ObjectValue(c.size() == 0 ? -1 : cp))));
     entries.add(
         new BuiltinSpec(
+            "callers",
+            List.of(new CallShape(List.of(), List.of(ANY), Optional.empty())),
+            BuiltinPermissionRule.ANY,
+            BuiltinCostRule.fixed(0),
+            EffectClass.PURE,
+            BuiltinOwner.VM,
+            (a, w, p, t, id, rt, rs, r, cp, c) -> callers(c, w, p)));
+    entries.add(
+        new BuiltinSpec(
+            "call_function",
+            List.of(new CallShape(List.of(STRING), List.of(), Optional.of(ANY))),
+            BuiltinPermissionRule.ANY,
+            BuiltinCostRule.fixed(0),
+            EffectClass.IRREVOCABLE,
+            BuiltinOwner.VM,
+            callFunction));
+    entries.add(
+        new BuiltinSpec(
+            "queue_info",
+            List.of(new CallShape(List.of(), List.of(OBJECT), Optional.empty())),
+            BuiltinPermissionRule.ANY,
+            BuiltinCostRule.fixed(0),
+            EffectClass.EXTERNAL_READ,
+            BuiltinOwner.TASK,
+            queueInfo));
+    entries.add(
+        new BuiltinSpec(
             "queued_tasks",
             List.of(new CallShape(List.of(), List.of(INTEGER, INTEGER), Optional.empty())),
             BuiltinPermissionRule.ANY,
@@ -1057,6 +1839,15 @@ public final class BuiltinCatalog {
             EffectClass.IRREVOCABLE,
             BuiltinOwner.TASK,
             queuedTasks));
+    entries.add(
+        new BuiltinSpec(
+            "task_stack",
+            List.of(new CallShape(List.of(INTEGER), List.of(ANY, ANY), Optional.empty())),
+            BuiltinPermissionRule.ANY,
+            BuiltinCostRule.fixed(0),
+            EffectClass.IRREVOCABLE,
+            BuiltinOwner.TASK,
+            taskStack));
     entries.add(
         new BuiltinSpec(
             "kill_task",
@@ -1124,6 +1915,15 @@ public final class BuiltinCatalog {
                             .toList()))));
     entries.add(
         new BuiltinSpec(
+            "buffered_output_length",
+            List.of(new CallShape(List.of(), List.of(OBJECT), Optional.empty())),
+            BuiltinPermissionRule.ANY,
+            BuiltinCostRule.fixed(0),
+            EffectClass.EXTERNAL_READ,
+            BuiltinOwner.CONNECTION,
+            (a, w, p, t, id, rt, rs, r, cp, c) -> bufferedOutputLength(a, w, p)));
+    entries.add(
+        new BuiltinSpec(
             "boot_player",
             List.of(new CallShape(List.of(OBJECT), List.of(), Optional.empty())),
             BuiltinPermissionRule.ANY,
@@ -1151,6 +1951,24 @@ public final class BuiltinCatalog {
             (a, w, p, t, id, rt, rs, r, cp, c) -> connectionName(a, w, p)));
     entries.add(
         new BuiltinSpec(
+            "connection_options",
+            List.of(new CallShape(List.of(OBJECT), List.of(STRING), Optional.empty())),
+            BuiltinPermissionRule.ANY,
+            BuiltinCostRule.fixed(0),
+            EffectClass.EXTERNAL_READ,
+            BuiltinOwner.CONNECTION,
+            connectionOptions));
+    entries.add(
+        new BuiltinSpec(
+            "output_delimiters",
+            List.of(new CallShape(List.of(OBJECT), List.of(), Optional.empty())),
+            BuiltinPermissionRule.ANY,
+            BuiltinCostRule.fixed(0),
+            EffectClass.EXTERNAL_READ,
+            BuiltinOwner.CONNECTION,
+            outputDelimiters));
+    entries.add(
+        new BuiltinSpec(
             "set_connection_option",
             List.of(new CallShape(List.of(OBJECT, STRING, ANY), List.of(), Optional.empty())),
             BuiltinPermissionRule.ANY,
@@ -1158,6 +1976,15 @@ public final class BuiltinCatalog {
             EffectClass.DEFERRED_COMMIT,
             BuiltinOwner.CONNECTION,
             (a, w, p, t, id, rt, rs, r, cp, c) -> setConnectionOption(a, w, p)));
+    entries.add(
+        new BuiltinSpec(
+            "flush_input",
+            List.of(new CallShape(List.of(OBJECT), List.of(ANY), Optional.empty())),
+            BuiltinPermissionRule.ANY,
+            BuiltinCostRule.fixed(0),
+            EffectClass.DEFERRED_COMMIT,
+            BuiltinOwner.CONNECTION,
+            flushInput));
     entries.add(
         new BuiltinSpec(
             "force_input",
@@ -1178,6 +2005,37 @@ public final class BuiltinCatalog {
             EffectClass.IRREVOCABLE,
             BuiltinOwner.SERVER,
             (a, w, p, t, id, rt, rs, r, cp, c) -> listen(a, w)));
+    entries.add(
+        new BuiltinSpec(
+            "listeners",
+            List.of(new CallShape(List.of(), List.of(ANY), Optional.empty())),
+            BuiltinPermissionRule.ANY,
+            BuiltinCostRule.fixed(0),
+            EffectClass.EXTERNAL_READ,
+            BuiltinOwner.SERVER,
+            (a, w, p, t, id, rt, rs, r, cp, c) -> listeners(a)));
+    entries.add(
+        new BuiltinSpec(
+            "unlisten",
+            List.of(new CallShape(List.of(ANY), List.of(ANY), Optional.empty())),
+            BuiltinPermissionRule.WIZARD_ONLY,
+            BuiltinCostRule.fixed(0),
+            EffectClass.IRREVOCABLE,
+            BuiltinOwner.SERVER,
+            (a, w, p, t, id, rt, rs, r, cp, c) -> unlisten(a)));
+    entries.add(
+        new BuiltinSpec(
+            "open_network_connection",
+            List.of(
+                new CallShape(
+                    List.of(STRING, INTEGER),
+                    List.of(Set.of(ArgType.MAP)),
+                    Optional.empty())),
+            BuiltinPermissionRule.WIZARD_ONLY,
+            BuiltinCostRule.fixed(0),
+            EffectClass.IRREVOCABLE,
+            BuiltinOwner.CONNECTION,
+            (a, w, p, t, id, rt, rs, r, cp, c) -> openNetworkConnection(a)));
     entries.add(
         new BuiltinSpec(
             "task_perms",
@@ -1235,7 +2093,7 @@ public final class BuiltinCatalog {
     entries.add(
         new BuiltinSpec(
             "notify",
-            List.of(new CallShape(List.of(OBJECT, STRING), List.of(), Optional.empty())),
+            List.of(new CallShape(List.of(OBJECT, STRING), List.of(ANY, ANY), Optional.empty())),
             BuiltinPermissionRule.ANY,
             BuiltinCostRule.fixed(0),
             EffectClass.DEFERRED_COMMIT,
@@ -1298,8 +2156,8 @@ public final class BuiltinCatalog {
     entries.add(
         new BuiltinSpec(
             "eval",
-            List.of(new CallShape(List.of(STRING), List.of(), Optional.empty())),
-            BuiltinPermissionRule.ANY,
+            List.of(new CallShape(List.of(STRING), List.of(), Optional.of(STRING))),
+            BuiltinPermissionRule.PROGRAMMER_ONLY,
             BuiltinCostRule.fixed(0),
             EffectClass.PURE,
             BuiltinOwner.VM,
@@ -1315,6 +2173,15 @@ public final class BuiltinCatalog {
             (a, w, p, t, id, rt, rs, r, cp, c) -> typeOf(a)));
     entries.add(
         new BuiltinSpec(
+            "server_version",
+            List.of(new CallShape(List.of(), List.of(ANY), Optional.empty())),
+            BuiltinPermissionRule.ANY,
+            BuiltinCostRule.fixed(0),
+            EffectClass.PURE,
+            BuiltinOwner.SERVER,
+            (a, w, p, t, id, rt, rs, r, cp, c) -> serverVersion(a)));
+    entries.add(
+        new BuiltinSpec(
             "function_info",
             List.of(new CallShape(List.of(), List.of(STRING), Optional.empty())),
             BuiltinPermissionRule.ANY,
@@ -1322,6 +2189,37 @@ public final class BuiltinCatalog {
             EffectClass.PURE,
             BuiltinOwner.VM,
             (a, w, p, t, id, rt, rs, r, cp, c) -> functionInfo(a)));
+    addFileIoManifest(entries);
+    entries.add(
+        new BuiltinSpec(
+            "pcre_match",
+            List.of(
+                new CallShape(
+                    List.of(STRING, STRING), List.of(INTEGER, INTEGER), Optional.empty())),
+            BuiltinPermissionRule.ANY,
+            BuiltinCostRule.fixed(0),
+            EffectClass.IRREVOCABLE,
+            BuiltinOwner.SERVER,
+            (a, w, p, t, id, rt, rs, r, cp, c) -> pcre.match(a)));
+    entries.add(
+        new BuiltinSpec(
+            "pcre_replace",
+            List.of(new CallShape(List.of(STRING, STRING), List.of(), Optional.empty())),
+            BuiltinPermissionRule.ANY,
+            BuiltinCostRule.fixed(0),
+            EffectClass.PURE,
+            BuiltinOwner.VM,
+            (a, w, p, t, id, rt, rs, r, cp, c) -> pcre.replace(a)));
+    entries.add(
+        new BuiltinSpec(
+            "pcre_cache_stats",
+            List.of(new CallShape(List.of(), List.of(), Optional.empty())),
+            BuiltinPermissionRule.WIZARD_ONLY,
+            BuiltinCostRule.fixed(0),
+            EffectClass.EXTERNAL_READ,
+            BuiltinOwner.SERVER,
+            (a, w, p, t, id, rt, rs, r, cp, c) -> pcre.cacheStats(a)));
+    addSqliteManifest(entries);
     entries.add(
         new BuiltinSpec(
             "server_log",
@@ -1331,6 +2229,42 @@ public final class BuiltinCatalog {
             EffectClass.IRREVOCABLE,
             BuiltinOwner.SERVER,
             (a, w, p, t, id, rt, rs, r, cp, c) -> serverLog(a)));
+    entries.add(
+        new BuiltinSpec(
+            "log_cache_stats",
+            List.of(new CallShape(List.of(), List.of(), Optional.empty())),
+            BuiltinPermissionRule.WIZARD_ONLY,
+            BuiltinCostRule.fixed(0),
+            EffectClass.IRREVOCABLE,
+            BuiltinOwner.SERVER,
+            (a, w, p, t, id, rt, rs, r, cp, c) -> logCacheStats()));
+    entries.add(
+        new BuiltinSpec(
+            "verb_cache_stats",
+            List.of(new CallShape(List.of(), List.of(), Optional.empty())),
+            BuiltinPermissionRule.WIZARD_ONLY,
+            BuiltinCostRule.fixed(0),
+            EffectClass.EXTERNAL_READ,
+            BuiltinOwner.SERVER,
+            (a, w, p, t, id, rt, rs, r, cp, c) -> verbCacheStats()));
+    entries.add(
+        new BuiltinSpec(
+            "usage",
+            List.of(new CallShape(List.of(), List.of(), Optional.empty())),
+            BuiltinPermissionRule.WIZARD_ONLY,
+            BuiltinCostRule.fixed(0),
+            EffectClass.EXTERNAL_READ,
+            BuiltinOwner.SERVER,
+            (a, w, p, t, id, rt, rs, r, cp, c) -> usage()));
+    entries.add(
+        new BuiltinSpec(
+            "memory_usage",
+            List.of(new CallShape(List.of(), List.of(), Optional.empty())),
+            BuiltinPermissionRule.ANY,
+            BuiltinCostRule.fixed(0),
+            EffectClass.EXTERNAL_READ,
+            BuiltinOwner.SERVER,
+            (a, w, p, t, id, rt, rs, r, cp, c) -> memoryUsage()));
     entries.add(
         new BuiltinSpec(
             "load_server_options",
@@ -1351,6 +2285,27 @@ public final class BuiltinCatalog {
             (a, w, p, t, id, rt, rs, r, cp, c) -> Result.zero()));
     entries.add(
         new BuiltinSpec(
+            "gc_stats",
+            List.of(new CallShape(List.of(), List.of(), Optional.empty())),
+            BuiltinPermissionRule.WIZARD_ONLY,
+            BuiltinCostRule.fixed(0),
+            EffectClass.PURE,
+            BuiltinOwner.VM,
+            (a, w, p, t, id, rt, rs, r, cp, c) -> gcStats()));
+    entries.add(
+        new BuiltinSpec(
+            "reset_max_object",
+            List.of(new CallShape(List.of(), List.of(), Optional.empty())),
+            BuiltinPermissionRule.WIZARD_ONLY,
+            BuiltinCostRule.fixed(0),
+            EffectClass.TRANSACTION_WRITE,
+            BuiltinOwner.WORLD,
+            (a, w, p, t, id, rt, rs, r, cp, c) -> {
+              w.resetLastUsedObjectId();
+              return Result.zero();
+            }));
+    entries.add(
+        new BuiltinSpec(
             "suspend",
             List.of(new CallShape(List.of(), List.of(NUMBER), Optional.empty())),
             BuiltinPermissionRule.ANY,
@@ -1358,6 +2313,15 @@ public final class BuiltinCatalog {
             EffectClass.PURE,
             BuiltinOwner.VM,
             (a, w, p, t, id, rt, rs, r, cp, c) -> suspend(a)));
+    entries.add(
+        new BuiltinSpec(
+            "resume",
+            List.of(new CallShape(List.of(INTEGER), List.of(ANY), Optional.empty())),
+            BuiltinPermissionRule.ANY,
+            BuiltinCostRule.fixed(0),
+            EffectClass.IRREVOCABLE,
+            BuiltinOwner.TASK,
+            resumeTask));
     entries.add(
         new BuiltinSpec(
             "yin",
@@ -1380,6 +2344,15 @@ public final class BuiltinCatalog {
             (a, w, p, t, id, rt, rs, r, cp, c) -> shutdown(a)));
     entries.add(
         new BuiltinSpec(
+            "db_disk_size",
+            List.of(new CallShape(List.of(), List.of(), Optional.empty())),
+            BuiltinPermissionRule.ANY,
+            BuiltinCostRule.fixed(0),
+            EffectClass.EXTERNAL_READ,
+            BuiltinOwner.SERVER,
+            dbDiskSize));
+    entries.add(
+        new BuiltinSpec(
             "dump_database",
             List.of(new CallShape(List.of(), List.of(), Optional.empty())),
             BuiltinPermissionRule.WIZARD_ONLY,
@@ -1388,6 +2361,129 @@ public final class BuiltinCatalog {
             BuiltinOwner.SERVER,
             BuiltinCatalog::dumpDatabase));
     return List.copyOf(entries);
+  }
+
+  private void addFileIoManifest(List<BuiltinSpec> entries) {
+    entries.add(fileIoSpec("file_handles", new CallShape(List.of(), List.of(), Optional.empty()), fileIo::handles));
+    entries.add(fileIoSpec("file_open", new CallShape(List.of(STRING, STRING), List.of(), Optional.empty()), fileIo::open));
+    entries.add(fileIoSpec("file_close", new CallShape(List.of(INTEGER), List.of(), Optional.empty()), fileIo::close));
+    entries.add(fileIoSpec("file_name", new CallShape(List.of(INTEGER), List.of(), Optional.empty()), fileIo::name));
+    entries.add(fileIoSpec("file_openmode", new CallShape(List.of(INTEGER), List.of(), Optional.empty()), fileIo::openMode));
+    entries.add(fileIoSpec("file_readline", new CallShape(List.of(INTEGER), List.of(), Optional.empty()), fileIo::readLine));
+    entries.add(fileIoSpec("file_readlines", new CallShape(List.of(INTEGER, INTEGER, INTEGER), List.of(), Optional.empty()), fileIo::readLines));
+    entries.add(fileIoSpec("file_writeline", new CallShape(List.of(INTEGER, STRING), List.of(), Optional.empty()), fileIo::writeLine));
+    entries.add(fileIoSpec("file_grep", new CallShape(List.of(INTEGER, STRING), List.of(INTEGER), Optional.empty()), fileIo::grep));
+    entries.add(fileIoSpec("file_read", new CallShape(List.of(INTEGER, INTEGER), List.of(), Optional.empty()), fileIo::read));
+    entries.add(fileIoSpec("file_write", new CallShape(List.of(INTEGER, STRING), List.of(), Optional.empty()), fileIo::write));
+    entries.add(fileIoSpec("file_flush", new CallShape(List.of(INTEGER), List.of(), Optional.empty()), fileIo::flush));
+    entries.add(fileIoSpec("file_seek", new CallShape(List.of(INTEGER, INTEGER, STRING), List.of(), Optional.empty()), fileIo::seek));
+    entries.add(fileIoSpec("file_tell", new CallShape(List.of(INTEGER), List.of(), Optional.empty()), fileIo::tell));
+    entries.add(fileIoSpec("file_eof", new CallShape(List.of(INTEGER), List.of(), Optional.empty()), fileIo::eof));
+    entries.add(fileIoSpec("file_count_lines", new CallShape(List.of(INTEGER), List.of(), Optional.empty()), fileIo::countLines));
+    entries.add(fileIoSpec("file_list", new CallShape(List.of(STRING), List.of(ANY), Optional.empty()), fileIo::list));
+    entries.add(fileIoSpec("file_mkdir", new CallShape(List.of(STRING), List.of(), Optional.empty()), fileIo::mkdir));
+    entries.add(fileIoSpec("file_rmdir", new CallShape(List.of(STRING), List.of(), Optional.empty()), fileIo::rmdir));
+    entries.add(fileIoSpec("file_remove", new CallShape(List.of(STRING), List.of(), Optional.empty()), fileIo::remove));
+    entries.add(fileIoSpec("file_rename", new CallShape(List.of(STRING, STRING), List.of(), Optional.empty()), fileIo::rename));
+    entries.add(fileIoSpec("file_chmod", new CallShape(List.of(STRING, STRING), List.of(), Optional.empty()), fileIo::chmod));
+    entries.add(fileIoSpec("file_size", new CallShape(List.of(ANY), List.of(), Optional.empty()), fileIo::size));
+    entries.add(fileIoSpec("file_mode", new CallShape(List.of(ANY), List.of(), Optional.empty()), fileIo::mode));
+    entries.add(fileIoSpec("file_type", new CallShape(List.of(ANY), List.of(), Optional.empty()), fileIo::type));
+    entries.add(fileIoSpec("file_last_access", new CallShape(List.of(ANY), List.of(), Optional.empty()), fileIo::lastAccess));
+    entries.add(fileIoSpec("file_last_modify", new CallShape(List.of(ANY), List.of(), Optional.empty()), fileIo::lastModify));
+    entries.add(fileIoSpec("file_last_change", new CallShape(List.of(ANY), List.of(), Optional.empty()), fileIo::lastChange));
+    entries.add(fileIoSpec("file_stat", new CallShape(List.of(ANY), List.of(), Optional.empty()), fileIo::stat));
+  }
+
+  private static BuiltinSpec fileIoSpec(
+      String name, CallShape shape, Function<List<MooValue>, Result> handler) {
+    return new BuiltinSpec(
+        name,
+        List.of(shape),
+        BuiltinPermissionRule.WIZARD_ONLY,
+        BuiltinCostRule.fixed(0),
+        EffectClass.IRREVOCABLE,
+        BuiltinOwner.SERVER,
+        (arguments, world, programmer, taskLocal, taskId, remainingTicks, remainingSeconds,
+                receiver, callerProgrammer, callers) ->
+            handler.apply(arguments));
+  }
+
+  private void addSqliteManifest(List<BuiltinSpec> entries) {
+    entries.add(
+        sqliteSpec(
+            "sqlite_open",
+            new CallShape(List.of(STRING), List.of(INTEGER), Optional.empty()),
+            EffectClass.IRREVOCABLE,
+            sqlite::open));
+    entries.add(
+        sqliteSpec(
+            "sqlite_close",
+            new CallShape(List.of(INTEGER), List.of(), Optional.empty()),
+            EffectClass.IRREVOCABLE,
+            sqlite::close));
+    entries.add(
+        sqliteSpec(
+            "sqlite_handles",
+            new CallShape(List.of(), List.of(), Optional.empty()),
+            EffectClass.EXTERNAL_READ,
+            sqlite::handles));
+    entries.add(
+        sqliteSpec(
+            "sqlite_info",
+            new CallShape(List.of(INTEGER), List.of(), Optional.empty()),
+            EffectClass.EXTERNAL_READ,
+            sqlite::info));
+    entries.add(
+        sqliteSpec(
+            "sqlite_query",
+            new CallShape(List.of(INTEGER, STRING), List.of(ANY), Optional.empty()),
+            EffectClass.SUSPENDING_HOST,
+            sqlite::query));
+    entries.add(
+        sqliteSpec(
+            "sqlite_execute",
+            new CallShape(
+                List.of(INTEGER, STRING, Set.of(ArgType.LIST)),
+                List.of(),
+                Optional.empty()),
+            EffectClass.SUSPENDING_HOST,
+            sqlite::execute));
+    entries.add(
+        sqliteSpec(
+            "sqlite_last_insert_row_id",
+            new CallShape(List.of(INTEGER), List.of(), Optional.empty()),
+            EffectClass.EXTERNAL_READ,
+            sqlite::lastInsertRowId));
+    entries.add(
+        sqliteSpec(
+            "sqlite_limit",
+            new CallShape(List.of(INTEGER, ANY, INTEGER), List.of(), Optional.empty()),
+            EffectClass.IRREVOCABLE,
+            sqlite::limit));
+    entries.add(
+        sqliteSpec(
+            "sqlite_interrupt",
+            new CallShape(List.of(INTEGER), List.of(), Optional.empty()),
+            EffectClass.IRREVOCABLE,
+            sqlite::interrupt));
+  }
+
+  private static BuiltinSpec sqliteSpec(
+      String name,
+      CallShape shape,
+      EffectClass effect,
+      Function<List<MooValue>, Result> handler) {
+    return new BuiltinSpec(
+        name,
+        List.of(shape),
+        BuiltinPermissionRule.WIZARD_ONLY,
+        BuiltinCostRule.fixed(0),
+        effect,
+        BuiltinOwner.SERVER,
+        (arguments, world, programmer, taskLocal, taskId, remainingTicks, remainingSeconds,
+                receiver, callerProgrammer, callers) ->
+            handler.apply(arguments));
   }
 
   private static Result emptyQueuedTasks(List<MooValue> arguments) {
@@ -1448,6 +2544,26 @@ public final class BuiltinCatalog {
       return Result.error(ErrorValue.E_PERM);
     }
     return Result.value(info.orElseThrow());
+  }
+
+  private Result bufferedOutputLength(
+      List<MooValue> arguments, WorldTxn world, long programmer) {
+    if (arguments.isEmpty()) {
+      return Result.value(new IntegerValue(DEFAULT_MAX_QUEUED_OUTPUT));
+    }
+    long target = ((ObjectValue) arguments.getFirst()).value();
+    OptionalLong connectionId = world.connectionId(target);
+    if (connectionId.isEmpty()) {
+      return Result.error(ErrorValue.E_INVARG);
+    }
+    if (programmer != target && !isWizard(world, programmer)) {
+      return Result.error(ErrorValue.E_PERM);
+    }
+    long queuedBytes =
+        listenerControl
+            .map(control -> control.bufferedOutputLength(connectionId.orElseThrow()))
+            .orElse(0L);
+    return Result.value(new IntegerValue(queuedBytes));
   }
 
   private static Result connectionName(
@@ -1527,10 +2643,20 @@ public final class BuiltinCatalog {
           case "flush-command" -> ConnectionOption.FLUSH_COMMAND;
           case "disable-oob" -> ConnectionOption.DISABLE_OOB;
           case "binary" -> ConnectionOption.BINARY;
+          case "intrinsic-commands" -> ConnectionOption.INTRINSIC_COMMANDS;
           default -> null;
         };
     if (option == null) {
       return Result.error(ErrorValue.E_INVARG);
+    }
+    MooValue value = arguments.get(2);
+    if (option == ConnectionOption.INTRINSIC_COMMANDS) {
+      Optional<ListValue> normalized = normalizeIntrinsicCommands(value);
+      if (normalized.isEmpty()) {
+        return Result.error(ErrorValue.E_INVARG);
+      }
+      value = normalized.orElseThrow();
+      world.setIntrinsicCommands(target, (ListValue) value);
     }
     return new Result(
         Optional.of(new IntegerValue(0)),
@@ -1542,9 +2668,45 @@ public final class BuiltinCatalog {
         OptionalLong.empty(),
         OptionalDouble.empty(),
         Optional.empty(),
-        Optional.of(new ConnectionOptionRequest(target, option, arguments.get(2))),
+        Optional.of(new ConnectionOptionRequest(target, option, value)),
         OptionalLong.empty(),
         Optional.empty());
+  }
+
+  private static Optional<ListValue> normalizeIntrinsicCommands(MooValue value) {
+    List<String> enabled = new ArrayList<>();
+    if (value instanceof IntegerValue integer) {
+      if (integer.isTruthy()) {
+        enabled.addAll(List.of(".program", "PREFIX", "SUFFIX", "OUTPUTPREFIX", "OUTPUTSUFFIX"));
+      }
+    } else if (value instanceof ListValue list) {
+      for (MooValue element : list.elements()) {
+        if (!(element instanceof StringValue string)) {
+          return Optional.empty();
+        }
+        String requested = decode(string);
+        String canonical =
+            List.of(".program", "PREFIX", "SUFFIX", "OUTPUTPREFIX", "OUTPUTSUFFIX").stream()
+                .filter(name -> name.equalsIgnoreCase(requested))
+                .findFirst()
+                .orElse(null);
+        if (canonical == null) {
+          return Optional.empty();
+        }
+        if (!enabled.contains(canonical)) {
+          enabled.add(canonical);
+        }
+      }
+    } else {
+      return Optional.empty();
+    }
+    List<MooValue> commands = new ArrayList<>();
+    for (String canonical : List.of(".program", "PREFIX", "SUFFIX", "OUTPUTPREFIX", "OUTPUTSUFFIX")) {
+      if (enabled.contains(canonical)) {
+        commands.add(encode(canonical));
+      }
+    }
+    return Optional.of(new ListValue(commands));
   }
 
   private static Result forceInput(
@@ -1571,8 +2733,10 @@ public final class BuiltinCatalog {
 
   private Result listen(List<MooValue> arguments, WorldTxn world) {
     ObjectValue handler = (ObjectValue) arguments.getFirst();
-    if (world.object(handler.value()).isEmpty()
-        || !(arguments.get(1) instanceof IntegerValue descriptor)) {
+    if (!(arguments.get(1) instanceof IntegerValue descriptor)) {
+      return Result.error(ErrorValue.E_TYPE);
+    }
+    if (world.object(handler.value()).isEmpty()) {
       return Result.error(ErrorValue.E_INVARG);
     }
     boolean printMessages =
@@ -1581,16 +2745,116 @@ public final class BuiltinCatalog {
                 .get(encode("print-messages"))
                 .map(MooValue::isTruthy)
                 .orElse(false);
+    boolean ipv6 =
+        arguments.size() == 3
+            && ((MapValue) arguments.get(2))
+                .get(encode("ipv6"))
+                .map(MooValue::isTruthy)
+                .orElse(false);
+    String interfaceAddress =
+        arguments.size() == 3
+            ? ((MapValue) arguments.get(2))
+                .get(encode("interface"))
+                .filter(StringValue.class::isInstance)
+                .map(StringValue.class::cast)
+                .map(BuiltinCatalog::decode)
+                .orElse("")
+            : "";
     if (listenerControl.isEmpty()) {
       return Result.error(ErrorValue.E_INVARG);
     }
     try {
       int port = Math.toIntExact(descriptor.value());
-      int listening = listenerControl.orElseThrow().listen(handler.value(), port, printMessages);
+      int listening =
+          listenerControl
+              .orElseThrow()
+              .listen(handler.value(), port, ipv6, printMessages, interfaceAddress);
       return Result.value(new IntegerValue(listening));
     } catch (IllegalArgumentException invalid) {
       return Result.error(ErrorValue.E_INVARG);
     } catch (IOException bindFailure) {
+      return Result.error(ErrorValue.E_QUOTA);
+    }
+  }
+
+  private Result listeners(List<MooValue> arguments) {
+    if (listenerControl.isEmpty()) {
+      return Result.value(new ListValue(List.of()));
+    }
+    MooValue filter = arguments.isEmpty() ? null : arguments.getFirst();
+    List<MooValue> values = new ArrayList<>();
+    for (ListenerDescription listener : listenerControl.orElseThrow().listeners()) {
+      if (filter instanceof ObjectValue object && object.value() != listener.handler()) {
+        continue;
+      }
+      if (filter instanceof IntegerValue integer
+          && integer.value() != listener.description()
+          && integer.value() != listener.port()) {
+        continue;
+      }
+      Map<MooValue, MooValue> fields = new LinkedHashMap<>();
+      fields.put(encode("object"), new ObjectValue(listener.handler()));
+      fields.put(encode("port"), new IntegerValue(listener.port()));
+      fields.put(encode("ipv6"), new IntegerValue(listener.ipv6() ? 1 : 0));
+      fields.put(encode("print-messages"), new IntegerValue(listener.printMessages() ? 1 : 0));
+      fields.put(encode("interface"), encode(listener.interfaceAddress()));
+      values.add(new MapValue(fields));
+    }
+    return Result.value(new ListValue(values));
+  }
+
+  private Result unlisten(List<MooValue> arguments) {
+    if (!(arguments.getFirst() instanceof IntegerValue descriptor)) {
+      return Result.error(ErrorValue.E_INVARG);
+    }
+    boolean ipv6 = false;
+    if (arguments.size() == 2) {
+      if (!(arguments.get(1) instanceof IntegerValue flag)) {
+        return Result.error(ErrorValue.E_INVARG);
+      }
+      ipv6 = flag.isTruthy();
+    }
+    if (listenerControl.isEmpty()) {
+      return Result.error(ErrorValue.E_INVARG);
+    }
+    try {
+      int description = Math.toIntExact(descriptor.value());
+      return listenerControl.orElseThrow().unlisten(description, ipv6)
+          ? Result.value(new IntegerValue(0))
+          : Result.error(ErrorValue.E_INVARG);
+    } catch (IllegalArgumentException invalid) {
+      return Result.error(ErrorValue.E_INVARG);
+    }
+  }
+
+  private Result openNetworkConnection(List<MooValue> arguments) {
+    if (listenerControl.isEmpty()) {
+      return Result.error(ErrorValue.E_INVARG);
+    }
+    String host = decode((StringValue) arguments.get(0));
+    long rawPort = ((IntegerValue) arguments.get(1)).value();
+    boolean ipv6 = false;
+    long listenerHandler = 0;
+    if (arguments.size() == 3) {
+      MapValue options = (MapValue) arguments.get(2);
+      ipv6 = options.get(encode("ipv6")).map(MooValue::isTruthy).orElse(false);
+      MooValue listener = options.get(encode("listener")).orElse(null);
+      if (listener != null && !(listener instanceof ObjectValue)) {
+        return Result.error(ErrorValue.E_INVARG);
+      }
+      if (listener instanceof ObjectValue object) {
+        listenerHandler = object.value();
+      }
+    }
+    try {
+      long connection =
+          listenerControl
+              .orElseThrow()
+              .openNetworkConnection(host, Math.toIntExact(rawPort), ipv6, listenerHandler);
+      return Result.value(new ObjectValue(connection));
+    } catch (IllegalArgumentException invalid) {
+      return Result.error(ErrorValue.E_INVARG);
+    } catch (IOException unavailable) {
       return Result.error(ErrorValue.E_QUOTA);
     }
   }
@@ -1733,6 +2997,104 @@ public final class BuiltinCatalog {
         : Result.value(functionInfoDescription(requested));
   }
 
+  private static Result serverVersion(List<MooValue> arguments) {
+    if (arguments.isEmpty()) {
+      return Result.value(encode(SERVER_VERSION));
+    }
+    MooValue detail = arguments.getFirst();
+    ListValue metadata = serverVersionMetadata();
+    if (!(detail instanceof StringValue path) || decode(path).isEmpty()) {
+      return Result.value(metadata);
+    }
+    Optional<MooValue> value = versionPath(metadata, decode(path));
+    return value.isEmpty() ? Result.error(ErrorValue.E_INVARG) : Result.value(value.orElseThrow());
+  }
+
+  private static ListValue serverVersionMetadata() {
+    return new ListValue(
+        List.of(
+            versionPair("major", new IntegerValue(0)),
+            versionPair("minor", new IntegerValue(1)),
+            versionPair("release", new IntegerValue(0)),
+            versionPair("ext", encode("-SNAPSHOT")),
+            versionPair("string", encode(SERVER_VERSION)),
+            versionPair("os", encode("Linux")),
+            versionPair("features", new ListValue(List.of())),
+            versionPair(
+                "options",
+                new ListValue(
+                    List.of(
+                        versionPair("OUTBOUND_NETWORK", encode("ON")),
+                        versionPair("PROMOTE_NUMBERS", encode("OFF"))))),
+            versionPair("source", new ListValue(List.of()))));
+  }
+
+  private static ListValue versionPair(String name, MooValue value) {
+    return new ListValue(List.of(encode(name), value));
+  }
+
+  private static Optional<MooValue> versionPath(ListValue tree, String path) {
+    ListValue current = tree;
+    int start = 0;
+    while (true) {
+      int slash = path.indexOf('/', start);
+      String component = slash < 0 ? path.substring(start) : path.substring(start, slash);
+      MooValue found = null;
+      for (MooValue item : current.elements()) {
+        if (item instanceof ListValue pair
+            && pair.size() == 2
+            && pair.elements().getFirst() instanceof StringValue key
+            && decode(key).equals(component)) {
+          found = pair.elements().get(1);
+          break;
+        }
+      }
+      if (found == null) {
+        return Optional.empty();
+      }
+      if (slash < 0) {
+        return Optional.of(found);
+      }
+      if (!(found instanceof ListValue nested) || slash == path.length() - 1) {
+        return Optional.empty();
+      }
+      current = nested;
+      start = slash + 1;
+    }
+  }
+
+  private Result callFunction(
+      List<MooValue> arguments,
+      WorldTxn world,
+      long programmer,
+      MooValue taskLocal,
+      long taskId,
+      long remainingTicks,
+      long remainingSeconds,
+      MooValue receiver,
+      long callerProgrammer,
+      ListValue callers,
+      boolean threadMode) {
+    String name = decode((StringValue) arguments.getFirst()).toLowerCase(Locale.ROOT);
+    BuiltinSpec target = specs.get(name);
+    if (target == null) {
+      return Result.error(ErrorValue.E_INVARG);
+    }
+    return invoke(
+        target,
+        arguments.subList(1, arguments.size()),
+        world,
+        programmer,
+        taskLocal,
+        taskId,
+        remainingTicks,
+        remainingSeconds,
+        receiver,
+        callerProgrammer,
+        callers,
+        threadMode);
+  }
+
   private static ListValue functionInfoDescription(BuiltinSpec spec) {
     CallShape shape = spec.callShapes().getFirst();
     List<MooValue> argumentTypes = new ArrayList<>();
@@ -1788,28 +3150,125 @@ public final class BuiltinCatalog {
     return Result.zero();
   }
 
-  private static Result suspend(List<MooValue> arguments) {
-    double seconds = 0;
-    if (!arguments.isEmpty()) {
-      MooValue delay = arguments.getFirst();
-      seconds =
-          delay instanceof IntegerValue integer
-              ? integer.value()
-              : ((FloatValue) delay).value();
+  private static Result logCacheStats() {
+    System.err.println("Verb cache stat summary: 0 hits, 0 misses, 0 generations");
+    System.err.println("Depth   Count");
+    System.err.println("0       0");
+    System.err.println("---");
+    return Result.zero();
+  }
+
+  private static Result verbCacheStats() {
+    List<MooValue> histogram = new ArrayList<>(17);
+    for (int index = 0; index < 17; index++) {
+      histogram.add(new IntegerValue(0));
     }
+    return Result.value(
+        new ListValue(
+            List.of(
+                new IntegerValue(0),
+                new IntegerValue(0),
+                new IntegerValue(0),
+                new IntegerValue(0),
+                new ListValue(histogram))));
+  }
+
+  private static Result memoryUsage() {
+    final String statm;
+    try {
+      statm = Files.readString(Path.of("/proc/self/statm"), StandardCharsets.US_ASCII);
+    } catch (IOException exception) {
+      return Result.error(ErrorValue.E_FILE);
+    }
+    StringTokenizer fields = new StringTokenizer(statm);
+    if (fields.countTokens() != 7) {
+      return Result.error(ErrorValue.E_NACC);
+    }
+    List<MooValue> result = new ArrayList<>(5);
+    for (int index = 0; index < 7; index++) {
+      String field = fields.nextToken();
+      if (index == 4 || index == 6) {
+        continue;
+      }
+      try {
+        result.add(new FloatValue(Double.parseDouble(field)));
+      } catch (NumberFormatException exception) {
+        return Result.error(ErrorValue.E_NACC);
+      }
+    }
+    return Result.value(new ListValue(result));
+  }
+
+  @SuppressWarnings("restricted")
+  private static Result usage() {
+    List<MooValue> loads = new ArrayList<>(3);
+    try {
+      StringTokenizer fields =
+          new StringTokenizer(
+              Files.readString(Path.of("/proc/loadavg"), StandardCharsets.US_ASCII));
+      for (int index = 0; index < 3; index++) {
+        loads.add(new IntegerValue((long) (Double.parseDouble(fields.nextToken()) * 65_536.0)));
+      }
+    } catch (IOException | NumberFormatException | java.util.NoSuchElementException exception) {
+      loads.clear();
+      loads.addAll(List.of(new IntegerValue(0), new IntegerValue(0), new IntegerValue(0)));
+    }
+
+    long[] resource = new long[11];
+    try (Arena arena = Arena.ofConfined()) {
+      MemorySegment value = arena.allocate(144, 8);
+      int result = (int) GETRUSAGE.invokeExact(0, value);
+      if (result == 0) {
+        resource[0] = value.get(ValueLayout.JAVA_LONG, 0);
+        resource[1] = value.get(ValueLayout.JAVA_LONG, 8);
+        resource[2] = value.get(ValueLayout.JAVA_LONG, 16);
+        resource[3] = value.get(ValueLayout.JAVA_LONG, 24);
+        resource[4] = value.get(ValueLayout.JAVA_LONG, 40);
+        resource[5] = value.get(ValueLayout.JAVA_LONG, 48);
+        resource[6] = value.get(ValueLayout.JAVA_LONG, 64);
+        resource[7] = value.get(ValueLayout.JAVA_LONG, 72);
+        resource[8] = value.get(ValueLayout.JAVA_LONG, 104);
+        resource[9] = value.get(ValueLayout.JAVA_LONG, 112);
+        resource[10] = value.get(ValueLayout.JAVA_LONG, 96);
+      }
+    } catch (Throwable failure) {
+      Arrays.fill(resource, 0);
+    }
+    List<MooValue> result = new ArrayList<>(10);
+    result.add(new ListValue(loads));
+    result.add(new FloatValue(resource[0] + resource[1] / 1_000_000.0));
+    result.add(new FloatValue(resource[2] + resource[3] / 1_000_000.0));
+    for (int index = 4; index < resource.length; index++) {
+      result.add(new IntegerValue(resource[index]));
+    }
+    return Result.value(new ListValue(result));
+  }
+
+  private static Result suspend(List<MooValue> arguments) {
+    if (arguments.isEmpty()) {
+      return Result.suspend(Double.POSITIVE_INFINITY);
+    }
+    MooValue delay = arguments.getFirst();
+    double seconds =
+        delay instanceof IntegerValue integer
+            ? integer.value()
+            : ((FloatValue) delay).value();
     return seconds < 0 ? Result.error(ErrorValue.E_INVARG) : Result.suspend(seconds);
   }
 
   private static Result yin(
       List<MooValue> arguments, WorldTxn world, long remainingTicks, long remainingSeconds) {
-    double delaySeconds = 0;
-    if (!arguments.isEmpty()) {
-      MooValue delay = arguments.getFirst();
-      delaySeconds =
-          delay instanceof IntegerValue integer
-              ? integer.value()
-              : ((FloatValue) delay).value();
+    if (arguments.isEmpty()) {
+      return remainingTicks < 2_000 || remainingSeconds < 2
+          ? Result.suspend(0)
+          : Result.zero();
     }
+    double delaySeconds;
+    MooValue delay = arguments.getFirst();
+    delaySeconds =
+        delay instanceof IntegerValue integer
+            ? integer.value()
+            : ((FloatValue) delay).value();
     long minimumTicks =
         arguments.size() >= 2 ? ((IntegerValue) arguments.get(1)).value() : 2_000;
     long minimumSeconds =
@@ -1829,12 +3288,11 @@ public final class BuiltinCatalog {
       }
     }
 
-    if (!arguments.isEmpty()
-        && (delaySeconds < 0
-            || minimumTicks <= 0
-            || minimumSeconds <= 0
-            || minimumTicks >= foregroundTicks
-            || minimumSeconds >= foregroundSeconds)) {
+    if (delaySeconds < 0
+        || minimumTicks <= 0
+        || minimumSeconds <= 0
+        || minimumTicks >= foregroundTicks
+        || minimumSeconds >= foregroundSeconds) {
       return Result.error(ErrorValue.E_INVARG);
     }
     return remainingTicks < minimumTicks || remainingSeconds < minimumSeconds
@@ -1844,7 +3302,7 @@ public final class BuiltinCatalog {
 
   private static Result shutdown(List<MooValue> arguments) {
     if (arguments.size() == 2 && arguments.get(1).isTruthy()) {
-      return Result.error(ErrorValue.E_INVARG);
+      return Result.panic(decode((StringValue) arguments.getFirst()));
     }
     return Result.shutdown();
   }
@@ -2409,7 +3867,8 @@ public final class BuiltinCatalog {
     return Result.raised(error, message, value);
   }
 
-  private static Result listInsert(List<MooValue> arguments, boolean append) {
+  private static Result listInsert(
+      List<MooValue> arguments, boolean append, WorldTxn world) {
     ListValue list = (ListValue) arguments.get(0);
     MooValue value = arguments.get(1);
     long requestedPosition;
@@ -2429,10 +3888,10 @@ public final class BuiltinCatalog {
     }
     List<MooValue> inserted = new ArrayList<>(list.elements());
     inserted.add(position - 1, value);
-    return Result.value(new ListValue(inserted));
+    return enforceListValueLimit(new ListValue(inserted), world);
   }
 
-  private static Result listDelete(List<MooValue> arguments) {
+  private static Result listDelete(List<MooValue> arguments, WorldTxn world) {
     ListValue list = (ListValue) arguments.get(0);
     long position = ((IntegerValue) arguments.get(1)).value();
     if (position <= 0 || position > list.size()) {
@@ -2440,10 +3899,10 @@ public final class BuiltinCatalog {
     }
     List<MooValue> deleted = new ArrayList<>(list.elements());
     deleted.remove((int) position - 1);
-    return Result.value(new ListValue(deleted));
+    return enforceListValueLimit(new ListValue(deleted), world);
   }
 
-  private static Result listSet(List<MooValue> arguments) {
+  private static Result listSet(List<MooValue> arguments, WorldTxn world) {
     ListValue list = (ListValue) arguments.get(0);
     long position = ((IntegerValue) arguments.get(2)).value();
     if (position <= 0 || position > list.size()) {
@@ -2451,11 +3910,15 @@ public final class BuiltinCatalog {
     }
     List<MooValue> replaced = new ArrayList<>(list.elements());
     replaced.set((int) position - 1, arguments.get(1));
-    return Result.value(new ListValue(replaced));
+    return enforceListValueLimit(new ListValue(replaced), world);
   }
 
   private static Result mapKeys(List<MooValue> arguments) {
     MapValue map = (MapValue) arguments.getFirst();
+    return Result.value(new ListValue(sortedMapKeys(map)));
+  }
+
+  private static List<MooValue> sortedMapKeys(MapValue map) {
     List<MooValue> keys = new ArrayList<>(map.entries().keySet());
     keys.sort(
         (left, right) -> {
@@ -2506,16 +3969,97 @@ public final class BuiltinCatalog {
             case MapValue ignored -> throw new IllegalArgumentException("map map key");
           };
         });
-    return Result.value(new ListValue(keys));
+    return keys;
   }
 
-  private static Result setAdd(List<MooValue> arguments) {
+  private static Result mapValues(List<MooValue> arguments) {
+    MapValue map = (MapValue) arguments.getFirst();
+    List<MooValue> values = new ArrayList<>();
+    if (arguments.size() == 1) {
+      for (MooValue key : sortedMapKeys(map)) {
+        values.add(map.get(key, true).orElseThrow());
+      }
+      return Result.value(new ListValue(values));
+    }
+    for (int index = 1; index < arguments.size(); index++) {
+      try {
+        Optional<MooValue> value = map.get(arguments.get(index), true);
+        if (value.isEmpty()) {
+          return Result.error(ErrorValue.E_RANGE);
+        }
+        values.add(value.orElseThrow());
+      } catch (IllegalArgumentException invalidKey) {
+        return Result.error(ErrorValue.E_RANGE);
+      }
+    }
+    return Result.value(new ListValue(values));
+  }
+
+  private static Result mapHasKey(List<MooValue> arguments) {
+    MooValue key = arguments.get(1);
+    if (invalidMapBuiltinKey(key)) {
+      return Result.error(ErrorValue.E_TYPE);
+    }
+    MapValue map = (MapValue) arguments.getFirst();
+    boolean caseMatters = arguments.size() == 3 && arguments.get(2).isTruthy();
+    return Result.value(new IntegerValue(map.get(key, caseMatters).isPresent() ? 1 : 0));
+  }
+
+  private static Result mapDelete(List<MooValue> arguments) {
+    MapValue original = (MapValue) arguments.getFirst();
+    MooValue requested = arguments.get(1);
+    boolean multiple = requested instanceof ListValue;
+    List<MooValue> keys =
+        multiple ? ((ListValue) requested).elements() : List.of(requested);
+    MapValue result = original;
+    for (MooValue key : keys) {
+      if (invalidMapBuiltinKey(key)) {
+        return Result.error(ErrorValue.E_TYPE);
+      }
+      Optional<MapValue> deleted = deleteMapKey(result, key);
+      if (deleted.isEmpty()) {
+        return multiple
+            ? Result.raised(
+                ErrorValue.E_RANGE,
+                encode("Key " + key.toLiteral() + " not found in map"),
+                key)
+            : Result.error(ErrorValue.E_RANGE);
+      }
+      result = deleted.orElseThrow();
+    }
+    return Result.value(result);
+  }
+
+  private static Optional<MapValue> deleteMapKey(MapValue map, MooValue key) {
+    Map<MooValue, MooValue> remaining = new LinkedHashMap<>();
+    boolean found = false;
+    for (Map.Entry<MooValue, MooValue> entry : map.entries().entrySet()) {
+      if (!found && MapValue.compareKeys(entry.getKey(), key) == 0) {
+        found = true;
+      } else {
+        remaining.put(entry.getKey(), entry.getValue());
+      }
+    }
+    return found ? Optional.of(new MapValue(remaining)) : Optional.empty();
+  }
+
+  private static boolean invalidMapBuiltinKey(MooValue key) {
+    return key instanceof ListValue
+        || key instanceof MapValue
+        || key instanceof AnonymousObjectValue;
+  }
+
+  private static Result setAdd(List<MooValue> arguments, WorldTxn world) {
     ListValue list = (ListValue) arguments.get(0);
     MooValue value = arguments.get(1);
-    return Result.value(list.elements().contains(value) ? list : list.append(value));
+    return enforceListValueLimit(list.elements().contains(value) ? list : list.append(value), world);
   }
 
-  private static Result setRemove(List<MooValue> arguments) {
+  private static Result setRemove(List<MooValue> arguments, WorldTxn world) {
+    return enforceListValueLimit(setRemoveValue(arguments), world);
+  }
+
+  private static ListValue setRemoveValue(List<MooValue> arguments) {
     ListValue list = (ListValue) arguments.get(0);
     MooValue value = arguments.get(1);
     for (int index = 0; index < list.size(); index++) {
@@ -2605,10 +4149,35 @@ public final class BuiltinCatalog {
       if (equal) {
         List<MooValue> remaining = new ArrayList<>(list.elements());
         remaining.remove(index);
-        return Result.value(new ListValue(remaining));
+        return new ListValue(remaining);
       }
     }
-    return Result.value(list);
+    return list;
+  }
+
+  /** Applies Toast's checked-list producer limit to a newly constructed value. */
+  public static Result enforceListValueLimit(MooValue value, WorldTxn world) {
+    long maximumBytes = DEFAULT_MAX_LIST_VALUE_BYTES;
+    boolean catchable = false;
+    MooValue serverOptions = world.readObjectProperty(0, "server_options").orElse(null);
+    if (serverOptions instanceof ObjectValue options) {
+      if (world.readObjectProperty(options.value(), "max_list_value_bytes").orElse(null)
+          instanceof IntegerValue configured) {
+        long requested = configured.value();
+        maximumBytes =
+            requested <= 0 || requested > MAX_LIST_VALUE_BYTES_LIMIT
+                ? MAX_LIST_VALUE_BYTES_LIMIT
+                : Math.max(MIN_LIST_VALUE_BYTES_LIMIT, requested);
+      }
+      catchable =
+          world.readObjectProperty(options.value(), "max_concat_catchable")
+              .map(MooValue::isTruthy)
+              .orElse(false);
+    }
+    if (valueBytes(value, world) <= maximumBytes) {
+      return Result.value(value);
+    }
+    return catchable ? Result.error(ErrorValue.E_QUOTA) : Result.secondsAbort();
   }
 
   private static Result allMembers(List<MooValue> arguments) {
@@ -2619,16 +4188,205 @@ public final class BuiltinCatalog {
       if (Thread.currentThread().isInterrupted()) {
         throw new CancellationException("all_members host work was canceled");
       }
-      Result removed =
-          setRemove(
+      ListValue removed =
+          setRemoveValue(
               List.of(
                   new ListValue(List.of(list.elements().get(index))),
                   value));
-      if (((ListValue) removed.value().orElseThrow()).size() == 0) {
+      if (removed.size() == 0) {
         positions.add(new IntegerValue(index + 1L));
       }
     }
     return Result.value(new ListValue(positions));
+  }
+
+  private static Result sortValues(List<MooValue> arguments) {
+    ListValue values = (ListValue) arguments.getFirst();
+    boolean usingSeparateKeys =
+        arguments.size() >= 2 && ((ListValue) arguments.get(1)).size() > 0;
+    ListValue keys =
+        usingSeparateKeys ? (ListValue) arguments.get(1) : values;
+    if (keys.size() == 0) {
+      return Result.value(new ListValue(List.of()));
+    }
+    if (usingSeparateKeys && values.size() != keys.size()) {
+      return Result.error(ErrorValue.E_INVARG);
+    }
+
+    MooValue.Type keyType = keys.elements().getFirst().type();
+    if (!sortableType(keyType)) {
+      return Result.error(ErrorValue.E_TYPE);
+    }
+    List<Integer> order = new ArrayList<>(keys.size());
+    for (int index = 0; index < keys.size(); index++) {
+      if (Thread.currentThread().isInterrupted()) {
+        throw new CancellationException("sort host work was canceled");
+      }
+      if (keys.elements().get(index).type() != keyType) {
+        return Result.error(ErrorValue.E_TYPE);
+      }
+      order.add(index);
+    }
+
+    boolean natural = arguments.size() >= 3 && arguments.get(2).isTruthy();
+    order.sort(
+        (left, right) -> {
+          if (Thread.currentThread().isInterrupted()) {
+            throw new CancellationException("sort host work was canceled");
+          }
+          return compareSortValues(
+              keys.elements().get(left), keys.elements().get(right), natural);
+        });
+    if (arguments.size() >= 4 && arguments.get(3).isTruthy()) {
+      java.util.Collections.reverse(order);
+    }
+
+    List<MooValue> sorted = new ArrayList<>(values.size());
+    for (int index : order) {
+      sorted.add(values.elements().get(index));
+    }
+    return Result.value(new ListValue(sorted));
+  }
+
+  private static boolean sortableType(MooValue.Type type) {
+    return switch (type) {
+      case INTEGER, OBJECT, ERROR, FLOAT, BOOLEAN, STRING -> true;
+      case LIST, MAP, ANONYMOUS, WAIF -> false;
+    };
+  }
+
+  private static int compareSortValues(MooValue left, MooValue right, boolean natural) {
+    return switch (left) {
+      case IntegerValue integer -> Long.compare(integer.value(), ((IntegerValue) right).value());
+      case ObjectValue object -> Long.compare(object.value(), ((ObjectValue) right).value());
+      case ErrorValue error -> Integer.compare(error.code(), ((ErrorValue) right).code());
+      case FloatValue floating -> {
+        double leftValue = floating.value();
+        double rightValue = ((FloatValue) right).value();
+        yield leftValue < rightValue ? -1 : (leftValue > rightValue ? 1 : 0);
+      }
+      case BooleanValue ignored -> 0;
+      case StringValue string ->
+          natural
+              ? compareNaturallyIgnoringCase(string, (StringValue) right)
+              : compareCStringIgnoringCase(string, (StringValue) right);
+      case ListValue ignored -> throw new IllegalArgumentException("list sort key");
+      case MapValue ignored -> throw new IllegalArgumentException("map sort key");
+      case AnonymousObjectValue ignored ->
+          throw new IllegalArgumentException("anonymous sort key");
+      case WaifValue ignored -> throw new IllegalArgumentException("waif sort key");
+    };
+  }
+
+  private static int compareCStringIgnoringCase(StringValue left, StringValue right) {
+    byte[] leftBytes = left.bytes();
+    byte[] rightBytes = right.bytes();
+    int index = 0;
+    while (true) {
+      int leftByte = foldAscii(cStringByte(leftBytes, index));
+      int rightByte = foldAscii(cStringByte(rightBytes, index));
+      if (leftByte != rightByte) {
+        return Integer.compare(leftByte, rightByte);
+      }
+      if (leftByte == 0) {
+        return 0;
+      }
+      index++;
+    }
+  }
+
+  private static int compareNaturallyIgnoringCase(StringValue left, StringValue right) {
+    byte[] leftBytes = left.bytes();
+    byte[] rightBytes = right.bytes();
+    int leftIndex = 0;
+    int rightIndex = 0;
+    while (true) {
+      int leftByte = cStringByte(leftBytes, leftIndex);
+      int rightByte = cStringByte(rightBytes, rightIndex);
+      while (isAsciiSpace(leftByte)) {
+        leftByte = cStringByte(leftBytes, ++leftIndex);
+      }
+      while (isAsciiSpace(rightByte)) {
+        rightByte = cStringByte(rightBytes, ++rightIndex);
+      }
+      if (isAsciiDigit(leftByte) && isAsciiDigit(rightByte)) {
+        int result =
+            leftByte == '0' || rightByte == '0'
+                ? compareLeftAlignedDigits(leftBytes, leftIndex, rightBytes, rightIndex)
+                : compareRightAlignedDigits(leftBytes, leftIndex, rightBytes, rightIndex);
+        if (result != 0) {
+          return result;
+        }
+      }
+      if (leftByte == 0 && rightByte == 0) {
+        return 0;
+      }
+      leftByte = foldAscii(leftByte);
+      rightByte = foldAscii(rightByte);
+      if (leftByte != rightByte) {
+        return Integer.compare(leftByte, rightByte);
+      }
+      leftIndex++;
+      rightIndex++;
+    }
+  }
+
+  private static int compareLeftAlignedDigits(
+      byte[] left, int leftIndex, byte[] right, int rightIndex) {
+    while (true) {
+      int leftByte = cStringByte(left, leftIndex++);
+      int rightByte = cStringByte(right, rightIndex++);
+      if (!isAsciiDigit(leftByte) && !isAsciiDigit(rightByte)) {
+        return 0;
+      }
+      if (!isAsciiDigit(leftByte)) {
+        return -1;
+      }
+      if (!isAsciiDigit(rightByte)) {
+        return 1;
+      }
+      if (leftByte != rightByte) {
+        return Integer.compare(leftByte, rightByte);
+      }
+    }
+  }
+
+  private static int compareRightAlignedDigits(
+      byte[] left, int leftIndex, byte[] right, int rightIndex) {
+    int bias = 0;
+    while (true) {
+      int leftByte = cStringByte(left, leftIndex++);
+      int rightByte = cStringByte(right, rightIndex++);
+      if (!isAsciiDigit(leftByte) && !isAsciiDigit(rightByte)) {
+        return bias;
+      }
+      if (!isAsciiDigit(leftByte)) {
+        return -1;
+      }
+      if (!isAsciiDigit(rightByte)) {
+        return 1;
+      }
+      if (bias == 0 && leftByte != rightByte) {
+        bias = Integer.compare(leftByte, rightByte);
+      }
+    }
+  }
+
+  private static int cStringByte(byte[] value, int index) {
+    return index >= value.length ? 0 : Byte.toUnsignedInt(value[index]);
+  }
+
+  private static boolean isAsciiDigit(int value) {
+    return value >= '0' && value <= '9';
+  }
+
+  private static boolean isAsciiSpace(int value) {
+    return value == ' '
+        || value == '\t'
+        || value == '\n'
+        || value == '\r'
+        || value == '\f'
+        || value == 0x0B;
   }
 
   private static Result setThreadMode(List<MooValue> arguments, boolean threadMode) {
@@ -2660,6 +4418,161 @@ public final class BuiltinCatalog {
     substituted.write(source, position, source.length - position);
     return Result.value(new StringValue(substituted.toByteArray()));
   }
+
+  private static Result stringTranslate(List<MooValue> arguments) {
+    byte[] source = ((StringValue) arguments.get(0)).bytes();
+    byte[] from = ((StringValue) arguments.get(1)).bytes();
+    byte[] to = ((StringValue) arguments.get(2)).bytes();
+    boolean caseMatters = arguments.size() == 4 && arguments.get(3).isTruthy();
+    int[] translations = new int[256];
+    Arrays.fill(translations, -2);
+    for (int index = 0; index < from.length; index++) {
+      int key = Byte.toUnsignedInt(from[index]);
+      if (!caseMatters) {
+        key = foldAscii(key);
+      }
+      translations[key] = index < to.length ? Byte.toUnsignedInt(to[index]) : -1;
+    }
+    ByteArrayOutputStream translated = new ByteArrayOutputStream(source.length);
+    for (byte sourceByte : source) {
+      int original = Byte.toUnsignedInt(sourceByte);
+      int key = caseMatters ? original : foldAscii(original);
+      int replacement = translations[key];
+      if (replacement == -2) {
+        translated.write(original);
+      } else if (replacement >= 0) {
+        if (!caseMatters) {
+          replacement = preserveAsciiCase(original, replacement);
+        }
+        translated.write(replacement);
+      }
+    }
+    return Result.value(new StringValue(translated.toByteArray()));
+  }
+
+  private static int preserveAsciiCase(int source, int replacement) {
+    if (source >= 'A' && source <= 'Z' && replacement >= 'a' && replacement <= 'z') {
+      return replacement - ('a' - 'A');
+    }
+    if (source >= 'a' && source <= 'z' && replacement >= 'A' && replacement <= 'Z') {
+      return replacement + ('a' - 'A');
+    }
+    return replacement;
+  }
+
+  private Result parseAnsi(List<MooValue> arguments) {
+    byte[] parsed = ((StringValue) arguments.getFirst()).bytes();
+    List<AnsiReplacement> replacements =
+        List.of(
+            new AnsiReplacement("[red]", "\u001b[31m"),
+            new AnsiReplacement("[green]", "\u001b[32m"),
+            new AnsiReplacement("[yellow]", "\u001b[33m"),
+            new AnsiReplacement("[blue]", "\u001b[34m"),
+            new AnsiReplacement("[purple]", "\u001b[35m"),
+            new AnsiReplacement("[cyan]", "\u001b[36m"),
+            new AnsiReplacement("[normal]", "\u001b[0m"),
+            new AnsiReplacement("[inverse]", "\u001b[7m"),
+            new AnsiReplacement("[underline]", "\u001b[4m"),
+            new AnsiReplacement("[bold]", "\u001b[1m"),
+            new AnsiReplacement("[bright]", "\u001b[1m"),
+            new AnsiReplacement("[unbold]", "\u001b[22m"),
+            new AnsiReplacement("[blink]", "\u001b[5m"),
+            new AnsiReplacement("[unblink]", "\u001b[25m"),
+            new AnsiReplacement("[magenta]", "\u001b[35m"),
+            new AnsiReplacement("[unbright]", "\u001b[22m"),
+            new AnsiReplacement("[white]", "\u001b[37m"),
+            new AnsiReplacement("[gray]", "\u001b[1;30m"),
+            new AnsiReplacement("[grey]", "\u001b[1;30m"),
+            new AnsiReplacement("[beep]", "\u0007"),
+            new AnsiReplacement("[black]", "\u001b[30m"),
+            new AnsiReplacement("[b:black]", "\u001b[40m"),
+            new AnsiReplacement("[b:red]", "\u001b[41m"),
+            new AnsiReplacement("[b:green]", "\u001b[42m"),
+            new AnsiReplacement("[b:yellow]", "\u001b[43m"),
+            new AnsiReplacement("[b:blue]", "\u001b[44m"),
+            new AnsiReplacement("[b:magenta]", "\u001b[45m"),
+            new AnsiReplacement("[b:purple]", "\u001b[45m"),
+            new AnsiReplacement("[b:cyan]", "\u001b[46m"),
+            new AnsiReplacement("[b:white]", "\u001b[47m"));
+    for (AnsiReplacement replacement : replacements) {
+      parsed =
+          replaceAsciiIgnoringCase(
+              parsed, encode(replacement.tag()).bytes(), encode(replacement.code()).bytes());
+    }
+    byte[][] randomCodes = {
+      encode("\u001b[31m").bytes(),
+      encode("\u001b[32m").bytes(),
+      encode("\u001b[33m").bytes(),
+      encode("\u001b[34m").bytes(),
+      encode("\u001b[35m").bytes(),
+      encode("\u001b[35m").bytes()
+    };
+    byte[] randomTag = encode("[random]").bytes();
+    ByteArrayOutputStream randomized = new ByteArrayOutputStream(parsed.length);
+    int position = 0;
+    while (position < parsed.length) {
+      if (matchesAt(parsed, position, randomTag, false)) {
+        randomized.writeBytes(randomCodes[random.nextInt(6)]);
+        position += randomTag.length;
+      } else {
+        randomized.write(parsed[position++]);
+      }
+    }
+    parsed =
+        replaceAsciiIgnoringCase(
+            randomized.toByteArray(), encode("[null]").bytes(), new byte[0]);
+    return Result.value(new StringValue(parsed));
+  }
+
+  private static Result removeAnsi(List<MooValue> arguments) {
+    byte[] stripped = ((StringValue) arguments.getFirst()).bytes();
+    List<String> tags =
+        List.of(
+            "[red]", "[green]", "[yellow]", "[blue]", "[purple]", "[cyan]",
+            "[normal]", "[inverse]", "[underline]", "[bold]", "[bright]", "[unbold]",
+            "[blink]", "[unblink]", "[magenta]", "[unbright]", "[white]", "[gray]",
+            "[grey]", "[beep]", "[black]", "[b:black]", "[b:red]", "[b:green]",
+            "[b:yellow]", "[b:blue]", "[b:magenta]", "[b:purple]", "[b:cyan]",
+            "[b:white]", "[random]", "[null]");
+    for (String tag : tags) {
+      stripped = replaceAsciiIgnoringCase(stripped, encode(tag).bytes(), new byte[0]);
+    }
+    return Result.value(new StringValue(stripped));
+  }
+
+  private static Result simplexNoise(List<MooValue> arguments) {
+    ListValue coordinates = (ListValue) arguments.getFirst();
+    double[] values = new double[coordinates.size()];
+    for (int index = 0; index < coordinates.size(); index++) {
+      MooValue coordinate = coordinates.elements().get(index);
+      if (!(coordinate instanceof FloatValue value)) {
+        return Result.error(ErrorValue.E_TYPE);
+      }
+      values[index] = value.value();
+    }
+    if (values.length < 1 || values.length > 4) {
+      return Result.value(ErrorValue.E_TYPE);
+    }
+    return Result.value(new FloatValue(SimplexNoise.noise(values)));
+  }
+
+  private static byte[] replaceAsciiIgnoringCase(
+      byte[] source, byte[] what, byte[] replacement) {
+    ByteArrayOutputStream output = new ByteArrayOutputStream(source.length);
+    int position = 0;
+    while (position <= source.length - what.length) {
+      if (matchesAt(source, position, what, false)) {
+        output.writeBytes(replacement);
+        position += what.length;
+      } else {
+        output.write(source[position++]);
+      }
+    }
+    output.write(source, position, source.length - position);
+    return output.toByteArray();
+  }
+
+  private record AnsiReplacement(String tag, String code) {}
 
   private static Result explode(List<MooValue> arguments) {
     byte[] source = ((StringValue) arguments.getFirst()).bytes();
@@ -2767,6 +4680,203 @@ public final class BuiltinCatalog {
     return Result.value(new IntegerValue(Integer.compare(left.length, right.length)));
   }
 
+  private static Result crypt(List<MooValue> arguments, WorldTxn world, long programmer) {
+    byte[] password = ((StringValue) arguments.getFirst()).bytes();
+    String salt;
+    if (arguments.size() == 1 || ((StringValue) arguments.get(1)).bytes().length < 2) {
+      String alphabet = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789./";
+      salt =
+          new String(
+              new char[] {
+                alphabet.charAt(SECURE_RANDOM.nextInt(alphabet.length())),
+                alphabet.charAt(SECURE_RANDOM.nextInt(alphabet.length()))
+              });
+    } else {
+      salt =
+          new String(
+              ((StringValue) arguments.get(1)).bytes(), StandardCharsets.ISO_8859_1);
+    }
+    OptionalLong strength = cryptStrength(salt);
+    if (strength.isEmpty()) {
+      return Result.error(ErrorValue.E_INVARG);
+    }
+    long selectedStrength = strength.orElseThrow();
+    if (!isWizard(world, programmer)
+        && (isRecognizedBcrypt(salt) ? selectedStrength != 5 : selectedStrength != 0)) {
+      return Result.error(ErrorValue.E_PERM);
+    }
+    String result = nativeCrypt(password, salt.getBytes(StandardCharsets.ISO_8859_1));
+    if (isRecognizedBcrypt(salt) && (result.equals("*0") || result.equals("*1"))) {
+      return Result.error(ErrorValue.E_INVARG);
+    }
+    return Result.value(encode(result));
+  }
+
+  private static OptionalLong cryptStrength(String salt) {
+    if (isRecognizedBcrypt(salt)) {
+      int separator = salt.indexOf('$', 4);
+      if (separator < 0) {
+        return OptionalLong.of(0);
+      }
+      String cost = salt.substring(4, separator);
+      try {
+        long parsed = Long.parseLong(cost);
+        return parsed >= 4 && parsed <= 31 ? OptionalLong.of(parsed) : OptionalLong.empty();
+      } catch (NumberFormatException error) {
+        return OptionalLong.empty();
+      }
+    }
+    if (salt.startsWith("$5$rounds=") || salt.startsWith("$6$rounds=")) {
+      int separator = salt.indexOf('$', 10);
+      if (separator < 0) {
+        return OptionalLong.empty();
+      }
+      try {
+        long rounds = Long.parseLong(salt.substring(10, separator));
+        return rounds >= 1000 && rounds <= 999_999_999
+            ? OptionalLong.of(rounds)
+            : OptionalLong.empty();
+      } catch (NumberFormatException error) {
+        return OptionalLong.empty();
+      }
+    }
+    return OptionalLong.of(0);
+  }
+
+  private static boolean isRecognizedBcrypt(String salt) {
+    return salt.startsWith("$2a$") || salt.startsWith("$2x$") || salt.startsWith("$2y$");
+  }
+
+  @SuppressWarnings("restricted")
+  private static synchronized String nativeCrypt(byte[] password, byte[] salt) {
+    try (Arena arena = Arena.ofConfined()) {
+      MemorySegment passwordString = nullTerminated(arena, password);
+      MemorySegment saltString = nullTerminated(arena, salt);
+      MemorySegment result = (MemorySegment) CRYPT.invokeExact(passwordString, saltString);
+      if (result.equals(MemorySegment.NULL)) {
+        return "*0";
+      }
+      return result.reinterpret(128).getString(0, StandardCharsets.ISO_8859_1);
+    } catch (Throwable failure) {
+      throw new IllegalStateException("platform crypt(3) failed", failure);
+    }
+  }
+
+  private static MemorySegment nullTerminated(Arena arena, byte[] bytes) {
+    MemorySegment terminated = arena.allocate(Math.addExact(bytes.length, 1));
+    terminated.asSlice(0, bytes.length).copyFrom(MemorySegment.ofArray(bytes));
+    terminated.set(ValueLayout.JAVA_BYTE, bytes.length, (byte) 0);
+    return terminated;
+  }
+
+  private static Result argon2(List<MooValue> arguments) {
+    byte[] password = cStringBytes((StringValue) arguments.get(0));
+    byte[] salt = cStringBytes((StringValue) arguments.get(1));
+    try {
+      int iterations = optionalPositiveInt(arguments, 2, 3);
+      int memoryKiB = optionalPositiveInt(arguments, 3, 4096);
+      int parallelism = optionalPositiveInt(arguments, 4, 1);
+      byte[] hash = argon2Hash(password, salt, iterations, memoryKiB, parallelism, 32);
+      Base64.Encoder encoder = Base64.getEncoder().withoutPadding();
+      String encoded =
+          "$argon2id$v=19$m="
+              + memoryKiB
+              + ",t="
+              + iterations
+              + ",p="
+              + parallelism
+              + "$"
+              + encoder.encodeToString(salt)
+              + "$"
+              + encoder.encodeToString(hash);
+      return Result.value(encode(encoded));
+    } catch (IllegalArgumentException | ArithmeticException error) {
+      return Result.error(ErrorValue.E_INVIND);
+    }
+  }
+
+  private static Result argon2Verify(List<MooValue> arguments) {
+    String encoded = decode((StringValue) arguments.get(0));
+    byte[] password = cStringBytes((StringValue) arguments.get(1));
+    try {
+      String[] fields = encoded.split("\\$", -1);
+      if (fields.length != 6
+          || !fields[0].isEmpty()
+          || !fields[1].equals("argon2id")
+          || !fields[2].equals("v=19")) {
+        return Result.value(new IntegerValue(0));
+      }
+      int memoryKiB = 0;
+      int iterations = 0;
+      int parallelism = 0;
+      for (String parameter : fields[3].split(",", -1)) {
+        String[] pair = parameter.split("=", 2);
+        if (pair.length != 2) {
+          return Result.value(new IntegerValue(0));
+        }
+        int value = Integer.parseInt(pair[1]);
+        switch (pair[0]) {
+          case "m" -> memoryKiB = value;
+          case "t" -> iterations = value;
+          case "p" -> parallelism = value;
+          default -> {
+            return Result.value(new IntegerValue(0));
+          }
+        }
+      }
+      byte[] salt = Base64.getDecoder().decode(fields[4]);
+      byte[] expected = Base64.getDecoder().decode(fields[5]);
+      byte[] actual =
+          argon2Hash(password, salt, iterations, memoryKiB, parallelism, expected.length);
+      return Result.value(new IntegerValue(MessageDigest.isEqual(expected, actual) ? 1 : 0));
+    } catch (IllegalArgumentException error) {
+      return Result.value(new IntegerValue(0));
+    }
+  }
+
+  private static byte[] argon2Hash(
+      byte[] password,
+      byte[] salt,
+      int iterations,
+      int memoryKiB,
+      int parallelism,
+      int outputLength) {
+    Argon2Parameters parameters =
+        new Argon2Parameters.Builder(Argon2Parameters.ARGON2_id)
+            .withVersion(Argon2Parameters.ARGON2_VERSION_13)
+            .withIterations(iterations)
+            .withMemoryAsKB(memoryKiB)
+            .withParallelism(parallelism)
+            .withSalt(salt)
+            .build();
+    Argon2BytesGenerator generator = new Argon2BytesGenerator();
+    generator.init(parameters);
+    byte[] output = new byte[outputLength];
+    generator.generateBytes(password, output);
+    return output;
+  }
+
+  private static int optionalPositiveInt(
+      List<MooValue> arguments, int index, int defaultValue) {
+    if (arguments.size() <= index) {
+      return defaultValue;
+    }
+    long value = ((IntegerValue) arguments.get(index)).value();
+    if (value <= 0) {
+      throw new IllegalArgumentException("argon2 parameter must be positive");
+    }
+    return Math.toIntExact(value);
+  }
+
+  private static byte[] cStringBytes(StringValue value) {
+    byte[] bytes = value.bytes();
+    int length = 0;
+    while (length < bytes.length && bytes[length] != 0) {
+      length++;
+    }
+    return Arrays.copyOf(bytes, length);
+  }
+
   private static Result decodeBinary(List<MooValue> arguments) {
     byte[] binary = ((StringValue) arguments.getFirst()).bytes();
     ByteArrayOutputStream raw = new ByteArrayOutputStream(binary.length);
@@ -2817,10 +4927,42 @@ public final class BuiltinCatalog {
     return Result.value(new ListValue(values));
   }
 
+  private static Result generateJson(List<MooValue> arguments) {
+    JsonCodec.Mode mode = JsonCodec.Mode.COMMON_SUBSET;
+    if (arguments.size() >= 2) {
+      mode = JsonCodec.Mode.parse((StringValue) arguments.get(1)).orElse(null);
+      if (mode == null) {
+        return Result.error(ErrorValue.E_INVARG);
+      }
+    }
+    try {
+      return Result.value(
+          JsonCodec.generate(
+              arguments.getFirst(), mode, arguments.size() >= 3 && arguments.get(2).isTruthy()));
+    } catch (IllegalArgumentException error) {
+      return Result.error(ErrorValue.E_INVARG);
+    }
+  }
+
+  private static Result parseJson(List<MooValue> arguments) {
+    JsonCodec.Mode mode = JsonCodec.Mode.COMMON_SUBSET;
+    if (arguments.size() == 2) {
+      mode = JsonCodec.Mode.parse((StringValue) arguments.get(1)).orElse(null);
+      if (mode == null) {
+        return Result.error(ErrorValue.E_INVARG);
+      }
+    }
+    try {
+      return Result.value(JsonCodec.parse((StringValue) arguments.getFirst(), mode));
+    } catch (IllegalArgumentException error) {
+      return Result.error(ErrorValue.E_INVARG);
+    }
+  }
+
   private static Result encodeBinary(List<MooValue> arguments) {
     ByteArrayOutputStream raw = new ByteArrayOutputStream();
     for (MooValue argument : arguments) {
-      if (!appendBinaryBytes(raw, argument)) {
+      if (!appendBinaryBytes(raw, argument, 0, 255)) {
         return Result.error(ErrorValue.E_INVARG);
       }
     }
@@ -2837,6 +4979,18 @@ public final class BuiltinCatalog {
       }
     }
     return Result.value(new StringValue(encoded.toByteArray()));
+  }
+
+  private static Result chr(List<MooValue> arguments, WorldTxn world, long programmer) {
+    int minimum = isWizard(world, programmer) ? 0 : 32;
+    int maximum = isWizard(world, programmer) ? 255 : 254;
+    ByteArrayOutputStream raw = new ByteArrayOutputStream();
+    for (MooValue argument : arguments) {
+      if (!appendBinaryBytes(raw, argument, minimum, maximum)) {
+        return Result.error(ErrorValue.E_INVARG);
+      }
+    }
+    return Result.value(new StringValue(raw.toByteArray()));
   }
 
   private static Result disassemble(
@@ -2885,13 +5039,14 @@ public final class BuiltinCatalog {
     return Result.value(new ListValue(lines));
   }
 
-  private static boolean appendBinaryBytes(ByteArrayOutputStream output, MooValue value) {
+  private static boolean appendBinaryBytes(
+      ByteArrayOutputStream output, MooValue value, int minimum, int maximum) {
     if (value instanceof StringValue string) {
       output.writeBytes(string.bytes());
       return true;
     }
     if (value instanceof IntegerValue integer) {
-      if (integer.value() < 0 || integer.value() > 255) {
+      if (integer.value() < minimum || integer.value() > maximum) {
         return false;
       }
       output.write((int) integer.value());
@@ -2899,7 +5054,7 @@ public final class BuiltinCatalog {
     }
     if (value instanceof ListValue list) {
       for (MooValue element : list.elements()) {
-        if (!appendBinaryBytes(output, element)) {
+        if (!appendBinaryBytes(output, element, minimum, maximum)) {
           return false;
         }
       }
@@ -2932,27 +5087,409 @@ public final class BuiltinCatalog {
   }
 
   private static Result create(List<MooValue> arguments, WorldTxn world, long programmer) {
-    ObjectValue parent = (ObjectValue) arguments.getFirst();
-    try {
-      if (arguments.size() == 2 && ((IntegerValue) arguments.get(1)).value() != 0) {
-        return Result.value(world.createAnonymousObject(parent.value(), programmer));
+    ParentArgument parents = parentArgument(arguments.getFirst(), world);
+    if (parents.error().filter(ErrorValue.E_TYPE::equals).isPresent()) {
+      return Result.error(parents.error().orElseThrow());
+    }
+    long owner = programmer;
+    boolean ownerSpecified = false;
+    boolean anonymous = false;
+    boolean anonymousSpecified = false;
+    ListValue initializeArguments = new ListValue(List.of());
+    boolean initializerSpecified = false;
+    for (int index = 1; index < arguments.size(); index++) {
+      MooValue argument = arguments.get(index);
+      if (index == 1 && argument instanceof ObjectValue requestedOwner) {
+        owner = requestedOwner.value();
+        ownerSpecified = true;
+      } else if (argument instanceof IntegerValue requestedAnonymous && !anonymousSpecified) {
+        anonymous = requestedAnonymous.value() != 0;
+        anonymousSpecified = true;
+      } else if (argument instanceof ListValue requestedArguments && !initializerSpecified) {
+        initializeArguments = requestedArguments;
+        initializerSpecified = true;
+      } else {
+        return Result.error(ErrorValue.E_TYPE);
       }
-      WorldObject created = world.createObject(parent.value(), programmer);
-      return Result.value(new ObjectValue(created.id()));
+    }
+    if (parents.error().isPresent()) {
+      return Result.error(parents.error().orElseThrow());
+    }
+    if ((anonymous && owner == -1) || (owner != -1 && world.object(owner).isEmpty())) {
+      return Result.error(ErrorValue.E_INVARG);
+    }
+    boolean wizard = isWizard(world, programmer);
+    if ((ownerSpecified && owner != programmer && !wizard)
+        || !parentsAllowed(
+            parents.ids(), world, programmer, anonymous ? ANONYMOUS_FLAG : FERTILE_FLAG)) {
+      return Result.error(ErrorValue.E_PERM);
+    }
+    if (owner != -1 && !decrementOwnershipQuota(world, owner)) {
+      return Result.error(ErrorValue.E_QUOTA);
+    }
+    try {
+      if (anonymous) {
+        AnonymousObjectValue created = world.createAnonymousObject(parents.ids(), owner);
+        return world.verb(created, "initialize", true).isPresent()
+            ? Result.initialize(created, initializeArguments)
+            : Result.value(created);
+      }
+      WorldObject created = world.createObject(parents.ids(), owner);
+      ObjectValue identity = new ObjectValue(created.id());
+      return world.verb(created.id(), "initialize", true).isPresent()
+          ? Result.initialize(identity, initializeArguments)
+          : Result.value(identity);
     } catch (IllegalArgumentException error) {
       return Result.error(ErrorValue.E_INVARG);
     }
   }
 
+  private static Result recreate(List<MooValue> arguments, WorldTxn world, long programmer) {
+    long objectId = ((ObjectValue) arguments.getFirst()).value();
+    if (objectId <= 0 || objectId > world.maximumObjectId() || world.object(objectId).isPresent()) {
+      return Result.error(ErrorValue.E_INVARG);
+    }
+    ParentArgument parents = parentArgument(arguments.get(1), world);
+    if (parents.error().isPresent()) {
+      return Result.error(parents.error().orElseThrow());
+    }
+    long owner = programmer;
+    if (arguments.size() == 3) {
+      long requestedOwner = ((ObjectValue) arguments.get(2)).value();
+      if (world.object(requestedOwner).isPresent()) {
+        owner = requestedOwner;
+      }
+    }
+    if ((owner != programmer && !isWizard(world, programmer))
+        || !parentsAllowed(parents.ids(), world, programmer, FERTILE_FLAG)) {
+      return Result.error(ErrorValue.E_PERM);
+    }
+    if (world.object(owner).isPresent() && !decrementOwnershipQuota(world, owner)) {
+      return Result.error(ErrorValue.E_QUOTA);
+    }
+    try {
+      WorldObject created = world.recreateObject(objectId, parents.ids(), owner);
+      ObjectValue identity = new ObjectValue(created.id());
+      return world.verb(created.id(), "initialize", true).isPresent()
+          ? Result.initialize(identity, new ListValue(List.of()))
+          : Result.value(identity);
+    } catch (IllegalArgumentException error) {
+      return Result.error(ErrorValue.E_INVARG);
+    }
+  }
+
+  private static boolean decrementOwnershipQuota(WorldTxn world, long owner) {
+    MooValue quota = world.readObjectProperty(owner, "ownership_quota").orElse(null);
+    if (!(quota instanceof IntegerValue integer)) {
+      return true;
+    }
+    if (integer.value() <= 0) {
+      return false;
+    }
+    if (!world.writeObjectProperty(
+        owner, "ownership_quota", new IntegerValue(integer.value() - 1))) {
+      throw new IllegalStateException("ownership_quota disappeared during create");
+    }
+    return true;
+  }
+
   private static Result parent(List<MooValue> arguments, WorldTxn world) {
-    if (!(arguments.getFirst() instanceof ObjectValue object)) {
+    MooValue value = arguments.getFirst();
+    List<Long> parents;
+    if (value instanceof ObjectValue object) {
+      WorldObject target = world.object(object.value()).orElse(null);
+      if (target == null) {
+        return Result.error(ErrorValue.E_INVARG);
+      }
+      parents = target.parents();
+    } else if (value instanceof AnonymousObjectValue anonymous) {
+      WorldAnonymousObject target = world.anonymousObject(anonymous).orElse(null);
+      if (target == null) {
+        return Result.error(ErrorValue.E_INVARG);
+      }
+      parents = target.parents();
+    } else if (value instanceof WaifValue) {
+      return Result.error(ErrorValue.E_INVARG);
+    } else {
+      return Result.error(ErrorValue.E_TYPE);
+    }
+    return Result.value(new ObjectValue(parents.isEmpty() ? -1 : parents.getFirst()));
+  }
+
+  private static Result parents(List<MooValue> arguments, WorldTxn world) {
+    MooValue value = arguments.getFirst();
+    List<Long> parents;
+    if (value instanceof ObjectValue object) {
+      WorldObject target = world.object(object.value()).orElse(null);
+      if (target == null) {
+        return Result.error(ErrorValue.E_INVARG);
+      }
+      parents = target.parents();
+    } else if (value instanceof AnonymousObjectValue anonymous) {
+      WorldAnonymousObject target = world.anonymousObject(anonymous).orElse(null);
+      if (target == null) {
+        return Result.error(ErrorValue.E_INVARG);
+      }
+      parents = target.parents();
+    } else if (value instanceof WaifValue) {
+      return Result.error(ErrorValue.E_INVARG);
+    } else {
+      return Result.error(ErrorValue.E_TYPE);
+    }
+    return Result.value(objectList(parents));
+  }
+
+  private static Result ancestors(List<MooValue> arguments, WorldTxn world) {
+    MooValue value = arguments.getFirst();
+    boolean full = arguments.size() > 1 && arguments.get(1).isTruthy();
+    List<MooValue> result = new ArrayList<>();
+    if (value instanceof ObjectValue object) {
+      if (world.object(object.value()).isEmpty()) {
+        return Result.error(ErrorValue.E_INVARG);
+      }
+      List<Long> ancestry = world.ancestry(object.value());
+      for (int index = full ? 0 : 1; index < ancestry.size(); index++) {
+        result.add(new ObjectValue(ancestry.get(index)));
+      }
+      return Result.value(new ListValue(result));
+    }
+    if (value instanceof AnonymousObjectValue anonymous) {
+      WorldAnonymousObject target = world.anonymousObject(anonymous).orElse(null);
+      if (target == null) {
+        return Result.error(ErrorValue.E_INVARG);
+      }
+      if (full) {
+        result.add(anonymous);
+      }
+      Set<Long> visited = new LinkedHashSet<>();
+      for (long parent : target.parents()) {
+        for (long ancestor : world.ancestry(parent)) {
+          if (visited.add(ancestor)) {
+            result.add(new ObjectValue(ancestor));
+          }
+        }
+      }
+      return Result.value(new ListValue(result));
+    }
+    return Result.error(ErrorValue.E_TYPE);
+  }
+
+  private static Result children(List<MooValue> arguments, WorldTxn world) {
+    MooValue value = arguments.getFirst();
+    if (value instanceof AnonymousObjectValue anonymous) {
+      return world.anonymousObject(anonymous).isEmpty()
+          ? Result.error(ErrorValue.E_INVARG)
+          : Result.value(new ListValue(List.of()));
+    }
+    if (value instanceof WaifValue) {
+      return Result.error(ErrorValue.E_INVARG);
+    }
+    if (!(value instanceof ObjectValue object)) {
       return Result.error(ErrorValue.E_TYPE);
     }
     WorldObject target = world.object(object.value()).orElse(null);
     return target == null
         ? Result.error(ErrorValue.E_INVARG)
-        : Result.value(new ObjectValue(target.parent()));
+        : Result.value(objectList(target.children()));
   }
+
+  private static Result changeParents(
+      List<MooValue> arguments, WorldTxn world, long programmer) {
+    MooValue target = arguments.getFirst();
+    if (!(target instanceof ObjectValue) && !(target instanceof AnonymousObjectValue)) {
+      return Result.error(ErrorValue.E_TYPE);
+    }
+    ParentArgument parents = parentArgument(arguments.get(1), world);
+    if (parents.error().isPresent()) {
+      return Result.error(parents.error().orElseThrow());
+    }
+    long owner;
+    boolean recursive = false;
+    if (target instanceof ObjectValue object) {
+      WorldObject body = world.object(object.value()).orElse(null);
+      if (body == null) {
+        return Result.error(ErrorValue.E_INVARG);
+      }
+      owner = body.owner();
+      for (long parent : parents.ids()) {
+        if (world.ancestry(parent).contains(object.value())) {
+          recursive = true;
+          break;
+        }
+      }
+    } else {
+      WorldAnonymousObject body = world.anonymousObject((AnonymousObjectValue) target).orElse(null);
+      if (body == null) {
+        return Result.error(ErrorValue.E_INVARG);
+      }
+      owner = body.owner();
+    }
+    if ((!isWizard(world, programmer) && owner != programmer)
+        || !parentsAllowed(parents.ids(), world, programmer, FERTILE_FLAG)) {
+      return Result.error(ErrorValue.E_PERM);
+    }
+    if (recursive) {
+      return Result.error(ErrorValue.E_RECMOVE);
+    }
+    boolean changed =
+        target instanceof ObjectValue object
+            ? world.changeParents(object.value(), parents.ids())
+            : world.changeParents((AnonymousObjectValue) target, parents.ids());
+    return changed ? Result.value(new IntegerValue(0)) : Result.error(ErrorValue.E_INVARG);
+  }
+
+  private static boolean isWizard(WorldTxn world, long programmer) {
+    WorldObject object = world.object(programmer).orElse(null);
+    return object != null && (object.flags() & WIZARD_FLAG) != 0;
+  }
+
+  private static boolean parentsAllowed(
+      List<Long> parents, WorldTxn world, long programmer, int permissionFlag) {
+    if (isWizard(world, programmer)) {
+      return true;
+    }
+    for (long parentId : parents) {
+      WorldObject parent = world.object(parentId).orElseThrow();
+      if (parent.owner() != programmer && (parent.flags() & permissionFlag) == 0) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  private static ParentArgument parentArgument(MooValue value, WorldTxn world) {
+    List<Long> parents = new ArrayList<>();
+    if (value instanceof ObjectValue parent) {
+      if (parent.value() == -1) {
+        return new ParentArgument(List.of(), Optional.empty());
+      }
+      parents.add(parent.value());
+    } else if (value instanceof ListValue list) {
+      for (MooValue element : list.elements()) {
+        if (!(element instanceof ObjectValue parent)) {
+          return new ParentArgument(List.of(), Optional.of(ErrorValue.E_TYPE));
+        }
+        parents.add(parent.value());
+      }
+    } else {
+      return new ParentArgument(List.of(), Optional.of(ErrorValue.E_TYPE));
+    }
+    for (long parent : parents) {
+      if (parent < 0 || world.object(parent).isEmpty()) {
+        return new ParentArgument(List.of(), Optional.of(ErrorValue.E_INVARG));
+      }
+    }
+    return new ParentArgument(List.copyOf(parents), Optional.empty());
+  }
+
+  private static ListValue objectList(List<Long> objectIds) {
+    return new ListValue(
+        objectIds.stream().map(ObjectValue::new).map(MooValue.class::cast).toList());
+  }
+
+  private static Result locateByName(List<MooValue> arguments, WorldTxn world) {
+    byte[] query = ((StringValue) arguments.getFirst()).bytes();
+    boolean caseMatters = arguments.size() == 2 && arguments.get(1).isTruthy();
+    List<MooValue> matches = new ArrayList<>();
+    long maximum = world.maximumObjectId();
+    for (long objectId = 0; objectId <= maximum; objectId++) {
+      WorldObject object = world.object(objectId).orElse(null);
+      if (object == null) {
+        continue;
+      }
+      byte[] name = object.name().getBytes(StandardCharsets.ISO_8859_1);
+      for (int position = 0; position <= name.length - query.length; position++) {
+        if (matchesAt(name, position, query, caseMatters)) {
+          matches.add(new ObjectValue(objectId));
+          break;
+        }
+      }
+    }
+    return Result.value(new ListValue(matches));
+  }
+
+  private static Result locations(List<MooValue> arguments, WorldTxn world) {
+    long objectId = ((ObjectValue) arguments.getFirst()).value();
+    WorldObject object = world.object(objectId).orElse(null);
+    if (object == null) {
+      return Result.error(ErrorValue.E_INVIND);
+    }
+    long base = arguments.size() > 1 ? ((ObjectValue) arguments.get(1)).value() : 0;
+    boolean checkParent = arguments.size() > 2 && arguments.get(2).isTruthy();
+    List<MooValue> result = new ArrayList<>();
+    long location = object.location();
+    while (world.object(location).isPresent()) {
+      if (base != 0
+          && (checkParent ? world.ancestry(location).contains(base) : location == base)) {
+        break;
+      }
+      MooValue located = new ObjectValue(location);
+      if (!result.contains(located)) {
+        result.add(located);
+      }
+      location = world.object(location).orElseThrow().location();
+    }
+    return Result.value(new ListValue(result));
+  }
+
+  private static Result nextRecycledObject(List<MooValue> arguments, WorldTxn world) {
+    long start = arguments.isEmpty() ? 0 : ((ObjectValue) arguments.getFirst()).value();
+    long maximum = world.maximumObjectId();
+    if (start < 0 || start > maximum) {
+      return Result.error(ErrorValue.E_INVARG);
+    }
+    for (long objectId = start; objectId < maximum; objectId++) {
+      if (world.object(objectId).isEmpty()) {
+        return Result.value(new ObjectValue(objectId));
+      }
+    }
+    return Result.zero();
+  }
+
+  private static Result recycledObjects(WorldTxn world) {
+    List<MooValue> recycled = new ArrayList<>();
+    long maximum = world.maximumObjectId();
+    for (long objectId = 0; objectId <= maximum; objectId++) {
+      if (world.object(objectId).isEmpty()) {
+        recycled.add(new ObjectValue(objectId));
+      }
+    }
+    return Result.value(new ListValue(recycled));
+  }
+
+  private static Result waifStats(WorldTxn world) {
+    Map<MooValue, MooValue> result = new LinkedHashMap<>();
+    result.put(encode("total"), new IntegerValue(world.snapshot().waifs().size()));
+    long pending =
+        world.pendingFinalization().stream().filter(WaifValue.class::isInstance).count();
+    result.put(encode("pending_recycle"), new IntegerValue(pending));
+    Map<Long, Long> classes = new LinkedHashMap<>();
+    for (WaifValue waif : world.snapshot().waifs().keySet()) {
+      classes.merge(waif.classObject().value(), 1L, Long::sum);
+    }
+    for (Map.Entry<Long, Long> entry : classes.entrySet()) {
+      result.put(new ObjectValue(entry.getKey()), new IntegerValue(entry.getValue()));
+    }
+    return Result.value(new MapValue(result));
+  }
+
+  private static Result ownedObjects(List<MooValue> arguments, WorldTxn world) {
+    long owner = ((ObjectValue) arguments.getFirst()).value();
+    if (world.object(owner).isEmpty()) {
+      return Result.error(ErrorValue.E_INVIND);
+    }
+    List<MooValue> owned = new ArrayList<>();
+    long maximum = world.maximumObjectId();
+    for (long objectId = 0; objectId <= maximum; objectId++) {
+      WorldObject object = world.object(objectId).orElse(null);
+      if (object != null && object.owner() == owner) {
+        owned.add(new ObjectValue(objectId));
+      }
+    }
+    return Result.value(new ListValue(owned));
+  }
+
+  private record ParentArgument(List<Long> ids, Optional<ErrorValue> error) {}
 
   private static Result isPlayer(List<MooValue> arguments, WorldTxn world) {
     ObjectValue object = (ObjectValue) arguments.getFirst();
@@ -2969,6 +5506,9 @@ public final class BuiltinCatalog {
     }
     if (value instanceof AnonymousObjectValue anonymous) {
       return Result.value(new IntegerValue(world.anonymousObject(anonymous).isPresent() ? 1 : 0));
+    }
+    if (value instanceof WaifValue) {
+      return Result.zero();
     }
     return Result.error(ErrorValue.E_TYPE);
   }
@@ -3031,6 +5571,8 @@ public final class BuiltinCatalog {
         switch (prepositionText.toLowerCase(Locale.ROOT)) {
           case "none" -> -1;
           case "any" -> -2;
+          case "at" -> 1;
+          case "in" -> 3;
           default -> Integer.MIN_VALUE;
         };
     if (direct < 0 || indirect < 0 || preposition == Integer.MIN_VALUE) {
@@ -3148,6 +5690,9 @@ public final class BuiltinCatalog {
 
   private static Result properties(
       List<MooValue> arguments, WorldTxn world, long programmer) {
+    if (arguments.getFirst() instanceof WaifValue) {
+      return Result.error(ErrorValue.E_INVARG);
+    }
     if (!(arguments.getFirst() instanceof ObjectValue object)) {
       return Result.error(ErrorValue.E_TYPE);
     }
@@ -3168,6 +5713,35 @@ public final class BuiltinCatalog {
             .map(MooValue.class::cast)
             .toList();
     return Result.value(new ListValue(names));
+  }
+
+  private static Result callers(ListValue callers, WorldTxn world, long programmer) {
+    List<MooValue> frames = new ArrayList<>(callers.size());
+    for (MooValue value : callers.elements()) {
+      if (!(value instanceof ListValue frame) || frame.size() < 4) {
+        frames.add(value);
+        continue;
+      }
+      List<MooValue> fields = new ArrayList<>(frame.elements());
+      fields.set(0, anonymizeTaskReference(fields.get(0), world, programmer));
+      fields.set(3, anonymizeTaskReference(fields.get(3), world, programmer));
+      frames.add(new ListValue(fields));
+    }
+    return Result.value(new ListValue(frames));
+  }
+
+  private static MooValue anonymizeTaskReference(
+      MooValue value, WorldTxn world, long programmer) {
+    if (!(value instanceof AnonymousObjectValue anonymous)) {
+      return value;
+    }
+    WorldAnonymousObject body = world.anonymousObject(anonymous).orElse(null);
+    if (body == null) {
+      return value;
+    }
+    WorldObject viewer = world.object(programmer).orElse(null);
+    boolean wizard = viewer != null && (viewer.flags() & 4) != 0;
+    return wizard || body.owner() == programmer ? value : new AnonymousObjectValue();
   }
 
   private static Result isClearProperty(
@@ -3211,6 +5785,9 @@ public final class BuiltinCatalog {
 
   private static Result propertyInfo(
       List<MooValue> arguments, WorldTxn world, long programmer) {
+    if (arguments.getFirst() instanceof WaifValue) {
+      return Result.error(ErrorValue.E_INVARG);
+    }
     if (!(arguments.getFirst() instanceof ObjectValue object)) {
       return Result.error(ErrorValue.E_TYPE);
     }
@@ -3325,8 +5902,7 @@ public final class BuiltinCatalog {
 
   private static Result setPlayerFlag(List<MooValue> arguments, WorldTxn world) {
     ObjectValue object = (ObjectValue) arguments.get(0);
-    IntegerValue enabled = (IntegerValue) arguments.get(1);
-    return world.setPlayerFlag(object.value(), enabled.isTruthy())
+    return world.setPlayerFlag(object.value(), arguments.get(1).isTruthy())
         ? Result.zero()
         : Result.error(ErrorValue.E_INVARG);
   }
@@ -3408,6 +5984,37 @@ public final class BuiltinCatalog {
     boolean updated =
         world.setVerbInfo(object.value(), verbIndex, names, owner.value(), permissions);
     return updated ? Result.zero() : Result.error(ErrorValue.E_VERBNF);
+  }
+
+  private static Result verbs(List<MooValue> arguments, WorldTxn world, long programmer) {
+    MooValue receiver = arguments.getFirst();
+    long owner;
+    int flags;
+    List<WorldVerb> verbs;
+    if (receiver instanceof ObjectValue object) {
+      WorldObject target = world.object(object.value()).orElse(null);
+      if (target == null) {
+        return Result.error(ErrorValue.E_INVARG);
+      }
+      owner = target.owner();
+      flags = target.flags();
+      verbs = target.verbs();
+    } else if (receiver instanceof AnonymousObjectValue anonymous) {
+      WorldAnonymousObject target = world.anonymousObject(anonymous).orElse(null);
+      if (target == null) {
+        return Result.error(ErrorValue.E_INVARG);
+      }
+      owner = target.owner();
+      flags = target.flags();
+      verbs = target.verbs();
+    } else {
+      return Result.error(ErrorValue.E_TYPE);
+    }
+    if (owner != programmer && !isWizard(world, programmer) && (flags & 16) == 0) {
+      return Result.error(ErrorValue.E_PERM);
+    }
+    return Result.value(
+        new ListValue(verbs.stream().map(WorldVerb::names).map(BuiltinCatalog::encode).toList()));
   }
 
   private static Result verbInfo(
@@ -3765,13 +6372,19 @@ public final class BuiltinCatalog {
       return Result.error(ErrorValue.E_PERM);
     }
 
-    String source =
+    String suppliedSource =
         code.elements().stream()
             .map(StringValue.class::cast)
             .map(BuiltinCatalog::decode)
             .collect(java.util.stream.Collectors.joining("\n"));
+    String canonicalSource;
     try {
-      new MooCompiler().compile(source);
+      var program = MooParser.parse(suppliedSource);
+      new MooCompiler().compile(program);
+      canonicalSource =
+          MooUnparser.unparse(program).lines()
+              .map(String::stripLeading)
+              .collect(java.util.stream.Collectors.joining("\n"));
     } catch (IllegalArgumentException error) {
       String diagnostic = error.getMessage();
       if (diagnostic == null) {
@@ -3781,8 +6394,8 @@ public final class BuiltinCatalog {
     }
     boolean updated =
         receiver instanceof ObjectValue object
-            ? world.setVerbCode(object.value(), verbIndex, source)
-            : world.setVerbCode((AnonymousObjectValue) receiver, verbIndex, source);
+            ? world.setVerbCode(object.value(), verbIndex, canonicalSource)
+            : world.setVerbCode((AnonymousObjectValue) receiver, verbIndex, canonicalSource);
     if (!updated) {
       return Result.error(ErrorValue.E_VERBNF);
     }
@@ -3841,16 +6454,47 @@ public final class BuiltinCatalog {
   private static Result move(List<MooValue> arguments, WorldTxn world, long programmer) {
     ObjectValue object = (ObjectValue) arguments.get(0);
     ObjectValue destination = (ObjectValue) arguments.get(1);
-    if (world.object(object.value()).isEmpty() || world.object(destination.value()).isEmpty()) {
+    long position =
+        arguments.size() == 3 ? ((IntegerValue) arguments.get(2)).value() : 0;
+    if (position < 0) {
       return Result.error(ErrorValue.E_INVARG);
+    }
+    WorldObject moving = world.object(object.value()).orElse(null);
+    if (moving == null
+        || (destination.value() != -1 && world.object(destination.value()).isEmpty())) {
+      return Result.error(ErrorValue.E_INVARG);
+    }
+    if (recursiveMove(world, object.value(), destination.value())) {
+      return Result.error(ErrorValue.E_RECMOVE);
     }
     WorldObject programmerObject = world.object(programmer).orElse(null);
     if (programmerObject != null && (programmerObject.flags() & 4) != 0) {
-      return Result.move(object.value(), destination.value());
+      if (destination.value() == moving.location()) {
+        return position == 0 || world.move(object.value(), destination.value(), position)
+            ? Result.zero()
+            : Result.error(ErrorValue.E_INVARG);
+      }
+      return Result.move(object.value(), destination.value(), position);
     }
-    return world.move(object.value(), destination.value())
+    return world.move(object.value(), destination.value(), position)
         ? Result.zero()
         : Result.error(ErrorValue.E_INVARG);
+  }
+
+  private static boolean recursiveMove(WorldTxn world, long object, long destination) {
+    Set<Long> visited = new LinkedHashSet<>();
+    long location = destination;
+    while (location != -1 && visited.add(location)) {
+      if (location == object) {
+        return true;
+      }
+      WorldObject container = world.object(location).orElse(null);
+      if (container == null) {
+        return false;
+      }
+      location = container.location();
+    }
+    return false;
   }
 
   private static Result recycle(
@@ -3866,9 +6510,7 @@ public final class BuiltinCatalog {
       if (target.owner() != programmer && !wizard) {
         return Result.error(ErrorValue.E_PERM);
       }
-      return world.removeAnonymousObject(anonymous)
-          ? Result.zero()
-          : Result.error(ErrorValue.E_INVARG);
+      return Result.recycle(anonymous);
     }
     if (receiver instanceof ObjectValue object) {
       WorldObject target = world.object(object.value()).orElse(null);
@@ -3883,9 +6525,15 @@ public final class BuiltinCatalog {
     return Result.error(ErrorValue.E_TYPE);
   }
 
-  private static Result switchPlayer(List<MooValue> arguments) {
-    ObjectValue player = (ObjectValue) arguments.get(1);
-    return Result.switchPlayer(player.value());
+  private static Result switchPlayer(List<MooValue> arguments, WorldTxn world) {
+    long oldPlayer = ((ObjectValue) arguments.getFirst()).value();
+    long newPlayer = ((ObjectValue) arguments.get(1)).value();
+    if (oldPlayer == newPlayer
+        || world.connectionId(oldPlayer).isEmpty()
+        || !world.players().contains(newPlayer)) {
+      return Result.error(ErrorValue.E_INVARG);
+    }
+    return Result.switchPlayer(newPlayer);
   }
 
   private static Result setTaskPerms(List<MooValue> arguments) {
@@ -3919,27 +6567,7 @@ public final class BuiltinCatalog {
   }
 
   private static String errorDescription(ErrorValue error) {
-    return switch (error) {
-      case E_NONE -> "No error";
-      case E_TYPE -> "Type mismatch";
-      case E_DIV -> "Division by zero";
-      case E_PERM -> "Permission denied";
-      case E_PROPNF -> "Property not found";
-      case E_VERBNF -> "Verb not found";
-      case E_VARNF -> "Variable not found";
-      case E_INVIND -> "Invalid indirection";
-      case E_RECMOVE -> "Recursive move";
-      case E_MAXREC -> "Too many verb calls";
-      case E_RANGE -> "Range error";
-      case E_ARGS -> "Incorrect number of arguments";
-      case E_NACC -> "Move refused by destination";
-      case E_INVARG -> "Invalid argument";
-      case E_QUOTA -> "Resource limit exceeded";
-      case E_FLOAT -> "Floating-point arithmetic error";
-      case E_FILE -> "File error";
-      case E_EXEC -> "Exec error";
-      case E_INTRPT -> "Interrupted";
-    };
+    return error.description();
   }
 
   private static Result toFloat(List<MooValue> arguments) {
@@ -4030,17 +6658,59 @@ public final class BuiltinCatalog {
       return Result.value(new ObjectValue(error.code()));
     }
     if (argument instanceof StringValue string) {
-      String text = decode(string).strip();
-      if (text.startsWith("#")) {
-        text = text.substring(1);
-      }
-      try {
-        return Result.value(new ObjectValue(Long.parseLong(text)));
-      } catch (NumberFormatException error) {
-        return Result.value(new ObjectValue(0));
-      }
+      return Result.value(new ObjectValue(parseToastObjectId(decode(string))));
     }
     return Result.error(ErrorValue.E_TYPE);
+  }
+
+  private static long parseToastObjectId(String text) {
+    int index = 0;
+    while (index < text.length() && text.charAt(index) == ' ') {
+      index++;
+    }
+    if (index < text.length() && text.charAt(index) == '#') {
+      index++;
+    }
+    while (index < text.length() && isAsciiWhitespace(text.charAt(index))) {
+      index++;
+    }
+
+    int numberStart = index;
+    if (index < text.length() && (text.charAt(index) == '+' || text.charAt(index) == '-')) {
+      index++;
+    }
+    int digitStart = index;
+    while (index < text.length() && text.charAt(index) >= '0' && text.charAt(index) <= '9') {
+      index++;
+    }
+    if (index == digitStart) {
+      return 0;
+    }
+    int numberEnd = index;
+    while (index < text.length() && text.charAt(index) == ' ') {
+      index++;
+    }
+    if (index != text.length()) {
+      return 0;
+    }
+
+    BigInteger parsed = new BigInteger(text.substring(numberStart, numberEnd));
+    if (parsed.compareTo(BigInteger.valueOf(Long.MAX_VALUE)) > 0) {
+      return Long.MAX_VALUE;
+    }
+    if (parsed.compareTo(BigInteger.valueOf(Long.MIN_VALUE)) < 0) {
+      return Long.MIN_VALUE;
+    }
+    return parsed.longValue();
+  }
+
+  private static boolean isAsciiWhitespace(char character) {
+    return character == ' '
+        || character == '\t'
+        || character == '\n'
+        || character == '\u000B'
+        || character == '\f'
+        || character == '\r';
   }
 
   private static Result equalValues(List<MooValue> arguments) {
@@ -4049,6 +6719,12 @@ public final class BuiltinCatalog {
   }
 
   private static boolean exactlyEqual(MooValue left, MooValue right) {
+    if (left instanceof BooleanValue bool && right instanceof IntegerValue integer) {
+      return integer.value() == (bool.value() ? 1 : 0);
+    }
+    if (left instanceof IntegerValue integer && right instanceof BooleanValue bool) {
+      return integer.value() == (bool.value() ? 1 : 0);
+    }
     if (left instanceof StringValue leftString && right instanceof StringValue rightString) {
       return Arrays.equals(leftString.bytes(), rightString.bytes());
     }
@@ -4067,18 +6743,13 @@ public final class BuiltinCatalog {
       if (leftMap.size() != rightMap.size()) {
         return false;
       }
-      for (Map.Entry<MooValue, MooValue> leftEntry : leftMap.entries().entrySet()) {
-        boolean matched = false;
-        for (Map.Entry<MooValue, MooValue> rightEntry : rightMap.entries().entrySet()) {
-          if (exactlyEqual(leftEntry.getKey(), rightEntry.getKey())) {
-            if (!exactlyEqual(leftEntry.getValue(), rightEntry.getValue())) {
-              return false;
-            }
-            matched = true;
-            break;
-          }
-        }
-        if (!matched) {
+      var leftEntries = leftMap.entries().entrySet().iterator();
+      var rightEntries = rightMap.entries().entrySet().iterator();
+      while (leftEntries.hasNext()) {
+        Map.Entry<MooValue, MooValue> leftEntry = leftEntries.next();
+        Map.Entry<MooValue, MooValue> rightEntry = rightEntries.next();
+        if (!exactlyEqual(leftEntry.getKey(), rightEntry.getKey())
+            || !exactlyEqual(leftEntry.getValue(), rightEntry.getValue())) {
           return false;
         }
       }
@@ -4088,8 +6759,21 @@ public final class BuiltinCatalog {
   }
 
   private static Result dynamicEval(List<MooValue> arguments) {
-    StringValue source = (StringValue) arguments.getFirst();
-    return Result.dynamicEval(decode(source));
+    String source =
+        arguments.stream()
+            .map(StringValue.class::cast)
+            .map(BuiltinCatalog::decode)
+            .collect(java.util.stream.Collectors.joining("\n"));
+    return Result.dynamicEval(source);
+  }
+
+  private static Result gcStats() {
+    Map<MooValue, MooValue> colors = new LinkedHashMap<>();
+    for (String color :
+        List.of("green", "yellow", "black", "gray", "white", "purple", "pink")) {
+      colors.put(encode(color), new IntegerValue(0));
+    }
+    return Result.value(new MapValue(colors));
   }
 
   private static Result typeOf(List<MooValue> arguments) {
@@ -4107,10 +6791,19 @@ public final class BuiltinCatalog {
   /** Concrete host capability required by the MOO listener builtins. */
   public interface ListenerControl {
     /** Binds and starts one listener, returning its integer descriptor. */
-    int listen(long handler, int port, boolean printMessages) throws IOException;
+    int listen(
+        long handler, int description, boolean ipv6, boolean printMessages, String interfaceAddress)
+        throws IOException;
+
+    /** Returns the stable inventory of active listeners. */
+    List<ListenerDescription> listeners();
 
     /** Closes one dynamic listener selected by its integer descriptor. */
-    boolean unlisten(int port);
+    boolean unlisten(int description, boolean ipv6);
+
+    /** Opens and registers one outbound network connection. */
+    long openNetworkConnection(String host, int port, boolean ipv6, long listenerHandler)
+        throws IOException;
 
     /** Writes ordered lines to one accepted connection selected by runtime ID. */
     void writeConnection(long connectionId, List<String> lines);
@@ -4121,8 +6814,27 @@ public final class BuiltinCatalog {
     /** Selects delimiter-free binary reads for one accepted connection. */
     void setConnectionBinary(long connectionId, boolean binary);
 
+    /** Returns the number of bytes currently queued for one live connection. */
+    long bufferedOutputLength(long connectionId);
+
     /** Stops the production server after its committed shutdown checkpoint is published. */
     void shutdown();
+
+    /** Terminates the production server with SIGABRT after its panic dump is published. */
+    void panic();
+  }
+
+  /** One observable listener row returned by {@code listeners()}. */
+  public record ListenerDescription(
+      long handler,
+      int description,
+      int port,
+      boolean ipv6,
+      boolean printMessages,
+      String interfaceAddress) {
+    public ListenerDescription {
+      Objects.requireNonNull(interfaceAddress, "interfaceAddress");
+    }
   }
 
   /** One validated mutation of the closed connection-option surface. */
@@ -4131,12 +6843,21 @@ public final class BuiltinCatalog {
   /** One validated line to inject into a live connection's input stream. */
   public record ForcedInputRequest(long target, String line) {}
 
+  /** One newly-created value whose inherited initialize verb must run before create returns. */
+  public record InitializeRequest(MooValue created, ListValue arguments) {
+    public InitializeRequest {
+      Objects.requireNonNull(created, "created");
+      Objects.requireNonNull(arguments, "arguments");
+    }
+  }
+
   /** The connection options authorized by the held-input slice. */
   public enum ConnectionOption {
     HOLD_INPUT,
     FLUSH_COMMAND,
     DISABLE_OOB,
-    BINARY
+    BINARY,
+    INTRINSIC_COMMANDS
   }
 
   /** One explicit builtin value, MOO error, dynamic call, or staged effect. */
@@ -4156,10 +6877,13 @@ public final class BuiltinCatalog {
       Optional<MooValue> taskLocal,
       OptionalLong moveObject,
       OptionalLong moveDestination,
+      OptionalLong movePosition,
       Optional<ListValue> errorDetails,
       Optional<CheckpointRequest> checkpointRequest,
+      Optional<InitializeRequest> initializeRequest,
       Optional<Boolean> threadMode,
-      boolean abortSeconds) {
+      boolean abortSeconds,
+      Optional<AnonymousObjectValue> anonymousRecycleTarget) {
     private Result(
         Optional<MooValue> value,
         Optional<ErrorValue> error,
@@ -4176,6 +6900,53 @@ public final class BuiltinCatalog {
         Optional<MooValue> taskLocal,
         OptionalLong moveObject,
         OptionalLong moveDestination,
+        OptionalLong movePosition,
+        Optional<ListValue> errorDetails,
+        Optional<CheckpointRequest> checkpointRequest,
+        Optional<InitializeRequest> initializeRequest,
+        Optional<Boolean> threadMode,
+        boolean abortSeconds) {
+      this(
+          value,
+          error,
+          dynamicSource,
+          output,
+          switchedPlayer,
+          programmer,
+          recycleTarget,
+          delaySeconds,
+          hostWork,
+          connectionOptionRequest,
+          bootPlayerTarget,
+          forcedInputRequest,
+          taskLocal,
+          moveObject,
+          moveDestination,
+          movePosition,
+          errorDetails,
+          checkpointRequest,
+          initializeRequest,
+          threadMode,
+          abortSeconds,
+          Optional.empty());
+    }
+    private Result(
+        Optional<MooValue> value,
+        Optional<ErrorValue> error,
+        Optional<String> dynamicSource,
+        Optional<String> output,
+        OptionalLong switchedPlayer,
+        OptionalLong programmer,
+        OptionalLong recycleTarget,
+        OptionalDouble delaySeconds,
+        Optional<Callable<Result>> hostWork,
+        Optional<ConnectionOptionRequest> connectionOptionRequest,
+        OptionalLong bootPlayerTarget,
+        Optional<ForcedInputRequest> forcedInputRequest,
+        Optional<MooValue> taskLocal,
+        OptionalLong moveObject,
+        OptionalLong moveDestination,
+        OptionalLong movePosition,
         Optional<ListValue> errorDetails,
         Optional<CheckpointRequest> checkpointRequest) {
       this(
@@ -4194,8 +6965,10 @@ public final class BuiltinCatalog {
           taskLocal,
           moveObject,
           moveDestination,
+          movePosition,
           errorDetails,
           checkpointRequest,
+          Optional.empty(),
           Optional.empty(),
           false);
     }
@@ -4229,6 +7002,7 @@ public final class BuiltinCatalog {
           Optional.empty(),
           OptionalLong.empty(),
           OptionalLong.empty(),
+          OptionalLong.empty(),
           Optional.empty(),
           Optional.empty());
     }
@@ -4247,6 +7021,31 @@ public final class BuiltinCatalog {
           Optional.empty(),
           OptionalLong.empty(),
           Optional.empty());
+    }
+
+    static Result initialize(MooValue created, ListValue arguments) {
+      return new Result(
+          Optional.empty(),
+          Optional.empty(),
+          Optional.empty(),
+          Optional.empty(),
+          OptionalLong.empty(),
+          OptionalLong.empty(),
+          OptionalLong.empty(),
+          OptionalDouble.empty(),
+          Optional.empty(),
+          Optional.empty(),
+          OptionalLong.empty(),
+          Optional.empty(),
+          Optional.empty(),
+          OptionalLong.empty(),
+          OptionalLong.empty(),
+          OptionalLong.empty(),
+          Optional.empty(),
+          Optional.empty(),
+          Optional.of(new InitializeRequest(created, arguments)),
+          Optional.empty(),
+          false);
     }
 
     static Result zero() {
@@ -4270,6 +7069,7 @@ public final class BuiltinCatalog {
           Optional.empty(),
           OptionalLong.empty(),
           OptionalLong.empty(),
+          OptionalLong.empty(),
           Optional.empty(),
           Optional.of(new CheckpointRequest(false)));
     }
@@ -4291,8 +7091,31 @@ public final class BuiltinCatalog {
           Optional.empty(),
           OptionalLong.empty(),
           OptionalLong.empty(),
+          OptionalLong.empty(),
           Optional.empty(),
           Optional.of(new CheckpointRequest(true)));
+    }
+
+    static Result panic(String message) {
+      return new Result(
+          Optional.of(new IntegerValue(0)),
+          Optional.empty(),
+          Optional.empty(),
+          Optional.empty(),
+          OptionalLong.empty(),
+          OptionalLong.empty(),
+          OptionalLong.empty(),
+          OptionalDouble.empty(),
+          Optional.empty(),
+          Optional.empty(),
+          OptionalLong.empty(),
+          Optional.empty(),
+          Optional.empty(),
+          OptionalLong.empty(),
+          OptionalLong.empty(),
+          OptionalLong.empty(),
+          Optional.empty(),
+          Optional.of(CheckpointRequest.panic(message)));
     }
 
     static Result suspend(double seconds) {
@@ -4361,6 +7184,8 @@ public final class BuiltinCatalog {
           Optional.empty(),
           OptionalLong.empty(),
           OptionalLong.empty(),
+          OptionalLong.empty(),
+          Optional.empty(),
           Optional.empty(),
           Optional.empty(),
           Optional.of(enabled),
@@ -4384,6 +7209,8 @@ public final class BuiltinCatalog {
           Optional.empty(),
           OptionalLong.empty(),
           OptionalLong.empty(),
+          OptionalLong.empty(),
+          Optional.empty(),
           Optional.empty(),
           Optional.empty(),
           Optional.empty(),
@@ -4405,6 +7232,7 @@ public final class BuiltinCatalog {
           OptionalLong.empty(),
           Optional.empty(),
           Optional.empty(),
+          OptionalLong.empty(),
           OptionalLong.empty(),
           OptionalLong.empty(),
           Optional.of(new ListValue(List.of(message, value, new ListValue(List.of())))),
@@ -4429,7 +7257,7 @@ public final class BuiltinCatalog {
 
     static Result output(String line) {
       return new Result(
-          Optional.of(new IntegerValue(0)),
+          Optional.of(new IntegerValue(1)),
           Optional.empty(),
           Optional.empty(),
           Optional.of(line),
@@ -4475,7 +7303,7 @@ public final class BuiltinCatalog {
           Optional.empty());
     }
 
-    static Result move(long object, long destination) {
+    static Result move(long object, long destination, long position) {
       return new Result(
           Optional.empty(),
           Optional.empty(),
@@ -4492,6 +7320,7 @@ public final class BuiltinCatalog {
           Optional.empty(),
           OptionalLong.of(object),
           OptionalLong.of(destination),
+          OptionalLong.of(position),
           Optional.empty(),
           Optional.empty());
     }
@@ -4510,6 +7339,32 @@ public final class BuiltinCatalog {
           Optional.empty(),
           OptionalLong.empty(),
           Optional.empty());
+    }
+
+    static Result recycle(AnonymousObjectValue object) {
+      return new Result(
+          Optional.empty(),
+          Optional.empty(),
+          Optional.empty(),
+          Optional.empty(),
+          OptionalLong.empty(),
+          OptionalLong.empty(),
+          OptionalLong.empty(),
+          OptionalDouble.empty(),
+          Optional.empty(),
+          Optional.empty(),
+          OptionalLong.empty(),
+          Optional.empty(),
+          Optional.empty(),
+          OptionalLong.empty(),
+          OptionalLong.empty(),
+          OptionalLong.empty(),
+          Optional.empty(),
+          Optional.empty(),
+          Optional.empty(),
+          Optional.empty(),
+          false,
+          Optional.of(object));
     }
   }
 }

@@ -19,7 +19,8 @@ public record BytecodeProgram(
                             instruction.operand(),
                             instruction.text(),
                             instruction.handler(),
-                            1)
+                            1,
+                            instruction.astPath())
                         : instruction)
             .toList();
     forkVectors = List.copyOf(forkVectors);
@@ -78,6 +79,7 @@ public record BytecodeProgram(
     LOAD_LOCAL,
     STORE_LOCAL,
     DUP,
+    DUP_PAIR,
     POP,
     GET_PROPERTY,
     SET_PROPERTY,
@@ -87,17 +89,24 @@ public record BytecodeProgram(
     FIRST,
     LAST,
     SET_INDEX_LOCAL,
+    SET_INDEX_PROPERTY,
     SET_RANGE_LOCAL,
     CALL,
     CALL_VERB,
     NEGATE,
     NOT,
+    COMPLEMENT,
     ADD,
     SUBTRACT,
     MULTIPLY,
     DIVIDE,
     REMAINDER,
     POWER,
+    BITOR,
+    BITAND,
+    BITXOR,
+    BITSHL,
+    BITSHR,
     EQUAL,
     NOT_EQUAL,
     LESS_THAN,
@@ -119,14 +128,38 @@ public record BytecodeProgram(
     RETURN
   }
 
+  /** Stable structural path from a parsed program root to one AST node. */
+  public record AstPath(List<Integer> components) {
+    public AstPath {
+      components = List.copyOf(components);
+      if (components.isEmpty() || components.stream().anyMatch(component -> component < 0)) {
+        throw new IllegalArgumentException("AST path requires nonnegative components");
+      }
+    }
+
+    /** Returns the path to one structural child of this node. */
+    public AstPath child(int... childComponents) {
+      List<Integer> nested = new java.util.ArrayList<>(components);
+      for (int component : childComponents) {
+        if (component < 0) {
+          throw new IllegalArgumentException("AST path requires nonnegative components");
+        }
+        nested.add(component);
+      }
+      return new AstPath(nested);
+    }
+  }
+
   /** One validated instruction and its explicit operands. */
   public record Instruction(
       Opcode opcode,
       OptionalLong operand,
       Optional<String> text,
       Optional<HandlerSpec> handler,
-      int sourceLine) {
+      int sourceLine,
+      Optional<AstPath> astPath) {
     public Instruction {
+      Objects.requireNonNull(astPath, "astPath");
       if (sourceLine < 0) {
         throw new IllegalArgumentException("source line must not be negative");
       }
@@ -169,10 +202,25 @@ public record BytecodeProgram(
               || opcode == Opcode.SET_INDEX_LOCAL
               || opcode == Opcode.SET_RANGE_LOCAL;
       if ((!optionalParent && numberRequired != operand.isPresent())
-          || (optionalParent && operand.isPresent() && operand.orElseThrow() != 1)
+          || ((opcode == Opcode.INDEX || opcode == Opcode.SET_RANGE_LOCAL)
+              && operand.isPresent()
+              && operand.orElseThrow() != 1)
+          || (opcode == Opcode.SET_INDEX_LOCAL
+              && operand.isPresent()
+              && operand.orElseThrow() < 1)
           || textRequired != text.isPresent()
           || handlerRequired != handler.isPresent()) {
         throw new IllegalArgumentException(opcode + " has invalid operands");
+      }
+      boolean pathAllowed =
+          opcode == Opcode.CALL
+              || opcode == Opcode.CALL_VERB
+              || opcode == Opcode.JUMP
+              || opcode == Opcode.ENTER_HANDLER
+              || opcode == Opcode.ITERATE
+              || opcode == Opcode.ITERATE_RANGE;
+      if (astPath.isPresent() && !pathAllowed) {
+        throw new IllegalArgumentException(opcode + " cannot carry an AST path");
       }
     }
 
@@ -194,7 +242,17 @@ public record BytecodeProgram(
     /** Creates an instruction with explicit operands before source location is assigned. */
     public Instruction(
         Opcode opcode, OptionalLong operand, Optional<String> text, Optional<HandlerSpec> handler) {
-      this(opcode, operand, text, handler, 0);
+      this(opcode, operand, text, handler, 0, Optional.empty());
+    }
+
+    /** Creates an instruction with explicit operands and a retained source line. */
+    public Instruction(
+        Opcode opcode,
+        OptionalLong operand,
+        Optional<String> text,
+        Optional<HandlerSpec> handler,
+        int sourceLine) {
+      this(opcode, operand, text, handler, sourceLine, Optional.empty());
     }
 
     /** Creates an instruction without operands. */
@@ -207,9 +265,53 @@ public record BytecodeProgram(
       this(opcode, OptionalLong.of(operand), Optional.empty(), Optional.empty(), 0);
     }
 
+    /** Creates a numeric control instruction with its stable AST path. */
+    public Instruction(Opcode opcode, long operand, AstPath astPath) {
+      this(
+          opcode,
+          OptionalLong.of(operand),
+          Optional.empty(),
+          Optional.empty(),
+          0,
+          Optional.of(astPath));
+    }
+
     /** Creates an instruction with one text operand. */
     public Instruction(Opcode opcode, String text) {
       this(opcode, OptionalLong.empty(), Optional.of(text), Optional.empty(), 0);
+    }
+
+    /** Creates a call instruction with one text operand and its stable AST path. */
+    public Instruction(Opcode opcode, String text, AstPath astPath) {
+      this(
+          opcode,
+          OptionalLong.empty(),
+          Optional.of(text),
+          Optional.empty(),
+          0,
+          Optional.of(astPath));
+    }
+
+    /** Creates an operand-free call instruction with its stable AST path. */
+    public Instruction(Opcode opcode, AstPath astPath) {
+      this(
+          opcode,
+          OptionalLong.empty(),
+          Optional.empty(),
+          Optional.empty(),
+          0,
+          Optional.of(astPath));
+    }
+
+    /** Creates a numeric-and-text control instruction with its stable AST path. */
+    public Instruction(Opcode opcode, long operand, String text, AstPath astPath) {
+      this(
+          opcode,
+          OptionalLong.of(operand),
+          Optional.of(text),
+          Optional.empty(),
+          0,
+          Optional.of(astPath));
     }
 
     /** Creates an instruction with numeric and text operands. */
@@ -220,6 +322,17 @@ public record BytecodeProgram(
     /** Creates an explicit handler entry instruction. */
     public Instruction(HandlerSpec handler) {
       this(Opcode.ENTER_HANDLER, OptionalLong.empty(), Optional.empty(), Optional.of(handler), 0);
+    }
+
+    /** Creates an explicit handler entry instruction with its stable AST path. */
+    public Instruction(HandlerSpec handler, AstPath astPath) {
+      this(
+          Opcode.ENTER_HANDLER,
+          OptionalLong.empty(),
+          Optional.empty(),
+          Optional.of(handler),
+          0,
+          Optional.of(astPath));
     }
   }
 

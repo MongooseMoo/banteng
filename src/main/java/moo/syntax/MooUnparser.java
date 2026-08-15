@@ -11,14 +11,16 @@ public final class MooUnparser {
   private static final int ASSIGNMENT_PRECEDENCE = 1;
   private static final int TERNARY_PRECEDENCE = 2;
   private static final int OR_PRECEDENCE = 3;
-  private static final int AND_PRECEDENCE = 4;
+  private static final int AND_PRECEDENCE = OR_PRECEDENCE;
   private static final int COMPARISON_PRECEDENCE = 5;
-  private static final int ADDITIVE_PRECEDENCE = 6;
-  private static final int MULTIPLICATIVE_PRECEDENCE = 7;
-  private static final int POWER_PRECEDENCE = 8;
-  private static final int UNARY_PRECEDENCE = 9;
-  private static final int POSTFIX_PRECEDENCE = 10;
-  private static final int PRIMARY_PRECEDENCE = 11;
+  private static final int BITWISE_PRECEDENCE = 6;
+  private static final int SHIFT_PRECEDENCE = 7;
+  private static final int ADDITIVE_PRECEDENCE = 8;
+  private static final int MULTIPLICATIVE_PRECEDENCE = 9;
+  private static final int POWER_PRECEDENCE = 10;
+  private static final int UNARY_PRECEDENCE = 11;
+  private static final int POSTFIX_PRECEDENCE = 12;
+  private static final int PRIMARY_PRECEDENCE = 13;
   private static final Set<String> KEYWORDS =
       Set.of(
           "if",
@@ -95,7 +97,10 @@ public final class MooUnparser {
         line(
             indentation,
             "while"
-                + whileStatement.loopVariable().map(name -> " " + name).orElse("")
+                + whileStatement
+                    .loopVariable()
+                    .map(name -> " " + canonicalVariableName(name))
+                    .orElse("")
                 + " ("
                 + expression(whileStatement.condition(), ASSIGNMENT_PRECEDENCE)
                 + ")");
@@ -107,8 +112,11 @@ public final class MooUnparser {
         line(
             indentation,
             "for "
-                + forStatement.variable()
-                + forStatement.indexVariable().map(index -> ", " + index).orElse("")
+                + canonicalVariableName(forStatement.variable())
+                + forStatement
+                    .indexVariable()
+                    .map(index -> ", " + canonicalVariableName(index))
+                    .orElse("")
                 + (forStatement.rangeEnd().isPresent() ? " in [" : " in (")
                 + expression(forStatement.iterable(), ASSIGNMENT_PRECEDENCE)
                 + forStatement
@@ -122,7 +130,10 @@ public final class MooUnparser {
       if (statement instanceof Ast.Break breakStatement) {
         line(
             indentation,
-            breakStatement.loopVariable().map(name -> "break " + name + ";").orElse("break;"));
+            breakStatement
+                .loopVariable()
+                .map(name -> "break " + canonicalVariableName(name) + ";")
+                .orElse("break;"));
         return;
       }
       if (statement instanceof Ast.Continue continueStatement) {
@@ -130,7 +141,7 @@ public final class MooUnparser {
             indentation,
             continueStatement
                 .loopVariable()
-                .map(name -> "continue " + name + ";")
+                .map(name -> "continue " + canonicalVariableName(name) + ";")
                 .orElse("continue;"));
         return;
       }
@@ -138,7 +149,10 @@ public final class MooUnparser {
         line(
             indentation,
             "fork"
-                + forkStatement.taskIdVariable().map(variable -> " " + variable).orElse("")
+                + forkStatement
+                    .taskIdVariable()
+                    .map(variable -> " " + canonicalVariableName(variable))
+                    .orElse("")
                 + " ("
                 + expression(forkStatement.delay(), ASSIGNMENT_PRECEDENCE)
                 + ")");
@@ -153,7 +167,10 @@ public final class MooUnparser {
           line(
               indentation,
               "except"
-                  + clause.variable().map(variable -> " " + variable).orElse("")
+                  + clause
+                      .variable()
+                      .map(variable -> " " + canonicalVariableName(variable))
+                      .orElse("")
                   + " ("
                   + errors(clause.errors())
                   + ")");
@@ -181,7 +198,7 @@ public final class MooUnparser {
     int precedence = precedence(expression);
     String rendered;
     if (expression instanceof Ast.Identifier identifier) {
-      rendered = identifier.name();
+      rendered = canonicalVariableName(identifier.name());
     } else if (expression instanceof Ast.IntegerLiteral integer) {
       rendered = Long.toString(integer.value());
     } else if (expression instanceof Ast.FloatLiteral floating) {
@@ -214,7 +231,7 @@ public final class MooUnparser {
     } else if (expression instanceof Ast.ScatterElement element) {
       rendered =
           (element.rest() ? "@" : element.optional() ? "?" : "")
-              + element.name()
+              + canonicalVariableName(element.name())
               + element
                   .defaultValue()
                   .map(value -> " = " + expression(value, ASSIGNMENT_PRECEDENCE))
@@ -223,12 +240,17 @@ public final class MooUnparser {
       rendered = call.name() + "(" + joinExpressions(call.arguments()) + ")";
     } else if (expression instanceof Ast.VerbCall verbCall) {
       Optional<String> name = staticName(verbCall.name());
+      Optional<String> systemName = systemName(verbCall.object(), verbCall.name());
       rendered =
-          expression(verbCall.object(), POSTFIX_PRECEDENCE)
-              + ":"
-              + (name.isEmpty()
-                  ? "(" + expression(verbCall.name(), ASSIGNMENT_PRECEDENCE) + ")"
-                  : name.orElseThrow())
+          systemName.map(value -> "$" + value).orElseGet(
+                  () ->
+                      expression(verbCall.object(), POSTFIX_PRECEDENCE)
+                          + ":"
+                          + (name.isEmpty()
+                              ? "("
+                                  + expression(verbCall.name(), ASSIGNMENT_PRECEDENCE)
+                                  + ")"
+                              : name.orElseThrow()))
               + "("
               + joinExpressions(verbCall.arguments())
               + ")";
@@ -239,12 +261,17 @@ public final class MooUnparser {
               + expression(assignment.value(), ASSIGNMENT_PRECEDENCE);
     } else if (expression instanceof Ast.PropertyAccess property) {
       Optional<String> name = staticName(property.property());
+      Optional<String> systemName = systemName(property.object(), property.property());
       rendered =
-          expression(property.object(), POSTFIX_PRECEDENCE)
-              + "."
-              + (name.isEmpty()
-                  ? "(" + expression(property.property(), ASSIGNMENT_PRECEDENCE) + ")"
-                  : name.orElseThrow());
+          systemName.map(value -> "$" + value).orElseGet(
+              () ->
+                  expression(property.object(), POSTFIX_PRECEDENCE)
+                      + "."
+                      + (name.isEmpty()
+                          ? "("
+                              + expression(property.property(), ASSIGNMENT_PRECEDENCE)
+                              + ")"
+                          : name.orElseThrow()));
     } else if (expression instanceof Ast.IndexAccess index) {
       rendered =
           expression(index.collection(), POSTFIX_PRECEDENCE)
@@ -265,7 +292,11 @@ public final class MooUnparser {
       rendered = "$";
     } else if (expression instanceof Ast.Unary unary) {
       rendered =
-          (unary.operator() == Ast.UnaryOperator.NEGATE ? "-" : "!")
+          switch (unary.operator()) {
+            case NEGATE -> "-";
+            case NOT -> "!";
+            case COMPLEMENT -> "~";
+          }
               + expression(unary.operand(), UNARY_PRECEDENCE);
     } else if (expression instanceof Ast.Binary binary) {
       int operatorPrecedence = binaryPrecedence(binary.operator());
@@ -302,10 +333,14 @@ public final class MooUnparser {
 
   private static String assignmentTarget(Ast.AssignmentTarget target) {
     if (target instanceof Ast.VariableTarget variable) {
-      return variable.name();
+      return canonicalVariableName(variable.name());
     }
     if (target instanceof Ast.PropertyTarget property) {
       Optional<String> name = staticName(property.property());
+      Optional<String> systemName = systemName(property.object(), property.property());
+      if (systemName.isPresent()) {
+        return "$" + systemName.orElseThrow();
+      }
       return expression(property.object(), POSTFIX_PRECEDENCE)
           + "."
           + (name.isEmpty()
@@ -357,6 +392,13 @@ public final class MooUnparser {
     return Optional.of(string.value());
   }
 
+  private static Optional<String> systemName(Ast.Expression object, Ast.Expression name) {
+    if (!(object instanceof Ast.ObjectLiteral literal) || literal.value() != 0) {
+      return Optional.empty();
+    }
+    return staticName(name);
+  }
+
   private static boolean isIdentifier(String value) {
     if (value.isEmpty()
         || !(Character.isLetter(value.charAt(0)) || value.charAt(0) == '_')
@@ -371,6 +413,23 @@ public final class MooUnparser {
       }
     }
     return true;
+  }
+
+  private static String canonicalVariableName(String name) {
+    return switch (name.toLowerCase(Locale.ROOT)) {
+      case "num" -> "NUM";
+      case "obj" -> "OBJ";
+      case "str" -> "STR";
+      case "list" -> "LIST";
+      case "err" -> "ERR";
+      case "int" -> "INT";
+      case "float" -> "FLOAT";
+      case "map" -> "MAP";
+      case "anon" -> "ANON";
+      case "waif" -> "WAIF";
+      case "bool" -> "BOOL";
+      default -> name;
+    };
   }
 
   private static String errors(Ast.ErrorSelector selector) {
@@ -417,6 +476,8 @@ public final class MooUnparser {
           GREATER_THAN_OR_EQUAL,
           IN ->
           COMPARISON_PRECEDENCE;
+      case BITOR, BITAND, BITXOR -> BITWISE_PRECEDENCE;
+      case BITSHL, BITSHR -> SHIFT_PRECEDENCE;
       case ADD, SUBTRACT -> ADDITIVE_PRECEDENCE;
       case MULTIPLY, DIVIDE, REMAINDER -> MULTIPLICATIVE_PRECEDENCE;
       case POWER -> POWER_PRECEDENCE;
@@ -438,6 +499,11 @@ public final class MooUnparser {
       case GREATER_THAN -> ">";
       case GREATER_THAN_OR_EQUAL -> ">=";
       case IN -> "in";
+      case BITOR -> "|.";
+      case BITAND -> "&.";
+      case BITXOR -> "^.";
+      case BITSHL -> "<<";
+      case BITSHR -> ">>";
       case AND -> "&&";
       case OR -> "||";
     };

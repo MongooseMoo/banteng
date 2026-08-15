@@ -3,12 +3,14 @@ package moo.builtin;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.lang.reflect.Field;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -48,24 +50,36 @@ final class BuiltinCatalogTest {
           "add_property",
           "add_verb",
           "all_members",
+          "ancestors",
           "asin",
           "asinh",
           "atan",
           "atan2",
           "atanh",
+          "argon2",
+          "argon2_verify",
           "boot_player",
+          "buffered_output_length",
+          "call_function",
           "caller_perms",
+          "callers",
+          "children",
+          "chparent",
+          "chparents",
           "cbrt",
           "ceil",
           "chr",
           "connection_info",
           "connection_name",
+          "connection_options",
           "connected_players",
           "cos",
           "cosh",
           "create",
+          "crypt",
           "ctime",
           "clear_property",
+          "db_disk_size",
           "decode_binary",
           "delete_verb",
           "delete_property",
@@ -77,43 +91,100 @@ final class BuiltinCatalogTest {
           "eval",
           "exp",
           "explode",
+          "file_chmod",
+          "file_close",
+          "file_count_lines",
+          "file_eof",
+          "file_flush",
+          "file_grep",
+          "file_handles",
+          "file_last_access",
+          "file_last_change",
+          "file_last_modify",
+          "file_list",
+          "file_mkdir",
+          "file_mode",
+          "file_name",
+          "file_open",
+          "file_openmode",
+          "file_read",
+          "file_readline",
+          "file_readlines",
+          "file_remove",
+          "file_rename",
+          "file_rmdir",
+          "file_seek",
+          "file_size",
+          "file_stat",
+          "file_tell",
+          "file_type",
+          "file_write",
+          "file_writeline",
           "floatstr",
           "floor",
+          "flush_input",
           "force_input",
           "frandom",
           "ftime",
           "function_info",
+          "generate_json",
+          "gc_stats",
           "index",
           "is_player",
           "is_clear_property",
           "length",
           "kill_task",
           "listen",
+          "listeners",
           "load_server_options",
+          "locate_by_name",
+          "locations",
           "log",
           "log10",
+          "log_cache_stats",
           "listappend",
           "listdelete",
           "listinsert",
           "listset",
+          "mapdelete",
+          "maphaskey",
           "mapkeys",
+          "mapvalues",
           "max",
+          "max_object",
+          "memory_usage",
           "min",
           "move",
           "new_waif",
+          "next_recycled_object",
           "notify",
+          "open_network_connection",
+          "output_delimiters",
+          "owned_objects",
           "parent",
+          "parents",
+          "parse_ansi",
+          "parse_json",
+          "pcre_cache_stats",
+          "pcre_match",
+          "pcre_replace",
           "properties",
           "property_info",
+          "queue_info",
           "queued_tasks",
           "random",
           "random_bytes",
           "reseed_random",
           "raise",
           "read",
+          "recreate",
           "recycle",
+          "recycled_objects",
           "reverse",
           "relative_heading",
+          "remove_ansi",
+          "reset_max_object",
+          "resume",
           "rindex",
           "round",
           "run_gc",
@@ -128,18 +199,32 @@ final class BuiltinCatalogTest {
           "setadd",
           "setremove",
           "server_log",
+          "server_version",
           "shutdown",
+          "simplex_noise",
           "sin",
           "sinh",
+          "sort",
+          "sqlite_close",
+          "sqlite_execute",
+          "sqlite_handles",
+          "sqlite_info",
+          "sqlite_interrupt",
+          "sqlite_last_insert_row_id",
+          "sqlite_limit",
+          "sqlite_open",
+          "sqlite_query",
           "sqrt",
           "strcmp",
           "strsub",
+          "strtr",
           "suspend",
           "switch_player",
           "tan",
           "tanh",
           "task_id",
           "task_perms",
+          "task_stack",
           "thread_pool",
           "threads",
           "ticks_left",
@@ -151,9 +236,14 @@ final class BuiltinCatalogTest {
           "tostr",
           "trunc",
           "typeof",
+          "unlisten",
+          "usage",
           "valid",
           "value_bytes",
+          "verbs",
+          "waif_stats",
           "verb_args",
+          "verb_cache_stats",
           "verb_code",
           "verb_info",
           "yin");
@@ -600,6 +690,85 @@ final class BuiltinCatalogTest {
   }
 
   @Test
+  void switchPlayerAcceptsAnOptionalIntegerSilentFlagAndRejectsOtherTypes() {
+    BuiltinCatalog catalog = new BuiltinCatalog();
+    BuiltinSpec spec = catalog.spec("switch_player").orElseThrow();
+
+    assertEquals(
+        List.of(
+            new CallShape(
+                List.of(Set.of(ArgType.OBJECT), Set.of(ArgType.OBJECT)),
+                List.of(Set.of(ArgType.INTEGER)),
+                Optional.empty())),
+        spec.callShapes());
+    WorldObject wizard =
+        new WorldObject(1, "Wizard", 4, 1, -1, -1, List.of(), List.of(), List.of(), List.of());
+    WorldObject oldPlayer =
+        new WorldObject(2, "Old", 0, 2, -1, -1, List.of(), List.of(), List.of(), List.of());
+    WorldObject newPlayer =
+        new WorldObject(3, "New", 0, 3, -1, -1, List.of(), List.of(), List.of(), List.of());
+    try (WorldTxn transaction =
+        new WorldTxn(List.of(2L, 3L), List.of(wizard, oldPlayer, newPlayer)).begin()) {
+      transaction.openConnection(-17, new MapValue(Map.of()));
+      assertTrue(transaction.switchConnectionPlayer(-17, 2));
+      assertEquals(
+          OptionalLong.of(3),
+          invoke(
+                  catalog,
+                  spec,
+                  List.of(new ObjectValue(2), new ObjectValue(3), new IntegerValue(1)),
+                  transaction,
+                  1)
+              .switchedPlayer());
+      assertEquals(
+          Optional.of(ErrorValue.E_TYPE),
+          invoke(
+                  catalog,
+                  spec,
+                  List.of(new ObjectValue(2), new ObjectValue(3), string("bad")),
+                  transaction,
+                  1)
+              .error());
+      assertEquals(
+          Optional.of(ErrorValue.E_PERM),
+          invoke(
+                  catalog,
+                  spec,
+                  List.of(new ObjectValue(2), new ObjectValue(3)),
+                  transaction,
+                  2)
+              .error());
+      assertEquals(
+          Optional.of(ErrorValue.E_INVARG),
+          invoke(
+                  catalog,
+                  spec,
+                  List.of(new ObjectValue(2), new ObjectValue(2)),
+                  transaction,
+                  1)
+              .error());
+      assertEquals(
+          Optional.of(ErrorValue.E_INVARG),
+          invoke(
+                  catalog,
+                  spec,
+                  List.of(new ObjectValue(999), new ObjectValue(3)),
+                  transaction,
+                  1)
+              .error());
+      assertEquals(
+          Optional.of(ErrorValue.E_INVARG),
+          invoke(
+                  catalog,
+                  spec,
+                  List.of(new ObjectValue(2), new ObjectValue(999)),
+                  transaction,
+                  1)
+              .error());
+    }
+  }
+
+  @Test
   void killTaskUsesTheRegisteredTaskOwnerWithOneIntegerArgument() {
     BuiltinCatalog catalog =
         new BuiltinCatalog(
@@ -831,6 +1000,109 @@ final class BuiltinCatalogTest {
                   transaction,
                   2)
               .error());
+    }
+  }
+
+  @Test
+  void bufferedOutputLengthUsesToastSignaturePermissionsAndLiveConnectionOwner() {
+    RecordingListener listener = new RecordingListener();
+    listener.bufferedOutputLength = 37;
+    BuiltinCatalog catalog = new BuiltinCatalog(listener);
+    BuiltinSpec spec = catalog.spec("buffered_output_length").orElseThrow();
+
+    assertEquals(
+        List.of(new CallShape(List.of(), List.of(Set.of(ArgType.OBJECT)), Optional.empty())),
+        spec.callShapes());
+    assertSame(BuiltinPermissionRule.ANY, spec.permission());
+    assertEquals(EffectClass.EXTERNAL_READ, spec.effect());
+    assertEquals(BuiltinOwner.CONNECTION, spec.owner());
+    try (WorldTxn transaction = world().begin()) {
+      transaction.openConnection(-2);
+      transaction.switchConnectionPlayer(-2, 2);
+      transaction.openConnection(-3);
+      transaction.switchConnectionPlayer(-3, 1);
+
+      assertEquals(
+          Optional.of(new IntegerValue(65_536)),
+          invoke(catalog, spec, List.of(), transaction, 2).value());
+      assertEquals(
+          Optional.of(new IntegerValue(37)),
+          invoke(catalog, spec, List.of(new ObjectValue(2)), transaction, 2).value());
+      assertEquals(-2, listener.bufferedOutputConnectionId);
+      assertEquals(
+          Optional.of(ErrorValue.E_PERM),
+          invoke(catalog, spec, List.of(new ObjectValue(1)), transaction, 2).error());
+      assertEquals(
+          Optional.of(ErrorValue.E_INVARG),
+          invoke(catalog, spec, List.of(new ObjectValue(99)), transaction, 2).error());
+      assertEquals(
+          Optional.of(ErrorValue.E_TYPE),
+          invoke(catalog, spec, List.of(string("x")), transaction, 1).error());
+      assertEquals(
+          Optional.of(ErrorValue.E_ARGS),
+          invoke(
+                  catalog,
+                  spec,
+                  List.of(new ObjectValue(2), new ObjectValue(2)),
+                  transaction,
+                  1)
+              .error());
+    }
+  }
+
+  @Test
+  void callFunctionRecursesThroughTheOneManifestWithoutAddingAFrame() {
+    BuiltinCatalog catalog = new BuiltinCatalog();
+    BuiltinSpec spec = catalog.spec("call_function").orElseThrow();
+    ListValue callers = new ListValue(List.of(new ListValue(List.of(new ObjectValue(7)))));
+
+    assertEquals(
+        List.of(new CallShape(List.of(Set.of(ArgType.STRING)), List.of(), Optional.of(Set.of(ArgType.ANY)))),
+        spec.callShapes());
+    assertSame(BuiltinPermissionRule.ANY, spec.permission());
+    assertEquals(EffectClass.IRREVOCABLE, spec.effect());
+    assertEquals(BuiltinOwner.VM, spec.owner());
+    try (WorldTxn transaction = world().begin()) {
+      assertEquals(
+          Optional.of(new IntegerValue(0)),
+          invoke(
+                  catalog,
+                  spec,
+                  List.of(string("typeof"), new IntegerValue(42)),
+                  transaction,
+                  1)
+              .value());
+      assertEquals(
+          Optional.of(callers),
+          catalog
+              .invoke(
+                  spec,
+                  List.of(string("callers")),
+                  transaction,
+                  1,
+                  new IntegerValue(0),
+                  9,
+                  100,
+                  5,
+                  new ObjectValue(1),
+                  1,
+                  callers)
+              .value());
+      assertEquals(
+          Optional.of(new IntegerValue(0)),
+          invoke(
+                  catalog,
+                  spec,
+                  List.of(string("call_function"), string("typeof"), new IntegerValue(1)),
+                  transaction,
+                  1)
+              .value());
+      assertEquals(
+          Optional.of(ErrorValue.E_ARGS),
+          invoke(catalog, spec, List.of(string("typeof")), transaction, 1).error());
+      assertEquals(
+          Optional.of(ErrorValue.E_INVARG),
+          invoke(catalog, spec, List.of(string("")), transaction, 1).error());
     }
   }
 
@@ -1189,6 +1461,52 @@ final class BuiltinCatalogTest {
   }
 
   @Test
+  void setPlayerFlagAcceptsAnyValueAfterValidatingTheObject() {
+    BuiltinCatalog catalog = new BuiltinCatalog();
+    BuiltinSpec spec = catalog.spec("set_player_flag").orElseThrow();
+
+    assertEquals(
+        List.of(
+            new CallShape(
+                List.of(Set.of(ArgType.OBJECT), Set.of(ArgType.ANY)),
+                List.of(),
+                Optional.empty())),
+        spec.callShapes());
+    assertSame(EffectClass.TRANSACTION_WRITE, spec.effect());
+    try (WorldTxn transaction = world().begin()) {
+      assertEquals(
+          Optional.of(ErrorValue.E_INVARG),
+          invoke(
+                  catalog,
+                  spec,
+                  List.of(new ObjectValue(99), new FloatValue(1.5)),
+                  transaction,
+                  1)
+              .error());
+      assertEquals(
+          Optional.of(new IntegerValue(0)),
+          invoke(
+                  catalog,
+                  spec,
+                  List.of(new ObjectValue(2), string("enabled")),
+                  transaction,
+                  1)
+              .value());
+      assertEquals(List.of(2L), transaction.players());
+      assertEquals(
+          Optional.of(new IntegerValue(0)),
+          invoke(
+                  catalog,
+                  spec,
+                  List.of(new ObjectValue(2), new ListValue(List.of())),
+                  transaction,
+                  1)
+              .value());
+      assertEquals(List.of(), transaction.players());
+    }
+  }
+
+  @Test
   void listenBindsTheWizardSelectedHandlerPortAndPrintOption() {
     RecordingListener listener = new RecordingListener();
     BuiltinCatalog catalog = new BuiltinCatalog(listener);
@@ -1238,7 +1556,50 @@ final class BuiltinCatalogTest {
                   transaction,
                   1)
               .error());
+      assertEquals(
+          Optional.of(ErrorValue.E_TYPE),
+          invoke(
+                  catalog,
+                  spec,
+                  List.of(new ObjectValue(2), new FloatValue(1.5)),
+                  transaction,
+                  1)
+              .error());
     }
+  }
+
+  @Test
+  void listenerAdmissionBuiltinsExposeTheToastCallShapes() {
+    BuiltinCatalog catalog = new BuiltinCatalog(new RecordingListener());
+
+    BuiltinSpec listeners = catalog.spec("listeners").orElseThrow();
+    assertEquals(
+        List.of(new CallShape(List.of(), List.of(Set.of(ArgType.ANY)), Optional.empty())),
+        listeners.callShapes());
+    assertSame(BuiltinPermissionRule.ANY, listeners.permission());
+    assertEquals(EffectClass.EXTERNAL_READ, listeners.effect());
+
+    BuiltinSpec unlisten = catalog.spec("unlisten").orElseThrow();
+    assertEquals(
+        List.of(
+            new CallShape(
+                List.of(Set.of(ArgType.ANY)),
+                List.of(Set.of(ArgType.ANY)),
+                Optional.empty())),
+        unlisten.callShapes());
+    assertSame(BuiltinPermissionRule.WIZARD_ONLY, unlisten.permission());
+    assertEquals(EffectClass.IRREVOCABLE, unlisten.effect());
+
+    BuiltinSpec open = catalog.spec("open_network_connection").orElseThrow();
+    assertEquals(
+        List.of(
+            new CallShape(
+                List.of(Set.of(ArgType.STRING), Set.of(ArgType.INTEGER)),
+                List.of(Set.of(ArgType.MAP)),
+                Optional.empty())),
+        open.callShapes());
+    assertSame(BuiltinPermissionRule.WIZARD_ONLY, open.permission());
+    assertEquals(EffectClass.IRREVOCABLE, open.effect());
   }
 
   @Test
@@ -1489,6 +1850,43 @@ final class BuiltinCatalogTest {
                   transaction,
                   2)
               .error());
+    }
+  }
+
+  @Test
+  void verbsReturnsLocalNamesInDefinitionOrderWithToastReadAuthority() {
+    BuiltinCatalog catalog = new BuiltinCatalog();
+    BuiltinSpec spec = catalog.spec("verbs").orElseThrow();
+    WorldVerb first = new WorldVerb("first alias", 2, 4, -1, "return 1;");
+    WorldVerb second = new WorldVerb("second", 2, 4, -1, "return 2;");
+    WorldObject reader =
+        new WorldObject(1, "reader", 0, 1, -1, -1, List.of(), List.of(), List.of(), List.of());
+    WorldObject target =
+        new WorldObject(
+            2,
+            "target",
+            0,
+            2,
+            -1,
+            -1,
+            List.of(),
+            List.of(),
+            List.of(first, second),
+            List.of());
+
+    try (WorldTxn transaction = new WorldTxn(List.of(), List.of(reader, target)).begin()) {
+      assertEquals(
+          Optional.of(new ListValue(List.of(string("first alias"), string("second")))),
+          invoke(catalog, spec, List.of(new ObjectValue(2)), transaction, 2).value());
+      assertEquals(
+          Optional.of(ErrorValue.E_PERM),
+          invoke(catalog, spec, List.of(new ObjectValue(2)), transaction, 1).error());
+      assertEquals(
+          Optional.of(ErrorValue.E_TYPE),
+          invoke(catalog, spec, List.of(new IntegerValue(2)), transaction, 2).error());
+      assertEquals(
+          Optional.of(ErrorValue.E_INVARG),
+          invoke(catalog, spec, List.of(new ObjectValue(99)), transaction, 2).error());
     }
   }
 
@@ -1867,6 +2265,53 @@ final class BuiltinCatalogTest {
   }
 
   @Test
+  void objectPropertyIntrospectionTreatsWaifsAsInvalidObjects() {
+    BuiltinCatalog catalog = new BuiltinCatalog();
+    WaifValue waif = new WaifValue(new ObjectValue(2), new ObjectValue(1));
+    WorldObject wizard =
+        new WorldObject(1, "Wizard", 4, 1, -1, -1, List.of(), List.of(), List.of(), List.of());
+
+    try (WorldTxn transaction = new WorldTxn(List.of(), List.of(wizard)).begin()) {
+      assertEquals(
+          Optional.of(ErrorValue.E_INVARG),
+          invoke(
+                  catalog,
+                  catalog.spec("properties").orElseThrow(),
+                  List.of(waif),
+                  transaction,
+                  1)
+              .error());
+      assertEquals(
+          Optional.of(ErrorValue.E_INVARG),
+          invoke(
+                  catalog,
+                  catalog.spec("property_info").orElseThrow(),
+                  List.of(waif, string("alpha")),
+                  transaction,
+                  1)
+              .error());
+      assertEquals(
+          Optional.of(ErrorValue.E_INVARG),
+          invoke(
+                  catalog,
+                  catalog.spec("is_clear_property").orElseThrow(),
+                  List.of(waif, string("alpha")),
+                  transaction,
+                  1)
+              .error());
+      assertEquals(
+          Optional.of(ErrorValue.E_TYPE),
+          invoke(
+                  catalog,
+                  catalog.spec("properties").orElseThrow(),
+                  List.of(new IntegerValue(0)),
+                  transaction,
+                  1)
+              .error());
+    }
+  }
+
+  @Test
   void propertyInfoResolvesCaseInsensitivelyAndReturnsCanonicalMetadata() {
     BuiltinCatalog catalog = new BuiltinCatalog();
     BuiltinSpec spec = catalog.spec("property_info").orElseThrow();
@@ -1928,6 +2373,62 @@ final class BuiltinCatalogTest {
   }
 
   @Test
+  void mapBuiltinsPreserveToastLookupDeletionAndErrorDetails() {
+    BuiltinCatalog catalog = new BuiltinCatalog();
+    BuiltinSpec hasKey = catalog.spec("maphaskey").orElseThrow();
+    BuiltinSpec values = catalog.spec("mapvalues").orElseThrow();
+    BuiltinSpec delete = catalog.spec("mapdelete").orElseThrow();
+    MapValue map =
+        new MapValue(Map.of())
+            .with(string("Foo"), new IntegerValue(1))
+            .with(new IntegerValue(2), string("two"));
+    try (WorldTxn transaction = world().begin()) {
+      assertEquals(
+          Optional.of(new IntegerValue(1)),
+          invoke(catalog, hasKey, List.of(map, string("foo")), transaction, 1).value());
+      assertEquals(
+          Optional.of(new IntegerValue(0)),
+          invoke(
+                  catalog,
+                  hasKey,
+                  List.of(map, string("foo"), new IntegerValue(1)),
+                  transaction,
+                  1)
+              .value());
+      assertEquals(
+          Optional.of(ErrorValue.E_TYPE),
+          invoke(catalog, hasKey, List.of(map, new AnonymousObjectValue()), transaction, 1)
+              .error());
+
+      assertEquals(
+          Optional.of(new ListValue(List.of(string("two"), new IntegerValue(1)))),
+          invoke(catalog, values, List.of(map), transaction, 1).value());
+      assertEquals(
+          Optional.of(ErrorValue.E_RANGE),
+          invoke(catalog, values, List.of(map, string("foo")), transaction, 1).error());
+
+      Result missing =
+          invoke(
+              catalog,
+              delete,
+              List.of(
+                  map,
+                  new ListValue(List.of(new IntegerValue(2), new IntegerValue(99)))),
+              transaction,
+              1);
+      assertEquals(Optional.of(ErrorValue.E_RANGE), missing.error());
+      assertEquals(
+          Optional.of(
+              new ListValue(
+                  List.of(
+                      string("Key 99 not found in map"),
+                      new IntegerValue(99),
+                      new ListValue(List.of())))),
+          missing.errorDetails());
+    }
+  }
+
+  @Test
   void mapKeysReturnsToastCanonicalScalarOrderWithoutCollapsingAdjacentFloats() {
     BuiltinCatalog catalog = new BuiltinCatalog();
     BuiltinSpec spec = catalog.spec("mapkeys").orElseThrow();
@@ -1958,6 +2459,33 @@ final class BuiltinCatalogTest {
                       next,
                       string("z")))),
           invoke(catalog, spec, List.of(new MapValue(entries)), transaction, 1).value());
+    }
+  }
+
+  @Test
+  void mapHasKeyUsesToastTreeNavigationForMixedBooleanAndIntegerKeys() {
+    BuiltinCatalog catalog = new BuiltinCatalog();
+    BuiltinSpec hasKey = catalog.spec("maphaskey").orElseThrow();
+    MapValue map =
+        new MapValue(Map.of())
+            .with(BooleanValue.TRUE, string("boolean one"))
+            .with(new IntegerValue(1), string("integer one"))
+            .with(BooleanValue.FALSE, string("boolean zero"))
+            .with(new IntegerValue(0), string("integer zero"));
+
+    try (WorldTxn transaction = world().begin()) {
+      assertEquals(
+          Optional.of(new IntegerValue(0)),
+          invoke(catalog, hasKey, List.of(map, BooleanValue.TRUE), transaction, 1).value());
+      assertEquals(
+          Optional.of(new IntegerValue(1)),
+          invoke(catalog, hasKey, List.of(map, BooleanValue.FALSE), transaction, 1).value());
+      assertEquals(
+          Optional.of(new IntegerValue(1)),
+          invoke(catalog, hasKey, List.of(map, new IntegerValue(1)), transaction, 1).value());
+      assertEquals(
+          Optional.of(new IntegerValue(1)),
+          invoke(catalog, hasKey, List.of(map, new IntegerValue(0)), transaction, 1).value());
     }
   }
 
@@ -2006,6 +2534,57 @@ final class BuiltinCatalogTest {
       assertEquals(Optional.of(new ListValue(List.of())), result.value());
       assertEquals(
           "return \"foobar\"[^..$];", transaction.verb(3, 0).orElseThrow().programSource());
+    }
+  }
+
+  @Test
+  void setVerbCodeStoresTheToastCanonicalCompiledProgramRendering() {
+    BuiltinCatalog catalog = new BuiltinCatalog();
+    BuiltinSpec spec = catalog.spec("set_verb_code").orElseThrow();
+    WorldObject wizard =
+        new WorldObject(1, "Wizard", 4, 1, -1, -1, List.of(), List.of(), List.of(), List.of());
+    WorldObject target =
+        new WorldObject(
+            3,
+            "Target",
+            0,
+            1,
+            -1,
+            -1,
+            List.of(),
+            List.of(),
+            List.of(new WorldVerb("server_started", 1, 0, -1, "")),
+            List.of());
+    List<MooValue> sourceLines =
+        List.of(
+            string("class = create($waif);"),
+            string("waif = class:new();"),
+            string("anon = create($anonymous, 3);"),
+            string("fork holder (0)"),
+            string("  state = {waif, anon};"),
+            string("  suspend(60);"),
+            string("endfork"));
+
+    try (WorldTxn transaction = new WorldTxn(List.of(), List.of(wizard, target)).begin()) {
+      Result result =
+          invoke(
+              catalog,
+              spec,
+              List.of(new ObjectValue(3), string("server_started"), new ListValue(sourceLines)),
+              transaction,
+              1);
+
+      assertEquals(Optional.of(new ListValue(List.of())), result.value());
+      assertEquals(
+          """
+          class = create($waif);
+          WAIF = class:new();
+          ANON = create($anonymous, 3);
+          fork holder (0)
+          state = {WAIF, ANON};
+          suspend(60);
+          endfork""",
+          transaction.verb(3, 0).orElseThrow().programSource());
     }
   }
 
@@ -2101,6 +2680,7 @@ final class BuiltinCatalogTest {
     BuiltinSpec parent = catalog.spec("parent").orElseThrow();
     BuiltinSpec isPlayer = catalog.spec("is_player").orElseThrow();
     BuiltinSpec valid = catalog.spec("valid").orElseThrow();
+    BuiltinSpec maxObject = catalog.spec("max_object").orElseThrow();
 
     assertEquals(
         List.of(new CallShape(List.of(Set.of(ArgType.ANY)), List.of(), Optional.empty())),
@@ -2111,7 +2691,9 @@ final class BuiltinCatalogTest {
     assertEquals(
         List.of(new CallShape(List.of(Set.of(ArgType.ANY)), List.of(), Optional.empty())),
         valid.callShapes());
-    for (BuiltinSpec spec : List.of(parent, isPlayer, valid)) {
+    assertEquals(
+        List.of(new CallShape(List.of(), List.of(), Optional.empty())), maxObject.callShapes());
+    for (BuiltinSpec spec : List.of(parent, isPlayer, valid, maxObject)) {
       assertSame(BuiltinPermissionRule.ANY, spec.permission());
       assertEquals(EffectClass.TRANSACTION_READ, spec.effect());
       assertEquals(BuiltinOwner.WORLD, spec.owner());
@@ -2131,6 +2713,13 @@ final class BuiltinCatalogTest {
           Optional.of(new ObjectValue(2)),
           invoke(catalog, parent, List.of(new ObjectValue(3)), transaction, 1).value());
       assertEquals(
+          Optional.of(new ObjectValue(3)),
+          invoke(catalog, maxObject, List.of(), transaction, 1).value());
+      transaction.createAnonymousObject(List.of(2L), 1);
+      assertEquals(
+          Optional.of(new ObjectValue(3)),
+          invoke(catalog, maxObject, List.of(), transaction, 1).value());
+      assertEquals(
           Optional.of(new IntegerValue(1)),
           invoke(catalog, isPlayer, List.of(new ObjectValue(1)), transaction, 1).value());
       assertEquals(
@@ -2143,11 +2732,553 @@ final class BuiltinCatalogTest {
           Optional.of(new IntegerValue(0)),
           invoke(catalog, valid, List.of(new ObjectValue(-1)), transaction, 1).value());
       assertEquals(
+          Optional.of(new IntegerValue(0)),
+          invoke(
+                  catalog,
+                  valid,
+                  List.of(new WaifValue(new ObjectValue(2), new ObjectValue(1))),
+                  transaction,
+                  1)
+              .value());
+      assertEquals(
           Optional.of(ErrorValue.E_INVARG),
           invoke(catalog, parent, List.of(new ObjectValue(99)), transaction, 1).error());
       assertEquals(
           Optional.of(ErrorValue.E_INVARG),
           invoke(catalog, isPlayer, List.of(new ObjectValue(99)), transaction, 1).error());
+    }
+  }
+
+  @Test
+  void locateByNameSearchesPermanentNamesInObjectOrderWithToastCaseRules() {
+    BuiltinCatalog catalog = new BuiltinCatalog();
+    BuiltinSpec spec = catalog.spec("locate_by_name").orElseThrow();
+    assertEquals(
+        List.of(
+            new CallShape(
+                List.of(Set.of(ArgType.STRING)),
+                List.of(Set.of(ArgType.INTEGER)),
+                Optional.empty())),
+        spec.callShapes());
+    assertSame(BuiltinPermissionRule.WIZARD_ONLY, spec.permission());
+    assertEquals(EffectClass.TRANSACTION_READ, spec.effect());
+    assertEquals(BuiltinOwner.WORLD, spec.owner());
+
+    try (WorldTxn transaction = world().begin()) {
+      assertEquals(
+          new ListValue(List.of(new ObjectValue(2))),
+          invoke(catalog, spec, List.of(string("gram")), transaction, 1)
+              .value()
+              .orElseThrow());
+      assertEquals(
+          new ListValue(List.of()),
+          invoke(
+                  catalog,
+                  spec,
+                  List.of(string("program"), new IntegerValue(1)),
+                  transaction,
+                  1)
+              .value()
+              .orElseThrow());
+      assertEquals(
+          ErrorValue.E_PERM,
+          invoke(catalog, spec, List.of(string("Program")), transaction, 2)
+              .error()
+              .orElseThrow());
+    }
+  }
+
+  @Test
+  void locationsWalksTheContainmentChainAndStopsBeforeTheSelectedBase() {
+    BuiltinCatalog catalog = new BuiltinCatalog();
+    BuiltinSpec spec = catalog.spec("locations").orElseThrow();
+    WorldObject base =
+        new WorldObject(1, "base", 4, 1, -1, -1, List.of(2L), List.of(), List.of(), List.of());
+    WorldObject room =
+        new WorldObject(2, "room", 0, 1, 1, -1, List.of(3L), List.of(), List.of(), List.of());
+    WorldObject item =
+        new WorldObject(3, "item", 0, 1, 2, -1, List.of(), List.of(), List.of(), List.of());
+
+    assertEquals(
+        List.of(
+            new CallShape(
+                List.of(Set.of(ArgType.OBJECT)),
+                List.of(Set.of(ArgType.OBJECT), Set.of(ArgType.INTEGER)),
+                Optional.empty())),
+        spec.callShapes());
+    try (WorldTxn transaction = new WorldTxn(List.of(), List.of(base, room, item)).begin()) {
+      assertEquals(
+          new ListValue(List.of(new ObjectValue(2), new ObjectValue(1))),
+          invoke(catalog, spec, List.of(new ObjectValue(3)), transaction, 1)
+              .value()
+              .orElseThrow());
+      assertEquals(
+          new ListValue(List.of(new ObjectValue(2))),
+          invoke(
+                  catalog,
+                  spec,
+                  List.of(new ObjectValue(3), new ObjectValue(1)),
+                  transaction,
+                  1)
+              .value()
+              .orElseThrow());
+      assertEquals(
+          ErrorValue.E_INVIND,
+          invoke(catalog, spec, List.of(new ObjectValue(99)), transaction, 1)
+              .error()
+              .orElseThrow());
+    }
+  }
+
+  @Test
+  void multipleInheritanceBuiltinsPreserveOrderedParentAndChildForms() {
+    BuiltinCatalog catalog = new BuiltinCatalog();
+    BuiltinSpec parent = catalog.spec("parent").orElseThrow();
+    BuiltinSpec parents = catalog.spec("parents").orElseThrow();
+    BuiltinSpec ancestors = catalog.spec("ancestors").orElseThrow();
+    BuiltinSpec children = catalog.spec("children").orElseThrow();
+    BuiltinSpec create = catalog.spec("create").orElseThrow();
+    BuiltinSpec chparents = catalog.spec("chparents").orElseThrow();
+    WorldObject first =
+        new WorldObject(
+            2, "first", 0, 1, -1, List.of(), List.of(), List.of(4L), List.of(), List.of());
+    WorldObject second =
+        new WorldObject(
+            3, "second", 0, 1, -1, List.of(), List.of(), List.of(4L), List.of(), List.of());
+    WorldObject child =
+        new WorldObject(
+            4,
+            "child",
+            0,
+            1,
+            -1,
+            List.of(2L, 3L),
+            List.of(),
+            List.of(),
+            List.of(),
+            List.of());
+    WorldObject programmer =
+        new WorldObject(1, "programmer", 0, 1, -1, -1, List.of(), List.of(), List.of(), List.of());
+
+    try (WorldTxn transaction =
+        new WorldTxn(List.of(), List.of(programmer, first, second, child)).begin()) {
+      ListValue orderedParents =
+          new ListValue(List.of(new ObjectValue(2), new ObjectValue(3)));
+      assertEquals(
+          Optional.of(new ObjectValue(2)),
+          invoke(catalog, parent, List.of(new ObjectValue(4)), transaction, 1).value());
+      assertEquals(
+          Optional.of(orderedParents),
+          invoke(catalog, parents, List.of(new ObjectValue(4)), transaction, 1).value());
+      assertEquals(
+          Optional.of(orderedParents),
+          invoke(catalog, ancestors, List.of(new ObjectValue(4)), transaction, 1).value());
+      assertEquals(
+          Optional.of(
+              new ListValue(
+                  List.of(new ObjectValue(4), new ObjectValue(2), new ObjectValue(3)))),
+          invoke(
+                  catalog,
+                  ancestors,
+                  List.of(new ObjectValue(4), new IntegerValue(1)),
+                  transaction,
+                  1)
+              .value());
+      assertEquals(
+          Optional.of(ErrorValue.E_TYPE),
+          invoke(catalog, ancestors, List.of(new IntegerValue(4)), transaction, 1).error());
+      assertEquals(
+          Optional.of(ErrorValue.E_INVARG),
+          invoke(catalog, ancestors, List.of(new ObjectValue(99)), transaction, 1).error());
+      assertEquals(
+          Optional.of(new ListValue(List.of(new ObjectValue(4)))),
+          invoke(catalog, children, List.of(new ObjectValue(2)), transaction, 1).value());
+      WaifValue waif = new WaifValue(new ObjectValue(2), new ObjectValue(1));
+      for (BuiltinSpec hierarchyQuery : List.of(parent, parents, children)) {
+        assertEquals(
+            Optional.of(ErrorValue.E_INVARG),
+            invoke(catalog, hierarchyQuery, List.of(waif), transaction, 1).error());
+      }
+
+      assertEquals(
+          Optional.of(new ObjectValue(5)),
+          invoke(catalog, create, List.of(orderedParents), transaction, 1).value());
+      assertEquals(List.of(2L, 3L), transaction.object(5).orElseThrow().parents());
+
+      ListValue reversed = new ListValue(List.of(new ObjectValue(3), new ObjectValue(2)));
+      assertEquals(
+          Optional.of(new IntegerValue(0)),
+          invoke(
+                  catalog,
+                  chparents,
+                  List.of(new ObjectValue(4), reversed),
+                  transaction,
+                  1)
+              .value());
+      assertEquals(List.of(3L, 2L), transaction.object(4).orElseThrow().parents());
+      assertEquals(
+          Optional.of(ErrorValue.E_INVARG),
+          invoke(
+                  catalog,
+                  chparents,
+                  List.of(
+                      new ObjectValue(4),
+                      new ListValue(List.of(new ObjectValue(2), new ObjectValue(2)))),
+                  transaction,
+                  1)
+              .error());
+    }
+  }
+
+  @Test
+  void parentMutationDistinguishesPermissionRecursionAndInvalidArguments() {
+    BuiltinCatalog catalog = new BuiltinCatalog();
+    BuiltinSpec chparents = catalog.spec("chparents").orElseThrow();
+    WorldObject programmer =
+        new WorldObject(1, "programmer", 0, 1, -1, -1, List.of(), List.of(), List.of(), List.of());
+    WorldObject fertile =
+        new WorldObject(2, "fertile", 128, 2, -1, -1, List.of(), List.of(), List.of(), List.of());
+    WorldObject closed =
+        new WorldObject(3, "closed", 0, 2, -1, -1, List.of(), List.of(), List.of(), List.of());
+    WorldObject controlled =
+        new WorldObject(
+            4, "controlled", 0, 1, -1, -1, List.of(), List.of(6L), List.of(), List.of());
+    WorldObject foreign =
+        new WorldObject(5, "foreign", 0, 2, -1, -1, List.of(), List.of(), List.of(), List.of());
+    WorldObject descendant =
+        new WorldObject(6, "descendant", 0, 1, -1, 4, List.of(), List.of(), List.of(), List.of());
+    try (WorldTxn transaction =
+        new WorldTxn(List.of(), List.of(programmer, fertile, closed, controlled, foreign, descendant))
+            .begin()) {
+      assertEquals(
+          Optional.of(ErrorValue.E_PERM),
+          invoke(
+                  catalog,
+                  chparents,
+                  List.of(new ObjectValue(5), new ObjectValue(2)),
+                  transaction,
+                  1)
+              .error());
+      assertEquals(
+          Optional.of(ErrorValue.E_PERM),
+          invoke(
+                  catalog,
+                  chparents,
+                  List.of(new ObjectValue(4), new ObjectValue(3)),
+                  transaction,
+                  1)
+              .error());
+      assertEquals(
+          Optional.of(ErrorValue.E_RECMOVE),
+          invoke(
+                  catalog,
+                  chparents,
+                  List.of(new ObjectValue(4), new ObjectValue(6)),
+                  transaction,
+                  1)
+              .error());
+      assertEquals(
+          Optional.of(ErrorValue.E_PERM),
+          invoke(
+                  catalog,
+                  chparents,
+                  List.of(new ObjectValue(4), new ObjectValue(6)),
+                  transaction,
+                  2)
+              .error());
+      assertEquals(
+          Optional.of(ErrorValue.E_INVARG),
+          invoke(
+                  catalog,
+                  chparents,
+                  List.of(new ObjectValue(99), new ObjectValue(2)),
+                  transaction,
+                  1)
+              .error());
+      assertEquals(
+          Optional.of(new IntegerValue(0)),
+          invoke(
+                  catalog,
+                  chparents,
+                  List.of(new ObjectValue(4), new ObjectValue(2)),
+                  transaction,
+                  1)
+              .value());
+    }
+  }
+
+  @Test
+  void gcStatsReportsTheCompletedCollectorStateToWizardsOnly() {
+    BuiltinCatalog catalog = new BuiltinCatalog();
+    BuiltinSpec gcStats = catalog.spec("gc_stats").orElseThrow();
+    assertEquals(
+        List.of(new CallShape(List.of(), List.of(), Optional.empty())), gcStats.callShapes());
+    assertSame(BuiltinPermissionRule.WIZARD_ONLY, gcStats.permission());
+
+    WorldObject wizard =
+        new WorldObject(1, "wizard", 4, 1, -1, -1, List.of(), List.of(), List.of(), List.of());
+    WorldObject programmer =
+        new WorldObject(2, "programmer", 2, 2, -1, -1, List.of(), List.of(), List.of(), List.of());
+    try (WorldTxn transaction = new WorldTxn(List.of(), List.of(wizard, programmer)).begin()) {
+      assertEquals(
+          Optional.of(ErrorValue.E_PERM),
+          invoke(catalog, gcStats, List.of(), transaction, 2).error());
+      MapValue stats =
+          (MapValue) invoke(catalog, gcStats, List.of(), transaction, 1).value().orElseThrow();
+      for (String color :
+          List.of("green", "yellow", "black", "gray", "white", "purple", "pink")) {
+        assertEquals(Optional.of(new IntegerValue(0)), stats.get(string(color)));
+      }
+    }
+  }
+
+  @Test
+  void evalRequiresProgrammerAndPreservesEverySourceArgument() {
+    BuiltinCatalog catalog = new BuiltinCatalog();
+    BuiltinSpec eval = catalog.spec("eval").orElseThrow();
+    assertEquals(
+        List.of(new CallShape(List.of(Set.of(ArgType.STRING)), List.of(), Optional.of(Set.of(ArgType.STRING)))),
+        eval.callShapes());
+    assertSame(BuiltinPermissionRule.PROGRAMMER_ONLY, eval.permission());
+
+    WorldObject programmer =
+        new WorldObject(1, "programmer", 2, 1, -1, -1, List.of(), List.of(), List.of(), List.of());
+    WorldObject ordinary =
+        new WorldObject(2, "ordinary", 0, 2, -1, -1, List.of(), List.of(), List.of(), List.of());
+    WorldObject wizardOnly =
+        new WorldObject(3, "wizard", 4, 3, -1, -1, List.of(), List.of(), List.of(), List.of());
+    try (WorldTxn transaction =
+        new WorldTxn(List.of(), List.of(programmer, ordinary, wizardOnly)).begin()) {
+      assertEquals(
+          Optional.of(ErrorValue.E_PERM),
+          invoke(catalog, eval, List.of(string("return 5;")), transaction, 2).error());
+      assertEquals(
+          Optional.of(ErrorValue.E_PERM),
+          invoke(catalog, eval, List.of(string("return 5;")), transaction, 3).error());
+      assertEquals(
+          Optional.of("x = 1;\nreturn x + 1;"),
+          invoke(
+                  catalog,
+                  eval,
+                  List.of(string("x = 1;"), string("return x + 1;")),
+                  transaction,
+                  1)
+              .dynamicSource());
+    }
+  }
+
+  @Test
+  void createValidatesOptionalArgumentTypesBeforeParentValidity() {
+    BuiltinCatalog catalog = new BuiltinCatalog();
+    BuiltinSpec create = catalog.spec("create").orElseThrow();
+    WorldObject wizard =
+        new WorldObject(1, "wizard", 4, 1, -1, -1, List.of(), List.of(), List.of(), List.of());
+    try (WorldTxn transaction = new WorldTxn(List.of(), List.of(wizard)).begin()) {
+      for (MooValue invalidParent :
+          List.of(
+              new ObjectValue(999999),
+              new ListValue(List.of(new ObjectValue(999999))))) {
+        assertEquals(
+            Optional.of(ErrorValue.E_TYPE),
+            invoke(
+                    catalog,
+                    create,
+                    List.of(invalidParent, new FloatValue(1.5)),
+                    transaction,
+                    1)
+                .error());
+        assertEquals(
+            Optional.of(ErrorValue.E_INVARG),
+            invoke(
+                    catalog,
+                    create,
+                    List.of(invalidParent, new IntegerValue(1)),
+                    transaction,
+                    1)
+                .error());
+      }
+    }
+  }
+
+  @Test
+  void createParsesOwnerAnonymousAndInitializerInEveryAuthorizedPosition() {
+    BuiltinCatalog catalog = new BuiltinCatalog();
+    BuiltinSpec create = catalog.spec("create").orElseThrow();
+    WorldVerb initialize = new WorldVerb("initialize", 1, 4, -1, "return 0;");
+    WorldObject programmer =
+        new WorldObject(1, "programmer", 0, 1, -1, -1, List.of(), List.of(), List.of(), List.of());
+    WorldObject ordinaryParent =
+        new WorldObject(
+            2, "ordinary", 128, 2, -1, -1, List.of(), List.of(), List.of(initialize), List.of());
+    WorldObject anonymousParent =
+        new WorldObject(
+            3, "anonymous", 256, 2, -1, -1, List.of(), List.of(), List.of(initialize), List.of());
+    WorldObject owner =
+        new WorldObject(4, "owner", 0, 4, -1, -1, List.of(), List.of(), List.of(), List.of());
+    WorldObject wizard =
+        new WorldObject(9, "wizard", 4, 9, -1, -1, List.of(), List.of(), List.of(), List.of());
+    ListValue initializer = new ListValue(List.of(new IntegerValue(42)));
+    try (WorldTxn transaction =
+        new WorldTxn(List.of(), List.of(programmer, ordinaryParent, anonymousParent, owner, wizard))
+            .begin()) {
+      Result ordinary =
+          invoke(catalog, create, List.of(new ObjectValue(2), initializer), transaction, 1);
+      assertEquals(initializer, ordinary.initializeRequest().orElseThrow().arguments());
+      assertInstanceOf(ObjectValue.class, ordinary.initializeRequest().orElseThrow().created());
+
+      Result anonymous =
+          invoke(
+              catalog,
+              create,
+              List.of(new ObjectValue(3), new IntegerValue(1), initializer),
+              transaction,
+              1);
+      assertEquals(initializer, anonymous.initializeRequest().orElseThrow().arguments());
+      assertInstanceOf(
+          AnonymousObjectValue.class, anonymous.initializeRequest().orElseThrow().created());
+
+      assertEquals(
+          Optional.of(ErrorValue.E_PERM),
+          invoke(
+                  catalog,
+                  create,
+                  List.of(new ObjectValue(2), new ObjectValue(4)),
+                  transaction,
+                  1)
+              .error());
+      Result wizardOwned =
+          invoke(
+              catalog,
+              create,
+              List.of(
+                  new ObjectValue(3),
+                  new ObjectValue(4),
+                  initializer,
+                  new IntegerValue(1)),
+              transaction,
+              9);
+      AnonymousObjectValue created =
+          assertInstanceOf(
+              AnonymousObjectValue.class,
+              wizardOwned.initializeRequest().orElseThrow().created());
+      assertEquals(4, transaction.anonymousObject(created).orElseThrow().owner());
+    }
+  }
+
+  @Test
+  void createDecrementsEveryValidOwnersQuotaAndExhaustionAllocatesNothing() {
+    BuiltinCatalog catalog = new BuiltinCatalog();
+    BuiltinSpec create = catalog.spec("create").orElseThrow();
+    WorldProperty programmerQuota =
+        new WorldProperty("ownership_quota", new IntegerValue(2), 1, 0, false, true);
+    WorldProperty delegatedQuota =
+        new WorldProperty("ownership_quota", new IntegerValue(1), 4, 0, false, true);
+    WorldProperty wizardQuota =
+        new WorldProperty("ownership_quota", new IntegerValue(1), 9, 0, false, true);
+    WorldObject programmer =
+        new WorldObject(
+            1,
+            "programmer",
+            0,
+            1,
+            -1,
+            -1,
+            List.of(),
+            List.of(),
+            List.of(),
+            List.of(programmerQuota));
+    WorldObject parent =
+        new WorldObject(
+            2, "parent", 128 | 256, 2, -1, -1, List.of(), List.of(), List.of(), List.of());
+    WorldObject delegatedOwner =
+        new WorldObject(
+            4,
+            "delegated owner",
+            0,
+            4,
+            -1,
+            -1,
+            List.of(),
+            List.of(),
+            List.of(),
+            List.of(delegatedQuota));
+    WorldObject wizard =
+        new WorldObject(
+            9,
+            "wizard",
+            4,
+            9,
+            -1,
+            -1,
+            List.of(),
+            List.of(),
+            List.of(),
+            List.of(wizardQuota));
+    try (WorldTxn transaction =
+        new WorldTxn(List.of(), List.of(programmer, parent, delegatedOwner, wizard)).begin()) {
+      assertInstanceOf(
+          ObjectValue.class,
+          invoke(catalog, create, List.of(new ObjectValue(2)), transaction, 1)
+              .value()
+              .orElseThrow());
+      assertEquals(
+          new IntegerValue(1),
+          transaction.readObjectProperty(1, "ownership_quota").orElseThrow());
+
+      assertInstanceOf(
+          AnonymousObjectValue.class,
+          invoke(
+                  catalog,
+                  create,
+                  List.of(new ObjectValue(2), new IntegerValue(1)),
+                  transaction,
+                  1)
+              .value()
+              .orElseThrow());
+      assertEquals(
+          new IntegerValue(0),
+          transaction.readObjectProperty(1, "ownership_quota").orElseThrow());
+
+      assertInstanceOf(
+          ObjectValue.class,
+          invoke(
+                  catalog,
+                  create,
+                  List.of(new ObjectValue(2), new ObjectValue(4)),
+                  transaction,
+                  9)
+              .value()
+              .orElseThrow());
+      assertEquals(
+          new IntegerValue(0),
+          transaction.readObjectProperty(4, "ownership_quota").orElseThrow());
+
+      assertInstanceOf(
+          ObjectValue.class,
+          invoke(catalog, create, List.of(new ObjectValue(2)), transaction, 9)
+              .value()
+              .orElseThrow());
+      assertEquals(
+          new IntegerValue(0),
+          transaction.readObjectProperty(9, "ownership_quota").orElseThrow());
+
+      int permanentCount = transaction.objectCount();
+      int anonymousCount = transaction.snapshot().anonymousObjects().size();
+      Result exhaustedPermanent =
+          invoke(catalog, create, List.of(new ObjectValue(2)), transaction, 1);
+      Result exhaustedAnonymous =
+          invoke(
+              catalog,
+              create,
+              List.of(new ObjectValue(2), new IntegerValue(1)),
+              transaction,
+              1);
+      assertEquals(Optional.of(ErrorValue.E_QUOTA), exhaustedPermanent.error());
+      assertEquals(Optional.of(ErrorValue.E_QUOTA), exhaustedAnonymous.error());
+      assertTrue(exhaustedPermanent.initializeRequest().isEmpty());
+      assertTrue(exhaustedAnonymous.initializeRequest().isEmpty());
+      assertEquals(permanentCount, transaction.objectCount());
+      assertEquals(anonymousCount, transaction.snapshot().anonymousObjects().size());
     }
   }
 
@@ -2868,6 +3999,291 @@ final class BuiltinCatalogTest {
   }
 
   @Test
+  void dbDiskSizeExposesTheUnrestrictedExternalServerReadContract() {
+    BuiltinCatalog catalog = new BuiltinCatalog();
+    BuiltinSpec spec = catalog.spec("db_disk_size").orElseThrow();
+
+    assertEquals(
+        List.of(new CallShape(List.of(), List.of(), Optional.empty())), spec.callShapes());
+    assertSame(BuiltinPermissionRule.ANY, spec.permission());
+    assertEquals(EffectClass.EXTERNAL_READ, spec.effect());
+    assertEquals(BuiltinOwner.SERVER, spec.owner());
+    try (WorldTxn transaction = world().begin()) {
+      assertEquals(
+          new IntegerValue(0),
+          invoke(catalog, spec, List.of(), transaction, 1).value().orElseThrow());
+      assertEquals(
+          ErrorValue.E_ARGS,
+          invoke(catalog, spec, List.of(new IntegerValue(1)), transaction, 1)
+              .error()
+              .orElseThrow());
+    }
+  }
+
+  @Test
+  void outputDelimitersExposesTheExactConnectionReadContract() {
+    BuiltinCatalog catalog = new BuiltinCatalog();
+    BuiltinSpec spec = catalog.spec("output_delimiters").orElseThrow();
+
+    assertEquals(
+        List.of(new CallShape(List.of(Set.of(ArgType.OBJECT)), List.of(), Optional.empty())),
+        spec.callShapes());
+    assertSame(BuiltinPermissionRule.ANY, spec.permission());
+    assertEquals(EffectClass.EXTERNAL_READ, spec.effect());
+    assertEquals(BuiltinOwner.CONNECTION, spec.owner());
+    try (WorldTxn transaction = world().begin()) {
+      assertEquals(
+          ErrorValue.E_ARGS,
+          invoke(catalog, spec, List.of(), transaction, 2).error().orElseThrow());
+      assertEquals(
+          ErrorValue.E_TYPE,
+          invoke(catalog, spec, List.of(string("x")), transaction, 2)
+              .error()
+              .orElseThrow());
+    }
+  }
+
+  @Test
+  void memoryUsageExposesToastStatmShapeToEveryProgrammer() {
+    BuiltinCatalog catalog = new BuiltinCatalog();
+    BuiltinSpec spec = catalog.spec("memory_usage").orElseThrow();
+
+    assertEquals(
+        List.of(new CallShape(List.of(), List.of(), Optional.empty())), spec.callShapes());
+    assertSame(BuiltinPermissionRule.ANY, spec.permission());
+    assertEquals(EffectClass.EXTERNAL_READ, spec.effect());
+    assertEquals(BuiltinOwner.SERVER, spec.owner());
+    try (WorldTxn transaction = world().begin()) {
+      Result result = invoke(catalog, spec, List.of(), transaction, 2);
+      ListValue usage = assertInstanceOf(ListValue.class, result.value().orElseThrow());
+      assertEquals(5, usage.size());
+      assertTrue(usage.elements().stream().allMatch(FloatValue.class::isInstance));
+      assertEquals(
+          ErrorValue.E_ARGS,
+          invoke(catalog, spec, List.of(new IntegerValue(1)), transaction, 2)
+              .error()
+              .orElseThrow());
+    }
+  }
+
+  @Test
+  void usageExposesToastResourceShapeToWizardsOnly() {
+    BuiltinCatalog catalog = new BuiltinCatalog();
+    BuiltinSpec spec = catalog.spec("usage").orElseThrow();
+    assertEquals(
+        List.of(new CallShape(List.of(), List.of(), Optional.empty())), spec.callShapes());
+    assertSame(BuiltinPermissionRule.WIZARD_ONLY, spec.permission());
+    assertEquals(EffectClass.EXTERNAL_READ, spec.effect());
+    assertEquals(BuiltinOwner.SERVER, spec.owner());
+    try (WorldTxn transaction = world().begin()) {
+      assertEquals(
+          ErrorValue.E_PERM,
+          invoke(catalog, spec, List.of(), transaction, 2).error().orElseThrow());
+      ListValue result =
+          assertInstanceOf(
+              ListValue.class,
+              invoke(catalog, spec, List.of(), transaction, 1).value().orElseThrow());
+      assertEquals(10, result.size());
+      assertEquals(3, assertInstanceOf(ListValue.class, result.elements().getFirst()).size());
+      assertInstanceOf(FloatValue.class, result.elements().get(1));
+      assertInstanceOf(FloatValue.class, result.elements().get(2));
+      assertTrue(result.elements().subList(3, 10).stream().allMatch(IntegerValue.class::isInstance));
+    }
+  }
+
+  @Test
+  void verbCacheStatsExposesToastShapeForTheUncachedWorldLookup() {
+    BuiltinCatalog catalog = new BuiltinCatalog();
+    BuiltinSpec spec = catalog.spec("verb_cache_stats").orElseThrow();
+    assertEquals(
+        List.of(new CallShape(List.of(), List.of(), Optional.empty())), spec.callShapes());
+    assertSame(BuiltinPermissionRule.WIZARD_ONLY, spec.permission());
+    assertEquals(EffectClass.EXTERNAL_READ, spec.effect());
+    assertEquals(BuiltinOwner.SERVER, spec.owner());
+    try (WorldTxn transaction = world().begin()) {
+      assertEquals(
+          ErrorValue.E_PERM,
+          invoke(catalog, spec, List.of(), transaction, 2).error().orElseThrow());
+      ListValue stats =
+          assertInstanceOf(
+              ListValue.class,
+              invoke(catalog, spec, List.of(), transaction, 1).value().orElseThrow());
+      assertEquals(5, stats.size());
+      assertTrue(stats.elements().subList(0, 4).stream().allMatch(IntegerValue.class::isInstance));
+      assertEquals(17, assertInstanceOf(ListValue.class, stats.elements().get(4)).size());
+    }
+  }
+
+  @Test
+  void waifStatsCountsLiveWaifsByClassWithoutWizardRestriction() {
+    BuiltinCatalog catalog = new BuiltinCatalog();
+    BuiltinSpec spec = catalog.spec("waif_stats").orElseThrow();
+    assertEquals(
+        List.of(new CallShape(List.of(), List.of(), Optional.empty())), spec.callShapes());
+    assertSame(BuiltinPermissionRule.ANY, spec.permission());
+    assertEquals(EffectClass.TRANSACTION_READ, spec.effect());
+    assertEquals(BuiltinOwner.WORLD, spec.owner());
+    WorldObject programmer =
+        new WorldObject(2, "Programmer", 0, 2, -1, -1, List.of(), List.of(), List.of(), List.of());
+    WorldObject waifClass =
+        new WorldObject(7, "Waif class", 0, 2, -1, -1, List.of(), List.of(), List.of(), List.of());
+    try (WorldTxn transaction = new WorldTxn(List.of(), List.of(programmer, waifClass)).begin()) {
+      transaction.createWaif(7, 2);
+      transaction.createWaif(7, 2);
+      MapValue stats =
+          assertInstanceOf(
+              MapValue.class,
+              invoke(catalog, spec, List.of(), transaction, 2).value().orElseThrow());
+      assertEquals(new IntegerValue(2), stats.get(string("total")).orElseThrow());
+      assertEquals(new IntegerValue(0), stats.get(string("pending_recycle")).orElseThrow());
+      assertEquals(new IntegerValue(2), stats.get(new ObjectValue(7)).orElseThrow());
+    }
+  }
+
+  @Test
+  void nextRecycledObjectScansInclusivelyBelowToastLastObjectBoundary() {
+    BuiltinCatalog catalog = new BuiltinCatalog();
+    BuiltinSpec spec = catalog.spec("next_recycled_object").orElseThrow();
+    assertEquals(
+        List.of(new CallShape(List.of(), List.of(Set.of(ArgType.OBJECT)), Optional.empty())),
+        spec.callShapes());
+    assertSame(BuiltinPermissionRule.ANY, spec.permission());
+    assertEquals(EffectClass.TRANSACTION_READ, spec.effect());
+    assertEquals(BuiltinOwner.WORLD, spec.owner());
+
+    WorldObject zero =
+        new WorldObject(0, "System", 4, 0, -1, -1, List.of(), List.of(), List.of(), List.of());
+    WorldObject last =
+        new WorldObject(3, "Last", 0, 3, -1, -1, List.of(), List.of(), List.of(), List.of());
+    try (WorldTxn transaction =
+        new WorldTxn(List.of(), List.of(zero, last), Map.of(), Map.of(), List.of(), 5).begin()) {
+      assertEquals(
+          new ObjectValue(1),
+          invoke(catalog, spec, List.of(), transaction, 2).value().orElseThrow());
+      assertEquals(
+          new ObjectValue(2),
+          invoke(catalog, spec, List.of(new ObjectValue(2)), transaction, 2)
+              .value()
+              .orElseThrow());
+      assertEquals(
+          new ObjectValue(4),
+          invoke(catalog, spec, List.of(new ObjectValue(4)), transaction, 2)
+              .value()
+              .orElseThrow());
+      assertEquals(
+          ErrorValue.E_INVARG,
+          invoke(catalog, spec, List.of(new ObjectValue(-1)), transaction, 2)
+              .error()
+              .orElseThrow());
+      assertEquals(
+          new IntegerValue(0),
+          invoke(catalog, spec, List.of(new ObjectValue(5)), transaction, 2)
+              .value()
+              .orElseThrow());
+      assertEquals(
+          ErrorValue.E_INVARG,
+          invoke(catalog, spec, List.of(new ObjectValue(6)), transaction, 2)
+              .error()
+              .orElseThrow());
+    }
+  }
+
+  @Test
+  void recycledObjectsReturnsEveryHoleThroughToastLastObjectBoundary() {
+    BuiltinCatalog catalog = new BuiltinCatalog();
+    BuiltinSpec spec = catalog.spec("recycled_objects").orElseThrow();
+    assertEquals(
+        List.of(new CallShape(List.of(), List.of(), Optional.empty())), spec.callShapes());
+    assertSame(BuiltinPermissionRule.ANY, spec.permission());
+    assertEquals(EffectClass.TRANSACTION_READ, spec.effect());
+    assertEquals(BuiltinOwner.WORLD, spec.owner());
+
+    WorldObject zero =
+        new WorldObject(0, "System", 4, 0, -1, -1, List.of(), List.of(), List.of(), List.of());
+    WorldObject live =
+        new WorldObject(3, "Live", 0, 3, -1, -1, List.of(), List.of(), List.of(), List.of());
+    try (WorldTxn transaction =
+        new WorldTxn(List.of(), List.of(zero, live), Map.of(), Map.of(), List.of(), 5).begin()) {
+      assertEquals(
+          new ListValue(
+              List.of(
+                  new ObjectValue(1),
+                  new ObjectValue(2),
+                  new ObjectValue(4),
+                  new ObjectValue(5))),
+          invoke(catalog, spec, List.of(), transaction, 2).value().orElseThrow());
+      assertEquals(
+          ErrorValue.E_ARGS,
+          invoke(catalog, spec, List.of(new IntegerValue(1)), transaction, 2)
+              .error()
+              .orElseThrow());
+    }
+  }
+
+  @Test
+  void resetMaxObjectDropsTrailingRecycledSlotsForWizardsOnly() {
+    BuiltinCatalog catalog = new BuiltinCatalog();
+    BuiltinSpec spec = catalog.spec("reset_max_object").orElseThrow();
+    assertEquals(
+        List.of(new CallShape(List.of(), List.of(), Optional.empty())), spec.callShapes());
+    assertSame(BuiltinPermissionRule.WIZARD_ONLY, spec.permission());
+    assertEquals(EffectClass.TRANSACTION_WRITE, spec.effect());
+    assertEquals(BuiltinOwner.WORLD, spec.owner());
+
+    WorldObject programmer =
+        new WorldObject(2, "Programmer", 0, 2, -1, -1, List.of(), List.of(), List.of(), List.of());
+    WorldObject wizard =
+        new WorldObject(3, "Wizard", 4, 3, -1, -1, List.of(), List.of(), List.of(), List.of());
+    try (WorldTxn transaction =
+        new WorldTxn(List.of(), List.of(programmer, wizard), Map.of(), Map.of(), List.of(), 8)
+            .begin()) {
+      assertEquals(
+          ErrorValue.E_PERM,
+          invoke(catalog, spec, List.of(), transaction, 2).error().orElseThrow());
+      assertEquals(
+          new IntegerValue(0),
+          invoke(catalog, spec, List.of(), transaction, 3).value().orElseThrow());
+      assertEquals(3, transaction.maximumObjectId());
+      assertEquals(4, transaction.createObject(-1, 3).id());
+    }
+  }
+
+  @Test
+  void ownedObjectsScansLiveObjectsInNumericOrderAndRejectsInvalidOwners() {
+    BuiltinCatalog catalog = new BuiltinCatalog();
+    BuiltinSpec spec = catalog.spec("owned_objects").orElseThrow();
+    assertEquals(
+        List.of(new CallShape(List.of(Set.of(ArgType.OBJECT)), List.of(), Optional.empty())),
+        spec.callShapes());
+    assertSame(BuiltinPermissionRule.ANY, spec.permission());
+    assertEquals(EffectClass.TRANSACTION_READ, spec.effect());
+    assertEquals(BuiltinOwner.WORLD, spec.owner());
+
+    WorldObject owner =
+        new WorldObject(1, "Owner", 0, 1, -1, -1, List.of(), List.of(), List.of(), List.of());
+    WorldObject first =
+        new WorldObject(3, "First", 0, 1, -1, -1, List.of(), List.of(), List.of(), List.of());
+    WorldObject other =
+        new WorldObject(4, "Other", 0, 4, -1, -1, List.of(), List.of(), List.of(), List.of());
+    WorldObject second =
+        new WorldObject(7, "Second", 0, 1, -1, -1, List.of(), List.of(), List.of(), List.of());
+    try (WorldTxn transaction =
+        new WorldTxn(List.of(), List.of(second, other, owner, first), Map.of(), Map.of(), List.of(), 8)
+            .begin()) {
+      assertEquals(
+          new ListValue(List.of(new ObjectValue(1), new ObjectValue(3), new ObjectValue(7))),
+          invoke(catalog, spec, List.of(new ObjectValue(1)), transaction, 2)
+              .value()
+              .orElseThrow());
+      assertEquals(
+          ErrorValue.E_INVIND,
+          invoke(catalog, spec, List.of(new ObjectValue(8)), transaction, 2)
+              .error()
+              .orElseThrow());
+    }
+  }
+
+  @Test
   void exposesTheExactPureValueConversionContracts() {
     BuiltinCatalog catalog = new BuiltinCatalog();
 
@@ -2891,6 +4307,34 @@ final class BuiltinCatalogTest {
   }
 
   @Test
+  void toobjSaturatesDecimalOverflowAndKeepsMalformedStringsAtZero() {
+    BuiltinCatalog catalog = new BuiltinCatalog();
+    BuiltinSpec spec = catalog.spec("toobj").orElseThrow();
+    try (WorldTxn transaction = world().begin()) {
+      assertEquals(
+          new ObjectValue(Long.MAX_VALUE),
+          invoke(catalog, spec, List.of(string("9223372036854775808")), transaction, 1)
+              .value()
+              .orElseThrow());
+      assertEquals(
+          new ObjectValue(Long.MIN_VALUE),
+          invoke(catalog, spec, List.of(string("#-9223372036854775809")), transaction, 1)
+              .value()
+              .orElseThrow());
+      assertEquals(
+          new ObjectValue(0),
+          invoke(catalog, spec, List.of(string("9223372036854775808x")), transaction, 1)
+              .value()
+              .orElseThrow());
+      assertEquals(
+          new ObjectValue(0),
+          invoke(catalog, spec, List.of(string("#")), transaction, 1)
+              .value()
+              .orElseThrow());
+    }
+  }
+
+  @Test
   void exposesTheExactPureStringContracts() {
     BuiltinCatalog catalog = new BuiltinCatalog();
     Set<ArgType> any = Set.of(ArgType.ANY);
@@ -2900,6 +4344,10 @@ final class BuiltinCatalogTest {
     assertPureVmContract(
         catalog,
         "strsub",
+        new CallShape(List.of(string, string, string), List.of(any), Optional.empty()));
+    assertPureVmContract(
+        catalog,
+        "strtr",
         new CallShape(List.of(string, string, string), List.of(any), Optional.empty()));
     for (String name : List.of("index", "rindex")) {
       assertPureVmContract(
@@ -2919,6 +4367,136 @@ final class BuiltinCatalogTest {
         catalog,
         "encode_binary",
         new CallShape(List.of(), List.of(), Optional.of(any)));
+  }
+
+  @Test
+  void parseAnsiPreservesToastTagTableCaseAndUnknownText() {
+    BuiltinCatalog catalog = new BuiltinCatalog();
+    BuiltinSpec spec = catalog.spec("parse_ansi").orElseThrow();
+    assertEquals(
+        List.of(new CallShape(List.of(Set.of(ArgType.STRING)), List.of(), Optional.empty())),
+        spec.callShapes());
+    assertSame(BuiltinPermissionRule.ANY, spec.permission());
+    assertEquals(EffectClass.IRREVOCABLE, spec.effect());
+    assertEquals(BuiltinOwner.VM, spec.owner());
+
+    try (WorldTxn transaction = world().begin()) {
+      assertString(
+          "\u001b[31mhello\u001b[0m\u0007",
+          invoke(
+              catalog,
+              spec,
+              List.of(string("[RED]hello[normal][beep][null]")),
+              transaction,
+              2));
+      assertString(
+          "[unknown]plain",
+          invoke(catalog, spec, List.of(string("[unknown]plain")), transaction, 2));
+      StringValue randomValue =
+          (StringValue)
+              invoke(catalog, spec, List.of(string("[random]")), transaction, 2)
+                  .value()
+                  .orElseThrow();
+      assertTrue(
+          Set.of("\u001b[31m", "\u001b[32m", "\u001b[33m", "\u001b[34m", "\u001b[35m")
+              .contains(decode(randomValue)));
+    }
+  }
+
+  @Test
+  void removeAnsiStripsOnlyToastTagsCaseInsensitively() {
+    BuiltinCatalog catalog = new BuiltinCatalog();
+    BuiltinSpec spec = catalog.spec("remove_ansi").orElseThrow();
+    assertEquals(
+        List.of(new CallShape(List.of(Set.of(ArgType.STRING)), List.of(), Optional.empty())),
+        spec.callShapes());
+    assertSame(BuiltinPermissionRule.ANY, spec.permission());
+    assertEquals(EffectClass.PURE, spec.effect());
+    assertEquals(BuiltinOwner.VM, spec.owner());
+
+    try (WorldTxn transaction = world().begin()) {
+      assertString(
+          "hello world",
+          invoke(
+              catalog,
+              spec,
+              List.of(string("[RED]hello[normal] [b:cyan]world[null]")),
+              transaction,
+              2));
+      assertString(
+          "[unknown]text",
+          invoke(catalog, spec, List.of(string("[unknown]text")), transaction, 2));
+      assertString(
+          "text",
+          invoke(
+              catalog,
+              spec,
+              List.of(string("[bold][unbright][beep][random][grey]text")),
+              transaction,
+              2));
+    }
+  }
+
+  @Test
+  void simplexNoiseUsesToastFloatOnlyDimensionsAndDeterministicValues() {
+    BuiltinCatalog catalog = new BuiltinCatalog();
+    BuiltinSpec spec = catalog.spec("simplex_noise").orElseThrow();
+    assertEquals(
+        List.of(new CallShape(List.of(Set.of(ArgType.LIST)), List.of(), Optional.empty())),
+        spec.callShapes());
+    assertSame(BuiltinPermissionRule.ANY, spec.permission());
+    assertEquals(EffectClass.PURE, spec.effect());
+    assertEquals(BuiltinOwner.VM, spec.owner());
+
+    try (WorldTxn transaction = world().begin()) {
+      Result first =
+          invoke(
+              catalog,
+              spec,
+              List.of(new ListValue(List.of(new FloatValue(0.25)))),
+              transaction,
+              2);
+      Result second =
+          invoke(
+              catalog,
+              spec,
+              List.of(new ListValue(List.of(new FloatValue(0.25)))),
+              transaction,
+              2);
+      assertEquals(first.value(), second.value());
+      assertInstanceOf(FloatValue.class, first.value().orElseThrow());
+      assertEquals(
+          ErrorValue.E_TYPE,
+          invoke(
+                  catalog,
+                  spec,
+                  List.of(new ListValue(List.of(new IntegerValue(1)))),
+                  transaction,
+                  2)
+              .error()
+              .orElseThrow());
+      assertEquals(
+          ErrorValue.E_TYPE,
+          invoke(catalog, spec, List.of(new ListValue(List.of())), transaction, 2)
+              .value()
+              .orElseThrow());
+      assertInstanceOf(
+          FloatValue.class,
+          invoke(
+                  catalog,
+                  spec,
+                  List.of(
+                      new ListValue(
+                          List.of(
+                              new FloatValue(0),
+                              new FloatValue(0),
+                              new FloatValue(0),
+                              new FloatValue(0)))),
+                  transaction,
+                  2)
+              .value()
+              .orElseThrow());
+    }
   }
 
   @Test
@@ -2954,6 +4532,39 @@ final class BuiltinCatalogTest {
                   transaction,
                   1)
               .error());
+
+      assertString(
+          "FxXbar",
+          invoke(
+              catalog,
+              catalog.spec("strtr").orElseThrow(),
+              List.of(string("FoObar"), string("o"), string("x")),
+              transaction,
+              1));
+      assertString(
+          "FxObar",
+          invoke(
+              catalog,
+              catalog.spec("strtr").orElseThrow(),
+              List.of(string("FoObar"), string("o"), string("x"), new IntegerValue(1)),
+              transaction,
+              1));
+      assertString(
+          "fbbar",
+          invoke(
+              catalog,
+              catalog.spec("strtr").orElseThrow(),
+              List.of(string("foobar"), string("ob"), string("b")),
+              transaction,
+              1));
+      assertString(
+          "4444",
+          invoke(
+              catalog,
+              catalog.spec("strtr").orElseThrow(),
+              List.of(string("xXxX"), string("xXxX"), string("1234")),
+              transaction,
+              1));
 
       assertEquals(
           Optional.of(new IntegerValue(4)),
@@ -3010,6 +4621,85 @@ final class BuiltinCatalogTest {
                   transaction,
                   1)
               .value());
+    }
+  }
+
+  @Test
+  void cryptPreservesTheStockUnixVectorAndUnsupportedPrefixMarker() {
+    BuiltinCatalog catalog = new BuiltinCatalog();
+    BuiltinSpec spec = catalog.spec("crypt").orElseThrow();
+    assertEquals(EffectClass.IRREVOCABLE, spec.effect());
+    try (WorldTxn transaction = world().begin()) {
+      assertString(
+          "SAEmC5UwrAl2A",
+          invoke(catalog, spec, List.of(string("foobar"), string("SA")), transaction, 1));
+      assertString(
+          "*0",
+          invoke(
+              catalog,
+              spec,
+              List.of(string("password"), string("$2b$05$1234567890123456")),
+              transaction,
+              1));
+      String salt = "$2x$05$KRGxLBS0Lxe3KBCwKxOzLe";
+      assertString(
+          "$2x$05$KRGxLBS0Lxe3KBCwKxOzLeUBmcrGSTvDf3LosTOIeZOfIAiEwGhRq",
+          invoke(
+              catalog,
+              spec,
+              List.of(new StringValue(new byte[] {(byte) 128}), string(salt)),
+              transaction,
+              1));
+      assertEquals(
+          Optional.of(ErrorValue.E_PERM),
+          invoke(
+                  catalog,
+                  spec,
+                  List.of(string("foobar"), string("$2y$10$KRGxLBS0Lxe3KBCwKxOzLe")),
+                  transaction,
+                  2)
+              .error());
+    }
+  }
+
+  @Test
+  void argon2PreservesTheStockVectorVerificationAndWizardBoundary() {
+    BuiltinCatalog catalog = new BuiltinCatalog();
+    BuiltinSpec hash = catalog.spec("argon2").orElseThrow();
+    BuiltinSpec verify = catalog.spec("argon2_verify").orElseThrow();
+    String expected =
+        "$argon2id$v=19$m=1024,t=2,p=1$c2FsdHNhbHQ$gg7MDf+O0u4Yh4jYvTjXJps6cRjBIQvJ4r7MQOv1A58";
+    try (WorldTxn transaction = world().begin()) {
+      assertString(
+          expected,
+          invoke(
+              catalog,
+              hash,
+              List.of(
+                  string("password"),
+                  string("saltsalt"),
+                  new IntegerValue(2),
+                  new IntegerValue(1024),
+                  new IntegerValue(1)),
+              transaction,
+              1));
+      assertEquals(
+          Optional.of(new IntegerValue(1)),
+          invoke(catalog, verify, List.of(string(expected), string("password")), transaction, 1)
+              .value());
+      assertEquals(
+          Optional.of(new IntegerValue(0)),
+          invoke(catalog, verify, List.of(string(expected), string("wrong")), transaction, 1)
+              .value());
+      assertEquals(
+          Optional.of(ErrorValue.E_PERM),
+          invoke(
+                  catalog,
+                  hash,
+                  List.of(string("password"), string("saltsalt")),
+                  transaction,
+                  2)
+              .error());
     }
   }
 
@@ -3086,29 +4776,66 @@ final class BuiltinCatalogTest {
   }
 
   @Test
-  void exposesTheExactPureListContracts() {
+  void chrPreservesToastVariadicRecursiveAndProgrammerRangeSemantics() {
+    BuiltinCatalog catalog = new BuiltinCatalog();
+    BuiltinSpec spec = catalog.spec("chr").orElseThrow();
+    assertEquals(
+        List.of(new CallShape(List.of(), List.of(), Optional.of(Set.of(ArgType.ANY)))),
+        spec.callShapes());
+    try (WorldTxn transaction = world().begin()) {
+      assertString("", invoke(catalog, spec, List.of(), transaction, 2));
+      assertString(
+          "Hello",
+          invoke(
+              catalog,
+              spec,
+              List.of(
+                  new IntegerValue(72),
+                  string("ell"),
+                  new ListValue(List.of(new IntegerValue(111)))),
+              transaction,
+              2));
+      assertEquals(
+          Optional.of(ErrorValue.E_INVARG),
+          invoke(catalog, spec, List.of(new IntegerValue(10)), transaction, 2).error());
+      assertEquals(
+          Optional.of(ErrorValue.E_INVARG),
+          invoke(catalog, spec, List.of(new IntegerValue(255)), transaction, 2).error());
+      assertString("\n", invoke(catalog, spec, List.of(new IntegerValue(10)), transaction, 1));
+      assertEquals(
+          Optional.of(ErrorValue.E_INVARG),
+          invoke(catalog, spec, List.of(new FloatValue(65)), transaction, 1).error());
+    }
+  }
+
+  @Test
+  void exposesTheExactListContracts() {
     BuiltinCatalog catalog = new BuiltinCatalog();
     Set<ArgType> any = Set.of(ArgType.ANY);
     Set<ArgType> integer = Set.of(ArgType.INTEGER);
     Set<ArgType> list = Set.of(ArgType.LIST);
 
-    for (String name : List.of("listappend", "listinsert")) {
-      assertPureVmContract(
-          catalog,
-          name,
-          new CallShape(List.of(list, any), List.of(integer), Optional.empty()));
-    }
-    assertPureVmContract(
-        catalog,
-        "listdelete",
-        new CallShape(List.of(list, integer), List.of(), Optional.empty()));
-    assertPureVmContract(
-        catalog,
-        "listset",
-        new CallShape(List.of(list, any, integer), List.of(), Optional.empty()));
-    for (String name : List.of("setadd", "setremove")) {
-      assertPureVmContract(
-          catalog, name, new CallShape(List.of(list, any), List.of(), Optional.empty()));
+    Map<String, CallShape> worldBackedShapes =
+        Map.of(
+            "listappend",
+            new CallShape(List.of(list, any), List.of(integer), Optional.empty()),
+            "listinsert",
+            new CallShape(List.of(list, any), List.of(integer), Optional.empty()),
+            "listdelete",
+            new CallShape(List.of(list, integer), List.of(), Optional.empty()),
+            "listset",
+            new CallShape(List.of(list, any, integer), List.of(), Optional.empty()),
+            "setadd",
+            new CallShape(List.of(list, any), List.of(), Optional.empty()),
+            "setremove",
+            new CallShape(List.of(list, any), List.of(), Optional.empty()));
+    for (Map.Entry<String, CallShape> entry : worldBackedShapes.entrySet()) {
+      BuiltinSpec spec = catalog.spec(entry.getKey()).orElseThrow();
+      assertEquals(List.of(entry.getValue()), spec.callShapes());
+      assertSame(BuiltinPermissionRule.ANY, spec.permission());
+      assertEquals(0, spec.tickCost().charge(List.of()));
+      assertEquals(EffectClass.TRANSACTION_READ, spec.effect());
+      assertEquals(BuiltinOwner.WORLD, spec.owner());
     }
     assertPureVmContract(
         catalog, "reverse", new CallShape(List.of(any), List.of(), Optional.empty()));
@@ -3226,6 +4953,70 @@ final class BuiltinCatalogTest {
   }
 
   @Test
+  void setaddEnforcesTheConfiguredListValueByteLimit() {
+    BuiltinCatalog catalog = new BuiltinCatalog();
+    WorldObject system =
+        new WorldObject(
+            0,
+            "System",
+            0,
+            1,
+            -1,
+            -1,
+            List.of(),
+            List.of(),
+            List.of(),
+            List.of(
+                new WorldProperty(
+                    "server_options", new ObjectValue(3), 1, 0, false, true)));
+    WorldObject wizard =
+        new WorldObject(1, "Wizard", 4, 1, -1, -1, List.of(), List.of(), List.of(), List.of());
+    WorldObject options =
+        new WorldObject(
+            3,
+            "Options",
+            0,
+            1,
+            -1,
+            -1,
+            List.of(),
+            List.of(),
+            List.of(),
+            List.of(
+                new WorldProperty(
+                    "max_list_value_bytes", new IntegerValue(1_021), 1, 0, false, true),
+                new WorldProperty(
+                    "max_concat_catchable", new IntegerValue(1), 1, 0, false, true)));
+    List<MooValue> elements = new ArrayList<>();
+    for (int value = 1; value <= 61; value++) {
+      elements.add(new IntegerValue(value));
+    }
+    ListValue withinLimit = new ListValue(elements);
+    ListValue alreadyOverLimit = withinLimit.append(new IntegerValue(62));
+
+    try (WorldTxn transaction = new WorldTxn(List.of(), List.of(system, wizard, options)).begin()) {
+      assertEquals(
+          Optional.of(ErrorValue.E_QUOTA),
+          invoke(
+                  catalog,
+                  catalog.spec("setadd").orElseThrow(),
+                  List.of(withinLimit, new IntegerValue(62)),
+                  transaction,
+                  1)
+              .error());
+      assertEquals(
+          Optional.of(ErrorValue.E_QUOTA),
+          invoke(
+                  catalog,
+                  catalog.spec("setadd").orElseThrow(),
+                  List.of(alreadyOverLimit, new IntegerValue(62)),
+                  transaction,
+                  1)
+              .error());
+    }
+  }
+
+  @Test
   void setRemoveUsesRecursiveCaseInsensitiveMooEqualityAndRemovesOnlyTheFirstMatch() {
     BuiltinCatalog catalog = new BuiltinCatalog();
     BuiltinSpec spec = catalog.spec("setremove").orElseThrow();
@@ -3277,6 +5068,56 @@ final class BuiltinCatalogTest {
                   transaction,
                   1)
               .error());
+    }
+  }
+
+  @Test
+  void equalUsesToastBooleanIntegerRelationRecursivelyAndCaseSensitiveStrings() {
+    BuiltinCatalog catalog = new BuiltinCatalog();
+    BuiltinSpec spec = catalog.spec("equal").orElseThrow();
+    try (WorldTxn transaction = world().begin()) {
+      assertEquals(
+          Optional.of(new IntegerValue(1)),
+          invoke(
+                  catalog,
+                  spec,
+                  List.of(new IntegerValue(0), BooleanValue.FALSE),
+                  transaction,
+                  1)
+              .value());
+      assertEquals(
+          Optional.of(new IntegerValue(1)),
+          invoke(
+                  catalog,
+                  spec,
+                  List.of(BooleanValue.TRUE, new IntegerValue(1)),
+                  transaction,
+                  1)
+              .value());
+      assertEquals(
+          Optional.of(new IntegerValue(0)),
+          invoke(
+                  catalog,
+                  spec,
+                  List.of(new IntegerValue(0), BooleanValue.TRUE),
+                  transaction,
+                  1)
+              .value());
+      assertEquals(
+          Optional.of(new IntegerValue(1)),
+          invoke(
+                  catalog,
+                  spec,
+                  List.of(
+                      new ListValue(List.of(new IntegerValue(0))),
+                      new ListValue(List.of(BooleanValue.FALSE))),
+                  transaction,
+                  1)
+              .value());
+      assertEquals(
+          Optional.of(new IntegerValue(0)),
+          invoke(catalog, spec, List.of(string("alpha"), string("ALPHA")), transaction, 1)
+              .value());
     }
   }
 
@@ -3335,6 +5176,112 @@ final class BuiltinCatalogTest {
           Optional.of(new ListValue(List.of(new IntegerValue(1), new IntegerValue(3)))),
           invoke(catalog, allMembers, List.of(string("a"), source), transaction, 1, false)
               .value());
+    }
+  }
+
+  @Test
+  void sortExposesPinnedHostContractAndToastOrdering() throws Exception {
+    BuiltinCatalog catalog = new BuiltinCatalog();
+    BuiltinSpec sort = catalog.spec("sort").orElseThrow();
+    ListValue integers =
+        new ListValue(List.of(new IntegerValue(3), new IntegerValue(1), new IntegerValue(2)));
+    ListValue ascending =
+        new ListValue(List.of(new IntegerValue(1), new IntegerValue(2), new IntegerValue(3)));
+
+    assertEquals(
+        List.of(
+            new CallShape(
+                List.of(Set.of(ArgType.LIST)),
+                List.of(
+                    Set.of(ArgType.LIST),
+                    Set.of(ArgType.INTEGER),
+                    Set.of(ArgType.INTEGER)),
+                Optional.empty())),
+        sort.callShapes());
+    assertSame(BuiltinPermissionRule.ANY, sort.permission());
+    assertEquals(0, sort.tickCost().charge(List.of()));
+    assertEquals(EffectClass.SUSPENDING_HOST, sort.effect());
+    assertEquals(BuiltinOwner.VM, sort.owner());
+
+    try (WorldTxn transaction = world().begin()) {
+      Result threaded = invoke(catalog, sort, List.of(integers), transaction, 1, true);
+      assertTrue(threaded.value().isEmpty());
+      assertEquals(Optional.of(ascending), threaded.hostWork().orElseThrow().call().value());
+      assertEquals(
+          Optional.of(ascending),
+          invoke(catalog, sort, List.of(integers), transaction, 1, false).value());
+      assertEquals(
+          Optional.of(
+              new ListValue(
+                  List.of(new IntegerValue(3), new IntegerValue(2), new IntegerValue(1)))),
+          invoke(
+                  catalog,
+                  sort,
+                  List.of(
+                      integers,
+                      new ListValue(List.of()),
+                      new IntegerValue(0),
+                      new IntegerValue(1)),
+                  transaction,
+                  1,
+                  false)
+              .value());
+
+      ListValue values =
+          new ListValue(List.of(string("third"), string("first"), string("second")));
+      ListValue keys =
+          new ListValue(List.of(new IntegerValue(30), new IntegerValue(10), new IntegerValue(20)));
+      assertEquals(
+          Optional.of(
+              new ListValue(List.of(string("first"), string("second"), string("third")))),
+          invoke(catalog, sort, List.of(values, keys), transaction, 1, false).value());
+      assertEquals(
+          Optional.of(new ListValue(List.of(string("x2"), string("x10")))),
+          invoke(
+                  catalog,
+                  sort,
+                  List.of(
+                      new ListValue(List.of(string("x10"), string("x2"))),
+                      new ListValue(List.of()),
+                      new IntegerValue(1)),
+                  transaction,
+                  1,
+                  false)
+              .value());
+      assertEquals(
+          Optional.of(ErrorValue.E_INVARG),
+          invoke(
+                  catalog,
+                  sort,
+                  List.of(values, new ListValue(List.of(new IntegerValue(1)))),
+                  transaction,
+                  1,
+                  false)
+              .error());
+      assertEquals(
+          Optional.of(ErrorValue.E_TYPE),
+          invoke(
+                  catalog,
+                  sort,
+                  List.of(new ListValue(List.of(new FloatValue(2.0), new IntegerValue(1)))),
+                  transaction,
+                  1,
+                  false)
+              .error());
+      assertEquals(
+          Optional.of(ErrorValue.E_TYPE),
+          invoke(
+                  catalog,
+                  sort,
+                  List.of(
+                      new ListValue(
+                          List.of(
+                              new WaifValue(new ObjectValue(1), new ObjectValue(1)),
+                              new WaifValue(new ObjectValue(1), new ObjectValue(1))))),
+                  transaction,
+                  1,
+                  false)
+              .error());
     }
   }
 
@@ -3433,6 +5380,54 @@ final class BuiltinCatalogTest {
   }
 
   @Test
+  void serverVersionExposesToastCompatibleVersionMetadataWithoutExtraFeatures() {
+    BuiltinCatalog catalog = new BuiltinCatalog();
+    BuiltinSpec spec = catalog.spec("server_version").orElseThrow();
+    try (WorldTxn transaction = world().begin()) {
+      assertEquals(
+          Optional.of(string("0.1.0-SNAPSHOT")),
+          invoke(catalog, spec, List.of(), transaction, 1).value());
+      assertEquals(
+          Optional.of(new ListValue(List.of())),
+          invoke(catalog, spec, List.of(string("features")), transaction, 1).value());
+      assertEquals(
+          Optional.of(new IntegerValue(0)),
+          invoke(catalog, spec, List.of(string("major")), transaction, 1).value());
+      assertEquals(
+          Optional.of(string("0.1.0-SNAPSHOT")),
+          invoke(catalog, spec, List.of(string("string")), transaction, 1).value());
+      assertInstanceOf(
+          ListValue.class,
+          invoke(catalog, spec, List.of(string("")), transaction, 1).value().orElseThrow());
+      assertInstanceOf(
+          ListValue.class,
+          invoke(catalog, spec, List.of(new IntegerValue(1)), transaction, 1)
+              .value()
+              .orElseThrow());
+      assertEquals(
+          Optional.of(ErrorValue.E_INVARG),
+          invoke(catalog, spec, List.of(string("missing")), transaction, 1).error());
+
+      Result functionInfo =
+          invoke(
+              catalog,
+              catalog.spec("function_info").orElseThrow(),
+              List.of(string("server_version")),
+              transaction,
+              1);
+      assertEquals(
+          Optional.of(
+              new ListValue(
+                  List.of(
+                      string("server_version"),
+                      new IntegerValue(0),
+                      new IntegerValue(1),
+                      new ListValue(List.of(new IntegerValue(-1)))))),
+          functionInfo.value());
+    }
+  }
+
+  @Test
   void dumpDatabaseReturnsZeroAndAValueOnlyCheckpointRequestForWizards() {
     BuiltinCatalog catalog = new BuiltinCatalog();
     try (WorldTxn transaction = world().begin()) {
@@ -3462,6 +5457,33 @@ final class BuiltinCatalogTest {
       assertTrue(arguments.checkpointRequest().isEmpty());
       assertEquals(Optional.of(ErrorValue.E_PERM), permission.error());
       assertTrue(permission.checkpointRequest().isEmpty());
+    }
+  }
+
+  @Test
+  void shutdownTruthFlagSelectsPanicDumpWhileFalseRemainsClean() {
+    BuiltinCatalog catalog = new BuiltinCatalog();
+    BuiltinSpec spec = catalog.spec("shutdown").orElseThrow();
+    try (WorldTxn transaction = world().begin()) {
+      Result panic =
+          invoke(
+              catalog,
+              spec,
+              List.of(string("panic reason"), new IntegerValue(1)),
+              transaction,
+              1);
+      Result clean =
+          invoke(
+              catalog,
+              spec,
+              List.of(string("clean reason"), new IntegerValue(0)),
+              transaction,
+              1);
+
+      assertEquals(Optional.of(CheckpointRequest.panic("panic reason")), panic.checkpointRequest());
+      assertEquals(Optional.of(new CheckpointRequest(true)), clean.checkpointRequest());
+      assertTrue(panic.error().isEmpty());
+      assertTrue(clean.error().isEmpty());
     }
   }
 
@@ -3571,9 +5593,16 @@ final class BuiltinCatalogTest {
     private long handler;
     private int port;
     private boolean printMessages;
+    private long bufferedOutputLength;
+    private long bufferedOutputConnectionId;
 
     @Override
-    public int listen(long handler, int port, boolean printMessages) {
+    public int listen(
+        long handler,
+        int port,
+        boolean ipv6,
+        boolean printMessages,
+        String interfaceAddress) {
       this.handler = handler;
       this.port = port;
       this.printMessages = printMessages;
@@ -3581,8 +5610,19 @@ final class BuiltinCatalogTest {
     }
 
     @Override
-    public boolean unlisten(int port) {
+    public List<BuiltinCatalog.ListenerDescription> listeners() {
+      return List.of(
+          new BuiltinCatalog.ListenerDescription(handler, port, port, false, printMessages, "127.0.0.1"));
+    }
+
+    @Override
+    public boolean unlisten(int port, boolean ipv6) {
       return false;
+    }
+
+    @Override
+    public long openNetworkConnection(String host, int port, boolean ipv6, long listenerHandler) {
+      return -77;
     }
 
     @Override
@@ -3595,6 +5635,15 @@ final class BuiltinCatalogTest {
     public void setConnectionBinary(long connectionId, boolean binary) {}
 
     @Override
+    public long bufferedOutputLength(long connectionId) {
+      bufferedOutputConnectionId = connectionId;
+      return bufferedOutputLength;
+    }
+
+    @Override
     public void shutdown() {}
+
+    @Override
+    public void panic() {}
   }
 }

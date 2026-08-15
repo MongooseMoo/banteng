@@ -1,9 +1,11 @@
 package moo.bytecode;
 
 import java.util.ArrayList;
+import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Optional;
 import java.util.OptionalInt;
+import moo.bytecode.BytecodeProgram.AstPath;
 import moo.bytecode.BytecodeProgram.HandlerSpec;
 import moo.bytecode.BytecodeProgram.Instruction;
 import moo.bytecode.BytecodeProgram.Opcode;
@@ -17,6 +19,8 @@ public final class MooCompiler {
   private final List<List<String>> activeLoopVariables = new ArrayList<>();
   private final List<Integer> activeLoopStarts = new ArrayList<>();
   private final List<List<Integer>> activeLoopBreaks = new ArrayList<>();
+  private final IdentityHashMap<Ast.Expression, AstPath> callPaths = new IdentityHashMap<>();
+  private final IdentityHashMap<Ast, AstPath> controlPaths = new IdentityHashMap<>();
 
   /** Parses and compiles one MOO verb body. */
   public BytecodeProgram compile(String source) {
@@ -31,6 +35,9 @@ public final class MooCompiler {
     activeLoopVariables.clear();
     activeLoopStarts.clear();
     activeLoopBreaks.clear();
+    callPaths.clear();
+    controlPaths.clear();
+    indexCallPaths(program);
     for (Ast.Statement statement : program.statements()) {
       compileStatement(statement, instructions, forkVectors);
     }
@@ -47,6 +54,196 @@ public final class MooCompiler {
               : OptionalInt.of(instructions.get(firstImplicitInstruction - 1).sourceLine()));
     }
     return new BytecodeProgram(instructions, forkVectors, MooUnparser.unparse(program));
+  }
+
+  private AstPath callPath(Ast.Expression call) {
+    AstPath path = callPaths.get(call);
+    if (path == null) {
+      throw new IllegalStateException("compiled call has no indexed AST path");
+    }
+    return path;
+  }
+
+  private AstPath controlPath(Ast control) {
+    AstPath path = controlPaths.get(control);
+    if (path == null) {
+      throw new IllegalStateException("compiled control has no indexed AST path");
+    }
+    return path;
+  }
+
+  private void indexCallPaths(Ast.Program program) {
+    for (int index = 0; index < program.statements().size(); index++) {
+      indexStatement(program.statements().get(index), new AstPath(List.of(index)));
+    }
+  }
+
+  private void indexStatements(List<Ast.Statement> statements, AstPath parent) {
+    for (int index = 0; index < statements.size(); index++) {
+      indexStatement(statements.get(index), parent.child(index));
+    }
+  }
+
+  private void indexStatement(Ast.Statement statement, AstPath path) {
+    if (statement instanceof Ast.If conditional) {
+      indexExpression(conditional.condition(), path.child(0));
+      indexStatements(conditional.body(), path.child(1));
+      for (int index = 0; index < conditional.elseIfs().size(); index++) {
+        Ast.ElseIf elseIf = conditional.elseIfs().get(index);
+        indexExpression(elseIf.condition(), path.child(2, index, 0));
+        indexStatements(elseIf.body(), path.child(2, index, 1));
+      }
+      indexStatements(conditional.elseBody(), path.child(3));
+      return;
+    }
+    if (statement instanceof Ast.While loop) {
+      indexExpression(loop.condition(), path.child(0));
+      indexStatements(loop.body(), path.child(1));
+      return;
+    }
+    if (statement instanceof Ast.For loop) {
+      controlPaths.put(loop, path);
+      indexExpression(loop.iterable(), path.child(0));
+      loop.rangeEnd().ifPresent(end -> indexExpression(end, path.child(1)));
+      indexStatements(loop.body(), path.child(2));
+      return;
+    }
+    if (statement instanceof Ast.Break || statement instanceof Ast.Continue) {
+      controlPaths.put(statement, path);
+      return;
+    }
+    if (statement instanceof Ast.Fork fork) {
+      indexExpression(fork.delay(), path.child(0));
+      indexStatements(fork.body(), path.child(1));
+      return;
+    }
+    if (statement instanceof Ast.Try guarded) {
+      controlPaths.put(guarded, path);
+      indexStatements(guarded.body(), path.child(0));
+      for (int index = 0; index < guarded.exceptClauses().size(); index++) {
+        Ast.ExceptClause clause = guarded.exceptClauses().get(index);
+        controlPaths.put(clause, path.child(1, index));
+        indexStatements(clause.body(), path.child(1, index));
+      }
+      guarded.finallyClause().ifPresent(clause -> indexStatements(clause.body(), path.child(2)));
+      return;
+    }
+    if (statement instanceof Ast.Return returned) {
+      returned.value().ifPresent(value -> indexExpression(value, path.child(0)));
+      return;
+    }
+    if (statement instanceof Ast.ExpressionStatement expression) {
+      indexExpression(expression.expression(), path.child(0));
+    }
+  }
+
+  private void indexExpression(Ast.Expression expression, AstPath path) {
+    if (expression instanceof Ast.Call call) {
+      callPaths.put(call, path);
+      for (int index = 0; index < call.arguments().size(); index++) {
+        indexExpression(call.arguments().get(index), path.child(0, index));
+      }
+      return;
+    }
+    if (expression instanceof Ast.VerbCall call) {
+      callPaths.put(call, path);
+      indexExpression(call.object(), path.child(0));
+      indexExpression(call.name(), path.child(1));
+      for (int index = 0; index < call.arguments().size(); index++) {
+        indexExpression(call.arguments().get(index), path.child(2, index));
+      }
+      return;
+    }
+    if (expression instanceof Ast.ListLiteral list) {
+      for (int index = 0; index < list.elements().size(); index++) {
+        indexExpression(list.elements().get(index), path.child(0, index));
+      }
+      return;
+    }
+    if (expression instanceof Ast.MapLiteral map) {
+      for (int index = 0; index < map.entries().size(); index++) {
+        Ast.MapEntry entry = map.entries().get(index);
+        indexExpression(entry.key(), path.child(0, index, 0));
+        indexExpression(entry.value(), path.child(0, index, 1));
+      }
+      return;
+    }
+    if (expression instanceof Ast.Splice splice) {
+      indexExpression(splice.value(), path.child(0));
+      return;
+    }
+    if (expression instanceof Ast.ScatterElement scatter) {
+      scatter.defaultValue().ifPresent(value -> indexExpression(value, path.child(0)));
+      return;
+    }
+    if (expression instanceof Ast.Assignment assignment) {
+      indexTarget(assignment.target(), path.child(0));
+      indexExpression(assignment.value(), path.child(1));
+      return;
+    }
+    if (expression instanceof Ast.PropertyAccess property) {
+      indexExpression(property.object(), path.child(0));
+      indexExpression(property.property(), path.child(1));
+      return;
+    }
+    if (expression instanceof Ast.IndexAccess index) {
+      indexExpression(index.collection(), path.child(0));
+      indexExpression(index.index(), path.child(1));
+      return;
+    }
+    if (expression instanceof Ast.RangeAccess range) {
+      indexExpression(range.collection(), path.child(0));
+      indexExpression(range.start(), path.child(1));
+      indexExpression(range.end(), path.child(2));
+      return;
+    }
+    if (expression instanceof Ast.Unary unary) {
+      indexExpression(unary.operand(), path.child(0));
+      return;
+    }
+    if (expression instanceof Ast.Binary binary) {
+      indexExpression(binary.left(), path.child(0));
+      indexExpression(binary.right(), path.child(1));
+      return;
+    }
+    if (expression instanceof Ast.Ternary ternary) {
+      indexExpression(ternary.condition(), path.child(0));
+      indexExpression(ternary.trueExpression(), path.child(1));
+      indexExpression(ternary.falseExpression(), path.child(2));
+      return;
+    }
+    if (expression instanceof Ast.Catch caught) {
+      controlPaths.put(caught, path);
+      indexExpression(caught.guarded(), path.child(0));
+      caught.fallback().ifPresent(value -> indexExpression(value, path.child(1)));
+    }
+  }
+
+  private void indexTarget(Ast.AssignmentTarget target, AstPath path) {
+    if (target instanceof Ast.PropertyTarget property) {
+      indexExpression(property.object(), path.child(0));
+      indexExpression(property.property(), path.child(1));
+      return;
+    }
+    if (target instanceof Ast.IndexTarget index) {
+      indexExpression(index.collection(), path.child(0));
+      indexExpression(index.index(), path.child(1));
+      return;
+    }
+    if (target instanceof Ast.RangeTarget range) {
+      indexExpression(range.collection(), path.child(0));
+      indexExpression(range.start(), path.child(1));
+      indexExpression(range.end(), path.child(2));
+      return;
+    }
+    if (target instanceof Ast.ScatterTarget scatter) {
+      for (int index = 0; index < scatter.elements().size(); index++) {
+        Ast.ScatterElement element = scatter.elements().get(index);
+        if (element.defaultValue().isPresent()) {
+          indexExpression(element.defaultValue().orElseThrow(), path.child(index, 0));
+        }
+      }
+    }
   }
 
   private void compileStatement(
@@ -111,7 +308,8 @@ public final class MooCompiler {
           new Instruction(
               forStatement.rangeEnd().isPresent() ? Opcode.ITERATE_RANGE : Opcode.ITERATE,
               -1,
-              variables));
+              variables,
+              controlPath(forStatement)));
       List<Integer> breakJumps = new ArrayList<>();
       activeLoopVariables.add(
           forStatement
@@ -149,7 +347,7 @@ public final class MooCompiler {
         throw new IllegalArgumentException(
             "unknown loop variable: " + breakStatement.loopVariable().orElse("<unnamed>"));
       }
-      int breakJump = addJump(Opcode.JUMP, instructions);
+      int breakJump = addJump(Opcode.JUMP, controlPath(breakStatement), instructions);
       activeLoopBreaks.get(loopIndex).add(breakJump);
       return;
     }
@@ -169,7 +367,11 @@ public final class MooCompiler {
         throw new IllegalArgumentException(
             "Invalid loop name: " + continueStatement.loopVariable().orElse("<unnamed>"));
       }
-      instructions.add(new Instruction(Opcode.JUMP, activeLoopStarts.get(loopIndex)));
+      instructions.add(
+          new Instruction(
+              Opcode.JUMP,
+              activeLoopStarts.get(loopIndex),
+              controlPath(continueStatement)));
       return;
     }
     if (statement instanceof Ast.Fork forkStatement) {
@@ -275,7 +477,8 @@ public final class MooCompiler {
         ownerEnter,
         new Instruction(
             new HandlerSpec(
-                -1, Optional.empty(), false, List.of(), false, finallyTarget, endTarget)));
+                -1, Optional.empty(), false, List.of(), false, finallyTarget, endTarget),
+            controlPath(statement)));
 
     for (int index = 0; index < clauseCount; index++) {
       Ast.ExceptClause clause = statement.exceptClauses().get(index);
@@ -294,7 +497,8 @@ public final class MooCompiler {
                   caughtErrors,
                   true,
                   -1,
-                  nextCleanupTarget)));
+                  nextCleanupTarget),
+              controlPath(clause)));
     }
   }
 
@@ -372,7 +576,7 @@ public final class MooCompiler {
           instructions.add(new Instruction(Opcode.LIST_APPEND));
         }
       }
-      instructions.add(new Instruction(Opcode.CALL, call.name()));
+      instructions.add(new Instruction(Opcode.CALL, call.name(), callPath(call)));
       return;
     }
     if (expression instanceof Ast.VerbCall call) {
@@ -388,7 +592,7 @@ public final class MooCompiler {
           instructions.add(new Instruction(Opcode.LIST_APPEND));
         }
       }
-      instructions.add(new Instruction(Opcode.CALL_VERB));
+      instructions.add(new Instruction(Opcode.CALL_VERB, callPath(call)));
       return;
     }
     if (expression instanceof Ast.PropertyAccess property) {
@@ -428,7 +632,11 @@ public final class MooCompiler {
       compileExpression(unary.operand(), instructions);
       instructions.add(
           new Instruction(
-              unary.operator() == Ast.UnaryOperator.NEGATE ? Opcode.NEGATE : Opcode.NOT));
+              switch (unary.operator()) {
+                case NEGATE -> Opcode.NEGATE;
+                case NOT -> Opcode.NOT;
+                case COMPLEMENT -> Opcode.COMPLEMENT;
+              }));
       return;
     }
     if (expression instanceof Ast.Binary binary) {
@@ -461,24 +669,37 @@ public final class MooCompiler {
       return;
     }
     if (assignment.target() instanceof Ast.IndexTarget index) {
-      if (index.collection() instanceof Ast.Identifier owner) {
-        instructions.add(new Instruction(Opcode.LOAD_LOCAL, owner.name()));
+      if (index.collection() instanceof Ast.PropertyAccess property) {
+        compileExpression(property.object(), instructions);
+        compileExpression(property.property(), instructions);
+        instructions.add(new Instruction(Opcode.DUP_PAIR));
+        instructions.add(new Instruction(Opcode.GET_PROPERTY));
         instructions.add(new Instruction(Opcode.ENTER_INDEX));
         compileExpression(index.index(), instructions);
         compileExpression(assignment.value(), instructions);
-        instructions.add(new Instruction(Opcode.SET_INDEX_LOCAL, owner.name()));
+        instructions.add(new Instruction(Opcode.SET_INDEX_PROPERTY));
         return;
       }
-      if (index.collection() instanceof Ast.IndexAccess parent
-          && parent.collection() instanceof Ast.Identifier owner) {
+      List<Ast.Expression> parentIndices = new ArrayList<>();
+      Ast.Expression root = index.collection();
+      while (root instanceof Ast.IndexAccess parent) {
+        parentIndices.addFirst(parent.index());
+        root = parent.collection();
+      }
+      if (root instanceof Ast.Identifier owner) {
         instructions.add(new Instruction(Opcode.LOAD_LOCAL, owner.name()));
-        instructions.add(new Instruction(Opcode.ENTER_INDEX));
-        compileExpression(parent.index(), instructions);
-        instructions.add(new Instruction(Opcode.INDEX, 1));
+        for (Ast.Expression parentIndex : parentIndices) {
+          instructions.add(new Instruction(Opcode.ENTER_INDEX));
+          compileExpression(parentIndex, instructions);
+          instructions.add(new Instruction(Opcode.INDEX, 1));
+        }
         instructions.add(new Instruction(Opcode.ENTER_INDEX));
         compileExpression(index.index(), instructions);
         compileExpression(assignment.value(), instructions);
-        instructions.add(new Instruction(Opcode.SET_INDEX_LOCAL, 1, owner.name()));
+        instructions.add(
+            parentIndices.isEmpty()
+                ? new Instruction(Opcode.SET_INDEX_LOCAL, owner.name())
+                : new Instruction(Opcode.SET_INDEX_LOCAL, parentIndices.size(), owner.name()));
         return;
       }
       throw new IllegalArgumentException("indexed assignment requires a local owner");
@@ -555,9 +776,14 @@ public final class MooCompiler {
 
   private void compileCatch(Ast.Catch expression, List<Instruction> instructions) {
     String caughtLocal = "$caught" + catchSequence++;
-    int enter = instructions.size();
+    AstPath ownerPath = controlPath(expression);
+    int ownerEnter = instructions.size();
+    instructions.add(new Instruction(Opcode.JUMP, -1));
+    int clauseEnter = instructions.size();
     instructions.add(new Instruction(Opcode.JUMP, -1));
     compileExpression(expression.guarded(), instructions);
+    instructions.add(new Instruction(Opcode.LEAVE_HANDLER));
+    int ownerCleanupTarget = instructions.size();
     instructions.add(new Instruction(Opcode.LEAVE_HANDLER));
     int catchTarget = instructions.size();
     if (expression.fallback().isPresent()) {
@@ -571,7 +797,12 @@ public final class MooCompiler {
     List<String> caughtErrors =
         expression.errors() instanceof Ast.ErrorList errors ? errors.names() : List.of();
     instructions.set(
-        enter,
+        ownerEnter,
+        new Instruction(
+            new HandlerSpec(
+                -1, Optional.empty(), false, List.of(), false, -1, endTarget), ownerPath));
+    instructions.set(
+        clauseEnter,
         new Instruction(
             new HandlerSpec(
                 catchTarget,
@@ -580,7 +811,8 @@ public final class MooCompiler {
                 caughtErrors,
                 false,
                 -1,
-                endTarget)));
+                ownerCleanupTarget),
+            ownerPath.child(2, 0)));
   }
 
   private static OptionalInt statementSourceLine(Ast.Statement statement) {
@@ -684,7 +916,8 @@ public final class MooCompiler {
                 instruction.operand(),
                 instruction.text(),
                 instruction.handler(),
-                sourceLine.orElseThrow()));
+                sourceLine.orElseThrow(),
+                instruction.astPath()));
       }
     }
   }
@@ -697,6 +930,11 @@ public final class MooCompiler {
       case DIVIDE -> Opcode.DIVIDE;
       case REMAINDER -> Opcode.REMAINDER;
       case POWER -> Opcode.POWER;
+      case BITOR -> Opcode.BITOR;
+      case BITAND -> Opcode.BITAND;
+      case BITXOR -> Opcode.BITXOR;
+      case BITSHL -> Opcode.BITSHL;
+      case BITSHR -> Opcode.BITSHR;
       case EQUAL -> Opcode.EQUAL;
       case NOT_EQUAL -> Opcode.NOT_EQUAL;
       case LESS_THAN -> Opcode.LESS_THAN;
@@ -714,6 +952,13 @@ public final class MooCompiler {
     return index;
   }
 
+  private static int addJump(
+      Opcode opcode, AstPath astPath, List<Instruction> instructions) {
+    int index = instructions.size();
+    instructions.add(new Instruction(opcode, -1, astPath));
+    return index;
+  }
+
   private static void patchJump(int instructionIndex, int target, List<Instruction> instructions) {
     patchNumericOperand(instructionIndex, target, instructions);
   }
@@ -727,7 +972,8 @@ public final class MooCompiler {
             java.util.OptionalLong.of(target),
             previous.text(),
             previous.handler(),
-            previous.sourceLine());
+            previous.sourceLine(),
+            previous.astPath());
     instructions.set(instructionIndex, replacement);
   }
 }

@@ -3,6 +3,7 @@ package moo.syntax;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -13,6 +14,7 @@ import java.util.HexFormat;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
 
@@ -46,6 +48,48 @@ final class MooParserTest {
     assertEquals(Ast.BinaryOperator.ADD, addition.operator());
     assertEquals(new Ast.IntegerLiteral(1), addition.left());
     assertEquals(new Ast.IntegerLiteral(1), addition.right());
+  }
+
+  @Test
+  void rejectsConformanceDepthBeforeExhaustingTheHostStack() {
+    String accepted = "return " + "(".repeat(255) + "1" + ")".repeat(255) + ";";
+    String source = "return " + "(".repeat(2_560) + "1" + ")".repeat(2_560) + ";";
+
+    assertDoesNotThrow(() -> MooParser.parse(accepted));
+    MooParser.ParseException error =
+        assertThrows(MooParser.ParseException.class, () -> MooParser.parse(source));
+
+    assertEquals(
+        "expression nesting limit exceeded",
+        Objects.requireNonNull(error.getMessage()).split(": ", 2)[1]);
+  }
+
+  @Test
+  void parsesToastAndOrAtOneLeftAssociativePrecedence() {
+    Ast.Program program = MooParser.parse("return 1 || 1 && 0;");
+    Ast.Return returned = assertInstanceOf(Ast.Return.class, program.statements().getFirst());
+    Ast.Binary and = assertInstanceOf(Ast.Binary.class, returned.value().orElseThrow());
+
+    assertEquals(Ast.BinaryOperator.AND, and.operator());
+    Ast.Binary or = assertInstanceOf(Ast.Binary.class, and.left());
+    assertEquals(Ast.BinaryOperator.OR, or.operator());
+    assertEquals("return 1 || 1 && 0;", MooUnparser.unparse(program));
+  }
+
+  @Test
+  void parsesAndUnparsesToastBitwisePrecedenceAndSpellings() {
+    String source = "return ~0 |. 1 &. 3 ^. 2 << 1 >> 1;";
+    Ast.Program program = MooParser.parse(source);
+    Ast.Return returned = assertInstanceOf(Ast.Return.class, program.statements().getFirst());
+    Ast.Binary xor = assertInstanceOf(Ast.Binary.class, returned.value().orElseThrow());
+
+    assertEquals(Ast.BinaryOperator.BITXOR, xor.operator());
+    Ast.Binary and = assertInstanceOf(Ast.Binary.class, xor.left());
+    assertEquals(Ast.BinaryOperator.BITAND, and.operator());
+    Ast.Binary shiftRight = assertInstanceOf(Ast.Binary.class, xor.right());
+    assertEquals(Ast.BinaryOperator.BITSHR, shiftRight.operator());
+    assertEquals(source, MooUnparser.unparse(program));
+    assertDoesNotThrow(() -> MooParser.parse("return {1, 2, 3}[^..^ + 1];"));
   }
 
   @Test
@@ -156,7 +200,7 @@ final class MooParserTest {
     Ast.Program program =
         MooParser.parse(
             "return max(0, @items, 4); return #0.name; return #0.(name); #0.(name) = 9; "
-                + "return #0:test(1, @items); return #0:(name)();");
+                + "return #0:test(1, @items); return #0:(name)(); return $prod();");
 
     Ast.Return callReturn = assertInstanceOf(Ast.Return.class, program.statements().get(0));
     Ast.Call call = assertInstanceOf(Ast.Call.class, callReturn.value().orElseThrow());
@@ -198,6 +242,11 @@ final class MooParserTest {
     assertEquals(
         new Ast.VerbCall(new Ast.ObjectLiteral(0), new Ast.Identifier("name"), List.of()),
         computedVerbReturn.value().orElseThrow());
+
+    Ast.Return systemVerbReturn = assertInstanceOf(Ast.Return.class, program.statements().get(6));
+    assertEquals(
+        new Ast.VerbCall(new Ast.ObjectLiteral(0), new Ast.StringLiteral("prod"), List.of()),
+        systemVerbReturn.value().orElseThrow());
   }
 
   private static Map<String, String> exactFixturePrograms(List<String> lines) {

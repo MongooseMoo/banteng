@@ -13,18 +13,22 @@ public final class MooParser {
   private static final int ASSIGNMENT_PRECEDENCE = 1;
   private static final int TERNARY_PRECEDENCE = 2;
   private static final int OR_PRECEDENCE = 3;
-  private static final int AND_PRECEDENCE = 4;
+  private static final int AND_PRECEDENCE = OR_PRECEDENCE;
   private static final int COMPARISON_PRECEDENCE = 5;
-  private static final int ADDITIVE_PRECEDENCE = 6;
-  private static final int MULTIPLICATIVE_PRECEDENCE = 7;
-  private static final int POWER_PRECEDENCE = 8;
-  private static final int UNARY_PRECEDENCE = 9;
-  private static final int POSTFIX_PRECEDENCE = 10;
+  private static final int BITWISE_PRECEDENCE = 6;
+  private static final int SHIFT_PRECEDENCE = 7;
+  private static final int ADDITIVE_PRECEDENCE = 8;
+  private static final int MULTIPLICATIVE_PRECEDENCE = 9;
+  private static final int POWER_PRECEDENCE = 10;
+  private static final int UNARY_PRECEDENCE = 11;
+  private static final int POSTFIX_PRECEDENCE = 12;
+  private static final int MAX_EXPRESSION_DEPTH = 256;
 
   private final MooLexer lexer;
   private Token current;
   private int previousEndOffset;
   private int indexDepth;
+  private int expressionDepth;
 
   private MooParser(String source) {
     lexer = new MooLexer(source);
@@ -264,66 +268,75 @@ public final class MooParser {
   }
 
   private Ast.Expression parseExpression(int minimumPrecedence) {
-    Token firstToken = current;
-    Ast.Expression left = parsePrefix();
-    while (true) {
-      if (isPostfix(current.kind()) && POSTFIX_PRECEDENCE >= minimumPrecedence) {
-        left = parsePostfix(left, firstToken);
-        continue;
-      }
-      if (current.kind() == TokenKind.EQUAL && ASSIGNMENT_PRECEDENCE >= minimumPrecedence) {
-        advance();
-        Ast.Expression value = parseExpression(ASSIGNMENT_PRECEDENCE);
-        left =
-            new Ast.Assignment(
-                toAssignmentTarget(left),
-                value,
-                Optional.of(
-                    new Ast.SourceSpan(
-                        firstToken.startOffset(),
-                        previousEndOffset,
-                        firstToken.line(),
-                        firstToken.column())));
-        continue;
-      }
-      if (current.kind() == TokenKind.QUESTION && TERNARY_PRECEDENCE >= minimumPrecedence) {
-        advance();
-        Ast.Expression trueExpression = parseExpression(ASSIGNMENT_PRECEDENCE);
-        expectAndAdvance(TokenKind.PIPE, "'|' in ternary expression");
-        Ast.Expression falseExpression = parseExpression(ASSIGNMENT_PRECEDENCE);
-        left =
-            new Ast.Ternary(
-                left,
-                trueExpression,
-                falseExpression,
-                Optional.of(
-                    new Ast.SourceSpan(
-                        firstToken.startOffset(),
-                        previousEndOffset,
-                        firstToken.line(),
-                        firstToken.column())));
-        continue;
-      }
+    if (expressionDepth >= MAX_EXPRESSION_DEPTH) {
+      throw error("expression nesting limit exceeded");
+    }
+    expressionDepth++;
+    try {
+      Token firstToken = current;
+      Ast.Expression left = parsePrefix();
+      while (true) {
+        if (isPostfix(current.kind()) && POSTFIX_PRECEDENCE >= minimumPrecedence) {
+          left = parsePostfix(left, firstToken);
+          continue;
+        }
+        if (current.kind() == TokenKind.EQUAL && ASSIGNMENT_PRECEDENCE >= minimumPrecedence) {
+          advance();
+          Ast.Expression value = parseExpression(ASSIGNMENT_PRECEDENCE);
+          left =
+              new Ast.Assignment(
+                  toAssignmentTarget(left),
+                  value,
+                  Optional.of(
+                      new Ast.SourceSpan(
+                          firstToken.startOffset(),
+                          previousEndOffset,
+                          firstToken.line(),
+                          firstToken.column())));
+          continue;
+        }
+        if (current.kind() == TokenKind.QUESTION && TERNARY_PRECEDENCE >= minimumPrecedence) {
+          advance();
+          Ast.Expression trueExpression = parseExpression(ASSIGNMENT_PRECEDENCE);
+          expectAndAdvance(TokenKind.PIPE, "'|' in ternary expression");
+          Ast.Expression falseExpression = parseExpression(ASSIGNMENT_PRECEDENCE);
+          left =
+              new Ast.Ternary(
+                  left,
+                  trueExpression,
+                  falseExpression,
+                  Optional.of(
+                      new Ast.SourceSpan(
+                          firstToken.startOffset(),
+                          previousEndOffset,
+                          firstToken.line(),
+                          firstToken.column())));
+          continue;
+        }
 
-      int precedence = binaryPrecedence(current.kind());
-      if (precedence < minimumPrecedence) {
-        return left;
+        int precedence = binaryPrecedence(current.kind());
+        if (precedence < minimumPrecedence) {
+          return left;
+        }
+        TokenKind operator = current.kind();
+        advance();
+        int rightPrecedence =
+            operator == TokenKind.CARET ? precedence : Math.addExact(precedence, 1);
+        Ast.Expression right = parseExpression(rightPrecedence);
+        left =
+            new Ast.Binary(
+                left,
+                binaryOperator(operator),
+                right,
+                Optional.of(
+                    new Ast.SourceSpan(
+                        firstToken.startOffset(),
+                        previousEndOffset,
+                        firstToken.line(),
+                        firstToken.column())));
       }
-      TokenKind operator = current.kind();
-      advance();
-      int rightPrecedence = operator == TokenKind.CARET ? precedence : Math.addExact(precedence, 1);
-      Ast.Expression right = parseExpression(rightPrecedence);
-      left =
-          new Ast.Binary(
-              left,
-              binaryOperator(operator),
-              right,
-              Optional.of(
-                  new Ast.SourceSpan(
-                      firstToken.startOffset(),
-                      previousEndOffset,
-                      firstToken.line(),
-                      firstToken.column())));
+    } finally {
+      expressionDepth--;
     }
   }
 
@@ -452,15 +465,42 @@ public final class MooParser {
                 new Ast.SourceSpan(
                     token.startOffset(), previousEndOffset, token.line(), token.column())));
       }
+      case TILDE -> {
+        advance();
+        yield new Ast.Unary(Ast.UnaryOperator.COMPLEMENT, parseExpression(UNARY_PRECEDENCE));
+      }
       case BACKTICK -> parseCatch();
       default -> throw error("expected expression");
     };
   }
 
   private Ast.Expression parseSystemProperty() {
+    Token dollar = current;
     advance();
     String property = expect(TokenKind.IDENTIFIER, "system property name").lexeme();
     advance();
+    if (match(TokenKind.LEFT_PAREN)) {
+      List<Ast.Expression> arguments = new ArrayList<>();
+      if (current.kind() != TokenKind.RIGHT_PAREN) {
+        do {
+          boolean splice = match(TokenKind.AT);
+          Ast.Expression argument = parseExpression(ASSIGNMENT_PRECEDENCE);
+          arguments.add(splice ? new Ast.Splice(argument) : argument);
+        } while (match(TokenKind.COMMA));
+      }
+      Token rightParen = current;
+      expectAndAdvance(TokenKind.RIGHT_PAREN, "')' after verb arguments");
+      return new Ast.VerbCall(
+          new Ast.ObjectLiteral(0),
+          new Ast.StringLiteral(property),
+          arguments,
+          Optional.of(
+              new Ast.SourceSpan(
+                  dollar.startOffset(),
+                  rightParen.endOffset(),
+                  dollar.line(),
+                  dollar.column())));
+    }
     return new Ast.PropertyAccess(new Ast.ObjectLiteral(0), new Ast.StringLiteral(property));
   }
 
@@ -722,6 +762,8 @@ public final class MooParser {
           GREATER_THAN_OR_EQUAL,
           IN ->
           COMPARISON_PRECEDENCE;
+      case BIT_OR, BIT_AND, BIT_XOR -> BITWISE_PRECEDENCE;
+      case BIT_SHIFT_LEFT, BIT_SHIFT_RIGHT -> SHIFT_PRECEDENCE;
       case PLUS, MINUS -> ADDITIVE_PRECEDENCE;
       case STAR, SLASH, PERCENT -> MULTIPLICATIVE_PRECEDENCE;
       case CARET -> POWER_PRECEDENCE;
@@ -744,6 +786,11 @@ public final class MooParser {
       case GREATER_THAN -> Ast.BinaryOperator.GREATER_THAN;
       case GREATER_THAN_OR_EQUAL -> Ast.BinaryOperator.GREATER_THAN_OR_EQUAL;
       case IN -> Ast.BinaryOperator.IN;
+      case BIT_OR -> Ast.BinaryOperator.BITOR;
+      case BIT_AND -> Ast.BinaryOperator.BITAND;
+      case BIT_XOR -> Ast.BinaryOperator.BITXOR;
+      case BIT_SHIFT_LEFT -> Ast.BinaryOperator.BITSHL;
+      case BIT_SHIFT_RIGHT -> Ast.BinaryOperator.BITSHR;
       case AND_AND -> Ast.BinaryOperator.AND;
       case OR_OR -> Ast.BinaryOperator.OR;
       default -> throw new AssertionError("not a binary operator: " + kind);

@@ -4,7 +4,7 @@
 
 Build a Java 25 MOO server that:
 
-- passes every non-excluded row for the three profiles in
+- passes every non-excluded row for the two selected profiles in
   `docs/reports/supported-conformance-profiles.md`;
 - reads LambdaMOO v4 permanent-object bootstrap databases and ToastStunt v17
   databases, reads anonymous objects only from ToastStunt v17 databases, and
@@ -125,22 +125,18 @@ Deliverables:
    values, fixture SHA-256, and support status before launch.
 2. Add the required Toast source path, executable checksum, both configuration
    paths and checksums, target compile-flags path and checksum, and canonical
-   fixture path to all three manifests under `profiles/toast/`. The ToastCore
+   fixture path to the stock and ToastCore manifests under `profiles/toast/`. The ToastCore
    manifest also records fixture source path `/root/src/toastcore` and fixture
    source commit `1887eacd591d97fdc55d258a76e2167899b1951d`; its preflight verifies
    that HEAD separately from the Toast executable source. No environment
    variable may bypass a failed identity check.
 3. Make `scripts/run_toast_wsl.sh` invoke that preflight before `exec`.
-4. Verify `../barn/mongoose_fresh2.db` has SHA-256
-   `33201970097d3d2d2bfc0d5f875f087d587601bf8255ef31ef19b416d65ac925`,
-   copy that exact file into `fixtures/mongoose.db`, and verify the copy has the
-   same checksum. This is the only authorized read of the Barn fixture.
-   Thereafter no Banteng command may read `../barn/mongoose_fresh2.db`.
-5. Make `scripts/run_banteng_wsl.sh` run `/opt/java/25/bin/java` inside WSL,
-   accept `{db} {port} {manifest}`, and select `PROMOTE_NUMBERS` only from the
-   supplied target manifest. It must not launch Windows Java or require a
-   Windows-host gateway.
-6. Fix the advertised `moo-conformance FILE_OR_DIR...` interface so exact YAML
+4. Make `scripts/run_banteng_wsl.sh` run `/opt/java/25/bin/java` inside WSL and
+   accept `{db} {port} {manifest}`. The launcher may pass the manifest's Boolean
+   `PROMOTE_NUMBERS` value to the already implemented optional application
+   option, but no selected conformance manifest enables it. It must not launch
+   Windows Java or require a Windows-host gateway.
+5. Fix the advertised `moo-conformance FILE_OR_DIR...` interface so exact YAML
    file and directory arguments collect only rows below those paths even though
    the CLI loads the installed `moo_conformance` package. Add a conformance CLI
    regression at `tests/test_cli_file_selection.py` proving one YAML file does
@@ -149,25 +145,25 @@ Deliverables:
    capability, collection, or runtime skips fail under
    `--fail-on-unexpected-skip`. Commit that conformance-repository slice before
    using path-selected gates below.
-7. After the stock Toast preflight verifies `/root/src/toaststunt`, generate
+6. After the stock Toast preflight verifies `/root/src/toaststunt`, generate
    `startup-fixtures.sha256` from `Anon1.db` through `Anon6.db` and `Broken1.db`
    through `Broken5.db` in `/root/src/toaststunt/test/tests/`, with sorted
    basename-only entries. Then copy those exact files into
    `../moo-conformance-tests/src/moo_conformance/_db/startup/`. Commit those
    eleven fixtures plus the source-generated manifest in the conformance
    repository. Never regenerate the manifest from the destination copies.
-8. Add `test_suites` arrays to the three Toast oracle manifests: stock and
-   Mongoose contain `src/moo_conformance/_tests`; ToastCore is empty until Phase
-   2 commits the persistent walking-skeleton row. Stock and Mongoose set
-   `login_commands` to an empty array and `skip_standard_properties` to false;
-   ToastCore sets `login_commands` to `["connect wizard"]` and
-   `skip_standard_properties` to true. Add corresponding checked-in
+7. Add `test_suites` arrays to the two selected Toast oracle manifests: stock
+   contains `src/moo_conformance/_tests`; ToastCore is empty until Phase 2
+   commits the persistent walking-skeleton row. Stock sets `login_commands` to
+   an empty array and `skip_standard_properties` to false; ToastCore sets
+   `login_commands` to `["connect wizard"]` and `skip_standard_properties` to
+   true. Add corresponding checked-in
    Banteng target manifests under `profiles/banteng/`; each identifies
    implementation `banteng`, the matching feature flags and fixture, and the
    same `test_suites` array as its Toast oracle manifest.
-9. Add `scripts/run_managed_wsl.sh TARGET PROFILE SUITE...`, where `TARGET` is
-   exactly `toast` or `banteng`, `PROFILE` is exactly `stock`, `mongoose`, or
-   `toastcore`, and `SUITE...` is one or more exact conformance YAML paths,
+8. Add `scripts/run_managed_wsl.sh TARGET PROFILE SUITE...`, where `TARGET` is
+   exactly `toast` or `banteng`, `PROFILE` is exactly `stock` or `toastcore`,
+   and `SUITE...` is one or more exact conformance YAML paths,
    directories, or the single word `profile`. It selects the profile's Toast
    oracle manifest plus either that oracle manifest or the matching
    Banteng target manifest, invokes `uv run
@@ -177,7 +173,7 @@ Deliverables:
    and standard-property behavior. It rejects every other argument shape and is
    checked in executable. `profile` expands only to the target manifest's
    nonempty `test_suites` array.
-10. Add `scripts/test_verify_toast_profile_wsl.sh`. It must prove the verifier
+9. Add `scripts/test_verify_toast_profile_wsl.sh`. It must prove the verifier
    returns nonzero for a wrong source HEAD, executable checksum, configuration
    checksum, generated-configuration checksum, compile-flags checksum, fixture
    checksum, and unsupported status, using temporary manifest and fixture copies
@@ -186,18 +182,17 @@ Deliverables:
    `TOAST_GENERATED_CONFIG`, `TOAST_COMPILE_FLAGS`, `TOAST_FIXTURE`, and
    `TOAST_SUPPORT_STATUS=supported`; it must still return nonzero from the
    manifest failure.
-11. Add `scripts/test_managed_runners_wsl.sh`. Using only temporary Git
+10. Add `scripts/test_managed_runners_wsl.sh`. Using only temporary Git
    repositories, manifests, fixtures, stub executables, and an argument-capture
    stub for `uv run moo-conformance`, it proves: Toast preflight occurs before
-   launch; Banteng invokes `/opt/java/25/bin/java`; only the target manifest
-   controls `PROMOTE_NUMBERS`; every invalid target, profile, and suite shape is
-   rejected; `profile` expands only the selected nonempty suite array; login and
-   standard-property options match the selected profile; and
+   launch; Banteng invokes `/opt/java/25/bin/java`; direct launcher tests prove
+   true and false optional `PROMOTE_NUMBERS` values; every invalid target,
+   profile, and suite shape is rejected; `profile` expands only the selected
+   nonempty suite array; login and standard-property options match the selected profile; and
    `--fail-on-unexpected-skip` is forwarded.
-12. Keep the selected fixtures exact:
+11. Keep the selected fixtures exact:
    `../moo-conformance-tests/src/moo_conformance/_db/Test.db` at SHA-256
-   `1a3f23ebb549e02ccf5341668425118fcdc935b977096add87bc2a8ef29d408e`,
-   `fixtures/mongoose.db` at the checksum above, and
+   `1a3f23ebb549e02ccf5341668425118fcdc935b977096add87bc2a8ef29d408e`, and
    `/root/src/toastcore/toastcore.db` at SHA-256
    `8013b703c61a9894866f836f2b934eada7118cdf0b3cd56181e4bf9205b2f557`
    from ToastCore commit `1887eacd591d97fdc55d258a76e2167899b1951d`.
@@ -213,7 +208,6 @@ bash -n scripts/run_managed_wsl.sh
 bash scripts/test_verify_toast_profile_wsl.sh
 bash scripts/test_managed_runners_wsl.sh
 scripts/verify_toast_profile_wsl.sh profiles/toast/stock-wsl-testdb.json
-scripts/verify_toast_profile_wsl.sh profiles/toast/mongoose-wsl-mongoose.json
 scripts/verify_toast_profile_wsl.sh profiles/toast/stock-wsl-toastcore.json
 test "$(git ls-files -s scripts/verify_toast_profile_wsl.sh | cut -d' ' -f1)" = 100755
 test "$(git ls-files -s scripts/run_toast_wsl.sh | cut -d' ' -f1)" = 100755
@@ -299,9 +293,10 @@ Deliverables, in order:
    call shape and `E_PERM` behavior with
    `server/dump_database.yaml` and `generated_builtins/dump_database.yaml` in
    the Phase 2 managed gate.
-6. Add `--promote-numbers` to the concrete application configuration. Only the
-   checked target manifest controls it; application code may not infer it from
-   the database filename or server command.
+6. Permit the existing optional `--promote-numbers` application configuration,
+   but do not enable it in a selected conformance profile or make it a phase
+   gate. Application code may not infer it from a database filename or server
+   command.
 7. Add `DurableTaskStateArchitectureTest`. It recursively rejects durable task
    snapshot fields assignable to `Thread`, `Future`, `CompletionStage`,
    `Socket`, `Channel`, or `Clock`; `VmSnapshotTest` proves
@@ -512,11 +507,17 @@ Phase 4 also includes v17 round-trip and startup restoration of the delayed
 fork state exercised by `audit_suspended_task_survives_restart` and
 `audit_pending_forked_task_survives_genuine_offline_restart`.
 
+Phase 4 persistence work is limited to behavior exercised by the exact stock
+managed rows and minimal checked-in or synthetic v17 fixtures. Default tests
+must not load a local Mongoose database or assert application-specific task,
+activation, object, or connection counts. Generic suspended/interrupted-task
+support may be kept only with independent minimal proof.
+
 Before Phase 5, complete the one production `SUSPENDING_HOST` path. This is
 Phase 4 task infrastructure, not Phase 6 concurrency work:
 
 1. Add per-activation thread mode to `VmState.Frame` and `VmSnapshot.Frame`.
-   New root and fork activations default to enabled for both pinned profiles;
+   New root and fork activations default to enabled for both selected profiles;
    called verb and eval activations inherit their caller's mode, and returning
    restores the caller's unchanged mode. `LambdaMooV17Codec` must read, retain,
    write, and restore both valid v17 values for the queued root activation
@@ -635,9 +636,9 @@ and every placeholder result.
 Add `scripts/extract_toast_builtin_names_wsl.sh MANIFEST OUTPUT`. It verifies the
 manifest first, preprocesses only that manifest's pinned Toast source with its
 pinned source-option and generated-configuration headers and exact target compile
-flags, and writes the sorted canonical registered-name set. Commit exact stock
-and Mongoose name fixtures under `src/test/resources/moo/builtin/`.
-`BuiltinCatalogTest` compares the production manifest with those fixtures without
+flags, and writes the sorted canonical registered-name set. Commit the exact
+stock name fixture under `src/test/resources/moo/builtin/`.
+`BuiltinCatalogTest` compares the production manifest with that fixture without
 accessing an external checkout. The separate extraction gate below regenerates
 temporary files from the pinned sources and compares them byte-for-byte with the
 fixtures.
@@ -653,14 +654,10 @@ Gates:
 cd /mnt/c/Users/Q/code/banteng
 scripts/extract_toast_builtin_names_wsl.sh profiles/toast/stock-wsl-testdb.json /tmp/banteng-builtins-stock.txt
 cmp src/test/resources/moo/builtin/toast-builtins-stock.txt /tmp/banteng-builtins-stock.txt
-scripts/extract_toast_builtin_names_wsl.sh profiles/toast/mongoose-wsl-mongoose.json /tmp/banteng-builtins-mongoose.txt
-cmp src/test/resources/moo/builtin/toast-builtins-mongoose.txt /tmp/banteng-builtins-mongoose.txt
-rm /tmp/banteng-builtins-stock.txt /tmp/banteng-builtins-mongoose.txt
+rm /tmp/banteng-builtins-stock.txt
 JAVA_HOME=/opt/java/25 ./gradlew test --tests moo.builtin.BuiltinCatalogTest
 scripts/run_managed_wsl.sh toast stock src/moo_conformance/_tests/builtins src/moo_conformance/_tests/generated_builtins
 scripts/run_managed_wsl.sh banteng stock src/moo_conformance/_tests/builtins src/moo_conformance/_tests/generated_builtins
-scripts/run_managed_wsl.sh toast mongoose src/moo_conformance/_tests/builtins src/moo_conformance/_tests/generated_builtins
-scripts/run_managed_wsl.sh banteng mongoose src/moo_conformance/_tests/builtins src/moo_conformance/_tests/generated_builtins
 JAVA_HOME=/opt/java/25 ./gradlew check
 git diff --check
 ```
@@ -725,9 +722,9 @@ world state, and output.
 
 ## Phase 7 - Operational checkpoint and restart
 
-Extend the Phase 4 delayed-fork checkpoint path with complete queued and
-suspended task round trips, checkpoint-time revision retention, bounded
-reclamation, and graceful shutdown.
+Extend the complete Phase 4 queued/suspended task checkpoint path with
+checkpoint-time revision retention, bounded reclamation, and graceful
+shutdown.
 There is no panic-dump feature in this plan.
 
 Add:
@@ -814,8 +811,6 @@ Final gates, in order:
 cd /mnt/c/Users/Q/code/banteng
 scripts/run_managed_wsl.sh toast stock profile
 scripts/run_managed_wsl.sh banteng stock profile
-scripts/run_managed_wsl.sh toast mongoose profile
-scripts/run_managed_wsl.sh banteng mongoose profile
 scripts/run_managed_wsl.sh toast toastcore profile
 scripts/run_managed_wsl.sh banteng toastcore profile
 JAVA_HOME=/opt/java/25 ./gradlew clean check

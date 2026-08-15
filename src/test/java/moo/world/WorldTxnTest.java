@@ -2,6 +2,7 @@ package moo.world;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -13,11 +14,66 @@ import java.util.Set;
 import moo.value.MooValue.AnonymousObjectValue;
 import moo.value.MooValue.IntegerValue;
 import moo.value.MooValue.ListValue;
+import moo.value.MooValue.MapValue;
+import moo.value.MooValue.ObjectValue;
 import moo.value.MooValue.StringValue;
 import moo.value.MooValue.WaifValue;
 import org.junit.jupiter.api.Test;
 
 final class WorldTxnTest {
+  @Test
+  void moveRecordsProtectedMetadataAndUnrelatedEditsPreserveIt() {
+    WorldTxn root = root(object(0, "moved"), object(1, "destination"));
+    try (WorldTxn transaction = root.begin()) {
+      long before = System.currentTimeMillis() / 1_000L;
+
+      assertTrue(transaction.move(0, 1));
+
+      long after = System.currentTimeMillis() / 1_000L;
+      MapValue lastMove =
+          assertInstanceOf(
+              MapValue.class,
+              transaction.readObjectProperty(0, "last_move").orElseThrow());
+      assertEquals(new ObjectValue(-1), lastMove.entries().get(string("source")));
+      long movedAt =
+          assertInstanceOf(IntegerValue.class, lastMove.entries().get(string("time"))).value();
+      assertTrue(movedAt >= before);
+      assertTrue(movedAt <= after);
+
+      assertTrue(transaction.writeObjectProperty(0, "name", string("renamed")));
+      assertEquals(lastMove, transaction.readObjectProperty(0, "last_move").orElseThrow());
+    }
+  }
+
+  @Test
+  void movePositionReordersContentsAndZeroAppends() {
+    WorldObject room =
+        new WorldObject(
+            0,
+            "room",
+            0,
+            0,
+            -1,
+            -1,
+            List.of(1L, 2L, 3L),
+            List.of(),
+            List.of(),
+            List.of());
+    WorldObject first = locatedObject(1, 0);
+    WorldObject second = locatedObject(2, 0);
+    WorldObject third = locatedObject(3, 0);
+    try (WorldTxn transaction = root(room, first, second, third).begin()) {
+      assertTrue(transaction.move(3, 0, 1));
+      assertEquals(List.of(3L, 1L, 2L), transaction.object(0).orElseThrow().contents());
+
+      assertTrue(transaction.move(3, 0, 0));
+      assertEquals(List.of(1L, 2L, 3L), transaction.object(0).orElseThrow().contents());
+
+      assertTrue(transaction.move(1, 0, Long.MAX_VALUE));
+      assertEquals(List.of(2L, 3L, 1L), transaction.object(0).orElseThrow().contents());
+    }
+  }
+
   @Test
   void stagesRecordsAndEffectsUntilOneAtomicPublication() {
     WorldTxn root = root(object(0, "before"), object(1, "destination"));
@@ -145,6 +201,28 @@ final class WorldTxnTest {
   }
 
   @Test
+  void anonymousReadsAndWritesConflictOnTheExactIdentity() {
+    WorldTxn root = root(object(0, "parent"));
+    AnonymousObjectValue identity;
+    try (WorldTxn creator = root.begin()) {
+      identity = creator.createAnonymousObject(0, 0);
+      assertTrue(creator.commit().isCommitted());
+    }
+    WorldTxn stale = root.begin();
+    try (WorldTxn winner = root.begin()) {
+      assertEquals("", stale.anonymousObject(identity).orElseThrow().name());
+      assertTrue(winner.writeObjectProperty(identity, "name", string("winner")));
+      assertTrue(winner.commit().isCommitted());
+    }
+
+    WorldTxn.CommitResult result = stale.commit();
+
+    assertEquals(WorldTxn.Status.CONFLICT, result.status());
+    assertEquals(Set.of(identity), result.conflictingAnonymousRecords());
+    assertEquals(Set.of(), result.conflictingRecords());
+  }
+
+  @Test
   void waifPropertyStateCommitsAndRollsBackByReferenceIdentity() {
     WorldObject waifClass =
         new WorldObject(
@@ -233,7 +311,7 @@ final class WorldTxnTest {
         new WorldObject(
             0,
             "flagged",
-            16 | 32 | 128,
+            16 | 32 | 128 | 256,
             0,
             -1,
             -1,
@@ -246,6 +324,9 @@ final class WorldTxnTest {
       assertEquals(Optional.of(new IntegerValue(1)), transaction.readObjectProperty(0, "r"));
       assertEquals(Optional.of(new IntegerValue(1)), transaction.readObjectProperty(0, "w"));
       assertEquals(Optional.of(new IntegerValue(1)), transaction.readObjectProperty(0, "f"));
+      assertEquals(Optional.of(new IntegerValue(1)), transaction.readObjectProperty(0, "a"));
+      assertTrue(transaction.writeObjectProperty(0, "a", new IntegerValue(0)));
+      assertEquals(Optional.of(new IntegerValue(0)), transaction.readObjectProperty(0, "a"));
     }
   }
 
@@ -392,6 +473,11 @@ final class WorldTxnTest {
   private static WorldObject object(long id, String name) {
     return new WorldObject(
         id, name, 0, id, -1, -1, List.of(), List.of(), List.of(), List.of());
+  }
+
+  private static WorldObject locatedObject(long id, long location) {
+    return new WorldObject(
+        id, "object-" + id, 0, id, location, -1, List.of(), List.of(), List.of(), List.of());
   }
 
   private static StringValue string(String value) {

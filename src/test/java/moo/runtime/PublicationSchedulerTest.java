@@ -3,20 +3,26 @@ package moo.runtime;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.fail;
 
 import java.io.IOException;
 import java.lang.reflect.Field;
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
+import java.util.Optional;
 import java.util.Queue;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.CancellationException;
@@ -30,14 +36,30 @@ import jdk.jfr.Recording;
 import jdk.jfr.consumer.RecordedEvent;
 import jdk.jfr.consumer.RecordingFile;
 import moo.builtin.BuiltinCatalog.ListenerControl;
+import moo.builtin.BuiltinCatalog.ListenerDescription;
+import moo.builtin.BuiltinCatalog.Result;
+import moo.bytecode.MooCompiler;
+import moo.persistence.LambdaMooV17Codec;
+import moo.persistence.LambdaMooV17Codec.ActiveConnection;
+import moo.persistence.LambdaMooV17Codec.SuspendedActivation;
+import moo.persistence.LambdaMooV17Codec.SuspendedStackSlot;
+import moo.persistence.LambdaMooV17Codec.SuspendedTask;
 import moo.persistence.LambdaMooV4Reader;
+import moo.persistence.ToastV17ProgramLayout;
+import moo.value.MooValue;
+import moo.value.MooValue.ErrorValue;
 import moo.value.MooValue.IntegerValue;
+import moo.value.MooValue.ListValue;
 import moo.value.MooValue.MapValue;
 import moo.value.MooValue.ObjectValue;
+import moo.value.MooValue.StringValue;
 import moo.world.WorldObject;
 import moo.world.WorldProperty;
 import moo.world.WorldTxn;
+import moo.vm.VmSnapshot;
+import moo.world.WorldVerb;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 final class PublicationSchedulerTest {
   private static final Path FIXTURE =
@@ -46,6 +68,455 @@ final class PublicationSchedulerTest {
   private static final long SECOND_CONNECTION_ID = -48;
   private static final String CONNECTION_PREFIX = "-=!-^-!=-";
   private static final String CONNECTION_SUFFIX = "-=!-v-!=-";
+
+  @Test
+  void activatesRestoredValueWakeExactlyOnceWithoutReplayingTheSavedCall() throws Exception {
+    try (Harness harness = Harness.open(1, new RecordingListener())) {
+      harness.resetCounter();
+      TaskRegistry registry = field(harness.scheduler, "taskRegistry", TaskRegistry.class);
+      String source = "value = suspend(); #0.scheduler_counter = value; return 0;\n";
+      SuspendedTask task = suspendedTask(900_000_001L, source, new IntegerValue(73), List.of());
+
+      harness.scheduler.restoreTasks(List.of(task));
+      Thread.sleep(100);
+      assertEquals(0, harness.counter());
+      assertEquals(1, registry.size());
+      assertEquals(List.of(task), harness.scheduler.durableTasks());
+
+      harness.scheduler.activateRestoredTasks();
+      long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(3);
+      while ((harness.counter() != 73 || registry.size() != 0)
+          && System.nanoTime() < deadline) {
+        Thread.onSpinWait();
+      }
+      assertEquals(73, harness.counter());
+      assertEquals(0, registry.size());
+      assertEquals(List.of(), harness.scheduler.durableTasks());
+      assertThrows(IllegalStateException.class, harness.scheduler::activateRestoredTasks);
+    }
+  }
+
+  @Test
+  void wakesInterruptedRestoredTaskWithEintrptThroughItsExactHandlers() throws Exception {
+    try (Harness harness = Harness.open(1, new RecordingListener())) {
+      harness.resetCounter();
+      TaskRegistry registry = field(harness.scheduler, "taskRegistry", TaskRegistry.class);
+      String source =
+          """
+          try
+            suspend();
+          except (E_INTRPT)
+            #0.scheduler_counter = 88;
+          endtry
+          return 0;
+          """;
+      List<SuspendedStackSlot> catchStack =
+          structuralStack(source, 0, Map.of());
+      SuspendedTask task =
+          suspendedTask(900_000_002L, source, new IntegerValue(0), catchStack);
+      task =
+          new SuspendedTask(
+              task.taskId(),
+              task.scheduledEpochSecond(),
+              task.resumeValue(),
+              task.taskLocal(),
+              task.rootActivationVector(),
+              task.functionId(),
+              task.maxStackDepth(),
+              Optional.of("interrupted reading task"),
+              task.activations());
+
+      harness.scheduler.restoreTasks(List.of(task));
+      harness.scheduler.activateRestoredTasks();
+      long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(3);
+      while ((harness.counter() != 88 || registry.size() != 0)
+          && System.nanoTime() < deadline) {
+        Thread.onSpinWait();
+      }
+      assertEquals(88, harness.counter());
+      assertEquals(0, registry.size());
+      assertEquals(List.of(), harness.scheduler.durableTasks());
+    }
+  }
+
+  @Test
+  void startsRestoredTimersOnlyAfterDisconnectCallbacksAndServerStarted() {
+    WorldObject system =
+        new WorldObject(
+            0,
+            "System",
+            4,
+            0,
+            -1,
+            -1,
+            List.of(),
+            List.of(),
+            List.of(
+                new WorldVerb(
+                    "user_disconnected",
+                    0,
+                    4,
+                    -1,
+                    "this.order = {@this.order, args[1]}; return 0;"),
+                new WorldVerb(
+                    "server_started",
+                    0,
+                    4,
+                    -1,
+                    "this.order = {@this.order, 999}; return 0;")),
+            List.of(
+                new WorldProperty(
+                    "order", new ListValue(List.of()), 0, 3, false, true)));
+    WorldTxn world = new WorldTxn(List.of(), List.of(system));
+    String taskSource = "suspend(); #0.order = {@#0.order, 777}; return 0;\n";
+    SuspendedTask task =
+        suspendedTask(900_000_003L, taskSource, new IntegerValue(0), List.of());
+    MooRuntime runtime =
+        new MooRuntime(
+            world,
+            new RecordingListener(),
+            Path.of("unused-startup-order.db"),
+            List.of(task),
+            List.of(new ActiveConnection(41, 0), new ActiveConnection(42, 0)));
+    try {
+      runtime.startServer();
+      long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(3);
+      ListValue order = readOrder(world);
+      while (order.size() != 4 && System.nanoTime() < deadline) {
+        Thread.onSpinWait();
+        order = readOrder(world);
+      }
+      assertEquals(
+          List.of(
+              new ObjectValue(41),
+              new ObjectValue(42),
+              new IntegerValue(999),
+              new IntegerValue(777)),
+          order.elements());
+    } finally {
+      scheduler(runtime).close();
+    }
+  }
+
+  @Test
+  void checkpointsAndRestartsFutureNativeSuspensionExactlyOnce() throws Exception {
+    Harness harness = Harness.open(1, new RecordingListener());
+    try {
+      harness.resetCounter();
+      harness.line(
+          "; fork (0) value = suspend(2); "
+              + "#0.scheduler_counter = #0.scheduler_counter + 1; endfork return 1;");
+      SuspendedTask checkpointed = null;
+      long captureDeadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(3);
+      while (checkpointed == null && System.nanoTime() < captureDeadline) {
+        checkpointed =
+            harness.scheduler.durableTasks().stream()
+                .filter(SuspendedTask.class::isInstance)
+                .map(SuspendedTask.class::cast)
+                .findFirst()
+                .orElse(null);
+        Thread.onSpinWait();
+      }
+      SuspendedTask durable = Objects.requireNonNull(checkpointed);
+      assertEquals(new IntegerValue(0), durable.resumeValue());
+      assertEquals(1, durable.activations().size());
+      assertEquals(0, harness.counter());
+      harness.close();
+
+      MooRuntime restarted =
+          new MooRuntime(
+              harness.root,
+              new RecordingListener(),
+              Path.of("unused-native-restart.db"),
+              List.of(durable),
+              List.of());
+      try {
+        restarted.startServer();
+        long completionDeadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(4);
+        while (harness.counter() != 1 && System.nanoTime() < completionDeadline) {
+          Thread.onSpinWait();
+        }
+        assertEquals(1, harness.counter());
+        Thread.sleep(250);
+        assertEquals(1, harness.counter());
+        assertEquals(0, field(scheduler(restarted), "taskRegistry", TaskRegistry.class).size());
+        assertEquals(List.of(), scheduler(restarted).durableTasks());
+      } finally {
+        scheduler(restarted).close();
+      }
+    } finally {
+      harness.close();
+    }
+  }
+
+  @Test
+  void resumeWakesOneIndefiniteSuspensionWithTheSuppliedValue() throws Exception {
+    try (Harness harness = Harness.open(2, new RecordingListener())) {
+      harness.resetCounter();
+      TaskRegistry registry = field(harness.scheduler, "taskRegistry", TaskRegistry.class);
+
+      List<String> output =
+          harness.line(
+              "; fork id (0) value = suspend(); "
+                  + "#0.scheduler_counter = value; endfork "
+                  + "suspend(0); result = resume(id, 77); return {id, result};");
+
+      assertTrue(
+          output.stream().anyMatch(line -> line.matches("\\{1, \\{[0-9]+, 0}}")),
+          output.toString());
+      long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(3);
+      while ((harness.counter() != 77 || registry.size() != 0)
+          && System.nanoTime() < deadline) {
+        Thread.onSpinWait();
+      }
+      assertEquals(77, harness.counter());
+      assertEquals(0, registry.size());
+    }
+  }
+
+  @Test
+  void writesPanicDatabaseBeforeInvokingAbortCapability(@TempDir Path temporaryDirectory)
+      throws Exception {
+    WorldTxn world = new LambdaMooV4Reader().read(FIXTURE);
+    Path checkpoint = temporaryDirectory.resolve("panic.db.new");
+    RecordingListener listener = new RecordingListener();
+    listener.expectedPanicDump = Optional.of(Path.of(checkpoint.toString() + ".PANIC"));
+    MooRuntime runtime = new MooRuntime(world, listener, checkpoint);
+    try {
+      runtime.openConnection(CONNECTION_ID, 0, true, new MapValue(Map.of()));
+      runtime.executeLine(CONNECTION_ID, "connect Wizard");
+      runtime.executeLine(CONNECTION_ID, "; return shutdown(\"focused panic\", 1);");
+
+      assertTrue(listener.panicCalled);
+      assertTrue(listener.panicDumpPresentAtCall);
+      assertTrue(Files.isRegularFile(listener.expectedPanicDump.orElseThrow()));
+      assertEquals(
+          0,
+          new LambdaMooV17Codec()
+              .read(listener.expectedPanicDump.orElseThrow())
+              .world()
+              .snapshot()
+              .pendingFinalization()
+              .size());
+    } finally {
+      scheduler(runtime).close();
+    }
+  }
+
+  @Test
+  void roundTripsProtectedNestedCatchFinallyLoopAndCatchHandlerPhases() {
+    String protectedSource =
+        """
+        try
+          for item in ({1, 2})
+            try
+              suspend();
+            except allErrors (ANY)
+            except selected (E_TYPE, E_INVARG)
+            endtry
+          endfor
+        finally
+          0;
+        endtry
+        """;
+    ToastV17ProgramLayout.StructuralStackShape protectedShape =
+        structuralShape(protectedSource, 0);
+    ToastV17ProgramLayout.CollectionLoop loop =
+        protectedShape.entriesBaseToTop().stream()
+            .filter(ToastV17ProgramLayout.CollectionLoop.class::isInstance)
+            .map(ToastV17ProgramLayout.CollectionLoop.class::cast)
+            .findFirst()
+            .orElseThrow();
+    ListValue loopBase =
+        new ListValue(List.of(new IntegerValue(1), new IntegerValue(2)));
+    assertActivationStackRoundTrips(
+        protectedSource,
+        0,
+        structuralStack(
+            protectedSource,
+            0,
+            Map.of(
+                loop.baseDepth(), valueSlot(loopBase),
+                loop.iteratorDepth(), valueSlot(new IntegerValue(2)))));
+
+    String clauseSource =
+        """
+        try
+          0;
+        except problem (E_TYPE)
+          suspend();
+        endtry
+        """;
+    assertActivationStackRoundTrips(clauseSource, 0, List.of());
+
+    String fallbackSource = "return `1 / 0 ! E_DIV => suspend()';\n";
+    assertActivationStackRoundTrips(fallbackSource, 0, List.of());
+  }
+
+  @Test
+  void roundTripsEverySupportedFinallyReasonAndRejectsFinAbort() {
+    String source =
+        """
+        try
+          return 9;
+        finally
+          suspend();
+        endtry
+        """;
+    ToastV17ProgramLayout.FinallyContinuation continuation =
+        assertInstanceOf(
+            ToastV17ProgramLayout.FinallyContinuation.class,
+            structuralShape(source, 0).entriesBaseToTop().getFirst());
+    ListValue exception =
+        new ListValue(
+            List.of(
+                ErrorValue.E_TYPE,
+                string("wrong type"),
+                new IntegerValue(17),
+                new ListValue(List.of())));
+    for (Map.Entry<Long, MooValue> expected :
+        Map.<Long, MooValue>of(
+                0L, new IntegerValue(0),
+                1L, exception,
+                2L, new IntegerValue(0),
+                3L, string("returned"))
+            .entrySet()) {
+      assertActivationStackRoundTrips(
+          source,
+          0,
+          structuralStack(
+              source,
+              0,
+              Map.of(
+                  continuation.reasonDepth(), valueSlot(new IntegerValue(expected.getKey())),
+                  continuation.valueDepth(), valueSlot(expected.getValue()))));
+    }
+
+    String exitSource =
+        """
+        while outer (1)
+          try
+            break outer;
+          finally
+            suspend();
+          endtry
+        endwhile
+        """;
+    ToastV17ProgramLayout.FinallyContinuation exitContinuation =
+        assertInstanceOf(
+            ToastV17ProgramLayout.FinallyContinuation.class,
+            structuralShape(exitSource, 0).entriesBaseToTop().getFirst());
+    ToastV17ProgramLayout.ToastExitTarget target = exitContinuation.exitTargets().getFirst();
+    ListValue rawExit =
+        new ListValue(
+            List.of(
+                new IntegerValue(target.targetStackDepth()),
+                new IntegerValue(target.targetProgramCounter())));
+    assertActivationStackRoundTrips(
+        exitSource,
+        0,
+        structuralStack(
+            exitSource,
+            0,
+            Map.of(
+                exitContinuation.reasonDepth(), valueSlot(new IntegerValue(5)),
+                exitContinuation.valueDepth(), valueSlot(rawExit))));
+
+    List<SuspendedStackSlot> aborted =
+        structuralStack(
+            source,
+            0,
+            Map.of(
+                continuation.reasonDepth(), valueSlot(new IntegerValue(4)),
+                continuation.valueDepth(), valueSlot(new IntegerValue(0))));
+    assertThrows(
+        IllegalArgumentException.class,
+        () -> importActivation(suspendedActivation(source, 0, aborted)));
+  }
+
+  @Test
+  void roundTripsEveryCollectionAndRangeCursorIncludingNestedLoops() {
+    ListValue list =
+        new ListValue(List.of(new IntegerValue(1), new IntegerValue(2)));
+    assertLoopStackRoundTrips(
+        "for value in ({1, 2})\n  suspend();\nendfor\n",
+        list,
+        valueSlot(new IntegerValue(3)));
+
+    StringValue string = string("ab");
+    assertLoopStackRoundTrips(
+        "for value, index in (\"ab\")\n  suspend();\nendfor\n",
+        string,
+        valueSlot(new IntegerValue(3)));
+
+    MapValue map =
+        new MapValue(Map.of(new IntegerValue(1), string("one")));
+    String mapSource = "for value, key in ([1 -> \"one\"])\n  suspend();\nendfor\n";
+    assertLoopStackRoundTrips(mapSource, map, valueSlot(new IntegerValue(1)));
+    assertLoopStackRoundTrips(
+        mapSource,
+        map,
+        new SuspendedStackSlot(Optional.empty(), 6, 0));
+
+    String integerRange = "for value in [1..2]\n  suspend();\nendfor\n";
+    ToastV17ProgramLayout.RangeLoop integerShape =
+        assertInstanceOf(
+            ToastV17ProgramLayout.RangeLoop.class,
+            structuralShape(integerRange, 0).entriesBaseToTop().getFirst());
+    assertActivationStackRoundTrips(
+        integerRange,
+        0,
+        structuralStack(
+            integerRange,
+            0,
+            Map.of(
+                integerShape.nextDepth(), valueSlot(new IntegerValue(Long.MAX_VALUE)),
+                integerShape.endDepth(), valueSlot(new IntegerValue(Long.MAX_VALUE)))));
+
+    String objectRange = "for value in [#1..#2]\n  suspend();\nendfor\n";
+    ToastV17ProgramLayout.RangeLoop objectShape =
+        assertInstanceOf(
+            ToastV17ProgramLayout.RangeLoop.class,
+            structuralShape(objectRange, 0).entriesBaseToTop().getFirst());
+    assertActivationStackRoundTrips(
+        objectRange,
+        0,
+        structuralStack(
+            objectRange,
+            0,
+            Map.of(
+                objectShape.nextDepth(), valueSlot(new ObjectValue(Long.MAX_VALUE)),
+                objectShape.endDepth(), valueSlot(new ObjectValue(Long.MAX_VALUE)))));
+
+    String nested =
+        """
+        for outer in ({1})
+          for inner in [#1..#3]
+            suspend();
+          endfor
+        endfor
+        """;
+    ToastV17ProgramLayout.StructuralStackShape nestedShape = structuralShape(nested, 0);
+    ToastV17ProgramLayout.CollectionLoop outer =
+        assertInstanceOf(
+            ToastV17ProgramLayout.CollectionLoop.class,
+            nestedShape.entriesBaseToTop().get(0));
+    ToastV17ProgramLayout.RangeLoop inner =
+        assertInstanceOf(
+            ToastV17ProgramLayout.RangeLoop.class,
+            nestedShape.entriesBaseToTop().get(1));
+    assertActivationStackRoundTrips(
+        nested,
+        0,
+        structuralStack(
+            nested,
+            0,
+            Map.of(
+                outer.baseDepth(), valueSlot(new ListValue(List.of(new IntegerValue(1)))),
+                outer.iteratorDepth(), valueSlot(new IntegerValue(2)),
+                inner.nextDepth(), valueSlot(new ObjectValue(2)),
+                inner.endDepth(), valueSlot(new ObjectValue(3)))));
+  }
 
   @Test
   void assignsMonotonicallyIncreasingTicketsInReadyOrder() throws Exception {
@@ -134,6 +605,199 @@ final class PublicationSchedulerTest {
   }
 
   @Test
+  void routesSuspendedSortTypeErrorThroughCapturedWaifHandler() throws Exception {
+    try (Harness harness = Harness.open(1, new RecordingListener())) {
+      List<String> caught =
+          harness.line(
+              "; class = create($waif); first = class:new(); second = class:new(); "
+                  + "try ignored = sort({first, second}); sorting = E_NONE; "
+                  + "except error (ANY) sorting = error[1]; endtry "
+                  + "recycle(class); return sorting;");
+      List<String> comparisons =
+          harness.line(
+              "; class = create($waif); first = class:new(); second = class:new(); "
+                  + "result = {first < second, first <= second, first > second, "
+                  + "first >= second}; recycle(class); return result;");
+      List<String> result =
+          harness.line(
+              "; class = create($waif); first = class:new(); second = class:new(); "
+                  + "try ignored = sort({first, second}); sorting = E_NONE; "
+                  + "except error (ANY) sorting = error[1]; endtry "
+                  + "result = {first < second, first <= second, first > second, "
+                  + "first >= second, sorting}; recycle(class); return result;");
+
+      assertTrue(caught.contains("{1, E_TYPE}"), caught.toString());
+      assertTrue(comparisons.contains("{1, {0, 1, 0, 1}}"), comparisons.toString());
+      assertTrue(result.contains("{1, {0, 1, 0, 1, E_TYPE}}"), result.toString());
+    }
+  }
+
+  @Test
+  void waifPropertyAssignmentRejectsDirectAndCollectionSelfReferences() throws Exception {
+    try (Harness harness = Harness.open(1, new RecordingListener())) {
+      List<String> result =
+          harness.line(
+              "; class = create($waif); add_property(class, \":value\", 0, {player, \"\"}); "
+                  + "waif = class:new(); "
+                  + "try waif.value = waif; direct = E_NONE; "
+                  + "except error (ANY) direct = error[1]; endtry "
+                  + "try waif.value = {waif}; list_recursion = E_NONE; "
+                  + "except error (ANY) list_recursion = error[1]; endtry "
+                  + "try waif.value = [\"self\" -> waif]; map_recursion = E_NONE; "
+                  + "except error (ANY) map_recursion = error[1]; endtry "
+                  + "result = {direct, list_recursion, map_recursion}; "
+                  + "recycle(class); return result;");
+
+      assertTrue(
+          result.contains("{1, {E_RECMOVE, E_RECMOVE, E_RECMOVE}}"), result.toString());
+    }
+  }
+
+  @Test
+  void wizardOwnedWaifClassDispatchesIndexHandlers() throws Exception {
+    try (Harness harness = Harness.open(1, new RecordingListener())) {
+      List<String> result =
+          harness.line(
+              "; class = create($waif); "
+                  + "add_property(class, \":last_key\", \"\", {player, \"\"}); "
+                  + "add_property(class, \":last_value\", 0, {player, \"\"}); "
+                  + "add_verb(class, {player, \"xd\", \":_index\"}, "
+                  + "{\"this\", \"none\", \"this\"}); "
+                  + "set_verb_code(class, \":_index\", "
+                  + "{\"return {args[1], this.last_key, this.last_value, "
+                  + "typeof(this) == WAIF};\"}); "
+                  + "add_verb(class, {player, \"xd\", \":_set_index\"}, "
+                  + "{\"this\", \"none\", \"this\"}); "
+                  + "set_verb_code(class, \":_set_index\", "
+                  + "{\"this.last_key = args[1];\", \"this.last_value = args[2];\", "
+                  + "\"return this;\"}); "
+                  + "waif = class:new(); "
+                  + "try waif[\"answer\"] = 42; write_result = E_NONE; "
+                  + "except error (ANY) write_result = error[1]; endtry "
+                  + "try read_result = waif[\"answer\"]; "
+                  + "except error (ANY) read_result = error[1]; endtry "
+                  + "result = {waif.class == class, class.owner == player, "
+                  + "class.owner.wizard, write_result, read_result}; "
+                  + "recycle(class); return result;");
+
+      assertTrue(
+          result.contains("{1, {1, 1, 1, E_NONE, {\"answer\", \"answer\", 42, 1}}}"),
+          result.toString());
+    }
+  }
+
+  @Test
+  void queuedTasksRetainsDelayedAndZeroDelayWaifForksAtObservationBoundary() throws Exception {
+    try (Harness harness = Harness.open(1, new RecordingListener())) {
+      List<String> result =
+          harness.line(
+              "; class = create($waif); "
+                  + "add_verb(class, {player, \"xd\", \":a\"}, {\"this\", \"none\", \"this\"}); "
+                  + "set_verb_code(class, \":a\", {\"suspend();\"}); "
+                  + "add_verb(class, {player, \"xd\", \":b\"}, {\"this\", \"none\", \"this\"}); "
+                  + "set_verb_code(class, \":b\", {\"return this:a();\"}); "
+                  + "add_verb(class, {player, \"xd\", \":c\"}, {\"this\", \"none\", \"this\"}); "
+                  + "set_verb_code(class, \":c\", {"
+                  + "\"for delay in ({0, 100})\", "
+                  + "\"  fork (delay)\", "
+                  + "\"    c = this:b();\", "
+                  + "\"  endfork\", "
+                  + "\"endfor\", "
+                  + "\"suspend(0);\", "
+                  + "\"q = queued_tasks();\", "
+                  + "\"result = {length(q), q};\", "
+                  + "\"for row in (q) kill_task(row[1]); endfor\", "
+                  + "\"return result;\"}); "
+                  + "waif = class:new(); result = waif:c(); recycle(class); return result;");
+
+      assertTrue(result.toString().contains("{2, "), result.toString());
+      assertTrue(result.toString().contains("\":c\""), result.toString());
+      assertTrue(result.toString().contains("\":a\""), result.toString());
+      assertTrue(
+          result.toString().indexOf("\":c\"") < result.toString().indexOf("\":a\""),
+          result.toString());
+    }
+  }
+
+  @Test
+  void unreachableWaifRunsRecycleOnceEvenWhenHookStashesItself() throws Exception {
+    try (Harness harness = Harness.open(1, new RecordingListener())) {
+      assertTrue(
+          harness
+              .line(
+                  "; class = create($waif); "
+                      + "add_property(class, \"reference\", 0, {player, \"\"}); "
+                      + "add_property(class, \"recycle_called\", 0, {player, \"\"}); "
+                      + "add_verb(class, {player, \"xd\", \":recycle\"}, "
+                      + "{\"this\", \"none\", \"this\"}); "
+                      + "set_verb_code(class, \":recycle\", {"
+                      + "\"this.class.recycle_called = this.class.recycle_called + 1;\", "
+                      + "\"this.class.reference = this;\"}); "
+                      + "add_property(#0, \"scheduler_waif_class\", class, {player, \"rw\"}); "
+                      + "return 0;")
+              .contains("{1, 0}"));
+
+      assertTrue(
+          harness.line("; w = #0.scheduler_waif_class:new(); return 0;").contains("{1, 0}"));
+      assertTrue(
+          harness
+              .line("; return #0.scheduler_waif_class.recycle_called;")
+              .contains("{1, 1}"));
+      assertTrue(
+          harness.line("; #0.scheduler_waif_class.reference = 0; return 0;").contains("{1, 0}"));
+      assertTrue(harness.line("; return 0;").contains("{1, 0}"));
+      assertTrue(
+          harness
+              .line("; return #0.scheduler_waif_class.recycle_called;")
+              .contains("{1, 1}"));
+
+      assertTrue(
+          harness
+              .line(
+                  "; class = #0.scheduler_waif_class; "
+                      + "delete_property(#0, \"scheduler_waif_class\"); "
+                      + "recycle(class); return 0;")
+              .contains("{1, 0}"));
+    }
+  }
+
+  @Test
+  void permanentPropertyKeepsAnonymousValueReachableAcrossCommands() throws Exception {
+    try (Harness harness = Harness.open(1, new RecordingListener())) {
+      List<String> setup =
+          harness.line(
+                  "; add_property(#0, \"scheduler_anon_class\", 0, {player, \"rw\"}); "
+                      + "switch_player(player, #4); set_task_perms(#4); player = #4; "
+                      + "class = create($object); observer = create($nothing); "
+                      + "add_property(class, \"anon\", 0, {player, \"r\"}); "
+                      + "add_property(class, \"observer\", observer, {player, \"r\"}); "
+                      + "add_verb(class, {player, \"xd\", \"entry_owner\"}, "
+                      + "{\"this\", \"none\", \"this\"}); "
+                      + "set_verb_code(class, \"entry_owner\", "
+                      + "{\"return this.observer:probe_owner();\"}); "
+                      + "add_verb(observer, {player, \"xd\", \"probe_owner\"}, "
+                      + "{\"this\", \"none\", \"this\"}); "
+                      + "set_verb_code(observer, \"probe_owner\", {"
+                      + "\"frames = callers();\", "
+                      + "\"value = frames[1][1];\", "
+                      + "\"return {typeof(value), valid(value), toliteral(value)};\"}); "
+                      + "class.anon = create(class, 1); "
+                      + "#0.scheduler_anon_class = class; "
+                      + "return 0;");
+      assertTrue(setup.contains("{1, 0}"), setup.toString());
+
+      List<String> observed =
+          harness.line(
+              "; class = #0.scheduler_anon_class; "
+                  + "return {valid(class.anon), class.anon:entry_owner()};");
+      assertTrue(
+          observed.toString().contains("{1, {1, {12, 1, \"*anonymous*\"}}}"),
+          observed.toString());
+
+    }
+  }
+
+  @Test
   void forkedTaskCanEnterAndCompleteHostSuspension() throws Exception {
     try (Harness harness = Harness.open(2, new RecordingListener())) {
       TaskRegistry registry = field(harness.scheduler, "taskRegistry", TaskRegistry.class);
@@ -210,15 +874,10 @@ final class PublicationSchedulerTest {
   void killingRegisteredHostWaitCancelsWithoutLateWakeOrIngressHang() throws Exception {
     try (Harness harness = Harness.open(2, new RecordingListener())) {
       TaskRegistry registry = field(harness.scheduler, "taskRegistry", TaskRegistry.class);
-      String members = String.join(", ", Collections.nCopies(10_000, "nested"));
       CompletableFuture<List<String>> waiting =
           harness.lineAsync(
-              "; nested = 0; "
-                  + "for index in [1..1000] nested = {nested}; endfor "
-                  + "#0.scheduler_counter = task_id(); "
-                  + "return all_members(nested, {"
-                  + members
-                  + "});");
+              "; #0.scheduler_counter = task_id(); "
+                  + "return read();");
       long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(3);
       while ((harness.counter() == 0 || registry.size() == 0)
           && System.nanoTime() < deadline) {
@@ -425,6 +1084,39 @@ final class PublicationSchedulerTest {
       }
 
       assertEquals(1, harness.counter());
+    }
+  }
+
+  @Test
+  void yinRefreshesTheBudgetForAnOtherwiseOverBudgetLoop() throws Exception {
+    try (Harness harness = Harness.open(1, new RecordingListener())) {
+      List<String> output =
+          harness.line(
+              "; count = 0; for i in [1..300000] count = count + 1; yin(); endfor return count;");
+
+      assertEquals(
+          List.of(CONNECTION_PREFIX, "{1, 300000}", CONNECTION_SUFFIX), output);
+    }
+  }
+
+  @Test
+  void doCommandIsServerInitiatedEvenThoughPlayerRemainsTheConnectedPlayer() throws Exception {
+    try (Harness harness = Harness.open(1, new RecordingListener())) {
+      harness.line(
+          "; add_property(#0, \"scheduler_do_command_frame\", {}, {#0, \"rw\"}); "
+              + "add_verb(#0, {#0, \"rxd\", \"do_command\"}, {\"this\", \"none\", \"this\"}); "
+              + "set_verb_code(#0, \"do_command\", "
+              + "{\"if (args[1] != \\\";\\\")\", "
+              + "\"#0.scheduler_do_command_frame = {player, caller};\", "
+              + "\"endif\", \"return 0;\"}); return 1;");
+
+      harness.line("frameprobe");
+
+      try (WorldTxn transaction = harness.root.begin()) {
+        assertEquals(
+            new ListValue(List.of(new ObjectValue(8), new ObjectValue(-1))),
+            transaction.readObjectProperty(0, "scheduler_do_command_frame").orElseThrow());
+      }
     }
   }
 
@@ -638,6 +1330,191 @@ final class PublicationSchedulerTest {
     }
   }
 
+  private static void assertLoopStackRoundTrips(
+      String source, MooValue base, SuspendedStackSlot iterator) {
+    ToastV17ProgramLayout.CollectionLoop shape =
+        assertInstanceOf(
+            ToastV17ProgramLayout.CollectionLoop.class,
+            structuralShape(source, 0).entriesBaseToTop().getFirst());
+    assertActivationStackRoundTrips(
+        source,
+        0,
+        structuralStack(
+            source,
+            0,
+            Map.of(shape.baseDepth(), valueSlot(base), shape.iteratorDepth(), iterator)));
+  }
+
+  private static void assertActivationStackRoundTrips(
+      String source, int callIndex, List<SuspendedStackSlot> expected) {
+    SuspendedActivation imported = suspendedActivation(source, callIndex, expected);
+    VmSnapshot.Frame frame = importActivation(imported);
+    SuspendedActivation exported = exportActivation(frame);
+    assertEquals(expected, exported.operandStack(), source);
+  }
+
+  private static VmSnapshot.Frame importActivation(SuspendedActivation activation) {
+    try {
+      Method method =
+          PublicationScheduler.class.getDeclaredMethod(
+              "importActivation",
+              SuspendedActivation.class,
+              int.class,
+              boolean.class,
+              ToastV17ProgramLayout.class);
+      method.setAccessible(true);
+      return (VmSnapshot.Frame)
+          method.invoke(null, activation, -1, true, new ToastV17ProgramLayout());
+    } catch (InvocationTargetException failure) {
+      throw rethrowInvocation(failure);
+    } catch (ReflectiveOperationException failure) {
+      throw new LinkageError(failure.getMessage(), failure);
+    }
+  }
+
+  private static SuspendedActivation exportActivation(VmSnapshot.Frame frame) {
+    try {
+      Method method =
+          PublicationScheduler.class.getDeclaredMethod(
+              "exportActivation", VmSnapshot.Frame.class, long.class);
+      method.setAccessible(true);
+      return (SuspendedActivation) method.invoke(null, frame, 0L);
+    } catch (InvocationTargetException failure) {
+      throw rethrowInvocation(failure);
+    } catch (ReflectiveOperationException failure) {
+      throw new LinkageError(failure.getMessage(), failure);
+    }
+  }
+
+  private static RuntimeException rethrowInvocation(InvocationTargetException failure) {
+    Throwable cause = failure.getCause();
+    if (cause instanceof RuntimeException runtime) {
+      return runtime;
+    }
+    throw new LinkageError(cause == null ? failure.getMessage() : cause.getMessage(), failure);
+  }
+
+  private static ToastV17ProgramLayout.StructuralStackShape structuralShape(
+      String source, int callIndex) {
+    ToastV17ProgramLayout layout = new ToastV17ProgramLayout();
+    ToastV17ProgramLayout.CallBoundary boundary =
+        layout.callBoundaries(source, -1).get(callIndex);
+    return layout.resolveStructuralStack(
+        source, -1, new MooCompiler().compile(source), boundary);
+  }
+
+  private static List<SuspendedStackSlot> structuralStack(
+      String source,
+      int callIndex,
+      Map<Integer, SuspendedStackSlot> supplied) {
+    ToastV17ProgramLayout.StructuralStackShape shape = structuralShape(source, callIndex);
+    SuspendedStackSlot[] baseToTop = new SuspendedStackSlot[shape.postArgumentDepth()];
+    for (ToastV17ProgramLayout.StructuralStackEntry entry : shape.entriesBaseToTop()) {
+      switch (entry) {
+        case ToastV17ProgramLayout.CatchGroup group
+            when group.phase() == ToastV17ProgramLayout.StructuralPhase.PROTECTED -> {
+          for (int index = 0; index < group.clauses().size(); index++) {
+            ToastV17ProgramLayout.ToastHandlerClause clause = group.clauses().get(index);
+            baseToTop[group.baseDepth() + index * 2] =
+                valueSlot(
+                    clause.selector().catchesAny()
+                        ? new IntegerValue(0)
+                        : new ListValue(
+                            clause.selector().errors().stream()
+                                .map(ErrorValue::valueOf)
+                                .toList()));
+            baseToTop[group.baseDepth() + index * 2 + 1] =
+                valueSlot(new IntegerValue(clause.handlerLabelProgramCounter()));
+          }
+          baseToTop[group.markerDepth().orElseThrow()] =
+              new SuspendedStackSlot(Optional.empty(), 7, group.clauses().size());
+        }
+        case ToastV17ProgramLayout.ProtectedFinally protectedFinally ->
+            baseToTop[protectedFinally.markerDepth()] =
+                new SuspendedStackSlot(
+                    Optional.empty(), 8, protectedFinally.handlerLabelProgramCounter());
+        default -> {
+          // The caller supplies typed finally and loop values for the selected case.
+        }
+      }
+    }
+    supplied.forEach(
+        (depth, slot) -> {
+          if (baseToTop[depth] != null) {
+            throw new IllegalArgumentException("test stack slot overlaps structural control");
+          }
+          baseToTop[depth] = slot;
+        });
+    for (SuspendedStackSlot slot : baseToTop) {
+      Objects.requireNonNull(slot, "missing test stack slot");
+    }
+    List<SuspendedStackSlot> topToBase = new ArrayList<>(List.of(baseToTop));
+    Collections.reverse(topToBase);
+    return List.copyOf(topToBase);
+  }
+
+  private static SuspendedStackSlot valueSlot(MooValue value) {
+    return new SuspendedStackSlot(Optional.of(value), -1, 0);
+  }
+
+  private static SuspendedTask suspendedTask(
+      long taskId,
+      String source,
+      MooValue resumeValue,
+      List<SuspendedStackSlot> operandStack) {
+    SuspendedActivation activation = suspendedActivation(source, 0, operandStack);
+    return new SuspendedTask(
+        taskId,
+        -1,
+        resumeValue,
+        new MapValue(Map.of()),
+        -1,
+        0,
+        50,
+        Optional.empty(),
+        List.of(activation));
+  }
+
+  private static SuspendedActivation suspendedActivation(
+      String source, int callIndex, List<SuspendedStackSlot> operandStack) {
+    ToastV17ProgramLayout.CallBoundary boundary =
+        new ToastV17ProgramLayout().callBoundaries(source, -1).get(callIndex);
+    Map<String, Optional<MooValue>> locals =
+        Map.of(
+            "this", Optional.of(new ObjectValue(0)),
+            "player", Optional.of(new ObjectValue(0)),
+            "caller", Optional.of(new ObjectValue(0)),
+            "verb", Optional.of(string("restored_test")),
+            "args", Optional.of(new moo.value.MooValue.ListValue(List.of())));
+    return new SuspendedActivation(
+        17,
+        source,
+        locals,
+        operandStack,
+        new ObjectValue(0),
+        new ObjectValue(0),
+        true,
+        0,
+        0,
+        true,
+        "restored_test",
+        "restored_test",
+        Optional.empty(),
+        boundary.programCounter(),
+        0,
+        boundary.errorProgramCounter());
+  }
+
+  private static ListValue readOrder(WorldTxn world) {
+    try (WorldTxn transaction = world.begin()) {
+      return (ListValue) transaction.readObjectProperty(0, "order").orElseThrow();
+    }
+  }
+
+  private static StringValue string(String value) {
+    return new StringValue(value.getBytes(StandardCharsets.ISO_8859_1));
+  }
+
   private static <T> T field(Object owner, String name, Class<T> type) {
     try {
       Field field = owner.getClass().getDeclaredField(name);
@@ -787,14 +1664,33 @@ final class PublicationSchedulerTest {
   }
 
   private static final class RecordingListener implements ListenerControl {
+    private Optional<Path> expectedPanicDump = Optional.empty();
+    private boolean panicCalled;
+    private boolean panicDumpPresentAtCall;
+
     @Override
-    public int listen(long handler, int port, boolean printMessages) {
+    public int listen(
+        long handler,
+        int port,
+        boolean ipv6,
+        boolean printMessages,
+        String interfaceAddress) {
       return 77;
     }
 
     @Override
-    public boolean unlisten(int port) {
+    public List<ListenerDescription> listeners() {
+      return List.of();
+    }
+
+    @Override
+    public boolean unlisten(int port, boolean ipv6) {
       return true;
+    }
+
+    @Override
+    public long openNetworkConnection(String host, int port, boolean ipv6, long listenerHandler) {
+      return -77;
     }
 
     @Override
@@ -807,6 +1703,18 @@ final class PublicationSchedulerTest {
     public void setConnectionBinary(long connectionId, boolean binary) {}
 
     @Override
+    public long bufferedOutputLength(long connectionId) {
+      return 0;
+    }
+
+    @Override
     public void shutdown() {}
+
+    @Override
+    public void panic() {
+      panicCalled = true;
+      panicDumpPresentAtCall =
+          expectedPanicDump.filter(Files::isRegularFile).isPresent();
+    }
   }
 }

@@ -178,8 +178,9 @@ INT authority file would otherwise duplicate:
 - `language/index_and_range.yaml`: INT indexed-base E_TYPE behavior.
 - `language/boolean_authority.yaml`: BOOL/INT equality and distinct map-key
   identity where those surfaces intersect.
-- `language/promote_numbers.yaml`: INT/FLOAT map-key distinction in the
-  explicitly separate promoted-number profile.
+- `language/promote_numbers.yaml`: historical optional INT/FLOAT map-key
+  evidence. It is not part of the selected conformance profiles or an INTEGER
+  phase gate.
 
 Because those rows are already durable, adding renamed copies would not change
 an authority decision and is not authorized.

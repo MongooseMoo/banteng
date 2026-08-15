@@ -83,6 +83,7 @@ final class JfrEventDefinitionsTest {
           .writeAtomic(
               temporaryDirectory.resolve("checkpoint.db"),
               new WorldTxn(List.of(), List.of()).snapshot(),
+              List.of(),
               List.of());
 
       recording.stop();

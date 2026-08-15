@@ -13,6 +13,8 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Objects;
+import org.jspecify.annotations.Nullable;
 
 /** The closed value family required by the first server slice. */
 public sealed interface MooValue
@@ -59,6 +61,7 @@ public sealed interface MooValue
     public int code() {
       return code;
     }
+
   }
 
   /** A signed 64-bit MOO integer. */
@@ -222,6 +225,43 @@ public sealed interface MooValue
         }
       }
       return Integer.compare(bytes.length, other.bytes.length);
+    }
+
+    /** Compares two strings by their exact unsigned byte contents. */
+    public int compareCaseSensitively(StringValue other) {
+      int commonLength = Math.min(bytes.length, other.bytes.length);
+      for (int index = 0; index < commonLength; index++) {
+        int comparison =
+            Integer.compare(Byte.toUnsignedInt(bytes[index]), Byte.toUnsignedInt(other.bytes[index]));
+        if (comparison != 0) {
+          return comparison;
+        }
+      }
+      return Integer.compare(bytes.length, other.bytes.length);
+    }
+
+    /** Returns the zero-based case-insensitive byte position of {@code needle}, or -1. */
+    public int indexOfIgnoringCase(StringValue needle) {
+      if (needle.bytes.length == 0) {
+        return 0;
+      }
+      int lastStart = bytes.length - needle.bytes.length;
+      for (int start = 0; start <= lastStart; start++) {
+        int offset = 0;
+        while (offset < needle.bytes.length
+            && foldAscii(bytes[start + offset]) == foldAscii(needle.bytes[offset])) {
+          offset++;
+        }
+        if (offset == needle.bytes.length) {
+          return start;
+        }
+      }
+      return -1;
+    }
+
+    /** Returns whether both strings contain exactly the same bytes. */
+    public boolean equalsCaseSensitively(StringValue other) {
+      return Arrays.equals(bytes, other.bytes);
     }
 
     @Override
@@ -442,6 +482,31 @@ public sealed interface MooValue
       return code;
     }
 
+    /** Returns Toast's user-facing description for this error. */
+    public String description() {
+      return switch (this) {
+        case E_NONE -> "No error";
+        case E_TYPE -> "Type mismatch";
+        case E_DIV -> "Division by zero";
+        case E_PERM -> "Permission denied";
+        case E_PROPNF -> "Property not found";
+        case E_VERBNF -> "Verb not found";
+        case E_VARNF -> "Variable not found";
+        case E_INVIND -> "Invalid indirection";
+        case E_RECMOVE -> "Recursive move";
+        case E_MAXREC -> "Too many verb calls";
+        case E_RANGE -> "Range error";
+        case E_ARGS -> "Incorrect number of arguments";
+        case E_NACC -> "Move refused by destination";
+        case E_INVARG -> "Invalid argument";
+        case E_QUOTA -> "Resource limit exceeded";
+        case E_FLOAT -> "Floating-point arithmetic error";
+        case E_FILE -> "File error";
+        case E_EXEC -> "Exec error";
+        case E_INTRPT -> "Interrupted";
+      };
+    }
+
     /** Returns the supported error for {@code code}, if present. */
     public static Optional<ErrorValue> fromCode(long code) {
       for (ErrorValue error : values()) {
@@ -552,15 +617,24 @@ public sealed interface MooValue
   /** An immutable MOO map whose entry traversal follows Toast map insertion topology. */
   final class MapValue implements MooValue {
     private final Map<MooValue, MooValue> entries;
+    private final @Nullable MapNode lookupRoot;
 
     /** Creates a map by taking an immutable insertion-preserving snapshot of {@code entries}. */
     public MapValue(Map<? extends MooValue, ? extends MooValue> entries) {
       LinkedHashMap<MooValue, MooValue> owned = new LinkedHashMap<>();
+      MapNode root = null;
       for (Map.Entry<? extends MooValue, ? extends MooValue> entry : entries.entrySet()) {
         requireScalarKey(entry.getKey());
         owned.put(entry.getKey(), entry.getValue());
+        root = insertLookupNode(root, entry.getKey(), entry.getValue());
       }
       this.entries = Collections.unmodifiableMap(owned);
+      this.lookupRoot = root;
+    }
+
+    private MapValue(Map<MooValue, MooValue> entries, @Nullable MapNode lookupRoot) {
+      this.entries = Collections.unmodifiableMap(entries);
+      this.lookupRoot = lookupRoot;
     }
 
     /** Returns the immutable insertion-preserving entry snapshot. */
@@ -575,13 +649,42 @@ public sealed interface MooValue
 
     /** Returns the value for an equal scalar key, if present. */
     public Optional<MooValue> get(MooValue key) {
+      return get(key, false);
+    }
+
+    /** Returns the value for an equal scalar key using the requested string-case rule. */
+    public Optional<MooValue> get(MooValue key, boolean caseMatters) {
       requireScalarKey(key);
-      for (Map.Entry<MooValue, MooValue> entry : entries.entrySet()) {
-        if (compareKeys(entry.getKey(), key) == 0) {
-          return Optional.of(entry.getValue());
+      if (key instanceof AnonymousObjectValue || key instanceof WaifValue) {
+        for (Map.Entry<MooValue, MooValue> entry : entries.entrySet()) {
+          if (sameIdentityKey(entry.getKey(), key)) {
+            return Optional.of(entry.getValue());
+          }
         }
+        return Optional.empty();
+      }
+      MapNode current = lookupRoot;
+      while (current != null) {
+        int comparison = lookupComparison(current.key, key, caseMatters);
+        if (comparison == 0) {
+          return Optional.of(current.value);
+        }
+        if (caseMatters) {
+          comparison = compareKeys(current.key, key);
+        }
+        current = comparison < 0 ? current.right : current.left;
       }
       return Optional.empty();
+    }
+
+    private static boolean sameIdentityKey(MooValue stored, MooValue requested) {
+      return switch (requested) {
+        case AnonymousObjectValue anonymous ->
+            stored instanceof AnonymousObjectValue storedAnonymous
+                && storedAnonymous == anonymous;
+        case WaifValue waif -> stored instanceof WaifValue storedWaif && storedWaif == waif;
+        default -> false;
+      };
     }
 
     /** Returns an immutable map with {@code key} bound to {@code value}. */
@@ -589,6 +692,7 @@ public sealed interface MooValue
       requireScalarKey(key);
       LinkedHashMap<MooValue, MooValue> replacement = new LinkedHashMap<>();
       boolean inserted = false;
+      boolean replacedExisting = false;
       for (Map.Entry<MooValue, MooValue> entry : entries.entrySet()) {
         int comparison = compareKeys(entry.getKey(), key);
         if (!inserted && comparison >= 0) {
@@ -597,12 +701,23 @@ public sealed interface MooValue
         }
         if (comparison != 0) {
           replacement.put(entry.getKey(), entry.getValue());
+        } else {
+          replacedExisting = true;
         }
       }
       if (!inserted) {
         replacement.put(key, value);
       }
-      return new MapValue(replacement);
+      MapNode root;
+      if (replacedExisting) {
+        root = null;
+        for (Map.Entry<MooValue, MooValue> entry : replacement.entrySet()) {
+          root = insertLookupNode(root, entry.getKey(), entry.getValue());
+        }
+      } else {
+        root = insertLookupNode(copyLookupTree(lookupRoot), key, value);
+      }
+      return new MapValue(replacement, root);
     }
 
     @Override
@@ -652,7 +767,134 @@ public sealed interface MooValue
       }
     }
 
-    private static int compareKeys(MooValue left, MooValue right) {
+    private static int lookupComparison(MooValue stored, MooValue requested, boolean caseMatters) {
+      if (caseMatters
+          && stored instanceof StringValue storedString
+          && requested instanceof StringValue requestedString) {
+        return storedString.compareCaseSensitively(requestedString);
+      }
+      return compareKeys(stored, requested);
+    }
+
+    private static @Nullable MapNode copyLookupTree(@Nullable MapNode node) {
+      if (node == null) {
+        return null;
+      }
+      MapNode copy = new MapNode(node.key, node.value);
+      copy.red = node.red;
+      copy.left = copyLookupTree(node.left);
+      copy.right = copyLookupTree(node.right);
+      return copy;
+    }
+
+    private static MapNode insertLookupNode(
+        @Nullable MapNode root, MooValue key, MooValue value) {
+      if (root == null) {
+        MapNode inserted = new MapNode(key, value);
+        inserted.red = false;
+        return inserted;
+      }
+
+      MapNode head = new MapNode(key, value);
+      @Nullable MapNode grandparent = null;
+      @Nullable MapNode parent = null;
+      @Nullable MapNode iterator = root;
+      MapNode greatGrandparent = head;
+      head.right = root;
+      int direction = 0;
+      int lastDirection = 0;
+
+      while (true) {
+        if (iterator == null) {
+          iterator = new MapNode(key, value);
+          Objects.requireNonNull(parent).setLink(direction, iterator);
+        } else if (isRed(iterator.left) && isRed(iterator.right)) {
+          iterator.red = true;
+          Objects.requireNonNull(iterator.left).red = false;
+          Objects.requireNonNull(iterator.right).red = false;
+        }
+
+        if (isRed(iterator) && isRed(parent)) {
+          int grandparentDirection = greatGrandparent.right == grandparent ? 1 : 0;
+          MapNode nonNullParent = Objects.requireNonNull(parent);
+          MapNode nonNullGrandparent = Objects.requireNonNull(grandparent);
+          if (iterator == nonNullParent.link(lastDirection)) {
+            greatGrandparent.setLink(
+                grandparentDirection, rotateSingle(nonNullGrandparent, 1 - lastDirection));
+          } else {
+            greatGrandparent.setLink(
+                grandparentDirection, rotateDouble(nonNullGrandparent, 1 - lastDirection));
+          }
+        }
+
+        int comparison = compareKeys(iterator.key, key);
+        if (comparison == 0) {
+          iterator.value = value;
+          break;
+        }
+
+        lastDirection = direction;
+        direction = comparison < 0 ? 1 : 0;
+        if (grandparent != null) {
+          greatGrandparent = grandparent;
+        }
+        grandparent = parent;
+        parent = iterator;
+        iterator = iterator.link(direction);
+      }
+
+      root = head.right;
+      root.red = false;
+      return root;
+    }
+
+    private static boolean isRed(@Nullable MapNode node) {
+      return node != null && node.red;
+    }
+
+    private static MapNode rotateSingle(MapNode root, int direction) {
+      MapNode saved = Objects.requireNonNull(root.link(1 - direction));
+      root.setLink(1 - direction, saved.link(direction));
+      saved.setLink(direction, root);
+      root.red = true;
+      saved.red = false;
+      return saved;
+    }
+
+    private static MapNode rotateDouble(MapNode root, int direction) {
+      root.setLink(
+          1 - direction,
+          rotateSingle(Objects.requireNonNull(root.link(1 - direction)), 1 - direction));
+      return rotateSingle(root, direction);
+    }
+
+    private static final class MapNode {
+      private final MooValue key;
+      private MooValue value;
+      private boolean red = true;
+      private @Nullable MapNode left;
+      private @Nullable MapNode right;
+
+      private MapNode(MooValue key, MooValue value) {
+        this.key = key;
+        this.value = value;
+      }
+
+      private @Nullable MapNode link(int direction) {
+        return direction == 0 ? left : right;
+      }
+
+      private void setLink(int direction, @Nullable MapNode node) {
+        if (direction == 0) {
+          left = node;
+        } else {
+          right = node;
+        }
+      }
+    }
+
+    /** Compares two scalar keys using the map lookup and replacement relation. */
+    public static int compareKeys(MooValue left, MooValue right) {
       int leftRank =
           switch (left.type()) {
             case INTEGER -> 0;

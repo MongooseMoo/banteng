@@ -14,11 +14,15 @@ record World(
     WorldRevision revision,
     List<Long> players,
     Map<Long, WorldObject> objects,
+    long lastUsedObjectId,
     Map<AnonymousObjectValue, WorldAnonymousObject> anonymousObjects,
     Map<WaifValue, WorldWaif> waifs,
     List<MooValue> pendingFinalization) {
   World {
     Objects.requireNonNull(revision, "revision");
+    if (lastUsedObjectId < greatestObjectId(objects)) {
+      throw new IllegalArgumentException("last used object ID precedes a live object");
+    }
     players = List.copyOf(players);
     objects = Collections.unmodifiableMap(new LinkedHashMap<>(objects));
     anonymousObjects =
@@ -28,7 +32,7 @@ record World(
   }
 
   World(WorldRevision revision, List<Long> players, Map<Long, WorldObject> objects) {
-    this(revision, players, objects, Map.of(), Map.of(), List.of());
+    this(revision, players, objects, greatestObjectId(objects), Map.of(), Map.of(), List.of());
   }
 
   World(
@@ -36,7 +40,14 @@ record World(
       List<Long> players,
       Map<Long, WorldObject> objects,
       Map<AnonymousObjectValue, WorldAnonymousObject> anonymousObjects) {
-    this(revision, players, objects, anonymousObjects, Map.of(), List.of());
+    this(
+        revision,
+        players,
+        objects,
+        greatestObjectId(objects),
+        anonymousObjects,
+        Map.of(),
+        List.of());
   }
 
   World(
@@ -45,11 +56,49 @@ record World(
       Map<Long, WorldObject> objects,
       Map<AnonymousObjectValue, WorldAnonymousObject> anonymousObjects,
       Map<WaifValue, WorldWaif> waifs) {
-    this(revision, players, objects, anonymousObjects, waifs, List.of());
+    this(
+        revision,
+        players,
+        objects,
+        greatestObjectId(objects),
+        anonymousObjects,
+        waifs,
+        List.of());
+  }
+
+  World(
+      WorldRevision revision,
+      List<Long> players,
+      Map<Long, WorldObject> objects,
+      Map<AnonymousObjectValue, WorldAnonymousObject> anonymousObjects,
+      Map<WaifValue, WorldWaif> waifs,
+      List<MooValue> pendingFinalization) {
+    this(
+        revision,
+        players,
+        objects,
+        greatestObjectId(objects),
+        anonymousObjects,
+        waifs,
+        pendingFinalization);
   }
 
   WorldSnapshot snapshot() {
     return new WorldSnapshot(
-        revision.value(), players, objects, anonymousObjects, waifs, pendingFinalization);
+        revision.value(),
+        players,
+        objects,
+        lastUsedObjectId,
+        anonymousObjects,
+        waifs,
+        pendingFinalization);
+  }
+
+  private static long greatestObjectId(Map<Long, WorldObject> objects) {
+    long greatest = -1;
+    for (long objectId : objects.keySet()) {
+      greatest = Math.max(greatest, objectId);
+    }
+    return greatest;
   }
 }

@@ -43,6 +43,7 @@ configurations[jmh.annotationProcessorConfigurationName].setExtendsFrom(emptyLis
 
 dependencies {
     implementation("info.picocli:picocli:4.7.7")
+    implementation("org.bouncycastle:bcprov-jdk18on:1.84")
     implementation("org.jspecify:jspecify:1.0.0")
     implementation("org.xerial:sqlite-jdbc:3.53.2.0")
 
@@ -92,6 +93,7 @@ tasks.named<JavaCompile>(jmh.compileJavaTaskName) {
 
 tasks.withType<Test>().configureEach {
     useJUnitPlatform()
+    maxHeapSize = "1g"
     jvmArgs("--enable-native-access=ALL-UNNAMED")
 }
 
@@ -115,6 +117,18 @@ tasks.register<Test>("fuzzTest") {
         includeTestsMatching("moo.syntax.MooParserFuzzTest.parsesArbitraryLatin1")
     }
     environment("JAZZER_FUZZ", "1")
+    maxParallelForks = 1
+    outputs.upToDateWhen { false }
+}
+
+tasks.register<Test>("schedulerStress") {
+    description = "Runs only the bounded concurrent scheduler stress proof"
+    group = "verification"
+    testClassesDirs = sourceSets.test.get().output.classesDirs
+    classpath = sourceSets.test.get().runtimeClasspath
+    filter {
+        includeTestsMatching("moo.runtime.ConcurrentSchedulerStressTest")
+    }
     maxParallelForks = 1
     outputs.upToDateWhen { false }
 }
@@ -144,7 +158,7 @@ tasks.register<JavaExec>("jcstress") {
     workingDir(layout.buildDirectory.get().asFile)
     args(
         "-t",
-        "^moo\\.jcstress\\.VolatilePublicationTest$",
+        "^moo\\.jcstress\\.(VolatilePublicationTest|WorldPublicationTest)$",
         "-m",
         "quick",
         "-f",
