@@ -26,6 +26,38 @@ final class OperationsCommandTest {
       Path.of("..", "moo-conformance-tests", "src", "moo_conformance", "_db", "Test.db");
 
   @Test
+  void sigtermIsHandledAsSoonAsTheListenerIsReachable(@TempDir Path directory) throws Exception {
+    for (int attempt = 0; attempt < 12; attempt++) {
+      Path database = directory.resolve("database-" + attempt + ".db");
+      Path checkpoint = directory.resolve("checkpoint-" + attempt + ".db");
+      Files.copy(FIXTURE, database);
+      int port = availablePort();
+      Map<String, String> environment =
+          Map.of(
+              "BANTENG_DATABASE", database.toString(),
+              "BANTENG_CHECKPOINT", checkpoint.toString(),
+              "BANTENG_PORT", Integer.toString(port));
+      Process server =
+          start(
+              launchCommand(),
+              environment,
+              directory.resolve("immediate-sigterm-" + attempt + ".log"));
+      try {
+        awaitListener(port, server);
+        server.destroy();
+        assertTrue(server.waitFor(30, TimeUnit.SECONDS), "server did not exit after SIGTERM");
+        assertEquals(0, server.exitValue(), "attempt " + attempt);
+        assertTrue(Files.isRegularFile(checkpoint));
+      } finally {
+        if (server.isAlive()) {
+          server.destroyForcibly();
+          assertTrue(server.waitFor(30, TimeUnit.SECONDS));
+        }
+      }
+    }
+  }
+
+  @Test
   void everyDocumentedCommandExecutesAndServerCommandsShutdownCleanly(@TempDir Path directory)
       throws Exception {
     List<String> commands = fencedCommands(Files.readString(Path.of("docs", "operations.md")));
