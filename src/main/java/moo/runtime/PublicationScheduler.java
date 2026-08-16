@@ -666,6 +666,10 @@ final class PublicationScheduler implements AutoCloseable {
   }
 
   synchronized List<DurableTask> durableTasks() {
+    return durableTasksExcluding(Long.MIN_VALUE);
+  }
+
+  synchronized List<DurableTask> durableTasksExcluding(long excludedTaskId) {
     Map<Long, TimedWork> durable = new TreeMap<>(timedWork);
     checkpointingWork.forEach(
         (taskId, work) -> {
@@ -673,6 +677,7 @@ final class PublicationScheduler implements AutoCloseable {
             throw new IllegalStateException("task has duplicate durable state " + taskId);
           }
         });
+    durable.remove(excludedTaskId);
     return durable.values().stream().map(PublicationScheduler::durableTask).toList();
   }
 
@@ -1246,7 +1251,7 @@ final class PublicationScheduler implements AutoCloseable {
     SegmentResult result = null;
     Throwable failure = null;
     try {
-      context = runtime.openAttempt(transaction);
+      context = runtime.openAttempt(transaction, entry.taskId());
       result = executeSegment(entry, transaction);
       context = runtime.finishAttempt();
       transaction = context.world;

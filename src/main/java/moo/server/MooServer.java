@@ -532,21 +532,26 @@ public final class MooServer implements AutoCloseable, ListenerControl {
   /** Closes the production server after a committed shutdown checkpoint. */
   @Override
   public void shutdown() {
-    try {
-      close();
-    } catch (IOException error) {
-      throw new UncheckedIOException("server shutdown failed", error);
-    }
+    closeTransport()
+        .ifPresent(
+            failure -> {
+              throw new UncheckedIOException("server shutdown failed", failure);
+            });
   }
 
   /** Requests a final checkpoint, then waits for listener and executor termination. */
   public void gracefulShutdown() {
+    boolean requested = false;
     if (!closed.get()) {
       runtime.requestGracefulShutdown();
+      requested = true;
     }
     try {
       if (!closedLatch.await(30, TimeUnit.SECONDS)) {
         throw new IllegalStateException("graceful shutdown did not close the server");
+      }
+      if (requested) {
+        runtime.close();
       }
       if (!runtime.awaitTermination(30, TimeUnit.SECONDS)) {
         throw new IllegalStateException("graceful shutdown did not terminate VM workers");
@@ -618,8 +623,16 @@ public final class MooServer implements AutoCloseable, ListenerControl {
   /** Closes the listener and every accepted socket. */
   @Override
   public synchronized void close() throws IOException {
+    Optional<IOException> failure = closeTransport();
+    runtime.close();
+    if (failure.isPresent()) {
+      throw failure.orElseThrow();
+    }
+  }
+
+  private synchronized Optional<IOException> closeTransport() {
     if (!closed.compareAndSet(false, true)) {
-      return;
+      return Optional.empty();
     }
 
     IOException failure = null;
@@ -646,11 +659,8 @@ public final class MooServer implements AutoCloseable, ListenerControl {
         }
       }
     }
-    runtime.close();
     closedLatch.countDown();
-    if (failure != null) {
-      throw failure;
-    }
+    return Optional.ofNullable(failure);
   }
 
   private static void closeSocket(Socket socket) {

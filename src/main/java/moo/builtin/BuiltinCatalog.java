@@ -2080,7 +2080,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.DEFERRED_COMMIT,
             BuiltinOwner.VM,
-            (a, w, p, t, id, rt, rs, r, cp, c) -> setTaskPerms(a)));
+            (a, w, p, t, id, rt, rs, r, cp, c) -> setTaskPerms(a, w, p)));
     entries.add(
         new BuiltinSpec(
             "set_thread_mode",
@@ -6536,9 +6536,13 @@ public final class BuiltinCatalog {
     return Result.switchPlayer(newPlayer);
   }
 
-  private static Result setTaskPerms(List<MooValue> arguments) {
-    ObjectValue programmer = (ObjectValue) arguments.getFirst();
-    return Result.programmer(programmer.value());
+  private static Result setTaskPerms(
+      List<MooValue> arguments, WorldTxn world, long currentProgrammer) {
+    ObjectValue requested = (ObjectValue) arguments.getFirst();
+    if (requested.value() != currentProgrammer && !isWizard(world, currentProgrammer)) {
+      return Result.error(ErrorValue.E_PERM);
+    }
+    return Result.programmer(requested.value());
   }
 
   private static Result notifyLine(List<MooValue> arguments) {

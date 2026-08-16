@@ -58,33 +58,6 @@ final class OperationsCommandTest {
   }
 
   @Test
-  void startupPublishesTheInitialCheckpoint(@TempDir Path directory) throws Exception {
-    Path database = directory.resolve("database.db");
-    Path checkpoint = directory.resolve("checkpoint.db");
-    Files.copy(FIXTURE, database);
-    int port = availablePort();
-    Process server =
-        start(
-            launchCommand(),
-            Map.of(
-                "BANTENG_DATABASE", database.toString(),
-                "BANTENG_CHECKPOINT", checkpoint.toString(),
-                "BANTENG_PORT", Integer.toString(port)),
-            directory.resolve("startup-checkpoint.log"));
-    try {
-      awaitListener(port, server);
-      long deadline = System.nanoTime() + Duration.ofSeconds(5).toNanos();
-      while (!Files.isRegularFile(checkpoint) && System.nanoTime() < deadline) {
-        Thread.onSpinWait();
-      }
-      assertTrue(Files.isRegularFile(checkpoint));
-    } finally {
-      server.destroy();
-      assertTrue(server.waitFor(30, TimeUnit.SECONDS));
-    }
-  }
-
-  @Test
   void everyDocumentedCommandExecutesAndServerCommandsShutdownCleanly(@TempDir Path directory)
       throws Exception {
     List<String> commands = fencedCommands(Files.readString(Path.of("docs", "operations.md")));

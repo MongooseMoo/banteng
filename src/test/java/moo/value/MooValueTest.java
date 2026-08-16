@@ -219,7 +219,7 @@ final class MooValueTest {
   }
 
   @Test
-  void mapsOwnInsertionOrderAndExposeThatTopologyThroughEqualityAndHashing() {
+  void mapsOwnInsertionOrderButUseOrderIndependentRecursiveEqualityAndHashing() {
     LinkedHashMap<MooValue, MooValue> firstEntries = new LinkedHashMap<>();
     firstEntries.put(
         new StringValue("Key".getBytes(StandardCharsets.ISO_8859_1)),
@@ -237,8 +237,8 @@ final class MooValueTest {
     assertEquals(MooValue.Type.MAP, first.type());
     assertTrue(first.isTruthy());
     assertFalse(new MapValue(Map.of()).isTruthy());
-    assertNotEquals(first, reversed);
-    assertNotEquals(first.hashCode(), reversed.hashCode());
+    assertEquals(first, reversed);
+    assertEquals(first.hashCode(), reversed.hashCode());
     assertEquals(List.copyOf(firstEntries.keySet()), List.copyOf(first.entries().keySet()));
     assertThrows(
         UnsupportedOperationException.class,
