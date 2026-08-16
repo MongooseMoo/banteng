@@ -26,6 +26,7 @@ import moo.builtin.BuiltinCatalog.ConnectionOption;
 import moo.builtin.BuiltinCatalog.ConnectionOptionRequest;
 import moo.builtin.BuiltinCatalog.ForcedInputRequest;
 import moo.builtin.BuiltinCatalog.ListenerControl;
+import moo.builtin.BuiltinResult;
 import moo.builtin.CheckpointRequest;
 import moo.bytecode.BytecodeProgram;
 import moo.bytecode.MooCompiler;
@@ -75,7 +76,7 @@ public final class MooRuntime implements AutoCloseable {
   private final PublicationScheduler scheduler;
   private final List<ActiveConnection> checkpointedConnections;
   private final Map<Long, ConnectionState> publishedConnections = new LinkedHashMap<>();
-  private final Map<Long, CompletableFuture<BuiltinCatalog.Result>> pendingReads =
+  private final Map<Long, CompletableFuture<BuiltinResult>> pendingReads =
       new LinkedHashMap<>();
   private static final ThreadLocal<AttemptContext> ATTEMPT = new ThreadLocal<>();
   private final AtomicLong connectionGenerations = new AtomicLong();
@@ -2278,7 +2279,7 @@ public final class MooRuntime implements AutoCloseable {
     }
   }
 
-  private BuiltinCatalog.Result read(
+  private BuiltinResult read(
       List<MooValue> arguments,
       WorldTxn world,
       long programmer,
@@ -2290,13 +2291,13 @@ public final class MooRuntime implements AutoCloseable {
       long callerProgrammer,
       ListValue callers) {
     if (arguments.isEmpty() && !scheduler.isLastInputTask(taskId)) {
-      return BuiltinCatalog.Result.error(ErrorValue.E_PERM);
+      return BuiltinResult.error(ErrorValue.E_PERM);
     }
     long target;
     if (arguments.isEmpty()) {
       OptionalLong inputPlayer = scheduler.lastInputPlayer(taskId);
       if (inputPlayer.isEmpty()) {
-        return BuiltinCatalog.Result.error(ErrorValue.E_PERM);
+        return BuiltinResult.error(ErrorValue.E_PERM);
       }
       target = inputPlayer.orElseThrow();
     } else {
@@ -2314,23 +2315,23 @@ public final class MooRuntime implements AutoCloseable {
       }
     }
     if (connection == null) {
-      return BuiltinCatalog.Result.error(ErrorValue.E_INVARG);
+      return BuiltinResult.error(ErrorValue.E_INVARG);
     }
     if (!connection.pendingInput.isEmpty()) {
-      return BuiltinCatalog.Result.value(encode(connection.pendingInput.removeFirst()));
+      return BuiltinResult.value(encode(connection.pendingInput.removeFirst()));
     }
     if (arguments.size() == 2 && arguments.get(1).isTruthy()) {
-      return BuiltinCatalog.Result.value(new IntegerValue(0));
+      return BuiltinResult.value(new IntegerValue(0));
     }
-    CompletableFuture<BuiltinCatalog.Result> completion = new CompletableFuture<>();
+    CompletableFuture<BuiltinResult> completion = new CompletableFuture<>();
     requireAttempt().readRegistrations.add(new ReadRegistration(connectionId, completion));
     long registeredConnectionId = connectionId;
-    return BuiltinCatalog.Result.hostWork(
+    return BuiltinResult.hostWork(
         () -> awaitRead(registeredConnectionId, completion));
   }
 
-  private BuiltinCatalog.Result awaitRead(
-      long connectionId, CompletableFuture<BuiltinCatalog.Result> completion) throws Exception {
+  private BuiltinResult awaitRead(
+      long connectionId, CompletableFuture<BuiltinResult> completion) throws Exception {
     try {
       return completion.get();
     } finally {
@@ -2345,11 +2346,11 @@ public final class MooRuntime implements AutoCloseable {
   }
 
   private synchronized boolean deliverPendingRead(long connectionId, String line) {
-    CompletableFuture<BuiltinCatalog.Result> completion = pendingReads.remove(connectionId);
+    CompletableFuture<BuiltinResult> completion = pendingReads.remove(connectionId);
     if (completion == null) {
       return false;
     }
-    completion.complete(BuiltinCatalog.Result.value(encode(line)));
+    completion.complete(BuiltinResult.value(encode(line)));
     return true;
   }
 
@@ -2398,20 +2399,20 @@ public final class MooRuntime implements AutoCloseable {
     }
   }
 
-  private BuiltinCatalog.Result connectionOptions(
+  private BuiltinResult connectionOptions(
       List<MooValue> arguments, WorldTxn world, long programmer) {
     long target = ((ObjectValue) arguments.getFirst()).value();
     OptionalLong connectionId = world.connectionId(target);
     if (connectionId.isEmpty()) {
-      return BuiltinCatalog.Result.error(ErrorValue.E_INVARG);
+      return BuiltinResult.error(ErrorValue.E_INVARG);
     }
     ConnectionState connection = connections().get(connectionId.orElseThrow());
     if (connection == null) {
-      return BuiltinCatalog.Result.error(ErrorValue.E_INVARG);
+      return BuiltinResult.error(ErrorValue.E_INVARG);
     }
     boolean wizard = world.object(programmer).map(o -> (o.flags() & 4) != 0).orElse(false);
     if (target != programmer && !wizard) {
-      return BuiltinCatalog.Result.error(ErrorValue.E_PERM);
+      return BuiltinResult.error(ErrorValue.E_PERM);
     }
     if (arguments.size() == 2) {
       String option =
@@ -2428,8 +2429,8 @@ public final class MooRuntime implements AutoCloseable {
             default -> null;
           };
       return value == null
-          ? BuiltinCatalog.Result.error(ErrorValue.E_INVARG)
-          : BuiltinCatalog.Result.value(value);
+          ? BuiltinResult.error(ErrorValue.E_INVARG)
+          : BuiltinResult.value(value);
     }
     List<MooValue> options = new ArrayList<>();
     options.add(connectionOptionPair("binary", new IntegerValue(connection.binary ? 1 : 0)));
@@ -2440,31 +2441,31 @@ public final class MooRuntime implements AutoCloseable {
         connectionOptionPair(
             "intrinsic-commands",
             world.intrinsicCommands(target).orElse(connection.intrinsicCommands)));
-    return BuiltinCatalog.Result.value(new ListValue(options));
+    return BuiltinResult.value(new ListValue(options));
   }
 
-  private BuiltinCatalog.Result outputDelimiters(
+  private BuiltinResult outputDelimiters(
       List<MooValue> arguments, WorldTxn world, long programmer) {
     long target = ((ObjectValue) arguments.getFirst()).value();
     boolean wizard = world.object(programmer).map(o -> (o.flags() & 4) != 0).orElse(false);
     if (target != programmer && !wizard) {
-      return BuiltinCatalog.Result.error(ErrorValue.E_PERM);
+      return BuiltinResult.error(ErrorValue.E_PERM);
     }
     OptionalLong connectionId = world.connectionId(target);
     if (connectionId.isEmpty()) {
-      return BuiltinCatalog.Result.error(ErrorValue.E_INVARG);
+      return BuiltinResult.error(ErrorValue.E_INVARG);
     }
     ConnectionState connection = connections().get(connectionId.orElseThrow());
     if (connection == null) {
-      return BuiltinCatalog.Result.error(ErrorValue.E_INVARG);
+      return BuiltinResult.error(ErrorValue.E_INVARG);
     }
-    return BuiltinCatalog.Result.value(
+    return BuiltinResult.value(
         new ListValue(
             List.of(
                 encode(connection.prefix.orElse("")), encode(connection.suffix.orElse("")))));
   }
 
-  private BuiltinCatalog.Result queueInfo(
+  private BuiltinResult queueInfo(
       List<MooValue> arguments, WorldTxn world, long programmer, TaskRegistry taskRegistry) {
     if (arguments.isEmpty()) {
       Set<Long> players = new LinkedHashSet<>();
@@ -2472,7 +2473,7 @@ public final class MooRuntime implements AutoCloseable {
         players.add(entry.getValue().player >= 0 ? entry.getValue().player : entry.getKey());
       }
       players.addAll(taskRegistry.queuePlayers());
-      return BuiltinCatalog.Result.value(
+      return BuiltinResult.value(
           new ListValue(players.stream().map(ObjectValue::new).map(MooValue.class::cast).toList()));
     }
 
@@ -2480,7 +2481,7 @@ public final class MooRuntime implements AutoCloseable {
     long backgroundTasks = taskRegistry.backgroundTaskCount(target);
     boolean wizard = world.object(programmer).map(o -> (o.flags() & 4) != 0).orElse(false);
     if (!wizard) {
-      return BuiltinCatalog.Result.value(new IntegerValue(backgroundTasks));
+      return BuiltinResult.value(new IntegerValue(backgroundTasks));
     }
 
     Map.Entry<Long, ConnectionState> selected = null;
@@ -2491,7 +2492,7 @@ public final class MooRuntime implements AutoCloseable {
       }
     }
     if (selected == null && backgroundTasks == 0) {
-      return BuiltinCatalog.Result.value(new IntegerValue(0));
+      return BuiltinResult.value(new IntegerValue(0));
     }
 
     ConnectionState connection = selected == null ? null : selected.getValue();
@@ -2521,27 +2522,27 @@ public final class MooRuntime implements AutoCloseable {
     values.put(encode("reading"), BooleanValue.FALSE);
     values.put(encode("parsing"), BooleanValue.FALSE);
     values.put(encode("reading_task_id"), new IntegerValue(0));
-    return BuiltinCatalog.Result.value(new MapValue(values));
+    return BuiltinResult.value(new MapValue(values));
   }
 
-  private BuiltinCatalog.Result dbDiskSize() {
+  private BuiltinResult dbDiskSize() {
     Optional<Path> activeDatabase = checkpointPublished ? checkpoint : database;
     if (activeDatabase.isEmpty()) {
-      return BuiltinCatalog.Result.value(new IntegerValue(0));
+      return BuiltinResult.value(new IntegerValue(0));
     }
     try {
-      return BuiltinCatalog.Result.value(new IntegerValue(Files.size(activeDatabase.orElseThrow())));
+      return BuiltinResult.value(new IntegerValue(Files.size(activeDatabase.orElseThrow())));
     } catch (IOException error) {
-      return BuiltinCatalog.Result.error(ErrorValue.E_QUOTA);
+      return BuiltinResult.error(ErrorValue.E_QUOTA);
     }
   }
 
-  private BuiltinCatalog.Result flushInput(
+  private BuiltinResult flushInput(
       List<MooValue> arguments, WorldTxn world, long programmer) {
     long target = ((ObjectValue) arguments.getFirst()).value();
     boolean wizard = world.object(programmer).map(o -> (o.flags() & 4) != 0).orElse(false);
     if (target != programmer && !wizard) {
-      return BuiltinCatalog.Result.error(ErrorValue.E_PERM);
+      return BuiltinResult.error(ErrorValue.E_PERM);
     }
 
     Map.Entry<Long, ConnectionState> selected = null;
@@ -2552,7 +2553,7 @@ public final class MooRuntime implements AutoCloseable {
       }
     }
     if (selected == null) {
-      return BuiltinCatalog.Result.value(new IntegerValue(0));
+      return BuiltinResult.value(new IntegerValue(0));
     }
 
     ConnectionState connection = selected.getValue();
@@ -2569,7 +2570,7 @@ public final class MooRuntime implements AutoCloseable {
       }
       effects().add(RuntimeEffect.write(selected.getKey(), output));
     }
-    return BuiltinCatalog.Result.value(new IntegerValue(0));
+    return BuiltinResult.value(new IntegerValue(0));
   }
 
   private static ListValue connectionOptionPair(String name, MooValue value) {
@@ -3047,11 +3048,11 @@ public final class MooRuntime implements AutoCloseable {
       context.readRegistrations.clear();
       for (ReadRegistration registration : readRegistrations) {
         if (!publishedConnections.containsKey(registration.connectionId())) {
-          registration.completion().complete(BuiltinCatalog.Result.error(ErrorValue.E_INVARG));
+          registration.completion().complete(BuiltinResult.error(ErrorValue.E_INVARG));
         } else if (pendingReads.putIfAbsent(
                 registration.connectionId(), registration.completion())
             != null) {
-          registration.completion().complete(BuiltinCatalog.Result.error(ErrorValue.E_INVARG));
+          registration.completion().complete(BuiltinResult.error(ErrorValue.E_INVARG));
         }
       }
       publishedEffects = List.copyOf(context.effects);
@@ -3565,7 +3566,7 @@ public final class MooRuntime implements AutoCloseable {
   }
 
   record ReadRegistration(
-      long connectionId, CompletableFuture<BuiltinCatalog.Result> completion) {}
+      long connectionId, CompletableFuture<BuiltinResult> completion) {}
 
   enum RuntimeEffectKind {
     START_TIMEOUT,

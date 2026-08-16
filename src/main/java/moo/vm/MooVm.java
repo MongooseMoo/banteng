@@ -9,11 +9,14 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.OptionalDouble;
 import java.util.OptionalLong;
 import moo.builtin.BuiltinCatalog;
-import moo.builtin.BuiltinCatalog.Result;
-import moo.builtin.BuiltinCatalog.InitializeRequest;
+import moo.builtin.BuiltinCatalog.ConnectionOptionRequest;
+import moo.builtin.BuiltinCatalog.ForcedInputRequest;
+import moo.builtin.BuiltinResult;
 import moo.builtin.BuiltinSpec;
+import moo.builtin.CheckpointRequest;
 import moo.builtin.EffectClass;
 import moo.bytecode.BytecodeProgram;
 import moo.bytecode.BytecodeProgram.Instruction;
@@ -471,9 +474,9 @@ public final class MooVm {
 
   private static void pushCheckedList(
       Frame frame, VmState state, WorldTxn world, ListValue value) {
-    Result checked = BuiltinCatalog.enforceListValueLimit(value, world);
-    if (checked.value().isPresent()) {
-      frame.operandStack.push(checked.value().orElseThrow());
+    BuiltinResult checked = BuiltinCatalog.enforceListValueLimit(value, world);
+    if (checked instanceof BuiltinResult.Value checkedValue) {
+      frame.operandStack.push(checkedValue.value());
       frame.instructionPointer++;
       return;
     }
@@ -1431,7 +1434,7 @@ public final class MooVm {
                 && arguments.elements().getFirst().isTruthy()
             ? state.callers(true)
             : state.callers();
-    Result result =
+    BuiltinResult result =
         builtins.invoke(
             spec,
             arguments.elements(),
@@ -1475,7 +1478,7 @@ public final class MooVm {
       VmState state, WorldTxn world, BuiltinCatalog builtins, long taskId) {
     VmSnapshot.PendingBuiltin request = state.authorizePendingBuiltin();
     BuiltinSpec spec = builtins.spec(request.name()).orElseThrow();
-    Result result =
+    BuiltinResult result =
         builtins.invoke(
             spec,
             request.arguments(),
@@ -1493,267 +1496,281 @@ public final class MooVm {
   }
 
   private static void applyBuiltinResult(
-      Result result, Frame frame, VmState state, WorldTxn world) {
-    if (result.abortSeconds()) {
-      state.abortSecondsExhaustion();
-      return;
-    }
-    if (result.error().isPresent()) {
-      if (result.errorDetails().isPresent()) {
-        raiseError(
-            state,
-            result.error().orElseThrow(),
-            result.errorDetails().orElseThrow(),
-            world,
-            false);
-      } else {
-        raiseError(state, result.error().orElseThrow(), world, false);
+      BuiltinResult result, Frame frame, VmState state, WorldTxn world) {
+    switch (result) {
+      case BuiltinResult.SecondsAbort ignored -> state.abortSecondsExhaustion();
+      case BuiltinResult.ErrorResult error ->
+          raiseError(state, error.error(), world, false);
+      case BuiltinResult.RaisedError raised ->
+          raiseError(state, raised.error(), raised.details(), world, false);
+      case BuiltinResult.Value value -> frame.operandStack.push(value.value());
+      case BuiltinResult.Initialize initialize ->
+          applyInitialize(initialize, frame, state, world);
+      case BuiltinResult.Checkpoint ignored -> {
+        state.stageCheckpointRequest(new CheckpointRequest(false));
+        frame.operandStack.push(new IntegerValue(0));
       }
-      return;
-    }
-    result.taskLocal().ifPresent(state::setTaskLocal);
-    result.threadMode().ifPresent(state::setThreadMode);
-    result.output().ifPresent(state::stageOutput);
-    result.connectionOptionRequest().ifPresent(state::stageConnectionOptionRequest);
-    result.forcedInputRequest().ifPresent(state::stageForcedInputRequest);
-    result.checkpointRequest().ifPresent(state::stageCheckpointRequest);
-    if (result.bootPlayerTarget().isPresent()) {
-      state.stageBootPlayerTarget(result.bootPlayerTarget().orElseThrow());
-    }
-    if (result.switchedPlayer().isPresent()) {
-      state.switchPlayer(result.switchedPlayer().orElseThrow());
-    }
-    if (result.programmer().isPresent()) {
-      state.setProgrammer(result.programmer().orElseThrow());
-    }
-    if (result.delaySeconds().isPresent() || result.hostWork().isPresent()) {
-      state.suspend(result.delaySeconds(), result.hostWork());
-      return;
-    }
-    if (result.dynamicSource().isPresent()) {
-      try {
-        BytecodeProgram dynamicProgram =
-            new MooCompiler().compile(result.dynamicSource().orElseThrow());
-        if (!state.pushEvalFrame(dynamicProgram)) {
-          raiseError(state, ErrorValue.E_MAXREC, world);
-        }
-      } catch (IllegalArgumentException error) {
-        String diagnostic = error.getMessage();
-        if (diagnostic == null) {
-          diagnostic = error.getClass().getSimpleName();
-        }
-        frame.operandStack.push(
-            new ListValue(
-                List.of(
-                    new IntegerValue(0),
-                    new ListValue(List.of(encode("Parse error: " + diagnostic))))));
+      case BuiltinResult.Shutdown ignored -> {
+        state.stageCheckpointRequest(new CheckpointRequest(true));
+        frame.operandStack.push(new IntegerValue(0));
       }
+      case BuiltinResult.Panic panic -> {
+        state.stageCheckpointRequest(CheckpointRequest.panic(panic.message()));
+        frame.operandStack.push(new IntegerValue(0));
+      }
+      case BuiltinResult.Suspend suspend ->
+          state.suspend(OptionalDouble.of(suspend.seconds()), Optional.empty());
+      case BuiltinResult.HostWork hostWork ->
+          state.suspend(OptionalDouble.empty(), Optional.of(hostWork.work()));
+      case BuiltinResult.ThreadMode threadMode -> {
+        state.setThreadMode(threadMode.enabled());
+        frame.operandStack.push(new IntegerValue(0));
+      }
+      case BuiltinResult.DynamicEval dynamicEval ->
+          applyDynamicEval(dynamicEval.source(), frame, state, world);
+      case BuiltinResult.Output output -> {
+        state.stageOutput(output.line());
+        frame.operandStack.push(new IntegerValue(1));
+      }
+      case BuiltinResult.SwitchPlayer switchPlayer -> {
+        state.switchPlayer(switchPlayer.player());
+        frame.operandStack.push(new IntegerValue(0));
+      }
+      case BuiltinResult.Programmer programmer -> {
+        state.setProgrammer(programmer.programmer());
+        frame.operandStack.push(new IntegerValue(0));
+      }
+      case BuiltinResult.Move move -> applyMove(move, frame, state, world);
+      case BuiltinResult.Recycle recycle ->
+          applyRecycle(recycle.object(), frame, state, world);
+      case BuiltinResult.RecycleAnonymous recycle ->
+          applyAnonymousRecycle(recycle.object(), frame, state, world);
+      case BuiltinResult.BootPlayer bootPlayer -> {
+        state.stageBootPlayerTarget(bootPlayer.target());
+        frame.operandStack.push(new IntegerValue(0));
+      }
+      case BuiltinResult.SetConnectionOption request -> {
+        state.stageConnectionOptionRequest(
+            new ConnectionOptionRequest(request.target(), request.option(), request.value()));
+        frame.operandStack.push(new IntegerValue(0));
+      }
+      case BuiltinResult.ForceInput request -> {
+        state.stageForcedInputRequest(new ForcedInputRequest(request.target(), request.input()));
+        frame.operandStack.push(new IntegerValue(0));
+      }
+    }
+  }
+
+  private static void applyDynamicEval(
+      String source, Frame frame, VmState state, WorldTxn world) {
+    try {
+      BytecodeProgram dynamicProgram = new MooCompiler().compile(source);
+      if (!state.pushEvalFrame(dynamicProgram)) {
+        raiseError(state, ErrorValue.E_MAXREC, world);
+      }
+    } catch (IllegalArgumentException error) {
+      String diagnostic = error.getMessage();
+      if (diagnostic == null) {
+        diagnostic = error.getClass().getSimpleName();
+      }
+      frame.operandStack.push(
+          new ListValue(
+              List.of(
+                  new IntegerValue(0),
+                  new ListValue(List.of(encode("Parse error: " + diagnostic))))));
+    }
+  }
+
+  private static void applyMove(
+      BuiltinResult.Move move, Frame frame, VmState state, WorldTxn world) {
+    WorldVerb hook = world.verb(move.destination(), "accept").orElse(null);
+    if (hook == null) {
+      if (!world.move(move.object(), move.destination(), move.position())) {
+        raiseError(state, ErrorValue.E_INVARG, world);
+        return;
+      }
+      frame.operandStack.push(new IntegerValue(0));
       return;
     }
-    if (result.moveObject().isPresent() != result.moveDestination().isPresent()
-        || result.moveObject().isPresent() != result.movePosition().isPresent()) {
+    BytecodeProgram hookProgram;
+    try {
+      hookProgram = new MooCompiler().compile(hook.programSource());
+    } catch (IllegalArgumentException error) {
       raiseError(state, ErrorValue.E_INVARG, world);
       return;
     }
-    if (result.moveObject().isPresent()) {
-      long moveObject = result.moveObject().orElseThrow();
-      long moveDestination = result.moveDestination().orElseThrow();
-      long movePosition = result.movePosition().orElseThrow();
-      WorldVerb hook = world.verb(moveDestination, "accept").orElse(null);
-      if (hook == null) {
-        if (!world.move(moveObject, moveDestination, movePosition)) {
-          raiseError(state, ErrorValue.E_INVARG, world);
-          return;
-        }
-        frame.operandStack.push(new IntegerValue(0));
-        return;
-      }
-      BytecodeProgram hookProgram;
-      try {
-        hookProgram = new MooCompiler().compile(hook.programSource());
-      } catch (IllegalArgumentException error) {
+    Map<String, MooValue> locals = new LinkedHashMap<>();
+    ObjectValue destination = new ObjectValue(move.destination());
+    locals.put("this", destination);
+    locals.put("player", frame.locals.getOrDefault("player", new ObjectValue(-1)));
+    locals.put("caller", frame.receiver);
+    locals.put("verb", encode("accept"));
+    locals.put("args", new ListValue(List.of(new ObjectValue(move.object()))));
+    locals.put("argstr", encode(""));
+    if (!state.pushVerbFrame(
+        hookProgram,
+        locals,
+        hook.owner(),
+        destination,
+        destination,
+        OptionalLong.empty(),
+        OptionalLong.of(move.object()),
+        OptionalLong.of(move.destination()),
+        OptionalLong.of(move.position()),
+        (hook.permissions() & 8) != 0)) {
+      raiseError(state, ErrorValue.E_MAXREC, world, false);
+    }
+  }
+
+  private static void applyRecycle(
+      long recycleTarget, Frame frame, VmState state, WorldTxn world) {
+    WorldVerb hook = world.verb(recycleTarget, "recycle").orElse(null);
+    if (hook == null) {
+      if (!world.recycleObject(recycleTarget)) {
         raiseError(state, ErrorValue.E_INVARG, world);
         return;
       }
-      Map<String, MooValue> locals = new LinkedHashMap<>();
-      ObjectValue destination = new ObjectValue(moveDestination);
-      locals.put("this", destination);
-      locals.put("player", frame.locals.getOrDefault("player", new ObjectValue(-1)));
-      locals.put("caller", frame.receiver);
-      locals.put("verb", encode("accept"));
-      locals.put("args", new ListValue(List.of(new ObjectValue(moveObject))));
-      locals.put("argstr", encode(""));
-      if (!state.pushVerbFrame(
-          hookProgram,
-          locals,
-          hook.owner(),
-          destination,
-          destination,
-          OptionalLong.empty(),
-          OptionalLong.of(moveObject),
-          OptionalLong.of(moveDestination),
-          OptionalLong.of(movePosition),
-          (hook.permissions() & 8) != 0)) {
-        raiseError(state, ErrorValue.E_MAXREC, world, false);
-      }
+      frame.operandStack.push(new IntegerValue(0));
       return;
     }
-    if (result.recycleTarget().isPresent()) {
-      long recycleTarget = result.recycleTarget().orElseThrow();
-      WorldVerb hook = world.verb(recycleTarget, "recycle").orElse(null);
-      if (hook == null) {
-        if (!world.recycleObject(recycleTarget)) {
-          raiseError(state, ErrorValue.E_INVARG, world);
-          return;
-        }
-        frame.operandStack.push(new IntegerValue(0));
-        return;
-      }
-      BytecodeProgram hookProgram;
-      try {
-        hookProgram = new MooCompiler().compile(hook.programSource());
-      } catch (IllegalArgumentException error) {
-        raiseError(state, ErrorValue.E_INVARG, world);
-        return;
-      }
-      Map<String, MooValue> locals = new LinkedHashMap<>();
-      ObjectValue target = new ObjectValue(recycleTarget);
-      locals.put("this", target);
-      locals.put("player", frame.locals.getOrDefault("player", new ObjectValue(-1)));
-      locals.put("caller", frame.locals.getOrDefault("this", new ObjectValue(-1)));
-      locals.put("verb", encode("recycle"));
-      locals.put("args", new ListValue(List.of()));
-      locals.put("argstr", encode(""));
-      OptionalLong definingLocation = world.verbLocation(recycleTarget, "recycle", true);
-      if (!state.pushVerbFrame(
-          hookProgram,
-          locals,
-          hook.owner(),
-          target,
-          new ObjectValue(definingLocation.orElse(recycleTarget)),
-          OptionalLong.of(recycleTarget),
-          OptionalLong.empty(),
-          OptionalLong.empty(),
-          (hook.permissions() & 8) != 0)) {
-        raiseError(state, ErrorValue.E_MAXREC, world, false);
-      }
+    BytecodeProgram hookProgram;
+    try {
+      hookProgram = new MooCompiler().compile(hook.programSource());
+    } catch (IllegalArgumentException error) {
+      raiseError(state, ErrorValue.E_INVARG, world);
       return;
     }
-    if (result.anonymousRecycleTarget().isPresent()) {
-      AnonymousObjectValue recycleTarget = result.anonymousRecycleTarget().orElseThrow();
-      WorldAnonymousObject recycleBody = world.anonymousObject(recycleTarget).orElse(null);
-      if (recycleBody == null) {
-        raiseError(state, ErrorValue.E_INVARG, world);
-        return;
-      }
-      WorldVerb hook = world.verb(recycleTarget, "recycle", true).orElse(null);
-      if (hook == null) {
-        if (!world.removeAnonymousObject(recycleTarget)) {
-          raiseError(state, ErrorValue.E_INVARG, world);
-          return;
-        }
-        frame.operandStack.push(new IntegerValue(0));
-        return;
-      }
-      BytecodeProgram hookProgram;
-      try {
-        hookProgram = new MooCompiler().compile(hook.programSource());
-      } catch (IllegalArgumentException error) {
-        raiseError(state, ErrorValue.E_INVARG, world);
-        return;
-      }
-      Map<String, MooValue> locals = new LinkedHashMap<>();
-      locals.put("this", recycleTarget);
-      locals.put("player", frame.locals.getOrDefault("player", new ObjectValue(-1)));
-      locals.put("caller", frame.locals.getOrDefault("this", new ObjectValue(-1)));
-      locals.put("verb", encode("recycle"));
-      locals.put("args", new ListValue(List.of()));
-      locals.put("argstr", encode(""));
-      MooValue definingLocation =
-          world.verbLocation(recycleTarget, "recycle", true).orElse(recycleTarget);
-      List<AnonymousObjectValue> collectionDeferrals = new ArrayList<>();
-      for (WorldProperty property : recycleBody.properties()) {
-        if (property.defined()) {
-          collectAnonymousReferences(property.value(), collectionDeferrals);
-        }
-      }
-      state.deferAnonymousCollection(collectionDeferrals);
+    Map<String, MooValue> locals = new LinkedHashMap<>();
+    ObjectValue target = new ObjectValue(recycleTarget);
+    locals.put("this", target);
+    locals.put("player", frame.locals.getOrDefault("player", new ObjectValue(-1)));
+    locals.put("caller", frame.locals.getOrDefault("this", new ObjectValue(-1)));
+    locals.put("verb", encode("recycle"));
+    locals.put("args", new ListValue(List.of()));
+    locals.put("argstr", encode(""));
+    OptionalLong definingLocation = world.verbLocation(recycleTarget, "recycle", true);
+    if (!state.pushVerbFrame(
+        hookProgram,
+        locals,
+        hook.owner(),
+        target,
+        new ObjectValue(definingLocation.orElse(recycleTarget)),
+        OptionalLong.of(recycleTarget),
+        OptionalLong.empty(),
+        OptionalLong.empty(),
+        (hook.permissions() & 8) != 0)) {
+      raiseError(state, ErrorValue.E_MAXREC, world, false);
+    }
+  }
+
+  private static void applyAnonymousRecycle(
+      AnonymousObjectValue recycleTarget, Frame frame, VmState state, WorldTxn world) {
+    WorldAnonymousObject recycleBody = world.anonymousObject(recycleTarget).orElse(null);
+    if (recycleBody == null) {
+      raiseError(state, ErrorValue.E_INVARG, world);
+      return;
+    }
+    WorldVerb hook = world.verb(recycleTarget, "recycle", true).orElse(null);
+    if (hook == null) {
       if (!world.removeAnonymousObject(recycleTarget)) {
         raiseError(state, ErrorValue.E_INVARG, world);
         return;
       }
-      if (!state.pushAnonymousRecycleFrame(
-          hookProgram,
-          locals,
-          hook.owner(),
-          recycleTarget,
-          definingLocation,
-          (hook.permissions() & 8) != 0)) {
-        raiseError(state, ErrorValue.E_MAXREC, world, false);
-      }
+      frame.operandStack.push(new IntegerValue(0));
       return;
     }
-    if (result.initializeRequest().isPresent()) {
-      InitializeRequest request = result.initializeRequest().orElseThrow();
-      MooValue created = request.created();
-      WorldVerb initialize;
-      MooValue definingLocation;
-      if (created instanceof ObjectValue object) {
-        initialize = world.verb(object.value(), "initialize").orElse(null);
-        OptionalLong location = world.verbLocation(object.value(), "initialize", true);
-        definingLocation = new ObjectValue(location.orElse(object.value()));
-      } else if (created instanceof AnonymousObjectValue anonymous) {
-        initialize = world.verb(anonymous, "initialize", true).orElse(null);
-        definingLocation = world.verbLocation(anonymous, "initialize", true).orElse(anonymous);
-      } else {
-        raiseError(state, ErrorValue.E_INVARG, world);
-        return;
-      }
-      if (initialize == null) {
-        frame.operandStack.push(created);
-        return;
-      }
-      BytecodeProgram initializeProgram;
-      try {
-        initializeProgram = new MooCompiler().compile(initialize.programSource());
-      } catch (IllegalArgumentException error) {
-        raiseError(state, ErrorValue.E_INVARG, world);
-        return;
-      }
-      Map<String, MooValue> locals = new LinkedHashMap<>();
-      locals.put("this", created);
-      locals.put("player", frame.locals.getOrDefault("player", new ObjectValue(-1)));
-      locals.put("caller", frame.receiver);
-      locals.put("verb", encode("initialize"));
-      locals.put("args", request.arguments());
-      locals.put("argstr", encode(""));
-      if (!state.pushCreateInitializeFrame(
-          initializeProgram,
-          locals,
-          initialize.owner(),
-          created,
-          definingLocation,
-          created,
-          (initialize.permissions() & 8) != 0)) {
-        raiseError(state, ErrorValue.E_MAXREC, world, false);
-      }
+    BytecodeProgram hookProgram;
+    try {
+      hookProgram = new MooCompiler().compile(hook.programSource());
+    } catch (IllegalArgumentException error) {
+      raiseError(state, ErrorValue.E_INVARG, world);
       return;
     }
-    frame.operandStack.push(result.value().orElseThrow());
+    Map<String, MooValue> locals = new LinkedHashMap<>();
+    locals.put("this", recycleTarget);
+    locals.put("player", frame.locals.getOrDefault("player", new ObjectValue(-1)));
+    locals.put("caller", frame.locals.getOrDefault("this", new ObjectValue(-1)));
+    locals.put("verb", encode("recycle"));
+    locals.put("args", new ListValue(List.of()));
+    locals.put("argstr", encode(""));
+    MooValue definingLocation =
+        world.verbLocation(recycleTarget, "recycle", true).orElse(recycleTarget);
+    List<AnonymousObjectValue> collectionDeferrals = new ArrayList<>();
+    for (WorldProperty property : recycleBody.properties()) {
+      if (property.defined()) {
+        collectAnonymousReferences(property.value(), collectionDeferrals);
+      }
+    }
+    state.deferAnonymousCollection(collectionDeferrals);
+    if (!world.removeAnonymousObject(recycleTarget)) {
+      raiseError(state, ErrorValue.E_INVARG, world);
+      return;
+    }
+    if (!state.pushAnonymousRecycleFrame(
+        hookProgram,
+        locals,
+        hook.owner(),
+        recycleTarget,
+        definingLocation,
+        (hook.permissions() & 8) != 0)) {
+      raiseError(state, ErrorValue.E_MAXREC, world, false);
+    }
   }
 
-  /** Resumes a suspended builtin by routing its MOO error through this activation's handlers. */
-  public void resumeWithError(VmState state, Result completion, WorldTxn world) {
-    state.resumeError();
-    if (completion.errorDetails().isPresent()) {
-      raiseError(
-          state,
-          completion.error().orElseThrow(),
-          completion.errorDetails().orElseThrow(),
-          world,
-          false);
+  private static void applyInitialize(
+      BuiltinResult.Initialize request, Frame frame, VmState state, WorldTxn world) {
+    MooValue created = request.created();
+    WorldVerb initialize;
+    MooValue definingLocation;
+    if (created instanceof ObjectValue object) {
+      initialize = world.verb(object.value(), "initialize").orElse(null);
+      OptionalLong location = world.verbLocation(object.value(), "initialize", true);
+      definingLocation = new ObjectValue(location.orElse(object.value()));
+    } else if (created instanceof AnonymousObjectValue anonymous) {
+      initialize = world.verb(anonymous, "initialize", true).orElse(null);
+      definingLocation = world.verbLocation(anonymous, "initialize", true).orElse(anonymous);
     } else {
-      raiseError(state, completion.error().orElseThrow(), world, false);
+      raiseError(state, ErrorValue.E_INVARG, world);
+      return;
+    }
+    if (initialize == null) {
+      frame.operandStack.push(created);
+      return;
+    }
+    BytecodeProgram initializeProgram;
+    try {
+      initializeProgram = new MooCompiler().compile(initialize.programSource());
+    } catch (IllegalArgumentException error) {
+      raiseError(state, ErrorValue.E_INVARG, world);
+      return;
+    }
+    Map<String, MooValue> locals = new LinkedHashMap<>();
+    locals.put("this", created);
+    locals.put("player", frame.locals.getOrDefault("player", new ObjectValue(-1)));
+    locals.put("caller", frame.receiver);
+    locals.put("verb", encode("initialize"));
+    locals.put("args", request.arguments());
+    locals.put("argstr", encode(""));
+    if (!state.pushCreateInitializeFrame(
+        initializeProgram,
+        locals,
+        initialize.owner(),
+        created,
+        definingLocation,
+        created,
+        (initialize.permissions() & 8) != 0)) {
+      raiseError(state, ErrorValue.E_MAXREC, world, false);
+    }
+  }
+  /** Resumes a suspended builtin by routing its MOO error through this activation's handlers. */
+  public void resumeWithError(VmState state, BuiltinResult completion, WorldTxn world) {
+    state.resumeError();
+    switch (completion) {
+      case BuiltinResult.RaisedError raised ->
+          raiseError(state, raised.error(), raised.details(), world, false);
+      case BuiltinResult.ErrorResult error ->
+          raiseError(state, error.error(), world, false);
+      default -> throw new IllegalArgumentException("completion is not a MOO error");
     }
   }
 

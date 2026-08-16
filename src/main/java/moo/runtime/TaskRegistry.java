@@ -12,7 +12,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.TreeMap;
 import java.util.concurrent.FutureTask;
-import moo.builtin.BuiltinCatalog;
+import moo.builtin.BuiltinResult;
 import moo.value.MooValue;
 import moo.value.MooValue.ErrorValue;
 import moo.value.MooValue.IntegerValue;
@@ -29,7 +29,7 @@ final class TaskRegistry {
   private static final long BACKGROUND_TICKS = 30_000;
 
   private final Map<Long, TaskInfo> tasks = new TreeMap<>();
-  private final Map<Long, FutureTask<BuiltinCatalog.Result>> hostWork = new TreeMap<>();
+  private final Map<Long, FutureTask<BuiltinResult>> hostWork = new TreeMap<>();
   private final Map<Long, Runnable> cancellationActions = new TreeMap<>();
   private final Set<Long> canceled = new HashSet<>();
   private long nextHostHandle = 1;
@@ -132,7 +132,7 @@ final class TaskRegistry {
   synchronized boolean registerHost(
       long taskId,
       VmSnapshot snapshot,
-      FutureTask<BuiltinCatalog.Result> submitted) {
+      FutureTask<BuiltinResult> submitted) {
     if (canceled.contains(taskId)) {
       return false;
     }
@@ -217,7 +217,7 @@ final class TaskRegistry {
     return tasks.containsKey(taskId);
   }
 
-  synchronized BuiltinCatalog.Result threads(
+  synchronized BuiltinResult threads(
       List<MooValue> arguments,
       WorldTxn world,
       long programmer,
@@ -228,7 +228,7 @@ final class TaskRegistry {
       MooValue receiver,
       long callerProgrammer,
       ListValue callers) {
-    return BuiltinCatalog.Result.value(
+    return BuiltinResult.value(
         new ListValue(
             tasks.values().stream()
                 .map(TaskInfo::hostHandle)
@@ -241,7 +241,7 @@ final class TaskRegistry {
     return canceled.remove(taskId);
   }
 
-  BuiltinCatalog.Result killTask(
+  BuiltinResult killTask(
       List<MooValue> arguments,
       WorldTxn world,
       long programmer,
@@ -255,15 +255,15 @@ final class TaskRegistry {
     long taskId = ((IntegerValue) arguments.getFirst()).value();
     WorldObject actor = world.object(programmer).orElse(null);
     boolean wizard = actor != null && (actor.flags() & 4) != 0;
-    FutureTask<BuiltinCatalog.Result> submitted;
+    FutureTask<BuiltinResult> submitted;
     Runnable cancellation;
     synchronized (this) {
       TaskInfo task = tasks.get(taskId);
       if (task == null) {
-        return BuiltinCatalog.Result.error(ErrorValue.E_INVARG);
+        return BuiltinResult.error(ErrorValue.E_INVARG);
       }
       if (!wizard && task.programmer() != programmer) {
-        return BuiltinCatalog.Result.error(ErrorValue.E_PERM);
+        return BuiltinResult.error(ErrorValue.E_PERM);
       }
       tasks.remove(taskId);
       submitted = hostWork.remove(taskId);
@@ -279,10 +279,10 @@ final class TaskRegistry {
     if (cancellation != null) {
       cancellation.run();
     }
-    return BuiltinCatalog.Result.value(new IntegerValue(0));
+    return BuiltinResult.value(new IntegerValue(0));
   }
 
-  BuiltinCatalog.Result queuedTasks(
+  BuiltinResult queuedTasks(
       List<MooValue> arguments,
       WorldTxn world,
       long programmer,
@@ -301,16 +301,16 @@ final class TaskRegistry {
     boolean wizard = actor != null && (actor.flags() & 4) != 0;
     List<TaskInfo> visible = visibleTo(programmer, wizard);
     if (returnCount) {
-      return BuiltinCatalog.Result.value(new IntegerValue(visible.size()));
+      return BuiltinResult.value(new IntegerValue(visible.size()));
     }
-    return BuiltinCatalog.Result.value(
+    return BuiltinResult.value(
         new ListValue(
             visible.stream()
                 .map(task -> task.row(includeVariables, world, programmer))
                 .toList()));
   }
 
-  BuiltinCatalog.Result taskStack(
+  BuiltinResult taskStack(
       List<MooValue> arguments,
       WorldTxn world,
       long programmer,
@@ -327,16 +327,16 @@ final class TaskRegistry {
       task = tasks.get(taskId);
     }
     if (task == null || taskId == currentTaskId || task.snapshot().isEmpty()) {
-      return BuiltinCatalog.Result.error(ErrorValue.E_INVARG);
+      return BuiltinResult.error(ErrorValue.E_INVARG);
     }
     WorldObject actor = world.object(programmer).orElse(null);
     boolean wizard = actor != null && (actor.flags() & 4) != 0;
     if (!wizard && task.programmer() != programmer) {
-      return BuiltinCatalog.Result.error(ErrorValue.E_PERM);
+      return BuiltinResult.error(ErrorValue.E_PERM);
     }
     boolean includeLines = arguments.size() >= 2 && arguments.get(1).isTruthy();
     boolean includeVariables = arguments.size() >= 3 && arguments.get(2).isTruthy();
-    return BuiltinCatalog.Result.value(
+    return BuiltinResult.value(
         new ListValue(
             task.snapshot().orElseThrow().frames().stream()
                 .map(frame -> stackFrame(frame, includeLines, includeVariables))

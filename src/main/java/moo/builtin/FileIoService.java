@@ -19,7 +19,6 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
-import moo.builtin.BuiltinCatalog.Result;
 import moo.value.MooValue;
 import moo.value.MooValue.ErrorValue;
 import moo.value.MooValue.IntegerValue;
@@ -38,7 +37,7 @@ final class FileIoService {
     this.root = root;
   }
 
-  synchronized Result open(List<MooValue> arguments) {
+  synchronized BuiltinResult open(List<MooValue> arguments) {
     String name = text(arguments.get(0));
     Mode mode = Mode.parse(text(arguments.get(1)));
     if (mode == null) {
@@ -49,7 +48,7 @@ final class FileIoService {
       return invalidArgument();
     }
     if (handles.size() >= MAX_HANDLES) {
-      return Result.error(ErrorValue.E_QUOTA);
+      return BuiltinResult.error(ErrorValue.E_QUOTA);
     }
     try {
       RandomAccessFile file = new RandomAccessFile(path.toFile(), mode.readOnly ? "r" : "rw");
@@ -61,13 +60,13 @@ final class FileIoService {
       }
       long id = allocateHandle();
       handles.put(id, new Handle(name, path, mode, file));
-      return Result.value(new IntegerValue(id));
+      return BuiltinResult.value(new IntegerValue(id));
     } catch (IOException failure) {
       return fileError();
     }
   }
 
-  synchronized Result close(List<MooValue> arguments) {
+  synchronized BuiltinResult close(List<MooValue> arguments) {
     long id = integer(arguments.get(0));
     Handle handle = handles.remove(id);
     if (handle == null) {
@@ -78,30 +77,30 @@ final class FileIoService {
       if (handles.isEmpty()) {
         nextHandle = 1;
       }
-      return Result.zero();
+      return BuiltinResult.value(new IntegerValue(0));
     } catch (IOException failure) {
       return fileError();
     }
   }
 
-  synchronized Result name(List<MooValue> arguments) {
+  synchronized BuiltinResult name(List<MooValue> arguments) {
     Handle handle = handle(arguments.get(0));
     return handle == null ? invalidArgument() : string(handle.name);
   }
 
-  synchronized Result openMode(List<MooValue> arguments) {
+  synchronized BuiltinResult openMode(List<MooValue> arguments) {
     Handle handle = handle(arguments.get(0));
     return handle == null ? invalidArgument() : string(handle.mode.source);
   }
 
-  synchronized Result readLine(List<MooValue> arguments) {
+  synchronized BuiltinResult readLine(List<MooValue> arguments) {
     Handle handle = readable(arguments.get(0));
     if (handle == null) {
       return invalidArgument();
     }
     try {
       byte[] line = readRawLine(handle);
-      return Result.value(new StringValue(handle.mode.binary ? encodeBinary(line) : clean(line)));
+      return BuiltinResult.value(new StringValue(handle.mode.binary ? encodeBinary(line) : clean(line)));
     } catch (EOFException failure) {
       return fileError();
     } catch (IOException failure) {
@@ -109,7 +108,7 @@ final class FileIoService {
     }
   }
 
-  synchronized Result readLines(List<MooValue> arguments) {
+  synchronized BuiltinResult readLines(List<MooValue> arguments) {
     long begin = integer(arguments.get(1));
     long end = integer(arguments.get(2));
     if (begin < 1 || begin > end) {
@@ -137,13 +136,13 @@ final class FileIoService {
       }
       handle.file.seek(beginPosition);
       handle.eof = false;
-      return Result.value(new ListValue(lines));
+      return BuiltinResult.value(new ListValue(lines));
     } catch (IOException failure) {
       return fileError();
     }
   }
 
-  synchronized Result writeLine(List<MooValue> arguments) {
+  synchronized BuiltinResult writeLine(List<MooValue> arguments) {
     Handle handle = writable(arguments.get(0));
     if (handle == null) {
       return invalidArgument();
@@ -158,13 +157,13 @@ final class FileIoService {
       handle.file.write('\n');
       flushIfRequested(handle);
       handle.eof = false;
-      return Result.zero();
+      return BuiltinResult.value(new IntegerValue(0));
     } catch (IOException failure) {
       return fileError();
     }
   }
 
-  synchronized Result read(List<MooValue> arguments) {
+  synchronized BuiltinResult read(List<MooValue> arguments) {
     Handle handle = readable(arguments.get(0));
     long requested = integer(arguments.get(1));
     if (handle == null || requested < 0 || requested > Integer.MAX_VALUE) {
@@ -184,13 +183,13 @@ final class FileIoService {
         raw = java.util.Arrays.copyOf(raw, count);
         handle.eof = true;
       }
-      return Result.value(new StringValue(handle.mode.binary ? encodeBinary(raw) : clean(raw)));
+      return BuiltinResult.value(new StringValue(handle.mode.binary ? encodeBinary(raw) : clean(raw)));
     } catch (IOException failure) {
       return fileError();
     }
   }
 
-  synchronized Result write(List<MooValue> arguments) {
+  synchronized BuiltinResult write(List<MooValue> arguments) {
     Handle handle = writable(arguments.get(0));
     if (handle == null) {
       return invalidArgument();
@@ -204,26 +203,26 @@ final class FileIoService {
       handle.file.write(raw);
       flushIfRequested(handle);
       handle.eof = false;
-      return Result.value(new IntegerValue(raw.length));
+      return BuiltinResult.value(new IntegerValue(raw.length));
     } catch (IOException failure) {
       return fileError();
     }
   }
 
-  synchronized Result flush(List<MooValue> arguments) {
+  synchronized BuiltinResult flush(List<MooValue> arguments) {
     Handle handle = handle(arguments.get(0));
     if (handle == null) {
       return invalidArgument();
     }
     try {
       handle.file.getFD().sync();
-      return Result.zero();
+      return BuiltinResult.value(new IntegerValue(0));
     } catch (IOException failure) {
       return fileError();
     }
   }
 
-  synchronized Result seek(List<MooValue> arguments) {
+  synchronized BuiltinResult seek(List<MooValue> arguments) {
     Handle handle = handle(arguments.get(0));
     if (handle == null) {
       return invalidArgument();
@@ -243,30 +242,30 @@ final class FileIoService {
       }
       handle.file.seek(target);
       handle.eof = false;
-      return Result.zero();
+      return BuiltinResult.value(new IntegerValue(0));
     } catch (ArithmeticException | IOException failure) {
       return fileError();
     }
   }
 
-  synchronized Result tell(List<MooValue> arguments) {
+  synchronized BuiltinResult tell(List<MooValue> arguments) {
     Handle handle = handle(arguments.get(0));
     if (handle == null) {
       return invalidArgument();
     }
     try {
-      return Result.value(new IntegerValue(handle.file.getFilePointer()));
+      return BuiltinResult.value(new IntegerValue(handle.file.getFilePointer()));
     } catch (IOException failure) {
       return fileError();
     }
   }
 
-  synchronized Result eof(List<MooValue> arguments) {
+  synchronized BuiltinResult eof(List<MooValue> arguments) {
     Handle handle = handle(arguments.get(0));
-    return handle == null ? invalidArgument() : Result.value(new IntegerValue(handle.eof ? 1 : 0));
+    return handle == null ? invalidArgument() : BuiltinResult.value(new IntegerValue(handle.eof ? 1 : 0));
   }
 
-  synchronized Result countLines(List<MooValue> arguments) {
+  synchronized BuiltinResult countLines(List<MooValue> arguments) {
     Handle handle = readable(arguments.get(0));
     if (handle == null) {
       return invalidArgument();
@@ -283,13 +282,13 @@ final class FileIoService {
           break;
         }
       }
-      return Result.value(new IntegerValue(count));
+      return BuiltinResult.value(new IntegerValue(count));
     } catch (IOException failure) {
       return fileError();
     }
   }
 
-  synchronized Result grep(List<MooValue> arguments) {
+  synchronized BuiltinResult grep(List<MooValue> arguments) {
     Handle handle = readable(arguments.get(0));
     if (handle == null) {
       return invalidArgument();
@@ -319,14 +318,14 @@ final class FileIoService {
           }
         }
       }
-      return Result.value(new ListValue(matches));
+      return BuiltinResult.value(new ListValue(matches));
     } catch (IOException failure) {
       return fileError();
     }
   }
 
-  synchronized Result handles(List<MooValue> arguments) {
-    return Result.value(
+  synchronized BuiltinResult handles(List<MooValue> arguments) {
+    return BuiltinResult.value(
         new ListValue(
             handles.keySet().stream()
                 .sorted()
@@ -335,7 +334,7 @@ final class FileIoService {
                 .toList()));
   }
 
-  synchronized Result list(List<MooValue> arguments) {
+  synchronized BuiltinResult list(List<MooValue> arguments) {
     Path path = resolve(text(arguments.get(0)));
     if (path == null) {
       return invalidArgument();
@@ -366,34 +365,34 @@ final class FileIoService {
           values.add(mooString(filename));
         }
       }
-      return Result.value(new ListValue(values));
+      return BuiltinResult.value(new ListValue(values));
     } catch (IOException failure) {
       return fileError();
     }
   }
 
-  synchronized Result mkdir(List<MooValue> arguments) {
+  synchronized BuiltinResult mkdir(List<MooValue> arguments) {
     Path path = resolve(text(arguments.get(0)));
     if (path == null) {
       return invalidArgument();
     }
     try {
       Files.createDirectory(path);
-      return Result.zero();
+      return BuiltinResult.value(new IntegerValue(0));
     } catch (IOException failure) {
       return fileError();
     }
   }
 
-  synchronized Result rmdir(List<MooValue> arguments) {
+  synchronized BuiltinResult rmdir(List<MooValue> arguments) {
     return removePath(arguments, true);
   }
 
-  synchronized Result remove(List<MooValue> arguments) {
+  synchronized BuiltinResult remove(List<MooValue> arguments) {
     return removePath(arguments, false);
   }
 
-  synchronized Result rename(List<MooValue> arguments) {
+  synchronized BuiltinResult rename(List<MooValue> arguments) {
     Path from = resolve(text(arguments.get(0)));
     if (from == null) {
       return fileError();
@@ -404,13 +403,13 @@ final class FileIoService {
     }
     try {
       Files.move(from, to);
-      return Result.zero();
+      return BuiltinResult.value(new IntegerValue(0));
     } catch (IOException failure) {
       return fileError();
     }
   }
 
-  synchronized Result chmod(List<MooValue> arguments) {
+  synchronized BuiltinResult chmod(List<MooValue> arguments) {
     String mode = text(arguments.get(1));
     if (!mode.matches("[0-7]{3}")) {
       return invalidArgument();
@@ -421,54 +420,54 @@ final class FileIoService {
     }
     try {
       Files.setPosixFilePermissions(path, permissions(Integer.parseInt(mode, 8)));
-      return Result.zero();
+      return BuiltinResult.value(new IntegerValue(0));
     } catch (IOException | UnsupportedOperationException failure) {
       return fileError();
     }
   }
 
-  synchronized Result size(List<MooValue> arguments) {
+  synchronized BuiltinResult size(List<MooValue> arguments) {
     FileInfo info = fileInfo(arguments.get(0));
-    return info == null ? fileSpecError(arguments.get(0)) : Result.value(new IntegerValue(info.size));
+    return info == null ? fileSpecError(arguments.get(0)) : BuiltinResult.value(new IntegerValue(info.size));
   }
 
-  synchronized Result mode(List<MooValue> arguments) {
+  synchronized BuiltinResult mode(List<MooValue> arguments) {
     FileInfo info = fileInfo(arguments.get(0));
     return info == null ? fileSpecError(arguments.get(0)) : string(info.mode);
   }
 
-  synchronized Result type(List<MooValue> arguments) {
+  synchronized BuiltinResult type(List<MooValue> arguments) {
     FileInfo info = fileInfo(arguments.get(0));
     return info == null ? fileSpecError(arguments.get(0)) : string(info.type);
   }
 
-  synchronized Result lastAccess(List<MooValue> arguments) {
+  synchronized BuiltinResult lastAccess(List<MooValue> arguments) {
     FileInfo info = fileInfo(arguments.get(0));
     return info == null
         ? fileSpecError(arguments.get(0))
-        : Result.value(new IntegerValue(info.access));
+        : BuiltinResult.value(new IntegerValue(info.access));
   }
 
-  synchronized Result lastModify(List<MooValue> arguments) {
+  synchronized BuiltinResult lastModify(List<MooValue> arguments) {
     FileInfo info = fileInfo(arguments.get(0));
     return info == null
         ? fileSpecError(arguments.get(0))
-        : Result.value(new IntegerValue(info.modify));
+        : BuiltinResult.value(new IntegerValue(info.modify));
   }
 
-  synchronized Result lastChange(List<MooValue> arguments) {
+  synchronized BuiltinResult lastChange(List<MooValue> arguments) {
     FileInfo info = fileInfo(arguments.get(0));
     return info == null
         ? fileSpecError(arguments.get(0))
-        : Result.value(new IntegerValue(info.change));
+        : BuiltinResult.value(new IntegerValue(info.change));
   }
 
-  synchronized Result stat(List<MooValue> arguments) {
+  synchronized BuiltinResult stat(List<MooValue> arguments) {
     FileInfo info = fileInfo(arguments.get(0));
     if (info == null) {
       return fileSpecError(arguments.get(0));
     }
-    return Result.value(
+    return BuiltinResult.value(
         new ListValue(
             List.of(
                 new IntegerValue(info.size),
@@ -481,7 +480,7 @@ final class FileIoService {
                 new IntegerValue(info.change))));
   }
 
-  private Result removePath(List<MooValue> arguments, boolean directory) {
+  private BuiltinResult removePath(List<MooValue> arguments, boolean directory) {
     Path path = resolve(text(arguments.get(0)));
     if (path == null) {
       return invalidArgument();
@@ -491,7 +490,7 @@ final class FileIoService {
         return fileError();
       }
       Files.delete(path);
-      return Result.zero();
+      return BuiltinResult.value(new IntegerValue(0));
     } catch (IOException failure) {
       return fileError();
     }
@@ -544,7 +543,7 @@ final class FileIoService {
         change);
   }
 
-  private Result fileSpecError(MooValue value) {
+  private BuiltinResult fileSpecError(MooValue value) {
     if (value instanceof StringValue string && resolve(text(string)) == null) {
       return invalidArgument();
     }
@@ -736,20 +735,20 @@ final class FileIoService {
     return ((IntegerValue) value).value();
   }
 
-  private static Result string(String value) {
-    return Result.value(mooString(value));
+  private static BuiltinResult string(String value) {
+    return BuiltinResult.value(mooString(value));
   }
 
   private static StringValue mooString(String value) {
     return new StringValue(value.getBytes(java.nio.charset.StandardCharsets.ISO_8859_1));
   }
 
-  private static Result invalidArgument() {
-    return Result.error(ErrorValue.E_INVARG);
+  private static BuiltinResult invalidArgument() {
+    return BuiltinResult.error(ErrorValue.E_INVARG);
   }
 
-  private static Result fileError() {
-    return Result.error(ErrorValue.E_FILE);
+  private static BuiltinResult fileError() {
+    return BuiltinResult.error(ErrorValue.E_FILE);
   }
 
   private record FileInfo(long size, String type, String mode, long access, long modify, long change) {}

@@ -37,7 +37,7 @@ import jdk.jfr.consumer.RecordedEvent;
 import jdk.jfr.consumer.RecordingFile;
 import moo.builtin.BuiltinCatalog.ListenerControl;
 import moo.builtin.BuiltinCatalog.ListenerDescription;
-import moo.builtin.BuiltinCatalog.Result;
+import moo.builtin.BuiltinResult;
 import moo.bytecode.MooCompiler;
 import moo.persistence.LambdaMooV17Codec;
 import moo.persistence.LambdaMooV17Codec.ActiveConnection;

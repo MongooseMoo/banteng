@@ -8,7 +8,7 @@ import moo.world.WorldTxn;
 /** Production callable stored directly in one builtin manifest entry. */
 @FunctionalInterface
 public interface BuiltinHandler {
-  BuiltinCatalog.Result invoke(
+  BuiltinResult invoke(
       List<MooValue> arguments,
       WorldTxn world,
       long programmer,
@@ -21,7 +21,7 @@ public interface BuiltinHandler {
       ListValue callers);
 
   /** Invokes this builtin with the current activation's background-thread mode. */
-  default BuiltinCatalog.Result invoke(
+  default BuiltinResult invoke(
       List<MooValue> arguments,
       WorldTxn world,
       long programmer,

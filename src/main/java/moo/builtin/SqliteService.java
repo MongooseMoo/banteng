@@ -16,7 +16,6 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
-import moo.builtin.BuiltinCatalog.Result;
 import moo.value.MooValue;
 import moo.value.MooValue.ErrorValue;
 import moo.value.MooValue.FloatValue;
@@ -45,9 +44,9 @@ final class SqliteService {
     this.files = files;
   }
 
-  synchronized Result open(List<MooValue> arguments) {
+  synchronized BuiltinResult open(List<MooValue> arguments) {
     if (databases.size() >= MAX_HANDLES) {
-      return Result.error(ErrorValue.E_QUOTA);
+      return BuiltinResult.error(ErrorValue.E_QUOTA);
     }
     String unresolved = text(arguments.get(0));
     int options =
@@ -60,12 +59,12 @@ final class SqliteService {
     } else {
       path = files.resolve(unresolved);
       if (path == null) {
-        return Result.error(ErrorValue.E_INVARG);
+        return BuiltinResult.error(ErrorValue.E_INVARG);
       }
       key = path.toString();
       for (Database database : databases.values()) {
         if (database.key.equals(key)) {
-          return Result.error(ErrorValue.E_INVARG);
+          return BuiltinResult.error(ErrorValue.E_INVARG);
         }
       }
       url = "jdbc:sqlite:" + path;
@@ -84,20 +83,20 @@ final class SqliteService {
                   .toString()
                   .replace('\\', '/');
       databases.put(handle, new Database(key, displayPath, options, connection));
-      return Result.value(new IntegerValue(handle));
+      return BuiltinResult.value(new IntegerValue(handle));
     } catch (SQLException failure) {
-      return Result.error(ErrorValue.E_NONE);
+      return BuiltinResult.error(ErrorValue.E_NONE);
     }
   }
 
-  synchronized Result close(List<MooValue> arguments) {
+  synchronized BuiltinResult close(List<MooValue> arguments) {
     long handle = integer(arguments.get(0));
     Database database = databases.get(handle);
     if (database == null) {
-      return Result.error(ErrorValue.E_INVARG);
+      return BuiltinResult.error(ErrorValue.E_INVARG);
     }
     if (database.locks.get() > 0) {
-      return Result.error(ErrorValue.E_PERM);
+      return BuiltinResult.error(ErrorValue.E_PERM);
     }
     try {
       database.connection.close();
@@ -105,14 +104,14 @@ final class SqliteService {
       if (databases.isEmpty()) {
         nextHandle = 1;
       }
-      return Result.zero();
+      return BuiltinResult.value(new IntegerValue(0));
     } catch (SQLException failure) {
-      return Result.error(ErrorValue.E_NONE);
+      return BuiltinResult.error(ErrorValue.E_NONE);
     }
   }
 
-  synchronized Result handles(List<MooValue> arguments) {
-    return Result.value(
+  synchronized BuiltinResult handles(List<MooValue> arguments) {
+    return BuiltinResult.value(
         new ListValue(
             databases.keySet().stream()
                 .sorted(Comparator.naturalOrder())
@@ -121,10 +120,10 @@ final class SqliteService {
                 .toList()));
   }
 
-  synchronized Result info(List<MooValue> arguments) {
+  synchronized BuiltinResult info(List<MooValue> arguments) {
     Database database = databases.get(integer(arguments.get(0)));
     if (database == null) {
-      return Result.error(ErrorValue.E_INVARG);
+      return BuiltinResult.error(ErrorValue.E_INVARG);
     }
     Map<MooValue, MooValue> values = new LinkedHashMap<>();
     values.put(string("path"), string(database.displayPath));
@@ -132,71 +131,71 @@ final class SqliteService {
     values.put(string("parse_objects"), truth((database.options & PARSE_OBJECTS) != 0));
     values.put(string("sanitize_strings"), truth((database.options & SANITIZE_STRINGS) != 0));
     values.put(string("locks"), new IntegerValue(database.locks.get()));
-    return Result.value(new MapValue(values));
+    return BuiltinResult.value(new MapValue(values));
   }
 
-  synchronized Result query(List<MooValue> arguments) {
+  synchronized BuiltinResult query(List<MooValue> arguments) {
     Database database = databases.get(integer(arguments.get(0)));
     if (database == null) {
-      return Result.value(ErrorValue.E_INVARG);
+      return BuiltinResult.value(ErrorValue.E_INVARG);
     }
     String sql = text(arguments.get(1));
     boolean headers = arguments.size() == 3 && arguments.get(2).isTruthy();
     database.locks.incrementAndGet();
-    return Result.hostWork(() -> run(database, () -> executeQuery(database, sql, headers)));
+    return BuiltinResult.hostWork(() -> run(database, () -> executeQuery(database, sql, headers)));
   }
 
-  synchronized Result execute(List<MooValue> arguments) {
+  synchronized BuiltinResult execute(List<MooValue> arguments) {
     Database database = databases.get(integer(arguments.get(0)));
     if (database == null) {
-      return Result.value(ErrorValue.E_INVARG);
+      return BuiltinResult.value(ErrorValue.E_INVARG);
     }
     String sql = text(arguments.get(1));
     ListValue parameters = (ListValue) arguments.get(2);
     database.locks.incrementAndGet();
-    return Result.hostWork(() -> run(database, () -> executePrepared(database, sql, parameters)));
+    return BuiltinResult.hostWork(() -> run(database, () -> executePrepared(database, sql, parameters)));
   }
 
-  Result lastInsertRowId(List<MooValue> arguments) {
+  BuiltinResult lastInsertRowId(List<MooValue> arguments) {
     Database database = database(integer(arguments.get(0)));
     if (database == null) {
-      return Result.error(ErrorValue.E_INVARG);
+      return BuiltinResult.error(ErrorValue.E_INVARG);
     }
     synchronized (database.executionLock) {
       try (Statement statement = database.connection.createStatement();
           ResultSet result = statement.executeQuery("SELECT last_insert_rowid()")) {
-        return Result.value(new IntegerValue(result.next() ? result.getLong(1) : 0));
+        return BuiltinResult.value(new IntegerValue(result.next() ? result.getLong(1) : 0));
       } catch (SQLException failure) {
         return stringResult(failure.getMessage());
       }
     }
   }
 
-  Result limit(List<MooValue> arguments) {
+  BuiltinResult limit(List<MooValue> arguments) {
     Database database = database(integer(arguments.get(0)));
     if (database == null) {
-      return Result.error(ErrorValue.E_INVARG);
+      return BuiltinResult.error(ErrorValue.E_INVARG);
     }
     int category = category(arguments.get(1));
     if (category < 0 || category >= 12) {
-      return Result.error(ErrorValue.E_INVARG);
+      return BuiltinResult.error(ErrorValue.E_INVARG);
     }
     long requested = integer(arguments.get(2));
     if (requested > Integer.MAX_VALUE || requested < Integer.MIN_VALUE) {
-      return Result.error(ErrorValue.E_INVARG);
+      return BuiltinResult.error(ErrorValue.E_INVARG);
     }
     try {
       int previous = database.connection.getDatabase().limit(category, (int) requested);
-      return Result.value(new IntegerValue(previous));
+      return BuiltinResult.value(new IntegerValue(previous));
     } catch (SQLException failure) {
       return stringResult(failure.getMessage());
     }
   }
 
-  Result interrupt(List<MooValue> arguments) {
+  BuiltinResult interrupt(List<MooValue> arguments) {
     Database database = database(integer(arguments.get(0)));
     if (database == null) {
-      return Result.error(ErrorValue.E_INVARG);
+      return BuiltinResult.error(ErrorValue.E_INVARG);
     }
     @Nullable Statement active = database.activeStatement;
     if (active != null) {
@@ -208,22 +207,22 @@ final class SqliteService {
     }
     try {
       database.connection.getDatabase().interrupt();
-      return Result.zero();
+      return BuiltinResult.value(new IntegerValue(0));
     } catch (SQLException failure) {
       return stringResult(failure.getMessage());
     }
   }
 
-  private Result executeQuery(Database database, String sql, boolean headers) {
+  private BuiltinResult executeQuery(Database database, String sql, boolean headers) {
     synchronized (database.executionLock) {
       try (Statement statement = database.connection.createStatement()) {
         database.activeStatement = statement;
         boolean hasRows = statement.execute(sql);
         if (!hasRows) {
-          return Result.value(new ListValue(List.of()));
+          return BuiltinResult.value(new ListValue(List.of()));
         }
         try (ResultSet result = statement.getResultSet()) {
-          return Result.value(rows(database, result, headers));
+          return BuiltinResult.value(rows(database, result, headers));
         }
       } catch (SQLException failure) {
         return stringResult(failure.getMessage());
@@ -233,17 +232,17 @@ final class SqliteService {
     }
   }
 
-  private Result executePrepared(Database database, String sql, ListValue parameters) {
+  private BuiltinResult executePrepared(Database database, String sql, ListValue parameters) {
     synchronized (database.executionLock) {
       try (PreparedStatement statement = database.connection.prepareStatement(sql)) {
         database.activeStatement = statement;
         bind(statement, parameters);
         boolean hasRows = statement.execute();
         if (!hasRows) {
-          return Result.value(new ListValue(List.of()));
+          return BuiltinResult.value(new ListValue(List.of()));
         }
         try (ResultSet result = statement.getResultSet()) {
-          return Result.value(rows(database, result, false));
+          return BuiltinResult.value(rows(database, result, false));
         }
       } catch (SQLException failure) {
         return stringResult(failure.getMessage());
@@ -253,7 +252,7 @@ final class SqliteService {
     }
   }
 
-  private static Result run(Database database, SqlWork work) {
+  private static BuiltinResult run(Database database, SqlWork work) {
     try {
       return work.run();
     } finally {
@@ -374,8 +373,8 @@ final class SqliteService {
     return new StringValue(value.getBytes(StandardCharsets.ISO_8859_1));
   }
 
-  private static Result stringResult(@Nullable String value) {
-    return Result.value(string(value == null ? "SQLite error" : value));
+  private static BuiltinResult stringResult(@Nullable String value) {
+    return BuiltinResult.value(string(value == null ? "SQLite error" : value));
   }
 
   private static IntegerValue truth(boolean value) {
@@ -384,7 +383,7 @@ final class SqliteService {
 
   @FunctionalInterface
   private interface SqlWork {
-    Result run();
+    BuiltinResult run();
   }
 
   private static final class Database {

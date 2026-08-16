@@ -15,7 +15,7 @@ import java.util.OptionalDouble;
 import java.util.OptionalLong;
 import java.util.concurrent.Callable;
 import java.util.concurrent.TimeUnit;
-import moo.builtin.BuiltinCatalog.Result;
+import moo.builtin.BuiltinResult;
 import moo.builtin.BuiltinCatalog.ConnectionOptionRequest;
 import moo.builtin.BuiltinCatalog.ForcedInputRequest;
 import moo.builtin.CheckpointRequest;
@@ -52,7 +52,7 @@ public final class VmState {
   private OptionalLong switchedPlayer = OptionalLong.empty();
   private Optional<ForkRequest> forkRequest = Optional.empty();
   private OptionalDouble suspensionDelaySeconds = OptionalDouble.empty();
-  private Optional<Callable<Result>> hostWork = Optional.empty();
+  private Optional<Callable<BuiltinResult>> hostWork = Optional.empty();
   private boolean awaitingHostResult;
   private Optional<VmSnapshot.PendingBuiltin> pendingBuiltin = Optional.empty();
   private MooValue taskLocal = new MapValue(Map.of());
@@ -163,7 +163,7 @@ public final class VmState {
   }
 
   /** Returns the external result that will resume the current suspended task. */
-  public Optional<Callable<Result>> hostWork() {
+  public Optional<Callable<BuiltinResult>> hostWork() {
     return hostWork;
   }
 
@@ -745,7 +745,7 @@ public final class VmState {
     outcome = Outcome.RUNNING;
   }
 
-  void suspend(OptionalDouble delaySeconds, Optional<Callable<Result>> externalWork) {
+  void suspend(OptionalDouble delaySeconds, Optional<Callable<BuiltinResult>> externalWork) {
     if (delaySeconds.isPresent() == externalWork.isPresent()) {
       throw new IllegalArgumentException("suspension requires exactly one wake source");
     }

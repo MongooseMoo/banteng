@@ -1,0 +1,9 @@
+---
+type: specs.openrewrite.org/v1beta/recipe
+name: moo.builtin.ExtractBuiltinResult
+displayName: Extract BuiltinResult type
+description: Migrates the nested BuiltinCatalog.Result protocol to top-level BuiltinResult.
+recipeList:
+  - org.openrewrite.java.ChangeType:
+      oldFullyQualifiedTypeName: moo.builtin.BuiltinCatalog.Result
+      newFullyQualifiedTypeName: moo.builtin.BuiltinResult
