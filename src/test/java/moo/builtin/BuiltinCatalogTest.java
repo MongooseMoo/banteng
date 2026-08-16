@@ -5380,6 +5380,23 @@ final class BuiltinCatalogTest {
   }
 
   @Test
+  void setTaskPermsAllowsOnlySelfOrWizardSelectedProgrammers() {
+    BuiltinCatalog catalog = new BuiltinCatalog();
+    BuiltinSpec spec = catalog.spec("set_task_perms").orElseThrow();
+    try (WorldTxn transaction = world().begin()) {
+      assertEquals(
+          OptionalLong.of(2),
+          invoke(catalog, spec, List.of(new ObjectValue(2)), transaction, 2).programmer());
+      assertEquals(
+          Optional.of(ErrorValue.E_PERM),
+          invoke(catalog, spec, List.of(new ObjectValue(1)), transaction, 2).error());
+      assertEquals(
+          OptionalLong.of(2),
+          invoke(catalog, spec, List.of(new ObjectValue(2)), transaction, 1).programmer());
+    }
+  }
+
+  @Test
   void serverVersionExposesToastCompatibleVersionMetadataWithoutExtraFeatures() {
     BuiltinCatalog catalog = new BuiltinCatalog();
     BuiltinSpec spec = catalog.spec("server_version").orElseThrow();
