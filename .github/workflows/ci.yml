@@ -1,0 +1,182 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  java:
+    name: Static analysis & tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: banteng
+    steps:
+      - name: Checkout Banteng
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: banteng
+          persist-credentials: false
+
+      - name: Checkout MOO conformance fixtures
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: MongooseMoo/moo-conformance-tests
+          ref: main
+          path: moo-conformance-tests
+          persist-credentials: false
+
+      - name: Validate Gradle wrapper
+        uses: gradle/actions/wrapper-validation@67621b124fd2e251c5e8a0e6e3b91318f2287669 # v6.3.0
+
+      - name: Set up Java 25
+        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.7.0
+        with:
+          distribution: temurin
+          java-version: "25"
+          verify-signature: true
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@67621b124fd2e251c5e8a0e6e3b91318f2287669 # v6.3.0
+        with:
+          build-root-directory: banteng
+
+      - name: Check shell scripts
+        run: shellcheck scripts/*.sh
+
+      - name: Run static analysis and test gates
+        run: |
+          ./gradlew --no-daemon clean check
+          ./gradlew --no-daemon fuzzTest
+          ./gradlew --no-daemon schedulerStress
+          ./gradlew --no-daemon jcstress
+          ./gradlew --no-daemon jmh
+
+      - name: Upload Java test reports
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: java-test-reports
+          path: |
+            banteng/build/reports/tests/
+            banteng/build/test-results/
+            banteng/build/reports/jcstress/
+          if-no-files-found: warn
+
+  codeql:
+    name: CodeQL
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: read
+      security-events: write
+    steps:
+      - name: Checkout Banteng
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@988661ebb5e81487b3fb31b2185d2856c0a10679 # v4
+        with:
+          languages: java-kotlin
+          build-mode: none
+          queries: security-extended,security-and-quality
+
+      - name: Analyze
+        uses: github/codeql-action/analyze@988661ebb5e81487b3fb31b2185d2856c0a10679 # v4
+
+  dependency-review:
+    name: Dependency review
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Banteng
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Review dependency changes
+        uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v5.0.0
+        with:
+          fail-on-severity: moderate
+          license-check: true
+
+  conformance:
+    name: MOO conformance suite
+    runs-on: ubuntu-latest
+    env:
+      # Keep short-lived startup fixtures inside the suite's 750 ms evidence boundary.
+      JAVA_OPTS: -XX:TieredStopAtLevel=1 -XX:+UseSerialGC
+    steps:
+      - name: Checkout Banteng
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Java 25
+        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.7.0
+        with:
+          distribution: temurin
+          java-version: "25"
+          verify-signature: true
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@67621b124fd2e251c5e8a0e6e3b91318f2287669 # v6.3.0
+
+      - name: Build Banteng distribution
+        run: ./gradlew --no-daemon installDist
+
+      - name: Checkout MOO conformance suite
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: MongooseMoo/moo-conformance-tests
+          ref: main
+          path: moo-conformance-tests
+          persist-credentials: false
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+        with:
+          enable-cache: true
+
+      - name: Prepare CI target profile
+        run: |
+          jq --arg fixture "${{ github.workspace }}/moo-conformance-tests/src/moo_conformance/_db/Test.db" \
+            '.fixture_path = $fixture' \
+            profiles/banteng/stock.json > banteng-ci-profile.json
+
+      - name: Run managed conformance suite
+        run: |
+          uv run --project moo-conformance-tests --frozen moo-conformance \
+            -m "admission or conformance" \
+            --server-command "${{ github.workspace }}/build/install/banteng/bin/banteng --database {db} --checkpoint {db}.new --listen-address 127.0.0.1 --port {port} --promote-numbers=false" \
+            --server-db="${{ github.workspace }}/moo-conformance-tests/src/moo_conformance/_db/Test.db" \
+            --server-db-dir="${{ github.workspace }}/moo-conformance-tests/src/moo_conformance/_db/startup" \
+            --moo-host=127.0.0.1 \
+            --oracle-profile-manifest="${{ github.workspace }}/profiles/toast/stock-wsl-testdb.json" \
+            --target-profile-manifest="${{ github.workspace }}/banteng-ci-profile.json" \
+            --fail-on-unexpected-skip \
+            --strict-markers \
+            --admission-evidence-output="${{ github.workspace }}/conformance-admission.json" \
+            --admission-evidence-context="banteng-ci:${GITHUB_RUN_ID}:${GITHUB_RUN_ATTEMPT}:${GITHUB_SHA}:banteng-stock-testdb" \
+            -q \
+            --junitxml="${{ github.workspace }}/conformance-results.xml"
+
+      - name: Upload conformance results
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: conformance-results
+          path: |
+            conformance-results.xml
+            conformance-admission.json
+          if-no-files-found: warn
