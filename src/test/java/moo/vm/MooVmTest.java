@@ -171,24 +171,68 @@ final class MooVmTest {
   }
 
   @Test
-  void finalStraightLineReadsMoveTemporaryValuesOutOfSuspendedLocals() {
+  void finalStraightLineReadsDropAnonymousAndWaifLocalsRegardlessOfSpelling() {
     WaifValue waif = new WaifValue(new ObjectValue(9), new ObjectValue(3));
     AnonymousObjectValue anonymous = new AnonymousObjectValue();
+
+    for (Map.Entry<String, MooValue> example :
+        Map.of(
+                "waif", waif,
+                "renamed_waif", waif,
+                "anon", anonymous,
+                "renamed_anon", anonymous)
+            .entrySet()) {
+      Map<String, MooValue> locals = suspendedLocalsAfterRead(example.getKey(), example.getValue());
+
+      assertFalse(locals.containsKey(example.getKey()), example.getKey());
+      assertEquals(example.getValue(), locals.get("preserved"), example.getKey());
+    }
+  }
+
+  @Test
+  void finalStraightLineReadsDropValuesThatTransitivelyContainAnonymousOrWaifReferences() {
+    WaifValue waif = new WaifValue(new ObjectValue(9), new ObjectValue(3));
+    AnonymousObjectValue anonymous = new AnonymousObjectValue();
+    MapValue nested =
+        new MapValue(Map.of(waif, new ListValue(List.of(new IntegerValue(1), anonymous))));
+
+    for (String name : List.of("payload", "renamed_payload")) {
+      Map<String, MooValue> locals = suspendedLocalsAfterRead(name, nested);
+
+      assertFalse(locals.containsKey(name), name);
+      assertEquals(nested, locals.get("preserved"), name);
+    }
+  }
+
+  @Test
+  void finalStraightLineReadsRetainOrdinaryLocalsRegardlessOfSpelling() {
+    MooValue ordinary =
+        new ListValue(
+            List.of(
+                new IntegerValue(17),
+                new MapValue(Map.of(text("ordinary"), new ObjectValue(3)))));
+
+    for (String name : List.of("waif", "anon", "ordinary")) {
+      Map<String, MooValue> locals = suspendedLocalsAfterRead(name, ordinary);
+
+      assertEquals(ordinary, locals.get(name), name);
+      assertEquals(ordinary, locals.get("preserved"), name);
+    }
+  }
+
+  @Test
+  void nonFinalReadRetainsAnonymousLocalAcrossSuspension() {
+    AnonymousObjectValue anonymous = new AnonymousObjectValue();
     BytecodeProgram program =
-        new MooCompiler()
-            .compile(
-                "WAIF = seed_waif; ANON = seed_anon; "
-                    + "state = {WAIF, ANON}; suspend(60);");
-    VmState state =
-        new VmState(Map.of("seed_waif", waif, "seed_anon", anonymous), 3, new ObjectValue(0));
+        new MooCompiler().compile("preserved = subject; suspend(60); preserved = subject;");
+    VmState state = new VmState(Map.of("subject", anonymous), 3, new ObjectValue(0));
 
     executeAndClose(program, state, new WorldTxn(List.of(), List.of()), new BuiltinCatalog());
 
     assertEquals(VmState.Outcome.SUSPENDED, state.outcome());
     Map<String, MooValue> locals = state.snapshot().frames().getFirst().locals();
-    assertFalse(locals.containsKey("waif"));
-    assertFalse(locals.containsKey("anon"));
-    assertEquals(new ListValue(List.of(waif, anonymous)), locals.get("state"));
+    assertEquals(anonymous, locals.get("subject"));
+    assertEquals(anonymous, locals.get("preserved"));
   }
 
   @Test
@@ -4951,6 +4995,16 @@ final class MooVmTest {
       vm.authorizePendingBuiltin(state, transaction, builtins, 0);
       vm.execute(program, state, transaction, builtins, 0);
     }
+  }
+
+  private static Map<String, MooValue> suspendedLocalsAfterRead(String name, MooValue value) {
+    BytecodeProgram program = new MooCompiler().compile("preserved = " + name + "; suspend(60);");
+    VmState state = new VmState(Map.of(name, value), 3, new ObjectValue(0));
+
+    executeAndClose(program, state, new WorldTxn(List.of(), List.of()), new BuiltinCatalog());
+
+    assertEquals(VmState.Outcome.SUSPENDED, state.outcome(), name);
+    return state.snapshot().frames().getFirst().locals();
   }
 
   private static StringValue text(String value) {

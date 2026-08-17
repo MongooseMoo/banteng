@@ -574,11 +574,34 @@ public final class MooVm {
       return;
     }
     frame.operandStack.push(value);
-    if ((normalized.equals("waif") || normalized.equals("anon"))
+    if (containsAnonymousOrWaifReference(value)
         && isFinalStraightLineLocalRead(frame, normalized)) {
       frame.locals.remove(normalized);
     }
     frame.instructionPointer++;
+  }
+
+  private static boolean containsAnonymousOrWaifReference(MooValue value) {
+    if (value instanceof AnonymousObjectValue || value instanceof WaifValue) {
+      return true;
+    }
+    if (value instanceof ListValue list) {
+      for (MooValue element : list.elements()) {
+        if (containsAnonymousOrWaifReference(element)) {
+          return true;
+        }
+      }
+      return false;
+    }
+    if (value instanceof MapValue map) {
+      for (Map.Entry<MooValue, MooValue> entry : map.entries().entrySet()) {
+        if (containsAnonymousOrWaifReference(entry.getKey())
+            || containsAnonymousOrWaifReference(entry.getValue())) {
+          return true;
+        }
+      }
+    }
+    return false;
   }
 
   private static boolean isFinalStraightLineLocalRead(Frame frame, String name) {
