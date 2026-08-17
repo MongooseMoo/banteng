@@ -15,7 +15,6 @@ import java.util.Optional;
 import java.util.OptionalDouble;
 import java.util.OptionalLong;
 import java.util.Set;
-import java.util.function.Consumer;
 import moo.builtin.BuiltinCatalog;
 import moo.builtin.BuiltinCatalog.ConnectionOptionRequest;
 import moo.builtin.BuiltinCatalog.ForcedInputRequest;
@@ -587,13 +586,7 @@ public final class MooVm {
   }
 
   private static boolean containsAnonymousOrWaifReference(MooValue value) {
-    return containsAnonymousOrWaifReference(value, ignored -> {});
-  }
-
-  static boolean containsAnonymousOrWaifReference(
-      MooValue value, Consumer<MooValue> distinctValueVisitor) {
     Objects.requireNonNull(value, "value");
-    Objects.requireNonNull(distinctValueVisitor, "distinctValueVisitor");
     Set<MooValue> visited = Collections.newSetFromMap(new IdentityHashMap<>());
     ArrayDeque<MooValue> pending = new ArrayDeque<>();
     pending.push(value);
@@ -602,7 +595,6 @@ public final class MooVm {
       if (!visited.add(current)) {
         continue;
       }
-      distinctValueVisitor.accept(current);
       if (current instanceof AnonymousObjectValue || current instanceof WaifValue) {
         return true;
       }
