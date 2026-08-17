@@ -2944,12 +2944,13 @@ public final class MooRuntime implements AutoCloseable {
             RuntimeTransition.UNCAUGHT_HANDLER_RETURN, 0, "", List.of(), 0, 0, false));
   }
 
-  synchronized AttemptContext openAttempt(WorldTxn transaction) {
+  synchronized AttemptContext openAttempt(WorldTxn transaction, long taskId) {
     Map<Long, ConnectionState> sessions = new LinkedHashMap<>();
     publishedConnections.forEach((id, state) -> sessions.put(id, state.copy()));
     AttemptContext context =
         new AttemptContext(
             transaction,
+            taskId,
             sessions,
             sessionRevision,
             new ArrayList<>(),
@@ -3057,7 +3058,7 @@ public final class MooRuntime implements AutoCloseable {
       context.effects.clear();
     }
     for (RuntimeEffect effect : publishedEffects) {
-      publishEffect(effect, committedWorld);
+      publishEffect(effect, committedWorld, context.taskId);
     }
   }
 
@@ -3067,7 +3068,8 @@ public final class MooRuntime implements AutoCloseable {
     return spawned;
   }
 
-  private void publishEffect(RuntimeEffect effect, WorldSnapshot publishedWorld) {
+  private void publishEffect(
+      RuntimeEffect effect, WorldSnapshot publishedWorld, long currentTaskId) {
     switch (effect.kind) {
       case START_TIMEOUT -> {
         ConnectionState connection;
@@ -3120,7 +3122,10 @@ public final class MooRuntime implements AutoCloseable {
         System.err.println("PANIC: " + effect.text);
         try {
           checkpointCodec.writePanic(
-              target, publishedWorld, scheduler.durableTasks(), activeConnections());
+              target,
+              publishedWorld,
+              scheduler.durableTasksExcluding(currentTaskId),
+              activeConnections());
         } catch (IOException error) {
           throw new UncheckedIOException("panic dump failed: " + target, error);
         }
@@ -3534,6 +3539,7 @@ public final class MooRuntime implements AutoCloseable {
 
   static final class AttemptContext {
     WorldTxn world;
+    final long taskId;
     final Map<Long, ConnectionState> sessions;
     long baseSessionRevision;
     final List<RuntimeEffect> effects;
@@ -3542,12 +3548,14 @@ public final class MooRuntime implements AutoCloseable {
 
     AttemptContext(
         WorldTxn world,
+        long taskId,
         Map<Long, ConnectionState> sessions,
         long baseSessionRevision,
         List<RuntimeEffect> effects,
         List<RuntimeStep> spawnedSteps,
         List<ReadRegistration> readRegistrations) {
       this.world = world;
+      this.taskId = taskId;
       this.sessions = sessions;
       this.baseSessionRevision = baseSessionRevision;
       this.effects = effects;
