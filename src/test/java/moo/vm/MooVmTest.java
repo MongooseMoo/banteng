@@ -171,24 +171,86 @@ final class MooVmTest {
   }
 
   @Test
-  void finalStraightLineReadsMoveTemporaryValuesOutOfSuspendedLocals() {
+  void finalStraightLineReadsDropAnonymousAndWaifLocalsRegardlessOfSpelling() {
     WaifValue waif = new WaifValue(new ObjectValue(9), new ObjectValue(3));
     AnonymousObjectValue anonymous = new AnonymousObjectValue();
+
+    for (Map.Entry<String, MooValue> example :
+        Map.of(
+                "waif", waif,
+                "renamed_waif", waif,
+                "anon", anonymous,
+                "renamed_anon", anonymous)
+            .entrySet()) {
+      Map<String, MooValue> locals = suspendedLocalsAfterRead(example.getKey(), example.getValue());
+
+      assertFalse(locals.containsKey(example.getKey()), example.getKey());
+      assertEquals(example.getValue(), locals.get("preserved"), example.getKey());
+    }
+  }
+
+  @Test
+  void finalStraightLineReadDropsAListContainingAnAnonymousReference() {
+    AnonymousObjectValue anonymous = new AnonymousObjectValue();
+    ListValue containing = new ListValue(List.of(new IntegerValue(1), anonymous));
+
+    Map<String, MooValue> locals = suspendedLocalsAfterRead("payload", containing);
+
+    assertFalse(locals.containsKey("payload"));
+    assertEquals(containing, locals.get("preserved"));
+  }
+
+  @Test
+  void finalStraightLineReadDropsAMapContainingAWaifKey() {
+    WaifValue waif = new WaifValue(new ObjectValue(9), new ObjectValue(3));
+    MapValue containing = new MapValue(Map.of(waif, new IntegerValue(1)));
+
+    Map<String, MooValue> locals = suspendedLocalsAfterRead("payload", containing);
+
+    assertFalse(locals.containsKey("payload"));
+    assertEquals(containing, locals.get("preserved"));
+  }
+
+  @Test
+  void finalStraightLineReadDropsAMapContainingAnAnonymousValue() {
+    AnonymousObjectValue anonymous = new AnonymousObjectValue();
+    MapValue containing = new MapValue(Map.of(text("ordinary"), anonymous));
+
+    Map<String, MooValue> locals = suspendedLocalsAfterRead("payload", containing);
+
+    assertFalse(locals.containsKey("payload"));
+    assertEquals(containing, locals.get("preserved"));
+  }
+
+  @Test
+  void finalStraightLineReadsRetainOrdinaryLocalsRegardlessOfSpelling() {
+    MooValue ordinary =
+        new ListValue(
+            List.of(
+                new IntegerValue(17),
+                new MapValue(Map.of(text("ordinary"), new ObjectValue(3)))));
+
+    for (String name : List.of("waif", "anon", "ordinary")) {
+      Map<String, MooValue> locals = suspendedLocalsAfterRead(name, ordinary);
+
+      assertEquals(ordinary, locals.get(name), name);
+      assertEquals(ordinary, locals.get("preserved"), name);
+    }
+  }
+
+  @Test
+  void nonFinalReadRetainsAnonymousLocalAcrossSuspension() {
+    AnonymousObjectValue anonymous = new AnonymousObjectValue();
     BytecodeProgram program =
-        new MooCompiler()
-            .compile(
-                "WAIF = seed_waif; ANON = seed_anon; "
-                    + "state = {WAIF, ANON}; suspend(60);");
-    VmState state =
-        new VmState(Map.of("seed_waif", waif, "seed_anon", anonymous), 3, new ObjectValue(0));
+        new MooCompiler().compile("preserved = subject; suspend(60); preserved = subject;");
+    VmState state = new VmState(Map.of("subject", anonymous), 3, new ObjectValue(0));
 
     executeAndClose(program, state, new WorldTxn(List.of(), List.of()), new BuiltinCatalog());
 
     assertEquals(VmState.Outcome.SUSPENDED, state.outcome());
     Map<String, MooValue> locals = state.snapshot().frames().getFirst().locals();
-    assertFalse(locals.containsKey("waif"));
-    assertFalse(locals.containsKey("anon"));
-    assertEquals(new ListValue(List.of(waif, anonymous)), locals.get("state"));
+    assertEquals(anonymous, locals.get("subject"));
+    assertEquals(anonymous, locals.get("preserved"));
   }
 
   @Test
@@ -3971,6 +4033,45 @@ final class MooVmTest {
   }
 
   @Test
+  void passRetainsAnonymousLocalsCopiedIntoTheParentVerbFrame() {
+    AnonymousObjectValue identity = new AnonymousObjectValue();
+    WorldVerb parentVerb = new WorldVerb("inspect", 1, 4, -1, "return typeof(subject);");
+    WorldVerb childVerb =
+        new WorldVerb("inspect", 2, 4, -1, "subject = args[1]; subject; return pass();");
+    WorldObject parent =
+        new WorldObject(
+            1, "parent", 0, 1, -1, -1, List.of(), List.of(2L), List.of(parentVerb), List.of());
+    WorldObject child =
+        new WorldObject(
+            2,
+            "child",
+            0,
+            2,
+            -1,
+            List.of(1L),
+            List.of(),
+            List.of(),
+            List.of(childVerb),
+            List.of());
+    VmState state =
+        new VmState(
+            Map.of(
+                "player", new ObjectValue(2),
+                "this", new ObjectValue(2),
+                "subject", identity),
+            2);
+
+    executeAndClose(
+        new MooCompiler().compile(MooParser.parse("return #2:inspect(subject);")),
+        state,
+        new WorldTxn(List.of(), List.of(parent, child)),
+        new BuiltinCatalog());
+
+    assertEquals(VmState.Outcome.RETURNED, state.outcome());
+    assertEquals(new IntegerValue(12), state.returnValue().orElseThrow());
+  }
+
+  @Test
   void primitiveVerbCallsUseSystemPrototypeAndRetainPrimitiveThis() {
     WorldVerb inspect = new WorldVerb("inspect", 1, 4, -1, "return this;");
     WorldObject system =
@@ -4951,6 +5052,16 @@ final class MooVmTest {
       vm.authorizePendingBuiltin(state, transaction, builtins, 0);
       vm.execute(program, state, transaction, builtins, 0);
     }
+  }
+
+  private static Map<String, MooValue> suspendedLocalsAfterRead(String name, MooValue value) {
+    BytecodeProgram program = new MooCompiler().compile("preserved = " + name + "; suspend(60);");
+    VmState state = new VmState(Map.of(name, value), 3, new ObjectValue(0));
+
+    executeAndClose(program, state, new WorldTxn(List.of(), List.of()), new BuiltinCatalog());
+
+    assertEquals(VmState.Outcome.SUSPENDED, state.outcome(), name);
+    return state.snapshot().frames().getFirst().locals();
   }
 
   private static StringValue text(String value) {

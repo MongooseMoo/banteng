@@ -1,8 +1,11 @@
 package moo.vm;
 
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
+import java.util.IdentityHashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -11,6 +14,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.OptionalDouble;
 import java.util.OptionalLong;
+import java.util.Set;
 import moo.builtin.BuiltinCatalog;
 import moo.builtin.BuiltinCatalog.ConnectionOptionRequest;
 import moo.builtin.BuiltinCatalog.ForcedInputRequest;
@@ -574,11 +578,38 @@ public final class MooVm {
       return;
     }
     frame.operandStack.push(value);
-    if ((normalized.equals("waif") || normalized.equals("anon"))
+    if (containsAnonymousOrWaifReference(value)
         && isFinalStraightLineLocalRead(frame, normalized)) {
       frame.locals.remove(normalized);
     }
     frame.instructionPointer++;
+  }
+
+  private static boolean containsAnonymousOrWaifReference(MooValue value) {
+    Objects.requireNonNull(value, "value");
+    Set<MooValue> visited = Collections.newSetFromMap(new IdentityHashMap<>());
+    ArrayDeque<MooValue> pending = new ArrayDeque<>();
+    pending.push(value);
+    while (!pending.isEmpty()) {
+      MooValue current = pending.pop();
+      if (!visited.add(current)) {
+        continue;
+      }
+      if (current instanceof AnonymousObjectValue || current instanceof WaifValue) {
+        return true;
+      }
+      if (current instanceof ListValue list) {
+        for (MooValue element : list.elements()) {
+          pending.push(element);
+        }
+      } else if (current instanceof MapValue map) {
+        for (Map.Entry<MooValue, MooValue> entry : map.entries().entrySet()) {
+          pending.push(entry.getValue());
+          pending.push(entry.getKey());
+        }
+      }
+    }
+    return false;
   }
 
   private static boolean isFinalStraightLineLocalRead(Frame frame, String name) {
@@ -602,7 +633,8 @@ public final class MooVm {
           }
         }
         case CALL -> {
-          if (instruction.text().orElseThrow().equalsIgnoreCase("eval")) {
+          String callName = instruction.text().orElseThrow();
+          if (callName.equalsIgnoreCase("eval") || callName.equalsIgnoreCase("pass")) {
             return false;
           }
         }
