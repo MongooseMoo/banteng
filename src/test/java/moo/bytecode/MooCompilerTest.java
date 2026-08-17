@@ -212,6 +212,27 @@ final class MooCompilerTest {
   }
 
   @Test
+  void reportsEachExtraScatterRestTargetAtPostRightHandSideLine() {
+    MooCompiler.CompilationResult result =
+        new MooCompiler()
+            .compileResult(
+                """
+                {@first,
+                 @second,
+                 @third} =
+                 {1,2,3};
+                """);
+
+    assertEquals(
+        List.of(
+            new MooCompiler.Diagnostic(
+                4, "More than one `@' target in scattering assignment."),
+            new MooCompiler.Diagnostic(
+                4, "More than one `@' target in scattering assignment.")),
+        result.diagnostics());
+  }
+
+  @Test
   void retainsExactOneBasedSourceLineForEveryInstruction() {
     BytecodeProgram program =
         new MooCompiler()
