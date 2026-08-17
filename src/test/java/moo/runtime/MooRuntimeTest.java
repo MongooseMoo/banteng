@@ -7,6 +7,7 @@ import java.nio.file.Path;
 import java.util.List;
 import java.util.Optional;
 import moo.persistence.LambdaMooV4Reader;
+import moo.value.MooValue.IntegerValue;
 import moo.world.WorldObject;
 import moo.world.WorldTxn;
 import moo.world.WorldVerb;
@@ -449,6 +450,232 @@ final class MooRuntimeTest {
         runtime.executeLine(connectionId, "; return #" + anonymousClass + ".recycle_called;"));
   }
 
+  @Test
+  void dotProgramReportsToastFeedbackAndOnlyInstallsValidSource() throws Exception {
+    WorldTxn world = new LambdaMooV4Reader().read(FIXTURE);
+    MooRuntime runtime = new MooRuntime(world);
+    long connectionId = -47;
+    assertEquals(List.of(), runtime.openConnection(connectionId));
+    assertEquals(List.of("*** Connected ***"), runtime.executeLine(connectionId, "connect Wizard"));
+
+    assertEquals(
+        List.of("Usage:  .program object:verb"),
+        runtime.executeLine(connectionId, ".program"));
+    assertEquals(
+        List.of("I don't see \"#999999\" here."),
+        runtime.executeLine(connectionId, ".program #999999:missing"));
+    assertEquals(
+        List.of("That object does not have that verb definition."),
+        runtime.executeLine(connectionId, ".program #0:does_not_exist"));
+    assertEquals(
+        List.of("I don't see \"#not-a-number\" here."),
+        runtime.executeLine(connectionId, ".program #not-a-number:missing"));
+    assertEquals(
+        List.of("That object does not have that verb definition."),
+        runtime.executeLine(connectionId, ".program me:does_not_exist"));
+    assertEquals(
+        List.of("That object does not have that verb definition."),
+        runtime.executeLine(connectionId, ".program $server_options:does_not_exist"));
+    assertEquals(
+        List.of("Now programming The First Room:eval.  Use \".\" to end."),
+        runtime.executeLine(connectionId, ".program here:eval"));
+    assertEquals(List.of(), runtime.executeLine(connectionId, "return ("));
+    assertEquals(
+        List.of("Line 2:  syntax error", "1 error(s).", "Verb not programmed."),
+        runtime.executeLine(connectionId, "."));
+
+    String originalSource = readVerb(world, 0, "do_login_command").orElseThrow().programSource();
+    assertEquals(
+        List.of("Now programming System Object:do_login_command.  Use \".\" to end."),
+        runtime.executeLine(connectionId, ".program #0:do_login_command"));
+    assertEquals(List.of(), runtime.executeLine(connectionId, "return ^;"));
+    assertEquals(List.of(), runtime.executeLine(connectionId, "return ^;"));
+    assertEquals(
+        List.of(
+            "Line 1:  Illegal context for `^' expression.",
+            "Line 2:  Illegal context for `^' expression.",
+            "2 error(s).",
+            "Verb not programmed."),
+        runtime.executeLine(connectionId, "."));
+    assertEquals(
+        originalSource, readVerb(world, 0, "do_login_command").orElseThrow().programSource());
+
+    assertEquals(
+        List.of("Now programming System Object:do_login_command.  Use \".\" to end."),
+        runtime.executeLine(connectionId, ".program #0:do_login_command"));
+    assertEquals(List.of(), runtime.executeLine(connectionId, "return 0;"));
+    assertEquals(
+        List.of("0 error(s).", "Verb programmed."), runtime.executeLine(connectionId, "."));
+    assertEquals(
+        "return 0;\n", readVerb(world, 0, "do_login_command").orElseThrow().programSource());
+  }
+
+  @Test
+  void dotProgramUsesRequestedObjectForDisplayAndDefiningObjectForStorage() throws Exception {
+    WorldTxn world = new LambdaMooV4Reader().read(FIXTURE);
+    MooRuntime runtime = new MooRuntime(world);
+    long connectionId = -47;
+    assertEquals(List.of(), runtime.openConnection(connectionId));
+    assertEquals(List.of("*** Connected ***"), runtime.executeLine(connectionId, "connect Wizard"));
+    long player = runtime.connectionPlayer(connectionId).orElseThrow();
+    WorldObject requested = readObject(world, player).orElseThrow();
+    long definingObject;
+
+    try (WorldTxn transaction = world.begin()) {
+      WorldObject parent = transaction.createObject(requested.parents(), player);
+      definingObject = parent.id();
+      assertTrue(transaction.changeParent(player, definingObject));
+      assertTrue(transaction.addVerb(definingObject, "inherited_program", player, 6, -1) > 0);
+      assertTrue(transaction.commit().isCommitted());
+    }
+
+    assertEquals(
+        List.of("Now programming " + requested.name() + ":inherited_program.  Use \".\" to end."),
+        runtime.executeLine(connectionId, ".program me:inherited_program"));
+    assertEquals(List.of(), runtime.executeLine(connectionId, "return 17;"));
+    assertEquals(
+        List.of("0 error(s).", "Verb programmed."), runtime.executeLine(connectionId, "."));
+    assertEquals(
+        "return 17;\n",
+        readVerb(world, definingObject, "inherited_program").orElseThrow().programSource());
+    assertTrue(
+        readObject(world, player).orElseThrow().verbs().stream()
+            .noneMatch(verb -> verb.names().equals("inherited_program")));
+    assertEquals(
+        List.of(CONNECTION_PREFIX, "{1, 17}", CONNECTION_SUFFIX),
+        runtime.executeLine(connectionId, "; return player:inherited_program();"));
+  }
+
+  @Test
+  void dotProgramRejectsEmptyObjectsAndVerbsWithoutWritePermission() throws Exception {
+    WorldTxn world = new LambdaMooV4Reader().read(FIXTURE);
+    MooRuntime runtime = new MooRuntime(world);
+    long connectionId = -47;
+    assertEquals(List.of(), runtime.openConnection(connectionId));
+    assertEquals(
+        List.of("*** Connected ***"), runtime.executeLine(connectionId, "connect Programmer"));
+
+    assertEquals(
+        List.of("\"\" is not a valid object."),
+        runtime.executeLine(connectionId, ".program :do_login_command"));
+    try (WorldTxn transaction = world.begin()) {
+      assertTrue(transaction.addVerb(0, "locked_program", 0, 0, -1) > 0);
+      assertTrue(transaction.commit().isCommitted());
+    }
+    assertEquals(
+        List.of("Permission denied."),
+        runtime.executeLine(connectionId, ".program #0:locked_program"));
+    assertEquals(
+        List.of(CONNECTION_PREFIX, "{1, 2}", CONNECTION_SUFFIX),
+        runtime.executeLine(connectionId, "; return 1 + 1;"));
+  }
+
+  @Test
+  void dotProgramFallsThroughAsAnUnknownCommandWhenActorIsNotAProgrammer() throws Exception {
+    WorldTxn world = new LambdaMooV4Reader().read(FIXTURE);
+    MooRuntime runtime = new MooRuntime(world);
+    long connectionId = -47;
+    assertEquals(List.of(), runtime.openConnection(connectionId));
+    assertEquals(List.of("*** Connected ***"), runtime.executeLine(connectionId, "connect Wizard"));
+    long player = runtime.connectionPlayer(connectionId).orElseThrow();
+
+    try (WorldTxn transaction = world.begin()) {
+      assertTrue(transaction.writeObjectProperty(player, "programmer", new IntegerValue(0)));
+      assertTrue(transaction.commit().isCommitted());
+    }
+    int actorFlags = readObject(world, player).orElseThrow().flags();
+    assertEquals(0, actorFlags & 2);
+    assertEquals(4, actorFlags & 4);
+
+    assertEquals(
+        List.of("I couldn't understand that."),
+        runtime.executeLine(connectionId, ".program #0:do_login_command"));
+    assertEquals(
+        List.of("I couldn't understand that."),
+        runtime.executeLine(connectionId, "return 5;"));
+  }
+
+  @Test
+  void dotProgramReresolvesReorderedVerbAndReportsDisappearanceBeforeCompilation()
+      throws Exception {
+    WorldTxn world = new LambdaMooV4Reader().read(FIXTURE);
+    MooRuntime runtime = new MooRuntime(world);
+    long connectionId = -47;
+    assertEquals(List.of(), runtime.openConnection(connectionId));
+    assertEquals(List.of("*** Connected ***"), runtime.executeLine(connectionId, "connect Wizard"));
+    long player = runtime.connectionPlayer(connectionId).orElseThrow();
+    WorldObject requested = readObject(world, player).orElseThrow();
+    int anchorIndex;
+    int targetIndex;
+
+    try (WorldTxn transaction = world.begin()) {
+      anchorIndex = transaction.addVerb(player, "program_anchor", player, 2, -1) - 1;
+      targetIndex = transaction.addVerb(player, "program_reordered", player, 6, -1) - 1;
+      assertTrue(anchorIndex >= 0);
+      assertTrue(targetIndex > anchorIndex);
+      assertTrue(transaction.commit().isCommitted());
+    }
+    assertEquals(
+        List.of(
+            "Now programming " + requested.name() + ":program_reordered.  Use \".\" to end."),
+        runtime.executeLine(connectionId, ".program me:program_reordered"));
+    assertEquals(List.of(), runtime.executeLine(connectionId, "return 23;"));
+    try (WorldTxn transaction = world.begin()) {
+      assertTrue(transaction.deleteVerb(player, anchorIndex));
+      assertTrue(transaction.commit().isCommitted());
+    }
+    assertEquals(
+        List.of("0 error(s).", "Verb programmed."), runtime.executeLine(connectionId, "."));
+    assertEquals(
+        "return 23;\n",
+        readVerb(world, player, "program_reordered").orElseThrow().programSource());
+
+    assertEquals(
+        List.of(
+            "Now programming " + requested.name() + ":program_reordered.  Use \".\" to end."),
+        runtime.executeLine(connectionId, ".program me:program_reordered"));
+    assertEquals(List.of(), runtime.executeLine(connectionId, "return \"unterminated;"));
+    try (WorldTxn transaction = world.begin()) {
+      WorldObject object = transaction.object(player).orElseThrow();
+      int currentIndex = object.verbs().indexOf(transaction.verb(player, "program_reordered", false).orElseThrow());
+      assertTrue(transaction.deleteVerb(player, currentIndex));
+      assertTrue(transaction.commit().isCommitted());
+    }
+    assertEquals(
+        List.of("That verb appears to have disappeared ..."),
+        runtime.executeLine(connectionId, "."));
+  }
+
+  @Test
+  void dotProgramReportsDefiningObjectDisappearanceBeforeCompilation() throws Exception {
+    WorldTxn world = new LambdaMooV4Reader().read(FIXTURE);
+    MooRuntime runtime = new MooRuntime(world);
+    long connectionId = -47;
+    assertEquals(List.of(), runtime.openConnection(connectionId));
+    assertEquals(List.of("*** Connected ***"), runtime.executeLine(connectionId, "connect Wizard"));
+    long player = runtime.connectionPlayer(connectionId).orElseThrow();
+    long objectId;
+
+    try (WorldTxn transaction = world.begin()) {
+      WorldObject object = transaction.createObject(-1, player);
+      objectId = object.id();
+      assertTrue(transaction.addVerb(objectId, "vanishing_program", player, 2, -1) > 0);
+      assertTrue(transaction.commit().isCommitted());
+    }
+    assertTrue(
+        runtime.executeLine(connectionId, ".program #" + objectId + ":vanishing_program")
+            .getFirst()
+            .endsWith(":vanishing_program.  Use \".\" to end."));
+    assertEquals(List.of(), runtime.executeLine(connectionId, "return \"unterminated;"));
+    try (WorldTxn transaction = world.begin()) {
+      assertTrue(transaction.recycleObject(objectId));
+      assertTrue(transaction.commit().isCommitted());
+    }
+    assertEquals(
+        List.of("That object appears to have disappeared ..."),
+        runtime.executeLine(connectionId, "."));
+  }
+
   private static Optional<WorldObject> readObject(WorldTxn root, long objectId) {
     try (WorldTxn transaction = root.begin()) {
       return transaction.object(objectId);
@@ -458,6 +685,12 @@ final class MooRuntimeTest {
   private static Optional<WorldVerb> readVerb(WorldTxn root, long objectId, int verbIndex) {
     try (WorldTxn transaction = root.begin()) {
       return transaction.verb(objectId, verbIndex);
+    }
+  }
+
+  private static Optional<WorldVerb> readVerb(WorldTxn root, long objectId, String verbName) {
+    try (WorldTxn transaction = root.begin()) {
+      return transaction.verb(objectId, verbName);
     }
   }
 }

@@ -1,8 +1,10 @@
 package moo.bytecode;
 
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.IdentityHashMap;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.OptionalInt;
 import moo.bytecode.BytecodeProgram.AstPath;
@@ -25,6 +27,171 @@ public final class MooCompiler {
   /** Parses and compiles one MOO verb body. */
   public BytecodeProgram compile(String source) {
     return compile(MooParser.parse(source));
+  }
+
+  /** Parses and compiles one MOO verb body while retaining user-facing diagnostics. */
+  public CompilationResult compileResult(String source) {
+    Objects.requireNonNull(source, "source");
+    MooParser.ParseResult parsed = MooParser.parseResult(source);
+    Ast.Program program = parsed.program().orElseThrow();
+    List<PositionedDiagnostic> positionedDiagnostics = new ArrayList<>();
+    parsed.diagnostics().stream()
+        .map(
+            diagnostic ->
+                new PositionedDiagnostic(
+                    new Diagnostic(
+                        diagnostic.line(), programmingDiagnostic(diagnostic.message())),
+                    diagnostic.column()))
+        .forEach(positionedDiagnostics::add);
+    positionedDiagnostics.addAll(controlFlowDiagnostics(program));
+    positionedDiagnostics.sort(
+        Comparator.comparingInt((PositionedDiagnostic diagnostic) -> diagnostic.value().line())
+            .thenComparingInt(PositionedDiagnostic::column));
+    List<Diagnostic> diagnostics =
+        positionedDiagnostics.stream().map(PositionedDiagnostic::value).toList();
+    if (!diagnostics.isEmpty()) {
+      return new CompilationResult(Optional.empty(), diagnostics);
+    }
+    return new CompilationResult(Optional.of(compile(program)), List.of());
+  }
+
+  private static String programmingDiagnostic(String parserMessage) {
+    return switch (parserMessage) {
+      case "'^' is only valid inside an index expression" ->
+          "Illegal context for `^' expression.";
+      case "'$' is only valid inside an index expression" ->
+          "Illegal context for `$' expression.";
+      case "unterminated block comment" -> "End of program while in a comment";
+      case "unterminated string literal" -> "Missing quote";
+      case "object literal requires an object number", "invalid object literal" ->
+          "Malformed object number";
+      case "invalid float literal" -> "Malformed floating-point literal";
+      case "non-finite float literal" -> "Floating-point literal out of range";
+      case "scatter assignment requires variable targets" ->
+          "Scattering assignment targets must be simple variables.";
+      case "scatter assignment requires at least one target" ->
+          "Empty list in scattering assignment.";
+      case "scatter assignment has multiple rest targets" ->
+          "More than one `@' target in scattering assignment.";
+      case "scatter assignment has too many targets" ->
+          "Too many targets in scattering assignment.";
+      case "invalid assignment target" -> "Illegal expression on left side of assignment.";
+      case "unreachable except clause" -> "Unreachable EXCEPT clause";
+      case "too many except clauses" -> "Too many EXCEPT clauses (max. 255)";
+      default -> "syntax error";
+    };
+  }
+
+  private static List<PositionedDiagnostic> controlFlowDiagnostics(Ast.Program program) {
+    List<PositionedDiagnostic> diagnostics = new ArrayList<>();
+    collectControlFlowDiagnostics(program.statements(), new ArrayList<>(), diagnostics);
+    return List.copyOf(diagnostics);
+  }
+
+  private static void collectControlFlowDiagnostics(
+      List<Ast.Statement> statements,
+      List<List<String>> loopScopes,
+      List<PositionedDiagnostic> diagnostics) {
+    for (Ast.Statement statement : statements) {
+      if (statement instanceof Ast.Break breakStatement) {
+        collectLoopExitDiagnostic(
+            "break", breakStatement.loopVariable(), breakStatement.span(), loopScopes, diagnostics);
+      } else if (statement instanceof Ast.Continue continueStatement) {
+        collectLoopExitDiagnostic(
+            "continue",
+            continueStatement.loopVariable(),
+            continueStatement.span(),
+            loopScopes,
+            diagnostics);
+      } else if (statement instanceof Ast.While whileStatement) {
+        loopScopes.add(whileStatement.loopVariable().map(List::of).orElseGet(List::of));
+        collectControlFlowDiagnostics(whileStatement.body(), loopScopes, diagnostics);
+        loopScopes.removeLast();
+      } else if (statement instanceof Ast.For forStatement) {
+        loopScopes.add(
+            forStatement
+                .indexVariable()
+                .map(index -> List.of(forStatement.variable(), index))
+                .orElseGet(() -> List.of(forStatement.variable())));
+        collectControlFlowDiagnostics(forStatement.body(), loopScopes, diagnostics);
+        loopScopes.removeLast();
+      } else if (statement instanceof Ast.If ifStatement) {
+        collectControlFlowDiagnostics(ifStatement.body(), loopScopes, diagnostics);
+        for (Ast.ElseIf elseIf : ifStatement.elseIfs()) {
+          collectControlFlowDiagnostics(elseIf.body(), loopScopes, diagnostics);
+        }
+        collectControlFlowDiagnostics(ifStatement.elseBody(), loopScopes, diagnostics);
+      } else if (statement instanceof Ast.Fork forkStatement) {
+        collectControlFlowDiagnostics(forkStatement.body(), new ArrayList<>(), diagnostics);
+      } else if (statement instanceof Ast.Try tryStatement) {
+        collectControlFlowDiagnostics(tryStatement.body(), loopScopes, diagnostics);
+        for (Ast.ExceptClause exceptClause : tryStatement.exceptClauses()) {
+          collectControlFlowDiagnostics(exceptClause.body(), loopScopes, diagnostics);
+        }
+        tryStatement
+            .finallyClause()
+            .ifPresent(
+                clause -> collectControlFlowDiagnostics(clause.body(), loopScopes, diagnostics));
+      }
+    }
+  }
+
+  private static void collectLoopExitDiagnostic(
+      String kind,
+      Optional<String> requestedLoop,
+      Optional<Ast.SourceSpan> span,
+      List<List<String>> loopScopes,
+      List<PositionedDiagnostic> diagnostics) {
+    boolean valid =
+        requestedLoop
+            .map(
+                requested ->
+                    loopScopes.stream()
+                        .flatMap(List::stream)
+                        .anyMatch(loop -> loop.equalsIgnoreCase(requested)))
+            .orElse(!loopScopes.isEmpty());
+    if (valid) {
+      return;
+    }
+    String message =
+        requestedLoop
+            .map(requested -> "Invalid loop name in `" + kind + "' statement: " + requested)
+            .orElse("No enclosing loop for `" + kind + "' statement");
+    diagnostics.add(
+        new PositionedDiagnostic(
+            new Diagnostic(span.map(Ast.SourceSpan::line).orElse(1), message),
+            span.map(Ast.SourceSpan::column).orElse(1)));
+  }
+
+  private record PositionedDiagnostic(Diagnostic value, int column) {}
+
+  /** One source-located compilation failure in Toast's programming-feedback form. */
+  public record Diagnostic(int line, String message) {
+    /** Creates a valid one-based diagnostic. */
+    public Diagnostic {
+      if (line < 1) {
+        throw new IllegalArgumentException("diagnostic line must be positive");
+      }
+      Objects.requireNonNull(message, "message");
+    }
+
+    /** Returns the exact line emitted by Toast's programming protocol. */
+    public String display() {
+      return "Line " + line + ":  " + message;
+    }
+  }
+
+  /** A compiled program or its ordered source diagnostics. */
+  public record CompilationResult(
+      Optional<BytecodeProgram> program, List<Diagnostic> diagnostics) {
+    /** Takes immutable snapshots of the result members. */
+    public CompilationResult {
+      Objects.requireNonNull(program, "program");
+      diagnostics = List.copyOf(diagnostics);
+      if (program.isPresent() != diagnostics.isEmpty()) {
+        throw new IllegalArgumentException("compilation result must contain a program or diagnostics");
+      }
+    }
   }
 
   /** Compiles one parsed MOO verb body. */

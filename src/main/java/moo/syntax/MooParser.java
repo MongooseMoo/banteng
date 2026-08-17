@@ -7,6 +7,7 @@ import java.util.List;
 import java.util.Optional;
 import moo.syntax.MooLexer.Token;
 import moo.syntax.MooLexer.TokenKind;
+import org.jspecify.annotations.Nullable;
 
 /** Concrete entry point for parsing one MOO verb body. */
 public final class MooParser {
@@ -29,6 +30,7 @@ public final class MooParser {
   private int previousEndOffset;
   private int indexDepth;
   private int expressionDepth;
+  private @Nullable List<ParseDiagnostic> recoveringDiagnostics = null;
 
   private MooParser(String source) {
     lexer = new MooLexer(source);
@@ -38,6 +40,17 @@ public final class MooParser {
   /** Parses a complete stored or dynamically compiled MOO verb body. */
   public static Ast.Program parse(String source) {
     return new MooParser(source).parseProgram();
+  }
+
+  /** Parses one verb body while collecting every recoverable source diagnostic. */
+  public static ParseResult parseResult(String source) {
+    try {
+      return new MooParser(source).parseProgramResult();
+    } catch (ParseException error) {
+      return new ParseResult(
+          Optional.of(new Ast.Program(List.of())),
+          List.of(new ParseDiagnostic(error.line(), error.column(), error.detail())));
+    }
   }
 
   /** Parses one ISO-8859-1 MOO source byte sequence. */
@@ -51,17 +64,85 @@ public final class MooParser {
     return new Ast.Program(statements);
   }
 
+  private ParseResult parseProgramResult() {
+    List<Ast.Statement> statements = new ArrayList<>();
+    List<ParseDiagnostic> diagnostics = new ArrayList<>();
+    recoveringDiagnostics = diagnostics;
+    while (current.kind() != TokenKind.EOF) {
+      if (current.kind() == TokenKind.SEMICOLON) {
+        advance();
+        continue;
+      }
+      try {
+        statements.add(parseStatement());
+      } catch (ParseException error) {
+        diagnostics.add(new ParseDiagnostic(error.line(), error.column(), error.detail()));
+        recoverAfterStatementError(diagnostics);
+      }
+    }
+    return new ParseResult(Optional.of(new Ast.Program(statements)), diagnostics);
+  }
+
+  private void recoverAfterStatementError(List<ParseDiagnostic> diagnostics) {
+    while (current.kind() != TokenKind.EOF) {
+      if (current.kind() == TokenKind.SEMICOLON) {
+        advanceRecoveringLexerErrors(diagnostics);
+        return;
+      }
+      advanceRecoveringLexerErrors(diagnostics);
+    }
+  }
+
+  private boolean advanceRecoveringLexerErrors(List<ParseDiagnostic> diagnostics) {
+    try {
+      advance();
+      return true;
+    } catch (ParseException error) {
+      diagnostics.add(new ParseDiagnostic(error.line(), error.column(), error.detail()));
+      return false;
+    }
+  }
+
+  /** One parser-owned, source-located diagnostic before protocol formatting. */
+  public record ParseDiagnostic(int line, int column, String message) {}
+
+  /** A parsed partial or complete program and its ordered diagnostics. */
+  public record ParseResult(Optional<Ast.Program> program, List<ParseDiagnostic> diagnostics) {
+    /** Takes an immutable snapshot of ordered diagnostics. */
+    public ParseResult {
+      diagnostics = List.copyOf(diagnostics);
+    }
+  }
+
   private List<Ast.Statement> parseStatementsUntil(TokenKind... terminators) {
     List<Ast.Statement> statements = new ArrayList<>();
+    int diagnosticCountAtStart =
+        recoveringDiagnostics == null ? 0 : recoveringDiagnostics.size();
     while (!isTerminator(terminators)) {
       if (current.kind() == TokenKind.EOF) {
+        if (recoveringDiagnostics != null) {
+          if (recoveringDiagnostics.size() == diagnosticCountAtStart) {
+            recoveringDiagnostics.add(
+                new ParseDiagnostic(current.line(), current.column(), "unexpected end of source"));
+          }
+          return List.copyOf(statements);
+        }
         throw error("unexpected end of source");
       }
       if (current.kind() == TokenKind.SEMICOLON) {
         advance();
         continue;
       }
-      statements.add(parseStatement());
+      try {
+        statements.add(parseStatement());
+      } catch (ParseException error) {
+        if (recoveringDiagnostics == null) {
+          throw error;
+        }
+        recoveringDiagnostics.add(
+            new ParseDiagnostic(error.line(), error.column(), error.detail()));
+        recoverAfterStatementError(recoveringDiagnostics);
+      }
     }
     return List.copyOf(statements);
   }
@@ -109,7 +190,7 @@ public final class MooParser {
       elseBody = parseStatementsUntil(TokenKind.ENDIF);
     }
     Token endIf = current;
-    expectAndAdvance(TokenKind.ENDIF, "endif");
+    expectAndAdvanceCompoundEnd(TokenKind.ENDIF, "endif");
     return new Ast.If(
         condition,
         body,
@@ -132,7 +213,7 @@ public final class MooParser {
     }
     Ast.Expression condition = parseParenthesizedExpression("while");
     List<Ast.Statement> body = parseStatementsUntil(TokenKind.ENDWHILE);
-    expectAndAdvance(TokenKind.ENDWHILE, "endwhile");
+    expectAndAdvanceCompoundEnd(TokenKind.ENDWHILE, "endwhile");
     return new Ast.While(loopVariable, condition, body);
   }
 
@@ -157,30 +238,48 @@ public final class MooParser {
       iterable = parseParenthesizedExpression("for");
     }
     List<Ast.Statement> body = parseStatementsUntil(TokenKind.ENDFOR);
-    expectAndAdvance(TokenKind.ENDFOR, "endfor");
+    expectAndAdvanceCompoundEnd(TokenKind.ENDFOR, "endfor");
     return new Ast.For(variable, indexVariable, iterable, rangeEnd, body);
   }
 
   private Ast.Break parseBreak() {
+    Token breakToken = current;
     advance();
     Optional<String> loopVariable = Optional.empty();
     if (current.kind() == TokenKind.IDENTIFIER) {
       loopVariable = Optional.of(current.lexeme());
       advance();
     }
-    expectAndAdvance(TokenKind.SEMICOLON, "';' after break");
-    return new Ast.Break(loopVariable);
+    Token semicolon = current;
+    expectAndAdvanceStatementEnd("';' after break");
+    return new Ast.Break(
+        loopVariable,
+        Optional.of(
+            new Ast.SourceSpan(
+                breakToken.startOffset(),
+                semicolon.endOffset(),
+                breakToken.line(),
+                breakToken.column())));
   }
 
   private Ast.Continue parseContinue() {
+    Token continueToken = current;
     advance();
     Optional<String> loopVariable = Optional.empty();
     if (current.kind() == TokenKind.IDENTIFIER) {
       loopVariable = Optional.of(current.lexeme());
       advance();
     }
-    expectAndAdvance(TokenKind.SEMICOLON, "';' after continue");
-    return new Ast.Continue(loopVariable);
+    Token semicolon = current;
+    expectAndAdvanceStatementEnd("';' after continue");
+    return new Ast.Continue(
+        loopVariable,
+        Optional.of(
+            new Ast.SourceSpan(
+                continueToken.startOffset(),
+                semicolon.endOffset(),
+                continueToken.line(),
+                continueToken.column())));
   }
 
   private Ast.Fork parseFork() {
@@ -192,7 +291,7 @@ public final class MooParser {
     }
     Ast.Expression delay = parseParenthesizedExpression("fork");
     List<Ast.Statement> body = parseStatementsUntil(TokenKind.ENDFORK);
-    expectAndAdvance(TokenKind.ENDFORK, "endfork");
+    expectAndAdvanceCompoundEnd(TokenKind.ENDFORK, "endfork");
     return new Ast.Fork(taskIdVariable, delay, body);
   }
 
@@ -201,7 +300,15 @@ public final class MooParser {
     List<Ast.Statement> body =
         parseStatementsUntil(TokenKind.EXCEPT, TokenKind.FINALLY, TokenKind.ENDTRY);
     List<Ast.ExceptClause> exceptClauses = new ArrayList<>();
-    while (match(TokenKind.EXCEPT)) {
+    while (current.kind() == TokenKind.EXCEPT) {
+      Token exceptToken = current;
+      if (!exceptClauses.isEmpty()
+          && exceptClauses.getLast().errors() instanceof Ast.AnyErrors) {
+        reportRecoverable(exceptToken, "unreachable except clause");
+      } else if (exceptClauses.size() > 255) {
+        reportRecoverable(exceptToken, "too many except clauses");
+      }
+      advance();
       Optional<String> variable = Optional.empty();
       if (current.kind() == TokenKind.IDENTIFIER) {
         variable = Optional.of(current.lexeme());
@@ -220,9 +327,11 @@ public final class MooParser {
       finallyClause = Optional.of(new Ast.FinallyClause(parseStatementsUntil(TokenKind.ENDTRY)));
     }
     if (exceptClauses.isEmpty() && finallyClause.isEmpty()) {
-      throw error("try requires except or finally");
+      if (recoveringDiagnostics == null || current.kind() != TokenKind.EOF) {
+        throw error("try requires except or finally");
+      }
     }
-    expectAndAdvance(TokenKind.ENDTRY, "endtry");
+    expectAndAdvanceCompoundEnd(TokenKind.ENDTRY, "endtry");
     return new Ast.Try(body, exceptClauses, finallyClause);
   }
 
@@ -234,7 +343,7 @@ public final class MooParser {
       value = Optional.of(parseExpression(ASSIGNMENT_PRECEDENCE));
     }
     Token semicolon = current;
-    expectAndAdvance(TokenKind.SEMICOLON, "';' after return");
+    expectAndAdvanceStatementEnd("';' after return");
     return new Ast.Return(
         value,
         Optional.of(
@@ -249,7 +358,7 @@ public final class MooParser {
     Token firstToken = current;
     Ast.Expression expression = parseExpression(ASSIGNMENT_PRECEDENCE);
     Token semicolon = current;
-    expectAndAdvance(TokenKind.SEMICOLON, "';' after expression");
+    expectAndAdvanceStatementEnd("';' after expression");
     return new Ast.ExpressionStatement(
         expression,
         Optional.of(
@@ -477,6 +586,9 @@ public final class MooParser {
   private Ast.Expression parseSystemProperty() {
     Token dollar = current;
     advance();
+    if (current.kind() != TokenKind.IDENTIFIER) {
+      throw error(dollar, "'$' is only valid inside an index expression");
+    }
     String property = expect(TokenKind.IDENTIFIER, "system property name").lexeme();
     advance();
     if (match(TokenKind.LEFT_PAREN)) {
@@ -728,8 +840,11 @@ public final class MooParser {
         } else if (element instanceof Ast.ScatterElement optional) {
           elements.add(optional);
         } else if (element instanceof Ast.Splice splice
-            && splice.value() instanceof Ast.Identifier identifier
-            && elements.stream().noneMatch(Ast.ScatterElement::rest)) {
+            && splice.value() instanceof Ast.Identifier identifier) {
+          if (elements.stream().anyMatch(Ast.ScatterElement::rest)) {
+            reportRecoverable(
+                current, "scatter assignment has multiple rest targets");
+          }
           elements.add(new Ast.ScatterElement(identifier.name(), true, false, Optional.empty()));
         } else {
           throw error("scatter assignment requires variable targets");
@@ -737,6 +852,9 @@ public final class MooParser {
       }
       if (elements.isEmpty()) {
         throw error("scatter assignment requires at least one target");
+      }
+      if (elements.size() > 255) {
+        throw error("scatter assignment has too many targets");
       }
       return new Ast.ScatterTarget(elements);
     }
@@ -817,6 +935,31 @@ public final class MooParser {
     advance();
   }
 
+  private void expectAndAdvanceCompoundEnd(TokenKind kind, String expected) {
+    if (recoveringDiagnostics != null && current.kind() == TokenKind.EOF) {
+      return;
+    }
+    expectAndAdvance(kind, expected);
+  }
+
+  private void expectAndAdvanceStatementEnd(String expected) {
+    expect(TokenKind.SEMICOLON, expected);
+    if (recoveringDiagnostics == null) {
+      advance();
+      return;
+    }
+    if (advanceRecoveringLexerErrors(recoveringDiagnostics)) {
+      return;
+    }
+    while (current.kind() != TokenKind.EOF) {
+      if (advanceRecoveringLexerErrors(recoveringDiagnostics)
+          && current.kind() == TokenKind.SEMICOLON) {
+        advanceRecoveringLexerErrors(recoveringDiagnostics);
+        return;
+      }
+    }
+  }
+
   private void advance() {
     previousEndOffset = current.endOffset();
     current = lexer.next();
@@ -824,6 +967,17 @@ public final class MooParser {
 
   private ParseException error(String message) {
     return new ParseException(current.line(), current.column(), message);
+  }
+
+  private static ParseException error(Token token, String message) {
+    return new ParseException(token.line(), token.column(), message);
+  }
+
+  private void reportRecoverable(Token token, String message) {
+    if (recoveringDiagnostics == null) {
+      throw error(token, message);
+    }
+    recoveringDiagnostics.add(new ParseDiagnostic(token.line(), token.column(), message));
   }
 
   private static ParseException error(Token token, String message, RuntimeException cause) {
@@ -836,17 +990,20 @@ public final class MooParser {
 
     private final int line;
     private final int column;
+    private final String detail;
 
     ParseException(int line, int column, String message) {
       super("line " + line + ", column " + column + ": " + message);
       this.line = line;
       this.column = column;
+      this.detail = message;
     }
 
     ParseException(int line, int column, String message, RuntimeException cause) {
       super("line " + line + ", column " + column + ": " + message, cause);
       this.line = line;
       this.column = column;
+      this.detail = message;
     }
 
     public int line() {
@@ -855,6 +1012,10 @@ public final class MooParser {
 
     public int column() {
       return column;
+    }
+
+    public String detail() {
+      return detail;
     }
   }
 }

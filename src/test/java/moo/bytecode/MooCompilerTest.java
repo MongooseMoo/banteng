@@ -17,6 +17,222 @@ import org.junit.jupiter.api.Test;
 
 final class MooCompilerTest {
   @Test
+  void returnsToastFormattedSourceDiagnosticsWithoutThrowing() {
+    MooCompiler.CompilationResult result = new MooCompiler().compileResult("return (\n");
+
+    assertTrue(result.program().isEmpty());
+    assertEquals(
+        List.of(new MooCompiler.Diagnostic(2, "syntax error")), result.diagnostics());
+    assertEquals("Line 2:  syntax error", result.diagnostics().getFirst().display());
+  }
+
+  @Test
+  void returnsEveryRecoverableSourceDiagnosticInProgramOrder() {
+    MooCompiler.CompilationResult result =
+        new MooCompiler().compileResult("return ^;\nreturn ^;\n");
+
+    assertTrue(result.program().isEmpty());
+    assertEquals(
+        List.of(
+            new MooCompiler.Diagnostic(1, "Illegal context for `^' expression."),
+            new MooCompiler.Diagnostic(2, "Illegal context for `^' expression.")),
+        result.diagnostics());
+  }
+
+  @Test
+  void returnsEveryControlFlowCompilationDiagnosticInProgramOrder() {
+    MooCompiler.CompilationResult result =
+        new MooCompiler().compileResult("break;\ncontinue;\n");
+
+    assertTrue(result.program().isEmpty());
+    assertEquals(
+        List.of(
+            new MooCompiler.Diagnostic(1, "No enclosing loop for `break' statement"),
+            new MooCompiler.Diagnostic(2, "No enclosing loop for `continue' statement")),
+        result.diagnostics());
+  }
+
+  @Test
+  void combinesParserAndControlFlowDiagnosticsInSourceOrder() {
+    MooCompiler.CompilationResult result =
+        new MooCompiler().compileResult("break; #invalid;\ncontinue; 1e+;\n");
+
+    assertTrue(result.program().isEmpty());
+    assertEquals(
+        List.of(
+            new MooCompiler.Diagnostic(1, "No enclosing loop for `break' statement"),
+            new MooCompiler.Diagnostic(1, "Malformed object number"),
+            new MooCompiler.Diagnostic(2, "No enclosing loop for `continue' statement"),
+            new MooCompiler.Diagnostic(2, "Malformed floating-point literal")),
+        result.diagnostics());
+  }
+
+  @Test
+  void preservesNestedControlFlowDiagnosticsBeforeLaterParserFailures() {
+    MooCompiler.CompilationResult result =
+        new MooCompiler()
+            .compileResult(
+                """
+                if (1)
+                  break; return (;
+                endif
+                while loop (1)
+                  break missing; return (;
+                endwhile
+                for item in ({1})
+                  continue missing; return (;
+                endfor
+                fork (0)
+                  continue; return (;
+                endfork
+                try
+                  break; return (;
+                except (ANY)
+                endtry
+                """);
+
+    assertTrue(result.program().isEmpty());
+    assertEquals(
+        List.of(
+            new MooCompiler.Diagnostic(2, "No enclosing loop for `break' statement"),
+            new MooCompiler.Diagnostic(2, "syntax error"),
+            new MooCompiler.Diagnostic(5, "Invalid loop name in `break' statement: missing"),
+            new MooCompiler.Diagnostic(5, "syntax error"),
+            new MooCompiler.Diagnostic(
+                8, "Invalid loop name in `continue' statement: missing"),
+            new MooCompiler.Diagnostic(8, "syntax error"),
+            new MooCompiler.Diagnostic(11, "No enclosing loop for `continue' statement"),
+            new MooCompiler.Diagnostic(11, "syntax error"),
+            new MooCompiler.Diagnostic(14, "No enclosing loop for `break' statement"),
+            new MooCompiler.Diagnostic(14, "syntax error")),
+        result.diagnostics());
+
+    MooCompiler.CompilationResult incomplete =
+        new MooCompiler().compileResult("if (1)\n  break;\n  return (");
+    assertEquals(
+        List.of(
+            new MooCompiler.Diagnostic(2, "No enclosing loop for `break' statement"),
+            new MooCompiler.Diagnostic(3, "syntax error")),
+        incomplete.diagnostics());
+  }
+
+  @Test
+  void preservesToastLexerDiagnosticsThatAreMoreSpecificThanSyntaxError() {
+    MooCompiler compiler = new MooCompiler();
+
+    assertEquals(
+        List.of(new MooCompiler.Diagnostic(1, "Missing quote")),
+        compiler.compileResult("return \"unterminated;\n").diagnostics());
+    assertEquals(
+        List.of(new MooCompiler.Diagnostic(1, "Malformed object number")),
+        compiler.compileResult("return #invalid;\n").diagnostics());
+    assertEquals(
+        List.of(new MooCompiler.Diagnostic(1, "Malformed floating-point literal")),
+        compiler.compileResult("return 1e+;\n").diagnostics());
+    assertEquals(
+        List.of(new MooCompiler.Diagnostic(1, "Floating-point literal out of range")),
+        compiler.compileResult("return 1e9999;\n").diagnostics());
+    assertEquals(
+        List.of(
+            new MooCompiler.Diagnostic(
+                1, "Illegal expression on left side of assignment.")),
+        compiler.compileResult("1 = 2;\n").diagnostics());
+    assertEquals(
+        List.of(new MooCompiler.Diagnostic(1, "Empty list in scattering assignment.")),
+        compiler.compileResult("{} = {1};\n").diagnostics());
+    assertEquals(
+        List.of(
+            new MooCompiler.Diagnostic(
+                1, "Scattering assignment targets must be simple variables.")),
+        compiler.compileResult("{1} = {2};\n").diagnostics());
+  }
+
+  @Test
+  void preservesRemainingToastParserAndLexerDiagnostics() {
+    MooCompiler compiler = new MooCompiler();
+
+    assertEquals(
+        List.of(new MooCompiler.Diagnostic(1, "Illegal context for `$' expression.")),
+        compiler.compileResult("return $;\n").diagnostics());
+    assertEquals(
+        List.of(
+            new MooCompiler.Diagnostic(
+                1, "More than one `@' target in scattering assignment.")),
+        compiler.compileResult("{@first, @second} = {1, 2};\n").diagnostics());
+    assertEquals(
+        List.of(
+            new MooCompiler.Diagnostic(
+                1, "More than one `@' target in scattering assignment."),
+            new MooCompiler.Diagnostic(
+                1, "More than one `@' target in scattering assignment.")),
+        compiler.compileResult("{@first, @second, @third} = {1, 2, 3};\n").diagnostics());
+
+    String targets =
+        IntStream.range(0, 256).mapToObj(index -> "target" + index).collect(java.util.stream.Collectors.joining(", "));
+    assertEquals(
+        List.of(
+            new MooCompiler.Diagnostic(1, "Too many targets in scattering assignment.")),
+        compiler.compileResult("{" + targets + "} = {};\n").diagnostics());
+
+    assertEquals(
+        List.of(new MooCompiler.Diagnostic(5, "Unreachable EXCEPT clause")),
+        compiler
+            .compileResult(
+                """
+                try
+                  return 0;
+                except (ANY)
+                  return 1;
+                except (E_TYPE)
+                  return 2;
+                endtry
+                """)
+            .diagnostics());
+
+    StringBuilder tooManyExcepts = new StringBuilder("try\n  return 0;\n");
+    for (int index = 0; index < 257; index++) {
+      tooManyExcepts.append("except (E_TYPE)\n  return 0;\n");
+    }
+    tooManyExcepts.append("endtry\n");
+    assertEquals(
+        List.of(new MooCompiler.Diagnostic(515, "Too many EXCEPT clauses (max. 255)")),
+        compiler.compileResult(tooManyExcepts.toString()).diagnostics());
+
+    assertEquals(
+        List.of(new MooCompiler.Diagnostic(1, "End of program while in a comment")),
+        compiler.compileResult("return 0; /* unterminated").diagnostics());
+    assertEquals(
+        List.of(new MooCompiler.Diagnostic(2, "End of program while in a comment")),
+        compiler.compileResult("return 0;\n/* unterminated\nstill in comment").diagnostics());
+    assertEquals(
+        List.of(new MooCompiler.Diagnostic(3, "Illegal context for `$' expression.")),
+        compiler
+            .compileResult("return 0;\n/* terminated\ncomment */\nreturn $;\n")
+            .diagnostics());
+  }
+
+  @Test
+  void reportsEachExtraScatterRestTargetAtPostRightHandSideLine() {
+    MooCompiler.CompilationResult result =
+        new MooCompiler()
+            .compileResult(
+                """
+                {@first,
+                 @second,
+                 @third} =
+                 {1,2,3};
+                """);
+
+    assertEquals(
+        List.of(
+            new MooCompiler.Diagnostic(
+                4, "More than one `@' target in scattering assignment."),
+            new MooCompiler.Diagnostic(
+                4, "More than one `@' target in scattering assignment.")),
+        result.diagnostics());
+  }
+
+  @Test
   void retainsExactOneBasedSourceLineForEveryInstruction() {
     BytecodeProgram program =
         new MooCompiler()

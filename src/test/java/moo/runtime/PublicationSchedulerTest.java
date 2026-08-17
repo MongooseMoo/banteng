@@ -382,8 +382,8 @@ final class PublicationSchedulerTest {
           for item in ({1, 2})
             try
               suspend();
-            except allErrors (ANY)
             except selected (E_TYPE, E_INVARG)
+            except allErrors (ANY)
             endtry
           endfor
         finally
