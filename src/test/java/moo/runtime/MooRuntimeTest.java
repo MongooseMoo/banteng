@@ -519,9 +519,12 @@ final class MooRuntimeTest {
     assertEquals(List.of("*** Connected ***"), runtime.executeLine(connectionId, "connect Wizard"));
     long player = runtime.connectionPlayer(connectionId).orElseThrow();
     WorldObject requested = readObject(world, player).orElseThrow();
-    long definingObject = requested.parents().getFirst();
+    long definingObject;
 
     try (WorldTxn transaction = world.begin()) {
+      WorldObject parent = transaction.createObject(requested.parents(), player);
+      definingObject = parent.id();
+      assertTrue(transaction.changeParent(player, definingObject));
       assertTrue(transaction.addVerb(definingObject, "inherited_program", player, 2, -1) > 0);
       assertTrue(transaction.commit().isCommitted());
     }
@@ -556,7 +559,7 @@ final class MooRuntimeTest {
         List.of("\"\" is not a valid object."),
         runtime.executeLine(connectionId, ".program :do_login_command"));
     try (WorldTxn transaction = world.begin()) {
-      assertTrue(transaction.addVerb(0, "locked_program", 8, 0, -1) > 0);
+      assertTrue(transaction.addVerb(0, "locked_program", 0, 0, -1) > 0);
       assertTrue(transaction.commit().isCommitted());
     }
     assertEquals(
@@ -601,6 +604,7 @@ final class MooRuntimeTest {
     assertEquals(List.of(), runtime.openConnection(connectionId));
     assertEquals(List.of("*** Connected ***"), runtime.executeLine(connectionId, "connect Wizard"));
     long player = runtime.connectionPlayer(connectionId).orElseThrow();
+    WorldObject requested = readObject(world, player).orElseThrow();
     int anchorIndex;
     int targetIndex;
 
@@ -612,7 +616,8 @@ final class MooRuntimeTest {
       assertTrue(transaction.commit().isCommitted());
     }
     assertEquals(
-        List.of("Now programming Wizard:program_reordered.  Use \".\" to end."),
+        List.of(
+            "Now programming " + requested.name() + ":program_reordered.  Use \".\" to end."),
         runtime.executeLine(connectionId, ".program me:program_reordered"));
     assertEquals(List.of(), runtime.executeLine(connectionId, "return 23;"));
     try (WorldTxn transaction = world.begin()) {
@@ -626,7 +631,8 @@ final class MooRuntimeTest {
         readVerb(world, player, "program_reordered").orElseThrow().programSource());
 
     assertEquals(
-        List.of("Now programming Wizard:program_reordered.  Use \".\" to end."),
+        List.of(
+            "Now programming " + requested.name() + ":program_reordered.  Use \".\" to end."),
         runtime.executeLine(connectionId, ".program me:program_reordered"));
     assertEquals(List.of(), runtime.executeLine(connectionId, "return \"unterminated;"));
     try (WorldTxn transaction = world.begin()) {

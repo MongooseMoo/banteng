@@ -23,8 +23,8 @@ final class ToastV17ProgramLayoutTest {
         """
         try
           suspend();
-        except allErrors (ANY)
         except selected (E_TYPE, E_INVARG)
+        except allErrors (ANY)
         endtry
         """;
     ToastV17ProgramLayout.StructuralStackShape shape = structuralShape(source, -1, 0);
@@ -39,10 +39,10 @@ final class ToastV17ProgramLayoutTest {
     assertTrue(group.activeClauseIndex().isEmpty());
     assertEquals(2, group.clauses().size());
     assertEquals(
-        new ToastV17ProgramLayout.ToastErrorSelector(true, List.of()),
+        new ToastV17ProgramLayout.ToastErrorSelector(false, List.of("E_TYPE", "E_INVARG")),
         group.clauses().get(0).selector());
     assertEquals(
-        new ToastV17ProgramLayout.ToastErrorSelector(false, List.of("E_TYPE", "E_INVARG")),
+        new ToastV17ProgramLayout.ToastErrorSelector(true, List.of()),
         group.clauses().get(1).selector());
     assertEquals(2, group.clauseControls().size());
     assertEquals(group.ownerPath(), group.ownerControl().astPath());
