@@ -4183,10 +4183,13 @@ final class MooVmTest {
         new WorldObject(3, "player", 0, 3, -1, -1, List.of(), List.of(), List.of(), List.of());
     WorldObject caller =
         new WorldObject(4, "caller", 0, 4, -1, -1, List.of(), List.of(), List.of(), List.of());
+    WorldObject verbOwner =
+        new WorldObject(7, "verb owner", 4, 7, -1, -1, List.of(), List.of(), List.of(), List.of());
     WorldObject delegatedProgrammer =
         new WorldObject(9, "delegated", 0, 9, -1, -1, List.of(), List.of(), List.of(), List.of());
     WorldTxn world =
-        new WorldTxn(List.of(), List.of(parent, child, player, caller, delegatedProgrammer));
+        new WorldTxn(
+            List.of(), List.of(parent, child, player, caller, verbOwner, delegatedProgrammer));
     VmState state =
         new VmState(Map.of("player", new ObjectValue(3), "this", new ObjectValue(4)), 3);
 

@@ -2022,18 +2022,49 @@ public final class MooVm {
     MooValue right = frame.operandStack.pop();
     MooValue left = frame.operandStack.pop();
     boolean equal;
-    if (left instanceof BooleanValue bool && right instanceof IntegerValue integer) {
-      equal = integer.value() == (bool.value() ? 1 : 0);
-    } else if (left instanceof IntegerValue integer && right instanceof BooleanValue bool) {
-      equal = integer.value() == (bool.value() ? 1 : 0);
-    } else {
-      equal = left.equals(right);
-    }
+    equal = mooEquals(left, right);
     if (instruction.opcode() == BytecodeProgram.Opcode.NOT_EQUAL) {
       equal = !equal;
     }
     frame.operandStack.push(new IntegerValue(equal ? 1 : 0));
     frame.instructionPointer++;
+  }
+
+  private static boolean mooEquals(MooValue left, MooValue right) {
+    if (left instanceof BooleanValue bool && right instanceof IntegerValue integer) {
+      return integer.value() == (bool.value() ? 1 : 0);
+    }
+    if (left instanceof IntegerValue integer && right instanceof BooleanValue bool) {
+      return integer.value() == (bool.value() ? 1 : 0);
+    }
+    if (left instanceof ListValue leftList && right instanceof ListValue rightList) {
+      if (leftList.size() != rightList.size()) {
+        return false;
+      }
+      for (int index = 0; index < leftList.size(); index++) {
+        if (!mooEquals(leftList.elements().get(index), rightList.elements().get(index))) {
+          return false;
+        }
+      }
+      return true;
+    }
+    if (left instanceof MapValue leftMap && right instanceof MapValue rightMap) {
+      if (leftMap.size() != rightMap.size()) {
+        return false;
+      }
+      var leftEntries = leftMap.entries().entrySet().iterator();
+      var rightEntries = rightMap.entries().entrySet().iterator();
+      while (leftEntries.hasNext()) {
+        Map.Entry<MooValue, MooValue> leftEntry = leftEntries.next();
+        Map.Entry<MooValue, MooValue> rightEntry = rightEntries.next();
+        if (!mooEquals(leftEntry.getKey(), rightEntry.getKey())
+            || !mooEquals(leftEntry.getValue(), rightEntry.getValue())) {
+          return false;
+        }
+      }
+      return true;
+    }
+    return left.equals(right);
   }
 
   private static void comparison(

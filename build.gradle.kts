@@ -218,6 +218,7 @@ tasks.register<JavaExec>("jmh") {
 
 dependencyLocking {
     lockAllConfigurations()
+    lockMode = LockMode.STRICT
 }
 
 tasks.wrapper {
