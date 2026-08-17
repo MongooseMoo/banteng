@@ -10,6 +10,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Map;
 import moo.builtin.BuiltinCatalog;
+import moo.builtin.BuiltinResult;
 import moo.bytecode.BytecodeProgram;
 import moo.bytecode.MooCompiler;
 import moo.syntax.Ast;
@@ -210,7 +211,7 @@ final class MooVmTest {
 
       vm.resumeWithError(
           state,
-          BuiltinCatalog.Result.raised(
+          BuiltinResult.raised(
               ErrorValue.E_INVARG, message, new IntegerValue(17)),
           transaction);
       vm.execute(program, state, transaction, new BuiltinCatalog(), 1);

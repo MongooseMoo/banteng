@@ -29,12 +29,10 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
-import java.util.OptionalDouble;
 import java.util.OptionalLong;
 import java.util.Random;
 import java.util.Set;
 import java.util.StringTokenizer;
-import java.util.concurrent.Callable;
 import java.util.concurrent.CancellationException;
 import java.util.function.Function;
 import moo.bytecode.MooCompiler;
@@ -147,20 +145,20 @@ public final class BuiltinCatalog {
   public BuiltinCatalog() {
     this(
         (a, w, p, t, id, rt, rs, r, cp, c) -> emptyQueuedTasks(a),
-        (a, w, p, t, id, rt, rs, r, cp, c) -> Result.error(ErrorValue.E_INVARG),
-        (a, w, p, t, id, rt, rs, r, cp, c) -> Result.error(ErrorValue.E_INVARG),
-        (a, w, p, t, id, rt, rs, r, cp, c) -> Result.error(ErrorValue.E_INVARG),
-        (a, w, p, t, id, rt, rs, r, cp, c) -> Result.value(new ListValue(List.of())));
+        (a, w, p, t, id, rt, rs, r, cp, c) -> BuiltinResult.error(ErrorValue.E_INVARG),
+        (a, w, p, t, id, rt, rs, r, cp, c) -> BuiltinResult.error(ErrorValue.E_INVARG),
+        (a, w, p, t, id, rt, rs, r, cp, c) -> BuiltinResult.error(ErrorValue.E_INVARG),
+        (a, w, p, t, id, rt, rs, r, cp, c) -> BuiltinResult.value(new ListValue(List.of())));
   }
 
   /** Creates a catalog with the production task-registry handler. */
   public BuiltinCatalog(BuiltinHandler queuedTasks) {
     this(
         queuedTasks,
-        (a, w, p, t, id, rt, rs, r, cp, c) -> Result.error(ErrorValue.E_INVARG),
-        (a, w, p, t, id, rt, rs, r, cp, c) -> Result.error(ErrorValue.E_INVARG),
-        (a, w, p, t, id, rt, rs, r, cp, c) -> Result.error(ErrorValue.E_INVARG),
-        (a, w, p, t, id, rt, rs, r, cp, c) -> Result.value(new ListValue(List.of())));
+        (a, w, p, t, id, rt, rs, r, cp, c) -> BuiltinResult.error(ErrorValue.E_INVARG),
+        (a, w, p, t, id, rt, rs, r, cp, c) -> BuiltinResult.error(ErrorValue.E_INVARG),
+        (a, w, p, t, id, rt, rs, r, cp, c) -> BuiltinResult.error(ErrorValue.E_INVARG),
+        (a, w, p, t, id, rt, rs, r, cp, c) -> BuiltinResult.value(new ListValue(List.of())));
   }
 
   /** Creates a catalog with the production task-registry and input handlers. */
@@ -176,7 +174,7 @@ public final class BuiltinCatalog {
         read,
         threadPool,
         threads,
-        (a, w, p, t, id, rt, rs, r, cp, c) -> Result.error(ErrorValue.E_INVARG));
+        (a, w, p, t, id, rt, rs, r, cp, c) -> BuiltinResult.error(ErrorValue.E_INVARG));
   }
 
   /** Creates a catalog with task, input, and transient connection readers. */
@@ -194,7 +192,7 @@ public final class BuiltinCatalog {
         threadPool,
         threads,
         connectionOptions,
-        (a, w, p, t, id, rt, rs, r, cp, c) -> Result.zero());
+        (a, w, p, t, id, rt, rs, r, cp, c) -> BuiltinResult.value(new IntegerValue(0)));
   }
 
   /** Creates a catalog with task, input, connection, and database-file readers. */
@@ -214,7 +212,7 @@ public final class BuiltinCatalog {
         threads,
         connectionOptions,
         dbDiskSize,
-        (a, w, p, t, id, rt, rs, r, cp, c) -> Result.zero());
+        (a, w, p, t, id, rt, rs, r, cp, c) -> BuiltinResult.value(new IntegerValue(0)));
   }
 
   /** Creates a catalog with every transient host reader and input mutator. */
@@ -236,7 +234,7 @@ public final class BuiltinCatalog {
         connectionOptions,
         dbDiskSize,
         flushInput,
-        (a, w, p, t, id, rt, rs, r, cp, c) -> Result.error(ErrorValue.E_INVARG));
+        (a, w, p, t, id, rt, rs, r, cp, c) -> BuiltinResult.error(ErrorValue.E_INVARG));
   }
 
   /** Creates a catalog with every transient host operation and reader. */
@@ -260,7 +258,7 @@ public final class BuiltinCatalog {
         dbDiskSize,
         flushInput,
         outputDelimiters,
-        (a, w, p, t, id, rt, rs, r, cp, c) -> Result.value(new ListValue(List.of())));
+        (a, w, p, t, id, rt, rs, r, cp, c) -> BuiltinResult.value(new ListValue(List.of())));
   }
 
   /** Creates a catalog with every transient host operation and reader. */
@@ -286,7 +284,7 @@ public final class BuiltinCatalog {
         flushInput,
         outputDelimiters,
         queueInfo,
-        (a, w, p, t, id, rt, rs, r, cp, c) -> Result.error(ErrorValue.E_INVARG));
+        (a, w, p, t, id, rt, rs, r, cp, c) -> BuiltinResult.error(ErrorValue.E_INVARG));
   }
 
   /** Creates a catalog with every transient host operation, reader, and task stack owner. */
@@ -314,7 +312,7 @@ public final class BuiltinCatalog {
         outputDelimiters,
         queueInfo,
         taskStack,
-        (a, w, p, t, id, rt, rs, r, cp, c) -> Result.error(ErrorValue.E_INVARG));
+        (a, w, p, t, id, rt, rs, r, cp, c) -> BuiltinResult.error(ErrorValue.E_INVARG));
   }
 
   /** Creates a catalog with every transient owner and task-control operation. */
@@ -358,10 +356,10 @@ public final class BuiltinCatalog {
     this(
         listenerControl,
         (a, w, p, t, id, rt, rs, r, cp, c) -> emptyQueuedTasks(a),
-        (a, w, p, t, id, rt, rs, r, cp, c) -> Result.error(ErrorValue.E_INVARG),
-        (a, w, p, t, id, rt, rs, r, cp, c) -> Result.error(ErrorValue.E_INVARG),
-        (a, w, p, t, id, rt, rs, r, cp, c) -> Result.error(ErrorValue.E_INVARG),
-        (a, w, p, t, id, rt, rs, r, cp, c) -> Result.value(new ListValue(List.of())));
+        (a, w, p, t, id, rt, rs, r, cp, c) -> BuiltinResult.error(ErrorValue.E_INVARG),
+        (a, w, p, t, id, rt, rs, r, cp, c) -> BuiltinResult.error(ErrorValue.E_INVARG),
+        (a, w, p, t, id, rt, rs, r, cp, c) -> BuiltinResult.error(ErrorValue.E_INVARG),
+        (a, w, p, t, id, rt, rs, r, cp, c) -> BuiltinResult.value(new ListValue(List.of())));
   }
 
   /** Creates the production catalog with concrete listener and task owners. */
@@ -369,10 +367,10 @@ public final class BuiltinCatalog {
     this(
         listenerControl,
         queuedTasks,
-        (a, w, p, t, id, rt, rs, r, cp, c) -> Result.error(ErrorValue.E_INVARG),
-        (a, w, p, t, id, rt, rs, r, cp, c) -> Result.error(ErrorValue.E_INVARG),
-        (a, w, p, t, id, rt, rs, r, cp, c) -> Result.error(ErrorValue.E_INVARG),
-        (a, w, p, t, id, rt, rs, r, cp, c) -> Result.value(new ListValue(List.of())));
+        (a, w, p, t, id, rt, rs, r, cp, c) -> BuiltinResult.error(ErrorValue.E_INVARG),
+        (a, w, p, t, id, rt, rs, r, cp, c) -> BuiltinResult.error(ErrorValue.E_INVARG),
+        (a, w, p, t, id, rt, rs, r, cp, c) -> BuiltinResult.error(ErrorValue.E_INVARG),
+        (a, w, p, t, id, rt, rs, r, cp, c) -> BuiltinResult.value(new ListValue(List.of())));
   }
 
   /** Creates the production catalog with concrete listener, task, and input owners. */
@@ -390,7 +388,7 @@ public final class BuiltinCatalog {
         read,
         threadPool,
         threads,
-        (a, w, p, t, id, rt, rs, r, cp, c) -> Result.error(ErrorValue.E_INVARG));
+        (a, w, p, t, id, rt, rs, r, cp, c) -> BuiltinResult.error(ErrorValue.E_INVARG));
   }
 
   /** Creates the production catalog with concrete connection, listener, and task owners. */
@@ -410,7 +408,7 @@ public final class BuiltinCatalog {
         threadPool,
         threads,
         connectionOptions,
-        (a, w, p, t, id, rt, rs, r, cp, c) -> Result.zero());
+        (a, w, p, t, id, rt, rs, r, cp, c) -> BuiltinResult.value(new IntegerValue(0)));
   }
 
   /** Creates the production catalog with every transient host reader. */
@@ -432,7 +430,7 @@ public final class BuiltinCatalog {
         threads,
         connectionOptions,
         dbDiskSize,
-        (a, w, p, t, id, rt, rs, r, cp, c) -> Result.zero());
+        (a, w, p, t, id, rt, rs, r, cp, c) -> BuiltinResult.value(new IntegerValue(0)));
   }
 
   /** Creates the production catalog with every transient host operation. */
@@ -456,7 +454,7 @@ public final class BuiltinCatalog {
         connectionOptions,
         dbDiskSize,
         flushInput,
-        (a, w, p, t, id, rt, rs, r, cp, c) -> Result.error(ErrorValue.E_INVARG));
+        (a, w, p, t, id, rt, rs, r, cp, c) -> BuiltinResult.error(ErrorValue.E_INVARG));
   }
 
   /** Creates the production catalog with every transient host operation and reader. */
@@ -482,7 +480,7 @@ public final class BuiltinCatalog {
         dbDiskSize,
         flushInput,
         outputDelimiters,
-        (a, w, p, t, id, rt, rs, r, cp, c) -> Result.value(new ListValue(List.of())));
+        (a, w, p, t, id, rt, rs, r, cp, c) -> BuiltinResult.value(new ListValue(List.of())));
   }
 
   /** Creates the production catalog with every transient host operation and reader. */
@@ -510,7 +508,7 @@ public final class BuiltinCatalog {
         flushInput,
         outputDelimiters,
         queueInfo,
-        (a, w, p, t, id, rt, rs, r, cp, c) -> Result.error(ErrorValue.E_INVARG));
+        (a, w, p, t, id, rt, rs, r, cp, c) -> BuiltinResult.error(ErrorValue.E_INVARG));
   }
 
   /** Creates the production catalog with every transient owner and task stack reader. */
@@ -540,7 +538,7 @@ public final class BuiltinCatalog {
         outputDelimiters,
         queueInfo,
         taskStack,
-        (a, w, p, t, id, rt, rs, r, cp, c) -> Result.error(ErrorValue.E_INVARG));
+        (a, w, p, t, id, rt, rs, r, cp, c) -> BuiltinResult.error(ErrorValue.E_INVARG));
   }
 
   /** Creates the production catalog with every transient owner and task-control operation. */
@@ -585,7 +583,7 @@ public final class BuiltinCatalog {
     BuiltinHandler setThreadMode =
         new BuiltinHandler() {
           @Override
-          public Result invoke(
+          public BuiltinResult invoke(
               List<MooValue> arguments,
               WorldTxn world,
               long programmer,
@@ -600,7 +598,7 @@ public final class BuiltinCatalog {
           }
 
           @Override
-          public Result invoke(
+          public BuiltinResult invoke(
               List<MooValue> arguments,
               WorldTxn world,
               long programmer,
@@ -618,7 +616,7 @@ public final class BuiltinCatalog {
     BuiltinHandler allMembers =
         new BuiltinHandler() {
           @Override
-          public Result invoke(
+          public BuiltinResult invoke(
               List<MooValue> arguments,
               WorldTxn world,
               long programmer,
@@ -633,7 +631,7 @@ public final class BuiltinCatalog {
           }
 
           @Override
-          public Result invoke(
+          public BuiltinResult invoke(
               List<MooValue> arguments,
               WorldTxn world,
               long programmer,
@@ -645,13 +643,13 @@ public final class BuiltinCatalog {
               long callerProgrammer,
               ListValue callers,
               boolean threadMode) {
-            return threadMode ? Result.hostWork(() -> allMembers(arguments)) : allMembers(arguments);
+            return threadMode ? BuiltinResult.hostWork(() -> allMembers(arguments)) : allMembers(arguments);
           }
         };
     BuiltinHandler sort =
         new BuiltinHandler() {
           @Override
-          public Result invoke(
+          public BuiltinResult invoke(
               List<MooValue> arguments,
               WorldTxn world,
               long programmer,
@@ -666,7 +664,7 @@ public final class BuiltinCatalog {
           }
 
           @Override
-          public Result invoke(
+          public BuiltinResult invoke(
               List<MooValue> arguments,
               WorldTxn world,
               long programmer,
@@ -679,14 +677,14 @@ public final class BuiltinCatalog {
               ListValue callers,
               boolean threadMode) {
             return threadMode
-                ? Result.hostWork(() -> sortValues(arguments))
+                ? BuiltinResult.hostWork(() -> sortValues(arguments))
                 : sortValues(arguments);
           }
         };
     BuiltinHandler callFunction =
         new BuiltinHandler() {
           @Override
-          public Result invoke(
+          public BuiltinResult invoke(
               List<MooValue> arguments,
               WorldTxn world,
               long programmer,
@@ -712,7 +710,7 @@ public final class BuiltinCatalog {
           }
 
           @Override
-          public Result invoke(
+          public BuiltinResult invoke(
               List<MooValue> arguments,
               WorldTxn world,
               long programmer,
@@ -747,7 +745,7 @@ public final class BuiltinCatalog {
             EffectClass.TRANSACTION_READ,
             BuiltinOwner.WORLD,
             (a, w, p, t, id, rt, rs, r, cp, c) ->
-                Result.value(new IntegerValue(valueBytes(a.getFirst(), w)))));
+                BuiltinResult.value(new IntegerValue(valueBytes(a.getFirst(), w)))));
     entries.add(
         new BuiltinSpec(
             "length",
@@ -1051,8 +1049,8 @@ public final class BuiltinCatalog {
             EffectClass.IRREVOCABLE,
             BuiltinOwner.VM,
             (a, w, p, t, id, rt, rs, r, cp, c) -> {
-              random.setSeed(new SecureRandom().nextLong());
-              return Result.zero();
+              random.setSeed(SECURE_RANDOM.nextLong());
+              return BuiltinResult.value(new IntegerValue(0));
             }));
     entries.add(
         new BuiltinSpec(
@@ -1085,7 +1083,7 @@ public final class BuiltinCatalog {
             EffectClass.IRREVOCABLE,
             BuiltinOwner.VM,
             (a, w, p, t, id, rt, rs, r, cp, c) ->
-                Result.value(new IntegerValue(Instant.now().getEpochSecond()))));
+                BuiltinResult.value(new IntegerValue(Instant.now().getEpochSecond()))));
     entries.add(
         new BuiltinSpec(
             "ctime",
@@ -1608,7 +1606,7 @@ public final class BuiltinCatalog {
             EffectClass.TRANSACTION_READ,
             BuiltinOwner.WORLD,
             (a, w, p, t, id, rt, rs, r, cp, c) ->
-                Result.value(new ObjectValue(w.maximumObjectId()))));
+                BuiltinResult.value(new ObjectValue(w.maximumObjectId()))));
     entries.add(
         new BuiltinSpec(
             "locate_by_name",
@@ -1767,13 +1765,13 @@ public final class BuiltinCatalog {
             (a, w, p, t, id, rt, rs, r, cp, c) -> {
               if (r instanceof AnonymousObjectValue anonymous
                   && w.anonymousObject(anonymous).isPresent()) {
-                return Result.error(ErrorValue.E_INVARG);
+                return BuiltinResult.error(ErrorValue.E_INVARG);
               }
               if (!(r instanceof ObjectValue classObject)
                   || w.object(classObject.value()).isEmpty()) {
-                return Result.error(ErrorValue.E_INVIND);
+                return BuiltinResult.error(ErrorValue.E_INVIND);
               }
-              return Result.value(w.createWaif(classObject.value(), p));
+              return BuiltinResult.value(w.createWaif(classObject.value(), p));
             }));
     entries.add(
         new BuiltinSpec(
@@ -1802,7 +1800,7 @@ public final class BuiltinCatalog {
             EffectClass.PURE,
             BuiltinOwner.VM,
             (a, w, p, t, id, rt, rs, r, cp, c) ->
-                Result.value(new ObjectValue(c.size() == 0 ? -1 : cp))));
+                BuiltinResult.value(new ObjectValue(c.size() == 0 ? -1 : cp))));
     entries.add(
         new BuiltinSpec(
             "callers",
@@ -1888,12 +1886,12 @@ public final class BuiltinCatalog {
             BuiltinOwner.CONNECTION,
             (a, w, p, t, id, rt, rs, r, cp, c) -> {
               if (a.isEmpty() && !BuiltinPermissionRule.WIZARD_ONLY.allows(w, p)) {
-                return Result.error(ErrorValue.E_PERM);
+                return BuiltinResult.error(ErrorValue.E_PERM);
               }
               if (!a.isEmpty() && !BuiltinPermissionRule.WIZARD_ONLY.allows(w, p)) {
                 WorldObject target = w.object(((ObjectValue) a.getFirst()).value()).orElse(null);
                 if (target == null || target.owner() != p) {
-                  return Result.error(ErrorValue.E_PERM);
+                  return BuiltinResult.error(ErrorValue.E_PERM);
                 }
               }
               return read.invoke(a, w, p, t, id, rt, rs, r, cp, c);
@@ -1907,7 +1905,7 @@ public final class BuiltinCatalog {
             EffectClass.EXTERNAL_READ,
             BuiltinOwner.CONNECTION,
             (a, w, p, t, id, rt, rs, r, cp, c) ->
-                Result.value(
+                BuiltinResult.value(
                     new ListValue(
                         w.connectedPlayers(!a.isEmpty() && a.getFirst().isTruthy()).stream()
                             .map(ObjectValue::new)
@@ -2044,7 +2042,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.PURE,
             BuiltinOwner.VM,
-            (a, w, p, t, id, rt, rs, r, cp, c) -> Result.value(new ObjectValue(p))));
+            (a, w, p, t, id, rt, rs, r, cp, c) -> BuiltinResult.value(new ObjectValue(p))));
     entries.add(
         new BuiltinSpec(
             "task_id",
@@ -2053,7 +2051,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.PURE,
             BuiltinOwner.VM,
-            (a, w, p, t, id, rt, rs, r, cp, c) -> Result.value(new IntegerValue(id))));
+            (a, w, p, t, id, rt, rs, r, cp, c) -> BuiltinResult.value(new IntegerValue(id))));
     entries.add(
         new BuiltinSpec(
             "ticks_left",
@@ -2062,7 +2060,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.PURE,
             BuiltinOwner.VM,
-            (a, w, p, t, id, rt, rs, r, cp, c) -> Result.value(new IntegerValue(rt))));
+            (a, w, p, t, id, rt, rs, r, cp, c) -> BuiltinResult.value(new IntegerValue(rt))));
     entries.add(
         new BuiltinSpec(
             "seconds_left",
@@ -2071,7 +2069,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.PURE,
             BuiltinOwner.VM,
-            (a, w, p, t, id, rt, rs, r, cp, c) -> Result.value(new IntegerValue(rs))));
+            (a, w, p, t, id, rt, rs, r, cp, c) -> BuiltinResult.value(new IntegerValue(rs))));
     entries.add(
         new BuiltinSpec(
             "set_task_perms",
@@ -2218,7 +2216,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.EXTERNAL_READ,
             BuiltinOwner.SERVER,
-            (a, w, p, t, id, rt, rs, r, cp, c) -> pcre.cacheStats(a)));
+            (a, w, p, t, id, rt, rs, r, cp, c) -> pcre.cacheStats()));
     addSqliteManifest(entries);
     entries.add(
         new BuiltinSpec(
@@ -2273,7 +2271,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.PURE,
             BuiltinOwner.SERVER,
-            (a, w, p, t, id, rt, rs, r, cp, c) -> Result.zero()));
+            (a, w, p, t, id, rt, rs, r, cp, c) -> BuiltinResult.value(new IntegerValue(0))));
     entries.add(
         new BuiltinSpec(
             "run_gc",
@@ -2282,7 +2280,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.PURE,
             BuiltinOwner.VM,
-            (a, w, p, t, id, rt, rs, r, cp, c) -> Result.zero()));
+            (a, w, p, t, id, rt, rs, r, cp, c) -> BuiltinResult.value(new IntegerValue(0))));
     entries.add(
         new BuiltinSpec(
             "gc_stats",
@@ -2302,7 +2300,7 @@ public final class BuiltinCatalog {
             BuiltinOwner.WORLD,
             (a, w, p, t, id, rt, rs, r, cp, c) -> {
               w.resetLastUsedObjectId();
-              return Result.zero();
+              return BuiltinResult.value(new IntegerValue(0));
             }));
     entries.add(
         new BuiltinSpec(
@@ -2396,7 +2394,7 @@ public final class BuiltinCatalog {
   }
 
   private static BuiltinSpec fileIoSpec(
-      String name, CallShape shape, Function<List<MooValue>, Result> handler) {
+      String name, CallShape shape, Function<List<MooValue>, BuiltinResult> handler) {
     return new BuiltinSpec(
         name,
         List.of(shape),
@@ -2473,7 +2471,7 @@ public final class BuiltinCatalog {
       String name,
       CallShape shape,
       EffectClass effect,
-      Function<List<MooValue>, Result> handler) {
+      Function<List<MooValue>, BuiltinResult> handler) {
     return new BuiltinSpec(
         name,
         List.of(shape),
@@ -2486,14 +2484,14 @@ public final class BuiltinCatalog {
             handler.apply(arguments));
   }
 
-  private static Result emptyQueuedTasks(List<MooValue> arguments) {
-    return Result.value(
+  private static BuiltinResult emptyQueuedTasks(List<MooValue> arguments) {
+    return BuiltinResult.value(
         arguments.size() == 2 && arguments.get(1).isTruthy()
             ? new IntegerValue(0)
             : new ListValue(List.of()));
   }
 
-  private Result configureThreadPool(
+  private BuiltinResult configureThreadPool(
       List<MooValue> arguments,
       WorldTxn world,
       long programmer,
@@ -2509,13 +2507,13 @@ public final class BuiltinCatalog {
     long requested =
         arguments.size() == 3 ? ((IntegerValue) arguments.get(2)).value() : 0;
     if (!decode(pool).equals("MAIN")) {
-      return Result.raised(ErrorValue.E_INVARG, encode("Invalid thread pool"), pool);
+      return BuiltinResult.raised(ErrorValue.E_INVARG, encode("Invalid thread pool"), pool);
     }
     if (!decode(function).equals("INIT")) {
-      return Result.raised(ErrorValue.E_INVARG, encode("Invalid function"), function);
+      return BuiltinResult.raised(ErrorValue.E_INVARG, encode("Invalid function"), function);
     }
     if (requested < 0 || requested > Integer.MAX_VALUE) {
-      return Result.raised(
+      return BuiltinResult.raised(
           ErrorValue.E_INVARG,
           encode("Invalid number of threads"),
           new IntegerValue(requested));
@@ -2533,60 +2531,60 @@ public final class BuiltinCatalog {
         callers);
   }
 
-  private static Result connectionInfo(
+  private static BuiltinResult connectionInfo(
       List<MooValue> arguments, WorldTxn world, long programmer) {
     long target = ((ObjectValue) arguments.getFirst()).value();
     Optional<MapValue> info = world.connectionInfo(target);
     if (info.isEmpty()) {
-      return Result.error(ErrorValue.E_INVARG);
+      return BuiltinResult.error(ErrorValue.E_INVARG);
     }
     if (target != programmer && !BuiltinPermissionRule.WIZARD_ONLY.allows(world, programmer)) {
-      return Result.error(ErrorValue.E_PERM);
+      return BuiltinResult.error(ErrorValue.E_PERM);
     }
-    return Result.value(info.orElseThrow());
+    return BuiltinResult.value(info.orElseThrow());
   }
 
-  private Result bufferedOutputLength(
+  private BuiltinResult bufferedOutputLength(
       List<MooValue> arguments, WorldTxn world, long programmer) {
     if (arguments.isEmpty()) {
-      return Result.value(new IntegerValue(DEFAULT_MAX_QUEUED_OUTPUT));
+      return BuiltinResult.value(new IntegerValue(DEFAULT_MAX_QUEUED_OUTPUT));
     }
     long target = ((ObjectValue) arguments.getFirst()).value();
     OptionalLong connectionId = world.connectionId(target);
     if (connectionId.isEmpty()) {
-      return Result.error(ErrorValue.E_INVARG);
+      return BuiltinResult.error(ErrorValue.E_INVARG);
     }
     if (programmer != target && !isWizard(world, programmer)) {
-      return Result.error(ErrorValue.E_PERM);
+      return BuiltinResult.error(ErrorValue.E_PERM);
     }
     long queuedBytes =
         listenerControl
             .map(control -> control.bufferedOutputLength(connectionId.orElseThrow()))
             .orElse(0L);
-    return Result.value(new IntegerValue(queuedBytes));
+    return BuiltinResult.value(new IntegerValue(queuedBytes));
   }
 
-  private static Result connectionName(
+  private static BuiltinResult connectionName(
       List<MooValue> arguments, WorldTxn world, long programmer) {
     long target = ((ObjectValue) arguments.getFirst()).value();
     if (target != programmer && !BuiltinPermissionRule.WIZARD_ONLY.allows(world, programmer)) {
-      return Result.error(ErrorValue.E_PERM);
+      return BuiltinResult.error(ErrorValue.E_PERM);
     }
     MapValue info = world.connectionInfo(target).orElse(null);
     if (info == null) {
-      return Result.error(ErrorValue.E_INVARG);
+      return BuiltinResult.error(ErrorValue.E_INVARG);
     }
     MooValue destinationAddress = info.get(encode("destination_address")).orElse(null);
     MooValue destinationIp = info.get(encode("destination_ip")).orElse(null);
     if (!(destinationAddress instanceof StringValue address)
         || !(destinationIp instanceof StringValue ip)) {
-      return Result.error(ErrorValue.E_INVARG);
+      return BuiltinResult.error(ErrorValue.E_INVARG);
     }
     if (arguments.size() == 1) {
-      return Result.value(address);
+      return BuiltinResult.value(address);
     }
     if (((IntegerValue) arguments.get(1)).value() == 1) {
-      return Result.value(ip);
+      return BuiltinResult.value(ip);
     }
     MooValue sourcePort = info.get(encode("source_port")).orElse(null);
     MooValue destinationPort = info.get(encode("destination_port")).orElse(null);
@@ -2594,9 +2592,9 @@ public final class BuiltinCatalog {
     if (!(sourcePort instanceof IntegerValue source)
         || !(destinationPort instanceof IntegerValue destination)
         || outbound == null) {
-      return Result.error(ErrorValue.E_INVARG);
+      return BuiltinResult.error(ErrorValue.E_INVARG);
     }
-    return Result.value(
+    return BuiltinResult.value(
         encode(
             "port %d %s %s [%s], port %d"
                 .formatted(
@@ -2607,35 +2605,23 @@ public final class BuiltinCatalog {
                     destination.value())));
   }
 
-  private static Result bootPlayer(
+  private static BuiltinResult bootPlayer(
       List<MooValue> arguments, WorldTxn world, long programmer) {
     long target = ((ObjectValue) arguments.getFirst()).value();
     if (target != programmer && !BuiltinPermissionRule.WIZARD_ONLY.allows(world, programmer)) {
-      return Result.error(ErrorValue.E_PERM);
+      return BuiltinResult.error(ErrorValue.E_PERM);
     }
-    return new Result(
-        Optional.of(new IntegerValue(0)),
-        Optional.empty(),
-        Optional.empty(),
-        Optional.empty(),
-        OptionalLong.empty(),
-        OptionalLong.empty(),
-        OptionalLong.empty(),
-        OptionalDouble.empty(),
-        Optional.empty(),
-        Optional.empty(),
-        OptionalLong.of(target),
-        Optional.empty());
+    return new BuiltinResult.BootPlayer(target);
   }
 
-  private static Result setConnectionOption(
+  private static BuiltinResult setConnectionOption(
       List<MooValue> arguments, WorldTxn world, long programmer) {
     long target = ((ObjectValue) arguments.get(0)).value();
     if (target != programmer && !BuiltinPermissionRule.WIZARD_ONLY.allows(world, programmer)) {
-      return Result.error(ErrorValue.E_PERM);
+      return BuiltinResult.error(ErrorValue.E_PERM);
     }
     if (world.connectionInfo(target).isEmpty()) {
-      return Result.error(ErrorValue.E_INVARG);
+      return BuiltinResult.error(ErrorValue.E_INVARG);
     }
     ConnectionOption option =
         switch (decode((StringValue) arguments.get(1)).toLowerCase(Locale.ROOT)) {
@@ -2647,30 +2633,18 @@ public final class BuiltinCatalog {
           default -> null;
         };
     if (option == null) {
-      return Result.error(ErrorValue.E_INVARG);
+      return BuiltinResult.error(ErrorValue.E_INVARG);
     }
     MooValue value = arguments.get(2);
     if (option == ConnectionOption.INTRINSIC_COMMANDS) {
       Optional<ListValue> normalized = normalizeIntrinsicCommands(value);
       if (normalized.isEmpty()) {
-        return Result.error(ErrorValue.E_INVARG);
+        return BuiltinResult.error(ErrorValue.E_INVARG);
       }
       value = normalized.orElseThrow();
       world.setIntrinsicCommands(target, (ListValue) value);
     }
-    return new Result(
-        Optional.of(new IntegerValue(0)),
-        Optional.empty(),
-        Optional.empty(),
-        Optional.empty(),
-        OptionalLong.empty(),
-        OptionalLong.empty(),
-        OptionalLong.empty(),
-        OptionalDouble.empty(),
-        Optional.empty(),
-        Optional.of(new ConnectionOptionRequest(target, option, value)),
-        OptionalLong.empty(),
-        Optional.empty());
+    return new BuiltinResult.SetConnectionOption(target, option, value);
   }
 
   private static Optional<ListValue> normalizeIntrinsicCommands(MooValue value) {
@@ -2709,35 +2683,23 @@ public final class BuiltinCatalog {
     return Optional.of(new ListValue(commands));
   }
 
-  private static Result forceInput(
+  private static BuiltinResult forceInput(
       List<MooValue> arguments, WorldTxn world, long programmer) {
     long target = ((ObjectValue) arguments.get(0)).value();
     if (target != programmer && !BuiltinPermissionRule.WIZARD_ONLY.allows(world, programmer)) {
-      return Result.error(ErrorValue.E_PERM);
+      return BuiltinResult.error(ErrorValue.E_PERM);
     }
-    return new Result(
-        Optional.of(new IntegerValue(0)),
-        Optional.empty(),
-        Optional.empty(),
-        Optional.empty(),
-        OptionalLong.empty(),
-        OptionalLong.empty(),
-        OptionalLong.empty(),
-        OptionalDouble.empty(),
-        Optional.empty(),
-        Optional.empty(),
-        OptionalLong.empty(),
-        Optional.of(
-            new ForcedInputRequest(target, decode((StringValue) arguments.get(1)))));
+    return new BuiltinResult.ForceInput(
+        target, decode((StringValue) arguments.get(1)));
   }
 
-  private Result listen(List<MooValue> arguments, WorldTxn world) {
+  private BuiltinResult listen(List<MooValue> arguments, WorldTxn world) {
     ObjectValue handler = (ObjectValue) arguments.getFirst();
     if (!(arguments.get(1) instanceof IntegerValue descriptor)) {
-      return Result.error(ErrorValue.E_TYPE);
+      return BuiltinResult.error(ErrorValue.E_TYPE);
     }
     if (world.object(handler.value()).isEmpty()) {
-      return Result.error(ErrorValue.E_INVARG);
+      return BuiltinResult.error(ErrorValue.E_INVARG);
     }
     boolean printMessages =
         arguments.size() == 3
@@ -2761,7 +2723,7 @@ public final class BuiltinCatalog {
                 .orElse("")
             : "";
     if (listenerControl.isEmpty()) {
-      return Result.error(ErrorValue.E_INVARG);
+      return BuiltinResult.error(ErrorValue.E_INVARG);
     }
     try {
       int port = Math.toIntExact(descriptor.value());
@@ -2769,17 +2731,17 @@ public final class BuiltinCatalog {
           listenerControl
               .orElseThrow()
               .listen(handler.value(), port, ipv6, printMessages, interfaceAddress);
-      return Result.value(new IntegerValue(listening));
+      return BuiltinResult.value(new IntegerValue(listening));
     } catch (IllegalArgumentException invalid) {
-      return Result.error(ErrorValue.E_INVARG);
+      return BuiltinResult.error(ErrorValue.E_INVARG);
     } catch (IOException bindFailure) {
-      return Result.error(ErrorValue.E_QUOTA);
+      return BuiltinResult.error(ErrorValue.E_QUOTA);
     }
   }
 
-  private Result listeners(List<MooValue> arguments) {
+  private BuiltinResult listeners(List<MooValue> arguments) {
     if (listenerControl.isEmpty()) {
-      return Result.value(new ListValue(List.of()));
+      return BuiltinResult.value(new ListValue(List.of()));
     }
     MooValue filter = arguments.isEmpty() ? null : arguments.getFirst();
     List<MooValue> values = new ArrayList<>();
@@ -2800,36 +2762,36 @@ public final class BuiltinCatalog {
       fields.put(encode("interface"), encode(listener.interfaceAddress()));
       values.add(new MapValue(fields));
     }
-    return Result.value(new ListValue(values));
+    return BuiltinResult.value(new ListValue(values));
   }
 
-  private Result unlisten(List<MooValue> arguments) {
+  private BuiltinResult unlisten(List<MooValue> arguments) {
     if (!(arguments.getFirst() instanceof IntegerValue descriptor)) {
-      return Result.error(ErrorValue.E_INVARG);
+      return BuiltinResult.error(ErrorValue.E_INVARG);
     }
     boolean ipv6 = false;
     if (arguments.size() == 2) {
       if (!(arguments.get(1) instanceof IntegerValue flag)) {
-        return Result.error(ErrorValue.E_INVARG);
+        return BuiltinResult.error(ErrorValue.E_INVARG);
       }
       ipv6 = flag.isTruthy();
     }
     if (listenerControl.isEmpty()) {
-      return Result.error(ErrorValue.E_INVARG);
+      return BuiltinResult.error(ErrorValue.E_INVARG);
     }
     try {
       int description = Math.toIntExact(descriptor.value());
       return listenerControl.orElseThrow().unlisten(description, ipv6)
-          ? Result.value(new IntegerValue(0))
-          : Result.error(ErrorValue.E_INVARG);
+          ? BuiltinResult.value(new IntegerValue(0))
+          : BuiltinResult.error(ErrorValue.E_INVARG);
     } catch (IllegalArgumentException invalid) {
-      return Result.error(ErrorValue.E_INVARG);
+      return BuiltinResult.error(ErrorValue.E_INVARG);
     }
   }
 
-  private Result openNetworkConnection(List<MooValue> arguments) {
+  private BuiltinResult openNetworkConnection(List<MooValue> arguments) {
     if (listenerControl.isEmpty()) {
-      return Result.error(ErrorValue.E_INVARG);
+      return BuiltinResult.error(ErrorValue.E_INVARG);
     }
     String host = decode((StringValue) arguments.get(0));
     long rawPort = ((IntegerValue) arguments.get(1)).value();
@@ -2840,7 +2802,7 @@ public final class BuiltinCatalog {
       ipv6 = options.get(encode("ipv6")).map(MooValue::isTruthy).orElse(false);
       MooValue listener = options.get(encode("listener")).orElse(null);
       if (listener != null && !(listener instanceof ObjectValue)) {
-        return Result.error(ErrorValue.E_INVARG);
+        return BuiltinResult.error(ErrorValue.E_INVARG);
       }
       if (listener instanceof ObjectValue object) {
         listenerHandler = object.value();
@@ -2851,11 +2813,11 @@ public final class BuiltinCatalog {
           listenerControl
               .orElseThrow()
               .openNetworkConnection(host, Math.toIntExact(rawPort), ipv6, listenerHandler);
-      return Result.value(new ObjectValue(connection));
+      return BuiltinResult.value(new ObjectValue(connection));
     } catch (IllegalArgumentException invalid) {
-      return Result.error(ErrorValue.E_INVARG);
+      return BuiltinResult.error(ErrorValue.E_INVARG);
     } catch (IOException unavailable) {
-      return Result.error(ErrorValue.E_QUOTA);
+      return BuiltinResult.error(ErrorValue.E_QUOTA);
     }
   }
 
@@ -2880,7 +2842,7 @@ public final class BuiltinCatalog {
   }
 
   /** Invokes one named builtin through its manifest entry. */
-  public Result invoke(
+  public BuiltinResult invoke(
       String name,
       List<MooValue> arguments,
       WorldTxn world,
@@ -2894,7 +2856,7 @@ public final class BuiltinCatalog {
       ListValue callers) {
     Optional<BuiltinSpec> selected = spec(name);
     if (selected.isEmpty()) {
-      return Result.error(ErrorValue.E_VERBNF);
+      return BuiltinResult.error(ErrorValue.E_VERBNF);
     }
     return invoke(
         selected.orElseThrow(),
@@ -2911,7 +2873,7 @@ public final class BuiltinCatalog {
   }
 
   /** Validates and invokes one exact manifest entry. */
-  public Result invoke(
+  public BuiltinResult invoke(
       BuiltinSpec spec,
       List<MooValue> arguments,
       WorldTxn world,
@@ -2939,7 +2901,7 @@ public final class BuiltinCatalog {
   }
 
   /** Validates and invokes one exact manifest entry for the current activation mode. */
-  public Result invoke(
+  public BuiltinResult invoke(
       BuiltinSpec spec,
       List<MooValue> arguments,
       WorldTxn world,
@@ -2953,13 +2915,13 @@ public final class BuiltinCatalog {
       ListValue callers,
       boolean threadMode) {
     if (spec.callShapes().stream().noneMatch(shape -> shape.acceptsArity(arguments.size()))) {
-      return Result.error(ErrorValue.E_ARGS);
+      return BuiltinResult.error(ErrorValue.E_ARGS);
     }
     if (spec.callShapes().stream().noneMatch(shape -> shape.accepts(arguments))) {
-      return Result.error(ErrorValue.E_TYPE);
+      return BuiltinResult.error(ErrorValue.E_TYPE);
     }
     if (!spec.permission().allows(world, programmer)) {
-      return Result.error(ErrorValue.E_PERM);
+      return BuiltinResult.error(ErrorValue.E_PERM);
     }
     return spec.implementation()
         .invoke(
@@ -2976,12 +2938,12 @@ public final class BuiltinCatalog {
             threadMode);
   }
 
-  private Result functionInfo(List<MooValue> arguments) {
+  private BuiltinResult functionInfo(List<MooValue> arguments) {
     if (arguments.size() > 1) {
-      return Result.error(ErrorValue.E_ARGS);
+      return BuiltinResult.error(ErrorValue.E_ARGS);
     }
     if (arguments.isEmpty()) {
-      return Result.value(
+      return BuiltinResult.value(
           new ListValue(
               manifest.stream()
                   .map(BuiltinCatalog::functionInfoDescription)
@@ -2989,25 +2951,25 @@ public final class BuiltinCatalog {
                   .toList()));
     }
     if (!(arguments.getFirst() instanceof StringValue requestedName)) {
-      return Result.error(ErrorValue.E_TYPE);
+      return BuiltinResult.error(ErrorValue.E_TYPE);
     }
     BuiltinSpec requested = specs.get(decode(requestedName).toLowerCase(Locale.ROOT));
     return requested == null
-        ? Result.error(ErrorValue.E_INVARG)
-        : Result.value(functionInfoDescription(requested));
+        ? BuiltinResult.error(ErrorValue.E_INVARG)
+        : BuiltinResult.value(functionInfoDescription(requested));
   }
 
-  private static Result serverVersion(List<MooValue> arguments) {
+  private static BuiltinResult serverVersion(List<MooValue> arguments) {
     if (arguments.isEmpty()) {
-      return Result.value(encode(SERVER_VERSION));
+      return BuiltinResult.value(encode(SERVER_VERSION));
     }
     MooValue detail = arguments.getFirst();
     ListValue metadata = serverVersionMetadata();
     if (!(detail instanceof StringValue path) || decode(path).isEmpty()) {
-      return Result.value(metadata);
+      return BuiltinResult.value(metadata);
     }
     Optional<MooValue> value = versionPath(metadata, decode(path));
-    return value.isEmpty() ? Result.error(ErrorValue.E_INVARG) : Result.value(value.orElseThrow());
+    return value.isEmpty() ? BuiltinResult.error(ErrorValue.E_INVARG) : BuiltinResult.value(value.orElseThrow());
   }
 
   private static ListValue serverVersionMetadata() {
@@ -3063,7 +3025,7 @@ public final class BuiltinCatalog {
     }
   }
 
-  private Result callFunction(
+  private BuiltinResult callFunction(
       List<MooValue> arguments,
       WorldTxn world,
       long programmer,
@@ -3078,7 +3040,7 @@ public final class BuiltinCatalog {
     String name = decode((StringValue) arguments.getFirst()).toLowerCase(Locale.ROOT);
     BuiltinSpec target = specs.get(name);
     if (target == null) {
-      return Result.error(ErrorValue.E_INVARG);
+      return BuiltinResult.error(ErrorValue.E_INVARG);
     }
     return invoke(
         target,
@@ -3130,7 +3092,7 @@ public final class BuiltinCatalog {
     };
   }
 
-  private static Result dumpDatabase(
+  private static BuiltinResult dumpDatabase(
       List<MooValue> arguments,
       WorldTxn world,
       long programmer,
@@ -3141,29 +3103,29 @@ public final class BuiltinCatalog {
       MooValue receiver,
       long callerProgrammer,
       ListValue callers) {
-    return Result.checkpoint();
+    return new BuiltinResult.Checkpoint();
   }
 
-  private static Result serverLog(List<MooValue> arguments) {
+  private static BuiltinResult serverLog(List<MooValue> arguments) {
     String message = decode((StringValue) arguments.getFirst());
     System.err.println("> " + message);
-    return Result.zero();
+    return BuiltinResult.value(new IntegerValue(0));
   }
 
-  private static Result logCacheStats() {
+  private static BuiltinResult logCacheStats() {
     System.err.println("Verb cache stat summary: 0 hits, 0 misses, 0 generations");
     System.err.println("Depth   Count");
     System.err.println("0       0");
     System.err.println("---");
-    return Result.zero();
+    return BuiltinResult.value(new IntegerValue(0));
   }
 
-  private static Result verbCacheStats() {
+  private static BuiltinResult verbCacheStats() {
     List<MooValue> histogram = new ArrayList<>(17);
     for (int index = 0; index < 17; index++) {
       histogram.add(new IntegerValue(0));
     }
-    return Result.value(
+    return BuiltinResult.value(
         new ListValue(
             List.of(
                 new IntegerValue(0),
@@ -3173,16 +3135,16 @@ public final class BuiltinCatalog {
                 new ListValue(histogram))));
   }
 
-  private static Result memoryUsage() {
+  private static BuiltinResult memoryUsage() {
     final String statm;
     try {
       statm = Files.readString(Path.of("/proc/self/statm"), StandardCharsets.US_ASCII);
     } catch (IOException exception) {
-      return Result.error(ErrorValue.E_FILE);
+      return BuiltinResult.error(ErrorValue.E_FILE);
     }
     StringTokenizer fields = new StringTokenizer(statm);
     if (fields.countTokens() != 7) {
-      return Result.error(ErrorValue.E_NACC);
+      return BuiltinResult.error(ErrorValue.E_NACC);
     }
     List<MooValue> result = new ArrayList<>(5);
     for (int index = 0; index < 7; index++) {
@@ -3193,14 +3155,14 @@ public final class BuiltinCatalog {
       try {
         result.add(new FloatValue(Double.parseDouble(field)));
       } catch (NumberFormatException exception) {
-        return Result.error(ErrorValue.E_NACC);
+        return BuiltinResult.error(ErrorValue.E_NACC);
       }
     }
-    return Result.value(new ListValue(result));
+    return BuiltinResult.value(new ListValue(result));
   }
 
   @SuppressWarnings("restricted")
-  private static Result usage() {
+  private static BuiltinResult usage() {
     List<MooValue> loads = new ArrayList<>(3);
     try {
       StringTokenizer fields =
@@ -3241,27 +3203,29 @@ public final class BuiltinCatalog {
     for (int index = 4; index < resource.length; index++) {
       result.add(new IntegerValue(resource[index]));
     }
-    return Result.value(new ListValue(result));
+    return BuiltinResult.value(new ListValue(result));
   }
 
-  private static Result suspend(List<MooValue> arguments) {
+  private static BuiltinResult suspend(List<MooValue> arguments) {
     if (arguments.isEmpty()) {
-      return Result.suspend(Double.POSITIVE_INFINITY);
+      return new BuiltinResult.Suspend(Double.POSITIVE_INFINITY);
     }
     MooValue delay = arguments.getFirst();
     double seconds =
         delay instanceof IntegerValue integer
             ? integer.value()
             : ((FloatValue) delay).value();
-    return seconds < 0 ? Result.error(ErrorValue.E_INVARG) : Result.suspend(seconds);
+    return seconds < 0
+        ? BuiltinResult.error(ErrorValue.E_INVARG)
+        : new BuiltinResult.Suspend(seconds);
   }
 
-  private static Result yin(
+  private static BuiltinResult yin(
       List<MooValue> arguments, WorldTxn world, long remainingTicks, long remainingSeconds) {
     if (arguments.isEmpty()) {
       return remainingTicks < 2_000 || remainingSeconds < 2
-          ? Result.suspend(0)
-          : Result.zero();
+          ? new BuiltinResult.Suspend(0)
+          : BuiltinResult.value(new IntegerValue(0));
     }
     double delaySeconds;
     MooValue delay = arguments.getFirst();
@@ -3293,42 +3257,42 @@ public final class BuiltinCatalog {
         || minimumSeconds <= 0
         || minimumTicks >= foregroundTicks
         || minimumSeconds >= foregroundSeconds) {
-      return Result.error(ErrorValue.E_INVARG);
+      return BuiltinResult.error(ErrorValue.E_INVARG);
     }
     return remainingTicks < minimumTicks || remainingSeconds < minimumSeconds
-        ? Result.suspend(delaySeconds)
-        : Result.zero();
+        ? new BuiltinResult.Suspend(delaySeconds)
+        : BuiltinResult.value(new IntegerValue(0));
   }
 
-  private static Result shutdown(List<MooValue> arguments) {
+  private static BuiltinResult shutdown(List<MooValue> arguments) {
     if (arguments.size() == 2 && arguments.get(1).isTruthy()) {
-      return Result.panic(decode((StringValue) arguments.getFirst()));
+      return new BuiltinResult.Panic(decode((StringValue) arguments.getFirst()));
     }
-    return Result.shutdown();
+    return new BuiltinResult.Shutdown();
   }
 
-  private static Result length(List<MooValue> arguments) {
+  private static BuiltinResult length(List<MooValue> arguments) {
     MooValue value = arguments.getFirst();
     if (value instanceof StringValue string) {
-      return Result.value(new IntegerValue(string.length()));
+      return BuiltinResult.value(new IntegerValue(string.length()));
     }
     if (value instanceof ListValue list) {
-      return Result.value(new IntegerValue(list.size()));
+      return BuiltinResult.value(new IntegerValue(list.size()));
     }
     if (value instanceof MapValue map) {
-      return Result.value(new IntegerValue(map.size()));
+      return BuiltinResult.value(new IntegerValue(map.size()));
     }
-    return Result.error(ErrorValue.E_TYPE);
+    return BuiltinResult.error(ErrorValue.E_TYPE);
   }
 
   private static long valueBytes(MooValue value, WorldTxn world) {
     return switch (value) {
-      case IntegerValue ignored -> 16;
-      case BooleanValue ignored -> 16;
-      case ObjectValue ignored -> 16;
-      case ErrorValue ignored -> 16;
-      case AnonymousObjectValue ignored -> 16;
-      case FloatValue ignored -> 24;
+      case IntegerValue _ -> 16;
+      case BooleanValue _ -> 16;
+      case ObjectValue _ -> 16;
+      case ErrorValue _ -> 16;
+      case AnonymousObjectValue _ -> 16;
+      case FloatValue _ -> 24;
       case StringValue string -> 17L + string.length();
       case ListValue list -> {
         long bytes = 32;
@@ -3361,101 +3325,101 @@ public final class BuiltinCatalog {
     };
   }
 
-  private static Result minimum(List<MooValue> arguments) {
+  private static BuiltinResult minimum(List<MooValue> arguments) {
     MooValue first = arguments.getFirst();
     if (first instanceof IntegerValue integer) {
       long minimum = integer.value();
       for (MooValue argument : arguments) {
         if (!(argument instanceof IntegerValue value)) {
-          return Result.error(ErrorValue.E_TYPE);
+          return BuiltinResult.error(ErrorValue.E_TYPE);
         }
         minimum = Math.min(minimum, value.value());
       }
-      return Result.value(new IntegerValue(minimum));
+      return BuiltinResult.value(new IntegerValue(minimum));
     }
     if (first instanceof FloatValue floating) {
       double minimum = floating.value();
       for (MooValue argument : arguments) {
         if (!(argument instanceof FloatValue value)) {
-          return Result.error(ErrorValue.E_TYPE);
+          return BuiltinResult.error(ErrorValue.E_TYPE);
         }
         minimum = Math.min(minimum, value.value());
       }
-      return Result.value(new FloatValue(minimum));
+      return BuiltinResult.value(new FloatValue(minimum));
     }
-    return Result.error(ErrorValue.E_TYPE);
+    return BuiltinResult.error(ErrorValue.E_TYPE);
   }
 
-  private static Result maximum(List<MooValue> arguments) {
+  private static BuiltinResult maximum(List<MooValue> arguments) {
     MooValue first = arguments.getFirst();
     if (first instanceof IntegerValue integer) {
       long maximum = integer.value();
       for (MooValue argument : arguments) {
         if (!(argument instanceof IntegerValue value)) {
-          return Result.error(ErrorValue.E_TYPE);
+          return BuiltinResult.error(ErrorValue.E_TYPE);
         }
         maximum = Math.max(maximum, value.value());
       }
-      return Result.value(new IntegerValue(maximum));
+      return BuiltinResult.value(new IntegerValue(maximum));
     }
     if (first instanceof FloatValue floating) {
       double maximum = floating.value();
       for (MooValue argument : arguments) {
         if (!(argument instanceof FloatValue value)) {
-          return Result.error(ErrorValue.E_TYPE);
+          return BuiltinResult.error(ErrorValue.E_TYPE);
         }
         maximum = Math.max(maximum, value.value());
       }
-      return Result.value(new FloatValue(maximum));
+      return BuiltinResult.value(new FloatValue(maximum));
     }
-    return Result.error(ErrorValue.E_TYPE);
+    return BuiltinResult.error(ErrorValue.E_TYPE);
   }
 
-  private static Result absoluteValue(List<MooValue> arguments) {
+  private static BuiltinResult absoluteValue(List<MooValue> arguments) {
     MooValue argument = arguments.getFirst();
     if (argument instanceof IntegerValue integer) {
-      return Result.value(new IntegerValue(Math.abs(integer.value())));
+      return BuiltinResult.value(new IntegerValue(Math.abs(integer.value())));
     }
-    return Result.value(new FloatValue(Math.abs(((FloatValue) argument).value())));
+    return BuiltinResult.value(new FloatValue(Math.abs(((FloatValue) argument).value())));
   }
 
-  private static Result acos(List<MooValue> arguments) {
+  private static BuiltinResult acos(List<MooValue> arguments) {
     double value = ((FloatValue) arguments.getFirst()).value();
     if (Double.isNaN(value)) {
-      return Result.error(ErrorValue.E_FLOAT);
+      return BuiltinResult.error(ErrorValue.E_FLOAT);
     }
     if (value < -1.0 || value > 1.0) {
-      return Result.error(ErrorValue.E_INVARG);
+      return BuiltinResult.error(ErrorValue.E_INVARG);
     }
-    return Result.value(new FloatValue(Math.acos(value)));
+    return BuiltinResult.value(new FloatValue(Math.acos(value)));
   }
 
-  private static Result acosh(List<MooValue> arguments) {
+  private static BuiltinResult acosh(List<MooValue> arguments) {
     double value = ((FloatValue) arguments.getFirst()).value();
     if (value < 1.0) {
-      return Result.error(ErrorValue.E_INVARG);
+      return BuiltinResult.error(ErrorValue.E_INVARG);
     }
     double result =
         Math.log(value)
             + Math.log1p(
                 Math.sqrt(1.0 - 1.0 / value) * Math.sqrt(1.0 + 1.0 / value));
     return Double.isFinite(result)
-        ? Result.value(new FloatValue(result))
-        : Result.error(ErrorValue.E_FLOAT);
+        ? BuiltinResult.value(new FloatValue(result))
+        : BuiltinResult.error(ErrorValue.E_FLOAT);
   }
 
-  private static Result asin(List<MooValue> arguments) {
+  private static BuiltinResult asin(List<MooValue> arguments) {
     double value = ((FloatValue) arguments.getFirst()).value();
     if (Double.isNaN(value)) {
-      return Result.error(ErrorValue.E_FLOAT);
+      return BuiltinResult.error(ErrorValue.E_FLOAT);
     }
     if (value < -1.0 || value > 1.0) {
-      return Result.error(ErrorValue.E_INVARG);
+      return BuiltinResult.error(ErrorValue.E_INVARG);
     }
-    return Result.value(new FloatValue(Math.asin(value)));
+    return BuiltinResult.value(new FloatValue(Math.asin(value)));
   }
 
-  private static Result asinh(List<MooValue> arguments) {
+  private static BuiltinResult asinh(List<MooValue> arguments) {
     double value = ((FloatValue) arguments.getFirst()).value();
     double absolute = Math.abs(value);
     double magnitude =
@@ -3465,188 +3429,188 @@ public final class BuiltinCatalog {
                 absolute + absolute * absolute / (1.0 + Math.hypot(1.0, absolute)));
     double result = Math.copySign(magnitude, value);
     return Double.isFinite(result)
-        ? Result.value(new FloatValue(result))
-        : Result.error(ErrorValue.E_FLOAT);
+        ? BuiltinResult.value(new FloatValue(result))
+        : BuiltinResult.error(ErrorValue.E_FLOAT);
   }
 
-  private static Result atan(List<MooValue> arguments) {
+  private static BuiltinResult atan(List<MooValue> arguments) {
     double y = ((FloatValue) arguments.getFirst()).value();
     double result =
         arguments.size() == 2
             ? Math.atan2(y, ((FloatValue) arguments.get(1)).value())
             : Math.atan(y);
     return Double.isFinite(result)
-        ? Result.value(new FloatValue(result))
-        : Result.error(ErrorValue.E_FLOAT);
+        ? BuiltinResult.value(new FloatValue(result))
+        : BuiltinResult.error(ErrorValue.E_FLOAT);
   }
 
-  private static Result atan2(List<MooValue> arguments) {
+  private static BuiltinResult atan2(List<MooValue> arguments) {
     double y = ((FloatValue) arguments.get(0)).value();
     double x = ((FloatValue) arguments.get(1)).value();
-    return Result.value(new FloatValue(Math.atan2(y, x)));
+    return BuiltinResult.value(new FloatValue(Math.atan2(y, x)));
   }
 
-  private static Result atanh(List<MooValue> arguments) {
+  private static BuiltinResult atanh(List<MooValue> arguments) {
     double value = ((FloatValue) arguments.getFirst()).value();
     if (Math.abs(value) > 1.0) {
-      return Result.error(ErrorValue.E_INVARG);
+      return BuiltinResult.error(ErrorValue.E_INVARG);
     }
     if (Math.abs(value) == 1.0) {
-      return Result.error(ErrorValue.E_FLOAT);
+      return BuiltinResult.error(ErrorValue.E_FLOAT);
     }
     double result = 0.5 * (Math.log1p(value) - Math.log1p(-value));
     return Double.isFinite(result)
-        ? Result.value(new FloatValue(result))
-        : Result.error(ErrorValue.E_FLOAT);
+        ? BuiltinResult.value(new FloatValue(result))
+        : BuiltinResult.error(ErrorValue.E_FLOAT);
   }
 
-  private static Result cbrt(List<MooValue> arguments) {
+  private static BuiltinResult cbrt(List<MooValue> arguments) {
     double result = Math.cbrt(((FloatValue) arguments.getFirst()).value());
     return Double.isFinite(result)
-        ? Result.value(new FloatValue(result))
-        : Result.error(ErrorValue.E_FLOAT);
+        ? BuiltinResult.value(new FloatValue(result))
+        : BuiltinResult.error(ErrorValue.E_FLOAT);
   }
 
-  private static Result ceil(List<MooValue> arguments) {
+  private static BuiltinResult ceil(List<MooValue> arguments) {
     double result = Math.ceil(((FloatValue) arguments.getFirst()).value());
     return Double.isFinite(result)
-        ? Result.value(new FloatValue(result))
-        : Result.error(ErrorValue.E_FLOAT);
+        ? BuiltinResult.value(new FloatValue(result))
+        : BuiltinResult.error(ErrorValue.E_FLOAT);
   }
 
-  private static Result cosine(List<MooValue> arguments) {
+  private static BuiltinResult cosine(List<MooValue> arguments) {
     double value = ((FloatValue) arguments.getFirst()).value();
     if (Double.isInfinite(value)) {
-      return Result.error(ErrorValue.E_INVARG);
+      return BuiltinResult.error(ErrorValue.E_INVARG);
     }
     double result = Math.cos(value);
     return Double.isFinite(result)
-        ? Result.value(new FloatValue(result))
-        : Result.error(ErrorValue.E_FLOAT);
+        ? BuiltinResult.value(new FloatValue(result))
+        : BuiltinResult.error(ErrorValue.E_FLOAT);
   }
 
-  private static Result cosh(List<MooValue> arguments) {
+  private static BuiltinResult cosh(List<MooValue> arguments) {
     double result = Math.cosh(((FloatValue) arguments.getFirst()).value());
     return Double.isFinite(result)
-        ? Result.value(new FloatValue(result))
-        : Result.error(ErrorValue.E_FLOAT);
+        ? BuiltinResult.value(new FloatValue(result))
+        : BuiltinResult.error(ErrorValue.E_FLOAT);
   }
 
-  private static Result exp(List<MooValue> arguments) {
+  private static BuiltinResult exp(List<MooValue> arguments) {
     double result = Math.exp(((FloatValue) arguments.getFirst()).value());
     return Double.isFinite(result)
-        ? Result.value(new FloatValue(result))
-        : Result.error(ErrorValue.E_FLOAT);
+        ? BuiltinResult.value(new FloatValue(result))
+        : BuiltinResult.error(ErrorValue.E_FLOAT);
   }
 
-  private static Result floor(List<MooValue> arguments) {
+  private static BuiltinResult floor(List<MooValue> arguments) {
     double result = Math.floor(((FloatValue) arguments.getFirst()).value());
     return Double.isFinite(result)
-        ? Result.value(new FloatValue(result))
-        : Result.error(ErrorValue.E_FLOAT);
+        ? BuiltinResult.value(new FloatValue(result))
+        : BuiltinResult.error(ErrorValue.E_FLOAT);
   }
 
-  private static Result log(List<MooValue> arguments) {
+  private static BuiltinResult log(List<MooValue> arguments) {
     double value = ((FloatValue) arguments.getFirst()).value();
     if (value < 0.0) {
-      return Result.error(ErrorValue.E_INVARG);
+      return BuiltinResult.error(ErrorValue.E_INVARG);
     }
     if (value == 0.0) {
-      return Result.error(ErrorValue.E_FLOAT);
+      return BuiltinResult.error(ErrorValue.E_FLOAT);
     }
     double result = Math.log(value);
     return Double.isFinite(result)
-        ? Result.value(new FloatValue(result))
-        : Result.error(ErrorValue.E_FLOAT);
+        ? BuiltinResult.value(new FloatValue(result))
+        : BuiltinResult.error(ErrorValue.E_FLOAT);
   }
 
-  private static Result log10(List<MooValue> arguments) {
+  private static BuiltinResult log10(List<MooValue> arguments) {
     double value = ((FloatValue) arguments.getFirst()).value();
     if (value < 0.0) {
-      return Result.error(ErrorValue.E_INVARG);
+      return BuiltinResult.error(ErrorValue.E_INVARG);
     }
     if (value == 0.0) {
-      return Result.error(ErrorValue.E_FLOAT);
+      return BuiltinResult.error(ErrorValue.E_FLOAT);
     }
     double result = Math.log10(value);
     return Double.isFinite(result)
-        ? Result.value(new FloatValue(result))
-        : Result.error(ErrorValue.E_FLOAT);
+        ? BuiltinResult.value(new FloatValue(result))
+        : BuiltinResult.error(ErrorValue.E_FLOAT);
   }
 
-  private static Result round(List<MooValue> arguments) {
+  private static BuiltinResult round(List<MooValue> arguments) {
     double value = ((FloatValue) arguments.getFirst()).value();
     double truncated = value < 0.0 ? Math.ceil(value) : Math.floor(value);
     double result =
         Math.abs(value - truncated) >= 0.5
             ? truncated + Math.copySign(1.0, value)
             : truncated;
-    return Result.value(new FloatValue(result));
+    return BuiltinResult.value(new FloatValue(result));
   }
 
-  private static Result sine(List<MooValue> arguments) {
+  private static BuiltinResult sine(List<MooValue> arguments) {
     double value = ((FloatValue) arguments.getFirst()).value();
     if (Double.isInfinite(value)) {
-      return Result.error(ErrorValue.E_INVARG);
+      return BuiltinResult.error(ErrorValue.E_INVARG);
     }
     double result = Math.sin(value);
     return Double.isFinite(result)
-        ? Result.value(new FloatValue(result))
-        : Result.error(ErrorValue.E_FLOAT);
+        ? BuiltinResult.value(new FloatValue(result))
+        : BuiltinResult.error(ErrorValue.E_FLOAT);
   }
 
-  private static Result sinh(List<MooValue> arguments) {
+  private static BuiltinResult sinh(List<MooValue> arguments) {
     double result = Math.sinh(((FloatValue) arguments.getFirst()).value());
     return Double.isFinite(result)
-        ? Result.value(new FloatValue(result))
-        : Result.error(ErrorValue.E_FLOAT);
+        ? BuiltinResult.value(new FloatValue(result))
+        : BuiltinResult.error(ErrorValue.E_FLOAT);
   }
 
-  private static Result sqrt(List<MooValue> arguments) {
+  private static BuiltinResult sqrt(List<MooValue> arguments) {
     double value = ((FloatValue) arguments.getFirst()).value();
     if (Double.isNaN(value)) {
-      return Result.error(ErrorValue.E_FLOAT);
+      return BuiltinResult.error(ErrorValue.E_FLOAT);
     }
     if (value < 0.0) {
-      return Result.error(ErrorValue.E_INVARG);
+      return BuiltinResult.error(ErrorValue.E_INVARG);
     }
     double result = Math.sqrt(value);
     return Double.isFinite(result)
-        ? Result.value(new FloatValue(result))
-        : Result.error(ErrorValue.E_FLOAT);
+        ? BuiltinResult.value(new FloatValue(result))
+        : BuiltinResult.error(ErrorValue.E_FLOAT);
   }
 
-  private static Result tangent(List<MooValue> arguments) {
+  private static BuiltinResult tangent(List<MooValue> arguments) {
     double value = ((FloatValue) arguments.getFirst()).value();
     if (Double.isInfinite(value)) {
-      return Result.error(ErrorValue.E_INVARG);
+      return BuiltinResult.error(ErrorValue.E_INVARG);
     }
     double result = Math.tan(value);
     return Double.isFinite(result)
-        ? Result.value(new FloatValue(result))
-        : Result.error(ErrorValue.E_FLOAT);
+        ? BuiltinResult.value(new FloatValue(result))
+        : BuiltinResult.error(ErrorValue.E_FLOAT);
   }
 
-  private static Result tanh(List<MooValue> arguments) {
+  private static BuiltinResult tanh(List<MooValue> arguments) {
     double result = Math.tanh(((FloatValue) arguments.getFirst()).value());
     return Double.isFinite(result)
-        ? Result.value(new FloatValue(result))
-        : Result.error(ErrorValue.E_FLOAT);
+        ? BuiltinResult.value(new FloatValue(result))
+        : BuiltinResult.error(ErrorValue.E_FLOAT);
   }
 
-  private static Result trunc(List<MooValue> arguments) {
+  private static BuiltinResult trunc(List<MooValue> arguments) {
     double value = ((FloatValue) arguments.getFirst()).value();
     double result = value < 0.0 ? Math.ceil(value) : Math.floor(value);
     return Double.isFinite(result)
-        ? Result.value(new FloatValue(result))
-        : Result.error(ErrorValue.E_FLOAT);
+        ? BuiltinResult.value(new FloatValue(result))
+        : BuiltinResult.error(ErrorValue.E_FLOAT);
   }
 
-  private static Result distance(List<MooValue> arguments) {
+  private static BuiltinResult distance(List<MooValue> arguments) {
     ListValue from = (ListValue) arguments.get(0);
     ListValue to = (ListValue) arguments.get(1);
     if (to.size() < from.size()) {
-      return Result.error(ErrorValue.E_TYPE);
+      return BuiltinResult.error(ErrorValue.E_TYPE);
     }
     double squared = 0.0;
     for (int index = 0; index < from.size(); index++) {
@@ -3654,7 +3618,7 @@ public final class BuiltinCatalog {
       MooValue toValue = to.elements().get(index);
       if (!(fromValue instanceof IntegerValue || fromValue instanceof FloatValue)
           || !(toValue instanceof IntegerValue || toValue instanceof FloatValue)) {
-        return Result.error(ErrorValue.E_TYPE);
+        return BuiltinResult.error(ErrorValue.E_TYPE);
       }
       double left =
           fromValue instanceof IntegerValue integer ? integer.value() : ((FloatValue) fromValue).value();
@@ -3663,14 +3627,14 @@ public final class BuiltinCatalog {
       double difference = right - left;
       squared += difference * difference;
     }
-    return Result.value(new FloatValue(Math.sqrt(squared)));
+    return BuiltinResult.value(new FloatValue(Math.sqrt(squared)));
   }
 
-  private static Result floatstr(List<MooValue> arguments) {
+  private static BuiltinResult floatstr(List<MooValue> arguments) {
     double value = ((FloatValue) arguments.get(0)).value();
     long requestedPrecision = ((IntegerValue) arguments.get(1)).value();
     if (requestedPrecision < 0) {
-      return Result.error(ErrorValue.E_INVARG);
+      return BuiltinResult.error(ErrorValue.E_INVARG);
     }
     int precision = (int) Math.min(requestedPrecision, 21);
     boolean scientific = arguments.size() == 3 && arguments.get(2).isTruthy();
@@ -3697,19 +3661,19 @@ public final class BuiltinCatalog {
               + (sign == '-' ? "" : "+")
               + formatted.substring(exponent + 1);
     }
-    return Result.value(encode(formatted));
+    return BuiltinResult.value(encode(formatted));
   }
 
-  private static Result relativeHeading(List<MooValue> arguments) {
+  private static BuiltinResult relativeHeading(List<MooValue> arguments) {
     ListValue from = (ListValue) arguments.get(0);
     ListValue to = (ListValue) arguments.get(1);
     if (from.size() < 3 || to.size() < 3) {
-      return Result.error(ErrorValue.E_TYPE);
+      return BuiltinResult.error(ErrorValue.E_TYPE);
     }
     for (int index = 0; index < 3; index++) {
       if (!(from.elements().get(index) instanceof FloatValue)
           || !(to.elements().get(index) instanceof FloatValue)) {
-        return Result.error(ErrorValue.E_TYPE);
+        return BuiltinResult.error(ErrorValue.E_TYPE);
       }
     }
     double dx = ((FloatValue) to.elements().get(0)).value() - ((FloatValue) from.elements().get(0)).value();
@@ -3720,27 +3684,27 @@ public final class BuiltinCatalog {
       horizontal += 360.0;
     }
     double vertical = Math.atan2(dz, Math.sqrt(dx * dx + dy * dy)) * 57.2957795130823;
-    return Result.value(
+    return BuiltinResult.value(
         new ListValue(
             List.of(new IntegerValue((long) horizontal), new IntegerValue((long) vertical))));
   }
 
-  private Result floatingRandom(List<MooValue> arguments) {
+  private BuiltinResult floatingRandom(List<MooValue> arguments) {
     double minimum = arguments.size() == 2 ? ((FloatValue) arguments.get(0)).value() : 0.0;
     double maximum =
         ((FloatValue) arguments.get(arguments.size() == 2 ? 1 : 0)).value();
     double fraction = (floatingRandom.nextInt() >>> 1) / (double) Integer.MAX_VALUE;
-    return Result.value(new FloatValue(minimum + fraction * (maximum - minimum)));
+    return BuiltinResult.value(new FloatValue(minimum + fraction * (maximum - minimum)));
   }
 
-  private static Result randomBytes(List<MooValue> arguments, WorldTxn world) {
+  private static BuiltinResult randomBytes(List<MooValue> arguments, WorldTxn world) {
     long requested = ((IntegerValue) arguments.getFirst()).value();
     if (requested < 0 || requested > 10_000) {
-      return Result.raised(
+      return BuiltinResult.raised(
           ErrorValue.E_INVARG, encode("Invalid count"), arguments.getFirst());
     }
     byte[] random = new byte[(int) requested];
-    new SecureRandom().nextBytes(random);
+    SECURE_RANDOM.nextBytes(random);
     ByteArrayOutputStream encoded = new ByteArrayOutputStream(random.length);
     for (byte current : random) {
       int value = Byte.toUnsignedInt(current);
@@ -3769,12 +3733,14 @@ public final class BuiltinCatalog {
               .orElse(false);
     }
     if (encoded.size() > maximumLength) {
-      return catchable ? Result.error(ErrorValue.E_QUOTA) : Result.secondsAbort();
+      return catchable
+          ? BuiltinResult.error(ErrorValue.E_QUOTA)
+          : new BuiltinResult.SecondsAbort();
     }
-    return Result.value(new StringValue(encoded.toByteArray()));
+    return BuiltinResult.value(new StringValue(encoded.toByteArray()));
   }
 
-  private static Result ctime(List<MooValue> arguments) {
+  private static BuiltinResult ctime(List<MooValue> arguments) {
     long epochSecond =
         arguments.isEmpty()
             ? Instant.now().getEpochSecond()
@@ -3786,7 +3752,7 @@ public final class BuiltinCatalog {
       MemorySegment converted =
           (MemorySegment) LOCALTIME_R.invokeExact(time, localTime);
       if (converted.address() == 0) {
-        return Result.error(ErrorValue.E_INVARG);
+        return BuiltinResult.error(ErrorValue.E_INVARG);
       }
       MemorySegment format = arena.allocate(32);
       format.setString(0, "%a %b %d %H:%M:%S %Y %Z");
@@ -3794,19 +3760,19 @@ public final class BuiltinCatalog {
       long length =
           (long) STRFTIME.invokeExact(buffer, 128L, format, localTime);
       if (length == 0) {
-        return Result.error(ErrorValue.E_INVARG);
+        return BuiltinResult.error(ErrorValue.E_INVARG);
       }
       String text = buffer.getString(0);
       if (text.charAt(8) == '0') {
         text = text.substring(0, 8) + ' ' + text.substring(9);
       }
-      return Result.value(encode(text));
+      return BuiltinResult.value(encode(text));
     } catch (Throwable error) {
       throw new IllegalStateException("libc ctime formatting failed", error);
     }
   }
 
-  private static Result ftime(List<MooValue> arguments) {
+  private static BuiltinResult ftime(List<MooValue> arguments) {
     int clockId = CLOCK_REALTIME;
     if (!arguments.isEmpty()) {
       clockId =
@@ -3818,56 +3784,56 @@ public final class BuiltinCatalog {
       MemorySegment timespec = arena.allocate(16, Long.BYTES);
       int status = (int) CLOCK_GETTIME.invokeExact(clockId, timespec);
       if (status != 0) {
-        return Result.error(ErrorValue.E_FLOAT);
+        return BuiltinResult.error(ErrorValue.E_FLOAT);
       }
       long seconds = timespec.get(ValueLayout.JAVA_LONG, 0);
       long nanoseconds = timespec.get(ValueLayout.JAVA_LONG, Long.BYTES);
-      return Result.value(
+      return BuiltinResult.value(
           new FloatValue(seconds + nanoseconds / 1_000_000_000.0));
     } catch (Throwable error) {
       throw new IllegalStateException("clock_gettime invocation failed", error);
     }
   }
 
-  private Result randomInteger(List<MooValue> arguments) {
+  private BuiltinResult randomInteger(List<MooValue> arguments) {
     long lower = 1;
     long upper = Long.MAX_VALUE;
     if (arguments.size() == 1) {
       upper = ((IntegerValue) arguments.getFirst()).value();
       if (upper <= 0) {
-        return Result.error(ErrorValue.E_INVARG);
+        return BuiltinResult.error(ErrorValue.E_INVARG);
       }
     } else if (arguments.size() == 2) {
       lower = ((IntegerValue) arguments.get(0)).value();
       upper = ((IntegerValue) arguments.get(1)).value();
       if (upper < lower) {
-        return Result.error(ErrorValue.E_INVARG);
+        return BuiltinResult.error(ErrorValue.E_INVARG);
       }
     }
     if (lower == upper) {
-      return Result.value(new IntegerValue(lower));
+      return BuiltinResult.value(new IntegerValue(lower));
     }
     long width = upper - lower + 1;
     if (width > 0) {
-      return Result.value(new IntegerValue(lower + random.nextLong(width)));
+      return BuiltinResult.value(new IntegerValue(lower + random.nextLong(width)));
     }
     long value;
     do {
       value = random.nextLong();
     } while (value < lower || value > upper);
-    return Result.value(new IntegerValue(value));
+    return BuiltinResult.value(new IntegerValue(value));
   }
 
-  private static Result raise(List<MooValue> arguments) {
+  private static BuiltinResult raise(List<MooValue> arguments) {
     MooValue code = arguments.getFirst();
     ErrorValue error = code instanceof ErrorValue errorValue ? errorValue : ErrorValue.E_INVARG;
     StringValue message =
         arguments.size() >= 2 ? (StringValue) arguments.get(1) : encode(code.toLiteral());
     MooValue value = arguments.size() >= 3 ? arguments.get(2) : new IntegerValue(0);
-    return Result.raised(error, message, value);
+    return BuiltinResult.raised(error, message, value);
   }
 
-  private static Result listInsert(
+  private static BuiltinResult listInsert(
       List<MooValue> arguments, boolean append, WorldTxn world) {
     ListValue list = (ListValue) arguments.get(0);
     MooValue value = arguments.get(1);
@@ -3891,31 +3857,31 @@ public final class BuiltinCatalog {
     return enforceListValueLimit(new ListValue(inserted), world);
   }
 
-  private static Result listDelete(List<MooValue> arguments, WorldTxn world) {
+  private static BuiltinResult listDelete(List<MooValue> arguments, WorldTxn world) {
     ListValue list = (ListValue) arguments.get(0);
     long position = ((IntegerValue) arguments.get(1)).value();
     if (position <= 0 || position > list.size()) {
-      return Result.error(ErrorValue.E_RANGE);
+      return BuiltinResult.error(ErrorValue.E_RANGE);
     }
     List<MooValue> deleted = new ArrayList<>(list.elements());
     deleted.remove((int) position - 1);
     return enforceListValueLimit(new ListValue(deleted), world);
   }
 
-  private static Result listSet(List<MooValue> arguments, WorldTxn world) {
+  private static BuiltinResult listSet(List<MooValue> arguments, WorldTxn world) {
     ListValue list = (ListValue) arguments.get(0);
     long position = ((IntegerValue) arguments.get(2)).value();
     if (position <= 0 || position > list.size()) {
-      return Result.error(ErrorValue.E_RANGE);
+      return BuiltinResult.error(ErrorValue.E_RANGE);
     }
     List<MooValue> replaced = new ArrayList<>(list.elements());
     replaced.set((int) position - 1, arguments.get(1));
     return enforceListValueLimit(new ListValue(replaced), world);
   }
 
-  private static Result mapKeys(List<MooValue> arguments) {
+  private static BuiltinResult mapKeys(List<MooValue> arguments) {
     MapValue map = (MapValue) arguments.getFirst();
-    return Result.value(new ListValue(sortedMapKeys(map)));
+    return BuiltinResult.value(new ListValue(sortedMapKeys(map)));
   }
 
   private static List<MooValue> sortedMapKeys(MapValue map) {
@@ -3961,51 +3927,51 @@ public final class BuiltinCatalog {
               double rightValue = ((FloatValue) right).value();
               yield leftValue == rightValue ? 0 : (leftValue - rightValue < 0.0 ? -1 : 1);
             }
-            case BooleanValue ignored -> 0;
+            case BooleanValue _ -> 0;
             case StringValue string -> string.compareIgnoringCase((StringValue) right);
-            case AnonymousObjectValue ignored -> left == right ? 0 : 1;
-            case WaifValue ignored -> 0;
-            case ListValue ignored -> throw new IllegalArgumentException("list map key");
-            case MapValue ignored -> throw new IllegalArgumentException("map map key");
+            case AnonymousObjectValue _ -> left == right ? 0 : 1;
+            case WaifValue _ -> 0;
+            case ListValue _ -> throw new IllegalArgumentException("list map key");
+            case MapValue _ -> throw new IllegalArgumentException("map map key");
           };
         });
     return keys;
   }
 
-  private static Result mapValues(List<MooValue> arguments) {
+  private static BuiltinResult mapValues(List<MooValue> arguments) {
     MapValue map = (MapValue) arguments.getFirst();
     List<MooValue> values = new ArrayList<>();
     if (arguments.size() == 1) {
       for (MooValue key : sortedMapKeys(map)) {
         values.add(map.get(key, true).orElseThrow());
       }
-      return Result.value(new ListValue(values));
+      return BuiltinResult.value(new ListValue(values));
     }
     for (int index = 1; index < arguments.size(); index++) {
       try {
         Optional<MooValue> value = map.get(arguments.get(index), true);
         if (value.isEmpty()) {
-          return Result.error(ErrorValue.E_RANGE);
+          return BuiltinResult.error(ErrorValue.E_RANGE);
         }
         values.add(value.orElseThrow());
       } catch (IllegalArgumentException invalidKey) {
-        return Result.error(ErrorValue.E_RANGE);
+        return BuiltinResult.error(ErrorValue.E_RANGE);
       }
     }
-    return Result.value(new ListValue(values));
+    return BuiltinResult.value(new ListValue(values));
   }
 
-  private static Result mapHasKey(List<MooValue> arguments) {
+  private static BuiltinResult mapHasKey(List<MooValue> arguments) {
     MooValue key = arguments.get(1);
     if (invalidMapBuiltinKey(key)) {
-      return Result.error(ErrorValue.E_TYPE);
+      return BuiltinResult.error(ErrorValue.E_TYPE);
     }
     MapValue map = (MapValue) arguments.getFirst();
     boolean caseMatters = arguments.size() == 3 && arguments.get(2).isTruthy();
-    return Result.value(new IntegerValue(map.get(key, caseMatters).isPresent() ? 1 : 0));
+    return BuiltinResult.value(new IntegerValue(map.get(key, caseMatters).isPresent() ? 1 : 0));
   }
 
-  private static Result mapDelete(List<MooValue> arguments) {
+  private static BuiltinResult mapDelete(List<MooValue> arguments) {
     MapValue original = (MapValue) arguments.getFirst();
     MooValue requested = arguments.get(1);
     boolean multiple = requested instanceof ListValue;
@@ -4014,20 +3980,20 @@ public final class BuiltinCatalog {
     MapValue result = original;
     for (MooValue key : keys) {
       if (invalidMapBuiltinKey(key)) {
-        return Result.error(ErrorValue.E_TYPE);
+        return BuiltinResult.error(ErrorValue.E_TYPE);
       }
       Optional<MapValue> deleted = deleteMapKey(result, key);
       if (deleted.isEmpty()) {
         return multiple
-            ? Result.raised(
+            ? BuiltinResult.raised(
                 ErrorValue.E_RANGE,
                 encode("Key " + key.toLiteral() + " not found in map"),
                 key)
-            : Result.error(ErrorValue.E_RANGE);
+            : BuiltinResult.error(ErrorValue.E_RANGE);
       }
       result = deleted.orElseThrow();
     }
-    return Result.value(result);
+    return BuiltinResult.value(result);
   }
 
   private static Optional<MapValue> deleteMapKey(MapValue map, MooValue key) {
@@ -4049,13 +4015,13 @@ public final class BuiltinCatalog {
         || key instanceof AnonymousObjectValue;
   }
 
-  private static Result setAdd(List<MooValue> arguments, WorldTxn world) {
+  private static BuiltinResult setAdd(List<MooValue> arguments, WorldTxn world) {
     ListValue list = (ListValue) arguments.get(0);
     MooValue value = arguments.get(1);
     return enforceListValueLimit(list.elements().contains(value) ? list : list.append(value), world);
   }
 
-  private static Result setRemove(List<MooValue> arguments, WorldTxn world) {
+  private static BuiltinResult setRemove(List<MooValue> arguments, WorldTxn world) {
     return enforceListValueLimit(setRemoveValue(arguments), world);
   }
 
@@ -4156,7 +4122,7 @@ public final class BuiltinCatalog {
   }
 
   /** Applies Toast's checked-list producer limit to a newly constructed value. */
-  public static Result enforceListValueLimit(MooValue value, WorldTxn world) {
+  public static BuiltinResult enforceListValueLimit(MooValue value, WorldTxn world) {
     long maximumBytes = DEFAULT_MAX_LIST_VALUE_BYTES;
     boolean catchable = false;
     MooValue serverOptions = world.readObjectProperty(0, "server_options").orElse(null);
@@ -4175,12 +4141,14 @@ public final class BuiltinCatalog {
               .orElse(false);
     }
     if (valueBytes(value, world) <= maximumBytes) {
-      return Result.value(value);
+      return BuiltinResult.value(value);
     }
-    return catchable ? Result.error(ErrorValue.E_QUOTA) : Result.secondsAbort();
+    return catchable
+        ? BuiltinResult.error(ErrorValue.E_QUOTA)
+        : new BuiltinResult.SecondsAbort();
   }
 
-  private static Result allMembers(List<MooValue> arguments) {
+  private static BuiltinResult allMembers(List<MooValue> arguments) {
     MooValue value = arguments.get(0);
     ListValue list = (ListValue) arguments.get(1);
     List<MooValue> positions = new ArrayList<>();
@@ -4197,25 +4165,25 @@ public final class BuiltinCatalog {
         positions.add(new IntegerValue(index + 1L));
       }
     }
-    return Result.value(new ListValue(positions));
+    return BuiltinResult.value(new ListValue(positions));
   }
 
-  private static Result sortValues(List<MooValue> arguments) {
+  private static BuiltinResult sortValues(List<MooValue> arguments) {
     ListValue values = (ListValue) arguments.getFirst();
     boolean usingSeparateKeys =
         arguments.size() >= 2 && ((ListValue) arguments.get(1)).size() > 0;
     ListValue keys =
         usingSeparateKeys ? (ListValue) arguments.get(1) : values;
     if (keys.size() == 0) {
-      return Result.value(new ListValue(List.of()));
+      return BuiltinResult.value(new ListValue(List.of()));
     }
     if (usingSeparateKeys && values.size() != keys.size()) {
-      return Result.error(ErrorValue.E_INVARG);
+      return BuiltinResult.error(ErrorValue.E_INVARG);
     }
 
     MooValue.Type keyType = keys.elements().getFirst().type();
     if (!sortableType(keyType)) {
-      return Result.error(ErrorValue.E_TYPE);
+      return BuiltinResult.error(ErrorValue.E_TYPE);
     }
     List<Integer> order = new ArrayList<>(keys.size());
     for (int index = 0; index < keys.size(); index++) {
@@ -4223,7 +4191,7 @@ public final class BuiltinCatalog {
         throw new CancellationException("sort host work was canceled");
       }
       if (keys.elements().get(index).type() != keyType) {
-        return Result.error(ErrorValue.E_TYPE);
+        return BuiltinResult.error(ErrorValue.E_TYPE);
       }
       order.add(index);
     }
@@ -4245,7 +4213,7 @@ public final class BuiltinCatalog {
     for (int index : order) {
       sorted.add(values.elements().get(index));
     }
-    return Result.value(new ListValue(sorted));
+    return BuiltinResult.value(new ListValue(sorted));
   }
 
   private static boolean sortableType(MooValue.Type type) {
@@ -4265,16 +4233,16 @@ public final class BuiltinCatalog {
         double rightValue = ((FloatValue) right).value();
         yield leftValue < rightValue ? -1 : (leftValue > rightValue ? 1 : 0);
       }
-      case BooleanValue ignored -> 0;
+      case BooleanValue _ -> 0;
       case StringValue string ->
           natural
               ? compareNaturallyIgnoringCase(string, (StringValue) right)
               : compareCStringIgnoringCase(string, (StringValue) right);
-      case ListValue ignored -> throw new IllegalArgumentException("list sort key");
-      case MapValue ignored -> throw new IllegalArgumentException("map sort key");
-      case AnonymousObjectValue ignored ->
+      case ListValue _ -> throw new IllegalArgumentException("list sort key");
+      case MapValue _ -> throw new IllegalArgumentException("map sort key");
+      case AnonymousObjectValue _ ->
           throw new IllegalArgumentException("anonymous sort key");
-      case WaifValue ignored -> throw new IllegalArgumentException("waif sort key");
+      case WaifValue _ -> throw new IllegalArgumentException("waif sort key");
     };
   }
 
@@ -4389,19 +4357,19 @@ public final class BuiltinCatalog {
         || value == 0x0B;
   }
 
-  private static Result setThreadMode(List<MooValue> arguments, boolean threadMode) {
+  private static BuiltinResult setThreadMode(List<MooValue> arguments, boolean threadMode) {
     if (arguments.isEmpty()) {
-      return Result.value(new IntegerValue(threadMode ? 1 : 0));
+      return BuiltinResult.value(new IntegerValue(threadMode ? 1 : 0));
     }
-    return Result.threadMode(arguments.getFirst().isTruthy());
+    return new BuiltinResult.ThreadMode(arguments.getFirst().isTruthy());
   }
 
-  private static Result stringSubstitute(List<MooValue> arguments) {
+  private static BuiltinResult stringSubstitute(List<MooValue> arguments) {
     byte[] source = ((StringValue) arguments.get(0)).bytes();
     byte[] what = ((StringValue) arguments.get(1)).bytes();
     byte[] replacement = ((StringValue) arguments.get(2)).bytes();
     if (what.length == 0) {
-      return Result.error(ErrorValue.E_INVARG);
+      return BuiltinResult.error(ErrorValue.E_INVARG);
     }
     boolean caseMatters = arguments.size() == 4 && arguments.get(3).isTruthy();
     ByteArrayOutputStream substituted = new ByteArrayOutputStream(source.length);
@@ -4416,10 +4384,10 @@ public final class BuiltinCatalog {
       }
     }
     substituted.write(source, position, source.length - position);
-    return Result.value(new StringValue(substituted.toByteArray()));
+    return BuiltinResult.value(new StringValue(substituted.toByteArray()));
   }
 
-  private static Result stringTranslate(List<MooValue> arguments) {
+  private static BuiltinResult stringTranslate(List<MooValue> arguments) {
     byte[] source = ((StringValue) arguments.get(0)).bytes();
     byte[] from = ((StringValue) arguments.get(1)).bytes();
     byte[] to = ((StringValue) arguments.get(2)).bytes();
@@ -4447,7 +4415,7 @@ public final class BuiltinCatalog {
         translated.write(replacement);
       }
     }
-    return Result.value(new StringValue(translated.toByteArray()));
+    return BuiltinResult.value(new StringValue(translated.toByteArray()));
   }
 
   private static int preserveAsciiCase(int source, int replacement) {
@@ -4460,7 +4428,7 @@ public final class BuiltinCatalog {
     return replacement;
   }
 
-  private Result parseAnsi(List<MooValue> arguments) {
+  private BuiltinResult parseAnsi(List<MooValue> arguments) {
     byte[] parsed = ((StringValue) arguments.getFirst()).bytes();
     List<AnsiReplacement> replacements =
         List.of(
@@ -4521,10 +4489,10 @@ public final class BuiltinCatalog {
     parsed =
         replaceAsciiIgnoringCase(
             randomized.toByteArray(), encode("[null]").bytes(), new byte[0]);
-    return Result.value(new StringValue(parsed));
+    return BuiltinResult.value(new StringValue(parsed));
   }
 
-  private static Result removeAnsi(List<MooValue> arguments) {
+  private static BuiltinResult removeAnsi(List<MooValue> arguments) {
     byte[] stripped = ((StringValue) arguments.getFirst()).bytes();
     List<String> tags =
         List.of(
@@ -4537,30 +4505,30 @@ public final class BuiltinCatalog {
     for (String tag : tags) {
       stripped = replaceAsciiIgnoringCase(stripped, encode(tag).bytes(), new byte[0]);
     }
-    return Result.value(new StringValue(stripped));
+    return BuiltinResult.value(new StringValue(stripped));
   }
 
-  private static Result simplexNoise(List<MooValue> arguments) {
+  private static BuiltinResult simplexNoise(List<MooValue> arguments) {
     ListValue coordinates = (ListValue) arguments.getFirst();
     double[] values = new double[coordinates.size()];
     for (int index = 0; index < coordinates.size(); index++) {
       MooValue coordinate = coordinates.elements().get(index);
       if (!(coordinate instanceof FloatValue value)) {
-        return Result.error(ErrorValue.E_TYPE);
+        return BuiltinResult.error(ErrorValue.E_TYPE);
       }
       values[index] = value.value();
     }
     if (values.length < 1 || values.length > 4) {
-      return Result.value(ErrorValue.E_TYPE);
+      return BuiltinResult.value(ErrorValue.E_TYPE);
     }
-    return Result.value(new FloatValue(SimplexNoise.noise(values)));
+    return BuiltinResult.value(new FloatValue(SimplexNoise.noise(values)));
   }
 
   private static byte[] replaceAsciiIgnoringCase(
       byte[] source, byte[] what, byte[] replacement) {
     ByteArrayOutputStream output = new ByteArrayOutputStream(source.length);
     int position = 0;
-    while (position <= source.length - what.length) {
+    while (what.length > 0 && position <= source.length - what.length) {
       if (matchesAt(source, position, what, false)) {
         output.writeBytes(replacement);
         position += what.length;
@@ -4574,7 +4542,7 @@ public final class BuiltinCatalog {
 
   private record AnsiReplacement(String tag, String code) {}
 
-  private static Result explode(List<MooValue> arguments) {
+  private static BuiltinResult explode(List<MooValue> arguments) {
     byte[] source = ((StringValue) arguments.getFirst()).bytes();
     byte[] delimiterArgument =
         arguments.size() >= 2 ? ((StringValue) arguments.get(1)).bytes() : new byte[0];
@@ -4606,10 +4574,10 @@ public final class BuiltinCatalog {
         start = end;
       }
     }
-    return Result.value(new ListValue(pieces));
+    return BuiltinResult.value(new ListValue(pieces));
   }
 
-  private static Result reverse(List<MooValue> arguments) {
+  private static BuiltinResult reverse(List<MooValue> arguments) {
     MooValue value = arguments.getFirst();
     if (value instanceof StringValue string) {
       byte[] bytes = string.bytes();
@@ -4618,7 +4586,7 @@ public final class BuiltinCatalog {
         bytes[left] = bytes[right];
         bytes[right] = exchanged;
       }
-      return Result.value(new StringValue(bytes));
+      return BuiltinResult.value(new StringValue(bytes));
     }
     if (value instanceof ListValue list) {
       List<MooValue> elements = list.elements();
@@ -4626,47 +4594,47 @@ public final class BuiltinCatalog {
       for (int index = elements.size() - 1; index >= 0; index--) {
         reversed.add(elements.get(index));
       }
-      return Result.value(new ListValue(reversed));
+      return BuiltinResult.value(new ListValue(reversed));
     }
-    return Result.error(ErrorValue.E_INVARG);
+    return BuiltinResult.error(ErrorValue.E_INVARG);
   }
 
-  private static Result stringIndex(List<MooValue> arguments, boolean reverse) {
+  private static BuiltinResult stringIndex(List<MooValue> arguments, boolean reverse) {
     byte[] source = ((StringValue) arguments.get(0)).bytes();
     byte[] what = ((StringValue) arguments.get(1)).bytes();
     boolean caseMatters = arguments.size() >= 3 && arguments.get(2).isTruthy();
     long offset = arguments.size() == 4 ? ((IntegerValue) arguments.get(3)).value() : 0;
     if ((!reverse && offset < 0) || (reverse && offset > 0)) {
-      return Result.error(ErrorValue.E_INVARG);
+      return BuiltinResult.error(ErrorValue.E_INVARG);
     }
 
     if (reverse) {
       long prefixLength = source.length + offset;
       if (prefixLength < 0) {
-        return Result.value(new IntegerValue(0));
+        return BuiltinResult.value(new IntegerValue(0));
       }
       int length = (int) Math.min(prefixLength, source.length);
       for (int position = length - what.length; position >= 0; position--) {
         if (matchesAt(source, position, what, caseMatters)) {
-          return Result.value(new IntegerValue(position + 1L));
+          return BuiltinResult.value(new IntegerValue(position + 1L));
         }
       }
-      return Result.value(new IntegerValue(0));
+      return BuiltinResult.value(new IntegerValue(0));
     }
 
     if (offset > source.length) {
-      return Result.value(new IntegerValue(0));
+      return BuiltinResult.value(new IntegerValue(0));
     }
     int start = (int) offset;
     for (int position = start; position <= source.length - what.length; position++) {
       if (matchesAt(source, position, what, caseMatters)) {
-        return Result.value(new IntegerValue(position - start + 1L));
+        return BuiltinResult.value(new IntegerValue(position - start + 1L));
       }
     }
-    return Result.value(new IntegerValue(0));
+    return BuiltinResult.value(new IntegerValue(0));
   }
 
-  private static Result stringCompare(List<MooValue> arguments) {
+  private static BuiltinResult stringCompare(List<MooValue> arguments) {
     byte[] left = ((StringValue) arguments.get(0)).bytes();
     byte[] right = ((StringValue) arguments.get(1)).bytes();
     int commonLength = Math.min(left.length, right.length);
@@ -4674,13 +4642,13 @@ public final class BuiltinCatalog {
       int comparison =
           Integer.compare(Byte.toUnsignedInt(left[index]), Byte.toUnsignedInt(right[index]));
       if (comparison != 0) {
-        return Result.value(new IntegerValue(comparison));
+        return BuiltinResult.value(new IntegerValue(comparison));
       }
     }
-    return Result.value(new IntegerValue(Integer.compare(left.length, right.length)));
+    return BuiltinResult.value(new IntegerValue(Integer.compare(left.length, right.length)));
   }
 
-  private static Result crypt(List<MooValue> arguments, WorldTxn world, long programmer) {
+  private static BuiltinResult crypt(List<MooValue> arguments, WorldTxn world, long programmer) {
     byte[] password = ((StringValue) arguments.getFirst()).bytes();
     String salt;
     if (arguments.size() == 1 || ((StringValue) arguments.get(1)).bytes().length < 2) {
@@ -4698,18 +4666,18 @@ public final class BuiltinCatalog {
     }
     OptionalLong strength = cryptStrength(salt);
     if (strength.isEmpty()) {
-      return Result.error(ErrorValue.E_INVARG);
+      return BuiltinResult.error(ErrorValue.E_INVARG);
     }
     long selectedStrength = strength.orElseThrow();
     if (!isWizard(world, programmer)
         && (isRecognizedBcrypt(salt) ? selectedStrength != 5 : selectedStrength != 0)) {
-      return Result.error(ErrorValue.E_PERM);
+      return BuiltinResult.error(ErrorValue.E_PERM);
     }
     String result = nativeCrypt(password, salt.getBytes(StandardCharsets.ISO_8859_1));
     if (isRecognizedBcrypt(salt) && (result.equals("*0") || result.equals("*1"))) {
-      return Result.error(ErrorValue.E_INVARG);
+      return BuiltinResult.error(ErrorValue.E_INVARG);
     }
-    return Result.value(encode(result));
+    return BuiltinResult.value(encode(result));
   }
 
   private static OptionalLong cryptStrength(String salt) {
@@ -4769,7 +4737,7 @@ public final class BuiltinCatalog {
     return terminated;
   }
 
-  private static Result argon2(List<MooValue> arguments) {
+  private static BuiltinResult argon2(List<MooValue> arguments) {
     byte[] password = cStringBytes((StringValue) arguments.get(0));
     byte[] salt = cStringBytes((StringValue) arguments.get(1));
     try {
@@ -4789,13 +4757,13 @@ public final class BuiltinCatalog {
               + encoder.encodeToString(salt)
               + "$"
               + encoder.encodeToString(hash);
-      return Result.value(encode(encoded));
+      return BuiltinResult.value(encode(encoded));
     } catch (IllegalArgumentException | ArithmeticException error) {
-      return Result.error(ErrorValue.E_INVIND);
+      return BuiltinResult.error(ErrorValue.E_INVIND);
     }
   }
 
-  private static Result argon2Verify(List<MooValue> arguments) {
+  private static BuiltinResult argon2Verify(List<MooValue> arguments) {
     String encoded = decode((StringValue) arguments.get(0));
     byte[] password = cStringBytes((StringValue) arguments.get(1));
     try {
@@ -4804,7 +4772,7 @@ public final class BuiltinCatalog {
           || !fields[0].isEmpty()
           || !fields[1].equals("argon2id")
           || !fields[2].equals("v=19")) {
-        return Result.value(new IntegerValue(0));
+        return BuiltinResult.value(new IntegerValue(0));
       }
       int memoryKiB = 0;
       int iterations = 0;
@@ -4812,7 +4780,7 @@ public final class BuiltinCatalog {
       for (String parameter : fields[3].split(",", -1)) {
         String[] pair = parameter.split("=", 2);
         if (pair.length != 2) {
-          return Result.value(new IntegerValue(0));
+          return BuiltinResult.value(new IntegerValue(0));
         }
         int value = Integer.parseInt(pair[1]);
         switch (pair[0]) {
@@ -4820,7 +4788,7 @@ public final class BuiltinCatalog {
           case "t" -> iterations = value;
           case "p" -> parallelism = value;
           default -> {
-            return Result.value(new IntegerValue(0));
+            return BuiltinResult.value(new IntegerValue(0));
           }
         }
       }
@@ -4828,9 +4796,9 @@ public final class BuiltinCatalog {
       byte[] expected = Base64.getDecoder().decode(fields[5]);
       byte[] actual =
           argon2Hash(password, salt, iterations, memoryKiB, parallelism, expected.length);
-      return Result.value(new IntegerValue(MessageDigest.isEqual(expected, actual) ? 1 : 0));
+      return BuiltinResult.value(new IntegerValue(MessageDigest.isEqual(expected, actual) ? 1 : 0));
     } catch (IllegalArgumentException error) {
-      return Result.value(new IntegerValue(0));
+      return BuiltinResult.value(new IntegerValue(0));
     }
   }
 
@@ -4877,7 +4845,7 @@ public final class BuiltinCatalog {
     return Arrays.copyOf(bytes, length);
   }
 
-  private static Result decodeBinary(List<MooValue> arguments) {
+  private static BuiltinResult decodeBinary(List<MooValue> arguments) {
     byte[] binary = ((StringValue) arguments.getFirst()).bytes();
     ByteArrayOutputStream raw = new ByteArrayOutputStream(binary.length);
     for (int index = 0; index < binary.length; index++) {
@@ -4887,19 +4855,19 @@ public final class BuiltinCatalog {
         continue;
       }
       if (index + 2 >= binary.length) {
-        return Result.error(ErrorValue.E_INVARG);
+        return BuiltinResult.error(ErrorValue.E_INVARG);
       }
       int high = Character.digit((char) Byte.toUnsignedInt(binary[++index]), 16);
       int low = Character.digit((char) Byte.toUnsignedInt(binary[++index]), 16);
       if (high < 0 || low < 0) {
-        return Result.error(ErrorValue.E_INVARG);
+        return BuiltinResult.error(ErrorValue.E_INVARG);
       }
       raw.write((high << 4) | low);
     }
 
     byte[] decoded = raw.toByteArray();
     if (arguments.size() == 2 && arguments.get(1).isTruthy()) {
-      return Result.value(
+      return BuiltinResult.value(
           new ListValue(
               java.util.stream.IntStream.range(0, decoded.length)
                   .mapToObj(index -> new IntegerValue(Byte.toUnsignedInt(decoded[index])))
@@ -4924,46 +4892,46 @@ public final class BuiltinCatalog {
     if (printable.size() != 0) {
       values.add(new StringValue(printable.toByteArray()));
     }
-    return Result.value(new ListValue(values));
+    return BuiltinResult.value(new ListValue(values));
   }
 
-  private static Result generateJson(List<MooValue> arguments) {
+  private static BuiltinResult generateJson(List<MooValue> arguments) {
     JsonCodec.Mode mode = JsonCodec.Mode.COMMON_SUBSET;
     if (arguments.size() >= 2) {
       mode = JsonCodec.Mode.parse((StringValue) arguments.get(1)).orElse(null);
       if (mode == null) {
-        return Result.error(ErrorValue.E_INVARG);
+        return BuiltinResult.error(ErrorValue.E_INVARG);
       }
     }
     try {
-      return Result.value(
+      return BuiltinResult.value(
           JsonCodec.generate(
               arguments.getFirst(), mode, arguments.size() >= 3 && arguments.get(2).isTruthy()));
     } catch (IllegalArgumentException error) {
-      return Result.error(ErrorValue.E_INVARG);
+      return BuiltinResult.error(ErrorValue.E_INVARG);
     }
   }
 
-  private static Result parseJson(List<MooValue> arguments) {
+  private static BuiltinResult parseJson(List<MooValue> arguments) {
     JsonCodec.Mode mode = JsonCodec.Mode.COMMON_SUBSET;
     if (arguments.size() == 2) {
       mode = JsonCodec.Mode.parse((StringValue) arguments.get(1)).orElse(null);
       if (mode == null) {
-        return Result.error(ErrorValue.E_INVARG);
+        return BuiltinResult.error(ErrorValue.E_INVARG);
       }
     }
     try {
-      return Result.value(JsonCodec.parse((StringValue) arguments.getFirst(), mode));
+      return BuiltinResult.value(JsonCodec.parse((StringValue) arguments.getFirst(), mode));
     } catch (IllegalArgumentException error) {
-      return Result.error(ErrorValue.E_INVARG);
+      return BuiltinResult.error(ErrorValue.E_INVARG);
     }
   }
 
-  private static Result encodeBinary(List<MooValue> arguments) {
+  private static BuiltinResult encodeBinary(List<MooValue> arguments) {
     ByteArrayOutputStream raw = new ByteArrayOutputStream();
     for (MooValue argument : arguments) {
       if (!appendBinaryBytes(raw, argument, 0, 255)) {
-        return Result.error(ErrorValue.E_INVARG);
+        return BuiltinResult.error(ErrorValue.E_INVARG);
       }
     }
 
@@ -4978,50 +4946,50 @@ public final class BuiltinCatalog {
         encoded.write(Character.toUpperCase(Character.forDigit(value & 0x0f, 16)));
       }
     }
-    return Result.value(new StringValue(encoded.toByteArray()));
+    return BuiltinResult.value(new StringValue(encoded.toByteArray()));
   }
 
-  private static Result chr(List<MooValue> arguments, WorldTxn world, long programmer) {
+  private static BuiltinResult chr(List<MooValue> arguments, WorldTxn world, long programmer) {
     int minimum = isWizard(world, programmer) ? 0 : 32;
     int maximum = isWizard(world, programmer) ? 255 : 254;
     ByteArrayOutputStream raw = new ByteArrayOutputStream();
     for (MooValue argument : arguments) {
       if (!appendBinaryBytes(raw, argument, minimum, maximum)) {
-        return Result.error(ErrorValue.E_INVARG);
+        return BuiltinResult.error(ErrorValue.E_INVARG);
       }
     }
-    return Result.value(new StringValue(raw.toByteArray()));
+    return BuiltinResult.value(new StringValue(raw.toByteArray()));
   }
 
-  private static Result disassemble(
+  private static BuiltinResult disassemble(
       List<MooValue> arguments, WorldTxn world, long programmer) {
     if (!(arguments.get(0) instanceof ObjectValue object)) {
-      return Result.error(ErrorValue.E_TYPE);
+      return BuiltinResult.error(ErrorValue.E_TYPE);
     }
     MooValue descriptor = arguments.get(1);
     if (!(descriptor instanceof StringValue) && !(descriptor instanceof IntegerValue)) {
-      return Result.error(ErrorValue.E_TYPE);
+      return BuiltinResult.error(ErrorValue.E_TYPE);
     }
     if (descriptor instanceof IntegerValue integer && integer.value() <= 0) {
-      return Result.error(ErrorValue.E_INVARG);
+      return BuiltinResult.error(ErrorValue.E_INVARG);
     }
     WorldObject target = world.object(object.value()).orElse(null);
     if (target == null) {
-      return Result.error(ErrorValue.E_INVARG);
+      return BuiltinResult.error(ErrorValue.E_INVARG);
     }
 
     WorldVerb verb;
     if (descriptor instanceof IntegerValue integer) {
       long index = integer.value() - 1;
       if (index >= target.verbs().size()) {
-        return Result.error(ErrorValue.E_VERBNF);
+        return BuiltinResult.error(ErrorValue.E_VERBNF);
       }
       verb = target.verbs().get((int) index);
     } else {
       WorldVerb candidate =
           world.verb(object.value(), decode((StringValue) descriptor), false).orElse(null);
       if (candidate == null || !target.verbs().contains(candidate)) {
-        return Result.error(ErrorValue.E_VERBNF);
+        return BuiltinResult.error(ErrorValue.E_VERBNF);
       }
       verb = candidate;
     }
@@ -5029,14 +4997,14 @@ public final class BuiltinCatalog {
     WorldObject actor = world.object(programmer).orElse(null);
     boolean wizard = actor != null && (actor.flags() & 4) != 0;
     if (verb.owner() != programmer && !wizard && (verb.permissions() & 1) == 0) {
-      return Result.error(ErrorValue.E_PERM);
+      return BuiltinResult.error(ErrorValue.E_PERM);
     }
     List<MooValue> lines =
         new MooCompiler().compile(verb.programSource()).disassemble().lines()
             .map(BuiltinCatalog::encode)
             .map(MooValue.class::cast)
             .toList();
-    return Result.value(new ListValue(lines));
+    return BuiltinResult.value(new ListValue(lines));
   }
 
   private static boolean appendBinaryBytes(
@@ -5086,10 +5054,10 @@ public final class BuiltinCatalog {
     return value >= 'A' && value <= 'Z' ? value + ('a' - 'A') : value;
   }
 
-  private static Result create(List<MooValue> arguments, WorldTxn world, long programmer) {
+  private static BuiltinResult create(List<MooValue> arguments, WorldTxn world, long programmer) {
     ParentArgument parents = parentArgument(arguments.getFirst(), world);
     if (parents.error().filter(ErrorValue.E_TYPE::equals).isPresent()) {
-      return Result.error(parents.error().orElseThrow());
+      return BuiltinResult.error(parents.error().orElseThrow());
     }
     long owner = programmer;
     boolean ownerSpecified = false;
@@ -5109,49 +5077,49 @@ public final class BuiltinCatalog {
         initializeArguments = requestedArguments;
         initializerSpecified = true;
       } else {
-        return Result.error(ErrorValue.E_TYPE);
+        return BuiltinResult.error(ErrorValue.E_TYPE);
       }
     }
     if (parents.error().isPresent()) {
-      return Result.error(parents.error().orElseThrow());
+      return BuiltinResult.error(parents.error().orElseThrow());
     }
     if ((anonymous && owner == -1) || (owner != -1 && world.object(owner).isEmpty())) {
-      return Result.error(ErrorValue.E_INVARG);
+      return BuiltinResult.error(ErrorValue.E_INVARG);
     }
     boolean wizard = isWizard(world, programmer);
     if ((ownerSpecified && owner != programmer && !wizard)
         || !parentsAllowed(
             parents.ids(), world, programmer, anonymous ? ANONYMOUS_FLAG : FERTILE_FLAG)) {
-      return Result.error(ErrorValue.E_PERM);
+      return BuiltinResult.error(ErrorValue.E_PERM);
     }
     if (owner != -1 && !decrementOwnershipQuota(world, owner)) {
-      return Result.error(ErrorValue.E_QUOTA);
+      return BuiltinResult.error(ErrorValue.E_QUOTA);
     }
     try {
       if (anonymous) {
         AnonymousObjectValue created = world.createAnonymousObject(parents.ids(), owner);
         return world.verb(created, "initialize", true).isPresent()
-            ? Result.initialize(created, initializeArguments)
-            : Result.value(created);
+            ? new BuiltinResult.Initialize(created, initializeArguments)
+            : BuiltinResult.value(created);
       }
       WorldObject created = world.createObject(parents.ids(), owner);
       ObjectValue identity = new ObjectValue(created.id());
       return world.verb(created.id(), "initialize", true).isPresent()
-          ? Result.initialize(identity, initializeArguments)
-          : Result.value(identity);
+          ? new BuiltinResult.Initialize(identity, initializeArguments)
+          : BuiltinResult.value(identity);
     } catch (IllegalArgumentException error) {
-      return Result.error(ErrorValue.E_INVARG);
+      return BuiltinResult.error(ErrorValue.E_INVARG);
     }
   }
 
-  private static Result recreate(List<MooValue> arguments, WorldTxn world, long programmer) {
+  private static BuiltinResult recreate(List<MooValue> arguments, WorldTxn world, long programmer) {
     long objectId = ((ObjectValue) arguments.getFirst()).value();
     if (objectId <= 0 || objectId > world.maximumObjectId() || world.object(objectId).isPresent()) {
-      return Result.error(ErrorValue.E_INVARG);
+      return BuiltinResult.error(ErrorValue.E_INVARG);
     }
     ParentArgument parents = parentArgument(arguments.get(1), world);
     if (parents.error().isPresent()) {
-      return Result.error(parents.error().orElseThrow());
+      return BuiltinResult.error(parents.error().orElseThrow());
     }
     long owner = programmer;
     if (arguments.size() == 3) {
@@ -5162,19 +5130,19 @@ public final class BuiltinCatalog {
     }
     if ((owner != programmer && !isWizard(world, programmer))
         || !parentsAllowed(parents.ids(), world, programmer, FERTILE_FLAG)) {
-      return Result.error(ErrorValue.E_PERM);
+      return BuiltinResult.error(ErrorValue.E_PERM);
     }
     if (world.object(owner).isPresent() && !decrementOwnershipQuota(world, owner)) {
-      return Result.error(ErrorValue.E_QUOTA);
+      return BuiltinResult.error(ErrorValue.E_QUOTA);
     }
     try {
       WorldObject created = world.recreateObject(objectId, parents.ids(), owner);
       ObjectValue identity = new ObjectValue(created.id());
       return world.verb(created.id(), "initialize", true).isPresent()
-          ? Result.initialize(identity, new ListValue(List.of()))
-          : Result.value(identity);
+          ? new BuiltinResult.Initialize(identity, new ListValue(List.of()))
+          : BuiltinResult.value(identity);
     } catch (IllegalArgumentException error) {
-      return Result.error(ErrorValue.E_INVARG);
+      return BuiltinResult.error(ErrorValue.E_INVARG);
     }
   }
 
@@ -5193,70 +5161,70 @@ public final class BuiltinCatalog {
     return true;
   }
 
-  private static Result parent(List<MooValue> arguments, WorldTxn world) {
+  private static BuiltinResult parent(List<MooValue> arguments, WorldTxn world) {
     MooValue value = arguments.getFirst();
     List<Long> parents;
     if (value instanceof ObjectValue object) {
       WorldObject target = world.object(object.value()).orElse(null);
       if (target == null) {
-        return Result.error(ErrorValue.E_INVARG);
+        return BuiltinResult.error(ErrorValue.E_INVARG);
       }
       parents = target.parents();
     } else if (value instanceof AnonymousObjectValue anonymous) {
       WorldAnonymousObject target = world.anonymousObject(anonymous).orElse(null);
       if (target == null) {
-        return Result.error(ErrorValue.E_INVARG);
+        return BuiltinResult.error(ErrorValue.E_INVARG);
       }
       parents = target.parents();
     } else if (value instanceof WaifValue) {
-      return Result.error(ErrorValue.E_INVARG);
+      return BuiltinResult.error(ErrorValue.E_INVARG);
     } else {
-      return Result.error(ErrorValue.E_TYPE);
+      return BuiltinResult.error(ErrorValue.E_TYPE);
     }
-    return Result.value(new ObjectValue(parents.isEmpty() ? -1 : parents.getFirst()));
+    return BuiltinResult.value(new ObjectValue(parents.isEmpty() ? -1 : parents.getFirst()));
   }
 
-  private static Result parents(List<MooValue> arguments, WorldTxn world) {
+  private static BuiltinResult parents(List<MooValue> arguments, WorldTxn world) {
     MooValue value = arguments.getFirst();
     List<Long> parents;
     if (value instanceof ObjectValue object) {
       WorldObject target = world.object(object.value()).orElse(null);
       if (target == null) {
-        return Result.error(ErrorValue.E_INVARG);
+        return BuiltinResult.error(ErrorValue.E_INVARG);
       }
       parents = target.parents();
     } else if (value instanceof AnonymousObjectValue anonymous) {
       WorldAnonymousObject target = world.anonymousObject(anonymous).orElse(null);
       if (target == null) {
-        return Result.error(ErrorValue.E_INVARG);
+        return BuiltinResult.error(ErrorValue.E_INVARG);
       }
       parents = target.parents();
     } else if (value instanceof WaifValue) {
-      return Result.error(ErrorValue.E_INVARG);
+      return BuiltinResult.error(ErrorValue.E_INVARG);
     } else {
-      return Result.error(ErrorValue.E_TYPE);
+      return BuiltinResult.error(ErrorValue.E_TYPE);
     }
-    return Result.value(objectList(parents));
+    return BuiltinResult.value(objectList(parents));
   }
 
-  private static Result ancestors(List<MooValue> arguments, WorldTxn world) {
+  private static BuiltinResult ancestors(List<MooValue> arguments, WorldTxn world) {
     MooValue value = arguments.getFirst();
     boolean full = arguments.size() > 1 && arguments.get(1).isTruthy();
     List<MooValue> result = new ArrayList<>();
     if (value instanceof ObjectValue object) {
       if (world.object(object.value()).isEmpty()) {
-        return Result.error(ErrorValue.E_INVARG);
+        return BuiltinResult.error(ErrorValue.E_INVARG);
       }
       List<Long> ancestry = world.ancestry(object.value());
       for (int index = full ? 0 : 1; index < ancestry.size(); index++) {
         result.add(new ObjectValue(ancestry.get(index)));
       }
-      return Result.value(new ListValue(result));
+      return BuiltinResult.value(new ListValue(result));
     }
     if (value instanceof AnonymousObjectValue anonymous) {
       WorldAnonymousObject target = world.anonymousObject(anonymous).orElse(null);
       if (target == null) {
-        return Result.error(ErrorValue.E_INVARG);
+        return BuiltinResult.error(ErrorValue.E_INVARG);
       }
       if (full) {
         result.add(anonymous);
@@ -5269,46 +5237,46 @@ public final class BuiltinCatalog {
           }
         }
       }
-      return Result.value(new ListValue(result));
+      return BuiltinResult.value(new ListValue(result));
     }
-    return Result.error(ErrorValue.E_TYPE);
+    return BuiltinResult.error(ErrorValue.E_TYPE);
   }
 
-  private static Result children(List<MooValue> arguments, WorldTxn world) {
+  private static BuiltinResult children(List<MooValue> arguments, WorldTxn world) {
     MooValue value = arguments.getFirst();
     if (value instanceof AnonymousObjectValue anonymous) {
       return world.anonymousObject(anonymous).isEmpty()
-          ? Result.error(ErrorValue.E_INVARG)
-          : Result.value(new ListValue(List.of()));
+          ? BuiltinResult.error(ErrorValue.E_INVARG)
+          : BuiltinResult.value(new ListValue(List.of()));
     }
     if (value instanceof WaifValue) {
-      return Result.error(ErrorValue.E_INVARG);
+      return BuiltinResult.error(ErrorValue.E_INVARG);
     }
     if (!(value instanceof ObjectValue object)) {
-      return Result.error(ErrorValue.E_TYPE);
+      return BuiltinResult.error(ErrorValue.E_TYPE);
     }
     WorldObject target = world.object(object.value()).orElse(null);
     return target == null
-        ? Result.error(ErrorValue.E_INVARG)
-        : Result.value(objectList(target.children()));
+        ? BuiltinResult.error(ErrorValue.E_INVARG)
+        : BuiltinResult.value(objectList(target.children()));
   }
 
-  private static Result changeParents(
+  private static BuiltinResult changeParents(
       List<MooValue> arguments, WorldTxn world, long programmer) {
     MooValue target = arguments.getFirst();
     if (!(target instanceof ObjectValue) && !(target instanceof AnonymousObjectValue)) {
-      return Result.error(ErrorValue.E_TYPE);
+      return BuiltinResult.error(ErrorValue.E_TYPE);
     }
     ParentArgument parents = parentArgument(arguments.get(1), world);
     if (parents.error().isPresent()) {
-      return Result.error(parents.error().orElseThrow());
+      return BuiltinResult.error(parents.error().orElseThrow());
     }
     long owner;
     boolean recursive = false;
     if (target instanceof ObjectValue object) {
       WorldObject body = world.object(object.value()).orElse(null);
       if (body == null) {
-        return Result.error(ErrorValue.E_INVARG);
+        return BuiltinResult.error(ErrorValue.E_INVARG);
       }
       owner = body.owner();
       for (long parent : parents.ids()) {
@@ -5320,22 +5288,22 @@ public final class BuiltinCatalog {
     } else {
       WorldAnonymousObject body = world.anonymousObject((AnonymousObjectValue) target).orElse(null);
       if (body == null) {
-        return Result.error(ErrorValue.E_INVARG);
+        return BuiltinResult.error(ErrorValue.E_INVARG);
       }
       owner = body.owner();
     }
     if ((!isWizard(world, programmer) && owner != programmer)
         || !parentsAllowed(parents.ids(), world, programmer, FERTILE_FLAG)) {
-      return Result.error(ErrorValue.E_PERM);
+      return BuiltinResult.error(ErrorValue.E_PERM);
     }
     if (recursive) {
-      return Result.error(ErrorValue.E_RECMOVE);
+      return BuiltinResult.error(ErrorValue.E_RECMOVE);
     }
     boolean changed =
         target instanceof ObjectValue object
             ? world.changeParents(object.value(), parents.ids())
             : world.changeParents((AnonymousObjectValue) target, parents.ids());
-    return changed ? Result.value(new IntegerValue(0)) : Result.error(ErrorValue.E_INVARG);
+    return changed ? BuiltinResult.value(new IntegerValue(0)) : BuiltinResult.error(ErrorValue.E_INVARG);
   }
 
   private static boolean isWizard(WorldTxn world, long programmer) {
@@ -5387,7 +5355,7 @@ public final class BuiltinCatalog {
         objectIds.stream().map(ObjectValue::new).map(MooValue.class::cast).toList());
   }
 
-  private static Result locateByName(List<MooValue> arguments, WorldTxn world) {
+  private static BuiltinResult locateByName(List<MooValue> arguments, WorldTxn world) {
     byte[] query = ((StringValue) arguments.getFirst()).bytes();
     boolean caseMatters = arguments.size() == 2 && arguments.get(1).isTruthy();
     List<MooValue> matches = new ArrayList<>();
@@ -5405,14 +5373,14 @@ public final class BuiltinCatalog {
         }
       }
     }
-    return Result.value(new ListValue(matches));
+    return BuiltinResult.value(new ListValue(matches));
   }
 
-  private static Result locations(List<MooValue> arguments, WorldTxn world) {
+  private static BuiltinResult locations(List<MooValue> arguments, WorldTxn world) {
     long objectId = ((ObjectValue) arguments.getFirst()).value();
     WorldObject object = world.object(objectId).orElse(null);
     if (object == null) {
-      return Result.error(ErrorValue.E_INVIND);
+      return BuiltinResult.error(ErrorValue.E_INVIND);
     }
     long base = arguments.size() > 1 ? ((ObjectValue) arguments.get(1)).value() : 0;
     boolean checkParent = arguments.size() > 2 && arguments.get(2).isTruthy();
@@ -5429,24 +5397,24 @@ public final class BuiltinCatalog {
       }
       location = world.object(location).orElseThrow().location();
     }
-    return Result.value(new ListValue(result));
+    return BuiltinResult.value(new ListValue(result));
   }
 
-  private static Result nextRecycledObject(List<MooValue> arguments, WorldTxn world) {
+  private static BuiltinResult nextRecycledObject(List<MooValue> arguments, WorldTxn world) {
     long start = arguments.isEmpty() ? 0 : ((ObjectValue) arguments.getFirst()).value();
     long maximum = world.maximumObjectId();
     if (start < 0 || start > maximum) {
-      return Result.error(ErrorValue.E_INVARG);
+      return BuiltinResult.error(ErrorValue.E_INVARG);
     }
     for (long objectId = start; objectId < maximum; objectId++) {
       if (world.object(objectId).isEmpty()) {
-        return Result.value(new ObjectValue(objectId));
+        return BuiltinResult.value(new ObjectValue(objectId));
       }
     }
-    return Result.zero();
+    return BuiltinResult.value(new IntegerValue(0));
   }
 
-  private static Result recycledObjects(WorldTxn world) {
+  private static BuiltinResult recycledObjects(WorldTxn world) {
     List<MooValue> recycled = new ArrayList<>();
     long maximum = world.maximumObjectId();
     for (long objectId = 0; objectId <= maximum; objectId++) {
@@ -5454,10 +5422,10 @@ public final class BuiltinCatalog {
         recycled.add(new ObjectValue(objectId));
       }
     }
-    return Result.value(new ListValue(recycled));
+    return BuiltinResult.value(new ListValue(recycled));
   }
 
-  private static Result waifStats(WorldTxn world) {
+  private static BuiltinResult waifStats(WorldTxn world) {
     Map<MooValue, MooValue> result = new LinkedHashMap<>();
     result.put(encode("total"), new IntegerValue(world.snapshot().waifs().size()));
     long pending =
@@ -5470,13 +5438,13 @@ public final class BuiltinCatalog {
     for (Map.Entry<Long, Long> entry : classes.entrySet()) {
       result.put(new ObjectValue(entry.getKey()), new IntegerValue(entry.getValue()));
     }
-    return Result.value(new MapValue(result));
+    return BuiltinResult.value(new MapValue(result));
   }
 
-  private static Result ownedObjects(List<MooValue> arguments, WorldTxn world) {
+  private static BuiltinResult ownedObjects(List<MooValue> arguments, WorldTxn world) {
     long owner = ((ObjectValue) arguments.getFirst()).value();
     if (world.object(owner).isEmpty()) {
-      return Result.error(ErrorValue.E_INVIND);
+      return BuiltinResult.error(ErrorValue.E_INVIND);
     }
     List<MooValue> owned = new ArrayList<>();
     long maximum = world.maximumObjectId();
@@ -5486,44 +5454,44 @@ public final class BuiltinCatalog {
         owned.add(new ObjectValue(objectId));
       }
     }
-    return Result.value(new ListValue(owned));
+    return BuiltinResult.value(new ListValue(owned));
   }
 
   private record ParentArgument(List<Long> ids, Optional<ErrorValue> error) {}
 
-  private static Result isPlayer(List<MooValue> arguments, WorldTxn world) {
+  private static BuiltinResult isPlayer(List<MooValue> arguments, WorldTxn world) {
     ObjectValue object = (ObjectValue) arguments.getFirst();
     if (world.object(object.value()).isEmpty()) {
-      return Result.error(ErrorValue.E_INVARG);
+      return BuiltinResult.error(ErrorValue.E_INVARG);
     }
-    return Result.value(new IntegerValue(world.players().contains(object.value()) ? 1 : 0));
+    return BuiltinResult.value(new IntegerValue(world.players().contains(object.value()) ? 1 : 0));
   }
 
-  private static Result valid(List<MooValue> arguments, WorldTxn world) {
+  private static BuiltinResult valid(List<MooValue> arguments, WorldTxn world) {
     MooValue value = arguments.getFirst();
     if (value instanceof ObjectValue object) {
-      return Result.value(new IntegerValue(world.object(object.value()).isPresent() ? 1 : 0));
+      return BuiltinResult.value(new IntegerValue(world.object(object.value()).isPresent() ? 1 : 0));
     }
     if (value instanceof AnonymousObjectValue anonymous) {
-      return Result.value(new IntegerValue(world.anonymousObject(anonymous).isPresent() ? 1 : 0));
+      return BuiltinResult.value(new IntegerValue(world.anonymousObject(anonymous).isPresent() ? 1 : 0));
     }
     if (value instanceof WaifValue) {
-      return Result.zero();
+      return BuiltinResult.value(new IntegerValue(0));
     }
-    return Result.error(ErrorValue.E_TYPE);
+    return BuiltinResult.error(ErrorValue.E_TYPE);
   }
 
-  private static Result addVerb(
+  private static BuiltinResult addVerb(
       List<MooValue> arguments, WorldTxn world, long programmer) {
     ListValue info = (ListValue) arguments.get(1);
     if (info.size() != 3
         || !(info.elements().get(0) instanceof ObjectValue owner)
         || !(info.elements().get(1) instanceof StringValue permissionValue)
         || !(info.elements().get(2) instanceof StringValue namesValue)) {
-      return Result.error(ErrorValue.E_TYPE);
+      return BuiltinResult.error(ErrorValue.E_TYPE);
     }
     if (world.object(owner.value()).isEmpty()) {
-      return Result.error(ErrorValue.E_INVARG);
+      return BuiltinResult.error(ErrorValue.E_INVARG);
     }
     int permissions = 0;
     String permissionText = decode(permissionValue);
@@ -5537,18 +5505,18 @@ public final class BuiltinCatalog {
             default -> -1;
           };
       if (permissions < 0) {
-        return Result.error(ErrorValue.E_INVARG);
+        return BuiltinResult.error(ErrorValue.E_INVARG);
       }
     }
     String names = decode(namesValue).stripLeading();
     if (names.isEmpty()) {
-      return Result.error(ErrorValue.E_INVARG);
+      return BuiltinResult.error(ErrorValue.E_INVARG);
     }
 
     ListValue verbArguments = (ListValue) arguments.get(2);
     if (verbArguments.size() != 3
         || verbArguments.elements().stream().anyMatch(value -> !(value instanceof StringValue))) {
-      return Result.error(ErrorValue.E_TYPE);
+      return BuiltinResult.error(ErrorValue.E_TYPE);
     }
     String directText = decode((StringValue) verbArguments.elements().get(0));
     String prepositionText = decode((StringValue) verbArguments.elements().get(1));
@@ -5576,7 +5544,7 @@ public final class BuiltinCatalog {
           default -> Integer.MIN_VALUE;
         };
     if (direct < 0 || indirect < 0 || preposition == Integer.MIN_VALUE) {
-      return Result.error(ErrorValue.E_INVARG);
+      return BuiltinResult.error(ErrorValue.E_INVARG);
     }
 
     WorldObject actor = world.object(programmer).orElse(null);
@@ -5587,23 +5555,23 @@ public final class BuiltinCatalog {
     if (receiver instanceof ObjectValue object) {
       WorldObject target = world.object(object.value()).orElse(null);
       if (target == null) {
-        return Result.error(ErrorValue.E_INVARG);
+        return BuiltinResult.error(ErrorValue.E_INVARG);
       }
       targetOwner = target.owner();
       targetFlags = target.flags();
     } else if (receiver instanceof AnonymousObjectValue anonymous) {
       WorldAnonymousObject target = world.anonymousObject(anonymous).orElse(null);
       if (target == null) {
-        return Result.error(ErrorValue.E_INVARG);
+        return BuiltinResult.error(ErrorValue.E_INVARG);
       }
       targetOwner = target.owner();
       targetFlags = target.flags();
     } else {
-      return Result.error(ErrorValue.E_TYPE);
+      return BuiltinResult.error(ErrorValue.E_TYPE);
     }
     boolean writable = targetOwner == programmer || wizard || (targetFlags & 32) != 0;
     if (!writable || (owner.value() != programmer && !wizard)) {
-      return Result.error(ErrorValue.E_PERM);
+      return BuiltinResult.error(ErrorValue.E_PERM);
     }
 
     int encodedPermissions = permissions | (direct << 4) | (indirect << 6);
@@ -5617,20 +5585,20 @@ public final class BuiltinCatalog {
                 owner.value(),
                 encodedPermissions,
                 preposition);
-    return Result.value(
+    return BuiltinResult.value(
         new IntegerValue(slot));
   }
 
-  private static Result addProperty(
+  private static BuiltinResult addProperty(
       List<MooValue> arguments, WorldTxn world, long programmer) {
     ListValue info = (ListValue) arguments.get(3);
     if (info.size() != 2
         || !(info.elements().get(0) instanceof ObjectValue owner)
         || !(info.elements().get(1) instanceof StringValue permissionValue)) {
-      return Result.error(ErrorValue.E_TYPE);
+      return BuiltinResult.error(ErrorValue.E_TYPE);
     }
     if (world.object(owner.value()).isEmpty()) {
-      return Result.error(ErrorValue.E_INVARG);
+      return BuiltinResult.error(ErrorValue.E_INVARG);
     }
     int permissions = 0;
     String permissionText = decode(permissionValue);
@@ -5643,7 +5611,7 @@ public final class BuiltinCatalog {
             default -> -1;
           };
       if (permissions < 0) {
-        return Result.error(ErrorValue.E_INVARG);
+        return BuiltinResult.error(ErrorValue.E_INVARG);
       }
     }
     MooValue receiver = arguments.get(0);
@@ -5652,25 +5620,25 @@ public final class BuiltinCatalog {
     if (receiver instanceof ObjectValue object) {
       WorldObject target = world.object(object.value()).orElse(null);
       if (target == null) {
-        return Result.error(ErrorValue.E_INVARG);
+        return BuiltinResult.error(ErrorValue.E_INVARG);
       }
       targetOwner = target.owner();
       targetFlags = target.flags();
     } else if (receiver instanceof AnonymousObjectValue anonymous) {
       WorldAnonymousObject target = world.anonymousObject(anonymous).orElse(null);
       if (target == null) {
-        return Result.error(ErrorValue.E_INVARG);
+        return BuiltinResult.error(ErrorValue.E_INVARG);
       }
       targetOwner = target.owner();
       targetFlags = target.flags();
     } else {
-      return Result.error(ErrorValue.E_TYPE);
+      return BuiltinResult.error(ErrorValue.E_TYPE);
     }
     WorldObject actor = world.object(programmer).orElse(null);
     boolean wizard = actor != null && (actor.flags() & 4) != 0;
     boolean writable = targetOwner == programmer || wizard || (targetFlags & 32) != 0;
     if (!writable || (owner.value() != programmer && !wizard)) {
-      return Result.error(ErrorValue.E_PERM);
+      return BuiltinResult.error(ErrorValue.E_PERM);
     }
     String name = decode((StringValue) arguments.get(1));
     boolean added =
@@ -5684,26 +5652,26 @@ public final class BuiltinCatalog {
                 owner.value(),
                 permissions);
     return added
-        ? Result.zero()
-        : Result.error(ErrorValue.E_INVARG);
+        ? BuiltinResult.value(new IntegerValue(0))
+        : BuiltinResult.error(ErrorValue.E_INVARG);
   }
 
-  private static Result properties(
+  private static BuiltinResult properties(
       List<MooValue> arguments, WorldTxn world, long programmer) {
     if (arguments.getFirst() instanceof WaifValue) {
-      return Result.error(ErrorValue.E_INVARG);
+      return BuiltinResult.error(ErrorValue.E_INVARG);
     }
     if (!(arguments.getFirst() instanceof ObjectValue object)) {
-      return Result.error(ErrorValue.E_TYPE);
+      return BuiltinResult.error(ErrorValue.E_TYPE);
     }
     WorldObject target = world.object(object.value()).orElse(null);
     if (target == null) {
-      return Result.error(ErrorValue.E_INVARG);
+      return BuiltinResult.error(ErrorValue.E_INVARG);
     }
     WorldObject actor = world.object(programmer).orElse(null);
     boolean wizard = actor != null && (actor.flags() & 4) != 0;
     if (target.owner() != programmer && !wizard && (target.flags() & 16) == 0) {
-      return Result.error(ErrorValue.E_PERM);
+      return BuiltinResult.error(ErrorValue.E_PERM);
     }
     List<MooValue> names =
         target.properties().stream()
@@ -5712,10 +5680,10 @@ public final class BuiltinCatalog {
             .map(BuiltinCatalog::encode)
             .map(MooValue.class::cast)
             .toList();
-    return Result.value(new ListValue(names));
+    return BuiltinResult.value(new ListValue(names));
   }
 
-  private static Result callers(ListValue callers, WorldTxn world, long programmer) {
+  private static BuiltinResult callers(ListValue callers, WorldTxn world, long programmer) {
     List<MooValue> frames = new ArrayList<>(callers.size());
     for (MooValue value : callers.elements()) {
       if (!(value instanceof ListValue frame) || frame.size() < 4) {
@@ -5727,7 +5695,7 @@ public final class BuiltinCatalog {
       fields.set(3, anonymizeTaskReference(fields.get(3), world, programmer));
       frames.add(new ListValue(fields));
     }
-    return Result.value(new ListValue(frames));
+    return BuiltinResult.value(new ListValue(frames));
   }
 
   private static MooValue anonymizeTaskReference(
@@ -5744,14 +5712,14 @@ public final class BuiltinCatalog {
     return wizard || body.owner() == programmer ? value : new AnonymousObjectValue();
   }
 
-  private static Result isClearProperty(
+  private static BuiltinResult isClearProperty(
       List<MooValue> arguments, WorldTxn world, long programmer) {
     if (!(arguments.getFirst() instanceof ObjectValue object)) {
-      return Result.error(ErrorValue.E_INVARG);
+      return BuiltinResult.error(ErrorValue.E_INVARG);
     }
     WorldObject target = world.object(object.value()).orElse(null);
     if (target == null) {
-      return Result.error(ErrorValue.E_INVARG);
+      return BuiltinResult.error(ErrorValue.E_INVARG);
     }
     String name = decode((StringValue) arguments.get(1));
     String normalized = name.toLowerCase(Locale.ROOT);
@@ -5764,35 +5732,35 @@ public final class BuiltinCatalog {
         || normalized.equals("r")
         || normalized.equals("w")
         || normalized.equals("f")) {
-      return Result.zero();
+      return BuiltinResult.value(new IntegerValue(0));
     }
     WorldProperty property = world.property(object.value(), name).orElse(null);
     if (property == null) {
-      return Result.error(ErrorValue.E_PROPNF);
+      return BuiltinResult.error(ErrorValue.E_PROPNF);
     }
     WorldObject actor = world.object(programmer).orElse(null);
     boolean wizard = actor != null && (actor.flags() & 4) != 0;
     if (property.owner() != programmer && !wizard && (property.permissions() & 1) == 0) {
-      return Result.error(ErrorValue.E_PERM);
+      return BuiltinResult.error(ErrorValue.E_PERM);
     }
     WorldProperty local =
         target.properties().stream()
             .filter(candidate -> candidate.name().equalsIgnoreCase(name))
             .findFirst()
             .orElse(null);
-    return Result.value(new IntegerValue(local != null && local.clear() ? 1 : 0));
+    return BuiltinResult.value(new IntegerValue(local != null && local.clear() ? 1 : 0));
   }
 
-  private static Result propertyInfo(
+  private static BuiltinResult propertyInfo(
       List<MooValue> arguments, WorldTxn world, long programmer) {
     if (arguments.getFirst() instanceof WaifValue) {
-      return Result.error(ErrorValue.E_INVARG);
+      return BuiltinResult.error(ErrorValue.E_INVARG);
     }
     if (!(arguments.getFirst() instanceof ObjectValue object)) {
-      return Result.error(ErrorValue.E_TYPE);
+      return BuiltinResult.error(ErrorValue.E_TYPE);
     }
     if (world.object(object.value()).isEmpty()) {
-      return Result.error(ErrorValue.E_INVARG);
+      return BuiltinResult.error(ErrorValue.E_INVARG);
     }
     String name = decode((StringValue) arguments.get(1));
     String normalized = name.toLowerCase(Locale.ROOT);
@@ -5805,16 +5773,16 @@ public final class BuiltinCatalog {
         || normalized.equals("r")
         || normalized.equals("w")
         || normalized.equals("f")) {
-      return Result.error(ErrorValue.E_PROPNF);
+      return BuiltinResult.error(ErrorValue.E_PROPNF);
     }
     WorldProperty property = world.property(object.value(), name).orElse(null);
     if (property == null) {
-      return Result.error(ErrorValue.E_PROPNF);
+      return BuiltinResult.error(ErrorValue.E_PROPNF);
     }
     WorldObject actor = world.object(programmer).orElse(null);
     boolean wizard = actor != null && (actor.flags() & 4) != 0;
     if (property.owner() != programmer && !wizard && (property.permissions() & 1) == 0) {
-      return Result.error(ErrorValue.E_PERM);
+      return BuiltinResult.error(ErrorValue.E_PERM);
     }
     String permissions = "";
     if ((property.permissions() & 1) != 0) {
@@ -5826,18 +5794,18 @@ public final class BuiltinCatalog {
     if ((property.permissions() & 4) != 0) {
       permissions += "c";
     }
-    return Result.value(
+    return BuiltinResult.value(
         new ListValue(List.of(new ObjectValue(property.owner()), encode(permissions))));
   }
 
-  private static Result clearProperty(
+  private static BuiltinResult clearProperty(
       List<MooValue> arguments, WorldTxn world, long programmer) {
     if (!(arguments.getFirst() instanceof ObjectValue object)) {
-      return Result.error(ErrorValue.E_TYPE);
+      return BuiltinResult.error(ErrorValue.E_TYPE);
     }
     WorldObject target = world.object(object.value()).orElse(null);
     if (target == null) {
-      return Result.error(ErrorValue.E_INVARG);
+      return BuiltinResult.error(ErrorValue.E_INVARG);
     }
     String name = decode((StringValue) arguments.get(1));
     String normalized = name.toLowerCase(Locale.ROOT);
@@ -5850,16 +5818,16 @@ public final class BuiltinCatalog {
         || normalized.equals("r")
         || normalized.equals("w")
         || normalized.equals("f")) {
-      return Result.error(ErrorValue.E_PERM);
+      return BuiltinResult.error(ErrorValue.E_PERM);
     }
     WorldProperty property = world.property(object.value(), name).orElse(null);
     if (property == null) {
-      return Result.error(ErrorValue.E_PROPNF);
+      return BuiltinResult.error(ErrorValue.E_PROPNF);
     }
     WorldObject actor = world.object(programmer).orElse(null);
     boolean wizard = actor != null && (actor.flags() & 4) != 0;
     if (property.owner() != programmer && !wizard && (property.permissions() & 2) == 0) {
-      return Result.error(ErrorValue.E_PERM);
+      return BuiltinResult.error(ErrorValue.E_PERM);
     }
     WorldProperty local =
         target.properties().stream()
@@ -5867,63 +5835,63 @@ public final class BuiltinCatalog {
             .findFirst()
             .orElse(null);
     if (local == null || local.defined()) {
-      return Result.error(ErrorValue.E_INVARG);
+      return BuiltinResult.error(ErrorValue.E_INVARG);
     }
     return world.clearProperty(object.value(), name)
-        ? Result.zero()
-        : Result.error(ErrorValue.E_PROPNF);
+        ? BuiltinResult.value(new IntegerValue(0))
+        : BuiltinResult.error(ErrorValue.E_PROPNF);
   }
 
-  private static Result deleteProperty(
+  private static BuiltinResult deleteProperty(
       List<MooValue> arguments, WorldTxn world, long programmer) {
     if (!(arguments.getFirst() instanceof ObjectValue object)) {
-      return Result.error(ErrorValue.E_TYPE);
+      return BuiltinResult.error(ErrorValue.E_TYPE);
     }
     WorldObject target = world.object(object.value()).orElse(null);
     if (target == null) {
-      return Result.error(ErrorValue.E_INVARG);
+      return BuiltinResult.error(ErrorValue.E_INVARG);
     }
     WorldObject actor = world.object(programmer).orElse(null);
     boolean wizard = actor != null && (actor.flags() & 4) != 0;
     if (target.owner() != programmer && !wizard && (target.flags() & 32) == 0) {
-      return Result.error(ErrorValue.E_PERM);
+      return BuiltinResult.error(ErrorValue.E_PERM);
     }
     String name = decode((StringValue) arguments.get(1));
     boolean defined =
         target.properties().stream()
             .anyMatch(property -> property.defined() && property.name().equalsIgnoreCase(name));
     if (!defined) {
-      return Result.error(ErrorValue.E_PROPNF);
+      return BuiltinResult.error(ErrorValue.E_PROPNF);
     }
     return world.deleteProperty(object.value(), name)
-        ? Result.zero()
-        : Result.error(ErrorValue.E_PROPNF);
+        ? BuiltinResult.value(new IntegerValue(0))
+        : BuiltinResult.error(ErrorValue.E_PROPNF);
   }
 
-  private static Result setPlayerFlag(List<MooValue> arguments, WorldTxn world) {
+  private static BuiltinResult setPlayerFlag(List<MooValue> arguments, WorldTxn world) {
     ObjectValue object = (ObjectValue) arguments.get(0);
     return world.setPlayerFlag(object.value(), arguments.get(1).isTruthy())
-        ? Result.zero()
-        : Result.error(ErrorValue.E_INVARG);
+        ? BuiltinResult.value(new IntegerValue(0))
+        : BuiltinResult.error(ErrorValue.E_INVARG);
   }
 
-  private static Result setVerbInfo(
+  private static BuiltinResult setVerbInfo(
       List<MooValue> arguments, WorldTxn world, long programmer) {
     MooValue descriptor = arguments.get(1);
     if (!(descriptor instanceof StringValue) && !(descriptor instanceof IntegerValue)) {
-      return Result.error(ErrorValue.E_TYPE);
+      return BuiltinResult.error(ErrorValue.E_TYPE);
     }
     if (descriptor instanceof IntegerValue integer && integer.value() <= 0) {
-      return Result.error(ErrorValue.E_INVARG);
+      return BuiltinResult.error(ErrorValue.E_INVARG);
     }
 
     MooValue receiver = arguments.get(0);
     if (!(receiver instanceof ObjectValue object)) {
-      return Result.error(ErrorValue.E_TYPE);
+      return BuiltinResult.error(ErrorValue.E_TYPE);
     }
     WorldObject target = world.object(object.value()).orElse(null);
     if (target == null) {
-      return Result.error(ErrorValue.E_INVARG);
+      return BuiltinResult.error(ErrorValue.E_INVARG);
     }
     List<WorldVerb> targetVerbs = target.verbs();
 
@@ -5932,10 +5900,10 @@ public final class BuiltinCatalog {
         || !(info.elements().get(0) instanceof ObjectValue owner)
         || !(info.elements().get(1) instanceof StringValue permissionValue)
         || !(info.elements().get(2) instanceof StringValue namesValue)) {
-      return Result.error(ErrorValue.E_TYPE);
+      return BuiltinResult.error(ErrorValue.E_TYPE);
     }
     if (world.object(owner.value()).isEmpty()) {
-      return Result.error(ErrorValue.E_INVARG);
+      return BuiltinResult.error(ErrorValue.E_INVARG);
     }
     int permissions = 0;
     String permissionText = decode(permissionValue);
@@ -5949,12 +5917,12 @@ public final class BuiltinCatalog {
             default -> -1;
           };
       if (permissions < 0) {
-        return Result.error(ErrorValue.E_INVARG);
+        return BuiltinResult.error(ErrorValue.E_INVARG);
       }
     }
     String names = decode(namesValue).stripLeading();
     if (names.isEmpty()) {
-      return Result.error(ErrorValue.E_INVARG);
+      return BuiltinResult.error(ErrorValue.E_INVARG);
     }
 
     WorldVerb verb;
@@ -5962,7 +5930,7 @@ public final class BuiltinCatalog {
     if (descriptor instanceof IntegerValue integer) {
       long index = integer.value() - 1;
       if (index >= targetVerbs.size()) {
-        return Result.error(ErrorValue.E_VERBNF);
+        return BuiltinResult.error(ErrorValue.E_VERBNF);
       }
       verbIndex = (int) index;
       verb = targetVerbs.get(verbIndex);
@@ -5970,7 +5938,7 @@ public final class BuiltinCatalog {
       WorldVerb candidate =
           world.verb(object.value(), decode((StringValue) descriptor), false).orElse(null);
       if (candidate == null || !targetVerbs.contains(candidate)) {
-        return Result.error(ErrorValue.E_VERBNF);
+        return BuiltinResult.error(ErrorValue.E_VERBNF);
       }
       verb = candidate;
       verbIndex = targetVerbs.indexOf(verb);
@@ -5979,14 +5947,14 @@ public final class BuiltinCatalog {
     boolean wizard = BuiltinPermissionRule.WIZARD_ONLY.allows(world, programmer);
     if ((verb.owner() != programmer && !wizard && (verb.permissions() & 2) == 0)
         || (!wizard && verb.owner() != owner.value())) {
-      return Result.error(ErrorValue.E_PERM);
+      return BuiltinResult.error(ErrorValue.E_PERM);
     }
     boolean updated =
         world.setVerbInfo(object.value(), verbIndex, names, owner.value(), permissions);
-    return updated ? Result.zero() : Result.error(ErrorValue.E_VERBNF);
+    return updated ? BuiltinResult.value(new IntegerValue(0)) : BuiltinResult.error(ErrorValue.E_VERBNF);
   }
 
-  private static Result verbs(List<MooValue> arguments, WorldTxn world, long programmer) {
+  private static BuiltinResult verbs(List<MooValue> arguments, WorldTxn world, long programmer) {
     MooValue receiver = arguments.getFirst();
     long owner;
     int flags;
@@ -5994,7 +5962,7 @@ public final class BuiltinCatalog {
     if (receiver instanceof ObjectValue object) {
       WorldObject target = world.object(object.value()).orElse(null);
       if (target == null) {
-        return Result.error(ErrorValue.E_INVARG);
+        return BuiltinResult.error(ErrorValue.E_INVARG);
       }
       owner = target.owner();
       flags = target.flags();
@@ -6002,58 +5970,58 @@ public final class BuiltinCatalog {
     } else if (receiver instanceof AnonymousObjectValue anonymous) {
       WorldAnonymousObject target = world.anonymousObject(anonymous).orElse(null);
       if (target == null) {
-        return Result.error(ErrorValue.E_INVARG);
+        return BuiltinResult.error(ErrorValue.E_INVARG);
       }
       owner = target.owner();
       flags = target.flags();
       verbs = target.verbs();
     } else {
-      return Result.error(ErrorValue.E_TYPE);
+      return BuiltinResult.error(ErrorValue.E_TYPE);
     }
     if (owner != programmer && !isWizard(world, programmer) && (flags & 16) == 0) {
-      return Result.error(ErrorValue.E_PERM);
+      return BuiltinResult.error(ErrorValue.E_PERM);
     }
-    return Result.value(
+    return BuiltinResult.value(
         new ListValue(verbs.stream().map(WorldVerb::names).map(BuiltinCatalog::encode).toList()));
   }
 
-  private static Result verbInfo(
+  private static BuiltinResult verbInfo(
       List<MooValue> arguments, WorldTxn world, long programmer) {
     MooValue receiver = arguments.get(0);
     if (!(receiver instanceof ObjectValue object)) {
-      return Result.error(ErrorValue.E_TYPE);
+      return BuiltinResult.error(ErrorValue.E_TYPE);
     }
     MooValue descriptor = arguments.get(1);
     if (!(descriptor instanceof StringValue) && !(descriptor instanceof IntegerValue)) {
-      return Result.error(ErrorValue.E_TYPE);
+      return BuiltinResult.error(ErrorValue.E_TYPE);
     }
     if (descriptor instanceof IntegerValue integer && integer.value() <= 0) {
-      return Result.error(ErrorValue.E_INVARG);
+      return BuiltinResult.error(ErrorValue.E_INVARG);
     }
     WorldObject target = world.object(object.value()).orElse(null);
     if (target == null) {
-      return Result.error(ErrorValue.E_INVARG);
+      return BuiltinResult.error(ErrorValue.E_INVARG);
     }
 
     WorldVerb verb;
     if (descriptor instanceof IntegerValue integer) {
       long index = integer.value() - 1;
       if (index >= target.verbs().size()) {
-        return Result.error(ErrorValue.E_VERBNF);
+        return BuiltinResult.error(ErrorValue.E_VERBNF);
       }
       verb = target.verbs().get((int) index);
     } else {
       WorldVerb candidate =
           world.verb(object.value(), decode((StringValue) descriptor), false).orElse(null);
       if (candidate == null || !target.verbs().contains(candidate)) {
-        return Result.error(ErrorValue.E_VERBNF);
+        return BuiltinResult.error(ErrorValue.E_VERBNF);
       }
       verb = candidate;
     }
 
     boolean wizard = BuiltinPermissionRule.WIZARD_ONLY.allows(world, programmer);
     if (verb.owner() != programmer && !wizard && (verb.permissions() & 1) == 0) {
-      return Result.error(ErrorValue.E_PERM);
+      return BuiltinResult.error(ErrorValue.E_PERM);
     }
     StringBuilder flags = new StringBuilder(4);
     if ((verb.permissions() & 1) != 0) {
@@ -6068,48 +6036,48 @@ public final class BuiltinCatalog {
     if ((verb.permissions() & 8) != 0) {
       flags.append('d');
     }
-    return Result.value(
+    return BuiltinResult.value(
         new ListValue(
             List.of(new ObjectValue(verb.owner()), encode(flags.toString()), encode(verb.names()))));
   }
 
-  private static Result verbArgs(
+  private static BuiltinResult verbArgs(
       List<MooValue> arguments, WorldTxn world, long programmer) {
     MooValue receiver = arguments.get(0);
     if (!(receiver instanceof ObjectValue object)) {
-      return Result.error(ErrorValue.E_TYPE);
+      return BuiltinResult.error(ErrorValue.E_TYPE);
     }
     MooValue descriptor = arguments.get(1);
     if (!(descriptor instanceof StringValue) && !(descriptor instanceof IntegerValue)) {
-      return Result.error(ErrorValue.E_TYPE);
+      return BuiltinResult.error(ErrorValue.E_TYPE);
     }
     if (descriptor instanceof IntegerValue integer && integer.value() <= 0) {
-      return Result.error(ErrorValue.E_INVARG);
+      return BuiltinResult.error(ErrorValue.E_INVARG);
     }
     WorldObject target = world.object(object.value()).orElse(null);
     if (target == null) {
-      return Result.error(ErrorValue.E_INVARG);
+      return BuiltinResult.error(ErrorValue.E_INVARG);
     }
 
     WorldVerb verb;
     if (descriptor instanceof IntegerValue integer) {
       long index = integer.value() - 1;
       if (index >= target.verbs().size()) {
-        return Result.error(ErrorValue.E_VERBNF);
+        return BuiltinResult.error(ErrorValue.E_VERBNF);
       }
       verb = target.verbs().get((int) index);
     } else {
       WorldVerb candidate =
           world.verb(object.value(), decode((StringValue) descriptor), false).orElse(null);
       if (candidate == null || !target.verbs().contains(candidate)) {
-        return Result.error(ErrorValue.E_VERBNF);
+        return BuiltinResult.error(ErrorValue.E_VERBNF);
       }
       verb = candidate;
     }
 
     boolean wizard = BuiltinPermissionRule.WIZARD_ONLY.allows(world, programmer);
     if (verb.owner() != programmer && !wizard && (verb.permissions() & 1) == 0) {
-      return Result.error(ErrorValue.E_PERM);
+      return BuiltinResult.error(ErrorValue.E_PERM);
     }
     String direct =
         switch ((verb.permissions() >> 4) & 3) {
@@ -6146,76 +6114,76 @@ public final class BuiltinCatalog {
           case 14 -> "off/off of";
           default -> throw new IllegalStateException("invalid verb preposition specification");
         };
-    return Result.value(
+    return BuiltinResult.value(
         new ListValue(List.of(encode(direct), encode(preposition), encode(indirect))));
   }
 
-  private static Result deleteVerb(
+  private static BuiltinResult deleteVerb(
       List<MooValue> arguments, WorldTxn world, long programmer) {
     MooValue descriptor = arguments.get(1);
     if (!(descriptor instanceof StringValue) && !(descriptor instanceof IntegerValue)) {
-      return Result.error(ErrorValue.E_TYPE);
+      return BuiltinResult.error(ErrorValue.E_TYPE);
     }
     if (descriptor instanceof IntegerValue integer && integer.value() <= 0) {
-      return Result.error(ErrorValue.E_INVARG);
+      return BuiltinResult.error(ErrorValue.E_INVARG);
     }
     MooValue receiver = arguments.get(0);
     if (!(receiver instanceof ObjectValue object)) {
-      return Result.error(ErrorValue.E_TYPE);
+      return BuiltinResult.error(ErrorValue.E_TYPE);
     }
     WorldObject target = world.object(object.value()).orElse(null);
     if (target == null) {
-      return Result.error(ErrorValue.E_INVARG);
+      return BuiltinResult.error(ErrorValue.E_INVARG);
     }
 
     boolean wizard = BuiltinPermissionRule.WIZARD_ONLY.allows(world, programmer);
     if (target.owner() != programmer && !wizard && (target.flags() & 32) == 0) {
-      return Result.error(ErrorValue.E_PERM);
+      return BuiltinResult.error(ErrorValue.E_PERM);
     }
 
     int verbIndex;
     if (descriptor instanceof IntegerValue integer) {
       long index = integer.value() - 1;
       if (index >= target.verbs().size()) {
-        return Result.error(ErrorValue.E_VERBNF);
+        return BuiltinResult.error(ErrorValue.E_VERBNF);
       }
       verbIndex = (int) index;
     } else {
       WorldVerb candidate =
           world.verb(object.value(), decode((StringValue) descriptor), false).orElse(null);
       if (candidate == null || !target.verbs().contains(candidate)) {
-        return Result.error(ErrorValue.E_VERBNF);
+        return BuiltinResult.error(ErrorValue.E_VERBNF);
       }
       verbIndex = target.verbs().indexOf(candidate);
     }
     return world.deleteVerb(object.value(), verbIndex)
-        ? Result.zero()
-        : Result.error(ErrorValue.E_VERBNF);
+        ? BuiltinResult.value(new IntegerValue(0))
+        : BuiltinResult.error(ErrorValue.E_VERBNF);
   }
 
-  private static Result setVerbArgs(
+  private static BuiltinResult setVerbArgs(
       List<MooValue> arguments, WorldTxn world, long programmer) {
     MooValue descriptor = arguments.get(1);
     if (!(descriptor instanceof StringValue) && !(descriptor instanceof IntegerValue)) {
-      return Result.error(ErrorValue.E_TYPE);
+      return BuiltinResult.error(ErrorValue.E_TYPE);
     }
     if (descriptor instanceof IntegerValue integer && integer.value() <= 0) {
-      return Result.error(ErrorValue.E_INVARG);
+      return BuiltinResult.error(ErrorValue.E_INVARG);
     }
 
     MooValue receiver = arguments.get(0);
     if (!(receiver instanceof ObjectValue object)) {
-      return Result.error(ErrorValue.E_TYPE);
+      return BuiltinResult.error(ErrorValue.E_TYPE);
     }
     WorldObject target = world.object(object.value()).orElse(null);
     if (target == null) {
-      return Result.error(ErrorValue.E_INVARG);
+      return BuiltinResult.error(ErrorValue.E_INVARG);
     }
 
     ListValue verbArguments = (ListValue) arguments.get(2);
     if (verbArguments.size() != 3
         || verbArguments.elements().stream().anyMatch(value -> !(value instanceof StringValue))) {
-      return Result.error(ErrorValue.E_TYPE);
+      return BuiltinResult.error(ErrorValue.E_TYPE);
     }
     String directText = decode((StringValue) verbArguments.elements().get(0));
     String prepositionText = decode((StringValue) verbArguments.elements().get(1));
@@ -6276,7 +6244,7 @@ public final class BuiltinCatalog {
           }
         };
     if (direct < 0 || indirect < 0 || preposition == Integer.MIN_VALUE) {
-      return Result.error(ErrorValue.E_INVARG);
+      return BuiltinResult.error(ErrorValue.E_INVARG);
     }
 
     List<WorldVerb> targetVerbs = target.verbs();
@@ -6285,7 +6253,7 @@ public final class BuiltinCatalog {
     if (descriptor instanceof IntegerValue integer) {
       long index = integer.value() - 1;
       if (index >= targetVerbs.size()) {
-        return Result.error(ErrorValue.E_VERBNF);
+        return BuiltinResult.error(ErrorValue.E_VERBNF);
       }
       verbIndex = (int) index;
       verb = targetVerbs.get(verbIndex);
@@ -6293,7 +6261,7 @@ public final class BuiltinCatalog {
       WorldVerb candidate =
           world.verb(object.value(), decode((StringValue) descriptor), false).orElse(null);
       if (candidate == null || !targetVerbs.contains(candidate)) {
-        return Result.error(ErrorValue.E_VERBNF);
+        return BuiltinResult.error(ErrorValue.E_VERBNF);
       }
       verb = candidate;
       verbIndex = targetVerbs.indexOf(verb);
@@ -6301,49 +6269,49 @@ public final class BuiltinCatalog {
 
     boolean wizard = BuiltinPermissionRule.WIZARD_ONLY.allows(world, programmer);
     if (verb.owner() != programmer && !wizard && (verb.permissions() & 2) == 0) {
-      return Result.error(ErrorValue.E_PERM);
+      return BuiltinResult.error(ErrorValue.E_PERM);
     }
     boolean updated =
         world.setVerbArgs(object.value(), verbIndex, direct, preposition, indirect);
-    return updated ? Result.zero() : Result.error(ErrorValue.E_VERBNF);
+    return updated ? BuiltinResult.value(new IntegerValue(0)) : BuiltinResult.error(ErrorValue.E_VERBNF);
   }
 
-  private static Result setVerbCode(
+  private static BuiltinResult setVerbCode(
       List<MooValue> arguments, WorldTxn world, long programmer) {
     ListValue code = (ListValue) arguments.get(2);
     if (code.elements().stream().anyMatch(value -> !(value instanceof StringValue))) {
-      return Result.error(ErrorValue.E_TYPE);
+      return BuiltinResult.error(ErrorValue.E_TYPE);
     }
     MooValue receiver = arguments.get(0);
     List<WorldVerb> targetVerbs;
     if (receiver instanceof ObjectValue object) {
       WorldObject target = world.object(object.value()).orElse(null);
       if (target == null) {
-        return Result.error(ErrorValue.E_INVARG);
+        return BuiltinResult.error(ErrorValue.E_INVARG);
       }
       targetVerbs = target.verbs();
     } else if (receiver instanceof AnonymousObjectValue anonymous) {
       WorldAnonymousObject target = world.anonymousObject(anonymous).orElse(null);
       if (target == null) {
-        return Result.error(ErrorValue.E_INVARG);
+        return BuiltinResult.error(ErrorValue.E_INVARG);
       }
       targetVerbs = target.verbs();
     } else {
-      return Result.error(ErrorValue.E_TYPE);
+      return BuiltinResult.error(ErrorValue.E_TYPE);
     }
     MooValue descriptor = arguments.get(1);
     if (!(descriptor instanceof StringValue) && !(descriptor instanceof IntegerValue)) {
-      return Result.error(ErrorValue.E_TYPE);
+      return BuiltinResult.error(ErrorValue.E_TYPE);
     }
     if (descriptor instanceof IntegerValue integer && integer.value() <= 0) {
-      return Result.error(ErrorValue.E_INVARG);
+      return BuiltinResult.error(ErrorValue.E_INVARG);
     }
     WorldVerb verb;
     int verbIndex;
     if (descriptor instanceof IntegerValue integer) {
       long index = integer.value() - 1;
       if (index >= targetVerbs.size()) {
-        return Result.error(ErrorValue.E_VERBNF);
+        return BuiltinResult.error(ErrorValue.E_VERBNF);
       }
       verbIndex = (int) index;
       verb = targetVerbs.get(verbIndex);
@@ -6358,7 +6326,7 @@ public final class BuiltinCatalog {
                       false)
                   .orElse(null);
       if (candidate == null || !targetVerbs.contains(candidate)) {
-        return Result.error(ErrorValue.E_VERBNF);
+        return BuiltinResult.error(ErrorValue.E_VERBNF);
       }
       verb = candidate;
       verbIndex = targetVerbs.indexOf(verb);
@@ -6369,7 +6337,7 @@ public final class BuiltinCatalog {
     boolean programmerFlag = actor != null && (actor.flags() & 2) != 0;
     if ((!programmerFlag && !wizard)
         || (verb.owner() != programmer && !wizard && (verb.permissions() & 2) == 0)) {
-      return Result.error(ErrorValue.E_PERM);
+      return BuiltinResult.error(ErrorValue.E_PERM);
     }
 
     String suppliedSource =
@@ -6390,47 +6358,47 @@ public final class BuiltinCatalog {
       if (diagnostic == null) {
         diagnostic = error.getClass().getSimpleName();
       }
-      return Result.value(new ListValue(List.of(encode(diagnostic))));
+      return BuiltinResult.value(new ListValue(List.of(encode(diagnostic))));
     }
     boolean updated =
         receiver instanceof ObjectValue object
             ? world.setVerbCode(object.value(), verbIndex, canonicalSource)
             : world.setVerbCode((AnonymousObjectValue) receiver, verbIndex, canonicalSource);
     if (!updated) {
-      return Result.error(ErrorValue.E_VERBNF);
+      return BuiltinResult.error(ErrorValue.E_VERBNF);
     }
-    return Result.value(new ListValue(List.of()));
+    return BuiltinResult.value(new ListValue(List.of()));
   }
 
-  private static Result verbCode(
+  private static BuiltinResult verbCode(
       List<MooValue> arguments, WorldTxn world, long programmer) {
     if (!(arguments.get(0) instanceof ObjectValue object)) {
-      return Result.error(ErrorValue.E_TYPE);
+      return BuiltinResult.error(ErrorValue.E_TYPE);
     }
     MooValue descriptor = arguments.get(1);
     if (!(descriptor instanceof StringValue) && !(descriptor instanceof IntegerValue)) {
-      return Result.error(ErrorValue.E_TYPE);
+      return BuiltinResult.error(ErrorValue.E_TYPE);
     }
     if (descriptor instanceof IntegerValue integer && integer.value() <= 0) {
-      return Result.error(ErrorValue.E_INVARG);
+      return BuiltinResult.error(ErrorValue.E_INVARG);
     }
     WorldObject target = world.object(object.value()).orElse(null);
     if (target == null) {
-      return Result.error(ErrorValue.E_INVARG);
+      return BuiltinResult.error(ErrorValue.E_INVARG);
     }
 
     WorldVerb verb;
     if (descriptor instanceof IntegerValue integer) {
       long index = integer.value() - 1;
       if (index >= target.verbs().size()) {
-        return Result.error(ErrorValue.E_VERBNF);
+        return BuiltinResult.error(ErrorValue.E_VERBNF);
       }
       verb = target.verbs().get((int) index);
     } else {
       WorldVerb candidate =
           world.verb(object.value(), decode((StringValue) descriptor), false).orElse(null);
       if (candidate == null || !target.verbs().contains(candidate)) {
-        return Result.error(ErrorValue.E_VERBNF);
+        return BuiltinResult.error(ErrorValue.E_VERBNF);
       }
       verb = candidate;
     }
@@ -6438,7 +6406,7 @@ public final class BuiltinCatalog {
     WorldObject actor = world.object(programmer).orElse(null);
     boolean wizard = actor != null && (actor.flags() & 4) != 0;
     if (verb.owner() != programmer && !wizard && (verb.permissions() & 1) == 0) {
-      return Result.error(ErrorValue.E_PERM);
+      return BuiltinResult.error(ErrorValue.E_PERM);
     }
 
     boolean indent = arguments.size() < 4 || arguments.get(3).isTruthy();
@@ -6448,37 +6416,37 @@ public final class BuiltinCatalog {
             .map(BuiltinCatalog::encode)
             .map(MooValue.class::cast)
             .toList();
-    return Result.value(new ListValue(lines));
+    return BuiltinResult.value(new ListValue(lines));
   }
 
-  private static Result move(List<MooValue> arguments, WorldTxn world, long programmer) {
+  private static BuiltinResult move(List<MooValue> arguments, WorldTxn world, long programmer) {
     ObjectValue object = (ObjectValue) arguments.get(0);
     ObjectValue destination = (ObjectValue) arguments.get(1);
     long position =
         arguments.size() == 3 ? ((IntegerValue) arguments.get(2)).value() : 0;
     if (position < 0) {
-      return Result.error(ErrorValue.E_INVARG);
+      return BuiltinResult.error(ErrorValue.E_INVARG);
     }
     WorldObject moving = world.object(object.value()).orElse(null);
     if (moving == null
         || (destination.value() != -1 && world.object(destination.value()).isEmpty())) {
-      return Result.error(ErrorValue.E_INVARG);
+      return BuiltinResult.error(ErrorValue.E_INVARG);
     }
     if (recursiveMove(world, object.value(), destination.value())) {
-      return Result.error(ErrorValue.E_RECMOVE);
+      return BuiltinResult.error(ErrorValue.E_RECMOVE);
     }
     WorldObject programmerObject = world.object(programmer).orElse(null);
     if (programmerObject != null && (programmerObject.flags() & 4) != 0) {
       if (destination.value() == moving.location()) {
         return position == 0 || world.move(object.value(), destination.value(), position)
-            ? Result.zero()
-            : Result.error(ErrorValue.E_INVARG);
+            ? BuiltinResult.value(new IntegerValue(0))
+            : BuiltinResult.error(ErrorValue.E_INVARG);
       }
-      return Result.move(object.value(), destination.value(), position);
+      return new BuiltinResult.Move(object.value(), destination.value(), position);
     }
     return world.move(object.value(), destination.value(), position)
-        ? Result.zero()
-        : Result.error(ErrorValue.E_INVARG);
+        ? BuiltinResult.value(new IntegerValue(0))
+        : BuiltinResult.error(ErrorValue.E_INVARG);
   }
 
   private static boolean recursiveMove(WorldTxn world, long object, long destination) {
@@ -6497,7 +6465,7 @@ public final class BuiltinCatalog {
     return false;
   }
 
-  private static Result recycle(
+  private static BuiltinResult recycle(
       List<MooValue> arguments, WorldTxn world, long programmer) {
     WorldObject actor = world.object(programmer).orElse(null);
     boolean wizard = actor != null && (actor.flags() & 4) != 0;
@@ -6505,52 +6473,52 @@ public final class BuiltinCatalog {
     if (receiver instanceof AnonymousObjectValue anonymous) {
       WorldAnonymousObject target = world.anonymousObject(anonymous).orElse(null);
       if (target == null) {
-        return Result.error(ErrorValue.E_INVARG);
+        return BuiltinResult.error(ErrorValue.E_INVARG);
       }
       if (target.owner() != programmer && !wizard) {
-        return Result.error(ErrorValue.E_PERM);
+        return BuiltinResult.error(ErrorValue.E_PERM);
       }
-      return Result.recycle(anonymous);
+      return new BuiltinResult.RecycleAnonymous(anonymous);
     }
     if (receiver instanceof ObjectValue object) {
       WorldObject target = world.object(object.value()).orElse(null);
       if (target == null) {
-        return Result.error(ErrorValue.E_INVARG);
+        return BuiltinResult.error(ErrorValue.E_INVARG);
       }
       if (target.owner() != programmer && !wizard) {
-        return Result.error(ErrorValue.E_PERM);
+        return BuiltinResult.error(ErrorValue.E_PERM);
       }
-      return Result.recycle(object.value());
+      return new BuiltinResult.Recycle(object.value());
     }
-    return Result.error(ErrorValue.E_TYPE);
+    return BuiltinResult.error(ErrorValue.E_TYPE);
   }
 
-  private static Result switchPlayer(List<MooValue> arguments, WorldTxn world) {
+  private static BuiltinResult switchPlayer(List<MooValue> arguments, WorldTxn world) {
     long oldPlayer = ((ObjectValue) arguments.getFirst()).value();
     long newPlayer = ((ObjectValue) arguments.get(1)).value();
     if (oldPlayer == newPlayer
         || world.connectionId(oldPlayer).isEmpty()
         || !world.players().contains(newPlayer)) {
-      return Result.error(ErrorValue.E_INVARG);
+      return BuiltinResult.error(ErrorValue.E_INVARG);
     }
-    return Result.switchPlayer(newPlayer);
+    return new BuiltinResult.SwitchPlayer(newPlayer);
   }
 
-  private static Result setTaskPerms(
+  private static BuiltinResult setTaskPerms(
       List<MooValue> arguments, WorldTxn world, long currentProgrammer) {
     ObjectValue requested = (ObjectValue) arguments.getFirst();
     if (requested.value() != currentProgrammer && !isWizard(world, currentProgrammer)) {
-      return Result.error(ErrorValue.E_PERM);
+      return BuiltinResult.error(ErrorValue.E_PERM);
     }
-    return Result.programmer(requested.value());
+    return new BuiltinResult.Programmer(requested.value());
   }
 
-  private static Result notifyLine(List<MooValue> arguments) {
+  private static BuiltinResult notifyLine(List<MooValue> arguments) {
     StringValue line = (StringValue) arguments.get(1);
-    return Result.output(decode(line));
+    return new BuiltinResult.Output(decode(line));
   }
 
-  private static Result toStringValue(List<MooValue> arguments) {
+  private static BuiltinResult toStringValue(List<MooValue> arguments) {
     StringBuilder text = new StringBuilder();
     for (MooValue argument : arguments) {
       text.append(
@@ -6563,108 +6531,108 @@ public final class BuiltinCatalog {
             case AnonymousObjectValue anonymous -> anonymous.toString();
             case WaifValue waif -> waif.toString();
             case ErrorValue error -> errorDescription(error);
-            case ListValue ignored -> "{list}";
-            case MapValue ignored -> "[map]";
+            case ListValue _ -> "{list}";
+            case MapValue _ -> "[map]";
           });
     }
-    return Result.value(encode(text.toString()));
+    return BuiltinResult.value(encode(text.toString()));
   }
 
   private static String errorDescription(ErrorValue error) {
     return error.description();
   }
 
-  private static Result toFloat(List<MooValue> arguments) {
+  private static BuiltinResult toFloat(List<MooValue> arguments) {
     MooValue argument = arguments.getFirst();
     if (argument instanceof FloatValue floating) {
-      return Result.value(floating);
+      return BuiltinResult.value(floating);
     }
     if (argument instanceof IntegerValue integer) {
-      return Result.value(new FloatValue(integer.value()));
+      return BuiltinResult.value(new FloatValue(integer.value()));
     }
     if (argument instanceof ObjectValue object) {
-      return Result.value(new FloatValue(object.value()));
+      return BuiltinResult.value(new FloatValue(object.value()));
     }
     if (argument instanceof ErrorValue error) {
-      return Result.value(new FloatValue(error.code()));
+      return BuiltinResult.value(new FloatValue(error.code()));
     }
     if (argument instanceof StringValue string) {
       try {
         double converted = Double.parseDouble(decode(string).strip());
         return Double.isFinite(converted)
-            ? Result.value(new FloatValue(converted))
-            : Result.error(ErrorValue.E_INVARG);
+            ? BuiltinResult.value(new FloatValue(converted))
+            : BuiltinResult.error(ErrorValue.E_INVARG);
       } catch (NumberFormatException error) {
-        return Result.error(ErrorValue.E_INVARG);
+        return BuiltinResult.error(ErrorValue.E_INVARG);
       }
     }
-    return Result.error(ErrorValue.E_TYPE);
+    return BuiltinResult.error(ErrorValue.E_TYPE);
   }
 
-  private static Result toInteger(List<MooValue> arguments) {
+  private static BuiltinResult toInteger(List<MooValue> arguments) {
     MooValue argument = arguments.getFirst();
     if (argument instanceof IntegerValue integer) {
-      return Result.value(integer);
+      return BuiltinResult.value(integer);
     }
     if (argument instanceof BooleanValue bool) {
-      return Result.value(new IntegerValue(bool.value() ? 1 : 0));
+      return BuiltinResult.value(new IntegerValue(bool.value() ? 1 : 0));
     }
     if (argument instanceof FloatValue floating) {
       return Double.isFinite(floating.value())
-          ? Result.value(new IntegerValue((long) floating.value()))
-          : Result.error(ErrorValue.E_FLOAT);
+          ? BuiltinResult.value(new IntegerValue((long) floating.value()))
+          : BuiltinResult.error(ErrorValue.E_FLOAT);
     }
     if (argument instanceof ObjectValue object) {
-      return Result.value(new IntegerValue(object.value()));
+      return BuiltinResult.value(new IntegerValue(object.value()));
     }
     if (argument instanceof ErrorValue error) {
-      return Result.value(new IntegerValue(error.code()));
+      return BuiltinResult.value(new IntegerValue(error.code()));
     }
     if (argument instanceof StringValue string) {
       String text = decode(string).strip();
       try {
-        return Result.value(new IntegerValue(Long.parseLong(text)));
+        return BuiltinResult.value(new IntegerValue(Long.parseLong(text)));
       } catch (NumberFormatException integerError) {
         try {
           double converted = Double.parseDouble(text);
           return Double.isFinite(converted)
-              ? Result.value(new IntegerValue((long) converted))
-              : Result.zero();
+              ? BuiltinResult.value(new IntegerValue((long) converted))
+              : BuiltinResult.value(new IntegerValue(0));
         } catch (NumberFormatException floatingError) {
-          return Result.zero();
+          return BuiltinResult.value(new IntegerValue(0));
         }
       }
     }
-    return Result.error(ErrorValue.E_TYPE);
+    return BuiltinResult.error(ErrorValue.E_TYPE);
   }
 
-  private static Result toLiteral(List<MooValue> arguments) {
-    return Result.value(encode(arguments.getFirst().toLiteral()));
+  private static BuiltinResult toLiteral(List<MooValue> arguments) {
+    return BuiltinResult.value(encode(arguments.getFirst().toLiteral()));
   }
 
-  private static Result toObject(List<MooValue> arguments) {
+  private static BuiltinResult toObject(List<MooValue> arguments) {
     MooValue argument = arguments.getFirst();
     if (argument instanceof ObjectValue object) {
-      return Result.value(object);
+      return BuiltinResult.value(object);
     }
     if (argument instanceof IntegerValue integer) {
-      return Result.value(new ObjectValue(integer.value()));
+      return BuiltinResult.value(new ObjectValue(integer.value()));
     }
     if (argument instanceof BooleanValue bool) {
-      return Result.value(new ObjectValue(bool.value() ? 1 : 0));
+      return BuiltinResult.value(new ObjectValue(bool.value() ? 1 : 0));
     }
     if (argument instanceof FloatValue floating) {
       return Double.isFinite(floating.value())
-          ? Result.value(new ObjectValue((long) floating.value()))
-          : Result.error(ErrorValue.E_FLOAT);
+          ? BuiltinResult.value(new ObjectValue((long) floating.value()))
+          : BuiltinResult.error(ErrorValue.E_FLOAT);
     }
     if (argument instanceof ErrorValue error) {
-      return Result.value(new ObjectValue(error.code()));
+      return BuiltinResult.value(new ObjectValue(error.code()));
     }
     if (argument instanceof StringValue string) {
-      return Result.value(new ObjectValue(parseToastObjectId(decode(string))));
+      return BuiltinResult.value(new ObjectValue(parseToastObjectId(decode(string))));
     }
-    return Result.error(ErrorValue.E_TYPE);
+    return BuiltinResult.error(ErrorValue.E_TYPE);
   }
 
   private static long parseToastObjectId(String text) {
@@ -6717,8 +6685,8 @@ public final class BuiltinCatalog {
         || character == '\r';
   }
 
-  private static Result equalValues(List<MooValue> arguments) {
-    return Result.value(
+  private static BuiltinResult equalValues(List<MooValue> arguments) {
+    return BuiltinResult.value(
         new IntegerValue(exactlyEqual(arguments.get(0), arguments.get(1)) ? 1 : 0));
   }
 
@@ -6762,26 +6730,26 @@ public final class BuiltinCatalog {
     return left.equals(right);
   }
 
-  private static Result dynamicEval(List<MooValue> arguments) {
+  private static BuiltinResult dynamicEval(List<MooValue> arguments) {
     String source =
         arguments.stream()
             .map(StringValue.class::cast)
             .map(BuiltinCatalog::decode)
             .collect(java.util.stream.Collectors.joining("\n"));
-    return Result.dynamicEval(source);
+    return new BuiltinResult.DynamicEval(source);
   }
 
-  private static Result gcStats() {
+  private static BuiltinResult gcStats() {
     Map<MooValue, MooValue> colors = new LinkedHashMap<>();
     for (String color :
         List.of("green", "yellow", "black", "gray", "white", "purple", "pink")) {
       colors.put(encode(color), new IntegerValue(0));
     }
-    return Result.value(new MapValue(colors));
+    return BuiltinResult.value(new MapValue(colors));
   }
 
-  private static Result typeOf(List<MooValue> arguments) {
-    return Result.value(new IntegerValue(arguments.getFirst().type().code()));
+  private static BuiltinResult typeOf(List<MooValue> arguments) {
+    return BuiltinResult.value(new IntegerValue(arguments.getFirst().type().code()));
   }
 
   private static String decode(StringValue value) {
@@ -6847,14 +6815,6 @@ public final class BuiltinCatalog {
   /** One validated line to inject into a live connection's input stream. */
   public record ForcedInputRequest(long target, String line) {}
 
-  /** One newly-created value whose inherited initialize verb must run before create returns. */
-  public record InitializeRequest(MooValue created, ListValue arguments) {
-    public InitializeRequest {
-      Objects.requireNonNull(created, "created");
-      Objects.requireNonNull(arguments, "arguments");
-    }
-  }
-
   /** The connection options authorized by the held-input slice. */
   public enum ConnectionOption {
     HOLD_INPUT,
@@ -6864,511 +6824,4 @@ public final class BuiltinCatalog {
     INTRINSIC_COMMANDS
   }
 
-  /** One explicit builtin value, MOO error, dynamic call, or staged effect. */
-  public record Result(
-      Optional<MooValue> value,
-      Optional<ErrorValue> error,
-      Optional<String> dynamicSource,
-      Optional<String> output,
-      OptionalLong switchedPlayer,
-      OptionalLong programmer,
-      OptionalLong recycleTarget,
-      OptionalDouble delaySeconds,
-      Optional<Callable<Result>> hostWork,
-      Optional<ConnectionOptionRequest> connectionOptionRequest,
-      OptionalLong bootPlayerTarget,
-      Optional<ForcedInputRequest> forcedInputRequest,
-      Optional<MooValue> taskLocal,
-      OptionalLong moveObject,
-      OptionalLong moveDestination,
-      OptionalLong movePosition,
-      Optional<ListValue> errorDetails,
-      Optional<CheckpointRequest> checkpointRequest,
-      Optional<InitializeRequest> initializeRequest,
-      Optional<Boolean> threadMode,
-      boolean abortSeconds,
-      Optional<AnonymousObjectValue> anonymousRecycleTarget) {
-    private Result(
-        Optional<MooValue> value,
-        Optional<ErrorValue> error,
-        Optional<String> dynamicSource,
-        Optional<String> output,
-        OptionalLong switchedPlayer,
-        OptionalLong programmer,
-        OptionalLong recycleTarget,
-        OptionalDouble delaySeconds,
-        Optional<Callable<Result>> hostWork,
-        Optional<ConnectionOptionRequest> connectionOptionRequest,
-        OptionalLong bootPlayerTarget,
-        Optional<ForcedInputRequest> forcedInputRequest,
-        Optional<MooValue> taskLocal,
-        OptionalLong moveObject,
-        OptionalLong moveDestination,
-        OptionalLong movePosition,
-        Optional<ListValue> errorDetails,
-        Optional<CheckpointRequest> checkpointRequest,
-        Optional<InitializeRequest> initializeRequest,
-        Optional<Boolean> threadMode,
-        boolean abortSeconds) {
-      this(
-          value,
-          error,
-          dynamicSource,
-          output,
-          switchedPlayer,
-          programmer,
-          recycleTarget,
-          delaySeconds,
-          hostWork,
-          connectionOptionRequest,
-          bootPlayerTarget,
-          forcedInputRequest,
-          taskLocal,
-          moveObject,
-          moveDestination,
-          movePosition,
-          errorDetails,
-          checkpointRequest,
-          initializeRequest,
-          threadMode,
-          abortSeconds,
-          Optional.empty());
-    }
-    private Result(
-        Optional<MooValue> value,
-        Optional<ErrorValue> error,
-        Optional<String> dynamicSource,
-        Optional<String> output,
-        OptionalLong switchedPlayer,
-        OptionalLong programmer,
-        OptionalLong recycleTarget,
-        OptionalDouble delaySeconds,
-        Optional<Callable<Result>> hostWork,
-        Optional<ConnectionOptionRequest> connectionOptionRequest,
-        OptionalLong bootPlayerTarget,
-        Optional<ForcedInputRequest> forcedInputRequest,
-        Optional<MooValue> taskLocal,
-        OptionalLong moveObject,
-        OptionalLong moveDestination,
-        OptionalLong movePosition,
-        Optional<ListValue> errorDetails,
-        Optional<CheckpointRequest> checkpointRequest) {
-      this(
-          value,
-          error,
-          dynamicSource,
-          output,
-          switchedPlayer,
-          programmer,
-          recycleTarget,
-          delaySeconds,
-          hostWork,
-          connectionOptionRequest,
-          bootPlayerTarget,
-          forcedInputRequest,
-          taskLocal,
-          moveObject,
-          moveDestination,
-          movePosition,
-          errorDetails,
-          checkpointRequest,
-          Optional.empty(),
-          Optional.empty(),
-          false);
-    }
-
-    private Result(
-        Optional<MooValue> value,
-        Optional<ErrorValue> error,
-        Optional<String> dynamicSource,
-        Optional<String> output,
-        OptionalLong switchedPlayer,
-        OptionalLong programmer,
-        OptionalLong recycleTarget,
-        OptionalDouble delaySeconds,
-        Optional<Callable<Result>> hostWork,
-        Optional<ConnectionOptionRequest> connectionOptionRequest,
-        OptionalLong bootPlayerTarget,
-        Optional<ForcedInputRequest> forcedInputRequest) {
-      this(
-          value,
-          error,
-          dynamicSource,
-          output,
-          switchedPlayer,
-          programmer,
-          recycleTarget,
-          delaySeconds,
-          hostWork,
-          connectionOptionRequest,
-          bootPlayerTarget,
-          forcedInputRequest,
-          Optional.empty(),
-          OptionalLong.empty(),
-          OptionalLong.empty(),
-          OptionalLong.empty(),
-          Optional.empty(),
-          Optional.empty());
-    }
-
-    public static Result value(MooValue value) {
-      return new Result(
-          Optional.of(value),
-          Optional.empty(),
-          Optional.empty(),
-          Optional.empty(),
-          OptionalLong.empty(),
-          OptionalLong.empty(),
-          OptionalLong.empty(),
-          OptionalDouble.empty(),
-          Optional.empty(),
-          Optional.empty(),
-          OptionalLong.empty(),
-          Optional.empty());
-    }
-
-    static Result initialize(MooValue created, ListValue arguments) {
-      return new Result(
-          Optional.empty(),
-          Optional.empty(),
-          Optional.empty(),
-          Optional.empty(),
-          OptionalLong.empty(),
-          OptionalLong.empty(),
-          OptionalLong.empty(),
-          OptionalDouble.empty(),
-          Optional.empty(),
-          Optional.empty(),
-          OptionalLong.empty(),
-          Optional.empty(),
-          Optional.empty(),
-          OptionalLong.empty(),
-          OptionalLong.empty(),
-          OptionalLong.empty(),
-          Optional.empty(),
-          Optional.empty(),
-          Optional.of(new InitializeRequest(created, arguments)),
-          Optional.empty(),
-          false);
-    }
-
-    static Result zero() {
-      return value(new IntegerValue(0));
-    }
-
-    static Result checkpoint() {
-      return new Result(
-          Optional.of(new IntegerValue(0)),
-          Optional.empty(),
-          Optional.empty(),
-          Optional.empty(),
-          OptionalLong.empty(),
-          OptionalLong.empty(),
-          OptionalLong.empty(),
-          OptionalDouble.empty(),
-          Optional.empty(),
-          Optional.empty(),
-          OptionalLong.empty(),
-          Optional.empty(),
-          Optional.empty(),
-          OptionalLong.empty(),
-          OptionalLong.empty(),
-          OptionalLong.empty(),
-          Optional.empty(),
-          Optional.of(new CheckpointRequest(false)));
-    }
-
-    static Result shutdown() {
-      return new Result(
-          Optional.of(new IntegerValue(0)),
-          Optional.empty(),
-          Optional.empty(),
-          Optional.empty(),
-          OptionalLong.empty(),
-          OptionalLong.empty(),
-          OptionalLong.empty(),
-          OptionalDouble.empty(),
-          Optional.empty(),
-          Optional.empty(),
-          OptionalLong.empty(),
-          Optional.empty(),
-          Optional.empty(),
-          OptionalLong.empty(),
-          OptionalLong.empty(),
-          OptionalLong.empty(),
-          Optional.empty(),
-          Optional.of(new CheckpointRequest(true)));
-    }
-
-    static Result panic(String message) {
-      return new Result(
-          Optional.of(new IntegerValue(0)),
-          Optional.empty(),
-          Optional.empty(),
-          Optional.empty(),
-          OptionalLong.empty(),
-          OptionalLong.empty(),
-          OptionalLong.empty(),
-          OptionalDouble.empty(),
-          Optional.empty(),
-          Optional.empty(),
-          OptionalLong.empty(),
-          Optional.empty(),
-          Optional.empty(),
-          OptionalLong.empty(),
-          OptionalLong.empty(),
-          OptionalLong.empty(),
-          Optional.empty(),
-          Optional.of(CheckpointRequest.panic(message)));
-    }
-
-    static Result suspend(double seconds) {
-      return new Result(
-          Optional.empty(),
-          Optional.empty(),
-          Optional.empty(),
-          Optional.empty(),
-          OptionalLong.empty(),
-          OptionalLong.empty(),
-          OptionalLong.empty(),
-          OptionalDouble.of(seconds),
-          Optional.empty(),
-          Optional.empty(),
-          OptionalLong.empty(),
-          Optional.empty());
-    }
-
-    public static Result error(ErrorValue error) {
-      return new Result(
-          Optional.empty(),
-          Optional.of(error),
-          Optional.empty(),
-          Optional.empty(),
-          OptionalLong.empty(),
-          OptionalLong.empty(),
-          OptionalLong.empty(),
-          OptionalDouble.empty(),
-          Optional.empty(),
-          Optional.empty(),
-          OptionalLong.empty(),
-          Optional.empty());
-    }
-
-    /** Suspends until the scheduler's existing bounded executor completes this host work. */
-    public static Result hostWork(Callable<Result> hostWork) {
-      return new Result(
-          Optional.empty(),
-          Optional.empty(),
-          Optional.empty(),
-          Optional.empty(),
-          OptionalLong.empty(),
-          OptionalLong.empty(),
-          OptionalLong.empty(),
-          OptionalDouble.empty(),
-          Optional.of(hostWork),
-          Optional.empty(),
-          OptionalLong.empty(),
-          Optional.empty());
-    }
-
-    static Result threadMode(boolean enabled) {
-      return new Result(
-          Optional.of(new IntegerValue(0)),
-          Optional.empty(),
-          Optional.empty(),
-          Optional.empty(),
-          OptionalLong.empty(),
-          OptionalLong.empty(),
-          OptionalLong.empty(),
-          OptionalDouble.empty(),
-          Optional.empty(),
-          Optional.empty(),
-          OptionalLong.empty(),
-          Optional.empty(),
-          Optional.empty(),
-          OptionalLong.empty(),
-          OptionalLong.empty(),
-          OptionalLong.empty(),
-          Optional.empty(),
-          Optional.empty(),
-          Optional.empty(),
-          Optional.of(enabled),
-          false);
-    }
-
-    static Result secondsAbort() {
-      return new Result(
-          Optional.empty(),
-          Optional.empty(),
-          Optional.empty(),
-          Optional.empty(),
-          OptionalLong.empty(),
-          OptionalLong.empty(),
-          OptionalLong.empty(),
-          OptionalDouble.empty(),
-          Optional.empty(),
-          Optional.empty(),
-          OptionalLong.empty(),
-          Optional.empty(),
-          Optional.empty(),
-          OptionalLong.empty(),
-          OptionalLong.empty(),
-          OptionalLong.empty(),
-          Optional.empty(),
-          Optional.empty(),
-          Optional.empty(),
-          Optional.empty(),
-          true);
-    }
-
-    public static Result raised(ErrorValue error, StringValue message, MooValue value) {
-      return new Result(
-          Optional.empty(),
-          Optional.of(error),
-          Optional.empty(),
-          Optional.empty(),
-          OptionalLong.empty(),
-          OptionalLong.empty(),
-          OptionalLong.empty(),
-          OptionalDouble.empty(),
-          Optional.empty(),
-          Optional.empty(),
-          OptionalLong.empty(),
-          Optional.empty(),
-          Optional.empty(),
-          OptionalLong.empty(),
-          OptionalLong.empty(),
-          OptionalLong.empty(),
-          Optional.of(new ListValue(List.of(message, value, new ListValue(List.of())))),
-          Optional.empty());
-    }
-
-    static Result dynamicEval(String source) {
-      return new Result(
-          Optional.empty(),
-          Optional.empty(),
-          Optional.of(source),
-          Optional.empty(),
-          OptionalLong.empty(),
-          OptionalLong.empty(),
-          OptionalLong.empty(),
-          OptionalDouble.empty(),
-          Optional.empty(),
-          Optional.empty(),
-          OptionalLong.empty(),
-          Optional.empty());
-    }
-
-    static Result output(String line) {
-      return new Result(
-          Optional.of(new IntegerValue(1)),
-          Optional.empty(),
-          Optional.empty(),
-          Optional.of(line),
-          OptionalLong.empty(),
-          OptionalLong.empty(),
-          OptionalLong.empty(),
-          OptionalDouble.empty(),
-          Optional.empty(),
-          Optional.empty(),
-          OptionalLong.empty(),
-          Optional.empty());
-    }
-
-    static Result switchPlayer(long player) {
-      return new Result(
-          Optional.of(new IntegerValue(0)),
-          Optional.empty(),
-          Optional.empty(),
-          Optional.empty(),
-          OptionalLong.of(player),
-          OptionalLong.empty(),
-          OptionalLong.empty(),
-          OptionalDouble.empty(),
-          Optional.empty(),
-          Optional.empty(),
-          OptionalLong.empty(),
-          Optional.empty());
-    }
-
-    static Result programmer(long programmer) {
-      return new Result(
-          Optional.of(new IntegerValue(0)),
-          Optional.empty(),
-          Optional.empty(),
-          Optional.empty(),
-          OptionalLong.empty(),
-          OptionalLong.of(programmer),
-          OptionalLong.empty(),
-          OptionalDouble.empty(),
-          Optional.empty(),
-          Optional.empty(),
-          OptionalLong.empty(),
-          Optional.empty());
-    }
-
-    static Result move(long object, long destination, long position) {
-      return new Result(
-          Optional.empty(),
-          Optional.empty(),
-          Optional.empty(),
-          Optional.empty(),
-          OptionalLong.empty(),
-          OptionalLong.empty(),
-          OptionalLong.empty(),
-          OptionalDouble.empty(),
-          Optional.empty(),
-          Optional.empty(),
-          OptionalLong.empty(),
-          Optional.empty(),
-          Optional.empty(),
-          OptionalLong.of(object),
-          OptionalLong.of(destination),
-          OptionalLong.of(position),
-          Optional.empty(),
-          Optional.empty());
-    }
-
-    static Result recycle(long object) {
-      return new Result(
-          Optional.empty(),
-          Optional.empty(),
-          Optional.empty(),
-          Optional.empty(),
-          OptionalLong.empty(),
-          OptionalLong.empty(),
-          OptionalLong.of(object),
-          OptionalDouble.empty(),
-          Optional.empty(),
-          Optional.empty(),
-          OptionalLong.empty(),
-          Optional.empty());
-    }
-
-    static Result recycle(AnonymousObjectValue object) {
-      return new Result(
-          Optional.empty(),
-          Optional.empty(),
-          Optional.empty(),
-          Optional.empty(),
-          OptionalLong.empty(),
-          OptionalLong.empty(),
-          OptionalLong.empty(),
-          OptionalDouble.empty(),
-          Optional.empty(),
-          Optional.empty(),
-          OptionalLong.empty(),
-          Optional.empty(),
-          Optional.empty(),
-          OptionalLong.empty(),
-          OptionalLong.empty(),
-          OptionalLong.empty(),
-          Optional.empty(),
-          Optional.empty(),
-          Optional.empty(),
-          Optional.empty(),
-          false,
-          Optional.of(object));
-    }
-  }
 }

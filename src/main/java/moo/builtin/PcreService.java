@@ -8,7 +8,6 @@ import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.regex.PatternSyntaxException;
-import moo.builtin.BuiltinCatalog.Result;
 import moo.value.MooValue;
 import moo.value.MooValue.ErrorValue;
 import moo.value.MooValue.IntegerValue;
@@ -22,7 +21,7 @@ final class PcreService {
   private static final int MAX_CACHE_ENTRIES = 256;
   private final LinkedHashMap<CacheKey, CacheEntry> cache = new LinkedHashMap<>();
 
-  synchronized Result match(List<MooValue> arguments) {
+  synchronized BuiltinResult match(List<MooValue> arguments) {
     String subject = text(arguments.get(0));
     String source = text(arguments.get(1));
     if (source.isEmpty()) {
@@ -62,10 +61,10 @@ final class PcreService {
         break;
       }
     }
-    return Result.value(new ListValue(matches));
+    return BuiltinResult.value(new ListValue(matches));
   }
 
-  synchronized Result replace(List<MooValue> arguments) {
+  synchronized BuiltinResult replace(List<MooValue> arguments) {
     String subject = text(arguments.get(0));
     Substitution substitution = Substitution.parse(text(arguments.get(1)));
     if (substitution == null) {
@@ -81,21 +80,21 @@ final class PcreService {
                   : 0);
       String replacement = substitution.replacement.replace("$&", "$0");
       Matcher matcher = pattern.matcher(subject);
-      return Result.value(
+      return BuiltinResult.value(
           string(substitution.global ? matcher.replaceAll(replacement) : matcher.replaceFirst(replacement)));
     } catch (IllegalArgumentException failure) {
       return invalidArgument();
     }
   }
 
-  synchronized Result cacheStats(List<MooValue> arguments) {
+  synchronized BuiltinResult cacheStats() {
     List<MooValue> entries = new ArrayList<>();
     for (Map.Entry<CacheKey, CacheEntry> entry : cache.entrySet()) {
       entries.add(
           new ListValue(
               List.of(string(entry.getKey().pattern), new IntegerValue(entry.getValue().hits))));
     }
-    return Result.value(new ListValue(entries));
+    return BuiltinResult.value(new ListValue(entries));
   }
 
   private Pattern cached(String source, boolean caseMatters) {
@@ -163,8 +162,8 @@ final class PcreService {
     return new StringValue(value.getBytes(StandardCharsets.ISO_8859_1));
   }
 
-  private static Result invalidArgument() {
-    return Result.error(ErrorValue.E_INVARG);
+  private static BuiltinResult invalidArgument() {
+    return BuiltinResult.error(ErrorValue.E_INVARG);
   }
 
   private record CacheKey(String pattern, boolean caseMatters) {}

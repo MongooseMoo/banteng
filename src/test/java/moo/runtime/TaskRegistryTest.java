@@ -8,7 +8,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.FutureTask;
 import moo.builtin.BuiltinCatalog;
-import moo.builtin.BuiltinCatalog.Result;
+import moo.builtin.BuiltinResult;
 import moo.bytecode.BytecodeProgram;
 import moo.bytecode.MooCompiler;
 import moo.value.MooValue;
@@ -76,8 +76,8 @@ final class TaskRegistryTest {
       new MooVm().execute(program, state, transaction, new BuiltinCatalog(), 17);
     }
     VmSnapshot snapshot = state.snapshot();
-    FutureTask<Result> submitted =
-        new FutureTask<>(() -> Result.value(new IntegerValue(1)));
+    FutureTask<BuiltinResult> submitted =
+        new FutureTask<>(() -> BuiltinResult.value(new IntegerValue(1)));
     registry.registerFork(17, 1234, 2, new ObjectValue(7), locals);
 
     assertEquals(true, registry.registerHost(17, snapshot, submitted));
@@ -109,14 +109,14 @@ final class TaskRegistryTest {
     try (WorldTxn transaction = world().begin()) {
       assertEquals(
           new IntegerValue(0),
-          killResult(registry, 18, transaction, 1).value().orElseThrow());
+          value(killResult(registry, 18, transaction, 1)));
     }
     assertEquals(
         false,
         registry.registerHost(
             18,
             snapshot,
-            new FutureTask<>(() -> Result.value(new IntegerValue(2)))));
+            new FutureTask<>(() -> BuiltinResult.value(new IntegerValue(2)))));
     assertEquals(true, registry.discardIfCanceled(18));
     assertEquals(0, registry.size());
   }
@@ -165,13 +165,13 @@ final class TaskRegistryTest {
 
       assertEquals(
           ErrorValue.E_PERM,
-          killResult(registry, 18, transaction, 2).error().orElseThrow());
+          error(killResult(registry, 18, transaction, 2)));
       assertEquals(
           ErrorValue.E_INVARG,
-          killResult(registry, 99, transaction, 1).error().orElseThrow());
+          error(killResult(registry, 99, transaction, 1)));
       assertEquals(
           new IntegerValue(0),
-          killResult(registry, 18, transaction, 1).value().orElseThrow());
+          value(killResult(registry, 18, transaction, 1)));
       assertEquals(1, registry.size());
       assertEquals(true, registry.discardIfCanceled(18));
     }
@@ -199,14 +199,14 @@ final class TaskRegistryTest {
     registry.registerSuspended(17, 1234, snapshot);
 
     try (WorldTxn transaction = world().begin()) {
-      Result owner =
+      BuiltinResult owner =
           taskStackResult(
               registry,
               List.of(new IntegerValue(17), new IntegerValue(1), new IntegerValue(1)),
               transaction,
               2,
               99);
-      ListValue stack = assertInstanceOf(ListValue.class, owner.value().orElseThrow());
+      ListValue stack = assertInstanceOf(ListValue.class, value(owner));
       ListValue frame = assertInstanceOf(ListValue.class, stack.get(1).orElseThrow());
       assertEquals(7, frame.size());
       assertEquals(new ObjectValue(8), frame.get(1).orElseThrow());
@@ -220,26 +220,23 @@ final class TaskRegistryTest {
 
       assertEquals(
           ErrorValue.E_PERM,
-          taskStackResult(
-                  registry, List.of(new IntegerValue(17)), transaction, 3, 99)
-              .error()
-              .orElseThrow());
+          error(
+              taskStackResult(
+                  registry, List.of(new IntegerValue(17)), transaction, 3, 99)));
       assertEquals(
           ErrorValue.E_INVARG,
-          taskStackResult(
-                  registry, List.of(new IntegerValue(17)), transaction, 2, 17)
-              .error()
-              .orElseThrow());
+          error(
+              taskStackResult(
+                  registry, List.of(new IntegerValue(17)), transaction, 2, 17)));
       assertInstanceOf(
           ListValue.class,
-          taskStackResult(
-                  registry, List.of(new IntegerValue(17)), transaction, 1, 99)
-              .value()
-              .orElseThrow());
+          value(
+              taskStackResult(
+                  registry, List.of(new IntegerValue(17)), transaction, 1, 99)));
     }
   }
 
-  private static Result killResult(
+  private static BuiltinResult killResult(
       TaskRegistry registry, long taskId, WorldTxn world, long programmer) {
     return registry.killTask(
         List.of(new IntegerValue(taskId)),
@@ -255,8 +252,8 @@ final class TaskRegistryTest {
   }
 
   private static MooValue handles(TaskRegistry registry, WorldTxn world) {
-    return registry
-        .threads(
+    return value(
+        registry.threads(
             List.of(),
             world,
             1,
@@ -266,12 +263,10 @@ final class TaskRegistryTest {
             5,
             new ObjectValue(1),
             1,
-            new ListValue(List.of()))
-        .value()
-        .orElseThrow();
+            new ListValue(List.of())));
   }
 
-  private static Result taskStackResult(
+  private static BuiltinResult taskStackResult(
       TaskRegistry registry,
       List<MooValue> arguments,
       WorldTxn world,
@@ -297,7 +292,7 @@ final class TaskRegistryTest {
 
   private static MooValue result(
       TaskRegistry registry, List<MooValue> arguments, WorldTxn world, long programmer) {
-    Result result =
+    BuiltinResult result =
         registry.queuedTasks(
             arguments,
             world,
@@ -309,7 +304,18 @@ final class TaskRegistryTest {
             new ObjectValue(programmer),
             programmer,
             new ListValue(List.of()));
-    return result.value().orElseThrow();
+    return value(result);
+  }
+
+  private static MooValue value(BuiltinResult result) {
+    return assertInstanceOf(BuiltinResult.Value.class, result).value();
+  }
+
+  private static ErrorValue error(BuiltinResult result) {
+    if (result instanceof BuiltinResult.ErrorResult error) {
+      return error.error();
+    }
+    return assertInstanceOf(BuiltinResult.RaisedError.class, result).error();
   }
 
   private static StringValue string(String value) {

@@ -15,7 +15,7 @@ import java.util.Optional;
 import java.util.OptionalDouble;
 import java.util.OptionalLong;
 import java.util.concurrent.TimeUnit;
-import moo.builtin.BuiltinCatalog.Result;
+import moo.builtin.BuiltinResult;
 import moo.builtin.BuiltinCatalog.ConnectionOption;
 import moo.builtin.BuiltinCatalog.ConnectionOptionRequest;
 import moo.builtin.BuiltinCatalog.ForcedInputRequest;
@@ -161,7 +161,7 @@ final class VmSnapshotTest {
     state.ensureRoot(program);
     state.suspend(
         OptionalDouble.empty(),
-        Optional.of(() -> Result.value(new IntegerValue(41))));
+        Optional.of(() -> BuiltinResult.value(new IntegerValue(41))));
 
     VmSnapshot snapshot = state.snapshot(0);
     VmState restored = VmState.restore(snapshot);

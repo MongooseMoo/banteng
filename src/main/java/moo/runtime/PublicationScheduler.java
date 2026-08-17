@@ -24,7 +24,7 @@ import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import jdk.jfr.FlightRecorder;
-import moo.builtin.BuiltinCatalog.Result;
+import moo.builtin.BuiltinResult;
 import moo.bytecode.BytecodeProgram;
 import moo.bytecode.BytecodeProgram.Instruction;
 import moo.bytecode.BytecodeProgram.Opcode;
@@ -145,7 +145,7 @@ final class PublicationScheduler implements AutoCloseable {
         .forEach(this::launchTimer);
   }
 
-  synchronized Result threadPool(
+  synchronized BuiltinResult threadPool(
       List<MooValue> arguments,
       WorldTxn world,
       long programmer,
@@ -160,7 +160,7 @@ final class PublicationScheduler implements AutoCloseable {
         arguments.size() == 3 ? Math.toIntExact(((IntegerValue) arguments.get(2)).value()) : 0;
     backgroundWorkers = requested;
     if (requested == 0) {
-      return Result.value(new IntegerValue(1));
+      return BuiltinResult.value(new IntegerValue(1));
     }
     if (requested > executor.getMaximumPoolSize()) {
       executor.setMaximumPoolSize(requested);
@@ -170,7 +170,7 @@ final class PublicationScheduler implements AutoCloseable {
       executor.setMaximumPoolSize(requested);
     }
     workers = requested;
-    return Result.value(new IntegerValue(1));
+    return BuiltinResult.value(new IntegerValue(1));
   }
 
   private TimedWork restoreQueuedTask(QueuedTask restored) {
@@ -268,12 +268,12 @@ final class PublicationScheduler implements AutoCloseable {
     taskRegistry.registerSuspended(
         restored.taskId(), restored.scheduledEpochSecond(), snapshot);
     nextTaskId = Math.max(nextTaskId, Math.addExact(restored.taskId(), 1));
-    Result wake =
+    BuiltinResult wake =
         restored.interruptionStatus().isPresent()
-            ? Result.error(ErrorValue.E_INTRPT)
+            ? BuiltinResult.error(ErrorValue.E_INTRPT)
             : restored.resumeValue() instanceof ErrorValue error
-                ? Result.error(error)
-                : Result.value(restored.resumeValue());
+                ? BuiltinResult.error(error)
+                : BuiltinResult.value(restored.resumeValue());
     return new TimedWork(
         work,
         Math.multiplyExact(restored.scheduledEpochSecond(), 1_000L),
@@ -705,7 +705,7 @@ final class PublicationScheduler implements AutoCloseable {
         snapshot.frames().isEmpty() || snapshot.frames().getFirst().threadMode());
   }
 
-  Result resumeTask(
+  BuiltinResult resumeTask(
       List<MooValue> arguments,
       WorldTxn world,
       long programmer,
@@ -718,7 +718,7 @@ final class PublicationScheduler implements AutoCloseable {
       ListValue callers) {
     long taskId = ((IntegerValue) arguments.getFirst()).value();
     if (!taskRegistry.mayControl(taskId, world, programmer)) {
-      return Result.error(
+      return BuiltinResult.error(
           taskRegistry.contains(taskId) ? ErrorValue.E_PERM : ErrorValue.E_INVARG);
     }
     MooValue value = arguments.size() == 2 ? arguments.get(1) : new IntegerValue(0);
@@ -726,16 +726,16 @@ final class PublicationScheduler implements AutoCloseable {
     synchronized (this) {
       resumed = timedWork.get(taskId);
       if (resumed == null || resumed.wakeResult().isEmpty()) {
-        return Result.error(ErrorValue.E_INVARG);
+        return BuiltinResult.error(ErrorValue.E_INVARG);
       }
       if (!timedWork.remove(taskId, resumed)) {
-        return Result.error(ErrorValue.E_INVARG);
+        return BuiltinResult.error(ErrorValue.E_INVARG);
       }
       TimedWork readyToResume =
           new TimedWork(
               resumed.work(),
               System.currentTimeMillis(),
-              Optional.of(Result.value(value)),
+              Optional.of(BuiltinResult.value(value)),
               resumed.durableTask());
       if (checkpointingWork.putIfAbsent(taskId, readyToResume) != null) {
         throw new IllegalStateException("task already has checkpointing state " + taskId);
@@ -743,7 +743,7 @@ final class PublicationScheduler implements AutoCloseable {
       resumed = readyToResume;
     }
     enqueueWake(resumed.work(), resumed.wakeResult().orElseThrow());
-    return Result.value(new IntegerValue(0));
+    return BuiltinResult.value(new IntegerValue(0));
   }
 
   private static SuspendedTask durableSuspension(TimedWork timed) {
@@ -766,9 +766,14 @@ final class PublicationScheduler implements AutoCloseable {
     for (VmSnapshot.Frame frame : frames) {
       rootToCurrent.add(exportActivation(frame, work.taskPlayer()));
     }
-    Result wake = timed.wakeResult().orElseThrow();
+    BuiltinResult wake = timed.wakeResult().orElseThrow();
     MooValue resumeValue =
-        wake.error().<MooValue>map(error -> error).orElseGet(() -> wake.value().orElseThrow());
+        switch (wake) {
+          case BuiltinResult.Value value -> value.value();
+          case BuiltinResult.ErrorResult error -> error.error();
+          case BuiltinResult.RaisedError raised -> raised.error();
+          default -> throw new IllegalStateException("invalid durable wake result: " + wake);
+        };
     return new SuspendedTask(
         work.taskId(),
         Math.floorDiv(timed.scheduledEpochMilli(), 1_000L),
@@ -1280,7 +1285,7 @@ final class PublicationScheduler implements AutoCloseable {
         start.kind() == EntryKind.VM_SEGMENT ? start.snapshot() : Optional.empty();
     long taskPlayer = start.taskPlayer();
     boolean startingBackground = start.startingBackground();
-    Optional<Result> wakeResult = start.wakeResult();
+    Optional<BuiltinResult> wakeResult = start.wakeResult();
     List<PendingFork> pendingForks = new ArrayList<>();
     boolean aborted = false;
     Optional<VmSnapshot> timeoutSnapshot = Optional.empty();
@@ -1320,13 +1325,20 @@ final class PublicationScheduler implements AutoCloseable {
               ? runtime.startBackgroundTask(snapshot.orElseThrow())
               : VmState.restore(snapshot.orElseThrow());
       if (wakeResult.isPresent()) {
-        Result completion = wakeResult.orElseThrow();
+        BuiltinResult completion = wakeResult.orElseThrow();
         if (state.outcome() == VmState.Outcome.FORKED) {
-          state.continueAfterFork((IntegerValue) completion.value().orElseThrow());
-        } else if (completion.error().isPresent()) {
+          if (!(completion instanceof BuiltinResult.Value(MooValue value))
+              || !(value instanceof IntegerValue integer)) {
+            throw new IllegalStateException("fork completion is not an integer value");
+          }
+          state.continueAfterFork(integer);
+        } else if (completion instanceof BuiltinResult.ErrorResult
+            || completion instanceof BuiltinResult.RaisedError) {
           runtime.vm().resumeWithError(state, completion, transaction);
+        } else if (completion instanceof BuiltinResult.Value value) {
+          state.resume(value.value());
         } else {
-          state.resume(completion.value().orElseThrow());
+          throw new IllegalStateException("invalid wake result: " + completion);
         }
       }
       startingBackground = false;
@@ -1635,7 +1647,7 @@ final class PublicationScheduler implements AutoCloseable {
   private void publishVmCompletionOutsideMonitor(
       Entry entry,
       VmSnapshot snapshot,
-      Optional<Callable<Result>> hostWork,
+      Optional<Callable<BuiltinResult>> hostWork,
       List<PendingFork> pendingForks) {
     synchronized (this) {
       checkpointingWork.remove(entry.taskId());
@@ -1679,7 +1691,7 @@ final class PublicationScheduler implements AutoCloseable {
                   entry.continuation(),
                   false);
           nextPublicationTicket++;
-          ready.add(parent.wake(nextTicket++, Result.value(new IntegerValue(childTaskId))));
+          ready.add(parent.wake(nextTicket++, BuiltinResult.value(new IntegerValue(childTaskId))));
           if (fork.delaySeconds() == 0.0) {
             ready.add(child.ready(nextTicket++));
             timer = Optional.empty();
@@ -1702,7 +1714,7 @@ final class PublicationScheduler implements AutoCloseable {
   private void publishSuspension(
       Entry entry,
       VmSnapshot snapshot,
-      Optional<Callable<Result>> hostWork) {
+      Optional<Callable<BuiltinResult>> hostWork) {
     SuspendedWork suspended =
         new SuspendedWork(
             entry.taskId(),
@@ -1728,7 +1740,7 @@ final class PublicationScheduler implements AutoCloseable {
               new TimedWork(
                   suspended,
                   scheduledStartMillis,
-                  Optional.of(Result.value(new IntegerValue(0))),
+                  Optional.of(BuiltinResult.value(new IntegerValue(0))),
                   Optional.empty()));
         }
       } else if (delaySeconds == 0.0) {
@@ -1738,12 +1750,12 @@ final class PublicationScheduler implements AutoCloseable {
             new TimedWork(
                 suspended,
                 scheduledStartMillis,
-                Optional.of(Result.value(new IntegerValue(0))),
+                Optional.of(BuiltinResult.value(new IntegerValue(0))),
                 Optional.empty()));
       }
       return;
     }
-    FutureTask<Result> submitted = new FutureTask<>(hostWork.orElseThrow());
+    FutureTask<BuiltinResult> submitted = new FutureTask<>(hostWork.orElseThrow());
     if (!taskRegistry.registerHost(
         entry.taskId(),
         snapshot,
@@ -1753,7 +1765,7 @@ final class PublicationScheduler implements AutoCloseable {
     }
     if (backgroundWorkers == 0) {
       if (taskRegistry.claimHostTerminal(entry.taskId())) {
-        enqueueWake(suspended, Result.error(ErrorValue.E_QUOTA));
+        enqueueWake(suspended, BuiltinResult.error(ErrorValue.E_QUOTA));
       } else {
         cancelWaiting(suspended);
       }
@@ -1763,7 +1775,7 @@ final class PublicationScheduler implements AutoCloseable {
       executor.execute(submitted);
     } catch (RejectedExecutionException rejected) {
       if (taskRegistry.claimHostTerminal(entry.taskId())) {
-        enqueueWake(suspended, Result.error(ErrorValue.E_QUOTA));
+        enqueueWake(suspended, BuiltinResult.error(ErrorValue.E_QUOTA));
       } else {
         cancelWaiting(suspended);
       }
@@ -1774,8 +1786,10 @@ final class PublicationScheduler implements AutoCloseable {
         .start(
             () -> {
               try {
-                Result completion = submitted.get();
-                if (completion.value().isPresent() == completion.error().isPresent()) {
+                BuiltinResult completion = submitted.get();
+                if (!(completion instanceof BuiltinResult.Value
+                    || completion instanceof BuiltinResult.ErrorResult
+                    || completion instanceof BuiltinResult.RaisedError)) {
                   throw new IllegalStateException(
                       "host completion requires exactly one value or MOO error");
                 }
@@ -1865,7 +1879,7 @@ final class PublicationScheduler implements AutoCloseable {
             });
   }
 
-  private synchronized void enqueueWake(SuspendedWork work, Result completion) {
+  private synchronized void enqueueWake(SuspendedWork work, BuiltinResult completion) {
     if (!closed && !taskRegistry.discardIfCanceled(work.taskId())) {
       ready.add(work.wake(nextTicket++, completion));
       dispatch();
@@ -1879,7 +1893,7 @@ final class PublicationScheduler implements AutoCloseable {
       }
       return;
     }
-    ready.add(work.wake(nextTicket++, Result.value(new IntegerValue(0))));
+    ready.add(work.wake(nextTicket++, BuiltinResult.value(new IntegerValue(0))));
     dispatch();
   }
 
@@ -1890,7 +1904,7 @@ final class PublicationScheduler implements AutoCloseable {
     }
     for (SuspendedWork work : finalizationBlocked.values()) {
       if (!closed && !taskRegistry.discardIfCanceled(work.taskId())) {
-        ready.add(work.wake(nextTicket++, Result.value(new IntegerValue(0))));
+        ready.add(work.wake(nextTicket++, BuiltinResult.value(new IntegerValue(0))));
       }
     }
     finalizationBlocked.clear();
@@ -2023,7 +2037,7 @@ final class PublicationScheduler implements AutoCloseable {
       Optional<VmSnapshot> snapshot,
       long taskPlayer,
       Optional<MooRuntime.RuntimeContinuation> continuation,
-      Optional<Result> wakeResult,
+      Optional<BuiltinResult> wakeResult,
       boolean startingBackground,
       boolean irrevocableAuthorized) {
     Entry {
@@ -2089,7 +2103,7 @@ final class PublicationScheduler implements AutoCloseable {
           false);
     }
 
-    Entry withWake(Result completion) {
+    Entry withWake(BuiltinResult completion) {
       return new Entry(
           ticket,
           taskId,
@@ -2165,7 +2179,7 @@ final class PublicationScheduler implements AutoCloseable {
       Optional<VmSnapshot> snapshot,
       long taskPlayer,
       Optional<MooRuntime.RuntimeContinuation> continuation,
-      Optional<Callable<Result>> hostWork,
+      Optional<Callable<BuiltinResult>> hostWork,
       boolean aborted,
       Optional<VmSnapshot> timeoutSnapshot,
       boolean needsIrrevocable,
@@ -2210,7 +2224,7 @@ final class PublicationScheduler implements AutoCloseable {
         VmSnapshot snapshot,
         long taskPlayer,
         Optional<MooRuntime.RuntimeContinuation> continuation,
-        Optional<Callable<Result>> hostWork,
+        Optional<Callable<BuiltinResult>> hostWork,
         List<PendingFork> pendingForks) {
       return new SegmentResult(
           Optional.empty(),
@@ -2281,7 +2295,7 @@ final class PublicationScheduler implements AutoCloseable {
           ticket, taskId, program, snapshot, taskPlayer, continuation, startingBackground);
     }
 
-    Entry wake(long ticket, Result completion) {
+    Entry wake(long ticket, BuiltinResult completion) {
       return ready(ticket).withWake(completion);
     }
   }
@@ -2289,7 +2303,7 @@ final class PublicationScheduler implements AutoCloseable {
   private record TimedWork(
       SuspendedWork work,
       long scheduledEpochMilli,
-      Optional<Result> wakeResult,
+      Optional<BuiltinResult> wakeResult,
       Optional<DurableTask> durableTask) {
     TimedWork {
       Objects.requireNonNull(wakeResult, "wakeResult");

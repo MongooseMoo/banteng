@@ -20,10 +20,9 @@ import java.util.OptionalDouble;
 import java.util.OptionalLong;
 import java.util.Random;
 import java.util.Set;
+import java.util.concurrent.Callable;
 import moo.builtin.BuiltinCatalog.ConnectionOption;
-import moo.builtin.BuiltinCatalog.ConnectionOptionRequest;
-import moo.builtin.BuiltinCatalog.ForcedInputRequest;
-import moo.builtin.BuiltinCatalog.Result;
+import moo.builtin.BuiltinResult;
 import moo.value.MooValue;
 import moo.value.MooValue.AnonymousObjectValue;
 import moo.value.MooValue.BooleanValue;
@@ -331,22 +330,22 @@ final class BuiltinCatalogTest {
       for (Map.Entry<MooValue, Long> entry : expected.entrySet()) {
         assertEquals(
             Optional.of(new IntegerValue(entry.getValue())),
-            invoke(catalog, spec, List.of(entry.getKey()), transaction, 1).value(),
+            value(invoke(catalog, spec, List.of(entry.getKey()), transaction, 1)),
             entry.getKey().type().name());
       }
 
       assertEquals(
           Optional.of(ErrorValue.E_ARGS),
-          invoke(catalog, spec, List.of(), transaction, 1).error());
+          error(invoke(catalog, spec, List.of(), transaction, 1)));
       assertEquals(
           Optional.of(ErrorValue.E_ARGS),
-          invoke(
+          error(invoke(
                   catalog,
                   spec,
                   List.of(new IntegerValue(1), new IntegerValue(2)),
                   transaction,
                   1)
-              .error());
+              ));
       assertEquals(transactionBefore, transaction.snapshot());
     }
     assertEquals(committedBefore, root.snapshot());
@@ -379,15 +378,15 @@ final class BuiltinCatalogTest {
     try (WorldTxn transaction = world().begin()) {
       assertEquals(
           Optional.of(ErrorValue.E_ARGS),
-          invoke(catalog, spec, List.of(new IntegerValue(1)), transaction, 1).error());
+          error(invoke(catalog, spec, List.of(new IntegerValue(1)), transaction, 1)));
       assertEquals(
           Optional.of(ErrorValue.E_PERM),
-          invoke(catalog, spec, List.of(), transaction, 2).error());
+          error(invoke(catalog, spec, List.of(), transaction, 2)));
       assertEquals(0, recordingRandom.seedCalls());
 
       assertEquals(
           Optional.of(new IntegerValue(0)),
-          invoke(catalog, spec, List.of(), transaction, 1).value());
+          value(invoke(catalog, spec, List.of(), transaction, 1)));
       assertEquals(1, recordingRandom.seedCalls());
       assertEquals(0, floatingRandom.seedCalls());
     }
@@ -413,16 +412,16 @@ final class BuiltinCatalogTest {
     try (WorldTxn transaction = world().begin()) {
       assertEquals(
           Optional.of(new ListValue(List.of(string("alpha"), string("beta")))),
-          invoke(catalog, spec, List.of(string(" alpha  beta ")), transaction, 1).value());
+          value(invoke(catalog, spec, List.of(string(" alpha  beta ")), transaction, 1)));
       assertEquals(
           Optional.of(new ListValue(List.of(string("a"), string("b")))),
-          invoke(
+          value(invoke(
                   catalog,
                   spec,
                   List.of(string("::a::b:"), string(":"), new IntegerValue(0)),
                   transaction,
                   1)
-              .value());
+              ));
       assertEquals(
           Optional.of(
               new ListValue(
@@ -433,31 +432,31 @@ final class BuiltinCatalogTest {
                       string(""),
                       string("b"),
                       string("")))),
-          invoke(
+          value(invoke(
                   catalog,
                   spec,
                   List.of(string("::a::b:"), string(":"), new IntegerValue(1)),
                   transaction,
                   1)
-              .value());
+              ));
       assertEquals(
           Optional.of(new ListValue(List.of(string("a"), string("b;c")))),
-          invoke(catalog, spec, List.of(string("a,b;c"), string(",;")), transaction, 1).value());
+          value(invoke(catalog, spec, List.of(string("a,b;c"), string(",;")), transaction, 1)));
       assertEquals(
           Optional.of(new ListValue(List.of(string("a"), string("b")))),
-          invoke(catalog, spec, List.of(string("a b"), string("")), transaction, 1).value());
+          value(invoke(catalog, spec, List.of(string("a b"), string("")), transaction, 1)));
       assertEquals(
           Optional.of(new ListValue(List.of())),
-          invoke(catalog, spec, List.of(string("")), transaction, 1).value());
+          value(invoke(catalog, spec, List.of(string("")), transaction, 1)));
       assertEquals(
           Optional.of(new ListValue(List.of(string("")))),
-          invoke(
+          value(invoke(
                   catalog,
                   spec,
                   List.of(string(""), string(":"), new IntegerValue(1)),
                   transaction,
                   1)
-              .value());
+              ));
 
       StringValue highBitSource =
           new StringValue(new byte[] {(byte) 0xe9, (byte) ':', (byte) 0xff});
@@ -467,31 +466,31 @@ final class BuiltinCatalogTest {
                   List.of(
                       new StringValue(new byte[] {(byte) 0xe9}),
                       new StringValue(new byte[] {(byte) 0xff})))),
-          invoke(catalog, spec, List.of(highBitSource, string(":")), transaction, 1).value());
+          value(invoke(catalog, spec, List.of(highBitSource, string(":")), transaction, 1)));
 
       assertEquals(
-          Optional.of(ErrorValue.E_ARGS), invoke(catalog, spec, List.of(), transaction, 1).error());
+          Optional.of(ErrorValue.E_ARGS), error(invoke(catalog, spec, List.of(), transaction, 1)));
       assertEquals(
           Optional.of(ErrorValue.E_ARGS),
-          invoke(
+          error(invoke(
                   catalog,
                   spec,
                   List.of(string("a"), string(":"), new IntegerValue(0), new IntegerValue(1)),
                   transaction,
                   1)
-              .error());
+              ));
       assertEquals(
           Optional.of(ErrorValue.E_TYPE),
-          invoke(catalog, spec, List.of(new IntegerValue(1)), transaction, 1).error());
+          error(invoke(catalog, spec, List.of(new IntegerValue(1)), transaction, 1)));
       assertEquals(
           Optional.of(ErrorValue.E_TYPE),
-          invoke(catalog, spec, List.of(string("a"), new IntegerValue(1)), transaction, 1).error());
+          error(invoke(catalog, spec, List.of(string("a"), new IntegerValue(1)), transaction, 1)));
       assertEquals(
           Optional.of(ErrorValue.E_TYPE),
-          invoke(catalog, spec, List.of(string("a"), string(":"), string("1")), transaction, 1)
-              .error());
+          error(invoke(catalog, spec, List.of(string("a"), string(":"), string("1")), transaction, 1)
+              ));
 
-      Result functionInfo =
+      BuiltinResult functionInfo =
           invoke(
               catalog,
               catalog.spec("function_info").orElseThrow(),
@@ -510,7 +509,7 @@ final class BuiltinCatalogTest {
                               new IntegerValue(2),
                               new IntegerValue(2),
                               new IntegerValue(0)))))),
-          functionInfo.value());
+          value(functionInfo));
     }
   }
 
@@ -527,32 +526,32 @@ final class BuiltinCatalogTest {
       StringValue raw = new StringValue(new byte[] {0x41, (byte) 0xe9, (byte) 0xff});
       StringValue rawReversed =
           (StringValue)
-              invoke(catalog, spec, List.of(raw), transaction, 1).value().orElseThrow();
+              value(invoke(catalog, spec, List.of(raw), transaction, 1)).orElseThrow();
       assertArrayEquals(new byte[] {(byte) 0xff, (byte) 0xe9, 0x41}, rawReversed.bytes());
       assertEquals(
           Optional.of(string("")),
-          invoke(catalog, spec, List.of(string("")), transaction, 1).value());
+          value(invoke(catalog, spec, List.of(string("")), transaction, 1)));
       assertEquals(
           Optional.of(new StringValue(new byte[] {(byte) 0xe9})),
-          invoke(
+          value(invoke(
                   catalog,
                   spec,
                   List.of(new StringValue(new byte[] {(byte) 0xe9})),
                   transaction,
                   1)
-              .value());
+              ));
       assertEquals(
           Optional.of(string("olleh")),
-          invoke(catalog, spec, List.of(string("hello")), transaction, 1).value());
+          value(invoke(catalog, spec, List.of(string("hello")), transaction, 1)));
       assertEquals(
           Optional.of(string("abcba")),
-          invoke(catalog, spec, List.of(string("abcba")), transaction, 1).value());
+          value(invoke(catalog, spec, List.of(string("abcba")), transaction, 1)));
 
       assertEquals(
           Optional.of(
               new ListValue(
                   List.of(new IntegerValue(3), new IntegerValue(2), new IntegerValue(1)))),
-          invoke(
+          value(invoke(
                   catalog,
                   spec,
                   List.of(
@@ -563,19 +562,19 @@ final class BuiltinCatalogTest {
                               new IntegerValue(3)))),
                   transaction,
                   1)
-              .value());
+              ));
       assertEquals(
           Optional.of(new ListValue(List.of())),
-          invoke(catalog, spec, List.of(new ListValue(List.of())), transaction, 1).value());
+          value(invoke(catalog, spec, List.of(new ListValue(List.of())), transaction, 1)));
       assertEquals(
           Optional.of(new ListValue(List.of(new IntegerValue(42)))),
-          invoke(
+          value(invoke(
                   catalog,
                   spec,
                   List.of(new ListValue(List.of(new IntegerValue(42)))),
                   transaction,
                   1)
-              .value());
+              ));
 
       ListValue nested = new ListValue(List.of(new IntegerValue(2), new IntegerValue(3)));
       ListValue mixed =
@@ -583,7 +582,7 @@ final class BuiltinCatalogTest {
               List.of(string("a"), new IntegerValue(1), new ObjectValue(0), nested));
       ListValue mixedReversed =
           (ListValue)
-              invoke(catalog, spec, List.of(mixed), transaction, 1).value().orElseThrow();
+              value(invoke(catalog, spec, List.of(mixed), transaction, 1)).orElseThrow();
       assertEquals(
           new ListValue(List.of(nested, new ObjectValue(0), new IntegerValue(1), string("a"))),
           mixedReversed);
@@ -596,16 +595,16 @@ final class BuiltinCatalogTest {
               new ObjectValue(0),
               ErrorValue.E_PERM,
               new MapValue(Map.of()))) {
-        Result result = invoke(catalog, spec, List.of(unsupported), transaction, 1);
-        assertEquals(Optional.of(ErrorValue.E_INVARG), result.error());
-        assertTrue(result.error().filter(ErrorValue.E_TYPE::equals).isEmpty());
+        BuiltinResult result = invoke(catalog, spec, List.of(unsupported), transaction, 1);
+        assertEquals(Optional.of(ErrorValue.E_INVARG), error(result));
+        assertTrue(error(result).filter(ErrorValue.E_TYPE::equals).isEmpty());
       }
 
       assertEquals(
-          Optional.of(ErrorValue.E_ARGS), invoke(catalog, spec, List.of(), transaction, 1).error());
+          Optional.of(ErrorValue.E_ARGS), error(invoke(catalog, spec, List.of(), transaction, 1)));
       assertEquals(
           Optional.of(ErrorValue.E_ARGS),
-          invoke(catalog, spec, List.of(string("a"), string("b")), transaction, 1).error());
+          error(invoke(catalog, spec, List.of(string("a"), string("b")), transaction, 1)));
 
       assertEquals(
           Optional.of(
@@ -615,13 +614,13 @@ final class BuiltinCatalogTest {
                       new IntegerValue(1),
                       new IntegerValue(1),
                       new ListValue(List.of(new IntegerValue(-1)))))),
-          invoke(
+          value(invoke(
                   catalog,
                   catalog.spec("function_info").orElseThrow(),
                   List.of(string("reverse")),
                   transaction,
                   1)
-              .value());
+              ));
 
       assertEquals(transactionBefore, transaction.snapshot());
     }
@@ -639,7 +638,7 @@ final class BuiltinCatalogTest {
                         new IntegerValue(1234),
                         new IntegerValue(0)))));
     BuiltinCatalog catalog =
-        new BuiltinCatalog((a, w, p, t, id, rt, rs, r, cp, c) -> Result.value(tasks));
+        new BuiltinCatalog((a, w, p, t, id, rt, rs, r, cp, c) -> BuiltinResult.value(tasks));
     BuiltinSpec spec = catalog.spec("queued_tasks").orElseThrow();
 
     assertEquals(
@@ -653,19 +652,19 @@ final class BuiltinCatalogTest {
     assertEquals(EffectClass.IRREVOCABLE, spec.effect());
     assertEquals(BuiltinOwner.TASK, spec.owner());
     try (WorldTxn transaction = world().begin()) {
-      assertEquals(Optional.of(tasks), invoke(catalog, spec, List.of(), transaction, 1).value());
+      assertEquals(Optional.of(tasks), value(invoke(catalog, spec, List.of(), transaction, 1)));
       assertEquals(
           Optional.of(ErrorValue.E_TYPE),
-          invoke(catalog, spec, List.of(string("bad")), transaction, 1).error());
+          error(invoke(catalog, spec, List.of(string("bad")), transaction, 1)));
       assertEquals(
           Optional.of(ErrorValue.E_ARGS),
-          invoke(
+          error(invoke(
                   catalog,
                   spec,
                   List.of(new IntegerValue(0), new IntegerValue(0), new IntegerValue(0)),
                   transaction,
                   1)
-              .error());
+              ));
     }
   }
 
@@ -676,9 +675,9 @@ final class BuiltinCatalogTest {
     long before = Instant.now().getEpochSecond();
 
     try (WorldTxn transaction = world().begin()) {
-      Result result = invoke(catalog, spec, List.of(), transaction, 1);
+      BuiltinResult result = invoke(catalog, spec, List.of(), transaction, 1);
       long after = Instant.now().getEpochSecond();
-      long value = ((IntegerValue) result.value().orElseThrow()).value();
+      long value = ((IntegerValue) value(result).orElseThrow()).value();
 
       assertEquals(
           List.of(new CallShape(List.of(), List.of(), Optional.empty())), spec.callShapes());
@@ -713,58 +712,58 @@ final class BuiltinCatalogTest {
       assertTrue(transaction.switchConnectionPlayer(-17, 2));
       assertEquals(
           OptionalLong.of(3),
-          invoke(
+          switchedPlayer(invoke(
                   catalog,
                   spec,
                   List.of(new ObjectValue(2), new ObjectValue(3), new IntegerValue(1)),
                   transaction,
                   1)
-              .switchedPlayer());
+              ));
       assertEquals(
           Optional.of(ErrorValue.E_TYPE),
-          invoke(
+          error(invoke(
                   catalog,
                   spec,
                   List.of(new ObjectValue(2), new ObjectValue(3), string("bad")),
                   transaction,
                   1)
-              .error());
+              ));
       assertEquals(
           Optional.of(ErrorValue.E_PERM),
-          invoke(
+          error(invoke(
                   catalog,
                   spec,
                   List.of(new ObjectValue(2), new ObjectValue(3)),
                   transaction,
                   2)
-              .error());
+              ));
       assertEquals(
           Optional.of(ErrorValue.E_INVARG),
-          invoke(
+          error(invoke(
                   catalog,
                   spec,
                   List.of(new ObjectValue(2), new ObjectValue(2)),
                   transaction,
                   1)
-              .error());
+              ));
       assertEquals(
           Optional.of(ErrorValue.E_INVARG),
-          invoke(
+          error(invoke(
                   catalog,
                   spec,
                   List.of(new ObjectValue(999), new ObjectValue(3)),
                   transaction,
                   1)
-              .error());
+              ));
       assertEquals(
           Optional.of(ErrorValue.E_INVARG),
-          invoke(
+          error(invoke(
                   catalog,
                   spec,
                   List.of(new ObjectValue(2), new ObjectValue(999)),
                   transaction,
                   1)
-              .error());
+              ));
     }
   }
 
@@ -772,12 +771,12 @@ final class BuiltinCatalogTest {
   void killTaskUsesTheRegisteredTaskOwnerWithOneIntegerArgument() {
     BuiltinCatalog catalog =
         new BuiltinCatalog(
-            (a, w, p, t, id, rt, rs, r, cp, c) -> Result.value(new ListValue(List.of())),
-            (a, w, p, t, id, rt, rs, r, cp, c) -> Result.value(new IntegerValue(23)),
-            (a, w, p, t, id, rt, rs, r, cp, c) -> Result.error(ErrorValue.E_INVARG),
-            (a, w, p, t, id, rt, rs, r, cp, c) -> Result.error(ErrorValue.E_INVARG),
+            (a, w, p, t, id, rt, rs, r, cp, c) -> BuiltinResult.value(new ListValue(List.of())),
+            (a, w, p, t, id, rt, rs, r, cp, c) -> BuiltinResult.value(new IntegerValue(23)),
+            (a, w, p, t, id, rt, rs, r, cp, c) -> BuiltinResult.error(ErrorValue.E_INVARG),
+            (a, w, p, t, id, rt, rs, r, cp, c) -> BuiltinResult.error(ErrorValue.E_INVARG),
             (a, w, p, t, id, rt, rs, r, cp, c) ->
-                Result.value(new ListValue(List.of())));
+                BuiltinResult.value(new ListValue(List.of())));
     BuiltinSpec spec = catalog.spec("kill_task").orElseThrow();
 
     assertEquals(
@@ -789,13 +788,13 @@ final class BuiltinCatalogTest {
     try (WorldTxn transaction = world().begin()) {
       assertEquals(
           Optional.of(new IntegerValue(23)),
-          invoke(catalog, spec, List.of(new IntegerValue(17)), transaction, 1).value());
+          value(invoke(catalog, spec, List.of(new IntegerValue(17)), transaction, 1)));
       assertEquals(
           Optional.of(ErrorValue.E_TYPE),
-          invoke(catalog, spec, List.of(string("bad")), transaction, 1).error());
+          error(invoke(catalog, spec, List.of(string("bad")), transaction, 1)));
       assertEquals(
           Optional.of(ErrorValue.E_ARGS),
-          invoke(catalog, spec, List.of(), transaction, 1).error());
+          error(invoke(catalog, spec, List.of(), transaction, 1)));
     }
   }
 
@@ -803,12 +802,12 @@ final class BuiltinCatalogTest {
   void readDeclaresSuspendingConnectionContractAndDeniesAnUnrelatedProgrammer() {
     BuiltinCatalog catalog =
         new BuiltinCatalog(
-            (a, w, p, t, id, rt, rs, r, cp, c) -> Result.value(new ListValue(List.of())),
-            (a, w, p, t, id, rt, rs, r, cp, c) -> Result.error(ErrorValue.E_INVARG),
-            (a, w, p, t, id, rt, rs, r, cp, c) -> Result.value(new IntegerValue(0)),
-            (a, w, p, t, id, rt, rs, r, cp, c) -> Result.error(ErrorValue.E_INVARG),
+            (a, w, p, t, id, rt, rs, r, cp, c) -> BuiltinResult.value(new ListValue(List.of())),
+            (a, w, p, t, id, rt, rs, r, cp, c) -> BuiltinResult.error(ErrorValue.E_INVARG),
+            (a, w, p, t, id, rt, rs, r, cp, c) -> BuiltinResult.value(new IntegerValue(0)),
+            (a, w, p, t, id, rt, rs, r, cp, c) -> BuiltinResult.error(ErrorValue.E_INVARG),
             (a, w, p, t, id, rt, rs, r, cp, c) ->
-                Result.value(new ListValue(List.of())));
+                BuiltinResult.value(new ListValue(List.of())));
     BuiltinSpec spec = catalog.spec("read").orElseThrow();
 
     assertEquals(
@@ -825,40 +824,40 @@ final class BuiltinCatalogTest {
     try (WorldTxn transaction = world().begin()) {
       assertEquals(
           Optional.of(ErrorValue.E_PERM),
-          invoke(
+          error(invoke(
                   catalog,
                   spec,
                   List.of(new ObjectValue(1), new IntegerValue(1)),
                   transaction,
                   2)
-              .error());
+              ));
       assertEquals(
           Optional.of(new IntegerValue(0)),
-          invoke(
+          value(invoke(
                   catalog,
                   spec,
                   List.of(new ObjectValue(1), new IntegerValue(1)),
                   transaction,
                   1)
-              .value());
+              ));
       assertEquals(
           Optional.of(ErrorValue.E_PERM),
-          invoke(catalog, spec, List.of(), transaction, 2).error());
+          error(invoke(catalog, spec, List.of(), transaction, 2)));
       assertEquals(
           Optional.of(new IntegerValue(0)),
-          invoke(catalog, spec, List.of(), transaction, 1).value());
+          value(invoke(catalog, spec, List.of(), transaction, 1)));
       assertEquals(
           Optional.of(ErrorValue.E_TYPE),
-          invoke(catalog, spec, List.of(new IntegerValue(1)), transaction, 2).error());
+          error(invoke(catalog, spec, List.of(new IntegerValue(1)), transaction, 2)));
       assertEquals(
           Optional.of(ErrorValue.E_ARGS),
-          invoke(
+          error(invoke(
                   catalog,
                   spec,
                   List.of(new ObjectValue(1), new IntegerValue(1), new IntegerValue(1)),
                   transaction,
                   2)
-              .error());
+              ));
     }
   }
 
@@ -886,21 +885,21 @@ final class BuiltinCatalogTest {
 
       assertEquals(
           Optional.of(info),
-          invoke(catalog, spec, List.of(new ObjectValue(2)), transaction, 2).value());
+          value(invoke(catalog, spec, List.of(new ObjectValue(2)), transaction, 2)));
       assertEquals(
           Optional.of(info),
-          invoke(catalog, spec, List.of(new ObjectValue(2)), transaction, 1).value());
+          value(invoke(catalog, spec, List.of(new ObjectValue(2)), transaction, 1)));
       assertEquals(
           Optional.of(ErrorValue.E_PERM),
-          invoke(catalog, spec, List.of(new ObjectValue(1)), transaction, 2).error());
+          error(invoke(catalog, spec, List.of(new ObjectValue(1)), transaction, 2)));
       assertEquals(
           Optional.of(ErrorValue.E_INVARG),
-          invoke(catalog, spec, List.of(new ObjectValue(99)), transaction, 1).error());
+          error(invoke(catalog, spec, List.of(new ObjectValue(99)), transaction, 1)));
       assertEquals(
           Optional.of(ErrorValue.E_TYPE),
-          invoke(catalog, spec, List.of(new IntegerValue(2)), transaction, 1).error());
+          error(invoke(catalog, spec, List.of(new IntegerValue(2)), transaction, 1)));
       assertEquals(
-          Optional.of(ErrorValue.E_ARGS), invoke(catalog, spec, List.of(), transaction, 1).error());
+          Optional.of(ErrorValue.E_ARGS), error(invoke(catalog, spec, List.of(), transaction, 1)));
     }
   }
 
@@ -935,35 +934,35 @@ final class BuiltinCatalogTest {
 
       assertEquals(
           Optional.of(string("client.example")),
-          invoke(catalog, spec, List.of(new ObjectValue(2)), transaction, 2).value());
+          value(invoke(catalog, spec, List.of(new ObjectValue(2)), transaction, 2)));
       assertEquals(
           Optional.of(string("198.51.100.25")),
-          invoke(
+          value(invoke(
                   catalog,
                   spec,
                   List.of(new ObjectValue(2), new IntegerValue(1)),
                   transaction,
                   2)
-              .value());
+              ));
       assertEquals(
           Optional.of(
               string("port 7777 from client.example [198.51.100.25], port 4242")),
-          invoke(
+          value(invoke(
                   catalog,
                   spec,
                   List.of(new ObjectValue(2), new IntegerValue(0)),
                   transaction,
                   1)
-              .value());
+              ));
       assertEquals(
           Optional.of(ErrorValue.E_PERM),
-          invoke(catalog, spec, List.of(new ObjectValue(1)), transaction, 2).error());
+          error(invoke(catalog, spec, List.of(new ObjectValue(1)), transaction, 2)));
       assertEquals(
           Optional.of(ErrorValue.E_INVARG),
-          invoke(catalog, spec, List.of(new ObjectValue(99)), transaction, 1).error());
+          error(invoke(catalog, spec, List.of(new ObjectValue(99)), transaction, 1)));
       assertEquals(
           Optional.of(ErrorValue.E_TYPE),
-          invoke(catalog, spec, List.of(new ObjectValue(2), string("0")), transaction, 2).error());
+          error(invoke(catalog, spec, List.of(new ObjectValue(2), string("0")), transaction, 2)));
     }
   }
 
@@ -987,19 +986,19 @@ final class BuiltinCatalogTest {
 
       assertEquals(
           Optional.of(new ListValue(List.of(new ObjectValue(2)))),
-          invoke(catalog, spec, List.of(), transaction, 2).value());
+          value(invoke(catalog, spec, List.of(), transaction, 2)));
       assertEquals(
           Optional.of(new ListValue(List.of(new ObjectValue(-3), new ObjectValue(2)))),
-          invoke(catalog, spec, List.of(new IntegerValue(1)), transaction, 2).value());
+          value(invoke(catalog, spec, List.of(new IntegerValue(1)), transaction, 2)));
       assertEquals(
           Optional.of(ErrorValue.E_ARGS),
-          invoke(
+          error(invoke(
                   catalog,
                   spec,
                   List.of(new IntegerValue(1), new IntegerValue(1)),
                   transaction,
                   2)
-              .error());
+              ));
     }
   }
 
@@ -1024,29 +1023,29 @@ final class BuiltinCatalogTest {
 
       assertEquals(
           Optional.of(new IntegerValue(65_536)),
-          invoke(catalog, spec, List.of(), transaction, 2).value());
+          value(invoke(catalog, spec, List.of(), transaction, 2)));
       assertEquals(
           Optional.of(new IntegerValue(37)),
-          invoke(catalog, spec, List.of(new ObjectValue(2)), transaction, 2).value());
+          value(invoke(catalog, spec, List.of(new ObjectValue(2)), transaction, 2)));
       assertEquals(-2, listener.bufferedOutputConnectionId);
       assertEquals(
           Optional.of(ErrorValue.E_PERM),
-          invoke(catalog, spec, List.of(new ObjectValue(1)), transaction, 2).error());
+          error(invoke(catalog, spec, List.of(new ObjectValue(1)), transaction, 2)));
       assertEquals(
           Optional.of(ErrorValue.E_INVARG),
-          invoke(catalog, spec, List.of(new ObjectValue(99)), transaction, 2).error());
+          error(invoke(catalog, spec, List.of(new ObjectValue(99)), transaction, 2)));
       assertEquals(
           Optional.of(ErrorValue.E_TYPE),
-          invoke(catalog, spec, List.of(string("x")), transaction, 1).error());
+          error(invoke(catalog, spec, List.of(string("x")), transaction, 1)));
       assertEquals(
           Optional.of(ErrorValue.E_ARGS),
-          invoke(
+          error(invoke(
                   catalog,
                   spec,
                   List.of(new ObjectValue(2), new ObjectValue(2)),
                   transaction,
                   1)
-              .error());
+              ));
     }
   }
 
@@ -1065,17 +1064,16 @@ final class BuiltinCatalogTest {
     try (WorldTxn transaction = world().begin()) {
       assertEquals(
           Optional.of(new IntegerValue(0)),
-          invoke(
+          value(invoke(
                   catalog,
                   spec,
                   List.of(string("typeof"), new IntegerValue(42)),
                   transaction,
                   1)
-              .value());
+              ));
       assertEquals(
           Optional.of(callers),
-          catalog
-              .invoke(
+          value(catalog.invoke(
                   spec,
                   List.of(string("callers")),
                   transaction,
@@ -1087,22 +1085,22 @@ final class BuiltinCatalogTest {
                   new ObjectValue(1),
                   1,
                   callers)
-              .value());
+              ));
       assertEquals(
           Optional.of(new IntegerValue(0)),
-          invoke(
+          value(invoke(
                   catalog,
                   spec,
                   List.of(string("call_function"), string("typeof"), new IntegerValue(1)),
                   transaction,
                   1)
-              .value());
+              ));
       assertEquals(
           Optional.of(ErrorValue.E_ARGS),
-          invoke(catalog, spec, List.of(string("typeof")), transaction, 1).error());
+          error(invoke(catalog, spec, List.of(string("typeof")), transaction, 1)));
       assertEquals(
           Optional.of(ErrorValue.E_INVARG),
-          invoke(catalog, spec, List.of(string("")), transaction, 1).error());
+          error(invoke(catalog, spec, List.of(string("")), transaction, 1)));
     }
   }
 
@@ -1129,20 +1127,19 @@ final class BuiltinCatalogTest {
       transaction.openConnection(-3, info);
       transaction.switchConnectionPlayer(-3, 1);
 
-      Result held =
+      BuiltinResult held =
           invoke(
               catalog,
               spec,
               List.of(new ObjectValue(2), string("HoLd-InPuT"), new IntegerValue(1)),
               transaction,
               2);
-      assertEquals(Optional.of(new IntegerValue(0)), held.value());
       assertEquals(
-          Optional.of(
-              new ConnectionOptionRequest(2, ConnectionOption.HOLD_INPUT, new IntegerValue(1))),
-          held.connectionOptionRequest());
+          new BuiltinResult.SetConnectionOption(
+              2, ConnectionOption.HOLD_INPUT, new IntegerValue(1)),
+          held);
 
-      Result flush =
+      BuiltinResult flush =
           invoke(
               catalog,
               spec,
@@ -1150,36 +1147,36 @@ final class BuiltinCatalogTest {
               transaction,
               1);
       assertEquals(
-          Optional.of(
-              new ConnectionOptionRequest(2, ConnectionOption.FLUSH_COMMAND, string(".flush"))),
-          flush.connectionOptionRequest());
+          new BuiltinResult.SetConnectionOption(
+              2, ConnectionOption.FLUSH_COMMAND, string(".flush")),
+          flush);
       assertEquals(
           Optional.of(ErrorValue.E_PERM),
-          invoke(
+          error(invoke(
                   catalog,
                   spec,
                   List.of(new ObjectValue(1), string("hold-input"), new IntegerValue(1)),
                   transaction,
                   2)
-              .error());
+              ));
       assertEquals(
           Optional.of(ErrorValue.E_INVARG),
-          invoke(
+          error(invoke(
                   catalog,
                   spec,
                   List.of(new ObjectValue(99), string("hold-input"), new IntegerValue(1)),
                   transaction,
                   1)
-              .error());
+              ));
       assertEquals(
           Optional.of(ErrorValue.E_INVARG),
-          invoke(
+          error(invoke(
                   catalog,
                   spec,
                   List.of(new ObjectValue(2), string("unknown"), new IntegerValue(1)),
                   transaction,
                   2)
-              .error());
+              ));
     }
   }
 
@@ -1199,47 +1196,45 @@ final class BuiltinCatalogTest {
     assertEquals(EffectClass.DEFERRED_COMMIT, spec.effect());
     assertEquals(BuiltinOwner.CONNECTION, spec.owner());
     try (WorldTxn transaction = world().begin()) {
-      Result negative =
+      BuiltinResult negative =
           invoke(
               catalog,
               spec,
               List.of(new ObjectValue(-2), string("audit-queue-login")),
               transaction,
               1);
-      assertEquals(Optional.of(new IntegerValue(0)), negative.value());
       assertEquals(
-          Optional.of(new ForcedInputRequest(-2, "audit-queue-login")),
-          negative.forcedInputRequest());
+          new BuiltinResult.ForceInput(-2, "audit-queue-login"), negative);
 
-      Result self =
+      BuiltinResult self =
           invoke(
               catalog,
               spec,
               List.of(new ObjectValue(2), string("auditq"), new IntegerValue(1)),
               transaction,
               2);
-      assertEquals(Optional.of(new ForcedInputRequest(2, "auditq")), self.forcedInputRequest());
+      assertEquals(new BuiltinResult.ForceInput(2, "auditq"), self);
       assertEquals(
           Optional.of(ErrorValue.E_PERM),
-          invoke(
+          error(invoke(
                   catalog,
                   spec,
                   List.of(new ObjectValue(1), string("auditq")),
                   transaction,
                   2)
-              .error());
+              ));
       assertEquals(
           Optional.of(ErrorValue.E_TYPE),
-          invoke(
+          error(invoke(
                   catalog,
                   spec,
                   List.of(new ObjectValue(2), new IntegerValue(1)),
                   transaction,
                   2)
-              .error());
+              ));
       assertEquals(
           Optional.of(ErrorValue.E_ARGS),
-          invoke(catalog, spec, List.of(new ObjectValue(2)), transaction, 2).error());
+          error(invoke(catalog, spec, List.of(new ObjectValue(2)), transaction, 2)));
     }
   }
 
@@ -1271,15 +1266,15 @@ final class BuiltinCatalogTest {
     try (WorldTxn transaction = world().begin()) {
       assertEquals(
           Optional.of(new IntegerValue(0)),
-          invoke(catalog, load, List.of(), transaction, 1).value());
+          value(invoke(catalog, load, List.of(), transaction, 1)));
       assertEquals(
           Optional.of(ErrorValue.E_PERM),
-          invoke(catalog, load, List.of(), transaction, 2).error());
+          error(invoke(catalog, load, List.of(), transaction, 2)));
       assertEquals(
           Optional.of(ErrorValue.E_ARGS),
-          invoke(catalog, load, List.of(new IntegerValue(1)), transaction, 1).error());
+          error(invoke(catalog, load, List.of(new IntegerValue(1)), transaction, 1)));
 
-      Result identity =
+      BuiltinResult identity =
           catalog.invoke(
               taskId,
               List.of(),
@@ -1292,12 +1287,12 @@ final class BuiltinCatalogTest {
               new ObjectValue(2),
               2,
               new ListValue(List.of()));
-      assertEquals(Optional.of(new IntegerValue(8_123)), identity.value());
+      assertEquals(Optional.of(new IntegerValue(8_123)), value(identity));
       assertEquals(
           Optional.of(ErrorValue.E_ARGS),
-          invoke(catalog, taskId, List.of(new IntegerValue(1)), transaction, 2).error());
+          error(invoke(catalog, taskId, List.of(new IntegerValue(1)), transaction, 2)));
 
-      Result remaining =
+      BuiltinResult remaining =
           catalog.invoke(
               ticks,
               List.of(),
@@ -1310,12 +1305,12 @@ final class BuiltinCatalogTest {
               new ObjectValue(2),
               2,
               new ListValue(List.of()));
-      assertEquals(Optional.of(new IntegerValue(59_321)), remaining.value());
+      assertEquals(Optional.of(new IntegerValue(59_321)), value(remaining));
       assertEquals(
           Optional.of(ErrorValue.E_ARGS),
-          invoke(catalog, ticks, List.of(new IntegerValue(1)), transaction, 2).error());
+          error(invoke(catalog, ticks, List.of(new IntegerValue(1)), transaction, 2)));
 
-      Result remainingSeconds =
+      BuiltinResult remainingSeconds =
           catalog.invoke(
               seconds,
               List.of(),
@@ -1328,10 +1323,10 @@ final class BuiltinCatalogTest {
               new ObjectValue(2),
               2,
               new ListValue(List.of()));
-      assertEquals(Optional.of(new IntegerValue(11)), remainingSeconds.value());
+      assertEquals(Optional.of(new IntegerValue(11)), value(remainingSeconds));
       assertEquals(
           Optional.of(ErrorValue.E_ARGS),
-          invoke(catalog, seconds, List.of(new IntegerValue(1)), transaction, 2).error());
+          error(invoke(catalog, seconds, List.of(new IntegerValue(1)), transaction, 2)));
     }
   }
 
@@ -1357,7 +1352,7 @@ final class BuiltinCatalogTest {
     try (WorldTxn transaction = world().begin()) {
       List<MooValue> thresholds =
           List.of(new IntegerValue(0), new IntegerValue(59_999), new IntegerValue(4));
-      Result tickYield =
+      BuiltinResult tickYield =
           catalog.invoke(
               spec,
               thresholds,
@@ -1370,9 +1365,9 @@ final class BuiltinCatalogTest {
               new ObjectValue(2),
               2,
               new ListValue(List.of()));
-      assertEquals(OptionalDouble.of(0), tickYield.delaySeconds());
+      assertEquals(OptionalDouble.of(0), delaySeconds(tickYield));
 
-      Result secondYield =
+      BuiltinResult secondYield =
           catalog.invoke(
               spec,
               thresholds,
@@ -1385,9 +1380,9 @@ final class BuiltinCatalogTest {
               new ObjectValue(2),
               2,
               new ListValue(List.of()));
-      assertEquals(OptionalDouble.of(0), secondYield.delaySeconds());
+      assertEquals(OptionalDouble.of(0), delaySeconds(secondYield));
 
-      Result noYield =
+      BuiltinResult noYield =
           catalog.invoke(
               spec,
               thresholds,
@@ -1400,12 +1395,12 @@ final class BuiltinCatalogTest {
               new ObjectValue(2),
               2,
               new ListValue(List.of()));
-      assertEquals(Optional.of(new IntegerValue(0)), noYield.value());
-      assertTrue(noYield.delaySeconds().isEmpty());
+      assertEquals(Optional.of(new IntegerValue(0)), value(noYield));
+      assertTrue(delaySeconds(noYield).isEmpty());
 
       assertEquals(
           Optional.of(ErrorValue.E_INVARG),
-          invoke(
+          error(invoke(
                   catalog,
                   spec,
                   List.of(
@@ -1414,10 +1409,10 @@ final class BuiltinCatalogTest {
                       new IntegerValue(4)),
                   transaction,
                   2)
-              .error());
+              ));
       assertEquals(
           Optional.of(ErrorValue.E_INVARG),
-          invoke(
+          error(invoke(
                   catalog,
                   spec,
                   List.of(
@@ -1426,7 +1421,7 @@ final class BuiltinCatalogTest {
                       new IntegerValue(4)),
                   transaction,
                   2)
-              .error());
+              ));
     }
   }
 
@@ -1442,21 +1437,19 @@ final class BuiltinCatalogTest {
     assertEquals(EffectClass.DEFERRED_COMMIT, spec.effect());
     assertEquals(BuiltinOwner.CONNECTION, spec.owner());
     try (WorldTxn transaction = world().begin()) {
-      Result self =
+      BuiltinResult self =
           invoke(catalog, spec, List.of(new ObjectValue(2)), transaction, 2);
-      assertEquals(Optional.of(new IntegerValue(0)), self.value());
-      assertEquals(OptionalLong.of(2), self.bootPlayerTarget());
+      assertEquals(new BuiltinResult.BootPlayer(2), self);
 
-      Result wizardMissing =
+      BuiltinResult wizardMissing =
           invoke(catalog, spec, List.of(new ObjectValue(99)), transaction, 1);
-      assertEquals(Optional.of(new IntegerValue(0)), wizardMissing.value());
-      assertEquals(OptionalLong.of(99), wizardMissing.bootPlayerTarget());
+      assertEquals(new BuiltinResult.BootPlayer(99), wizardMissing);
       assertEquals(
           Optional.of(ErrorValue.E_PERM),
-          invoke(catalog, spec, List.of(new ObjectValue(1)), transaction, 2).error());
+          error(invoke(catalog, spec, List.of(new ObjectValue(1)), transaction, 2)));
       assertEquals(
           Optional.of(ErrorValue.E_TYPE),
-          invoke(catalog, spec, List.of(new IntegerValue(2)), transaction, 2).error());
+          error(invoke(catalog, spec, List.of(new IntegerValue(2)), transaction, 2)));
     }
   }
 
@@ -1476,32 +1469,32 @@ final class BuiltinCatalogTest {
     try (WorldTxn transaction = world().begin()) {
       assertEquals(
           Optional.of(ErrorValue.E_INVARG),
-          invoke(
+          error(invoke(
                   catalog,
                   spec,
                   List.of(new ObjectValue(99), new FloatValue(1.5)),
                   transaction,
                   1)
-              .error());
+              ));
       assertEquals(
           Optional.of(new IntegerValue(0)),
-          invoke(
+          value(invoke(
                   catalog,
                   spec,
                   List.of(new ObjectValue(2), string("enabled")),
                   transaction,
                   1)
-              .value());
+              ));
       assertEquals(List.of(2L), transaction.players());
       assertEquals(
           Optional.of(new IntegerValue(0)),
-          invoke(
+          value(invoke(
                   catalog,
                   spec,
                   List.of(new ObjectValue(2), new ListValue(List.of())),
                   transaction,
                   1)
-              .value());
+              ));
       assertEquals(List.of(), transaction.players());
     }
   }
@@ -1523,7 +1516,7 @@ final class BuiltinCatalogTest {
     assertEquals(EffectClass.IRREVOCABLE, spec.effect());
     assertEquals(BuiltinOwner.SERVER, spec.owner());
     try (WorldTxn transaction = world().begin()) {
-      Result result =
+      BuiltinResult result =
           invoke(
               catalog,
               spec,
@@ -1534,37 +1527,37 @@ final class BuiltinCatalogTest {
               transaction,
               1);
 
-      assertEquals(Optional.of(new IntegerValue(12345)), result.value());
+      assertEquals(Optional.of(new IntegerValue(12345)), value(result));
       assertEquals(2, listener.handler);
       assertEquals(12345, listener.port);
       assertTrue(listener.printMessages);
       assertEquals(
           Optional.of(ErrorValue.E_PERM),
-          invoke(
+          error(invoke(
                   catalog,
                   spec,
                   List.of(new ObjectValue(2), new IntegerValue(23456)),
                   transaction,
                   2)
-              .error());
+              ));
       assertEquals(
           Optional.of(ErrorValue.E_INVARG),
-          invoke(
+          error(invoke(
                   catalog,
                   spec,
                   List.of(new ObjectValue(99), new IntegerValue(23456)),
                   transaction,
                   1)
-              .error());
+              ));
       assertEquals(
           Optional.of(ErrorValue.E_TYPE),
-          invoke(
+          error(invoke(
                   catalog,
                   spec,
                   List.of(new ObjectValue(2), new FloatValue(1.5)),
                   transaction,
                   1)
-              .error());
+              ));
     }
   }
 
@@ -1619,7 +1612,7 @@ final class BuiltinCatalogTest {
     assertEquals(BuiltinOwner.WORLD, spec.owner());
     try (WorldTxn transaction = world().begin()) {
       assertEquals(1, transaction.addVerb(2, "old-name", 2, 3, -1));
-      Result result =
+      BuiltinResult result =
           invoke(
               catalog,
               spec,
@@ -1630,14 +1623,14 @@ final class BuiltinCatalogTest {
               transaction,
               2);
 
-      assertEquals(Optional.of(new IntegerValue(0)), result.value());
+      assertEquals(Optional.of(new IntegerValue(0)), value(result));
       WorldVerb updated = transaction.verb(2, 0).orElseThrow();
       assertEquals("new-name", updated.names());
       assertEquals(2, updated.owner());
       assertEquals(13, updated.permissions() & 15);
       assertEquals(
           Optional.of(ErrorValue.E_PERM),
-          invoke(
+          error(invoke(
                   catalog,
                   spec,
                   List.of(
@@ -1646,10 +1639,10 @@ final class BuiltinCatalogTest {
                       new ListValue(List.of(new ObjectValue(1), string("r"), string("new-name")))),
                   transaction,
                   2)
-              .error());
+              ));
       assertEquals(
           Optional.of(new IntegerValue(0)),
-          invoke(
+          value(invoke(
                   catalog,
                   spec,
                   List.of(
@@ -1659,11 +1652,11 @@ final class BuiltinCatalogTest {
                           List.of(new ObjectValue(1), string("rxd"), string("new-name")))),
                   transaction,
                   1)
-              .value());
+              ));
       assertEquals(1, transaction.verb(2, 0).orElseThrow().owner());
       assertEquals(
           Optional.of(ErrorValue.E_INVARG),
-          invoke(
+          error(invoke(
                   catalog,
                   spec,
                   List.of(
@@ -1672,10 +1665,10 @@ final class BuiltinCatalogTest {
                       new ListValue(List.of(new ObjectValue(99), string("r"), string("new-name")))),
                   transaction,
                   1)
-              .error());
+              ));
       assertEquals(
           Optional.of(ErrorValue.E_INVARG),
-          invoke(
+          error(invoke(
                   catalog,
                   spec,
                   List.of(
@@ -1684,10 +1677,10 @@ final class BuiltinCatalogTest {
                       new ListValue(List.of(new ObjectValue(1), string("q"), string("new-name")))),
                   transaction,
                   1)
-              .error());
+              ));
       assertEquals(
           Optional.of(ErrorValue.E_VERBNF),
-          invoke(
+          error(invoke(
                   catalog,
                   spec,
                   List.of(
@@ -1696,10 +1689,10 @@ final class BuiltinCatalogTest {
                       new ListValue(List.of(new ObjectValue(2), string("r"), string("new-name")))),
                   transaction,
                   1)
-              .error());
+              ));
       assertEquals(
           Optional.of(ErrorValue.E_INVARG),
-          invoke(
+          error(invoke(
                   catalog,
                   spec,
                   List.of(
@@ -1708,10 +1701,10 @@ final class BuiltinCatalogTest {
                       new ListValue(List.of(new ObjectValue(1), string("r"), string("new-name")))),
                   transaction,
                   1)
-              .error());
+              ));
       assertEquals(
           Optional.of(ErrorValue.E_TYPE),
-          invoke(
+          error(invoke(
                   catalog,
                   spec,
                   List.of(
@@ -1720,7 +1713,7 @@ final class BuiltinCatalogTest {
                       new ListValue(List.of(new ObjectValue(2), new IntegerValue(1), string("x")))),
                   transaction,
                   1)
-              .error());
+              ));
     }
   }
 
@@ -1741,7 +1734,7 @@ final class BuiltinCatalogTest {
     assertEquals(BuiltinOwner.WORLD, spec.owner());
     try (WorldTxn transaction = world().begin()) {
       assertEquals(1, transaction.addVerb(2, "target", 2, 3, 7));
-      Result result =
+      BuiltinResult result =
           invoke(
               catalog,
               spec,
@@ -1752,7 +1745,7 @@ final class BuiltinCatalogTest {
               transaction,
               2);
 
-      assertEquals(Optional.of(new IntegerValue(0)), result.value());
+      assertEquals(Optional.of(new IntegerValue(0)), value(result));
       WorldVerb updated = transaction.verb(2, 0).orElseThrow();
       assertEquals("target", updated.names());
       assertEquals(2, updated.owner());
@@ -1762,7 +1755,7 @@ final class BuiltinCatalogTest {
 
       assertEquals(
           Optional.of(new IntegerValue(0)),
-          invoke(
+          value(invoke(
                   catalog,
                   spec,
                   List.of(
@@ -1771,14 +1764,14 @@ final class BuiltinCatalogTest {
                       new ListValue(List.of(string("any"), string("with/using"), string("none")))),
                   transaction,
                   2)
-              .value());
+              ));
       updated = transaction.verb(2, 0).orElseThrow();
       assertEquals(3 | (1 << 4), updated.permissions());
       assertEquals(0, updated.preposition());
 
       assertEquals(
           Optional.of(ErrorValue.E_TYPE),
-          invoke(
+          error(invoke(
                   catalog,
                   spec,
                   List.of(
@@ -1787,10 +1780,10 @@ final class BuiltinCatalogTest {
                       new ListValue(List.of(string("this"), new IntegerValue(0), string("this")))),
                   transaction,
                   2)
-              .error());
+              ));
       assertEquals(
           Optional.of(ErrorValue.E_INVARG),
-          invoke(
+          error(invoke(
                   catalog,
                   spec,
                   List.of(
@@ -1799,10 +1792,10 @@ final class BuiltinCatalogTest {
                       new ListValue(List.of(string("this"), string("nowhere"), string("this")))),
                   transaction,
                   2)
-              .error());
+              ));
       assertEquals(
           Optional.of(ErrorValue.E_INVARG),
-          invoke(
+          error(invoke(
                   catalog,
                   spec,
                   List.of(
@@ -1811,10 +1804,10 @@ final class BuiltinCatalogTest {
                       new ListValue(List.of(string("this"), string("+1"), string("this")))),
                   transaction,
                   2)
-              .error());
+              ));
       assertEquals(
           Optional.of(ErrorValue.E_VERBNF),
-          invoke(
+          error(invoke(
                   catalog,
                   spec,
                   List.of(
@@ -1823,12 +1816,12 @@ final class BuiltinCatalogTest {
                       new ListValue(List.of(string("this"), string("none"), string("this")))),
                   transaction,
                   2)
-              .error());
+              ));
 
       assertEquals(2, transaction.addVerb(2, "private", 1, 1, -1));
       assertEquals(
           Optional.of(ErrorValue.E_PERM),
-          invoke(
+          error(invoke(
                   catalog,
                   spec,
                   List.of(
@@ -1837,10 +1830,10 @@ final class BuiltinCatalogTest {
                       new ListValue(List.of(string("this"), string("none"), string("this")))),
                   transaction,
                   2)
-              .error());
+              ));
       assertEquals(
           Optional.of(ErrorValue.E_INVARG),
-          invoke(
+          error(invoke(
                   catalog,
                   spec,
                   List.of(
@@ -1849,7 +1842,7 @@ final class BuiltinCatalogTest {
                       new ListValue(List.of(string("this"), string("none"), string("this")))),
                   transaction,
                   2)
-              .error());
+              ));
     }
   }
 
@@ -1877,16 +1870,16 @@ final class BuiltinCatalogTest {
     try (WorldTxn transaction = new WorldTxn(List.of(), List.of(reader, target)).begin()) {
       assertEquals(
           Optional.of(new ListValue(List.of(string("first alias"), string("second")))),
-          invoke(catalog, spec, List.of(new ObjectValue(2)), transaction, 2).value());
+          value(invoke(catalog, spec, List.of(new ObjectValue(2)), transaction, 2)));
       assertEquals(
           Optional.of(ErrorValue.E_PERM),
-          invoke(catalog, spec, List.of(new ObjectValue(2)), transaction, 1).error());
+          error(invoke(catalog, spec, List.of(new ObjectValue(2)), transaction, 1)));
       assertEquals(
           Optional.of(ErrorValue.E_TYPE),
-          invoke(catalog, spec, List.of(new IntegerValue(2)), transaction, 2).error());
+          error(invoke(catalog, spec, List.of(new IntegerValue(2)), transaction, 2)));
       assertEquals(
           Optional.of(ErrorValue.E_INVARG),
-          invoke(catalog, spec, List.of(new ObjectValue(99)), transaction, 2).error());
+          error(invoke(catalog, spec, List.of(new ObjectValue(99)), transaction, 2)));
     }
   }
 
@@ -1933,59 +1926,59 @@ final class BuiltinCatalogTest {
       assertEquals(
           Optional.of(
               new ListValue(List.of(new ObjectValue(2), string("rwxd"), string("alpha aliases")))),
-          invoke(
+          value(invoke(
                   catalog,
                   infoSpec,
                   List.of(new ObjectValue(3), string("alpha")),
                   transaction,
                   2)
-              .value());
+              ));
       assertEquals(
           Optional.of(
               new ListValue(List.of(string("this"), string("with/using"), string("any")))),
-          invoke(
+          value(invoke(
                   catalog,
                   argsSpec,
                   List.of(new ObjectValue(3), new IntegerValue(1)),
                   transaction,
                   2)
-              .value());
+              ));
       assertEquals(
           Optional.of(ErrorValue.E_PERM),
-          invoke(
+          error(invoke(
                   catalog,
                   infoSpec,
                   List.of(new ObjectValue(3), string("private")),
                   transaction,
                   2)
-              .error());
+              ));
       assertEquals(
           Optional.of(ErrorValue.E_VERBNF),
-          invoke(
+          error(invoke(
                   catalog,
                   argsSpec,
                   List.of(new ObjectValue(3), string("missing")),
                   transaction,
                   2)
-              .error());
+              ));
       assertEquals(
           Optional.of(ErrorValue.E_TYPE),
-          invoke(
+          error(invoke(
                   catalog,
                   infoSpec,
                   List.of(new IntegerValue(3), new IntegerValue(0)),
                   transaction,
                   2)
-              .error());
+              ));
       assertEquals(
           Optional.of(ErrorValue.E_INVARG),
-          invoke(
+          error(invoke(
                   catalog,
                   argsSpec,
                   List.of(new ObjectValue(3), new IntegerValue(0)),
                   transaction,
                   2)
-              .error());
+              ));
     }
   }
 
@@ -2029,51 +2022,51 @@ final class BuiltinCatalogTest {
         new WorldTxn(List.of(), List.of(wizard, programmer, writable, denied)).begin()) {
       assertEquals(
           Optional.of(new IntegerValue(0)),
-          invoke(
+          value(invoke(
                   catalog,
                   spec,
                   List.of(new ObjectValue(3), string("first")),
                   transaction,
                   2)
-              .value());
+              ));
       assertEquals("second", transaction.verb(3, 0).orElseThrow().names());
       assertEquals(Optional.empty(), transaction.verb(3, 1));
       assertEquals(
           Optional.of(ErrorValue.E_PERM),
-          invoke(
+          error(invoke(
                   catalog,
                   spec,
                   List.of(new ObjectValue(4), string("missing")),
                   transaction,
                   2)
-              .error());
+              ));
       assertEquals(
           Optional.of(ErrorValue.E_VERBNF),
-          invoke(
+          error(invoke(
                   catalog,
                   spec,
                   List.of(new ObjectValue(3), string("missing")),
                   transaction,
                   2)
-              .error());
+              ));
       assertEquals(
           Optional.of(ErrorValue.E_INVARG),
-          invoke(
+          error(invoke(
                   catalog,
                   spec,
                   List.of(new IntegerValue(3), new IntegerValue(0)),
                   transaction,
                   2)
-              .error());
+              ));
       assertEquals(
           Optional.of(ErrorValue.E_TYPE),
-          invoke(
+          error(invoke(
                   catalog,
                   spec,
                   List.of(new IntegerValue(3), string("first")),
                   transaction,
                   2)
-              .error());
+              ));
     }
   }
 
@@ -2098,7 +2091,7 @@ final class BuiltinCatalogTest {
     WorldObject target =
         new WorldObject(3, "Target", 0, 1, -1, -1, List.of(), List.of(), List.of(), List.of());
     try (WorldTxn transaction = new WorldTxn(List.of(), List.of(wizard, target)).begin()) {
-      Result result =
+      BuiltinResult result =
           invoke(
               catalog,
               spec,
@@ -2109,7 +2102,7 @@ final class BuiltinCatalogTest {
               transaction,
               1);
 
-      assertEquals(Optional.of(new IntegerValue(1)), result.value());
+      assertEquals(Optional.of(new IntegerValue(1)), value(result));
       assertEquals(
           new WorldVerb("foobar", 1, 12 | (2 << 4) | (2 << 6), -1, ""),
           transaction.verb(3, 0).orElseThrow());
@@ -2141,7 +2134,7 @@ final class BuiltinCatalogTest {
     WorldObject target =
         new WorldObject(3, "Target", 0, 1, -1, -1, List.of(), List.of(), List.of(), List.of());
     try (WorldTxn transaction = new WorldTxn(List.of(), List.of(wizard, target)).begin()) {
-      Result result =
+      BuiltinResult result =
           invoke(
               catalog,
               spec,
@@ -2153,7 +2146,7 @@ final class BuiltinCatalogTest {
               transaction,
               1);
 
-      assertEquals(Optional.of(new IntegerValue(0)), result.value());
+      assertEquals(Optional.of(new IntegerValue(0)), value(result));
       assertEquals(
           Optional.of(new IntegerValue(99)),
           transaction.readObjectProperty(3, "foo"));
@@ -2204,62 +2197,62 @@ final class BuiltinCatalogTest {
     try (WorldTxn transaction = new WorldTxn(List.of(), List.of(wizard, child)).begin()) {
       assertEquals(
           Optional.of(new ListValue(List.of(string("test")))),
-          invoke(
+          value(invoke(
                   catalog,
                   catalog.spec("properties").orElseThrow(),
                   List.of(new ObjectValue(1)),
                   transaction,
                   1)
-              .value());
+              ));
       assertEquals(
           Optional.of(new ListValue(List.of())),
-          invoke(
+          value(invoke(
                   catalog,
                   catalog.spec("properties").orElseThrow(),
                   List.of(new ObjectValue(2)),
                   transaction,
                   1)
-              .value());
+              ));
       assertEquals(
           Optional.of(new IntegerValue(1)),
-          invoke(
+          value(invoke(
                   catalog,
                   catalog.spec("is_clear_property").orElseThrow(),
                   List.of(new ObjectValue(2), string("test")),
                   transaction,
                   1)
-              .value());
+              ));
 
       assertTrue(transaction.writeObjectProperty(2, "test", new IntegerValue(2)));
       assertEquals(
           Optional.of(new IntegerValue(0)),
-          invoke(
+          value(invoke(
                   catalog,
                   catalog.spec("is_clear_property").orElseThrow(),
                   List.of(new ObjectValue(2), string("test")),
                   transaction,
                   1)
-              .value());
+              ));
       assertEquals(
           Optional.of(new IntegerValue(0)),
-          invoke(
+          value(invoke(
                   catalog,
                   catalog.spec("clear_property").orElseThrow(),
                   List.of(new ObjectValue(2), string("test")),
                   transaction,
                   1)
-              .value());
+              ));
       assertEquals(Optional.of(new IntegerValue(1)), transaction.readObjectProperty(2, "test"));
 
       assertEquals(
           Optional.of(new IntegerValue(0)),
-          invoke(
+          value(invoke(
                   catalog,
                   catalog.spec("delete_property").orElseThrow(),
                   List.of(new ObjectValue(1), string("test")),
                   transaction,
                   1)
-              .value());
+              ));
       assertTrue(transaction.property(2, "test").isEmpty());
     }
   }
@@ -2274,40 +2267,40 @@ final class BuiltinCatalogTest {
     try (WorldTxn transaction = new WorldTxn(List.of(), List.of(wizard)).begin()) {
       assertEquals(
           Optional.of(ErrorValue.E_INVARG),
-          invoke(
+          error(invoke(
                   catalog,
                   catalog.spec("properties").orElseThrow(),
                   List.of(waif),
                   transaction,
                   1)
-              .error());
+              ));
       assertEquals(
           Optional.of(ErrorValue.E_INVARG),
-          invoke(
+          error(invoke(
                   catalog,
                   catalog.spec("property_info").orElseThrow(),
                   List.of(waif, string("alpha")),
                   transaction,
                   1)
-              .error());
+              ));
       assertEquals(
           Optional.of(ErrorValue.E_INVARG),
-          invoke(
+          error(invoke(
                   catalog,
                   catalog.spec("is_clear_property").orElseThrow(),
                   List.of(waif, string("alpha")),
                   transaction,
                   1)
-              .error());
+              ));
       assertEquals(
           Optional.of(ErrorValue.E_TYPE),
-          invoke(
+          error(invoke(
                   catalog,
                   catalog.spec("properties").orElseThrow(),
                   List.of(new IntegerValue(0)),
                   transaction,
                   1)
-              .error());
+              ));
     }
   }
 
@@ -2344,31 +2337,31 @@ final class BuiltinCatalogTest {
     try (WorldTxn transaction = new WorldTxn(List.of(), List.of(wizard, target)).begin()) {
       assertEquals(
           Optional.of(new ListValue(List.of(new ObjectValue(1), string("rw")))),
-          invoke(
+          value(invoke(
                   catalog,
                   spec,
                   List.of(new ObjectValue(2), string("caseprobe")),
                   transaction,
                   1)
-              .value());
+              ));
       assertEquals(
           Optional.of(ErrorValue.E_PROPNF),
-          invoke(
+          error(invoke(
                   catalog,
                   spec,
                   List.of(new ObjectValue(2), string("name")),
                   transaction,
                   1)
-              .error());
+              ));
       assertEquals(
           Optional.of(ErrorValue.E_PERM),
-          invoke(
+          error(invoke(
                   catalog,
                   spec,
                   List.of(new ObjectValue(2), string("private")),
                   transaction,
                   2)
-              .error());
+              ));
     }
   }
 
@@ -2385,29 +2378,29 @@ final class BuiltinCatalogTest {
     try (WorldTxn transaction = world().begin()) {
       assertEquals(
           Optional.of(new IntegerValue(1)),
-          invoke(catalog, hasKey, List.of(map, string("foo")), transaction, 1).value());
+          value(invoke(catalog, hasKey, List.of(map, string("foo")), transaction, 1)));
       assertEquals(
           Optional.of(new IntegerValue(0)),
-          invoke(
+          value(invoke(
                   catalog,
                   hasKey,
                   List.of(map, string("foo"), new IntegerValue(1)),
                   transaction,
                   1)
-              .value());
+              ));
       assertEquals(
           Optional.of(ErrorValue.E_TYPE),
-          invoke(catalog, hasKey, List.of(map, new AnonymousObjectValue()), transaction, 1)
-              .error());
+          error(invoke(catalog, hasKey, List.of(map, new AnonymousObjectValue()), transaction, 1)
+              ));
 
       assertEquals(
           Optional.of(new ListValue(List.of(string("two"), new IntegerValue(1)))),
-          invoke(catalog, values, List.of(map), transaction, 1).value());
+          value(invoke(catalog, values, List.of(map), transaction, 1)));
       assertEquals(
           Optional.of(ErrorValue.E_RANGE),
-          invoke(catalog, values, List.of(map, string("foo")), transaction, 1).error());
+          error(invoke(catalog, values, List.of(map, string("foo")), transaction, 1)));
 
-      Result missing =
+      BuiltinResult missing =
           invoke(
               catalog,
               delete,
@@ -2416,7 +2409,7 @@ final class BuiltinCatalogTest {
                   new ListValue(List.of(new IntegerValue(2), new IntegerValue(99)))),
               transaction,
               1);
-      assertEquals(Optional.of(ErrorValue.E_RANGE), missing.error());
+      assertEquals(Optional.of(ErrorValue.E_RANGE), error(missing));
       assertEquals(
           Optional.of(
               new ListValue(
@@ -2424,7 +2417,7 @@ final class BuiltinCatalogTest {
                       string("Key 99 not found in map"),
                       new IntegerValue(99),
                       new ListValue(List.of())))),
-          missing.errorDetails());
+          errorDetails(missing));
     }
   }
 
@@ -2458,7 +2451,7 @@ final class BuiltinCatalogTest {
                       one,
                       next,
                       string("z")))),
-          invoke(catalog, spec, List.of(new MapValue(entries)), transaction, 1).value());
+          value(invoke(catalog, spec, List.of(new MapValue(entries)), transaction, 1)));
     }
   }
 
@@ -2476,16 +2469,16 @@ final class BuiltinCatalogTest {
     try (WorldTxn transaction = world().begin()) {
       assertEquals(
           Optional.of(new IntegerValue(0)),
-          invoke(catalog, hasKey, List.of(map, BooleanValue.TRUE), transaction, 1).value());
+          value(invoke(catalog, hasKey, List.of(map, BooleanValue.TRUE), transaction, 1)));
       assertEquals(
           Optional.of(new IntegerValue(1)),
-          invoke(catalog, hasKey, List.of(map, BooleanValue.FALSE), transaction, 1).value());
+          value(invoke(catalog, hasKey, List.of(map, BooleanValue.FALSE), transaction, 1)));
       assertEquals(
           Optional.of(new IntegerValue(1)),
-          invoke(catalog, hasKey, List.of(map, new IntegerValue(1)), transaction, 1).value());
+          value(invoke(catalog, hasKey, List.of(map, new IntegerValue(1)), transaction, 1)));
       assertEquals(
           Optional.of(new IntegerValue(1)),
-          invoke(catalog, hasKey, List.of(map, new IntegerValue(0)), transaction, 1).value());
+          value(invoke(catalog, hasKey, List.of(map, new IntegerValue(0)), transaction, 1)));
     }
   }
 
@@ -2520,7 +2513,7 @@ final class BuiltinCatalogTest {
             List.of(new WorldVerb("foobar", 1, 0, -1, "")),
             List.of());
     try (WorldTxn transaction = new WorldTxn(List.of(), List.of(wizard, target)).begin()) {
-      Result result =
+      BuiltinResult result =
           invoke(
               catalog,
               spec,
@@ -2531,7 +2524,7 @@ final class BuiltinCatalogTest {
               transaction,
               1);
 
-      assertEquals(Optional.of(new ListValue(List.of())), result.value());
+      assertEquals(Optional.of(new ListValue(List.of())), value(result));
       assertEquals(
           "return \"foobar\"[^..$];", transaction.verb(3, 0).orElseThrow().programSource());
     }
@@ -2566,7 +2559,7 @@ final class BuiltinCatalogTest {
             string("endfork"));
 
     try (WorldTxn transaction = new WorldTxn(List.of(), List.of(wizard, target)).begin()) {
-      Result result =
+      BuiltinResult result =
           invoke(
               catalog,
               spec,
@@ -2574,7 +2567,7 @@ final class BuiltinCatalogTest {
               transaction,
               1);
 
-      assertEquals(Optional.of(new ListValue(List.of())), result.value());
+      assertEquals(Optional.of(new ListValue(List.of())), value(result));
       assertEquals(
           """
           class = create($waif);
@@ -2625,7 +2618,7 @@ final class BuiltinCatalogTest {
                     "for i, j in ({})\n  break j;\n  continue i;\nendfor")),
             List.of());
     try (WorldTxn transaction = new WorldTxn(List.of(), List.of(programmer, target)).begin()) {
-      Result result =
+      BuiltinResult result =
           invoke(catalog, spec, List.of(new ObjectValue(3), string("test")), transaction, 2);
 
       assertEquals(
@@ -2636,7 +2629,7 @@ final class BuiltinCatalogTest {
                       string("  break j;"),
                       string("  continue i;"),
                       string("endfor")))),
-          result.value());
+          value(result));
     }
   }
 
@@ -2658,19 +2651,19 @@ final class BuiltinCatalogTest {
     WorldObject target =
         new WorldObject(3, "Target", 0, 2, -1, -1, List.of(), List.of(), List.of(), List.of());
     try (WorldTxn transaction = new WorldTxn(List.of(), List.of(owner, target)).begin()) {
-      Result result =
+      BuiltinResult result =
           invoke(catalog, spec, List.of(new ObjectValue(3)), transaction, 2);
 
-      assertEquals(OptionalLong.of(3), result.recycleTarget());
+      assertEquals(OptionalLong.of(3), recycleTarget(result));
       assertEquals(
           Optional.of(ErrorValue.E_TYPE),
-          invoke(catalog, spec, List.of(new IntegerValue(3)), transaction, 2).error());
+          error(invoke(catalog, spec, List.of(new IntegerValue(3)), transaction, 2)));
       assertEquals(
           Optional.of(ErrorValue.E_INVARG),
-          invoke(catalog, spec, List.of(new ObjectValue(999)), transaction, 2).error());
+          error(invoke(catalog, spec, List.of(new ObjectValue(999)), transaction, 2)));
       assertEquals(
           Optional.of(ErrorValue.E_PERM),
-          invoke(catalog, spec, List.of(new ObjectValue(3)), transaction, 1).error());
+          error(invoke(catalog, spec, List.of(new ObjectValue(3)), transaction, 1)));
     }
   }
 
@@ -2711,41 +2704,41 @@ final class BuiltinCatalogTest {
         new WorldTxn(List.of(1L), List.of(system, player, parentObject, child)).begin()) {
       assertEquals(
           Optional.of(new ObjectValue(2)),
-          invoke(catalog, parent, List.of(new ObjectValue(3)), transaction, 1).value());
+          value(invoke(catalog, parent, List.of(new ObjectValue(3)), transaction, 1)));
       assertEquals(
           Optional.of(new ObjectValue(3)),
-          invoke(catalog, maxObject, List.of(), transaction, 1).value());
+          value(invoke(catalog, maxObject, List.of(), transaction, 1)));
       transaction.createAnonymousObject(List.of(2L), 1);
       assertEquals(
           Optional.of(new ObjectValue(3)),
-          invoke(catalog, maxObject, List.of(), transaction, 1).value());
+          value(invoke(catalog, maxObject, List.of(), transaction, 1)));
       assertEquals(
           Optional.of(new IntegerValue(1)),
-          invoke(catalog, isPlayer, List.of(new ObjectValue(1)), transaction, 1).value());
+          value(invoke(catalog, isPlayer, List.of(new ObjectValue(1)), transaction, 1)));
       assertEquals(
           Optional.of(new IntegerValue(0)),
-          invoke(catalog, isPlayer, List.of(new ObjectValue(3)), transaction, 1).value());
+          value(invoke(catalog, isPlayer, List.of(new ObjectValue(3)), transaction, 1)));
       assertEquals(
           Optional.of(new IntegerValue(1)),
-          invoke(catalog, valid, List.of(new ObjectValue(0)), transaction, 1).value());
+          value(invoke(catalog, valid, List.of(new ObjectValue(0)), transaction, 1)));
       assertEquals(
           Optional.of(new IntegerValue(0)),
-          invoke(catalog, valid, List.of(new ObjectValue(-1)), transaction, 1).value());
+          value(invoke(catalog, valid, List.of(new ObjectValue(-1)), transaction, 1)));
       assertEquals(
           Optional.of(new IntegerValue(0)),
-          invoke(
+          value(invoke(
                   catalog,
                   valid,
                   List.of(new WaifValue(new ObjectValue(2), new ObjectValue(1))),
                   transaction,
                   1)
-              .value());
+              ));
       assertEquals(
           Optional.of(ErrorValue.E_INVARG),
-          invoke(catalog, parent, List.of(new ObjectValue(99)), transaction, 1).error());
+          error(invoke(catalog, parent, List.of(new ObjectValue(99)), transaction, 1)));
       assertEquals(
           Optional.of(ErrorValue.E_INVARG),
-          invoke(catalog, isPlayer, List.of(new ObjectValue(99)), transaction, 1).error());
+          error(invoke(catalog, isPlayer, List.of(new ObjectValue(99)), transaction, 1)));
     }
   }
 
@@ -2767,23 +2760,23 @@ final class BuiltinCatalogTest {
     try (WorldTxn transaction = world().begin()) {
       assertEquals(
           new ListValue(List.of(new ObjectValue(2))),
-          invoke(catalog, spec, List.of(string("gram")), transaction, 1)
-              .value()
+          value(invoke(catalog, spec, List.of(string("gram")), transaction, 1)
+              )
               .orElseThrow());
       assertEquals(
           new ListValue(List.of()),
-          invoke(
+          value(invoke(
                   catalog,
                   spec,
                   List.of(string("program"), new IntegerValue(1)),
                   transaction,
                   1)
-              .value()
+              )
               .orElseThrow());
       assertEquals(
           ErrorValue.E_PERM,
-          invoke(catalog, spec, List.of(string("Program")), transaction, 2)
-              .error()
+          error(invoke(catalog, spec, List.of(string("Program")), transaction, 2)
+              )
               .orElseThrow());
     }
   }
@@ -2809,23 +2802,23 @@ final class BuiltinCatalogTest {
     try (WorldTxn transaction = new WorldTxn(List.of(), List.of(base, room, item)).begin()) {
       assertEquals(
           new ListValue(List.of(new ObjectValue(2), new ObjectValue(1))),
-          invoke(catalog, spec, List.of(new ObjectValue(3)), transaction, 1)
-              .value()
+          value(invoke(catalog, spec, List.of(new ObjectValue(3)), transaction, 1)
+              )
               .orElseThrow());
       assertEquals(
           new ListValue(List.of(new ObjectValue(2))),
-          invoke(
+          value(invoke(
                   catalog,
                   spec,
                   List.of(new ObjectValue(3), new ObjectValue(1)),
                   transaction,
                   1)
-              .value()
+              )
               .orElseThrow());
       assertEquals(
           ErrorValue.E_INVIND,
-          invoke(catalog, spec, List.of(new ObjectValue(99)), transaction, 1)
-              .error()
+          error(invoke(catalog, spec, List.of(new ObjectValue(99)), transaction, 1)
+              )
               .orElseThrow());
     }
   }
@@ -2866,59 +2859,59 @@ final class BuiltinCatalogTest {
           new ListValue(List.of(new ObjectValue(2), new ObjectValue(3)));
       assertEquals(
           Optional.of(new ObjectValue(2)),
-          invoke(catalog, parent, List.of(new ObjectValue(4)), transaction, 1).value());
+          value(invoke(catalog, parent, List.of(new ObjectValue(4)), transaction, 1)));
       assertEquals(
           Optional.of(orderedParents),
-          invoke(catalog, parents, List.of(new ObjectValue(4)), transaction, 1).value());
+          value(invoke(catalog, parents, List.of(new ObjectValue(4)), transaction, 1)));
       assertEquals(
           Optional.of(orderedParents),
-          invoke(catalog, ancestors, List.of(new ObjectValue(4)), transaction, 1).value());
+          value(invoke(catalog, ancestors, List.of(new ObjectValue(4)), transaction, 1)));
       assertEquals(
           Optional.of(
               new ListValue(
                   List.of(new ObjectValue(4), new ObjectValue(2), new ObjectValue(3)))),
-          invoke(
+          value(invoke(
                   catalog,
                   ancestors,
                   List.of(new ObjectValue(4), new IntegerValue(1)),
                   transaction,
                   1)
-              .value());
+              ));
       assertEquals(
           Optional.of(ErrorValue.E_TYPE),
-          invoke(catalog, ancestors, List.of(new IntegerValue(4)), transaction, 1).error());
+          error(invoke(catalog, ancestors, List.of(new IntegerValue(4)), transaction, 1)));
       assertEquals(
           Optional.of(ErrorValue.E_INVARG),
-          invoke(catalog, ancestors, List.of(new ObjectValue(99)), transaction, 1).error());
+          error(invoke(catalog, ancestors, List.of(new ObjectValue(99)), transaction, 1)));
       assertEquals(
           Optional.of(new ListValue(List.of(new ObjectValue(4)))),
-          invoke(catalog, children, List.of(new ObjectValue(2)), transaction, 1).value());
+          value(invoke(catalog, children, List.of(new ObjectValue(2)), transaction, 1)));
       WaifValue waif = new WaifValue(new ObjectValue(2), new ObjectValue(1));
       for (BuiltinSpec hierarchyQuery : List.of(parent, parents, children)) {
         assertEquals(
             Optional.of(ErrorValue.E_INVARG),
-            invoke(catalog, hierarchyQuery, List.of(waif), transaction, 1).error());
+            error(invoke(catalog, hierarchyQuery, List.of(waif), transaction, 1)));
       }
 
       assertEquals(
           Optional.of(new ObjectValue(5)),
-          invoke(catalog, create, List.of(orderedParents), transaction, 1).value());
+          value(invoke(catalog, create, List.of(orderedParents), transaction, 1)));
       assertEquals(List.of(2L, 3L), transaction.object(5).orElseThrow().parents());
 
       ListValue reversed = new ListValue(List.of(new ObjectValue(3), new ObjectValue(2)));
       assertEquals(
           Optional.of(new IntegerValue(0)),
-          invoke(
+          value(invoke(
                   catalog,
                   chparents,
                   List.of(new ObjectValue(4), reversed),
                   transaction,
                   1)
-              .value());
+              ));
       assertEquals(List.of(3L, 2L), transaction.object(4).orElseThrow().parents());
       assertEquals(
           Optional.of(ErrorValue.E_INVARG),
-          invoke(
+          error(invoke(
                   catalog,
                   chparents,
                   List.of(
@@ -2926,7 +2919,7 @@ final class BuiltinCatalogTest {
                       new ListValue(List.of(new ObjectValue(2), new ObjectValue(2)))),
                   transaction,
                   1)
-              .error());
+              ));
     }
   }
 
@@ -2952,58 +2945,58 @@ final class BuiltinCatalogTest {
             .begin()) {
       assertEquals(
           Optional.of(ErrorValue.E_PERM),
-          invoke(
+          error(invoke(
                   catalog,
                   chparents,
                   List.of(new ObjectValue(5), new ObjectValue(2)),
                   transaction,
                   1)
-              .error());
+              ));
       assertEquals(
           Optional.of(ErrorValue.E_PERM),
-          invoke(
+          error(invoke(
                   catalog,
                   chparents,
                   List.of(new ObjectValue(4), new ObjectValue(3)),
                   transaction,
                   1)
-              .error());
+              ));
       assertEquals(
           Optional.of(ErrorValue.E_RECMOVE),
-          invoke(
+          error(invoke(
                   catalog,
                   chparents,
                   List.of(new ObjectValue(4), new ObjectValue(6)),
                   transaction,
                   1)
-              .error());
+              ));
       assertEquals(
           Optional.of(ErrorValue.E_PERM),
-          invoke(
+          error(invoke(
                   catalog,
                   chparents,
                   List.of(new ObjectValue(4), new ObjectValue(6)),
                   transaction,
                   2)
-              .error());
+              ));
       assertEquals(
           Optional.of(ErrorValue.E_INVARG),
-          invoke(
+          error(invoke(
                   catalog,
                   chparents,
                   List.of(new ObjectValue(99), new ObjectValue(2)),
                   transaction,
                   1)
-              .error());
+              ));
       assertEquals(
           Optional.of(new IntegerValue(0)),
-          invoke(
+          value(invoke(
                   catalog,
                   chparents,
                   List.of(new ObjectValue(4), new ObjectValue(2)),
                   transaction,
                   1)
-              .value());
+              ));
     }
   }
 
@@ -3022,9 +3015,9 @@ final class BuiltinCatalogTest {
     try (WorldTxn transaction = new WorldTxn(List.of(), List.of(wizard, programmer)).begin()) {
       assertEquals(
           Optional.of(ErrorValue.E_PERM),
-          invoke(catalog, gcStats, List.of(), transaction, 2).error());
+          error(invoke(catalog, gcStats, List.of(), transaction, 2)));
       MapValue stats =
-          (MapValue) invoke(catalog, gcStats, List.of(), transaction, 1).value().orElseThrow();
+          (MapValue) value(invoke(catalog, gcStats, List.of(), transaction, 1)).orElseThrow();
       for (String color :
           List.of("green", "yellow", "black", "gray", "white", "purple", "pink")) {
         assertEquals(Optional.of(new IntegerValue(0)), stats.get(string(color)));
@@ -3051,19 +3044,19 @@ final class BuiltinCatalogTest {
         new WorldTxn(List.of(), List.of(programmer, ordinary, wizardOnly)).begin()) {
       assertEquals(
           Optional.of(ErrorValue.E_PERM),
-          invoke(catalog, eval, List.of(string("return 5;")), transaction, 2).error());
+          error(invoke(catalog, eval, List.of(string("return 5;")), transaction, 2)));
       assertEquals(
           Optional.of(ErrorValue.E_PERM),
-          invoke(catalog, eval, List.of(string("return 5;")), transaction, 3).error());
+          error(invoke(catalog, eval, List.of(string("return 5;")), transaction, 3)));
       assertEquals(
           Optional.of("x = 1;\nreturn x + 1;"),
-          invoke(
+          dynamicSource(invoke(
                   catalog,
                   eval,
                   List.of(string("x = 1;"), string("return x + 1;")),
                   transaction,
                   1)
-              .dynamicSource());
+              ));
     }
   }
 
@@ -3080,22 +3073,22 @@ final class BuiltinCatalogTest {
               new ListValue(List.of(new ObjectValue(999999))))) {
         assertEquals(
             Optional.of(ErrorValue.E_TYPE),
-            invoke(
+            error(invoke(
                     catalog,
                     create,
                     List.of(invalidParent, new FloatValue(1.5)),
                     transaction,
                     1)
-                .error());
+                ));
         assertEquals(
             Optional.of(ErrorValue.E_INVARG),
-            invoke(
+            error(invoke(
                     catalog,
                     create,
                     List.of(invalidParent, new IntegerValue(1)),
                     transaction,
                     1)
-                .error());
+                ));
       }
     }
   }
@@ -3121,32 +3114,36 @@ final class BuiltinCatalogTest {
     try (WorldTxn transaction =
         new WorldTxn(List.of(), List.of(programmer, ordinaryParent, anonymousParent, owner, wizard))
             .begin()) {
-      Result ordinary =
+      BuiltinResult ordinary =
           invoke(catalog, create, List.of(new ObjectValue(2), initializer), transaction, 1);
-      assertEquals(initializer, ordinary.initializeRequest().orElseThrow().arguments());
-      assertInstanceOf(ObjectValue.class, ordinary.initializeRequest().orElseThrow().created());
+      BuiltinResult.Initialize ordinaryInitialize =
+          assertInstanceOf(BuiltinResult.Initialize.class, ordinary);
+      assertEquals(initializer, ordinaryInitialize.arguments());
+      assertInstanceOf(ObjectValue.class, ordinaryInitialize.created());
 
-      Result anonymous =
+      BuiltinResult anonymous =
           invoke(
               catalog,
               create,
               List.of(new ObjectValue(3), new IntegerValue(1), initializer),
               transaction,
               1);
-      assertEquals(initializer, anonymous.initializeRequest().orElseThrow().arguments());
+      BuiltinResult.Initialize anonymousInitialize =
+          assertInstanceOf(BuiltinResult.Initialize.class, anonymous);
+      assertEquals(initializer, anonymousInitialize.arguments());
       assertInstanceOf(
-          AnonymousObjectValue.class, anonymous.initializeRequest().orElseThrow().created());
+          AnonymousObjectValue.class, anonymousInitialize.created());
 
       assertEquals(
           Optional.of(ErrorValue.E_PERM),
-          invoke(
+          error(invoke(
                   catalog,
                   create,
                   List.of(new ObjectValue(2), new ObjectValue(4)),
                   transaction,
                   1)
-              .error());
-      Result wizardOwned =
+              ));
+      BuiltinResult wizardOwned =
           invoke(
               catalog,
               create,
@@ -3160,7 +3157,7 @@ final class BuiltinCatalogTest {
       AnonymousObjectValue created =
           assertInstanceOf(
               AnonymousObjectValue.class,
-              wizardOwned.initializeRequest().orElseThrow().created());
+              assertInstanceOf(BuiltinResult.Initialize.class, wizardOwned).created());
       assertEquals(4, transaction.anonymousObject(created).orElseThrow().owner());
     }
   }
@@ -3218,8 +3215,8 @@ final class BuiltinCatalogTest {
         new WorldTxn(List.of(), List.of(programmer, parent, delegatedOwner, wizard)).begin()) {
       assertInstanceOf(
           ObjectValue.class,
-          invoke(catalog, create, List.of(new ObjectValue(2)), transaction, 1)
-              .value()
+          value(invoke(catalog, create, List.of(new ObjectValue(2)), transaction, 1)
+              )
               .orElseThrow());
       assertEquals(
           new IntegerValue(1),
@@ -3227,13 +3224,13 @@ final class BuiltinCatalogTest {
 
       assertInstanceOf(
           AnonymousObjectValue.class,
-          invoke(
+          value(invoke(
                   catalog,
                   create,
                   List.of(new ObjectValue(2), new IntegerValue(1)),
                   transaction,
                   1)
-              .value()
+              )
               .orElseThrow());
       assertEquals(
           new IntegerValue(0),
@@ -3241,13 +3238,13 @@ final class BuiltinCatalogTest {
 
       assertInstanceOf(
           ObjectValue.class,
-          invoke(
+          value(invoke(
                   catalog,
                   create,
                   List.of(new ObjectValue(2), new ObjectValue(4)),
                   transaction,
                   9)
-              .value()
+              )
               .orElseThrow());
       assertEquals(
           new IntegerValue(0),
@@ -3255,8 +3252,8 @@ final class BuiltinCatalogTest {
 
       assertInstanceOf(
           ObjectValue.class,
-          invoke(catalog, create, List.of(new ObjectValue(2)), transaction, 9)
-              .value()
+          value(invoke(catalog, create, List.of(new ObjectValue(2)), transaction, 9)
+              )
               .orElseThrow());
       assertEquals(
           new IntegerValue(0),
@@ -3264,19 +3261,17 @@ final class BuiltinCatalogTest {
 
       int permanentCount = transaction.objectCount();
       int anonymousCount = transaction.snapshot().anonymousObjects().size();
-      Result exhaustedPermanent =
+      BuiltinResult exhaustedPermanent =
           invoke(catalog, create, List.of(new ObjectValue(2)), transaction, 1);
-      Result exhaustedAnonymous =
+      BuiltinResult exhaustedAnonymous =
           invoke(
               catalog,
               create,
               List.of(new ObjectValue(2), new IntegerValue(1)),
               transaction,
               1);
-      assertEquals(Optional.of(ErrorValue.E_QUOTA), exhaustedPermanent.error());
-      assertEquals(Optional.of(ErrorValue.E_QUOTA), exhaustedAnonymous.error());
-      assertTrue(exhaustedPermanent.initializeRequest().isEmpty());
-      assertTrue(exhaustedAnonymous.initializeRequest().isEmpty());
+      assertEquals(Optional.of(ErrorValue.E_QUOTA), error(exhaustedPermanent));
+      assertEquals(Optional.of(ErrorValue.E_QUOTA), error(exhaustedAnonymous));
       assertEquals(permanentCount, transaction.objectCount());
       assertEquals(anonymousCount, transaction.snapshot().anonymousObjects().size());
     }
@@ -3299,29 +3294,29 @@ final class BuiltinCatalogTest {
     assertEquals(BuiltinOwner.VM, spec.owner());
 
     try (WorldTxn transaction = new WorldTxn(List.of(), List.of()).begin()) {
-      Result basic =
+      BuiltinResult basic =
           invoke(catalog, spec, List.of(ErrorValue.E_INVARG), transaction, 1);
-      assertEquals(Optional.of(ErrorValue.E_INVARG), basic.error());
+      assertEquals(Optional.of(ErrorValue.E_INVARG), error(basic));
       assertEquals(
           Optional.of(
               new ListValue(
                   List.of(string("E_INVARG"), new IntegerValue(0), new ListValue(List.of())))),
-          basic.errorDetails());
+          errorDetails(basic));
 
       ListValue customValue = new ListValue(List.of(new IntegerValue(1), new IntegerValue(2)));
-      Result custom =
+      BuiltinResult custom =
           invoke(
               catalog,
               spec,
               List.of(ErrorValue.E_TYPE, string("custom message"), customValue),
               transaction,
               1);
-      assertEquals(Optional.of(ErrorValue.E_TYPE), custom.error());
+      assertEquals(Optional.of(ErrorValue.E_TYPE), error(custom));
       assertEquals(
           Optional.of(
               new ListValue(
                   List.of(string("custom message"), customValue, new ListValue(List.of())))),
-          custom.errorDetails());
+          errorDetails(custom));
     }
   }
 
@@ -3419,105 +3414,105 @@ final class BuiltinCatalogTest {
     try (WorldTxn transaction = world().begin()) {
       assertEquals(
           Optional.of(new FloatValue(0.0)),
-          invoke(catalog, catalog.spec("acos").orElseThrow(), List.of(new FloatValue(1.0)), transaction, 1)
-              .value());
+          value(invoke(catalog, catalog.spec("acos").orElseThrow(), List.of(new FloatValue(1.0)), transaction, 1)
+              ));
       assertEquals(
           Optional.of(new FloatValue(0.0)),
-          invoke(catalog, catalog.spec("acosh").orElseThrow(), List.of(new FloatValue(1.0)), transaction, 1)
-              .value());
-      Result largeAcosh =
+          value(invoke(catalog, catalog.spec("acosh").orElseThrow(), List.of(new FloatValue(1.0)), transaction, 1)
+              ));
+      BuiltinResult largeAcosh =
           invoke(
               catalog,
               catalog.spec("acosh").orElseThrow(),
               List.of(new FloatValue(Double.MAX_VALUE)),
               transaction,
               1);
-      assertTrue(((FloatValue) largeAcosh.value().orElseThrow()).value() > 700.0);
-      Result largeNegativeAsinh =
+      assertTrue(((FloatValue) value(largeAcosh).orElseThrow()).value() > 700.0);
+      BuiltinResult largeNegativeAsinh =
           invoke(
               catalog,
               catalog.spec("asinh").orElseThrow(),
               List.of(new FloatValue(-Double.MAX_VALUE)),
               transaction,
               1);
-      assertTrue(((FloatValue) largeNegativeAsinh.value().orElseThrow()).value() < -700.0);
+      assertTrue(((FloatValue) value(largeNegativeAsinh).orElseThrow()).value() < -700.0);
       assertEquals(
           Optional.of(new FloatValue(1.0e-20)),
-          invoke(
+          value(invoke(
                   catalog,
                   catalog.spec("atanh").orElseThrow(),
                   List.of(new FloatValue(1.0e-20)),
                   transaction,
                   1)
-              .value());
+              ));
       assertEquals(
           Optional.of(new FloatValue(-2.0)),
-          invoke(catalog, catalog.spec("cbrt").orElseThrow(), List.of(new FloatValue(-8.0)), transaction, 1)
-              .value());
+          value(invoke(catalog, catalog.spec("cbrt").orElseThrow(), List.of(new FloatValue(-8.0)), transaction, 1)
+              ));
       assertEquals(
           Optional.of(new FloatValue(3.0)),
-          invoke(catalog, catalog.spec("round").orElseThrow(), List.of(new FloatValue(2.5)), transaction, 1)
-              .value());
+          value(invoke(catalog, catalog.spec("round").orElseThrow(), List.of(new FloatValue(2.5)), transaction, 1)
+              ));
       assertEquals(
           Optional.of(new FloatValue(-3.0)),
-          invoke(catalog, catalog.spec("round").orElseThrow(), List.of(new FloatValue(-2.5)), transaction, 1)
-              .value());
+          value(invoke(catalog, catalog.spec("round").orElseThrow(), List.of(new FloatValue(-2.5)), transaction, 1)
+              ));
       assertEquals(
           Optional.of(new FloatValue(0.0)),
-          invoke(
+          value(invoke(
                   catalog,
                   catalog.spec("round").orElseThrow(),
                   List.of(new FloatValue(0.49999999999999994)),
                   transaction,
                   1)
-              .value());
+              ));
       assertEquals(
           Optional.of(ErrorValue.E_INVARG),
-          invoke(catalog, catalog.spec("sqrt").orElseThrow(), List.of(new FloatValue(-1.0)), transaction, 1)
-              .error());
+          error(invoke(catalog, catalog.spec("sqrt").orElseThrow(), List.of(new FloatValue(-1.0)), transaction, 1)
+              ));
       assertEquals(
           Optional.of(ErrorValue.E_FLOAT),
-          invoke(
+          error(invoke(
                   catalog,
                   catalog.spec("sqrt").orElseThrow(),
                   List.of(new FloatValue(Double.NaN)),
                   transaction,
                   1)
-              .error());
+              ));
       assertEquals(
           Optional.of(ErrorValue.E_FLOAT),
-          invoke(catalog, catalog.spec("atanh").orElseThrow(), List.of(new FloatValue(1.0)), transaction, 1)
-              .error());
+          error(invoke(catalog, catalog.spec("atanh").orElseThrow(), List.of(new FloatValue(1.0)), transaction, 1)
+              ));
       assertEquals(
           Optional.of(string("3.14")),
-          invoke(
+          value(invoke(
                   catalog,
                   catalog.spec("floatstr").orElseThrow(),
                   List.of(new FloatValue(3.14159), new IntegerValue(2)),
                   transaction,
                   1)
-              .value());
+              ));
       assertEquals(
           Optional.of(string("2")),
-          invoke(
+          value(invoke(
                   catalog,
                   catalog.spec("floatstr").orElseThrow(),
                   List.of(new FloatValue(2.5), new IntegerValue(0)),
                   transaction,
                   1)
-              .value());
+              ));
       assertEquals(
           Optional.of(string("2e+00")),
-          invoke(
+          value(invoke(
                   catalog,
                   catalog.spec("floatstr").orElseThrow(),
                   List.of(new FloatValue(2.5), new IntegerValue(0), new IntegerValue(1)),
                   transaction,
                   1)
-              .value());
+              ));
       assertEquals(
           Optional.of(new FloatValue(5.0)),
-          invoke(
+          value(invoke(
                   catalog,
                   catalog.spec("distance").orElseThrow(),
                   List.of(
@@ -3525,10 +3520,10 @@ final class BuiltinCatalogTest {
                       new ListValue(List.of(new IntegerValue(3), new IntegerValue(4)))),
                   transaction,
                   1)
-              .value());
+              ));
       assertEquals(
           Optional.of(ErrorValue.E_TYPE),
-          invoke(
+          error(invoke(
                   catalog,
                   catalog.spec("distance").orElseThrow(),
                   List.of(
@@ -3536,9 +3531,9 @@ final class BuiltinCatalogTest {
                       new ListValue(List.of(new IntegerValue(1)))),
                   transaction,
                   1)
-              .error());
+              ));
       MooValue infiniteDistance =
-          invoke(
+          value(invoke(
                   catalog,
                   catalog.spec("distance").orElseThrow(),
                   List.of(
@@ -3546,13 +3541,13 @@ final class BuiltinCatalogTest {
                       new ListValue(List.of(new FloatValue(Double.MAX_VALUE)))),
                   transaction,
                   1)
-              .value()
+              )
               .orElseThrow();
       assertTrue(Double.isInfinite(((FloatValue) infiniteDistance).value()));
       assertEquals(
           Optional.of(
               new ListValue(List.of(new IntegerValue(89), new IntegerValue(0)))),
-          invoke(
+          value(invoke(
                   catalog,
                   catalog.spec("relative_heading").orElseThrow(),
                   List.of(
@@ -3562,13 +3557,13 @@ final class BuiltinCatalogTest {
                           List.of(new FloatValue(0.0), new FloatValue(1.0), new FloatValue(0.0)))),
                   transaction,
                   1)
-              .value());
+              ));
       assertEquals(
           Optional.of(string("")),
-          invoke(catalog, randomBytes, List.of(new IntegerValue(0)), transaction, 1).value());
-      Result invalidRandomBytes =
+          value(invoke(catalog, randomBytes, List.of(new IntegerValue(0)), transaction, 1)));
+      BuiltinResult invalidRandomBytes =
           invoke(catalog, randomBytes, List.of(new IntegerValue(10_001)), transaction, 1);
-      assertEquals(Optional.of(ErrorValue.E_INVARG), invalidRandomBytes.error());
+      assertEquals(Optional.of(ErrorValue.E_INVARG), error(invalidRandomBytes));
       assertEquals(
           Optional.of(
               new ListValue(
@@ -3576,62 +3571,62 @@ final class BuiltinCatalogTest {
                       string("Invalid count"),
                       new IntegerValue(10_001),
                       new ListValue(List.of())))),
-          invalidRandomBytes.errorDetails());
+          errorDetails(invalidRandomBytes));
       MooValue floatingRandom =
-          invoke(catalog, frandom, List.of(new FloatValue(5.0), new FloatValue(10.0)), transaction, 1)
-              .value()
+          value(invoke(catalog, frandom, List.of(new FloatValue(5.0), new FloatValue(10.0)), transaction, 1)
+              )
               .orElseThrow();
       assertTrue(floatingRandom instanceof FloatValue);
       assertTrue(((FloatValue) floatingRandom).value() >= 5.0);
       assertTrue(((FloatValue) floatingRandom).value() <= 10.0);
       assertTrue(
-          invoke(catalog, catalog.spec("ctime").orElseThrow(), List.of(new IntegerValue(0)), transaction, 1)
-                  .value()
+          value(invoke(catalog, catalog.spec("ctime").orElseThrow(), List.of(new IntegerValue(0)), transaction, 1)
+                  )
                   .orElseThrow()
               instanceof StringValue);
       String expandedYear =
           decode(
               (StringValue)
-                  invoke(
+                  value(invoke(
                           catalog,
                           catalog.spec("ctime").orElseThrow(),
                           List.of(new IntegerValue(253_402_387_200L)),
                           transaction,
                           1)
-                      .value()
+                      )
                       .orElseThrow());
       assertTrue(expandedYear.contains("10000"), expandedYear);
       assertFalse(expandedYear.contains("+10000"));
       assertEquals(
-          invoke(
+          value(invoke(
                   catalog,
                   catalog.spec("ctime").orElseThrow(),
                   List.of(new IntegerValue((long) Integer.MAX_VALUE * 31_536_000L)),
                   transaction,
                   1)
-              .value(),
-          invoke(
+              ),
+          value(invoke(
                   catalog,
                   catalog.spec("ctime").orElseThrow(),
                   List.of(new IntegerValue(Long.MAX_VALUE)),
                   transaction,
                   1)
-              .value());
+              ));
       MooValue fineTime =
-          invoke(catalog, catalog.spec("ftime").orElseThrow(), List.of(), transaction, 1)
-              .value()
+          value(invoke(catalog, catalog.spec("ftime").orElseThrow(), List.of(), transaction, 1)
+              )
               .orElseThrow();
       assertTrue(fineTime instanceof FloatValue);
       assertTrue(((FloatValue) fineTime).value() > 0.0);
       for (long selector : List.of(1L, 2L, 99L)) {
         MooValue monotonicTime =
-            invoke(
+            value(invoke(
                     catalog,
                     catalog.spec("ftime").orElseThrow(),
                     List.of(new IntegerValue(selector)),
                     transaction,
                     1)
-                .value()
+                )
                 .orElseThrow();
         assertTrue(monotonicTime instanceof FloatValue);
         assertTrue(((FloatValue) monotonicTime).value() > 0.0);
@@ -3649,13 +3644,13 @@ final class BuiltinCatalogTest {
     try (WorldTxn transaction = world().begin()) {
       assertEquals(
           Optional.of(new FloatValue(10.0)),
-          invoke(
+          value(invoke(
                   catalog,
                   catalog.spec("frandom").orElseThrow(),
                   List.of(new FloatValue(5.0), new FloatValue(10.0)),
                   transaction,
                   1)
-              .value());
+              ));
     }
 
     WorldObject system =
@@ -3695,8 +3690,8 @@ final class BuiltinCatalogTest {
         new WorldTxn(List.of(), List.of(system, wizard, catchableOptions)).begin()) {
       assertEquals(
           Optional.of(ErrorValue.E_QUOTA),
-          invoke(catalog, randomBytes, List.of(new IntegerValue(10_000)), transaction, 1)
-              .error());
+          error(invoke(catalog, randomBytes, List.of(new IntegerValue(10_000)), transaction, 1)
+              ));
     }
 
     WorldObject uncatchableOptions =
@@ -3718,8 +3713,8 @@ final class BuiltinCatalogTest {
     try (WorldTxn transaction =
         new WorldTxn(List.of(), List.of(system, wizard, uncatchableOptions)).begin()) {
       assertTrue(
-          invoke(catalog, randomBytes, List.of(new IntegerValue(10_000)), transaction, 1)
-              .abortSeconds());
+          abortSeconds(invoke(catalog, randomBytes, List.of(new IntegerValue(10_000)), transaction, 1)
+              ));
     }
   }
 
@@ -3737,37 +3732,37 @@ final class BuiltinCatalogTest {
       BuiltinSpec spec = catalog.spec("min").orElseThrow();
       assertEquals(
           Optional.of(new IntegerValue(1)),
-          invoke(
+          value(invoke(
                   catalog,
                   spec,
                   List.of(new IntegerValue(3), new IntegerValue(1), new IntegerValue(7)),
                   transaction,
                   1)
-              .value());
+              ));
       assertEquals(
           Optional.of(new FloatValue(1.5)),
-          invoke(
+          value(invoke(
                   catalog,
                   spec,
                   List.of(new FloatValue(3.5), new FloatValue(1.5)),
                   transaction,
                   1)
-              .value());
+              ));
       assertEquals(
           Optional.of(ErrorValue.E_TYPE),
-          invoke(
+          error(invoke(
                   catalog,
                   spec,
                   List.of(new IntegerValue(1), new FloatValue(2.0)),
                   transaction,
                   1)
-              .error());
+              ));
       assertEquals(
           Optional.of(ErrorValue.E_TYPE),
-          invoke(catalog, spec, List.of(string("x")), transaction, 1).error());
+          error(invoke(catalog, spec, List.of(string("x")), transaction, 1)));
       assertEquals(
           Optional.of(ErrorValue.E_ARGS),
-          invoke(catalog, spec, List.of(), transaction, 1).error());
+          error(invoke(catalog, spec, List.of(), transaction, 1)));
     }
   }
 
@@ -3779,31 +3774,31 @@ final class BuiltinCatalogTest {
 
       assertEquals(
           Optional.of(new IntegerValue(7)),
-          invoke(
+          value(invoke(
                   catalog,
                   spec,
                   List.of(new IntegerValue(3), new IntegerValue(7), new IntegerValue(1)),
                   transaction,
                   1)
-              .value());
+              ));
       assertEquals(
           Optional.of(new FloatValue(7.5)),
-          invoke(
+          value(invoke(
                   catalog,
                   spec,
                   List.of(new FloatValue(3.5), new FloatValue(7.5)),
                   transaction,
                   1)
-              .value());
+              ));
       assertEquals(
           Optional.of(ErrorValue.E_TYPE),
-          invoke(
+          error(invoke(
                   catalog,
                   spec,
                   List.of(new IntegerValue(3), new FloatValue(7.5)),
                   transaction,
                   1)
-              .error());
+              ));
     }
   }
 
@@ -3819,10 +3814,10 @@ final class BuiltinCatalogTest {
       BuiltinSpec spec = catalog.spec("abs").orElseThrow();
       assertEquals(
           Optional.of(new IntegerValue(7)),
-          invoke(catalog, spec, List.of(new IntegerValue(-7)), transaction, 1).value());
+          value(invoke(catalog, spec, List.of(new IntegerValue(-7)), transaction, 1)));
       assertEquals(
           Optional.of(new FloatValue(7.5)),
-          invoke(catalog, spec, List.of(new FloatValue(-7.5)), transaction, 1).value());
+          value(invoke(catalog, spec, List.of(new FloatValue(-7.5)), transaction, 1)));
     }
   }
 
@@ -3845,25 +3840,24 @@ final class BuiltinCatalogTest {
     try (WorldTxn transaction = world().begin()) {
       assertEquals(
           Optional.of(new IntegerValue(1)),
-          invoke(catalog, spec, List.of(new IntegerValue(1)), transaction, 1).value());
+          value(invoke(catalog, spec, List.of(new IntegerValue(1)), transaction, 1)));
       for (int invocation = 0; invocation < 64; invocation++) {
         long value =
             ((IntegerValue)
-                    invoke(catalog, spec, List.of(new IntegerValue(7)), transaction, 1)
-                        .value()
+                    value(invoke(catalog, spec, List.of(new IntegerValue(7)), transaction, 1))
                         .orElseThrow())
                 .value();
         assertTrue(value >= 1 && value <= 7);
       }
       long ranged =
           ((IntegerValue)
-                  invoke(
-                          catalog,
-                          spec,
-                          List.of(new IntegerValue(5), new IntegerValue(10)),
-                          transaction,
-                          1)
-                      .value()
+                  value(
+                          invoke(
+                              catalog,
+                              spec,
+                              List.of(new IntegerValue(5), new IntegerValue(10)),
+                              transaction,
+                              1))
                       .orElseThrow())
               .value();
       assertTrue(ranged >= 5 && ranged <= 10);
@@ -3874,7 +3868,7 @@ final class BuiltinCatalogTest {
               List.<MooValue>of(new IntegerValue(10), new IntegerValue(5)))) {
         assertEquals(
             Optional.of(ErrorValue.E_INVARG),
-            invoke(catalog, spec, arguments, transaction, 1).error());
+            error(invoke(catalog, spec, arguments, transaction, 1)));
       }
     }
   }
@@ -3921,9 +3915,9 @@ final class BuiltinCatalogTest {
             List.of());
     try (WorldTxn transaction =
         new WorldTxn(List.of(), List.of(wizard, programmer, target, privateTarget)).begin()) {
-      Result result =
+      BuiltinResult result =
           invoke(catalog, spec, List.of(new ObjectValue(3), string("foobar")), transaction, 2);
-      ListValue lines = (ListValue) result.value().orElseThrow();
+      ListValue lines = (ListValue) value(result).orElseThrow();
       assertTrue(
           lines.elements().stream()
               .map(StringValue.class::cast)
@@ -3937,51 +3931,51 @@ final class BuiltinCatalogTest {
 
       assertEquals(
           Optional.of(ErrorValue.E_TYPE),
-          invoke(
+          error(invoke(
                   catalog,
                   spec,
                   List.of(new IntegerValue(3), string("foobar")),
                   transaction,
                   2)
-              .error());
+              ));
       assertEquals(
           Optional.of(ErrorValue.E_TYPE),
-          invoke(
+          error(invoke(
                   catalog,
                   spec,
                   List.of(new ObjectValue(3), new FloatValue(1.5)),
                   transaction,
                   2)
-              .error());
+              ));
       assertEquals(
           Optional.of(ErrorValue.E_INVARG),
-          invoke(
+          error(invoke(
                   catalog,
                   spec,
                   List.of(new ObjectValue(999), string("foobar")),
                   transaction,
                   2)
-              .error());
+              ));
       assertEquals(
           Optional.of(ErrorValue.E_INVARG),
-          invoke(
+          error(invoke(
                   catalog,
                   spec,
                   List.of(new ObjectValue(3), new IntegerValue(0)),
                   transaction,
                   2)
-              .error());
+              ));
       assertEquals(
           Optional.of(ErrorValue.E_VERBNF),
-          invoke(catalog, spec, List.of(new ObjectValue(3), string("missing")), transaction, 2)
-              .error());
+          error(invoke(catalog, spec, List.of(new ObjectValue(3), string("missing")), transaction, 2)
+              ));
       assertEquals(
           Optional.of(ErrorValue.E_PERM),
-          invoke(catalog, spec, List.of(new ObjectValue(4), string("secret")), transaction, 2)
-              .error());
+          error(invoke(catalog, spec, List.of(new ObjectValue(4), string("secret")), transaction, 2)
+              ));
       assertTrue(
-          invoke(catalog, spec, List.of(new ObjectValue(4), string("secret")), transaction, 1)
-              .value()
+          value(invoke(catalog, spec, List.of(new ObjectValue(4), string("secret")), transaction, 1)
+              )
               .isPresent());
     }
   }
@@ -4011,11 +4005,11 @@ final class BuiltinCatalogTest {
     try (WorldTxn transaction = world().begin()) {
       assertEquals(
           new IntegerValue(0),
-          invoke(catalog, spec, List.of(), transaction, 1).value().orElseThrow());
+          value(invoke(catalog, spec, List.of(), transaction, 1)).orElseThrow());
       assertEquals(
           ErrorValue.E_ARGS,
-          invoke(catalog, spec, List.of(new IntegerValue(1)), transaction, 1)
-              .error()
+          error(invoke(catalog, spec, List.of(new IntegerValue(1)), transaction, 1)
+              )
               .orElseThrow());
     }
   }
@@ -4034,11 +4028,11 @@ final class BuiltinCatalogTest {
     try (WorldTxn transaction = world().begin()) {
       assertEquals(
           ErrorValue.E_ARGS,
-          invoke(catalog, spec, List.of(), transaction, 2).error().orElseThrow());
+          error(invoke(catalog, spec, List.of(), transaction, 2)).orElseThrow());
       assertEquals(
           ErrorValue.E_TYPE,
-          invoke(catalog, spec, List.of(string("x")), transaction, 2)
-              .error()
+          error(invoke(catalog, spec, List.of(string("x")), transaction, 2)
+              )
               .orElseThrow());
     }
   }
@@ -4054,14 +4048,14 @@ final class BuiltinCatalogTest {
     assertEquals(EffectClass.EXTERNAL_READ, spec.effect());
     assertEquals(BuiltinOwner.SERVER, spec.owner());
     try (WorldTxn transaction = world().begin()) {
-      Result result = invoke(catalog, spec, List.of(), transaction, 2);
-      ListValue usage = assertInstanceOf(ListValue.class, result.value().orElseThrow());
+      BuiltinResult result = invoke(catalog, spec, List.of(), transaction, 2);
+      ListValue usage = assertInstanceOf(ListValue.class, value(result).orElseThrow());
       assertEquals(5, usage.size());
       assertTrue(usage.elements().stream().allMatch(FloatValue.class::isInstance));
       assertEquals(
           ErrorValue.E_ARGS,
-          invoke(catalog, spec, List.of(new IntegerValue(1)), transaction, 2)
-              .error()
+          error(invoke(catalog, spec, List.of(new IntegerValue(1)), transaction, 2)
+              )
               .orElseThrow());
     }
   }
@@ -4078,11 +4072,11 @@ final class BuiltinCatalogTest {
     try (WorldTxn transaction = world().begin()) {
       assertEquals(
           ErrorValue.E_PERM,
-          invoke(catalog, spec, List.of(), transaction, 2).error().orElseThrow());
+          error(invoke(catalog, spec, List.of(), transaction, 2)).orElseThrow());
       ListValue result =
           assertInstanceOf(
               ListValue.class,
-              invoke(catalog, spec, List.of(), transaction, 1).value().orElseThrow());
+              value(invoke(catalog, spec, List.of(), transaction, 1)).orElseThrow());
       assertEquals(10, result.size());
       assertEquals(3, assertInstanceOf(ListValue.class, result.elements().getFirst()).size());
       assertInstanceOf(FloatValue.class, result.elements().get(1));
@@ -4103,11 +4097,11 @@ final class BuiltinCatalogTest {
     try (WorldTxn transaction = world().begin()) {
       assertEquals(
           ErrorValue.E_PERM,
-          invoke(catalog, spec, List.of(), transaction, 2).error().orElseThrow());
+          error(invoke(catalog, spec, List.of(), transaction, 2)).orElseThrow());
       ListValue stats =
           assertInstanceOf(
               ListValue.class,
-              invoke(catalog, spec, List.of(), transaction, 1).value().orElseThrow());
+              value(invoke(catalog, spec, List.of(), transaction, 1)).orElseThrow());
       assertEquals(5, stats.size());
       assertTrue(stats.elements().subList(0, 4).stream().allMatch(IntegerValue.class::isInstance));
       assertEquals(17, assertInstanceOf(ListValue.class, stats.elements().get(4)).size());
@@ -4133,7 +4127,7 @@ final class BuiltinCatalogTest {
       MapValue stats =
           assertInstanceOf(
               MapValue.class,
-              invoke(catalog, spec, List.of(), transaction, 2).value().orElseThrow());
+              value(invoke(catalog, spec, List.of(), transaction, 2)).orElseThrow());
       assertEquals(new IntegerValue(2), stats.get(string("total")).orElseThrow());
       assertEquals(new IntegerValue(0), stats.get(string("pending_recycle")).orElseThrow());
       assertEquals(new IntegerValue(2), stats.get(new ObjectValue(7)).orElseThrow());
@@ -4159,31 +4153,31 @@ final class BuiltinCatalogTest {
         new WorldTxn(List.of(), List.of(zero, last), Map.of(), Map.of(), List.of(), 5).begin()) {
       assertEquals(
           new ObjectValue(1),
-          invoke(catalog, spec, List.of(), transaction, 2).value().orElseThrow());
+          value(invoke(catalog, spec, List.of(), transaction, 2)).orElseThrow());
       assertEquals(
           new ObjectValue(2),
-          invoke(catalog, spec, List.of(new ObjectValue(2)), transaction, 2)
-              .value()
+          value(invoke(catalog, spec, List.of(new ObjectValue(2)), transaction, 2)
+              )
               .orElseThrow());
       assertEquals(
           new ObjectValue(4),
-          invoke(catalog, spec, List.of(new ObjectValue(4)), transaction, 2)
-              .value()
+          value(invoke(catalog, spec, List.of(new ObjectValue(4)), transaction, 2)
+              )
               .orElseThrow());
       assertEquals(
           ErrorValue.E_INVARG,
-          invoke(catalog, spec, List.of(new ObjectValue(-1)), transaction, 2)
-              .error()
+          error(invoke(catalog, spec, List.of(new ObjectValue(-1)), transaction, 2)
+              )
               .orElseThrow());
       assertEquals(
           new IntegerValue(0),
-          invoke(catalog, spec, List.of(new ObjectValue(5)), transaction, 2)
-              .value()
+          value(invoke(catalog, spec, List.of(new ObjectValue(5)), transaction, 2)
+              )
               .orElseThrow());
       assertEquals(
           ErrorValue.E_INVARG,
-          invoke(catalog, spec, List.of(new ObjectValue(6)), transaction, 2)
-              .error()
+          error(invoke(catalog, spec, List.of(new ObjectValue(6)), transaction, 2)
+              )
               .orElseThrow());
     }
   }
@@ -4211,11 +4205,11 @@ final class BuiltinCatalogTest {
                   new ObjectValue(2),
                   new ObjectValue(4),
                   new ObjectValue(5))),
-          invoke(catalog, spec, List.of(), transaction, 2).value().orElseThrow());
+          value(invoke(catalog, spec, List.of(), transaction, 2)).orElseThrow());
       assertEquals(
           ErrorValue.E_ARGS,
-          invoke(catalog, spec, List.of(new IntegerValue(1)), transaction, 2)
-              .error()
+          error(invoke(catalog, spec, List.of(new IntegerValue(1)), transaction, 2)
+              )
               .orElseThrow());
     }
   }
@@ -4239,10 +4233,10 @@ final class BuiltinCatalogTest {
             .begin()) {
       assertEquals(
           ErrorValue.E_PERM,
-          invoke(catalog, spec, List.of(), transaction, 2).error().orElseThrow());
+          error(invoke(catalog, spec, List.of(), transaction, 2)).orElseThrow());
       assertEquals(
           new IntegerValue(0),
-          invoke(catalog, spec, List.of(), transaction, 3).value().orElseThrow());
+          value(invoke(catalog, spec, List.of(), transaction, 3)).orElseThrow());
       assertEquals(3, transaction.maximumObjectId());
       assertEquals(4, transaction.createObject(-1, 3).id());
     }
@@ -4272,13 +4266,13 @@ final class BuiltinCatalogTest {
             .begin()) {
       assertEquals(
           new ListValue(List.of(new ObjectValue(1), new ObjectValue(3), new ObjectValue(7))),
-          invoke(catalog, spec, List.of(new ObjectValue(1)), transaction, 2)
-              .value()
+          value(invoke(catalog, spec, List.of(new ObjectValue(1)), transaction, 2)
+              )
               .orElseThrow());
       assertEquals(
           ErrorValue.E_INVIND,
-          invoke(catalog, spec, List.of(new ObjectValue(8)), transaction, 2)
-              .error()
+          error(invoke(catalog, spec, List.of(new ObjectValue(8)), transaction, 2)
+              )
               .orElseThrow());
     }
   }
@@ -4313,23 +4307,23 @@ final class BuiltinCatalogTest {
     try (WorldTxn transaction = world().begin()) {
       assertEquals(
           new ObjectValue(Long.MAX_VALUE),
-          invoke(catalog, spec, List.of(string("9223372036854775808")), transaction, 1)
-              .value()
+          value(invoke(catalog, spec, List.of(string("9223372036854775808")), transaction, 1)
+              )
               .orElseThrow());
       assertEquals(
           new ObjectValue(Long.MIN_VALUE),
-          invoke(catalog, spec, List.of(string("#-9223372036854775809")), transaction, 1)
-              .value()
+          value(invoke(catalog, spec, List.of(string("#-9223372036854775809")), transaction, 1)
+              )
               .orElseThrow());
       assertEquals(
           new ObjectValue(0),
-          invoke(catalog, spec, List.of(string("9223372036854775808x")), transaction, 1)
-              .value()
+          value(invoke(catalog, spec, List.of(string("9223372036854775808x")), transaction, 1)
+              )
               .orElseThrow());
       assertEquals(
           new ObjectValue(0),
-          invoke(catalog, spec, List.of(string("#")), transaction, 1)
-              .value()
+          value(invoke(catalog, spec, List.of(string("#")), transaction, 1)
+              )
               .orElseThrow());
     }
   }
@@ -4394,8 +4388,8 @@ final class BuiltinCatalogTest {
           invoke(catalog, spec, List.of(string("[unknown]plain")), transaction, 2));
       StringValue randomValue =
           (StringValue)
-              invoke(catalog, spec, List.of(string("[random]")), transaction, 2)
-                  .value()
+              value(invoke(catalog, spec, List.of(string("[random]")), transaction, 2)
+                  )
                   .orElseThrow();
       assertTrue(
           Set.of("\u001b[31m", "\u001b[32m", "\u001b[33m", "\u001b[34m", "\u001b[35m")
@@ -4449,40 +4443,40 @@ final class BuiltinCatalogTest {
     assertEquals(BuiltinOwner.VM, spec.owner());
 
     try (WorldTxn transaction = world().begin()) {
-      Result first =
+      BuiltinResult first =
           invoke(
               catalog,
               spec,
               List.of(new ListValue(List.of(new FloatValue(0.25)))),
               transaction,
               2);
-      Result second =
+      BuiltinResult second =
           invoke(
               catalog,
               spec,
               List.of(new ListValue(List.of(new FloatValue(0.25)))),
               transaction,
               2);
-      assertEquals(first.value(), second.value());
-      assertInstanceOf(FloatValue.class, first.value().orElseThrow());
+      assertEquals(value(first), value(second));
+      assertInstanceOf(FloatValue.class, value(first).orElseThrow());
       assertEquals(
           ErrorValue.E_TYPE,
-          invoke(
+          error(invoke(
                   catalog,
                   spec,
                   List.of(new ListValue(List.of(new IntegerValue(1)))),
                   transaction,
                   2)
-              .error()
+              )
               .orElseThrow());
       assertEquals(
           ErrorValue.E_TYPE,
-          invoke(catalog, spec, List.of(new ListValue(List.of())), transaction, 2)
-              .value()
+          value(invoke(catalog, spec, List.of(new ListValue(List.of())), transaction, 2)
+              )
               .orElseThrow());
       assertInstanceOf(
           FloatValue.class,
-          invoke(
+          value(invoke(
                   catalog,
                   spec,
                   List.of(
@@ -4494,7 +4488,7 @@ final class BuiltinCatalogTest {
                               new FloatValue(0)))),
                   transaction,
                   2)
-              .value()
+              )
               .orElseThrow());
     }
   }
@@ -4525,13 +4519,13 @@ final class BuiltinCatalogTest {
               1));
       assertEquals(
           Optional.of(ErrorValue.E_INVARG),
-          invoke(
+          error(invoke(
                   catalog,
                   catalog.spec("strsub").orElseThrow(),
                   List.of(string("foo"), string(""), string("x")),
                   transaction,
                   1)
-              .error());
+              ));
 
       assertString(
           "FxXbar",
@@ -4568,59 +4562,59 @@ final class BuiltinCatalogTest {
 
       assertEquals(
           Optional.of(new IntegerValue(4)),
-          invoke(
+          value(invoke(
                   catalog,
                   catalog.spec("index").orElseThrow(),
                   List.of(string("fooBar"), string("bar")),
                   transaction,
                   1)
-              .value());
+              ));
       assertEquals(
           Optional.of(new IntegerValue(0)),
-          invoke(
+          value(invoke(
                   catalog,
                   catalog.spec("index").orElseThrow(),
                   List.of(string("fooBar"), string("bar"), new IntegerValue(1)),
                   transaction,
                   1)
-              .value());
+              ));
       assertEquals(
           Optional.of(new IntegerValue(7)),
-          invoke(
+          value(invoke(
                   catalog,
                   catalog.spec("rindex").orElseThrow(),
                   List.of(string("bazbarBazfoo"), string("baz")),
                   transaction,
                   1)
-              .value());
+              ));
       assertEquals(
           Optional.of(new IntegerValue(1)),
-          invoke(
+          value(invoke(
                   catalog,
                   catalog.spec("rindex").orElseThrow(),
                   List.of(string("bazbarBazfoo"), string("baz"), new IntegerValue(1)),
                   transaction,
                   1)
-              .value());
+              ));
 
       assertEquals(
           Optional.of(new IntegerValue(1)),
-          invoke(
+          value(invoke(
                   catalog,
                   catalog.spec("strcmp").orElseThrow(),
                   List.of(string("abc"), string("ABC")),
                   transaction,
                   1)
-              .value());
+              ));
       assertEquals(
           Optional.of(new IntegerValue(-1)),
-          invoke(
+          value(invoke(
                   catalog,
                   catalog.spec("strcmp").orElseThrow(),
                   List.of(string("abc"), string("abcd")),
                   transaction,
                   1)
-              .value());
+              ));
     }
   }
 
@@ -4652,13 +4646,13 @@ final class BuiltinCatalogTest {
               1));
       assertEquals(
           Optional.of(ErrorValue.E_PERM),
-          invoke(
+          error(invoke(
                   catalog,
                   spec,
                   List.of(string("foobar"), string("$2y$10$KRGxLBS0Lxe3KBCwKxOzLe")),
                   transaction,
                   2)
-              .error());
+              ));
     }
   }
 
@@ -4685,21 +4679,21 @@ final class BuiltinCatalogTest {
               1));
       assertEquals(
           Optional.of(new IntegerValue(1)),
-          invoke(catalog, verify, List.of(string(expected), string("password")), transaction, 1)
-              .value());
+          value(invoke(catalog, verify, List.of(string(expected), string("password")), transaction, 1)
+              ));
       assertEquals(
           Optional.of(new IntegerValue(0)),
-          invoke(catalog, verify, List.of(string(expected), string("wrong")), transaction, 1)
-              .value());
+          value(invoke(catalog, verify, List.of(string(expected), string("wrong")), transaction, 1)
+              ));
       assertEquals(
           Optional.of(ErrorValue.E_PERM),
-          invoke(
+          error(invoke(
                   catalog,
                   hash,
                   List.of(string("password"), string("saltsalt")),
                   transaction,
                   2)
-              .error());
+              ));
     }
   }
 
@@ -4707,7 +4701,7 @@ final class BuiltinCatalogTest {
   void binaryBuiltinsPreserveToastByteGroupingEscapesAndErrors() {
     BuiltinCatalog catalog = new BuiltinCatalog();
     try (WorldTxn transaction = world().begin()) {
-      Result decoded =
+      BuiltinResult decoded =
           invoke(
               catalog,
               catalog.spec("decode_binary").orElseThrow(),
@@ -4718,7 +4712,7 @@ final class BuiltinCatalogTest {
           Optional.of(
               new ListValue(
                   List.of(string("foo"), new IntegerValue(13), new IntegerValue(10)))),
-          decoded.value());
+          value(decoded));
       assertEquals(
           Optional.of(
               new ListValue(
@@ -4728,22 +4722,22 @@ final class BuiltinCatalogTest {
                       new IntegerValue(111),
                       new IntegerValue(13),
                       new IntegerValue(10)))),
-          invoke(
+          value(invoke(
                   catalog,
                   catalog.spec("decode_binary").orElseThrow(),
                   List.of(string("foo~0D~0A"), new IntegerValue(1)),
                   transaction,
                   1)
-              .value());
+              ));
       assertEquals(
           Optional.of(ErrorValue.E_INVARG),
-          invoke(
+          error(invoke(
                   catalog,
                   catalog.spec("decode_binary").orElseThrow(),
                   List.of(string("~ZZ")),
                   transaction,
                   1)
-              .error());
+              ));
 
       assertString(
           "foo~0Abar~0D",
@@ -4765,13 +4759,13 @@ final class BuiltinCatalogTest {
               1));
       assertEquals(
           Optional.of(ErrorValue.E_INVARG),
-          invoke(
+          error(invoke(
                   catalog,
                   catalog.spec("encode_binary").orElseThrow(),
                   List.of(new IntegerValue(256)),
                   transaction,
                   1)
-              .error());
+              ));
     }
   }
 
@@ -4797,14 +4791,14 @@ final class BuiltinCatalogTest {
               2));
       assertEquals(
           Optional.of(ErrorValue.E_INVARG),
-          invoke(catalog, spec, List.of(new IntegerValue(10)), transaction, 2).error());
+          error(invoke(catalog, spec, List.of(new IntegerValue(10)), transaction, 2)));
       assertEquals(
           Optional.of(ErrorValue.E_INVARG),
-          invoke(catalog, spec, List.of(new IntegerValue(255)), transaction, 2).error());
+          error(invoke(catalog, spec, List.of(new IntegerValue(255)), transaction, 2)));
       assertString("\n", invoke(catalog, spec, List.of(new IntegerValue(10)), transaction, 1));
       assertEquals(
           Optional.of(ErrorValue.E_INVARG),
-          invoke(catalog, spec, List.of(new FloatValue(65)), transaction, 1).error());
+          error(invoke(catalog, spec, List.of(new FloatValue(65)), transaction, 1)));
     }
   }
 
@@ -4850,38 +4844,38 @@ final class BuiltinCatalogTest {
           Optional.of(
               new ListValue(
                   List.of(new IntegerValue(1), new IntegerValue(2), new IntegerValue(3)))),
-          invoke(
+          value(invoke(
                   catalog,
                   catalog.spec("listappend").orElseThrow(),
                   List.of(oneTwo, new IntegerValue(3)),
                   transaction,
                   1)
-              .value());
+              ));
       assertEquals(
           Optional.of(
               new ListValue(
                   List.of(new IntegerValue(1), new IntegerValue(3), new IntegerValue(2)))),
-          invoke(
+          value(invoke(
                   catalog,
                   catalog.spec("listappend").orElseThrow(),
                   List.of(oneTwo, new IntegerValue(3), new IntegerValue(1)),
                   transaction,
                   1)
-              .value());
+              ));
       assertEquals(
           Optional.of(
               new ListValue(
                   List.of(new IntegerValue(3), new IntegerValue(1), new IntegerValue(2)))),
-          invoke(
+          value(invoke(
                   catalog,
                   catalog.spec("listinsert").orElseThrow(),
                   List.of(oneTwo, new IntegerValue(3), new IntegerValue(1)),
                   transaction,
                   1)
-              .value());
+              ));
       assertEquals(
           Optional.of(new ListValue(List.of(new IntegerValue(1), new IntegerValue(3)))),
-          invoke(
+          value(invoke(
                   catalog,
                   catalog.spec("listdelete").orElseThrow(),
                   List.of(
@@ -4893,12 +4887,12 @@ final class BuiltinCatalogTest {
                       new IntegerValue(2)),
                   transaction,
                   1)
-              .value());
+              ));
       assertEquals(
           Optional.of(
               new ListValue(
                   List.of(new IntegerValue(1), new IntegerValue(4), new IntegerValue(3)))),
-          invoke(
+          value(invoke(
                   catalog,
                   catalog.spec("listset").orElseThrow(),
                   List.of(
@@ -4911,27 +4905,27 @@ final class BuiltinCatalogTest {
                       new IntegerValue(2)),
                   transaction,
                   1)
-              .value());
+              ));
       assertEquals(
           Optional.of(
               new ListValue(
                   List.of(new IntegerValue(1), new IntegerValue(2), new IntegerValue(3)))),
-          invoke(
+          value(invoke(
                   catalog,
                   catalog.spec("setadd").orElseThrow(),
                   List.of(oneTwo, new IntegerValue(3)),
                   transaction,
                   1)
-              .value());
+              ));
       assertEquals(
           Optional.of(oneTwo),
-          invoke(
+          value(invoke(
                   catalog,
                   catalog.spec("setadd").orElseThrow(),
                   List.of(oneTwo, new IntegerValue(2)),
                   transaction,
                   1)
-              .value());
+              ));
 
       for (String name : List.of("listdelete", "listset")) {
         List<MooValue> arguments =
@@ -4940,13 +4934,13 @@ final class BuiltinCatalogTest {
                 : List.of(oneTwo, new IntegerValue(9), new IntegerValue(0));
         assertEquals(
             Optional.of(ErrorValue.E_RANGE),
-            invoke(
+            error(invoke(
                     catalog,
                     catalog.spec(name).orElseThrow(),
                     arguments,
                     transaction,
                     1)
-                .error(),
+                ),
             name);
       }
     }
@@ -4997,22 +4991,22 @@ final class BuiltinCatalogTest {
     try (WorldTxn transaction = new WorldTxn(List.of(), List.of(system, wizard, options)).begin()) {
       assertEquals(
           Optional.of(ErrorValue.E_QUOTA),
-          invoke(
+          error(invoke(
                   catalog,
                   catalog.spec("setadd").orElseThrow(),
                   List.of(withinLimit, new IntegerValue(62)),
                   transaction,
                   1)
-              .error());
+              ));
       assertEquals(
           Optional.of(ErrorValue.E_QUOTA),
-          invoke(
+          error(invoke(
                   catalog,
                   catalog.spec("setadd").orElseThrow(),
                   List.of(alreadyOverLimit, new IntegerValue(62)),
                   transaction,
                   1)
-              .error());
+              ));
     }
   }
 
@@ -5041,33 +5035,33 @@ final class BuiltinCatalogTest {
     try (WorldTxn transaction = world().begin()) {
       assertEquals(
           Optional.of(new ListValue(List.of(new IntegerValue(7), duplicate))),
-          invoke(catalog, spec, List.of(source, sought), transaction, 1).value());
+          value(invoke(catalog, spec, List.of(source, sought), transaction, 1)));
       assertSame(
           absent,
-          invoke(catalog, spec, List.of(absent, string("missing")), transaction, 1)
-              .value()
+          value(invoke(catalog, spec, List.of(absent, string("missing")), transaction, 1)
+              )
               .orElseThrow());
       assertEquals(
           Optional.of(ErrorValue.E_ARGS),
-          invoke(catalog, spec, List.of(), transaction, 1).error());
+          error(invoke(catalog, spec, List.of(), transaction, 1)));
       assertEquals(
           Optional.of(ErrorValue.E_ARGS),
-          invoke(
+          error(invoke(
                   catalog,
                   spec,
                   List.of(absent, new IntegerValue(1), new IntegerValue(2)),
                   transaction,
                   1)
-              .error());
+              ));
       assertEquals(
           Optional.of(ErrorValue.E_TYPE),
-          invoke(
+          error(invoke(
                   catalog,
                   spec,
                   List.of(new IntegerValue(1), new IntegerValue(1)),
                   transaction,
                   1)
-              .error());
+              ));
     }
   }
 
@@ -5078,34 +5072,34 @@ final class BuiltinCatalogTest {
     try (WorldTxn transaction = world().begin()) {
       assertEquals(
           Optional.of(new IntegerValue(1)),
-          invoke(
+          value(invoke(
                   catalog,
                   spec,
                   List.of(new IntegerValue(0), BooleanValue.FALSE),
                   transaction,
                   1)
-              .value());
+              ));
       assertEquals(
           Optional.of(new IntegerValue(1)),
-          invoke(
+          value(invoke(
                   catalog,
                   spec,
                   List.of(BooleanValue.TRUE, new IntegerValue(1)),
                   transaction,
                   1)
-              .value());
+              ));
       assertEquals(
           Optional.of(new IntegerValue(0)),
-          invoke(
+          value(invoke(
                   catalog,
                   spec,
                   List.of(new IntegerValue(0), BooleanValue.TRUE),
                   transaction,
                   1)
-              .value());
+              ));
       assertEquals(
           Optional.of(new IntegerValue(1)),
-          invoke(
+          value(invoke(
                   catalog,
                   spec,
                   List.of(
@@ -5113,11 +5107,11 @@ final class BuiltinCatalogTest {
                       new ListValue(List.of(BooleanValue.FALSE))),
                   transaction,
                   1)
-              .value());
+              ));
       assertEquals(
           Optional.of(new IntegerValue(0)),
-          invoke(catalog, spec, List.of(string("alpha"), string("ALPHA")), transaction, 1)
-              .value());
+          value(invoke(catalog, spec, List.of(string("alpha"), string("ALPHA")), transaction, 1)
+              ));
     }
   }
 
@@ -5151,31 +5145,31 @@ final class BuiltinCatalogTest {
     try (WorldTxn transaction = world().begin()) {
       assertEquals(
           Optional.of(new IntegerValue(1)),
-          invoke(catalog, setThreadMode, List.of(), transaction, 1, true).value());
+          value(invoke(catalog, setThreadMode, List.of(), transaction, 1, true)));
       assertEquals(
           Optional.of(false),
-          invoke(
+          threadMode(invoke(
                   catalog,
                   setThreadMode,
                   List.of(new IntegerValue(0)),
                   transaction,
                   1,
                   true)
-              .threadMode());
+              ));
       assertEquals(
           Optional.of(ErrorValue.E_TYPE),
-          invoke(catalog, setThreadMode, List.of(string("no")), transaction, 1, true).error());
+          error(invoke(catalog, setThreadMode, List.of(string("no")), transaction, 1, true)));
 
-      Result threaded =
+      BuiltinResult threaded =
           invoke(catalog, allMembers, List.of(string("a"), source), transaction, 1, true);
-      assertTrue(threaded.value().isEmpty());
+      assertTrue(value(threaded).isEmpty());
       assertEquals(
           Optional.of(new ListValue(List.of(new IntegerValue(1), new IntegerValue(3)))),
-          threaded.hostWork().orElseThrow().call().value());
+          value(hostWork(threaded).orElseThrow().call()));
       assertEquals(
           Optional.of(new ListValue(List.of(new IntegerValue(1), new IntegerValue(3)))),
-          invoke(catalog, allMembers, List.of(string("a"), source), transaction, 1, false)
-              .value());
+          value(invoke(catalog, allMembers, List.of(string("a"), source), transaction, 1, false)
+              ));
     }
   }
 
@@ -5204,17 +5198,17 @@ final class BuiltinCatalogTest {
     assertEquals(BuiltinOwner.VM, sort.owner());
 
     try (WorldTxn transaction = world().begin()) {
-      Result threaded = invoke(catalog, sort, List.of(integers), transaction, 1, true);
-      assertTrue(threaded.value().isEmpty());
-      assertEquals(Optional.of(ascending), threaded.hostWork().orElseThrow().call().value());
+      BuiltinResult threaded = invoke(catalog, sort, List.of(integers), transaction, 1, true);
+      assertTrue(value(threaded).isEmpty());
+      assertEquals(Optional.of(ascending), value(hostWork(threaded).orElseThrow().call()));
       assertEquals(
           Optional.of(ascending),
-          invoke(catalog, sort, List.of(integers), transaction, 1, false).value());
+          value(invoke(catalog, sort, List.of(integers), transaction, 1, false)));
       assertEquals(
           Optional.of(
               new ListValue(
                   List.of(new IntegerValue(3), new IntegerValue(2), new IntegerValue(1)))),
-          invoke(
+          value(invoke(
                   catalog,
                   sort,
                   List.of(
@@ -5225,7 +5219,7 @@ final class BuiltinCatalogTest {
                   transaction,
                   1,
                   false)
-              .value());
+              ));
 
       ListValue values =
           new ListValue(List.of(string("third"), string("first"), string("second")));
@@ -5234,10 +5228,10 @@ final class BuiltinCatalogTest {
       assertEquals(
           Optional.of(
               new ListValue(List.of(string("first"), string("second"), string("third")))),
-          invoke(catalog, sort, List.of(values, keys), transaction, 1, false).value());
+          value(invoke(catalog, sort, List.of(values, keys), transaction, 1, false)));
       assertEquals(
           Optional.of(new ListValue(List.of(string("x2"), string("x10")))),
-          invoke(
+          value(invoke(
                   catalog,
                   sort,
                   List.of(
@@ -5247,30 +5241,30 @@ final class BuiltinCatalogTest {
                   transaction,
                   1,
                   false)
-              .value());
+              ));
       assertEquals(
           Optional.of(ErrorValue.E_INVARG),
-          invoke(
+          error(invoke(
                   catalog,
                   sort,
                   List.of(values, new ListValue(List.of(new IntegerValue(1)))),
                   transaction,
                   1,
                   false)
-              .error());
+              ));
       assertEquals(
           Optional.of(ErrorValue.E_TYPE),
-          invoke(
+          error(invoke(
                   catalog,
                   sort,
                   List.of(new ListValue(List.of(new FloatValue(2.0), new IntegerValue(1)))),
                   transaction,
                   1,
                   false)
-              .error());
+              ));
       assertEquals(
           Optional.of(ErrorValue.E_TYPE),
-          invoke(
+          error(invoke(
                   catalog,
                   sort,
                   List.of(
@@ -5281,7 +5275,7 @@ final class BuiltinCatalogTest {
                   transaction,
                   1,
                   false)
-              .error());
+              ));
     }
   }
 
@@ -5312,43 +5306,43 @@ final class BuiltinCatalogTest {
     try (WorldTxn transaction = world().begin()) {
       assertEquals(
           Optional.of(ErrorValue.E_PERM),
-          invoke(
+          error(invoke(
                   catalog,
                   threadPool,
                   List.of(string("INIT"), string("MAIN"), new IntegerValue(2)),
                   transaction,
                   2)
-              .error());
+              ));
       assertEquals(
           Optional.of(ErrorValue.E_INVARG),
-          invoke(
+          error(invoke(
                   catalog,
                   threadPool,
                   List.of(string("INIT"), string("NOPE"), new IntegerValue(1)),
                   transaction,
                   1)
-              .error());
+              ));
       assertEquals(
           Optional.of(ErrorValue.E_INVARG),
-          invoke(
+          error(invoke(
                   catalog,
                   threadPool,
                   List.of(string("RESET"), string("MAIN"), new IntegerValue(1)),
                   transaction,
                   1)
-              .error());
+              ));
       assertEquals(
           Optional.of(ErrorValue.E_INVARG),
-          invoke(
+          error(invoke(
                   catalog,
                   threadPool,
                   List.of(string("INIT"), string("MAIN"), new IntegerValue(-1)),
                   transaction,
                   1)
-              .error());
+              ));
       assertEquals(
           Optional.of(ErrorValue.E_PERM),
-          invoke(catalog, threads, List.of(), transaction, 2).error());
+          error(invoke(catalog, threads, List.of(), transaction, 2)));
     }
   }
 
@@ -5356,7 +5350,7 @@ final class BuiltinCatalogTest {
   void functionInfoDescribesDumpDatabaseFromTheManifest() {
     BuiltinCatalog catalog = new BuiltinCatalog();
     try (WorldTxn transaction = world().begin()) {
-      Result result =
+      BuiltinResult result =
           invoke(
               catalog,
               catalog.spec("function_info").orElseThrow(),
@@ -5375,7 +5369,7 @@ final class BuiltinCatalogTest {
                       new IntegerValue(0),
                       new IntegerValue(0),
                       new ListValue(List.of())))),
-          result.value());
+          value(result));
     }
   }
 
@@ -5385,14 +5379,14 @@ final class BuiltinCatalogTest {
     BuiltinSpec spec = catalog.spec("set_task_perms").orElseThrow();
     try (WorldTxn transaction = world().begin()) {
       assertEquals(
-          OptionalLong.of(2),
-          invoke(catalog, spec, List.of(new ObjectValue(2)), transaction, 2).programmer());
+          new BuiltinResult.Programmer(2),
+          invoke(catalog, spec, List.of(new ObjectValue(2)), transaction, 2));
       assertEquals(
-          Optional.of(ErrorValue.E_PERM),
-          invoke(catalog, spec, List.of(new ObjectValue(1)), transaction, 2).error());
+          new BuiltinResult.ErrorResult(ErrorValue.E_PERM),
+          invoke(catalog, spec, List.of(new ObjectValue(1)), transaction, 2));
       assertEquals(
-          OptionalLong.of(2),
-          invoke(catalog, spec, List.of(new ObjectValue(2)), transaction, 1).programmer());
+          new BuiltinResult.Programmer(2),
+          invoke(catalog, spec, List.of(new ObjectValue(2)), transaction, 1));
     }
   }
 
@@ -5403,29 +5397,29 @@ final class BuiltinCatalogTest {
     try (WorldTxn transaction = world().begin()) {
       assertEquals(
           Optional.of(string("0.1.0-SNAPSHOT")),
-          invoke(catalog, spec, List.of(), transaction, 1).value());
+          value(invoke(catalog, spec, List.of(), transaction, 1)));
       assertEquals(
           Optional.of(new ListValue(List.of())),
-          invoke(catalog, spec, List.of(string("features")), transaction, 1).value());
+          value(invoke(catalog, spec, List.of(string("features")), transaction, 1)));
       assertEquals(
           Optional.of(new IntegerValue(0)),
-          invoke(catalog, spec, List.of(string("major")), transaction, 1).value());
+          value(invoke(catalog, spec, List.of(string("major")), transaction, 1)));
       assertEquals(
           Optional.of(string("0.1.0-SNAPSHOT")),
-          invoke(catalog, spec, List.of(string("string")), transaction, 1).value());
+          value(invoke(catalog, spec, List.of(string("string")), transaction, 1)));
       assertInstanceOf(
           ListValue.class,
-          invoke(catalog, spec, List.of(string("")), transaction, 1).value().orElseThrow());
+          value(invoke(catalog, spec, List.of(string("")), transaction, 1)).orElseThrow());
       assertInstanceOf(
           ListValue.class,
-          invoke(catalog, spec, List.of(new IntegerValue(1)), transaction, 1)
-              .value()
+          value(invoke(catalog, spec, List.of(new IntegerValue(1)), transaction, 1)
+              )
               .orElseThrow());
       assertEquals(
           Optional.of(ErrorValue.E_INVARG),
-          invoke(catalog, spec, List.of(string("missing")), transaction, 1).error());
+          error(invoke(catalog, spec, List.of(string("missing")), transaction, 1)));
 
-      Result functionInfo =
+      BuiltinResult functionInfo =
           invoke(
               catalog,
               catalog.spec("function_info").orElseThrow(),
@@ -5440,7 +5434,7 @@ final class BuiltinCatalogTest {
                       new IntegerValue(0),
                       new IntegerValue(1),
                       new ListValue(List.of(new IntegerValue(-1)))))),
-          functionInfo.value());
+          value(functionInfo));
     }
   }
 
@@ -5448,7 +5442,7 @@ final class BuiltinCatalogTest {
   void dumpDatabaseReturnsZeroAndAValueOnlyCheckpointRequestForWizards() {
     BuiltinCatalog catalog = new BuiltinCatalog();
     try (WorldTxn transaction = world().begin()) {
-      Result result =
+      BuiltinResult result =
           invoke(
               catalog,
               catalog.spec("dump_database").orElseThrow(),
@@ -5456,9 +5450,7 @@ final class BuiltinCatalogTest {
               transaction,
               1);
 
-      assertEquals(Optional.of(new IntegerValue(0)), result.value());
-      assertEquals(Optional.of(new CheckpointRequest()), result.checkpointRequest());
-      assertTrue(result.error().isEmpty());
+      assertEquals(new BuiltinResult.Checkpoint(), result);
     }
   }
 
@@ -5467,13 +5459,13 @@ final class BuiltinCatalogTest {
     BuiltinCatalog catalog = new BuiltinCatalog();
     BuiltinSpec spec = catalog.spec("dump_database").orElseThrow();
     try (WorldTxn transaction = world().begin()) {
-      Result arguments = invoke(catalog, spec, List.of(new IntegerValue(1)), transaction, 1);
-      Result permission = invoke(catalog, spec, List.of(), transaction, 2);
+      BuiltinResult arguments = invoke(catalog, spec, List.of(new IntegerValue(1)), transaction, 1);
+      BuiltinResult permission = invoke(catalog, spec, List.of(), transaction, 2);
 
-      assertEquals(Optional.of(ErrorValue.E_ARGS), arguments.error());
-      assertTrue(arguments.checkpointRequest().isEmpty());
-      assertEquals(Optional.of(ErrorValue.E_PERM), permission.error());
-      assertTrue(permission.checkpointRequest().isEmpty());
+      assertEquals(Optional.of(ErrorValue.E_ARGS), error(arguments));
+      assertTrue(checkpointRequest(arguments).isEmpty());
+      assertEquals(Optional.of(ErrorValue.E_PERM), error(permission));
+      assertTrue(checkpointRequest(permission).isEmpty());
     }
   }
 
@@ -5482,14 +5474,14 @@ final class BuiltinCatalogTest {
     BuiltinCatalog catalog = new BuiltinCatalog();
     BuiltinSpec spec = catalog.spec("shutdown").orElseThrow();
     try (WorldTxn transaction = world().begin()) {
-      Result panic =
+      BuiltinResult panic =
           invoke(
               catalog,
               spec,
               List.of(string("panic reason"), new IntegerValue(1)),
               transaction,
               1);
-      Result clean =
+      BuiltinResult clean =
           invoke(
               catalog,
               spec,
@@ -5497,14 +5489,83 @@ final class BuiltinCatalogTest {
               transaction,
               1);
 
-      assertEquals(Optional.of(CheckpointRequest.panic("panic reason")), panic.checkpointRequest());
-      assertEquals(Optional.of(new CheckpointRequest(true)), clean.checkpointRequest());
-      assertTrue(panic.error().isEmpty());
-      assertTrue(clean.error().isEmpty());
+      assertEquals(Optional.of(CheckpointRequest.panic("panic reason")), checkpointRequest(panic));
+      assertEquals(Optional.of(new CheckpointRequest(true)), checkpointRequest(clean));
+      assertTrue(error(panic).isEmpty());
+      assertTrue(error(clean).isEmpty());
     }
   }
 
-  private static Result invoke(
+  private static Optional<MooValue> value(BuiltinResult result) {
+    return result instanceof BuiltinResult.Value value
+        ? Optional.of(value.value())
+        : Optional.empty();
+  }
+
+  private static Optional<ErrorValue> error(BuiltinResult result) {
+    return switch (result) {
+      case BuiltinResult.ErrorResult error -> Optional.of(error.error());
+      case BuiltinResult.RaisedError raised -> Optional.of(raised.error());
+      default -> Optional.empty();
+    };
+  }
+
+  private static Optional<String> dynamicSource(BuiltinResult result) {
+    return result instanceof BuiltinResult.DynamicEval dynamic
+        ? Optional.of(dynamic.source())
+        : Optional.empty();
+  }
+
+  private static OptionalLong switchedPlayer(BuiltinResult result) {
+    return result instanceof BuiltinResult.SwitchPlayer switched
+        ? OptionalLong.of(switched.player())
+        : OptionalLong.empty();
+  }
+
+  private static OptionalLong recycleTarget(BuiltinResult result) {
+    return result instanceof BuiltinResult.Recycle recycle
+        ? OptionalLong.of(recycle.object())
+        : OptionalLong.empty();
+  }
+
+  private static OptionalDouble delaySeconds(BuiltinResult result) {
+    return result instanceof BuiltinResult.Suspend suspend
+        ? OptionalDouble.of(suspend.seconds())
+        : OptionalDouble.empty();
+  }
+
+  private static Optional<Callable<BuiltinResult>> hostWork(BuiltinResult result) {
+    return result instanceof BuiltinResult.HostWork hostWork
+        ? Optional.of(hostWork.work())
+        : Optional.empty();
+  }
+
+  private static Optional<ListValue> errorDetails(BuiltinResult result) {
+    return result instanceof BuiltinResult.RaisedError raised
+        ? Optional.of(raised.details())
+        : Optional.empty();
+  }
+
+  private static Optional<CheckpointRequest> checkpointRequest(BuiltinResult result) {
+    return switch (result) {
+      case BuiltinResult.Checkpoint _ -> Optional.of(new CheckpointRequest(false));
+      case BuiltinResult.Shutdown _ -> Optional.of(new CheckpointRequest(true));
+      case BuiltinResult.Panic panic -> Optional.of(CheckpointRequest.panic(panic.message()));
+      default -> Optional.empty();
+    };
+  }
+
+  private static Optional<Boolean> threadMode(BuiltinResult result) {
+    return result instanceof BuiltinResult.ThreadMode mode
+        ? Optional.of(mode.enabled())
+        : Optional.empty();
+  }
+
+  private static boolean abortSeconds(BuiltinResult result) {
+    return result instanceof BuiltinResult.SecondsAbort;
+  }
+
+  private static BuiltinResult invoke(
       BuiltinCatalog catalog,
       BuiltinSpec spec,
       List<MooValue> arguments,
@@ -5524,7 +5585,7 @@ final class BuiltinCatalogTest {
         new ListValue(List.of()));
   }
 
-  private static Result invoke(
+  private static BuiltinResult invoke(
       BuiltinCatalog catalog,
       BuiltinSpec spec,
       List<MooValue> arguments,
@@ -5564,8 +5625,8 @@ final class BuiltinCatalogTest {
     return new String(value.bytes(), StandardCharsets.ISO_8859_1);
   }
 
-  private static void assertString(String expected, Result actual) {
-    StringValue value = (StringValue) actual.value().orElseThrow();
+  private static void assertString(String expected, BuiltinResult actual) {
+    StringValue value = (StringValue) value(actual).orElseThrow();
     assertArrayEquals(expected.getBytes(StandardCharsets.ISO_8859_1), value.bytes());
   }
 
