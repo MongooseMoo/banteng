@@ -5379,14 +5379,14 @@ final class BuiltinCatalogTest {
     BuiltinSpec spec = catalog.spec("set_task_perms").orElseThrow();
     try (WorldTxn transaction = world().begin()) {
       assertEquals(
-          OptionalLong.of(2),
-          invoke(catalog, spec, List.of(new ObjectValue(2)), transaction, 2).programmer());
+          new BuiltinResult.Programmer(2),
+          invoke(catalog, spec, List.of(new ObjectValue(2)), transaction, 2));
       assertEquals(
-          Optional.of(ErrorValue.E_PERM),
-          invoke(catalog, spec, List.of(new ObjectValue(1)), transaction, 2).error());
+          new BuiltinResult.ErrorResult(ErrorValue.E_PERM),
+          invoke(catalog, spec, List.of(new ObjectValue(1)), transaction, 2));
       assertEquals(
-          OptionalLong.of(2),
-          invoke(catalog, spec, List.of(new ObjectValue(2)), transaction, 1).programmer());
+          new BuiltinResult.Programmer(2),
+          invoke(catalog, spec, List.of(new ObjectValue(2)), transaction, 1));
     }
   }
 
