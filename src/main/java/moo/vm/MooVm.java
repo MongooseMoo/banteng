@@ -555,7 +555,7 @@ public final class MooVm {
         return;
       }
       if (name.equalsIgnoreCase("ANON")) {
-        frame.operandStack.push(new IntegerValue(12));
+        frame.operandStack.push(new IntegerValue(MooValue.Type.ANONYMOUS.code()));
         frame.instructionPointer++;
         return;
       }
