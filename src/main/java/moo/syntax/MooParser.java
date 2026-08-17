@@ -842,7 +842,7 @@ public final class MooParser {
             && splice.value() instanceof Ast.Identifier identifier) {
           if (elements.stream().anyMatch(Ast.ScatterElement::rest)) {
             reportRecoverable(
-                identifier.span(), "scatter assignment has multiple rest targets");
+                current, "scatter assignment has multiple rest targets");
           }
           elements.add(new Ast.ScatterElement(identifier.name(), true, false, Optional.empty()));
         } else {
