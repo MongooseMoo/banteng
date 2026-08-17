@@ -70,6 +70,11 @@ jobs:
           java-version: "25"
           verify-signature: true
 
+      - name: Provide documented Java path
+        run: |
+          sudo install -d /opt/java
+          sudo ln --symbolic "$JAVA_HOME" /opt/java/25
+
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@67621b124fd2e251c5e8a0e6e3b91318f2287669 # v6.3.0
 
