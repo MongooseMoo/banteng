@@ -10,6 +10,9 @@ import java.nio.file.Path;
 import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.Callable;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 import moo.persistence.LambdaMooV17Codec;
 import moo.persistence.LambdaMooV17Codec.Checkpoint;
 import moo.persistence.LambdaMooV4Reader;
@@ -92,19 +95,22 @@ public final class Banteng implements Callable<Integer> {
             default -> throw new IOException("unsupported database header: " + header);
           };
     }
-    try (MooServer server =
-        new MooServer(
-            listenAddress,
-            port,
-            loaded.world(),
-            databasePath,
-            checkpointPath,
-            loaded.tasks(),
-            loaded.activeConnections());
-        SignalRegistration signalRegistration =
-            SignalRegistration.install("TERM", server::gracefulShutdown)) {
+    GracefulShutdownCoordinator shutdown = new GracefulShutdownCoordinator();
+    try (SignalRegistration signalRegistration =
+            SignalRegistration.install("TERM", shutdown::request);
+        MooServer server =
+            new MooServer(
+                listenAddress,
+                port,
+                loaded.world(),
+                databasePath,
+                checkpointPath,
+                loaded.tasks(),
+                loaded.activeConnections())) {
       signalRegistration.keepAlive();
-      server.serve();
+      if (!shutdown.attach(server)) {
+        server.serve();
+      }
     }
     return CommandLine.ExitCode.OK;
   }
@@ -155,6 +161,42 @@ public final class Banteng implements Callable<Integer> {
 
     void keepAlive() {
       // Referenced by the serving scope so javac verifies the registration remains live.
+    }
+  }
+
+  private static final class GracefulShutdownCoordinator {
+    private final AtomicReference<@Nullable MooServer> server = new AtomicReference<>();
+    private final AtomicBoolean requested = new AtomicBoolean();
+    private final AtomicBoolean handled = new AtomicBoolean();
+    private final CountDownLatch attached = new CountDownLatch(1);
+
+    boolean attach(MooServer attachedServer) {
+      if (!server.compareAndSet(null, attachedServer)) {
+        throw new IllegalStateException("shutdown server is already attached");
+      }
+      attached.countDown();
+      if (!requested.get()) {
+        return false;
+      }
+      handle(attachedServer);
+      return true;
+    }
+
+    void request() {
+      requested.set(true);
+      try {
+        attached.await();
+      } catch (InterruptedException interrupted) {
+        Thread.currentThread().interrupt();
+        throw new IllegalStateException("SIGTERM handling interrupted", interrupted);
+      }
+      handle(Objects.requireNonNull(server.get(), "attached shutdown server"));
+    }
+
+    private void handle(MooServer attachedServer) {
+      if (handled.compareAndSet(false, true)) {
+        attachedServer.gracefulShutdown();
+      }
     }
   }
 }
