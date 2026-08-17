@@ -62,7 +62,18 @@ final class RepeatedRestartTest {
     locals.put("this", new ObjectValue(0));
     locals.put("player", new ObjectValue(0));
     locals.put("verb", string("queued"));
-    return new QueuedTask(41, 2_000_000_000, "return 0;\n", locals, 0, new ObjectValue(0), 0, true);
+    return new QueuedTask(
+        41,
+        2_000_000_000,
+        1,
+        "queued",
+        "queued",
+        "return 0;\n",
+        locals,
+        0,
+        new ObjectValue(0),
+        0,
+        true);
   }
 
   private static SuspendedTask suspendedTask() {

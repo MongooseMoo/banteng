@@ -254,6 +254,8 @@ public final class MooVm {
               OptionalLong.empty(),
               OptionalLong.empty(),
               OptionalLong.empty(),
+              verbName,
+              target.names(),
               (target.permissions() & 8) != 0)) {
             raiseError(state, ErrorValue.E_MAXREC, world, false);
             return;
@@ -336,6 +338,8 @@ public final class MooVm {
             OptionalLong.empty(),
             OptionalLong.empty(),
             OptionalLong.empty(),
+            lookupName,
+            verb.names(),
             (verb.permissions() & 8) != 0)) {
           raiseError(state, ErrorValue.E_MAXREC, world, false);
           return;
@@ -1131,6 +1135,8 @@ public final class MooVm {
         OptionalLong.empty(),
         OptionalLong.empty(),
         OptionalLong.empty(),
+        verbName,
+        verb.names(),
         (verb.permissions() & 8) != 0)) {
       raiseError(state, ErrorValue.E_MAXREC, world, false);
     }
@@ -1617,6 +1623,8 @@ public final class MooVm {
         OptionalLong.of(move.object()),
         OptionalLong.of(move.destination()),
         OptionalLong.of(move.position()),
+        "accept",
+        hook.names(),
         (hook.permissions() & 8) != 0)) {
       raiseError(state, ErrorValue.E_MAXREC, world, false);
     }
@@ -1658,6 +1666,8 @@ public final class MooVm {
         OptionalLong.of(recycleTarget),
         OptionalLong.empty(),
         OptionalLong.empty(),
+        "recycle",
+        hook.names(),
         (hook.permissions() & 8) != 0)) {
       raiseError(state, ErrorValue.E_MAXREC, world, false);
     }
@@ -1712,6 +1722,8 @@ public final class MooVm {
         hook.owner(),
         recycleTarget,
         definingLocation,
+        "recycle",
+        hook.names(),
         (hook.permissions() & 8) != 0)) {
       raiseError(state, ErrorValue.E_MAXREC, world, false);
     }
@@ -1758,6 +1770,8 @@ public final class MooVm {
         created,
         definingLocation,
         created,
+        "initialize",
+        initialize.names(),
         (initialize.permissions() & 8) != 0)) {
       raiseError(state, ErrorValue.E_MAXREC, world, false);
     }

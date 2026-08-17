@@ -10,6 +10,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.OptionalDouble;
 import java.util.OptionalLong;
@@ -63,6 +64,8 @@ public final class VmState {
   private long segmentCpuAnchorNanos = -1;
   private final long initialProgrammer;
   private final MooValue initialVerbLocation;
+  private final String initialCalledVerb;
+  private final String initialFullVerbName;
   private final boolean initialDebug;
 
   /** Creates an empty state for a pure root program. */
@@ -126,9 +129,34 @@ public final class VmState {
       long secondsLimit,
       long maxStackDepth,
       boolean debug) {
+    this(
+        locals,
+        programmer,
+        verbLocation,
+        remainingTicks,
+        secondsLimit,
+        maxStackDepth,
+        debug,
+        calledVerb(locals),
+        calledVerb(locals));
+  }
+
+  /** Creates a state with explicit root activation dispatch metadata. */
+  public VmState(
+      Map<String, MooValue> locals,
+      long programmer,
+      MooValue verbLocation,
+      long remainingTicks,
+      long secondsLimit,
+      long maxStackDepth,
+      boolean debug,
+      String calledVerb,
+      String fullVerbName) {
     initialLocals = normalizedLocals(locals);
     initialProgrammer = programmer;
     initialVerbLocation = verbLocation;
+    initialCalledVerb = Objects.requireNonNull(calledVerb, "calledVerb");
+    initialFullVerbName = Objects.requireNonNull(fullVerbName, "fullVerbName");
     initialDebug = debug;
     this.remainingTicks = remainingTicks;
     remainingCpuNanos = Math.max(0L, TimeUnit.SECONDS.toNanos(secondsLimit));
@@ -259,6 +287,8 @@ public final class VmState {
               initialProgrammer,
               receiver,
               initialVerbLocation,
+              initialCalledVerb,
+              initialFullVerbName,
               Optional.empty(),
               OptionalLong.empty(),
               OptionalLong.empty(),
@@ -316,6 +346,8 @@ public final class VmState {
             caller.programmer,
             new ObjectValue(-1),
             new ObjectValue(-1),
+            "",
+            "Input to EVAL",
             Optional.empty(),
             OptionalLong.empty(),
             OptionalLong.empty(),
@@ -344,6 +376,8 @@ public final class VmState {
         recycleTarget,
         moveObject,
         moveDestination,
+        calledVerb(locals),
+        calledVerb(locals),
         true);
   }
 
@@ -356,6 +390,8 @@ public final class VmState {
       OptionalLong recycleTarget,
       OptionalLong moveObject,
       OptionalLong moveDestination,
+      String calledVerb,
+      String fullVerbName,
       boolean debug) {
     return pushVerbFrame(
         program,
@@ -367,6 +403,8 @@ public final class VmState {
         moveObject,
         moveDestination,
         OptionalLong.empty(),
+        calledVerb,
+        fullVerbName,
         debug);
   }
 
@@ -390,6 +428,8 @@ public final class VmState {
         moveObject,
         moveDestination,
         movePosition,
+        calledVerb(locals),
+        calledVerb(locals),
         true);
   }
 
@@ -403,6 +443,8 @@ public final class VmState {
       OptionalLong moveObject,
       OptionalLong moveDestination,
       OptionalLong movePosition,
+      String calledVerb,
+      String fullVerbName,
       boolean debug) {
     return pushVerbFrame(
         program,
@@ -415,6 +457,8 @@ public final class VmState {
         moveObject,
         moveDestination,
         movePosition,
+        calledVerb,
+        fullVerbName,
         debug);
   }
 
@@ -426,7 +470,15 @@ public final class VmState {
       MooValue verbLocation,
       MooValue created) {
     return pushCreateInitializeFrame(
-        program, locals, programmer, receiver, verbLocation, created, true);
+        program,
+        locals,
+        programmer,
+        receiver,
+        verbLocation,
+        created,
+        calledVerb(locals),
+        calledVerb(locals),
+        true);
   }
 
   boolean pushCreateInitializeFrame(
@@ -436,6 +488,8 @@ public final class VmState {
       MooValue receiver,
       MooValue verbLocation,
       MooValue created,
+      String calledVerb,
+      String fullVerbName,
       boolean debug) {
     return pushVerbFrame(
         program,
@@ -448,6 +502,8 @@ public final class VmState {
         OptionalLong.empty(),
         OptionalLong.empty(),
         OptionalLong.empty(),
+        calledVerb,
+        fullVerbName,
         debug);
   }
 
@@ -457,7 +513,15 @@ public final class VmState {
       long programmer,
       AnonymousObjectValue receiver,
       MooValue verbLocation) {
-    return pushAnonymousRecycleFrame(program, locals, programmer, receiver, verbLocation, true);
+    return pushAnonymousRecycleFrame(
+        program,
+        locals,
+        programmer,
+        receiver,
+        verbLocation,
+        calledVerb(locals),
+        calledVerb(locals),
+        true);
   }
 
   boolean pushAnonymousRecycleFrame(
@@ -466,6 +530,8 @@ public final class VmState {
       long programmer,
       AnonymousObjectValue receiver,
       MooValue verbLocation,
+      String calledVerb,
+      String fullVerbName,
       boolean debug) {
     return pushVerbFrame(
         program,
@@ -479,6 +545,8 @@ public final class VmState {
         OptionalLong.empty(),
         OptionalLong.empty(),
         Optional.of(receiver),
+        calledVerb,
+        fullVerbName,
         debug);
   }
 
@@ -493,6 +561,8 @@ public final class VmState {
       OptionalLong moveObject,
       OptionalLong moveDestination,
       OptionalLong movePosition,
+      String calledVerb,
+      String fullVerbName,
       boolean debug) {
     return pushVerbFrame(
         program,
@@ -506,6 +576,8 @@ public final class VmState {
         moveDestination,
         movePosition,
         Optional.empty(),
+        calledVerb,
+        fullVerbName,
         debug);
   }
 
@@ -521,6 +593,8 @@ public final class VmState {
       OptionalLong moveDestination,
       OptionalLong movePosition,
       Optional<AnonymousObjectValue> anonymousRecycleTarget,
+      String calledVerb,
+      String fullVerbName,
       boolean debug) {
     if (frames.size() >= maxStackDepth) {
       return false;
@@ -534,6 +608,8 @@ public final class VmState {
             programmer,
             receiver,
             verbLocation,
+            calledVerb,
+            fullVerbName,
             createReturnOverride,
             recycleTarget,
             moveObject,
@@ -730,6 +806,8 @@ public final class VmState {
                 frame.locals,
                 frame.programmer,
                 frame.verbLocation,
+                frame.calledVerb,
+                frame.fullVerbName,
                 frame.debug,
                 delaySeconds));
     outcome = Outcome.FORKED;
@@ -818,12 +896,16 @@ public final class VmState {
                     request.locals(),
                     request.programmer(),
                     request.verbLocation(),
+                    request.calledVerb(),
+                    request.fullVerbName(),
                     request.debug(),
                     request.delaySeconds()));
     return new VmSnapshot(
         initialLocals,
         initialProgrammer,
         initialVerbLocation,
+        initialCalledVerb,
+        initialFullVerbName,
         frameSnapshots,
         output,
         connectionOptionRequests,
@@ -882,7 +964,9 @@ public final class VmState {
             remainingTicks,
             0,
             maxStackDepth,
-            snapshot.frames().isEmpty() || snapshot.frames().getLast().debug());
+            snapshot.frames().isEmpty() || snapshot.frames().getLast().debug(),
+            snapshot.initialCalledVerb(),
+            snapshot.initialFullVerbName());
     for (VmSnapshot.Frame frame : snapshot.frames()) {
       state.frames.addLast(restore(frame));
     }
@@ -907,6 +991,8 @@ public final class VmState {
                         request.locals(),
                         request.programmer(),
                         request.verbLocation(),
+                        request.calledVerb(),
+                        request.fullVerbName(),
                         request.debug(),
                         request.delaySeconds()));
     state.suspensionDelaySeconds = snapshot.suspensionDelaySeconds();
@@ -953,6 +1039,8 @@ public final class VmState {
         VmSnapshot.ReturnMode.valueOf(frame.returnMode.name()),
         frame.receiver,
         frame.verbLocation,
+        frame.calledVerb,
+        frame.fullVerbName,
         frame.createReturnOverride,
         frame.recycleTarget,
         frame.moveObject,
@@ -974,6 +1062,8 @@ public final class VmState {
             snapshot.programmer(),
             snapshot.receiver(),
             snapshot.verbLocation(),
+            snapshot.calledVerb(),
+            snapshot.fullVerbName(),
             snapshot.createReturnOverride(),
             snapshot.recycleTarget(),
             snapshot.moveObject(),
@@ -1036,6 +1126,13 @@ public final class VmState {
     return normalized;
   }
 
+  private static String calledVerb(Map<String, MooValue> locals) {
+    MooValue verb = locals.get("verb");
+    return verb instanceof StringValue string
+        ? new String(string.bytes(), java.nio.charset.StandardCharsets.ISO_8859_1)
+        : "";
+  }
+
   static final class Frame {
     final BytecodeProgram program;
     final Deque<MooValue> operandStack = new ArrayDeque<>();
@@ -1047,6 +1144,8 @@ public final class VmState {
     final ReturnMode returnMode;
     final MooValue receiver;
     final MooValue verbLocation;
+    final String calledVerb;
+    final String fullVerbName;
     final Optional<MooValue> createReturnOverride;
     final OptionalLong recycleTarget;
     final OptionalLong moveObject;
@@ -1065,6 +1164,8 @@ public final class VmState {
         long programmer,
         MooValue receiver,
         MooValue verbLocation,
+        String calledVerb,
+        String fullVerbName,
         Optional<MooValue> createReturnOverride,
         OptionalLong recycleTarget,
         OptionalLong moveObject,
@@ -1079,6 +1180,8 @@ public final class VmState {
           programmer,
           receiver,
           verbLocation,
+          calledVerb,
+          fullVerbName,
           createReturnOverride,
           recycleTarget,
           moveObject,
@@ -1096,6 +1199,8 @@ public final class VmState {
         long programmer,
         MooValue receiver,
         MooValue verbLocation,
+        String calledVerb,
+        String fullVerbName,
         Optional<MooValue> createReturnOverride,
         OptionalLong recycleTarget,
         OptionalLong moveObject,
@@ -1110,6 +1215,8 @@ public final class VmState {
       this.programmer = programmer;
       this.receiver = receiver;
       this.verbLocation = verbLocation;
+      this.calledVerb = Objects.requireNonNull(calledVerb, "calledVerb");
+      this.fullVerbName = Objects.requireNonNull(fullVerbName, "fullVerbName");
       this.createReturnOverride = createReturnOverride;
       this.recycleTarget = recycleTarget;
       this.moveObject = moveObject;
@@ -1138,10 +1245,14 @@ public final class VmState {
       Map<String, MooValue> locals,
       long programmer,
       MooValue verbLocation,
+      String calledVerb,
+      String fullVerbName,
       boolean debug,
       double delaySeconds) {
     public ForkRequest {
       locals = Collections.unmodifiableMap(new LinkedHashMap<>(locals));
+      Objects.requireNonNull(calledVerb, "calledVerb");
+      Objects.requireNonNull(fullVerbName, "fullVerbName");
     }
   }
 

@@ -33,8 +33,24 @@ final class TaskRegistryTest {
         new VmState(Map.of("held", new IntegerValue(1)), 2, new ObjectValue(7)).snapshot();
     VmSnapshot second =
         new VmState(Map.of("held", new IntegerValue(2)), 2, new ObjectValue(7)).snapshot();
-    registry.registerFork(17, 1234, 2, new ObjectValue(7), first.initialLocals(), first);
-    registry.registerFork(18, 1234, 2, new ObjectValue(7), second.initialLocals(), second);
+    registry.registerFork(
+        17,
+        1234,
+        2,
+        new ObjectValue(7),
+        first.initialLocals(),
+        first.initialFullVerbName(),
+        0,
+        first);
+    registry.registerFork(
+        18,
+        1234,
+        2,
+        new ObjectValue(7),
+        second.initialLocals(),
+        second.initialFullVerbName(),
+        0,
+        second);
 
     assertEquals(List.of(second), registry.snapshotsExcluding(17));
     assertEquals(List.of(first), registry.snapshotsExcluding(18));

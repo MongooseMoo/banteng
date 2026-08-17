@@ -42,7 +42,14 @@ final class TaskRegistry {
       MooValue verbLocation,
       Map<String, MooValue> variables) {
     registerFork(
-        taskId, scheduledStart, programmer, verbLocation, variables, Optional.empty());
+        taskId,
+        scheduledStart,
+        programmer,
+        verbLocation,
+        variables,
+        stringVariable(variables, "verb"),
+        0,
+        Optional.empty());
   }
 
   synchronized void registerFork(
@@ -51,9 +58,18 @@ final class TaskRegistry {
       long programmer,
       MooValue verbLocation,
       Map<String, MooValue> variables,
+      String fullVerbName,
+      long sourceLine,
       VmSnapshot snapshot) {
     registerFork(
-        taskId, scheduledStart, programmer, verbLocation, variables, Optional.of(snapshot));
+        taskId,
+        scheduledStart,
+        programmer,
+        verbLocation,
+        variables,
+        string(fullVerbName),
+        sourceLine,
+        Optional.of(snapshot));
   }
 
   private void registerFork(
@@ -62,6 +78,8 @@ final class TaskRegistry {
       long programmer,
       MooValue verbLocation,
       Map<String, MooValue> variables,
+      StringValue fullVerbName,
+      long sourceLine,
       Optional<VmSnapshot> snapshot) {
     if (tasks.putIfAbsent(
             taskId,
@@ -71,8 +89,8 @@ final class TaskRegistry {
                 nextQueueSequence++,
                 programmer,
                 verbLocation,
-                stringVariable(variables, "verb"),
-                0,
+                fullVerbName,
+                sourceLine,
                 variables.getOrDefault("this", verbLocation),
                 0,
                 variables,
@@ -109,7 +127,7 @@ final class TaskRegistry {
         queueSequence,
         activation.programmer(),
         activation.verbLocation(),
-        stringVariable(activation.locals(), "verb"),
+        string(activation.fullVerbName()),
         activation.program().sourceLine(suspendedInstruction),
         activation.receiver(),
         snapshot.byteSize(),
@@ -152,7 +170,7 @@ final class TaskRegistry {
             queueSequence,
             activation.programmer(),
             activation.verbLocation(),
-            stringVariable(activation.locals(), "verb"),
+            string(activation.fullVerbName()),
             activation.program().sourceLine(suspendedInstruction),
             activation.receiver(),
             snapshot.byteSize(),
@@ -372,7 +390,7 @@ final class TaskRegistry {
       VmSnapshot.Frame frame, boolean includeLines, boolean includeVariables) {
     List<MooValue> fields = new ArrayList<>(5 + (includeLines ? 1 : 0) + (includeVariables ? 1 : 0));
     fields.add(frame.receiver());
-    fields.add(stringVariable(frame.locals(), "verb"));
+    fields.add(string(frame.calledVerb()));
     fields.add(new ObjectValue(frame.programmer()));
     fields.add(frame.verbLocation());
     fields.add(frame.locals().getOrDefault("player", new ObjectValue(-1)));

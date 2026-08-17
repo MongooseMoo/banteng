@@ -88,6 +88,9 @@ public final class LambdaMooV17Codec {
   public record QueuedTask(
       long taskId,
       long scheduledEpochSecond,
+      int firstSourceLine,
+      String calledVerb,
+      String fullVerbName,
       String programSource,
       Map<String, MooValue> initialLocals,
       long programmer,
@@ -98,6 +101,9 @@ public final class LambdaMooV17Codec {
     public QueuedTask(
         long taskId,
         long scheduledEpochSecond,
+        int firstSourceLine,
+        String calledVerb,
+        String fullVerbName,
         String programSource,
         Map<String, MooValue> initialLocals,
         long programmer,
@@ -107,6 +113,9 @@ public final class LambdaMooV17Codec {
       this(
           taskId,
           scheduledEpochSecond,
+          firstSourceLine,
+          calledVerb,
+          fullVerbName,
           programSource,
           initialLocals,
           programmer,
@@ -118,6 +127,11 @@ public final class LambdaMooV17Codec {
 
     /** Takes immutable copies of task-owned state. */
     public QueuedTask {
+      if (firstSourceLine < 1) {
+        throw new IllegalArgumentException("queued-task first source line must be positive");
+      }
+      Objects.requireNonNull(calledVerb, "calledVerb");
+      Objects.requireNonNull(fullVerbName, "fullVerbName");
       Objects.requireNonNull(programSource, "programSource");
       Objects.requireNonNull(initialLocals, "initialLocals");
       Objects.requireNonNull(verbLocation, "verbLocation");
@@ -547,7 +561,14 @@ public final class LambdaMooV17Codec {
 
   private static void writeQueuedTask(
       BufferedWriter output, QueuedTask task, WriteContext context) throws IOException {
-    line(output, "0 1 " + task.scheduledEpochSecond() + " " + task.taskId());
+    line(
+        output,
+        "0 "
+            + task.firstSourceLine()
+            + " "
+            + task.scheduledEpochSecond()
+            + " "
+            + task.taskId());
     writeValue(output, new IntegerValue(-111), context);
     MooValue receiver =
         task.initialLocals().getOrDefault("this", new ObjectValue(-1));
@@ -570,9 +591,8 @@ public final class LambdaMooV17Codec {
     line(output, "More");
     line(output, "Parse");
     line(output, "Infos");
-    String verb = taskVerb(task.initialLocals());
-    lineString(output, verb, "queued-task verb");
-    lineString(output, verb, "queued-task verb names");
+    lineString(output, task.calledVerb(), "queued-task verb");
+    lineString(output, task.fullVerbName(), "queued-task verb names");
     line(output, task.initialLocals().size() + " variables");
     for (Map.Entry<String, MooValue> local : task.initialLocals().entrySet()) {
       lineString(output, local.getKey(), "queued-task variable name");
@@ -676,8 +696,8 @@ public final class LambdaMooV17Codec {
       throw malformed("invalid queued-task header: " + header);
     }
     int firstLine = readParsedInt(fields[1], "queued-task first line");
-    if (firstLine != 1) {
-      throw malformed("unsupported queued-task first line: " + firstLine);
+    if (firstLine < 1) {
+      throw malformed("invalid queued-task first line: " + firstLine);
     }
     long scheduledEpochSecond = parseLong(fields[2], "queued-task scheduled epoch second");
     long taskId = parseLong(fields[3], "queued-task id");
@@ -724,9 +744,6 @@ public final class LambdaMooV17Codec {
     requireExact(input, "Infos", "queued-task obsolete prepstr");
     String verb = requiredLine(input, "queued-task verb");
     String verbNames = requiredLine(input, "queued-task verb names");
-    if (!verbNames.equals(verb)) {
-      throw malformed("unsupported queued-task verb aliases: " + verbNames);
-    }
 
     int variableCount = readSectionCount(input, " variables", "queued-task variable count");
     Map<String, MooValue> locals = new LinkedHashMap<>();
@@ -744,14 +761,12 @@ public final class LambdaMooV17Codec {
     if (localReceiver != null && !localReceiver.equals(receiver)) {
       throw malformed("queued-task activation and runtime receivers disagree");
     }
-    if (locals.get("verb") instanceof StringValue localVerb
-        && !latin1(localVerb).equals(verb)) {
-      throw malformed("queued-task activation and runtime verbs disagree");
-    }
-
     return new QueuedTask(
         taskId,
         scheduledEpochSecond,
+        firstLine,
+        verb,
+        verbNames,
         readProgramSource(input, "queued-task program"),
         locals,
         programmer,
@@ -1005,14 +1020,6 @@ public final class LambdaMooV17Codec {
         programCounter,
         builtinFunctionCounter,
         errorCounter);
-  }
-
-  private static String taskVerb(Map<String, MooValue> locals) {
-    return locals.get("verb") instanceof StringValue verb ? latin1(verb) : "";
-  }
-
-  private static String latin1(StringValue value) {
-    return new String(value.bytes(), StandardCharsets.ISO_8859_1);
   }
 
   private static void writeProgramSource(

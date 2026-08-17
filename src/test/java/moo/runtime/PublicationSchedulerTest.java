@@ -41,6 +41,7 @@ import moo.builtin.BuiltinResult;
 import moo.bytecode.MooCompiler;
 import moo.persistence.LambdaMooV17Codec;
 import moo.persistence.LambdaMooV17Codec.ActiveConnection;
+import moo.persistence.LambdaMooV17Codec.QueuedTask;
 import moo.persistence.LambdaMooV17Codec.SuspendedActivation;
 import moo.persistence.LambdaMooV17Codec.SuspendedStackSlot;
 import moo.persistence.LambdaMooV17Codec.SuspendedTask;
@@ -93,6 +94,76 @@ final class PublicationSchedulerTest {
       assertEquals(0, registry.size());
       assertEquals(List.of(), harness.scheduler.durableTasks());
       assertThrows(IllegalStateException.class, harness.scheduler::activateRestoredTasks);
+    }
+  }
+
+  @Test
+  void restoresQueuedTaskSourceAndDispatchMetadataIntoItsActivation() throws Exception {
+    try (Harness harness = Harness.open(1, new RecordingListener())) {
+      TaskRegistry registry = field(harness.scheduler, "taskRegistry", TaskRegistry.class);
+      Map<String, MooValue> locals =
+          Map.of(
+              "this", new ObjectValue(7),
+              "player", new ObjectValue(0),
+              "verb", string("tick"));
+      QueuedTask task =
+          new QueuedTask(
+              900_000_004L,
+              2_000_000_000L,
+              37,
+              "tick",
+              "tick pulse",
+              "return 0;\n",
+              locals,
+              0,
+              new ObjectValue(8),
+              0,
+              true);
+
+      harness.scheduler.restoreTasks(List.of(task));
+
+      try (WorldTxn transaction = harness.root.begin()) {
+        BuiltinResult queuedResult =
+            registry.queuedTasks(
+                List.of(),
+                transaction,
+                0,
+                new MapValue(Map.of()),
+                -1,
+                60_000,
+                5,
+                new ObjectValue(0),
+                0,
+                new ListValue(List.of()));
+        ListValue rows =
+            assertInstanceOf(
+                ListValue.class,
+                assertInstanceOf(BuiltinResult.Value.class, queuedResult).value());
+        ListValue row = assertInstanceOf(ListValue.class, rows.elements().getFirst());
+        assertEquals(string("tick pulse"), row.elements().get(6));
+        assertEquals(new IntegerValue(37), row.elements().get(7));
+
+        BuiltinResult stackResult =
+            registry.taskStack(
+                List.of(new IntegerValue(task.taskId()), new IntegerValue(1)),
+                transaction,
+                0,
+                new MapValue(Map.of()),
+                -1,
+                60_000,
+                5,
+                new ObjectValue(0),
+                0,
+                new ListValue(List.of()));
+        ListValue stack =
+            assertInstanceOf(
+                ListValue.class,
+                assertInstanceOf(BuiltinResult.Value.class, stackResult).value());
+        ListValue activation =
+            assertInstanceOf(ListValue.class, stack.elements().getFirst());
+        assertEquals(string("tick"), activation.elements().get(1));
+        assertEquals(new IntegerValue(37), activation.elements().get(5));
+      }
     }
   }
 

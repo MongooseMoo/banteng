@@ -105,6 +105,32 @@ final class QueuedTaskV17CodecTest {
   }
 
   @Test
+  void preservesQueuedTaskSourceAndDispatchFieldsFromToastFixture(
+      @TempDir Path temporaryDirectory) throws IOException {
+    byte[] fixture;
+    try (var input =
+        QueuedTaskV17CodecTest.class.getResourceAsStream(
+            "/moo/persistence/queued-task-source-and-dispatch.db")) {
+      fixture = input == null ? new byte[0] : input.readAllBytes();
+    }
+    assertTrue(fixture.length > 0);
+    Path input = temporaryDirectory.resolve("toast.db");
+    Path output = temporaryDirectory.resolve("banteng.db");
+    Files.write(input, fixture);
+
+    LambdaMooV17Codec codec = new LambdaMooV17Codec();
+    LambdaMooV17Codec.Checkpoint restored = codec.read(input);
+    QueuedTask task = assertInstanceOf(QueuedTask.class, restored.tasks().getFirst());
+    assertEquals(4, task.firstSourceLine());
+    assertEquals("audit_t", task.calledVerb());
+    assertEquals("audit_task_aliases audit_t*", task.fullVerbName());
+    codec.writeAtomic(
+        output, restored.world().snapshot(), restored.tasks(), restored.activeConnections());
+
+    assertArrayEquals(fixture, Files.readAllBytes(output));
+  }
+
+  @Test
   void queuedTaskRetainsAnAnonymousVerbLocationIdentity(@TempDir Path temporaryDirectory)
       throws IOException {
     AnonymousObjectValue identity = new AnonymousObjectValue();
@@ -117,7 +143,8 @@ final class QueuedTaskV17CodecTest {
     locals.put("player", new ObjectValue(0));
     locals.put("verb", string("tick"));
     QueuedTask task =
-        new QueuedTask(7, 12, "return 0;\n", locals, 0, identity, 0, true);
+        new QueuedTask(
+            7, 12, 1, "tick", "tick", "return 0;\n", locals, 0, identity, 0, true);
     WorldSnapshot world =
         new WorldTxn(List.of(), List.of(parent), Map.of(identity, body)).snapshot();
     Path checkpoint = temporaryDirectory.resolve("anonymous-queued.db");
@@ -141,6 +168,9 @@ final class QueuedTaskV17CodecTest {
         new QueuedTask(
             task().taskId(),
             task().scheduledEpochSecond(),
+            task().firstSourceLine(),
+            task().calledVerb(),
+            task().fullVerbName(),
             task().programSource(),
             task().initialLocals(),
             task().programmer(),
@@ -172,6 +202,9 @@ final class QueuedTaskV17CodecTest {
     return new QueuedTask(
         41,
         1_700_000_123,
+        1,
+        "tick",
+        "tick",
         "#0.audit_restart = marker;\n",
         locals,
         3,
