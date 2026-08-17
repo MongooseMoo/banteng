@@ -426,12 +426,14 @@ public final class WorldTxn implements AutoCloseable {
   /** Finds a named verb, optionally requiring its executable permission. */
   public Optional<WorldVerb> verb(long objectId, String verbName, boolean requireExecutable) {
     Objects.requireNonNull(verbName, "verbName");
+    if (requireExecutable) {
+      return resolvedCallableVerb(history.findCallableVerb(this, objectId, verbName));
+    }
     String requestedName = verbName.toLowerCase(Locale.ROOT);
     for (long ancestor : ancestry(objectId)) {
       WorldObject candidate = object(ancestor).orElseThrow();
       for (WorldVerb verb : candidate.verbs()) {
-        if (matchesVerbName(verb, requestedName)
-            && (!requireExecutable || (verb.permissions() & 4) != 0)) {
+        if (matchesVerbName(verb, requestedName)) {
           return Optional.of(verb);
         }
       }
@@ -443,12 +445,18 @@ public final class WorldTxn implements AutoCloseable {
   public OptionalLong verbLocation(
       long objectId, String verbName, boolean requireExecutable) {
     Objects.requireNonNull(verbName, "verbName");
+    if (requireExecutable) {
+      VerbCache.Resolution resolution = history.findCallableVerb(this, objectId, verbName);
+      replayVerbReads(resolution);
+      return resolution.location() instanceof Long location
+          ? OptionalLong.of(location)
+          : OptionalLong.empty();
+    }
     String requestedName = verbName.toLowerCase(Locale.ROOT);
     for (long ancestor : ancestry(objectId)) {
       WorldObject candidate = object(ancestor).orElseThrow();
       for (WorldVerb verb : candidate.verbs()) {
-        if (matchesVerbName(verb, requestedName)
-            && (!requireExecutable || (verb.permissions() & 4) != 0)) {
+        if (matchesVerbName(verb, requestedName)) {
           return OptionalLong.of(ancestor);
         }
       }
@@ -482,14 +490,16 @@ public final class WorldTxn implements AutoCloseable {
       AnonymousObjectValue identity, String verbName, boolean requireExecutable) {
     Objects.requireNonNull(identity, "identity");
     Objects.requireNonNull(verbName, "verbName");
+    if (requireExecutable) {
+      return resolvedCallableVerb(history.findCallableVerb(this, identity, verbName));
+    }
     String requestedName = verbName.toLowerCase(Locale.ROOT);
     WorldAnonymousObject anonymous = anonymousObject(identity).orElse(null);
     if (anonymous == null) {
       return Optional.empty();
     }
     for (WorldVerb verb : anonymous.verbs()) {
-      if (matchesVerbName(verb, requestedName)
-          && (!requireExecutable || (verb.permissions() & 4) != 0)) {
+      if (matchesVerbName(verb, requestedName)) {
         return Optional.of(verb);
       }
     }
@@ -501,8 +511,7 @@ public final class WorldTxn implements AutoCloseable {
         }
         WorldObject candidate = object(ancestor).orElseThrow();
         for (WorldVerb verb : candidate.verbs()) {
-          if (matchesVerbName(verb, requestedName)
-              && (!requireExecutable || (verb.permissions() & 4) != 0)) {
+          if (matchesVerbName(verb, requestedName)) {
             return Optional.of(verb);
           }
         }
@@ -516,14 +525,21 @@ public final class WorldTxn implements AutoCloseable {
       AnonymousObjectValue identity, String verbName, boolean requireExecutable) {
     Objects.requireNonNull(identity, "identity");
     Objects.requireNonNull(verbName, "verbName");
+    if (requireExecutable) {
+      VerbCache.Resolution resolution = history.findCallableVerb(this, identity, verbName);
+      replayVerbReads(resolution);
+      return Optional.ofNullable(
+          resolution.location() instanceof Long location
+              ? new ObjectValue(location)
+              : (MooValue) resolution.location());
+    }
     String requestedName = verbName.toLowerCase(Locale.ROOT);
     WorldAnonymousObject anonymous = anonymousObject(identity).orElse(null);
     if (anonymous == null) {
       return Optional.empty();
     }
     for (WorldVerb verb : anonymous.verbs()) {
-      if (matchesVerbName(verb, requestedName)
-          && (!requireExecutable || (verb.permissions() & 4) != 0)) {
+      if (matchesVerbName(verb, requestedName)) {
         return Optional.of(identity);
       }
     }
@@ -535,8 +551,7 @@ public final class WorldTxn implements AutoCloseable {
         }
         WorldObject candidate = object(ancestor).orElseThrow();
         for (WorldVerb verb : candidate.verbs()) {
-          if (matchesVerbName(verb, requestedName)
-              && (!requireExecutable || (verb.permissions() & 4) != 0)) {
+          if (matchesVerbName(verb, requestedName)) {
             return Optional.of(new ObjectValue(ancestor));
           }
         }
@@ -567,6 +582,131 @@ public final class WorldTxn implements AutoCloseable {
       }
     }
     return false;
+  }
+
+  /** Returns one immutable snapshot of the shared callable-verb cache counters. */
+  public VerbCacheStats verbCacheStats() {
+    return history.verbCacheStats();
+  }
+
+  VerbCache.Resolution findCallableVerbCached(
+      Object receiver, String verbName, VerbCache cache) {
+    String requestedName = verbName.toLowerCase(Locale.ROOT);
+    Deque<Object> pending = new ArrayDeque<>();
+    pending.addFirst(receiver);
+    while (!pending.isEmpty()) {
+      Object candidate = pending.removeFirst();
+      Optional<List<WorldVerb>> candidateVerbs = receiverVerbs(candidate);
+      if (candidateVerbs.isEmpty()) {
+        continue;
+      }
+      List<WorldVerb> verbs = candidateVerbs.orElseThrow();
+      if (verbs.isEmpty()) {
+        prependParents(pending, receiverParents(candidate));
+        continue;
+      }
+      VerbCache.Resolution resolution =
+          cache.resolve(
+              candidate,
+              requestedName,
+              () -> findCallableVerbFrom(candidate, requestedName));
+      replayVerbReads(resolution);
+      if (resolution.found()) {
+        return resolution;
+      }
+    }
+    return VerbCache.Resolution.missing(List.of(), List.of());
+  }
+
+  VerbCache.Resolution findCallableVerbUncached(Object receiver, String verbName) {
+    return findCallableVerbFrom(receiver, verbName.toLowerCase(Locale.ROOT));
+  }
+
+  private VerbCache.Resolution findCallableVerbFrom(Object receiver, String requestedName) {
+    List<Long> permanent = new ArrayList<>();
+    List<AnonymousObjectValue> anonymous = new ArrayList<>();
+    Deque<Object> pending = new ArrayDeque<>();
+    pending.addFirst(receiver);
+    while (!pending.isEmpty()) {
+      Object candidate = pending.removeFirst();
+      List<WorldVerb> verbs;
+      List<Long> parents;
+      if (candidate instanceof Long objectId) {
+        permanent.add(objectId);
+        WorldObject object = object(objectId).orElse(null);
+        if (object == null) {
+          continue;
+        }
+        verbs = object.verbs();
+        parents = object.parents();
+      } else if (candidate instanceof AnonymousObjectValue identity) {
+        anonymous.add(identity);
+        WorldAnonymousObject object = anonymousObject(identity).orElse(null);
+        if (object == null) {
+          continue;
+        }
+        verbs = object.verbs();
+        parents = object.parents();
+      } else {
+        throw new IllegalArgumentException("unsupported verb receiver");
+      }
+      for (int index = 0; index < verbs.size(); index++) {
+        WorldVerb verb = verbs.get(index);
+        if (matchesVerbName(verb, requestedName) && (verb.permissions() & 4) != 0) {
+          return new VerbCache.Resolution(candidate, index, permanent, anonymous);
+        }
+      }
+      prependParents(pending, parents);
+    }
+    return VerbCache.Resolution.missing(permanent, anonymous);
+  }
+
+  private Optional<List<WorldVerb>> receiverVerbs(Object receiver) {
+    if (receiver instanceof Long objectId) {
+      return object(objectId).map(WorldObject::verbs);
+    }
+    if (receiver instanceof AnonymousObjectValue identity) {
+      return anonymousObject(identity).map(WorldAnonymousObject::verbs);
+    }
+    throw new IllegalArgumentException("unsupported verb receiver");
+  }
+
+  private List<Long> receiverParents(Object receiver) {
+    if (receiver instanceof Long objectId) {
+      return object(objectId).map(WorldObject::parents).orElse(List.of());
+    }
+    if (receiver instanceof AnonymousObjectValue identity) {
+      return anonymousObject(identity).map(WorldAnonymousObject::parents).orElse(List.of());
+    }
+    throw new IllegalArgumentException("unsupported verb receiver");
+  }
+
+  private static void prependParents(Deque<Object> pending, List<Long> parents) {
+    for (int index = parents.size() - 1; index >= 0; index--) {
+      pending.addFirst(parents.get(index));
+    }
+  }
+
+  private Optional<WorldVerb> resolvedCallableVerb(VerbCache.Resolution resolution) {
+    replayVerbReads(resolution);
+    if (resolution.location() instanceof Long objectId) {
+      return verb(objectId, resolution.verbIndex());
+    }
+    if (resolution.location() instanceof AnonymousObjectValue identity) {
+      WorldAnonymousObject object = anonymousObject(identity).orElse(null);
+      if (object == null
+          || resolution.verbIndex() < 0
+          || resolution.verbIndex() >= object.verbs().size()) {
+        return Optional.empty();
+      }
+      return Optional.of(object.verbs().get(resolution.verbIndex()));
+    }
+    return Optional.empty();
+  }
+
+  private void replayVerbReads(VerbCache.Resolution resolution) {
+    recordReads.addAll(resolution.permanentReads());
+    anonymousReads.addAll(resolution.anonymousReads());
   }
 
   /** Looks up a local or inherited property name. */
@@ -2419,6 +2559,17 @@ public final class WorldTxn implements AutoCloseable {
     OBJECT_IDS,
     PLAYERS,
     PENDING_FINALIZATION
+  }
+
+  /** Toast's positive, negative, miss, generation, and bucket-depth cache statistics. */
+  public record VerbCacheStats(
+      long hits, long negativeHits, long misses, long generation, List<Integer> histogram) {
+    public VerbCacheStats {
+      histogram = List.copyOf(histogram);
+      if (histogram.size() != 17) {
+        throw new IllegalArgumentException("verb cache histogram must contain 17 depths");
+      }
+    }
   }
 
   /** The immutable result of non-publishing validation against the current committed revision. */

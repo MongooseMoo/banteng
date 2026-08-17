@@ -7,6 +7,8 @@ import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.io.ByteArrayOutputStream;
+import java.io.PrintStream;
 import java.lang.reflect.Field;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
@@ -14,6 +16,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalDouble;
@@ -4086,7 +4089,7 @@ final class BuiltinCatalogTest {
   }
 
   @Test
-  void verbCacheStatsExposesToastShapeForTheUncachedWorldLookup() {
+  void verbCacheStatsAndLogExposeTheLiveToastCountersAndHistogram() {
     BuiltinCatalog catalog = new BuiltinCatalog();
     BuiltinSpec spec = catalog.spec("verb_cache_stats").orElseThrow();
     assertEquals(
@@ -4094,18 +4097,107 @@ final class BuiltinCatalogTest {
     assertSame(BuiltinPermissionRule.WIZARD_ONLY, spec.permission());
     assertEquals(EffectClass.EXTERNAL_READ, spec.effect());
     assertEquals(BuiltinOwner.SERVER, spec.owner());
-    try (WorldTxn transaction = world().begin()) {
+    WorldVerb look = new WorldVerb("look", 1, 4, -1, "return 1;");
+    WorldObject wizard =
+        new WorldObject(
+            1,
+            "Wizard",
+            4,
+            1,
+            -1,
+            -1,
+            List.of(),
+            List.of(),
+            List.of(look),
+            List.of());
+    WorldObject programmer =
+        new WorldObject(2, "Programmer", 0, 2, -1, -1, List.of(), List.of(), List.of(), List.of());
+    WorldTxn root = new WorldTxn(List.of(), List.of(wizard, programmer));
+    try (WorldTxn transaction = root.begin()) {
       assertEquals(
           ErrorValue.E_PERM,
           error(invoke(catalog, spec, List.of(), transaction, 2)).orElseThrow());
+      assertTrue(transaction.verb(1, "look").isPresent());
+      assertTrue(transaction.verb(1, "LOOK").isPresent());
       ListValue stats =
           assertInstanceOf(
               ListValue.class,
               value(invoke(catalog, spec, List.of(), transaction, 1)).orElseThrow());
-      assertEquals(5, stats.size());
-      assertTrue(stats.elements().subList(0, 4).stream().allMatch(IntegerValue.class::isInstance));
-      assertEquals(17, assertInstanceOf(ListValue.class, stats.elements().get(4)).size());
+      assertEquals(
+          new ListValue(
+              List.of(
+                  new IntegerValue(1),
+                  new IntegerValue(0),
+                  new IntegerValue(1),
+                  new IntegerValue(0),
+                  new ListValue(
+                      List.of(
+                          new IntegerValue(7_506),
+                          new IntegerValue(1),
+                          new IntegerValue(0),
+                          new IntegerValue(0),
+                          new IntegerValue(0),
+                          new IntegerValue(0),
+                          new IntegerValue(0),
+                          new IntegerValue(0),
+                          new IntegerValue(0),
+                          new IntegerValue(0),
+                          new IntegerValue(0),
+                          new IntegerValue(0),
+                          new IntegerValue(0),
+                          new IntegerValue(0),
+                          new IntegerValue(0),
+                          new IntegerValue(0),
+                          new IntegerValue(0))))),
+          stats);
     }
+  }
+
+  @Test
+  void logCacheStatsPrintsEveryToastDepthFromTheLiveCache() {
+    BuiltinCatalog catalog = new BuiltinCatalog();
+    BuiltinSpec logSpec = catalog.spec("log_cache_stats").orElseThrow();
+    WorldVerb look = new WorldVerb("look", 1, 4, -1, "return 1;");
+    WorldObject wizard =
+        new WorldObject(
+            1,
+            "Wizard",
+            4,
+            1,
+            -1,
+            -1,
+            List.of(),
+            List.of(),
+            List.of(look),
+            List.of());
+    WorldTxn root = new WorldTxn(List.of(), List.of(wizard));
+    ByteArrayOutputStream output = new ByteArrayOutputStream();
+    PrintStream original = System.err;
+    try (WorldTxn transaction = root.begin();
+        PrintStream captured = new PrintStream(output, true, StandardCharsets.UTF_8)) {
+      assertTrue(transaction.verb(1, "look").isPresent());
+      assertTrue(transaction.verb(1, "LOOK").isPresent());
+      System.setErr(captured);
+      assertEquals(
+          new IntegerValue(0),
+          value(invoke(catalog, logSpec, List.of(), transaction, 1)).orElseThrow());
+    } finally {
+      System.setErr(original);
+    }
+
+    StringBuilder expected =
+        new StringBuilder("Verb cache stat summary: 1 hits, 1 misses, 0 generations\n")
+            .append("Depth   Count\n");
+    for (int depth = 0; depth < 17; depth++) {
+      expected.append(
+          String.format(
+              Locale.ROOT,
+              "%-5d   %-5d%n",
+              depth,
+              depth == 0 ? 7_506 : depth == 1 ? 1 : 0));
+    }
+    expected.append("---\n");
+    assertEquals(expected.toString(), output.toString(StandardCharsets.UTF_8));
   }
 
   @Test
