@@ -461,48 +461,96 @@ public final class MooRuntime implements AutoCloseable {
         connection.programmingSource.append(line).append('\n');
         return RuntimeStep.returned(List.of());
       }
-      String source = connection.programmingSource.toString();
-      try {
-        new MooCompiler().compile(source);
-        world().setVerbCode(connection.programmingObject, connection.programmingVerbIndex, source);
-      } catch (IllegalArgumentException ignored) {
-        // The active conformance row does not observe programming diagnostics.
+      WorldObject definingObject = world().object(connection.programmingObject).orElse(null);
+      if (definingObject == null) {
+        clearProgramming(connection);
+        return RuntimeStep.returned(List.of("That object appears to have disappeared ..."));
       }
-      connection.programmingObject = -1;
-      connection.programmingVerbIndex = -1;
-      connection.programmingSource.setLength(0);
-      return RuntimeStep.returned(List.of());
+      WorldVerb verb =
+          world()
+              .verb(connection.programmingObject, connection.programmingVerbName, false)
+              .orElse(null);
+      int verbIndex = verb == null ? -1 : definingObject.verbs().indexOf(verb);
+      if (verbIndex < 0) {
+        clearProgramming(connection);
+        return RuntimeStep.returned(List.of("That verb appears to have disappeared ..."));
+      }
+      String source = connection.programmingSource.toString();
+      MooCompiler.CompilationResult compilation = new MooCompiler().compileResult(source);
+      List<String> output =
+          compilation.diagnostics().stream()
+              .map(MooCompiler.Diagnostic::display)
+              .collect(java.util.stream.Collectors.toCollection(ArrayList::new));
+      output.add(compilation.diagnostics().size() + " error(s).");
+      boolean installed =
+          compilation.program().isPresent()
+              && world()
+                  .setVerbCode(connection.programmingObject, verbIndex, source);
+      output.add(installed ? "Verb programmed." : "Verb not programmed.");
+      clearProgramming(connection);
+      return RuntimeStep.returned(output);
     }
 
     String programPrefix = ".program ";
-    if (line.startsWith(programPrefix)) {
-      String descriptor = line.substring(programPrefix.length());
+    boolean programmer =
+        world().object(player).map(object -> (object.flags() & 2) != 0).orElse(false);
+    if (programmer && (line.equals(".program") || line.startsWith(programPrefix))) {
+      String descriptor =
+          line.equals(".program") ? "" : line.substring(programPrefix.length()).trim();
       boolean oneDescriptor = !descriptor.isEmpty();
       for (int index = 0; index < descriptor.length() && oneDescriptor; index++) {
         oneDescriptor = !Character.isWhitespace(descriptor.charAt(index));
       }
-      int colon = descriptor.lastIndexOf(':');
-      if (oneDescriptor
-          && descriptor.charAt(0) == '#'
-          && colon > 1
-          && colon < descriptor.length() - 1) {
-        try {
-          long objectId = Long.parseLong(descriptor.substring(1, colon));
-          WorldObject object = world().object(objectId).orElse(null);
-          Optional<WorldVerb> namedVerb = world().verb(objectId, descriptor.substring(colon + 1));
-          if (objectId >= 0 && object != null && namedVerb.isPresent()) {
-            int verbIndex = object.verbs().indexOf(namedVerb.orElseThrow());
-            if (verbIndex >= 0 && world().verb(objectId, verbIndex).isPresent()) {
-              connection.programmingObject = objectId;
-              connection.programmingVerbIndex = verbIndex;
-              connection.programmingSource.setLength(0);
-            }
-          }
-        } catch (NumberFormatException ignored) {
-          // The active conformance row does not observe programming diagnostics.
-        }
+      if (!oneDescriptor) {
+        return RuntimeStep.returned(List.of("Usage:  .program object:verb"));
       }
-      return RuntimeStep.returned(List.of());
+      int colon = descriptor.indexOf(':');
+      if (colon < 0 || colon == descriptor.length() - 1) {
+        return RuntimeStep.returned(
+            List.of("You must specify a verb; use the format object:verb."));
+      }
+      String objectReference = descriptor.substring(0, colon);
+      long objectId = matchProgramObject(player, objectReference);
+      if (objectId == -3) {
+        return RuntimeStep.returned(List.of("I don't see \"" + objectReference + "\" here."));
+      }
+      if (objectId == -2) {
+        return RuntimeStep.returned(
+            List.of("I don't know which \"" + objectReference + "\" you mean."));
+      }
+      if (objectId < 0) {
+        return RuntimeStep.returned(
+            List.of("\"" + objectReference + "\" is not a valid object."));
+      }
+      String verbName = descriptor.substring(colon + 1);
+      OptionalLong definingObject = world().verbLocation(objectId, verbName, false);
+      if (definingObject.isEmpty()) {
+        return RuntimeStep.returned(
+            List.of("That object does not have that verb definition."));
+      }
+      WorldObject object = world().object(definingObject.orElseThrow()).orElseThrow();
+      WorldObject requestedObject = world().object(objectId).orElseThrow();
+      WorldVerb verb = world().verb(object.id(), verbName, false).orElseThrow();
+      int verbIndex = object.verbs().indexOf(verb);
+      if (verbIndex < 0) {
+        return RuntimeStep.returned(
+            List.of("That object does not have that verb definition."));
+      }
+      WorldObject actor = world().object(player).orElse(null);
+      boolean wizard = actor != null && (actor.flags() & 4) != 0;
+      if (verb.owner() != player && !wizard && (verb.permissions() & 2) == 0) {
+        return RuntimeStep.returned(List.of("Permission denied."));
+      }
+      connection.programmingObject = object.id();
+      connection.programmingVerbName = verbName;
+      connection.programmingSource.setLength(0);
+      return RuntimeStep.returned(
+          List.of(
+              "Now programming "
+                  + requestedObject.name()
+                  + ":"
+                  + verb.names()
+                  + ".  Use \".\" to end."));
     }
 
     if (line.regionMatches(true, 0, "PREFIX ", 0, "PREFIX ".length())) {
@@ -1120,6 +1168,104 @@ public final class MooRuntime implements AutoCloseable {
             0,
             0,
             false));
+  }
+
+  private long matchProgramObject(long player, String reference) {
+    if (reference.isEmpty()) {
+      return -1;
+    }
+    if (reference.startsWith("#")) {
+      try {
+        long objectId = Long.parseLong(reference.substring(1));
+        return objectId >= 0 && world().object(objectId).isPresent() ? objectId : -3;
+      } catch (NumberFormatException error) {
+        return -3;
+      }
+    }
+    if (reference.startsWith("$")) {
+      MooValue value = world().readObjectProperty(0, reference.substring(1)).orElse(null);
+      if (value instanceof ObjectValue object && world().object(object.value()).isPresent()) {
+        return object.value();
+      }
+      return -1;
+    }
+    if (reference.equalsIgnoreCase("me")) {
+      return player;
+    }
+    WorldObject playerObject = world().object(player).orElseThrow();
+    if (reference.equalsIgnoreCase("here")) {
+      return playerObject.location();
+    }
+
+    List<Long> candidates = new ArrayList<>();
+    for (long candidate : playerObject.contents()) {
+      if (!candidates.contains(candidate)) {
+        candidates.add(candidate);
+      }
+    }
+    WorldObject location = world().object(playerObject.location()).orElse(null);
+    if (location != null) {
+      for (long candidate : location.contents()) {
+        if (!candidates.contains(candidate)) {
+          candidates.add(candidate);
+        }
+      }
+    }
+
+    List<Long> exactMatches = new ArrayList<>();
+    List<Long> partialMatches = new ArrayList<>();
+    for (long candidate : candidates) {
+      WorldObject candidateObject = world().object(candidate).orElse(null);
+      if (candidateObject == null) {
+        continue;
+      }
+      boolean exact = false;
+      boolean partial = false;
+      if (candidateObject.name().regionMatches(true, 0, reference, 0, reference.length())) {
+        if (candidateObject.name().length() == reference.length()) {
+          exact = true;
+        } else {
+          partial = true;
+        }
+      }
+      MooValue aliasesValue = world().readObjectProperty(candidate, "aliases").orElse(null);
+      if (aliasesValue instanceof ListValue aliases) {
+        for (MooValue aliasValue : aliases.elements()) {
+          if (!(aliasValue instanceof StringValue alias)) {
+            continue;
+          }
+          String candidateAlias = new String(alias.bytes(), StandardCharsets.ISO_8859_1);
+          if (candidateAlias.regionMatches(true, 0, reference, 0, reference.length())) {
+            if (candidateAlias.length() == reference.length()) {
+              exact = true;
+            } else {
+              partial = true;
+            }
+          }
+        }
+      }
+      if (exact) {
+        exactMatches.add(candidate);
+      } else if (partial) {
+        partialMatches.add(candidate);
+      }
+    }
+    if (exactMatches.size() == 1) {
+      return exactMatches.getFirst();
+    }
+    if (exactMatches.size() > 1) {
+      return -2;
+    }
+    if (partialMatches.size() == 1) {
+      return partialMatches.getFirst();
+    }
+    return partialMatches.size() > 1 ? -2 : -3;
+  }
+
+  private static void clearProgramming(ConnectionState connection) {
+    connection.programmingObject = -1;
+    connection.programmingVerbName = "";
+    connection.programmingSource.setLength(0);
   }
 
   private RuntimeStep executeLogin(long connectionId, String line) {
@@ -3410,7 +3556,7 @@ public final class MooRuntime implements AutoCloseable {
     private Optional<String> prefix = Optional.empty();
     private Optional<String> suffix = Optional.empty();
     private long programmingObject = -1;
-    private int programmingVerbIndex = -1;
+    private String programmingVerbName = "";
     private final StringBuilder programmingSource = new StringBuilder();
 
     private ConnectionState(long listenerHandler, boolean printMessages, long generation) {
@@ -3433,7 +3579,7 @@ public final class MooRuntime implements AutoCloseable {
       copy.prefix = prefix;
       copy.suffix = suffix;
       copy.programmingObject = programmingObject;
-      copy.programmingVerbIndex = programmingVerbIndex;
+      copy.programmingVerbName = programmingVerbName;
       copy.programmingSource.append(programmingSource);
       return copy;
     }
@@ -3454,7 +3600,7 @@ public final class MooRuntime implements AutoCloseable {
           && prefix.equals(other.prefix)
           && suffix.equals(other.suffix)
           && programmingObject == other.programmingObject
-          && programmingVerbIndex == other.programmingVerbIndex
+          && programmingVerbName.equals(other.programmingVerbName)
           && programmingSource.toString().contentEquals(other.programmingSource);
     }
   }

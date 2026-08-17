@@ -102,9 +102,17 @@ public sealed interface Ast
     }
   }
 
-  record Break(Optional<String> loopVariable) implements Statement {}
+  record Break(Optional<String> loopVariable, Optional<SourceSpan> span) implements Statement {
+    public Break(Optional<String> loopVariable) {
+      this(loopVariable, Optional.empty());
+    }
+  }
 
-  record Continue(Optional<String> loopVariable) implements Statement {}
+  record Continue(Optional<String> loopVariable, Optional<SourceSpan> span) implements Statement {
+    public Continue(Optional<String> loopVariable) {
+      this(loopVariable, Optional.empty());
+    }
+  }
 
   record Fork(Optional<String> taskIdVariable, Expression delay, List<Statement> body)
       implements Statement {

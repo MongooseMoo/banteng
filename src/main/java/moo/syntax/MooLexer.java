@@ -201,15 +201,16 @@ final class MooLexer {
           && (source.charAt(exponentDigit) == '+' || source.charAt(exponentDigit) == '-')) {
         exponentDigit++;
       }
-      if (exponentDigit < source.length() && isDigit(source.charAt(exponentDigit))) {
-        floating = true;
+      floating = true;
+      advance();
+      if (!atEnd() && (peek() == '+' || peek() == '-')) {
         advance();
-        if (!atEnd() && (peek() == '+' || peek() == '-')) {
-          advance();
-        }
-        while (!atEnd() && isDigit(peek())) {
-          advance();
-        }
+      }
+      if (exponentDigit >= source.length() || !isDigit(source.charAt(exponentDigit))) {
+        throw error(tokenLine, tokenColumn, "invalid float literal");
+      }
+      while (!atEnd() && isDigit(peek())) {
+        advance();
       }
     }
     return token(floating ? TokenKind.FLOAT : TokenKind.INTEGER, tokenLine, tokenColumn);
@@ -305,6 +306,20 @@ final class MooLexer {
           advance();
         }
         skipped = true;
+      } else if (!atEnd() && peek() == '/' && peekNext() == '*') {
+        int commentLine = line;
+        int commentColumn = column;
+        advanceInBlockComment();
+        advanceInBlockComment();
+        while (!atEnd() && !(peek() == '*' && peekNext() == '/')) {
+          advanceInBlockComment();
+        }
+        if (atEnd()) {
+          throw error(commentLine, commentColumn, "unterminated block comment");
+        }
+        advanceInBlockComment();
+        advanceInBlockComment();
+        skipped = true;
       }
     } while (skipped);
   }
@@ -349,6 +364,11 @@ final class MooLexer {
       column++;
     }
     return current;
+  }
+
+  private void advanceInBlockComment() {
+    offset++;
+    column++;
   }
 
   private char peek() {
