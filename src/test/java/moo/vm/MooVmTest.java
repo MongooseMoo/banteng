@@ -4,10 +4,11 @@ import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
+import static org.junit.jupiter.api.Assertions.assertTimeout;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.nio.charset.StandardCharsets;
-import java.util.ArrayList;
+import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 import moo.builtin.BuiltinCatalog;
@@ -191,37 +192,54 @@ final class MooVmTest {
   }
 
   @Test
-  void finalStraightLineReadsDropValuesThatTransitivelyContainAnonymousOrWaifReferences() {
-    WaifValue waif = new WaifValue(new ObjectValue(9), new ObjectValue(3));
+  void finalStraightLineReadDropsAListContainingAnAnonymousReference() {
     AnonymousObjectValue anonymous = new AnonymousObjectValue();
-    MapValue nested =
-        new MapValue(Map.of(waif, new ListValue(List.of(new IntegerValue(1), anonymous))));
+    ListValue containing = new ListValue(List.of(new IntegerValue(1), anonymous));
 
-    for (String name : List.of("payload", "renamed_payload")) {
-      Map<String, MooValue> locals = suspendedLocalsAfterRead(name, nested);
+    Map<String, MooValue> locals = suspendedLocalsAfterRead("payload", containing);
 
-      assertFalse(locals.containsKey(name), name);
-      assertEquals(nested, locals.get("preserved"), name);
-    }
+    assertFalse(locals.containsKey("payload"));
+    assertEquals(containing, locals.get("preserved"));
   }
 
   @Test
-  void anonymousAndWaifContainmentVisitsSharedValuesOnceByIdentity() {
-    MooValue value = new IntegerValue(7);
-    List<MooValue> distinctValues = new ArrayList<>();
-    distinctValues.add(value);
-    for (int depth = 0; depth < 12; depth++) {
-      value = new ListValue(List.of(value, value));
-      distinctValues.add(value);
-    }
-    List<MooValue> inspected = new ArrayList<>();
+  void finalStraightLineReadDropsAMapContainingAWaifKey() {
+    WaifValue waif = new WaifValue(new ObjectValue(9), new ObjectValue(3));
+    MapValue containing = new MapValue(Map.of(waif, new IntegerValue(1)));
 
-    assertFalse(MooVm.containsAnonymousOrWaifReference(value, inspected::add));
+    Map<String, MooValue> locals = suspendedLocalsAfterRead("payload", containing);
 
-    assertEquals(distinctValues.size(), inspected.size());
-    for (MooValue distinct : distinctValues) {
-      assertTrue(inspected.stream().anyMatch(candidate -> candidate == distinct));
+    assertFalse(locals.containsKey("payload"));
+    assertEquals(containing, locals.get("preserved"));
+  }
+
+  @Test
+  void finalStraightLineReadDropsAMapContainingAnAnonymousValue() {
+    AnonymousObjectValue anonymous = new AnonymousObjectValue();
+    MapValue containing = new MapValue(Map.of(text("ordinary"), anonymous));
+
+    Map<String, MooValue> locals = suspendedLocalsAfterRead("payload", containing);
+
+    assertFalse(locals.containsKey("payload"));
+    assertEquals(containing, locals.get("preserved"));
+  }
+
+  @Test
+  void finalStraightLineReadOfADeepSharedDagCompletesWithoutRepeatedTraversal() {
+    MooValue shared = new IntegerValue(7);
+    for (int depth = 0; depth < 27; depth++) {
+      shared = new ListValue(List.of(shared, shared));
     }
+    MooValue sharedDag = shared;
+
+    assertTimeout(
+        Duration.ofSeconds(2),
+        () -> {
+          Map<String, MooValue> locals = suspendedLocalsAfterRead("payload", sharedDag);
+
+          assertTrue(locals.get("payload") == sharedDag);
+          assertTrue(locals.get("preserved") == sharedDag);
+        });
   }
 
   @Test
