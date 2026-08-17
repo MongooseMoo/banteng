@@ -87,7 +87,7 @@ final class PcreService {
     }
   }
 
-  synchronized BuiltinResult cacheStats(List<MooValue> arguments) {
+  synchronized BuiltinResult cacheStats() {
     List<MooValue> entries = new ArrayList<>();
     for (Map.Entry<CacheKey, CacheEntry> entry : cache.entrySet()) {
       entries.add(

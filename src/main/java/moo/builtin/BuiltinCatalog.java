@@ -1049,7 +1049,7 @@ public final class BuiltinCatalog {
             EffectClass.IRREVOCABLE,
             BuiltinOwner.VM,
             (a, w, p, t, id, rt, rs, r, cp, c) -> {
-              random.setSeed(new SecureRandom().nextLong());
+              random.setSeed(SECURE_RANDOM.nextLong());
               return BuiltinResult.value(new IntegerValue(0));
             }));
     entries.add(
@@ -2216,7 +2216,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.EXTERNAL_READ,
             BuiltinOwner.SERVER,
-            (a, w, p, t, id, rt, rs, r, cp, c) -> pcre.cacheStats(a)));
+            (a, w, p, t, id, rt, rs, r, cp, c) -> pcre.cacheStats()));
     addSqliteManifest(entries);
     entries.add(
         new BuiltinSpec(
@@ -3287,12 +3287,12 @@ public final class BuiltinCatalog {
 
   private static long valueBytes(MooValue value, WorldTxn world) {
     return switch (value) {
-      case IntegerValue ignored -> 16;
-      case BooleanValue ignored -> 16;
-      case ObjectValue ignored -> 16;
-      case ErrorValue ignored -> 16;
-      case AnonymousObjectValue ignored -> 16;
-      case FloatValue ignored -> 24;
+      case IntegerValue _ -> 16;
+      case BooleanValue _ -> 16;
+      case ObjectValue _ -> 16;
+      case ErrorValue _ -> 16;
+      case AnonymousObjectValue _ -> 16;
+      case FloatValue _ -> 24;
       case StringValue string -> 17L + string.length();
       case ListValue list -> {
         long bytes = 32;
@@ -3704,7 +3704,7 @@ public final class BuiltinCatalog {
           ErrorValue.E_INVARG, encode("Invalid count"), arguments.getFirst());
     }
     byte[] random = new byte[(int) requested];
-    new SecureRandom().nextBytes(random);
+    SECURE_RANDOM.nextBytes(random);
     ByteArrayOutputStream encoded = new ByteArrayOutputStream(random.length);
     for (byte current : random) {
       int value = Byte.toUnsignedInt(current);
@@ -3927,12 +3927,12 @@ public final class BuiltinCatalog {
               double rightValue = ((FloatValue) right).value();
               yield leftValue == rightValue ? 0 : (leftValue - rightValue < 0.0 ? -1 : 1);
             }
-            case BooleanValue ignored -> 0;
+            case BooleanValue _ -> 0;
             case StringValue string -> string.compareIgnoringCase((StringValue) right);
-            case AnonymousObjectValue ignored -> left == right ? 0 : 1;
-            case WaifValue ignored -> 0;
-            case ListValue ignored -> throw new IllegalArgumentException("list map key");
-            case MapValue ignored -> throw new IllegalArgumentException("map map key");
+            case AnonymousObjectValue _ -> left == right ? 0 : 1;
+            case WaifValue _ -> 0;
+            case ListValue _ -> throw new IllegalArgumentException("list map key");
+            case MapValue _ -> throw new IllegalArgumentException("map map key");
           };
         });
     return keys;
@@ -4233,16 +4233,16 @@ public final class BuiltinCatalog {
         double rightValue = ((FloatValue) right).value();
         yield leftValue < rightValue ? -1 : (leftValue > rightValue ? 1 : 0);
       }
-      case BooleanValue ignored -> 0;
+      case BooleanValue _ -> 0;
       case StringValue string ->
           natural
               ? compareNaturallyIgnoringCase(string, (StringValue) right)
               : compareCStringIgnoringCase(string, (StringValue) right);
-      case ListValue ignored -> throw new IllegalArgumentException("list sort key");
-      case MapValue ignored -> throw new IllegalArgumentException("map sort key");
-      case AnonymousObjectValue ignored ->
+      case ListValue _ -> throw new IllegalArgumentException("list sort key");
+      case MapValue _ -> throw new IllegalArgumentException("map sort key");
+      case AnonymousObjectValue _ ->
           throw new IllegalArgumentException("anonymous sort key");
-      case WaifValue ignored -> throw new IllegalArgumentException("waif sort key");
+      case WaifValue _ -> throw new IllegalArgumentException("waif sort key");
     };
   }
 
@@ -4528,7 +4528,7 @@ public final class BuiltinCatalog {
       byte[] source, byte[] what, byte[] replacement) {
     ByteArrayOutputStream output = new ByteArrayOutputStream(source.length);
     int position = 0;
-    while (position <= source.length - what.length) {
+    while (what.length > 0 && position <= source.length - what.length) {
       if (matchesAt(source, position, what, false)) {
         output.writeBytes(replacement);
         position += what.length;
@@ -6531,8 +6531,8 @@ public final class BuiltinCatalog {
             case AnonymousObjectValue anonymous -> anonymous.toString();
             case WaifValue waif -> waif.toString();
             case ErrorValue error -> errorDescription(error);
-            case ListValue ignored -> "{list}";
-            case MapValue ignored -> "[map]";
+            case ListValue _ -> "{list}";
+            case MapValue _ -> "[map]";
           });
     }
     return BuiltinResult.value(encode(text.toString()));

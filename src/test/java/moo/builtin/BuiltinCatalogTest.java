@@ -5548,8 +5548,8 @@ final class BuiltinCatalogTest {
 
   private static Optional<CheckpointRequest> checkpointRequest(BuiltinResult result) {
     return switch (result) {
-      case BuiltinResult.Checkpoint ignored -> Optional.of(new CheckpointRequest(false));
-      case BuiltinResult.Shutdown ignored -> Optional.of(new CheckpointRequest(true));
+      case BuiltinResult.Checkpoint _ -> Optional.of(new CheckpointRequest(false));
+      case BuiltinResult.Shutdown _ -> Optional.of(new CheckpointRequest(true));
       case BuiltinResult.Panic panic -> Optional.of(CheckpointRequest.panic(panic.message()));
       default -> Optional.empty();
     };

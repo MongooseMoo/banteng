@@ -1498,7 +1498,7 @@ public final class MooVm {
   private static void applyBuiltinResult(
       BuiltinResult result, Frame frame, VmState state, WorldTxn world) {
     switch (result) {
-      case BuiltinResult.SecondsAbort ignored -> state.abortSecondsExhaustion();
+      case BuiltinResult.SecondsAbort _ -> state.abortSecondsExhaustion();
       case BuiltinResult.ErrorResult error ->
           raiseError(state, error.error(), world, false);
       case BuiltinResult.RaisedError raised ->
@@ -1506,11 +1506,11 @@ public final class MooVm {
       case BuiltinResult.Value value -> frame.operandStack.push(value.value());
       case BuiltinResult.Initialize initialize ->
           applyInitialize(initialize, frame, state, world);
-      case BuiltinResult.Checkpoint ignored -> {
+      case BuiltinResult.Checkpoint _ -> {
         state.stageCheckpointRequest(new CheckpointRequest(false));
         frame.operandStack.push(new IntegerValue(0));
       }
-      case BuiltinResult.Shutdown ignored -> {
+      case BuiltinResult.Shutdown _ -> {
         state.stageCheckpointRequest(new CheckpointRequest(true));
         frame.operandStack.push(new IntegerValue(0));
       }
