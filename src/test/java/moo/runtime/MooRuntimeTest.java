@@ -525,7 +525,7 @@ final class MooRuntimeTest {
       WorldObject parent = transaction.createObject(requested.parents(), player);
       definingObject = parent.id();
       assertTrue(transaction.changeParent(player, definingObject));
-      assertTrue(transaction.addVerb(definingObject, "inherited_program", player, 2, -1) > 0);
+      assertTrue(transaction.addVerb(definingObject, "inherited_program", player, 6, -1) > 0);
       assertTrue(transaction.commit().isCommitted());
     }
 
@@ -610,7 +610,7 @@ final class MooRuntimeTest {
 
     try (WorldTxn transaction = world.begin()) {
       anchorIndex = transaction.addVerb(player, "program_anchor", player, 2, -1) - 1;
-      targetIndex = transaction.addVerb(player, "program_reordered", player, 2, -1) - 1;
+      targetIndex = transaction.addVerb(player, "program_reordered", player, 6, -1) - 1;
       assertTrue(anchorIndex >= 0);
       assertTrue(targetIndex > anchorIndex);
       assertTrue(transaction.commit().isCommitted());
