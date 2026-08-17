@@ -7,6 +7,7 @@ import java.util.List;
 import java.util.Optional;
 import moo.syntax.MooLexer.Token;
 import moo.syntax.MooLexer.TokenKind;
+import org.jspecify.annotations.Nullable;
 
 /** Concrete entry point for parsing one MOO verb body. */
 public final class MooParser {
@@ -29,7 +30,7 @@ public final class MooParser {
   private int previousEndOffset;
   private int indexDepth;
   private int expressionDepth;
-  private List<ParseDiagnostic> recoveringDiagnostics;
+  private @Nullable List<ParseDiagnostic> recoveringDiagnostics = null;
 
   private MooParser(String source) {
     lexer = new MooLexer(source);
@@ -977,16 +978,6 @@ public final class MooParser {
       throw error(token, message);
     }
     recoveringDiagnostics.add(new ParseDiagnostic(token.line(), token.column(), message));
-  }
-
-  private void reportRecoverable(Optional<Ast.SourceSpan> span, String message) {
-    int diagnosticLine = span.map(Ast.SourceSpan::line).orElse(current.line());
-    int diagnosticColumn = span.map(Ast.SourceSpan::column).orElse(current.column());
-    if (recoveringDiagnostics == null) {
-      throw new ParseException(diagnosticLine, diagnosticColumn, message);
-    }
-    recoveringDiagnostics.add(
-        new ParseDiagnostic(diagnosticLine, diagnosticColumn, message));
   }
 
   private static ParseException error(Token token, String message, RuntimeException cause) {
