@@ -2235,7 +2235,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.IRREVOCABLE,
             BuiltinOwner.SERVER,
-            (a, w, p, t, id, rt, rs, r, cp, c) -> logCacheStats()));
+            (a, w, p, t, id, rt, rs, r, cp, c) -> logCacheStats(w)));
     entries.add(
         new BuiltinSpec(
             "verb_cache_stats",
@@ -2244,7 +2244,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.EXTERNAL_READ,
             BuiltinOwner.SERVER,
-            (a, w, p, t, id, rt, rs, r, cp, c) -> verbCacheStats()));
+            (a, w, p, t, id, rt, rs, r, cp, c) -> verbCacheStats(w)));
     entries.add(
         new BuiltinSpec(
             "usage",
@@ -3112,26 +3112,37 @@ public final class BuiltinCatalog {
     return BuiltinResult.value(new IntegerValue(0));
   }
 
-  private static BuiltinResult logCacheStats() {
-    System.err.println("Verb cache stat summary: 0 hits, 0 misses, 0 generations");
+  private static BuiltinResult logCacheStats(WorldTxn world) {
+    WorldTxn.VerbCacheStats stats = world.verbCacheStats();
+    System.err.printf(
+        Locale.ROOT,
+        "Verb cache stat summary: %d hits, %d misses, %d generations%n",
+        stats.hits(),
+        stats.misses(),
+        stats.generation());
     System.err.println("Depth   Count");
-    System.err.println("0       0");
+    for (int depth = 0; depth < stats.histogram().size(); depth++) {
+      System.err.printf(Locale.ROOT, "%-5d   %-5d%n", depth, stats.histogram().get(depth));
+    }
     System.err.println("---");
     return BuiltinResult.value(new IntegerValue(0));
   }
 
-  private static BuiltinResult verbCacheStats() {
-    List<MooValue> histogram = new ArrayList<>(17);
-    for (int index = 0; index < 17; index++) {
-      histogram.add(new IntegerValue(0));
-    }
+  private static BuiltinResult verbCacheStats(WorldTxn world) {
+    WorldTxn.VerbCacheStats stats = world.verbCacheStats();
+    List<MooValue> histogram =
+        stats.histogram().stream()
+            .map(Integer::longValue)
+            .map(IntegerValue::new)
+            .map(MooValue.class::cast)
+            .toList();
     return BuiltinResult.value(
         new ListValue(
             List.of(
-                new IntegerValue(0),
-                new IntegerValue(0),
-                new IntegerValue(0),
-                new IntegerValue(0),
+                new IntegerValue(stats.hits()),
+                new IntegerValue(stats.negativeHits()),
+                new IntegerValue(stats.misses()),
+                new IntegerValue(stats.generation()),
                 new ListValue(histogram))));
   }
 

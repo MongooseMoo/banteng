@@ -18,6 +18,7 @@ import moo.value.MooValue.WaifValue;
 final class WorldHistory {
   private final NavigableMap<Long, World> revisions = new TreeMap<>();
   private final Map<Long, Integer> activeTransactions = new HashMap<>();
+  private final VerbCache verbCache = new VerbCache();
   private World current;
 
   WorldHistory(List<Long> players, List<WorldObject> objects) {
@@ -101,6 +102,20 @@ final class WorldHistory {
     return current.snapshot();
   }
 
+  @SuppressWarnings("ReferenceEquality")
+  synchronized VerbCache.Resolution findCallableVerb(
+      WorldTxn transaction, Object receiver, String verbName) {
+    if (transaction.baseWorld() != current
+        || transaction.workingWorld() != transaction.baseWorld()) {
+      return transaction.findCallableVerbUncached(receiver, verbName);
+    }
+    return transaction.findCallableVerbCached(receiver, verbName, verbCache);
+  }
+
+  synchronized WorldTxn.VerbCacheStats verbCacheStats() {
+    return verbCache.stats();
+  }
+
   synchronized WorldTxn.ValidationResult validate(WorldTxn transaction) {
     World base = transaction.baseWorld();
     Set<Long> conflictingRecords = conflictingRecords(transaction, base, current);
@@ -171,6 +186,9 @@ final class WorldHistory {
             pendingFinalization);
     if (changesTopology(transaction, current)) {
       validateTopology(replacement);
+    }
+    if (affectsCallableVerbLookup(transaction, current)) {
+      verbCache.invalidate();
     }
     current = replacement;
     revisions.put(replacement.revision().value(), replacement);
@@ -346,6 +364,56 @@ final class WorldHistory {
       WorldAnonymousObject before = current.anonymousObjects().get(identity);
       WorldAnonymousObject after = working.anonymousObjects().get(identity);
       if (before == null || after == null || !before.parents().equals(after.parents())) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  private static boolean affectsCallableVerbLookup(WorldTxn transaction, World current) {
+    World working = transaction.workingWorld();
+    for (long objectId : transaction.recordWrites()) {
+      WorldObject before = current.objects().get(objectId);
+      WorldObject after = working.objects().get(objectId);
+      if (before != null && after == null) {
+        return true;
+      }
+      if (before == null || after == null) {
+        continue;
+      }
+      if (!before.parents().equals(after.parents())
+          || callableVerbFieldsChanged(before.verbs(), after.verbs())) {
+        return true;
+      }
+    }
+    for (AnonymousObjectValue identity : transaction.anonymousWrites()) {
+      WorldAnonymousObject before = current.anonymousObjects().get(identity);
+      WorldAnonymousObject after = working.anonymousObjects().get(identity);
+      if (before != null && after == null) {
+        return true;
+      }
+      if (before == null || after == null) {
+        continue;
+      }
+      if (!before.parents().equals(after.parents())
+          || callableVerbFieldsChanged(before.verbs(), after.verbs())) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  private static boolean callableVerbFieldsChanged(
+      List<WorldVerb> before, List<WorldVerb> after) {
+    if (before.size() != after.size()) {
+      return true;
+    }
+    for (int index = 0; index < before.size(); index++) {
+      WorldVerb oldVerb = before.get(index);
+      WorldVerb newVerb = after.get(index);
+      if (!oldVerb.names().equals(newVerb.names())
+          || oldVerb.permissions() != newVerb.permissions()
+          || oldVerb.preposition() != newVerb.preposition()) {
         return true;
       }
     }
