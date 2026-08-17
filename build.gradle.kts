@@ -4,7 +4,6 @@ plugins {
     java
     application
     id("net.ltgt.errorprone") version "5.1.0"
-    id("org.openrewrite.rewrite") version "7.39.0"
 }
 
 group = "moo"
@@ -47,10 +46,6 @@ dependencies {
     implementation("org.bouncycastle:bcprov-jdk18on:1.84")
     implementation("org.jspecify:jspecify:1.0.0")
     implementation("org.xerial:sqlite-jdbc:3.53.2.0")
-
-    rewrite(platform("org.openrewrite.recipe:rewrite-recipe-bom:3.37.0"))
-    rewrite("org.openrewrite.recipe:rewrite-static-analysis")
-    rewrite("org.openrewrite.recipe:rewrite-migrate-java")
 
     errorprone("com.google.errorprone:error_prone_core:2.50.0")
     errorprone("com.uber.nullaway:nullaway:0.13.7")
