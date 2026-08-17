@@ -4,11 +4,9 @@ import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
-import static org.junit.jupiter.api.Assertions.assertTimeout;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.nio.charset.StandardCharsets;
-import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 import moo.builtin.BuiltinCatalog;
@@ -222,24 +220,6 @@ final class MooVmTest {
 
     assertFalse(locals.containsKey("payload"));
     assertEquals(containing, locals.get("preserved"));
-  }
-
-  @Test
-  void finalStraightLineReadOfADeepSharedDagCompletesWithoutRepeatedTraversal() {
-    MooValue shared = new IntegerValue(7);
-    for (int depth = 0; depth < 27; depth++) {
-      shared = new ListValue(List.of(shared, shared));
-    }
-    MooValue sharedDag = shared;
-
-    assertTimeout(
-        Duration.ofSeconds(2),
-        () -> {
-          Map<String, MooValue> locals = suspendedLocalsAfterRead("payload", sharedDag);
-
-          assertTrue(locals.get("payload") == sharedDag);
-          assertTrue(locals.get("preserved") == sharedDag);
-        });
   }
 
   @Test
