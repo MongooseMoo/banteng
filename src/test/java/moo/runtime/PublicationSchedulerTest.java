@@ -833,6 +833,38 @@ final class PublicationSchedulerTest {
   }
 
   @Test
+  void lastWaifReadFinalizesAtTheSameSuspensionBoundaryAfterLocalRename() throws Exception {
+    try (Harness harness = Harness.open(1, new RecordingListener())) {
+      assertTrue(
+          harness
+              .line(
+                  "; class = create($waif); "
+                      + "add_property(class, \"recycle_called\", 0, {player, \"\"}); "
+                      + "add_verb(class, {player, \"xd\", \":recycle\"}, "
+                      + "{\"this\", \"none\", \"this\"}); "
+                      + "set_verb_code(class, \":recycle\", {"
+                      + "\"this.class.recycle_called = this.class.recycle_called + 1;\"}); "
+                      + "add_property(#0, \"renamed_local_waif_class\", class, {player, \"rw\"}); "
+                      + "return 0;")
+              .contains("{1, 0}"));
+
+      List<String> canonical = finalizationAtLastRead(harness, "waif");
+      List<String> renamed = finalizationAtLastRead(harness, "renamed_local");
+
+      assertEquals(canonical, renamed);
+      assertTrue(canonical.contains("{1, 1}"), canonical.toString());
+
+      assertTrue(
+          harness
+              .line(
+                  "; class = #0.renamed_local_waif_class; "
+                      + "delete_property(#0, \"renamed_local_waif_class\"); "
+                      + "recycle(class); return 0;")
+              .contains("{1, 0}"));
+    }
+  }
+
+  @Test
   void permanentPropertyKeepsAnonymousValueReachableAcrossCommands() throws Exception {
     try (Harness harness = Harness.open(1, new RecordingListener())) {
       List<String> setup =
@@ -1320,6 +1352,16 @@ final class PublicationSchedulerTest {
       assertEquals(0, harness.counter());
       assertEquals(0, registry.size());
     }
+  }
+
+  private static List<String> finalizationAtLastRead(Harness harness, String localName)
+      throws IOException {
+    return harness.line(
+        "; class = #0.renamed_local_waif_class; class.recycle_called = 0; "
+            + localName
+            + " = class:new(); "
+            + localName
+            + "; suspend(0); return class.recycle_called;");
   }
 
   private static ConflictScenario startConflictScenario(Harness harness) throws IOException {

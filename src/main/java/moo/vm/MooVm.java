@@ -1,8 +1,11 @@
 package moo.vm;
 
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
+import java.util.IdentityHashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -11,6 +14,8 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.OptionalDouble;
 import java.util.OptionalLong;
+import java.util.Set;
+import java.util.function.Consumer;
 import moo.builtin.BuiltinCatalog;
 import moo.builtin.BuiltinCatalog.ConnectionOptionRequest;
 import moo.builtin.BuiltinCatalog.ForcedInputRequest;
@@ -582,22 +587,33 @@ public final class MooVm {
   }
 
   private static boolean containsAnonymousOrWaifReference(MooValue value) {
-    if (value instanceof AnonymousObjectValue || value instanceof WaifValue) {
-      return true;
-    }
-    if (value instanceof ListValue list) {
-      for (MooValue element : list.elements()) {
-        if (containsAnonymousOrWaifReference(element)) {
-          return true;
-        }
+    return containsAnonymousOrWaifReference(value, ignored -> {});
+  }
+
+  static boolean containsAnonymousOrWaifReference(
+      MooValue value, Consumer<MooValue> distinctValueVisitor) {
+    Objects.requireNonNull(value, "value");
+    Objects.requireNonNull(distinctValueVisitor, "distinctValueVisitor");
+    Set<MooValue> visited = Collections.newSetFromMap(new IdentityHashMap<>());
+    ArrayDeque<MooValue> pending = new ArrayDeque<>();
+    pending.push(value);
+    while (!pending.isEmpty()) {
+      MooValue current = pending.pop();
+      if (!visited.add(current)) {
+        continue;
       }
-      return false;
-    }
-    if (value instanceof MapValue map) {
-      for (Map.Entry<MooValue, MooValue> entry : map.entries().entrySet()) {
-        if (containsAnonymousOrWaifReference(entry.getKey())
-            || containsAnonymousOrWaifReference(entry.getValue())) {
-          return true;
+      distinctValueVisitor.accept(current);
+      if (current instanceof AnonymousObjectValue || current instanceof WaifValue) {
+        return true;
+      }
+      if (current instanceof ListValue list) {
+        for (MooValue element : list.elements()) {
+          pending.push(element);
+        }
+      } else if (current instanceof MapValue map) {
+        for (Map.Entry<MooValue, MooValue> entry : map.entries().entrySet()) {
+          pending.push(entry.getValue());
+          pending.push(entry.getKey());
         }
       }
     }
@@ -625,7 +641,8 @@ public final class MooVm {
           }
         }
         case CALL -> {
-          if (instruction.text().orElseThrow().equalsIgnoreCase("eval")) {
+          String callName = instruction.text().orElseThrow();
+          if (callName.equalsIgnoreCase("eval") || callName.equalsIgnoreCase("pass")) {
             return false;
           }
         }

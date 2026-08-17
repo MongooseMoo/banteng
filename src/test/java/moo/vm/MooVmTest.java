@@ -7,6 +7,7 @@ import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import moo.builtin.BuiltinCatalog;
@@ -201,6 +202,25 @@ final class MooVmTest {
 
       assertFalse(locals.containsKey(name), name);
       assertEquals(nested, locals.get("preserved"), name);
+    }
+  }
+
+  @Test
+  void anonymousAndWaifContainmentVisitsSharedValuesOnceByIdentity() {
+    MooValue value = new IntegerValue(7);
+    List<MooValue> distinctValues = new ArrayList<>();
+    distinctValues.add(value);
+    for (int depth = 0; depth < 12; depth++) {
+      value = new ListValue(List.of(value, value));
+      distinctValues.add(value);
+    }
+    List<MooValue> inspected = new ArrayList<>();
+
+    assertFalse(MooVm.containsAnonymousOrWaifReference(value, inspected::add));
+
+    assertEquals(distinctValues.size(), inspected.size());
+    for (MooValue distinct : distinctValues) {
+      assertTrue(inspected.stream().anyMatch(candidate -> candidate == distinct));
     }
   }
 
@@ -4012,6 +4032,45 @@ final class MooVmTest {
 
     assertEquals(
         new ListValue(List.of(identity, identity)), state.returnValue().orElseThrow());
+  }
+
+  @Test
+  void passRetainsAnonymousLocalsCopiedIntoTheParentVerbFrame() {
+    AnonymousObjectValue identity = new AnonymousObjectValue();
+    WorldVerb parentVerb = new WorldVerb("inspect", 1, 4, -1, "return typeof(subject);");
+    WorldVerb childVerb =
+        new WorldVerb("inspect", 2, 4, -1, "subject = args[1]; subject; return pass();");
+    WorldObject parent =
+        new WorldObject(
+            1, "parent", 0, 1, -1, -1, List.of(), List.of(2L), List.of(parentVerb), List.of());
+    WorldObject child =
+        new WorldObject(
+            2,
+            "child",
+            0,
+            2,
+            -1,
+            List.of(1L),
+            List.of(),
+            List.of(),
+            List.of(childVerb),
+            List.of());
+    VmState state =
+        new VmState(
+            Map.of(
+                "player", new ObjectValue(2),
+                "this", new ObjectValue(2),
+                "subject", identity),
+            2);
+
+    executeAndClose(
+        new MooCompiler().compile(MooParser.parse("return #2:inspect(subject);")),
+        state,
+        new WorldTxn(List.of(), List.of(parent, child)),
+        new BuiltinCatalog());
+
+    assertEquals(VmState.Outcome.RETURNED, state.outcome());
+    assertEquals(new IntegerValue(12), state.returnValue().orElseThrow());
   }
 
   @Test
