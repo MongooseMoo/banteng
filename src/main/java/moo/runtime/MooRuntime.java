@@ -1689,7 +1689,9 @@ public final class MooRuntime implements AutoCloseable {
             foregroundTicks,
             foregroundSeconds,
             maxStackDepth,
-            (verb.permissions() & 8) != 0);
+            (verb.permissions() & 8) != 0,
+            verbName,
+            verb.names());
     long taskPlayer =
         locals.get("player") instanceof ObjectValue player ? player.value() : Long.MIN_VALUE;
     return RuntimeStep.vm(program, root.snapshot(), taskPlayer, continuation);

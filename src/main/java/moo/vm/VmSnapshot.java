@@ -31,6 +31,8 @@ public record VmSnapshot(
     Map<String, MooValue> initialLocals,
     long initialProgrammer,
     MooValue initialVerbLocation,
+    String initialCalledVerb,
+    String initialFullVerbName,
     List<Frame> frames,
     List<String> output,
     List<ConnectionOptionRequest> connectionOptionRequests,
@@ -55,6 +57,8 @@ public record VmSnapshot(
   public VmSnapshot {
     initialLocals =
         Collections.unmodifiableMap(new LinkedHashMap<>(initialLocals));
+    Objects.requireNonNull(initialCalledVerb, "initialCalledVerb");
+    Objects.requireNonNull(initialFullVerbName, "initialFullVerbName");
     frames = List.copyOf(frames);
     output = List.copyOf(output);
     connectionOptionRequests = List.copyOf(connectionOptionRequests);
@@ -95,6 +99,8 @@ public record VmSnapshot(
     long size = stringValueMapSize(initialLocals);
     size = add(size, Long.BYTES);
     size = add(size, valueSize(initialVerbLocation));
+    size = add(size, textSize(initialCalledVerb));
+    size = add(size, textSize(initialFullVerbName));
     size = add(size, Integer.BYTES);
     for (Frame frame : frames) {
       size = add(size, frameSize(frame));
@@ -176,6 +182,8 @@ public record VmSnapshot(
     size = add(size, Byte.BYTES);
     size = add(size, valueSize(frame.receiver()));
     size = add(size, valueSize(frame.verbLocation()));
+    size = add(size, textSize(frame.calledVerb()));
+    size = add(size, textSize(frame.fullVerbName()));
     size = add(size, optionalValueSize(frame.createReturnOverride()));
     size = add(size, optionalLongSize(frame.recycleTarget()));
     size = add(size, optionalValueSize(frame.anonymousRecycleTarget()));
@@ -223,6 +231,8 @@ public record VmSnapshot(
     size = add(size, stringValueMapSize(fork.locals()));
     size = add(size, Long.BYTES);
     size = add(size, valueSize(fork.verbLocation()));
+    size = add(size, textSize(fork.calledVerb()));
+    size = add(size, textSize(fork.fullVerbName()));
     size = add(size, Byte.BYTES);
     return add(size, Double.BYTES);
   }
@@ -349,6 +359,8 @@ public record VmSnapshot(
       ReturnMode returnMode,
       MooValue receiver,
       MooValue verbLocation,
+      String calledVerb,
+      String fullVerbName,
       Optional<MooValue> createReturnOverride,
       OptionalLong recycleTarget,
       OptionalLong moveObject,
@@ -370,6 +382,8 @@ public record VmSnapshot(
         ReturnMode returnMode,
         MooValue receiver,
         MooValue verbLocation,
+        String calledVerb,
+        String fullVerbName,
         Optional<MooValue> createReturnOverride,
         OptionalLong recycleTarget,
         OptionalLong moveObject,
@@ -389,6 +403,8 @@ public record VmSnapshot(
           returnMode,
           receiver,
           verbLocation,
+          calledVerb,
+          fullVerbName,
           createReturnOverride,
           recycleTarget,
           moveObject,
@@ -408,6 +424,8 @@ public record VmSnapshot(
       handlers = List.copyOf(handlers);
       finallyStates = List.copyOf(finallyStates);
       loops = Collections.unmodifiableMap(new LinkedHashMap<>(loops));
+      Objects.requireNonNull(calledVerb, "calledVerb");
+      Objects.requireNonNull(fullVerbName, "fullVerbName");
       if (instructionPointer < 0 || instructionPointer > program.instructions().size()) {
         throw new IllegalArgumentException("instruction pointer outside program");
       }
@@ -556,6 +574,8 @@ public record VmSnapshot(
       Map<String, MooValue> locals,
       long programmer,
       MooValue verbLocation,
+      String calledVerb,
+      String fullVerbName,
       boolean debug,
       double delaySeconds) {
     public Fork(
@@ -563,12 +583,24 @@ public record VmSnapshot(
         Map<String, MooValue> locals,
         long programmer,
         MooValue verbLocation,
+        String calledVerb,
+        String fullVerbName,
         double delaySeconds) {
-      this(program, locals, programmer, verbLocation, true, delaySeconds);
+      this(
+          program,
+          locals,
+          programmer,
+          verbLocation,
+          calledVerb,
+          fullVerbName,
+          true,
+          delaySeconds);
     }
 
     public Fork {
       locals = Collections.unmodifiableMap(new LinkedHashMap<>(locals));
+      Objects.requireNonNull(calledVerb, "calledVerb");
+      Objects.requireNonNull(fullVerbName, "fullVerbName");
     }
   }
 

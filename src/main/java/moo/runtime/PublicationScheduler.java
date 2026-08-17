@@ -174,7 +174,7 @@ final class PublicationScheduler implements AutoCloseable {
   }
 
   private TimedWork restoreQueuedTask(QueuedTask restored) {
-    BytecodeProgram program = new MooCompiler().compile(restored.programSource());
+    BytecodeProgram program = restoreQueuedProgram(restored);
     VmState state =
         new VmState(
             restored.initialLocals(),
@@ -183,7 +183,9 @@ final class PublicationScheduler implements AutoCloseable {
             MooRuntime.DEFAULT_BACKGROUND_TICKS,
             MooRuntime.DEFAULT_BACKGROUND_SECONDS,
             MooRuntime.DEFAULT_MAX_STACK_DEPTH,
-            restored.debug());
+            restored.debug(),
+            restored.calledVerb(),
+            restored.fullVerbName());
     state.ensureRoot(program);
     state.setThreadMode(restored.threadMode());
     VmSnapshot snapshot = state.snapshot();
@@ -201,6 +203,8 @@ final class PublicationScheduler implements AutoCloseable {
         restored.programmer(),
         restored.verbLocation(),
         restored.initialLocals(),
+        restored.fullVerbName(),
+        restored.firstSourceLine(),
         snapshot);
     nextTaskId = Math.max(nextTaskId, Math.addExact(restored.taskId(), 1));
     return new TimedWork(
@@ -208,6 +212,35 @@ final class PublicationScheduler implements AutoCloseable {
         Math.multiplyExact(restored.scheduledEpochSecond(), 1_000L),
         Optional.empty(),
         Optional.of(restored));
+  }
+
+  private static BytecodeProgram restoreQueuedProgram(QueuedTask restored) {
+    BytecodeProgram compiled = new MooCompiler().compile(restored.programSource());
+    if (compiled.instructions().isEmpty()) {
+      throw new IllegalArgumentException("queued task has no executable instruction");
+    }
+    int offset = Math.subtractExact(restored.firstSourceLine(), compiled.sourceLine(0));
+    return offset == 0 ? compiled : shiftSourceLines(compiled, offset);
+  }
+
+  private static BytecodeProgram shiftSourceLines(BytecodeProgram program, int offset) {
+    List<Instruction> instructions =
+        program.instructions().stream()
+            .map(
+                instruction ->
+                    new Instruction(
+                        instruction.opcode(),
+                        instruction.operand(),
+                        instruction.text(),
+                        instruction.handler(),
+                        Math.addExact(instruction.sourceLine(), offset),
+                        instruction.astPath()))
+            .toList();
+    List<BytecodeProgram> forkVectors =
+        program.forkVectors().stream()
+            .map(vector -> shiftSourceLines(vector, offset))
+            .toList();
+    return new BytecodeProgram(instructions, forkVectors, program.source());
   }
 
   private TimedWork restoreSuspendedTask(SuspendedTask restored) {
@@ -235,6 +268,8 @@ final class PublicationScheduler implements AutoCloseable {
             root.locals(),
             root.programmer(),
             root.verbLocation(),
+            root.calledVerb(),
+            root.fullVerbName(),
             rootToCurrent,
             List.of(),
             List.of(),
@@ -329,6 +364,8 @@ final class PublicationScheduler implements AutoCloseable {
         rootActivation ? VmSnapshot.ReturnMode.ROOT : VmSnapshot.ReturnMode.VERB,
         activation.receiver(),
         activation.verbLocation(),
+        activation.verb(),
+        activation.verbNames(),
         Optional.empty(),
         OptionalLong.empty(),
         OptionalLong.empty(),
@@ -696,6 +733,9 @@ final class PublicationScheduler implements AutoCloseable {
     return new QueuedTask(
         work.taskId(),
         Math.floorDiv(timed.scheduledEpochMilli(), 1_000L),
+        work.program().instructions().isEmpty() ? 1 : work.program().sourceLine(0),
+        snapshot.initialCalledVerb(),
+        snapshot.initialFullVerbName(),
         work.program().source(),
         snapshot.initialLocals(),
         snapshot.initialProgrammer(),
@@ -1380,7 +1420,9 @@ final class PublicationScheduler implements AutoCloseable {
                   MooRuntime.DEFAULT_BACKGROUND_TICKS,
                   MooRuntime.DEFAULT_BACKGROUND_SECONDS,
                   state.snapshot().maxStackDepth(),
-                  fork.debug());
+                  fork.debug(),
+                  fork.calledVerb(),
+                  fork.fullVerbName());
           pendingForks.add(
               new PendingFork(
                   fork.program(), child.snapshot(), taskPlayer, fork.delaySeconds()));
@@ -1673,6 +1715,8 @@ final class PublicationScheduler implements AutoCloseable {
               childState.initialProgrammer(),
               childState.initialVerbLocation(),
               childState.initialLocals(),
+              childState.initialFullVerbName(),
+              fork.program().instructions().isEmpty() ? 1 : fork.program().sourceLine(0),
               childState);
           SuspendedWork child =
               new SuspendedWork(
