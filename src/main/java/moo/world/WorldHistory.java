@@ -223,8 +223,9 @@ final class WorldHistory {
 
   private synchronized void reclaimVersions() {
     long currentRevision = current.revision().value();
+    Set<Long> retainedByTransactions = Set.copyOf(activeTransactions.keySet());
     revisions.keySet().removeIf(
-        revision -> revision != currentRevision && !activeTransactions.containsKey(revision));
+        revision -> revision != currentRevision && !retainedByTransactions.contains(revision));
   }
 
   private synchronized void emitRetention() {

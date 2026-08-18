@@ -2063,7 +2063,7 @@ final class PublicationScheduler implements AutoCloseable {
             false));
   }
 
-  private boolean registerActiveFinalization(
+  private synchronized boolean registerActiveFinalization(
       long taskId, Optional<MooRuntime.FinalizationControl> control) {
     activeFinalizations.entrySet().removeIf(entry -> entry.getValue() == taskId);
     if (control.isEmpty()) {
@@ -2076,7 +2076,7 @@ final class PublicationScheduler implements AutoCloseable {
     return false;
   }
 
-  private void finishActiveFinalization(
+  private synchronized void finishActiveFinalization(
       long taskId, Optional<MooRuntime.FinalizationControl> control) {
     if (control.isEmpty()) {
       return;
@@ -2088,7 +2088,7 @@ final class PublicationScheduler implements AutoCloseable {
     }
   }
 
-  private RootCompletion finishSuccess(
+  private synchronized RootCompletion finishSuccess(
       Entry entry,
       Optional<MooRuntime.FinalizationControl> finalizationControl,
       List<String> output) {
@@ -2100,7 +2100,7 @@ final class PublicationScheduler implements AutoCloseable {
     return future == null ? RootCompletion.none() : RootCompletion.success(future, output);
   }
 
-  private RootCompletion finishFailure(Entry entry, Throwable failure) {
+  private synchronized RootCompletion finishFailure(Entry entry, Throwable failure) {
     nextPublicationTicket++;
     checkpointingWork.remove(entry.taskId());
     taskRegistry.remove(entry.taskId());
