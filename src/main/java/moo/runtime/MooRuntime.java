@@ -2001,7 +2001,9 @@ public final class MooRuntime implements AutoCloseable {
   }
 
   void collectAfterAnonymousFinalization(
-      AnonymousObjectValue target, List<VmSnapshot> otherTaskRoots) {
+      AnonymousObjectValue target,
+      List<VmSnapshot> otherTaskRoots,
+      boolean startNextFinalizationWave) {
     Objects.requireNonNull(target, "target");
     List<MooValue> transientRoots =
         world().anonymousObject(target).orElseThrow().properties().stream()
@@ -2011,6 +2013,10 @@ public final class MooRuntime implements AutoCloseable {
     finishAnonymousFinalization(target);
     queueUnreachableAnonymousObjects(otherTaskRoots, transientRoots);
     finalizePendingObjects();
+    if (startNextFinalizationWave) {
+      queueUnreachableAnonymousObjects(otherTaskRoots);
+      finalizePendingObjects();
+    }
   }
 
   private void finishWaifFinalization(WaifValue root) {

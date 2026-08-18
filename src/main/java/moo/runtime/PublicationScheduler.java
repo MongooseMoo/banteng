@@ -1350,7 +1350,8 @@ final class PublicationScheduler implements AutoCloseable {
                 executingFinalization.orElseThrow();
             runtime.collectAfterAnonymousFinalization(
                 (AnonymousObjectValue) anonymousFinalization.target(),
-                taskRegistry.snapshotsExcluding(start.taskId()));
+                taskRegistry.snapshotsExcluding(start.taskId()),
+                startsNextAnonymousFinalizationWave(anonymousFinalization));
           }
           return SegmentResult.returned(
               step.output().orElseThrow(),
@@ -1569,9 +1570,11 @@ final class PublicationScheduler implements AutoCloseable {
         for (MooRuntime.RuntimeStep spawned : published.spawned()) {
           enqueueSpawned(spawned);
         }
-        dispatch();
       }
       publishSegmentResultOutsideMonitor(attempt.entry(), result);
+      synchronized (this) {
+        dispatch();
+      }
     }
   }
 
@@ -1960,6 +1963,21 @@ final class PublicationScheduler implements AutoCloseable {
   private boolean hasActiveAnonymousFinalization() {
     return activeFinalizations.keySet().stream()
         .anyMatch(control -> control.kind() == MooRuntime.FinalizationKind.ANONYMOUS);
+  }
+
+  private synchronized boolean startsNextAnonymousFinalizationWave(
+      MooRuntime.FinalizationControl completing) {
+    Objects.requireNonNull(completing, "completing");
+    if (finalizationBlocked.isEmpty()
+        || completing.kind() != MooRuntime.FinalizationKind.ANONYMOUS
+        || !activeFinalizations.containsKey(completing)) {
+      return false;
+    }
+    long activeAnonymousFinalizations =
+        activeFinalizations.keySet().stream()
+            .filter(control -> control.kind() == MooRuntime.FinalizationKind.ANONYMOUS)
+            .count();
+    return activeAnonymousFinalizations == 1;
   }
 
   private synchronized void enqueueReady(SuspendedWork work) {
