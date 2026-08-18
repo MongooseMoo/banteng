@@ -4,7 +4,6 @@ import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
 import java.io.IOException;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.LinkedHashMap;
@@ -107,6 +106,6 @@ final class RepeatedRestartTest {
   }
 
   private static StringValue string(String value) {
-    return new StringValue(value.getBytes(StandardCharsets.ISO_8859_1));
+    return StringValue.of(value);
   }
 }

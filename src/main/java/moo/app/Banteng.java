@@ -4,7 +4,6 @@ import java.io.BufferedReader;
 import java.io.IOException;
 import java.lang.reflect.Method;
 import java.lang.reflect.Proxy;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
@@ -20,6 +19,7 @@ import moo.persistence.LambdaMooV17Codec.Checkpoint;
 import moo.persistence.LambdaMooV4Reader;
 import moo.persistence.LambdaMooV5Reader;
 import moo.server.MooServer;
+import moo.value.MooValue.StringValue;
 import moo.value.ValueSemantics;
 import org.jspecify.annotations.Nullable;
 import picocli.CommandLine;
@@ -84,7 +84,7 @@ public final class Banteng implements Callable<Integer> {
     try (ServerLog serverLog = ServerLog.open(logLevel, Optional.ofNullable(logFile))) {
       Checkpoint loaded;
       try (BufferedReader input =
-          Files.newBufferedReader(databasePath, StandardCharsets.ISO_8859_1)) {
+          Files.newBufferedReader(databasePath, StringValue.charset())) {
         String header = input.readLine();
         loaded =
             switch (Objects.requireNonNullElse(header, "")) {

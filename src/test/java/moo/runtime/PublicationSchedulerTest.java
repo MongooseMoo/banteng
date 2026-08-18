@@ -14,7 +14,6 @@ import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
@@ -1625,7 +1624,7 @@ final class PublicationSchedulerTest {
   }
 
   private static StringValue string(String value) {
-    return new StringValue(value.getBytes(StandardCharsets.ISO_8859_1));
+    return StringValue.of(value);
   }
 
   private static <T> T field(Object owner, String name, Class<T> type) {

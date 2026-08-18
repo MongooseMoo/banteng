@@ -2,7 +2,6 @@ package moo.persistence;
 
 import java.io.BufferedReader;
 import java.io.IOException;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -14,6 +13,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import moo.value.MooValue.ObjectValue;
+import moo.value.MooValue.StringValue;
 import moo.world.WorldObject;
 import moo.world.WorldProperty;
 import moo.world.WorldTxn;
@@ -26,7 +26,7 @@ public final class LambdaMooV4Reader {
   /** Reads and validates the exact supported v4 database contract. */
   public WorldTxn read(Path database) throws IOException {
     Objects.requireNonNull(database, "database");
-    try (BufferedReader input = Files.newBufferedReader(database, StandardCharsets.ISO_8859_1)) {
+    try (BufferedReader input = Files.newBufferedReader(database, StringValue.charset())) {
       requireExact(input, HEADER, "v4 header");
       int objectSlotCount = readCount(input, "object slot count");
       int programCount = readCount(input, "program count");

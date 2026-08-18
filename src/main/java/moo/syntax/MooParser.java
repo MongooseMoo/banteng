@@ -1,12 +1,12 @@
 package moo.syntax;
 
 import java.math.BigInteger;
-import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import moo.syntax.MooLexer.Token;
 import moo.syntax.MooLexer.TokenKind;
+import moo.value.MooValue.StringValue;
 import org.jspecify.annotations.Nullable;
 
 /** Concrete entry point for parsing one MOO verb body. */
@@ -55,7 +55,7 @@ public final class MooParser {
 
   /** Parses one ISO-8859-1 MOO source byte sequence. */
   public static Ast.Program parse(byte[] source) {
-    return parse(new String(source, StandardCharsets.ISO_8859_1));
+    return parse(new String(source, StringValue.charset()));
   }
 
   private Ast.Program parseProgram() {

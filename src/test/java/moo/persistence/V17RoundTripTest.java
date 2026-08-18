@@ -10,7 +10,6 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.IOException;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
@@ -88,7 +87,7 @@ final class V17RoundTripTest {
         List.of(),
         List.of());
     Files.writeString(
-        checkpoint, "\n\n", StandardCharsets.ISO_8859_1, StandardOpenOption.APPEND);
+        checkpoint, "\n\n", StringValue.charset(), StandardOpenOption.APPEND);
 
     assertEquals(1, codec.read(checkpoint).world().snapshot().objects().size());
   }
@@ -108,7 +107,7 @@ final class V17RoundTripTest {
 
     assertEquals(3, restored.lastUsedObjectId());
     assertEquals(world.snapshot().objects(), restored.objects());
-    String checkpointText = Files.readString(checkpoint, StandardCharsets.ISO_8859_1);
+    String checkpointText = Files.readString(checkpoint, StringValue.charset());
     assertTrue(checkpointText.contains("#3 recycled\n"));
   }
 
@@ -192,7 +191,7 @@ final class V17RoundTripTest {
       throws IOException {
     WorldSnapshot expected = world().snapshot();
     Path first = temporaryDirectory.resolve("first.db");
-    Files.writeString(first, "old checkpoint", StandardCharsets.ISO_8859_1);
+    Files.writeString(first, "old checkpoint", StringValue.charset());
     LambdaMooV17Codec codec = new LambdaMooV17Codec();
 
     codec.writeAtomic(first, expected, List.of(), List.of());
@@ -565,7 +564,7 @@ final class V17RoundTripTest {
             List.of(
                 property("integer", new IntegerValue(Long.MIN_VALUE)),
                 property("float", new FloatValue(-17.25)),
-                property("string", new StringValue(new byte[] {(byte) 0xff, 0x41})),
+                property("string", StringValue.of(new byte[] {(byte) 0xff, 0x41})),
                 property("object", new ObjectValue(0)),
                 property("error", ErrorValue.E_PERM),
                 property(
@@ -594,7 +593,7 @@ final class V17RoundTripTest {
                     "integer", new IntegerValue(Long.MIN_VALUE), 0, 1, true, false),
                 new WorldProperty("float", new FloatValue(3.5), 0, 1, false, false),
                 new WorldProperty(
-                    "string", new StringValue(new byte[] {(byte) 0xff, 0x41}), 0, 1, true, false),
+                    "string", StringValue.of(new byte[] {(byte) 0xff, 0x41}), 0, 1, true, false),
                 new WorldProperty("object", new ObjectValue(0), 0, 1, true, false),
                 new WorldProperty("error", ErrorValue.E_PERM, 0, 1, true, false),
                 new WorldProperty(
@@ -613,6 +612,6 @@ final class V17RoundTripTest {
   }
 
   private static StringValue string(String value) {
-    return new StringValue(value.getBytes(StandardCharsets.ISO_8859_1));
+    return StringValue.of(value);
   }
 }

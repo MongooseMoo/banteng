@@ -38,8 +38,8 @@ final class FileIoService {
   }
 
   synchronized BuiltinResult open(List<MooValue> arguments) {
-    String name = text(arguments.get(0));
-    Mode mode = Mode.parse(text(arguments.get(1)));
+    String name = ((StringValue) arguments.get(0)).text();
+    Mode mode = Mode.parse(((StringValue) arguments.get(1)).text());
     if (mode == null) {
       return invalidArgument();
     }
@@ -100,7 +100,7 @@ final class FileIoService {
     }
     try {
       byte[] line = readRawLine(handle);
-      return BuiltinResult.value(new StringValue(handle.mode.binary ? encodeBinary(line) : clean(line)));
+      return BuiltinResult.value(StringValue.of(handle.mode.binary ? encodeBinary(line) : clean(line)));
     } catch (EOFException failure) {
       return fileError();
     } catch (IOException failure) {
@@ -129,7 +129,7 @@ final class FileIoService {
       for (long line = begin; line <= end; line++) {
         try {
           byte[] raw = readRawLine(handle);
-          lines.add(new StringValue(handle.mode.binary ? encodeBinary(raw) : clean(raw)));
+          lines.add(StringValue.of(handle.mode.binary ? encodeBinary(raw) : clean(raw)));
         } catch (EOFException exhausted) {
           break;
         }
@@ -183,7 +183,7 @@ final class FileIoService {
         raw = java.util.Arrays.copyOf(raw, count);
         handle.eof = true;
       }
-      return BuiltinResult.value(new StringValue(handle.mode.binary ? encodeBinary(raw) : clean(raw)));
+      return BuiltinResult.value(StringValue.of(handle.mode.binary ? encodeBinary(raw) : clean(raw)));
     } catch (IOException failure) {
       return fileError();
     }
@@ -228,7 +228,7 @@ final class FileIoService {
       return invalidArgument();
     }
     long offset = integer(arguments.get(1));
-    String whence = text(arguments.get(2)).toUpperCase(Locale.ROOT);
+    String whence = ((StringValue) arguments.get(2)).text().toUpperCase(Locale.ROOT);
     try {
       long target =
           switch (whence) {
@@ -310,7 +310,7 @@ final class FileIoService {
         lineNumber++;
         if (contains(raw, needle)) {
           MooValue value =
-              new StringValue(handle.mode.binary ? encodeBinary(raw) : clean(raw));
+              StringValue.of(handle.mode.binary ? encodeBinary(raw) : clean(raw));
           matches.add(
               new ListValue(List.of(value, new IntegerValue(lineNumber))));
           if (!all) {
@@ -335,7 +335,7 @@ final class FileIoService {
   }
 
   synchronized BuiltinResult list(List<MooValue> arguments) {
-    Path path = resolve(text(arguments.get(0)));
+    Path path = resolve(((StringValue) arguments.get(0)).text());
     if (path == null) {
       return invalidArgument();
     }
@@ -357,12 +357,12 @@ final class FileIoService {
           values.add(
               new ListValue(
                   List.of(
-                      mooString(filename),
-                      mooString(info.type),
-                      mooString(info.mode),
+                      StringValue.of(filename),
+                      StringValue.of(info.type),
+                      StringValue.of(info.mode),
                       new IntegerValue(info.size))));
         } else {
-          values.add(mooString(filename));
+          values.add(StringValue.of(filename));
         }
       }
       return BuiltinResult.value(new ListValue(values));
@@ -372,7 +372,7 @@ final class FileIoService {
   }
 
   synchronized BuiltinResult mkdir(List<MooValue> arguments) {
-    Path path = resolve(text(arguments.get(0)));
+    Path path = resolve(((StringValue) arguments.get(0)).text());
     if (path == null) {
       return invalidArgument();
     }
@@ -393,11 +393,11 @@ final class FileIoService {
   }
 
   synchronized BuiltinResult rename(List<MooValue> arguments) {
-    Path from = resolve(text(arguments.get(0)));
+    Path from = resolve(((StringValue) arguments.get(0)).text());
     if (from == null) {
       return fileError();
     }
-    Path to = resolve(text(arguments.get(1)));
+    Path to = resolve(((StringValue) arguments.get(1)).text());
     if (to == null) {
       return invalidArgument();
     }
@@ -410,11 +410,11 @@ final class FileIoService {
   }
 
   synchronized BuiltinResult chmod(List<MooValue> arguments) {
-    String mode = text(arguments.get(1));
+    String mode = ((StringValue) arguments.get(1)).text();
     if (!mode.matches("[0-7]{3}")) {
       return invalidArgument();
     }
-    Path path = resolve(text(arguments.get(0)));
+    Path path = resolve(((StringValue) arguments.get(0)).text());
     if (path == null) {
       return invalidArgument();
     }
@@ -471,17 +471,17 @@ final class FileIoService {
         new ListValue(
             List.of(
                 new IntegerValue(info.size),
-                mooString(info.type),
-                mooString(info.mode),
-                mooString(""),
-                mooString(""),
+                StringValue.of(info.type),
+                StringValue.of(info.mode),
+                StringValue.of(""),
+                StringValue.of(""),
                 new IntegerValue(info.access),
                 new IntegerValue(info.modify),
                 new IntegerValue(info.change))));
   }
 
   private BuiltinResult removePath(List<MooValue> arguments, boolean directory) {
-    Path path = resolve(text(arguments.get(0)));
+    Path path = resolve(((StringValue) arguments.get(0)).text());
     if (path == null) {
       return invalidArgument();
     }
@@ -499,7 +499,7 @@ final class FileIoService {
   private @Nullable FileInfo fileInfo(MooValue value) {
     Path path;
     if (value instanceof StringValue string) {
-      path = resolve(text(string));
+      path = resolve(string.text());
       if (path == null) {
         return null;
       }
@@ -544,7 +544,7 @@ final class FileIoService {
   }
 
   private BuiltinResult fileSpecError(MooValue value) {
-    if (value instanceof StringValue string && resolve(text(string)) == null) {
+    if (value instanceof StringValue string && resolve(string.text()) == null) {
       return invalidArgument();
     }
     if (!(value instanceof StringValue) && handle(value) == null) {
@@ -723,24 +723,12 @@ final class FileIoService {
     return time.toMillis() / 1_000;
   }
 
-  private static String text(MooValue value) {
-    return text((StringValue) value);
-  }
-
-  private static String text(StringValue value) {
-    return new String(value.bytes(), java.nio.charset.StandardCharsets.ISO_8859_1);
-  }
-
   private static long integer(MooValue value) {
     return ((IntegerValue) value).value();
   }
 
   private static BuiltinResult string(String value) {
-    return BuiltinResult.value(mooString(value));
-  }
-
-  private static StringValue mooString(String value) {
-    return new StringValue(value.getBytes(java.nio.charset.StandardCharsets.ISO_8859_1));
+    return BuiltinResult.value(StringValue.of(value));
   }
 
   private static BuiltinResult invalidArgument() {

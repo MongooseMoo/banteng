@@ -7,7 +7,6 @@ import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
@@ -380,7 +379,7 @@ final class FinalizationControlTest {
 
   private static ListValue marker(String name, MooValue target) {
     return new ListValue(
-        List.of(new StringValue(name.getBytes(StandardCharsets.ISO_8859_1)), target));
+        List.of(StringValue.of(name), target));
   }
 
   private static void assertContains(List<String> output, String expected) {

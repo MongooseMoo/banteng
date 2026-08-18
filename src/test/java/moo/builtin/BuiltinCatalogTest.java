@@ -464,13 +464,13 @@ final class BuiltinCatalogTest {
               ));
 
       StringValue highBitSource =
-          new StringValue(new byte[] {(byte) 0xe9, (byte) ':', (byte) 0xff});
+          StringValue.of(new byte[] {(byte) 0xe9, (byte) ':', (byte) 0xff});
       assertEquals(
           Optional.of(
               new ListValue(
                   List.of(
-                      new StringValue(new byte[] {(byte) 0xe9}),
-                      new StringValue(new byte[] {(byte) 0xff})))),
+                      StringValue.of(new byte[] {(byte) 0xe9}),
+                      StringValue.of(new byte[] {(byte) 0xff})))),
           value(invoke(catalog, spec, List.of(highBitSource, string(":")), transaction, 1)));
 
       assertEquals(
@@ -528,7 +528,7 @@ final class BuiltinCatalogTest {
     try (WorldTxn transaction = root.begin()) {
       var transactionBefore = transaction.snapshot();
 
-      StringValue raw = new StringValue(new byte[] {0x41, (byte) 0xe9, (byte) 0xff});
+      StringValue raw = StringValue.of(new byte[] {0x41, (byte) 0xe9, (byte) 0xff});
       StringValue rawReversed =
           (StringValue)
               value(invoke(catalog, spec, List.of(raw), transaction, 1)).orElseThrow();
@@ -537,11 +537,11 @@ final class BuiltinCatalogTest {
           Optional.of(string("")),
           value(invoke(catalog, spec, List.of(string("")), transaction, 1)));
       assertEquals(
-          Optional.of(new StringValue(new byte[] {(byte) 0xe9})),
+          Optional.of(StringValue.of(new byte[] {(byte) 0xe9})),
           value(invoke(
                   catalog,
                   spec,
-                  List.of(new StringValue(new byte[] {(byte) 0xe9})),
+                  List.of(StringValue.of(new byte[] {(byte) 0xe9})),
                   transaction,
                   1)
               ));
@@ -4830,7 +4830,7 @@ final class BuiltinCatalogTest {
           invoke(
               catalog,
               spec,
-              List.of(new StringValue(new byte[] {(byte) 128}), string(salt)),
+              List.of(StringValue.of(new byte[] {(byte) 128}), string(salt)),
               transaction,
               1));
       assertEquals(
@@ -5543,9 +5543,7 @@ final class BuiltinCatalogTest {
           invoke(
               catalog,
               catalog.spec("function_info").orElseThrow(),
-              List.of(
-                  new StringValue(
-                      "dump_database".getBytes(StandardCharsets.ISO_8859_1))),
+              List.of(StringValue.of("dump_database")),
               transaction,
               1);
 
@@ -5553,8 +5551,7 @@ final class BuiltinCatalogTest {
           Optional.of(
               new ListValue(
                   List.of(
-                      new StringValue(
-                          "dump_database".getBytes(StandardCharsets.ISO_8859_1)),
+                      StringValue.of("dump_database"),
                       new IntegerValue(0),
                       new IntegerValue(0),
                       new ListValue(List.of())))),
@@ -5807,16 +5804,16 @@ final class BuiltinCatalogTest {
   }
 
   private static StringValue string(String value) {
-    return new StringValue(value.getBytes(StandardCharsets.ISO_8859_1));
+    return StringValue.of(value);
   }
 
   private static String decode(StringValue value) {
-    return new String(value.bytes(), StandardCharsets.ISO_8859_1);
+    return value.text();
   }
 
   private static void assertString(String expected, BuiltinResult actual) {
     StringValue value = (StringValue) value(actual).orElseThrow();
-    assertArrayEquals(expected.getBytes(StandardCharsets.ISO_8859_1), value.bytes());
+    assertArrayEquals(StringValue.of(expected).bytes(), value.bytes());
   }
 
   private static WorldTxn world() {

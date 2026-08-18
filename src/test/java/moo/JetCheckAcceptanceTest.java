@@ -4,7 +4,6 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
@@ -126,7 +125,7 @@ final class JetCheckAcceptanceTest {
         Generator.anyOf(
             Generator.integers(-100, 100).map(value -> new IntegerValue(value.longValue())),
             Generator.stringsOf(Generator.asciiLetters())
-                .map(value -> new StringValue(value.getBytes(StandardCharsets.ISO_8859_1))),
+                .map(value -> StringValue.of(value)),
             Generator.integers(-10, 10).map(value -> new ObjectValue(value.longValue())),
             Generator.sampledFrom(ErrorValue.values()));
 

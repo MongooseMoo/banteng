@@ -338,11 +338,11 @@ public final class VmState {
     locals.put("this", new ObjectValue(-1));
     locals.put("dobj", new ObjectValue(-1));
     locals.put("iobj", new ObjectValue(-1));
-    locals.put("dobjstr", new StringValue(new byte[0]));
-    locals.put("iobjstr", new StringValue(new byte[0]));
-    locals.put("argstr", new StringValue(new byte[0]));
-    locals.put("prepstr", new StringValue(new byte[0]));
-    locals.put("verb", new StringValue(new byte[0]));
+    locals.put("dobjstr", StringValue.of(new byte[0]));
+    locals.put("iobjstr", StringValue.of(new byte[0]));
+    locals.put("argstr", StringValue.of(new byte[0]));
+    locals.put("prepstr", StringValue.of(new byte[0]));
+    locals.put("verb", StringValue.of(new byte[0]));
     locals.put("args", new ListValue(List.of()));
     frames.push(
         new Frame(
@@ -650,7 +650,7 @@ public final class VmState {
       if (!current) {
         List<MooValue> fields = new ArrayList<>();
         fields.add(frame.receiver);
-        fields.add(frame.locals.getOrDefault("verb", new StringValue(new byte[0])));
+        fields.add(frame.locals.getOrDefault("verb", StringValue.of(new byte[0])));
         fields.add(new ObjectValue(frame.programmer));
         fields.add(frame.verbLocation);
         fields.add(frame.locals.getOrDefault("player", new ObjectValue(-1)));
@@ -673,7 +673,7 @@ public final class VmState {
             new ArrayList<>(
                 List.of(
                     new ObjectValue(-1),
-                    new StringValue("eval".getBytes(java.nio.charset.StandardCharsets.ISO_8859_1)),
+                    StringValue.of("eval"),
                     new ObjectValue(-1),
                     new ObjectValue(-1),
                     frame.locals.getOrDefault("player", new ObjectValue(-1))));
@@ -1135,7 +1135,7 @@ public final class VmState {
   private static String calledVerb(Map<String, MooValue> locals) {
     MooValue verb = locals.get("verb");
     return verb instanceof StringValue string
-        ? new String(string.bytes(), java.nio.charset.StandardCharsets.ISO_8859_1)
+        ? string.text()
         : "";
   }
 

@@ -5,12 +5,12 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.IOException;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Objects;
 import moo.value.MooValue.ObjectValue;
+import moo.value.MooValue.StringValue;
 import moo.world.WorldObject;
 import moo.world.WorldProperty;
 import moo.world.WorldTxn;
@@ -253,13 +253,13 @@ final class LambdaMooV4ReaderTest {
   }
 
   private static String fixture() throws IOException {
-    return Files.readString(TEST_DATABASE, StandardCharsets.ISO_8859_1);
+    return Files.readString(TEST_DATABASE, StringValue.charset());
   }
 
   private static void assertMalformed(Path temporaryDirectory, String contents, String message)
       throws IOException {
     Path database = temporaryDirectory.resolve("invalid.db");
-    Files.writeString(database, contents, StandardCharsets.ISO_8859_1);
+    Files.writeString(database, contents, StringValue.charset());
     IOException error =
         assertThrows(IOException.class, () -> new LambdaMooV4Reader().read(database));
     String actualMessage = Objects.requireNonNull(error.getMessage());

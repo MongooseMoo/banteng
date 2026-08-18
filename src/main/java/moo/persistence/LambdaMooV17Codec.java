@@ -9,7 +9,6 @@ import java.io.IOException;
 import java.io.OutputStreamWriter;
 import java.nio.channels.Channels;
 import java.nio.channels.FileChannel;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
@@ -255,7 +254,7 @@ public final class LambdaMooV17Codec {
           BufferedWriter output =
               new BufferedWriter(
                   new OutputStreamWriter(
-                      Channels.newOutputStream(channel), StandardCharsets.ISO_8859_1))) {
+                      Channels.newOutputStream(channel), StringValue.charset()))) {
         write(output, world, tasks, activeConnections);
         output.flush();
         channel.force(true);
@@ -314,7 +313,7 @@ public final class LambdaMooV17Codec {
         BufferedWriter output =
             new BufferedWriter(
                 new OutputStreamWriter(
-                    Channels.newOutputStream(channel), StandardCharsets.ISO_8859_1))) {
+                    Channels.newOutputStream(channel), StringValue.charset()))) {
       write(output, world, tasks, activeConnections);
       output.flush();
       channel.force(true);
@@ -325,7 +324,7 @@ public final class LambdaMooV17Codec {
   public Checkpoint read(Path database) throws IOException {
     Objects.requireNonNull(database, "database");
     try (BufferedReader input =
-        Files.newBufferedReader(database, StandardCharsets.ISO_8859_1)) {
+        Files.newBufferedReader(database, StringValue.charset())) {
       requireExact(input, HEADER, "v17 header");
       int playerCount = readCount(input, "player count");
       List<Long> players = new ArrayList<>(playerCount);
@@ -1214,7 +1213,7 @@ public final class LambdaMooV17Codec {
       case StringValue string ->
           lineString(
               output,
-              new String(string.bytes(), StandardCharsets.ISO_8859_1),
+              string.text(),
               "string value");
       case ErrorValue error -> line(output, error.code());
       case FloatValue floating ->
@@ -1704,7 +1703,7 @@ public final class LambdaMooV17Codec {
       case 0 -> new IntegerValue(readLong(input, "integer value"));
       case 1 -> new ObjectValue(readLong(input, "object value"));
       case 2 ->
-          new StringValue(requiredLine(input, "string value").getBytes(StandardCharsets.ISO_8859_1));
+          StringValue.of(requiredLine(input, "string value"));
       case 3 -> {
         long code = readLong(input, "error value");
         yield ErrorValue.fromCode(code & 0xffff_ffffL)

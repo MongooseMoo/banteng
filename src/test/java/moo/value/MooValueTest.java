@@ -121,7 +121,7 @@ final class MooValueTest {
   @Test
   void stringsOwnTheirLatinOneBytes() {
     byte[] source = {(byte) 0xE9, 'A'};
-    StringValue value = new StringValue(source);
+    StringValue value = StringValue.of(source);
     source[0] = 0;
 
     assertArrayEquals(new byte[] {(byte) 0xE9, 'A'}, value.bytes());
@@ -151,12 +151,12 @@ final class MooValueTest {
 
   @Test
   void stringsFoldValidUtf8ButOnlyAsciiWithinInvalidByteArrays() {
-    StringValue upper = new StringValue("Wizard".getBytes(StandardCharsets.ISO_8859_1));
-    StringValue lower = new StringValue("wIZARD".getBytes(StandardCharsets.ISO_8859_1));
-    StringValue upperUtf8 = new StringValue("À".getBytes(StandardCharsets.UTF_8));
-    StringValue lowerUtf8 = new StringValue("à".getBytes(StandardCharsets.UTF_8));
-    StringValue invalidUpper = new StringValue(new byte[] {(byte) 0xC0, 'A'});
-    StringValue invalidLower = new StringValue(new byte[] {(byte) 0xC0, 'a'});
+    StringValue upper = StringValue.of("Wizard");
+    StringValue lower = StringValue.of("wIZARD");
+    StringValue upperUtf8 = StringValue.of("À".getBytes(StandardCharsets.UTF_8));
+    StringValue lowerUtf8 = StringValue.of("à".getBytes(StandardCharsets.UTF_8));
+    StringValue invalidUpper = StringValue.of(new byte[] {(byte) 0xC0, 'A'});
+    StringValue invalidLower = StringValue.of(new byte[] {(byte) 0xC0, 'a'});
 
     assertEquals(upper, lower);
     assertEquals(upper.hashCode(), lower.hashCode());
@@ -165,17 +165,17 @@ final class MooValueTest {
     assertEquals(invalidUpper, invalidLower);
     assertEquals(invalidUpper.hashCode(), invalidLower.hashCode());
     assertNotEquals(
-        new StringValue(new byte[] {(byte) 0xC0}), new StringValue(new byte[] {(byte) 0xE0}));
+        StringValue.of(new byte[] {(byte) 0xC0}), StringValue.of(new byte[] {(byte) 0xE0}));
   }
 
   @Test
   void stringsPreserveTruthAndMooLiteralForm() {
-    assertEquals(MooValue.Type.STRING, new StringValue(new byte[0]).type());
-    assertFalse(new StringValue(new byte[0]).isTruthy());
-    assertTrue(new StringValue(new byte[] {'x'}).isTruthy());
+    assertEquals(MooValue.Type.STRING, StringValue.of(new byte[0]).type());
+    assertFalse(StringValue.of(new byte[0]).isTruthy());
+    assertTrue(StringValue.of(new byte[] {'x'}).isTruthy());
     assertEquals(
-        "\"hello\"", new StringValue("hello".getBytes(StandardCharsets.ISO_8859_1)).toLiteral());
-    assertEquals("\"\\\"\\\\é\"", new StringValue(new byte[] {'"', '\\', (byte) 0xE9}).toLiteral());
+        "\"hello\"", StringValue.of("hello").toLiteral());
+    assertEquals("\"\\\"\\\\é\"", StringValue.of(new byte[] {'"', '\\', (byte) 0xE9}).toLiteral());
   }
 
   @Test
@@ -240,7 +240,7 @@ final class MooValueTest {
   void mapsOwnInsertionOrderButUseOrderIndependentRecursiveEqualityAndHashing() {
     LinkedHashMap<MooValue, MooValue> firstEntries = new LinkedHashMap<>();
     firstEntries.put(
-        new StringValue("Key".getBytes(StandardCharsets.ISO_8859_1)),
+        StringValue.of("Key"),
         new ListValue(List.of(new IntegerValue(1))));
     firstEntries.put(new FloatValue(0.0), new IntegerValue(2));
     MapValue first = new MapValue(firstEntries);
@@ -248,7 +248,7 @@ final class MooValueTest {
     LinkedHashMap<MooValue, MooValue> reversedEntries = new LinkedHashMap<>();
     reversedEntries.put(new FloatValue(-0.0), new IntegerValue(2));
     reversedEntries.put(
-        new StringValue("key".getBytes(StandardCharsets.ISO_8859_1)),
+        StringValue.of("key"),
         new ListValue(List.of(new IntegerValue(1))));
     MapValue reversed = new MapValue(reversedEntries);
 
@@ -265,24 +265,24 @@ final class MooValueTest {
 
   @Test
   void mapsReplaceEqualScalarKeyObjectsInPlaceAndRejectCollectionKeys() {
-    StringValue original = new StringValue("Key".getBytes(StandardCharsets.ISO_8859_1));
+    StringValue original = StringValue.of("Key");
     LinkedHashMap<MooValue, MooValue> initialEntries = new LinkedHashMap<>();
     initialEntries.put(original, new IntegerValue(1));
     initialEntries.put(new IntegerValue(9), new IntegerValue(9));
     MapValue initial = new MapValue(initialEntries);
     MapValue replaced =
         initial.with(
-            new StringValue("kEY".getBytes(StandardCharsets.ISO_8859_1)), new IntegerValue(2));
+            StringValue.of("kEY"), new IntegerValue(2));
 
     assertEquals(2, initial.size());
     assertEquals(2, replaced.size());
     assertEquals(new IntegerValue(1), initial.get(original).orElseThrow());
     assertEquals(new IntegerValue(2), replaced.get(original).orElseThrow());
     assertArrayEquals(
-        "Key".getBytes(StandardCharsets.ISO_8859_1),
+        StringValue.of("Key").bytes(),
         ((StringValue) List.copyOf(initial.entries().keySet()).getFirst()).bytes());
     assertArrayEquals(
-        "kEY".getBytes(StandardCharsets.ISO_8859_1),
+        StringValue.of("kEY").bytes(),
         ((StringValue) List.copyOf(replaced.entries().keySet()).getFirst()).bytes());
     assertEquals(new IntegerValue(9), List.copyOf(replaced.entries().keySet()).get(1));
     assertThrows(

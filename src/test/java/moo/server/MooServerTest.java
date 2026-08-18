@@ -9,7 +9,6 @@ import java.io.InputStreamReader;
 import java.io.OutputStreamWriter;
 import java.net.InetAddress;
 import java.net.Socket;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
@@ -17,6 +16,7 @@ import java.util.ArrayList;
 import java.util.List;
 import moo.persistence.LambdaMooV17Codec;
 import moo.persistence.LambdaMooV4Reader;
+import moo.value.MooValue.StringValue;
 import moo.world.WorldTxn;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -43,10 +43,10 @@ final class MooServerTest {
     try (Socket socket = new Socket(InetAddress.getLoopbackAddress(), first.port());
         BufferedReader input =
             new BufferedReader(
-                new InputStreamReader(socket.getInputStream(), StandardCharsets.ISO_8859_1));
+                new InputStreamReader(socket.getInputStream(), StringValue.charset()));
         BufferedWriter output =
             new BufferedWriter(
-                new OutputStreamWriter(socket.getOutputStream(), StandardCharsets.ISO_8859_1))) {
+                new OutputStreamWriter(socket.getOutputStream(), StringValue.charset()))) {
       socket.setSoTimeout((int) Duration.ofSeconds(5).toMillis());
       writeLine(output, "connect Wizard");
       assertEquals("*** Connected ***", input.readLine());
@@ -95,10 +95,10 @@ final class MooServerTest {
     try (Socket socket = new Socket(InetAddress.getLoopbackAddress(), restarted.port());
         BufferedReader input =
             new BufferedReader(
-                new InputStreamReader(socket.getInputStream(), StandardCharsets.ISO_8859_1));
+                new InputStreamReader(socket.getInputStream(), StringValue.charset()));
         BufferedWriter output =
             new BufferedWriter(
-                new OutputStreamWriter(socket.getOutputStream(), StandardCharsets.ISO_8859_1))) {
+                new OutputStreamWriter(socket.getOutputStream(), StringValue.charset()))) {
       socket.setSoTimeout((int) Duration.ofSeconds(5).toMillis());
       writeLine(output, "connect Wizard");
       assertEquals("*** Connected ***", input.readLine());
