@@ -41,6 +41,18 @@ final class DuplicationConsolidationTest {
     assertEquals(18, occurrences(manifest, "unaryFloatBuiltin("));
   }
 
+  @Test
+  void runtimeServerMessagesShareListenerAwareFallbackResolution() throws IOException {
+    String source = source("runtime", "MooRuntime.java");
+
+    assertTrue(
+        source.contains(
+            "private List<String> serverMessage(\n"
+                + "      long listenerHandler, String name, String fallback)"));
+    assertEquals(6, occurrences(source, "serverMessage("));
+    assertEquals(0, occurrences(source, "MooValue message = null;"));
+  }
+
   private static String source(String... path) throws IOException {
     return Files.readString(PRODUCTION.resolve(Path.of("", path)));
   }
