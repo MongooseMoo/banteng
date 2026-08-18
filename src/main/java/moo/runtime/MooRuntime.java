@@ -3194,7 +3194,7 @@ public final class MooRuntime implements AutoCloseable {
                 exception.elements().get(1),
                 exception.elements().get(2),
                 exception.elements().get(3),
-                new ListValue(formatted.stream().map(MooRuntime::encode).toList())));
+                new ListValue(formatted.stream().map(StringValue::of).toList())));
     long player =
         exception.elements().get(3) instanceof ListValue traceback
                 && traceback.size() > 0

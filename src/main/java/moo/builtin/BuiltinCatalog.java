@@ -2940,7 +2940,7 @@ public final class BuiltinCatalog {
                 .get(StringValue.of("interface"))
                 .filter(StringValue.class::isInstance)
                 .map(StringValue.class::cast)
-                .map(BuiltinCatalog::decode)
+                .map(StringValue::text)
                 .orElse("")
             : "";
     if (listenerControl.isEmpty()) {
@@ -5239,7 +5239,7 @@ public final class BuiltinCatalog {
     }
     List<MooValue> lines =
         new MooCompiler().compile(verb.programSource()).disassemble().lines()
-            .map(BuiltinCatalog::encode)
+            .map(StringValue::of)
             .map(MooValue.class::cast)
             .toList();
     return BuiltinResult.value(new ListValue(lines));
@@ -5918,7 +5918,7 @@ public final class BuiltinCatalog {
         target.properties().stream()
             .filter(WorldProperty::defined)
             .map(WorldProperty::name)
-            .map(BuiltinCatalog::encode)
+            .map(StringValue::of)
             .map(MooValue.class::cast)
             .toList();
     return BuiltinResult.value(new ListValue(names));
@@ -6223,7 +6223,7 @@ public final class BuiltinCatalog {
       return BuiltinResult.error(ErrorValue.E_PERM);
     }
     return BuiltinResult.value(
-        new ListValue(verbs.stream().map(WorldVerb::names).map(BuiltinCatalog::encode).toList()));
+        new ListValue(verbs.stream().map(WorldVerb::names).map(StringValue::of).toList()));
   }
 
   private static BuiltinResult verbInfo(
@@ -6584,7 +6584,7 @@ public final class BuiltinCatalog {
     String suppliedSource =
         code.elements().stream()
             .map(StringValue.class::cast)
-            .map(BuiltinCatalog::decode)
+            .map(StringValue::text)
             .collect(java.util.stream.Collectors.joining("\n"));
     String canonicalSource;
     try {
@@ -6654,7 +6654,7 @@ public final class BuiltinCatalog {
     List<MooValue> lines =
         MooUnparser.unparse(MooParser.parse(verb.programSource())).lines()
             .map(line -> indent ? line : line.stripLeading())
-            .map(BuiltinCatalog::encode)
+            .map(StringValue::of)
             .map(MooValue.class::cast)
             .toList();
     return BuiltinResult.value(new ListValue(lines));
@@ -6984,7 +6984,7 @@ public final class BuiltinCatalog {
     String source =
         arguments.stream()
             .map(StringValue.class::cast)
-            .map(BuiltinCatalog::decode)
+            .map(StringValue::text)
             .collect(java.util.stream.Collectors.joining("\n"));
     return new BuiltinResult.DynamicEval(source);
   }
