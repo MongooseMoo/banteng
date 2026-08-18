@@ -47,6 +47,7 @@ final class UseBuiltinCallTest {
     InMemoryExecutionContext context =
         new InMemoryExecutionContext(
             failure -> {
+              failure.printStackTrace(System.err);
               throw new AssertionError(failure);
             });
     List<SourceFile> sources =
