@@ -60,11 +60,6 @@ public final class MooRuntime implements AutoCloseable {
   static final long DEFAULT_BACKGROUND_TICKS = 30_000;
   static final long DEFAULT_BACKGROUND_SECONDS = 3;
   static final long DEFAULT_MAX_STACK_DEPTH = 50;
-  private static final String ANONYMOUS_FINALIZATION_MARKER =
-      "__banteng_anonymous_finalization__";
-  private static final String WAIF_FINALIZATION_MARKER =
-      "__banteng_waif_finalization__";
-
   private final Map<String, BytecodeProgram> compiledPrograms = new ConcurrentHashMap<>();
   private final BuiltinCatalog builtins;
   private final Optional<ListenerControl> listenerControl;
@@ -256,7 +251,6 @@ public final class MooRuntime implements AutoCloseable {
   }
 
   private RuntimeStep startServerNow() {
-    recoverInterruptedFinalizations();
     return continueStartupAfterPendingWaifFinalization();
   }
 
@@ -1956,7 +1950,7 @@ public final class MooRuntime implements AutoCloseable {
         world().removeAnonymousObject(anonymous);
         continue;
       }
-      remaining.add(anonymousFinalizationMarker(anonymous));
+      remaining.add(anonymous);
       Map<String, MooValue> locals = new LinkedHashMap<>();
       locals.put("this", anonymous);
       locals.put("player", new ObjectValue(-1));
@@ -1977,7 +1971,7 @@ public final class MooRuntime implements AutoCloseable {
         removeWaifComponent(waif);
         continue;
       }
-      remaining.add(waifFinalizationMarker(waif));
+      remaining.add(waif);
       Map<String, MooValue> locals = new LinkedHashMap<>();
       locals.put("this", waif);
       locals.put("player", new ObjectValue(-1));
@@ -1999,30 +1993,37 @@ public final class MooRuntime implements AutoCloseable {
     world().removeAnonymousObject(anonymous);
     List<MooValue> remaining = new ArrayList<>();
     for (MooValue value : world().pendingFinalization()) {
-      if (anonymousFinalizationTarget(value).orElse(null) != anonymous) {
+      if (value != anonymous) {
         remaining.add(value);
       }
     }
     world().replacePendingFinalization(remaining);
   }
 
-  void collectAfterAnonymousFinalization(List<VmSnapshot> otherTaskRoots) {
-    queueUnreachableAnonymousObjects(otherTaskRoots);
+  void collectAfterAnonymousFinalization(
+      AnonymousObjectValue target,
+      List<VmSnapshot> otherTaskRoots,
+      boolean startNextFinalizationWave) {
+    Objects.requireNonNull(target, "target");
+    List<MooValue> transientRoots =
+        world().anonymousObject(target).orElseThrow().properties().stream()
+            .filter(WorldProperty::defined)
+            .map(WorldProperty::value)
+            .toList();
+    finishAnonymousFinalization(target);
+    queueUnreachableAnonymousObjects(otherTaskRoots, transientRoots);
     finalizePendingObjects();
-  }
-
-  boolean hasActiveAnonymousFinalization(WorldSnapshot snapshot) {
-    return snapshot.pendingFinalization().stream()
-        .anyMatch(value -> anonymousFinalizationTarget(value).isPresent());
+    if (startNextFinalizationWave) {
+      queueUnreachableAnonymousObjects(otherTaskRoots);
+      finalizePendingObjects();
+    }
   }
 
   private void finishWaifFinalization(WaifValue root) {
     Set<WaifValue> component = removeWaifComponent(root);
     List<MooValue> remaining = new ArrayList<>();
     for (MooValue value : world().pendingFinalization()) {
-      WaifValue marked = waifFinalizationTarget(value).orElse(null);
-      if ((value instanceof WaifValue waif && component.contains(waif))
-          || (marked != null && component.contains(marked))) {
+      if (value instanceof WaifValue waif && component.contains(waif)) {
         continue;
       }
       remaining.add(value);
@@ -2040,64 +2041,15 @@ public final class MooRuntime implements AutoCloseable {
     return component;
   }
 
-  private void recoverInterruptedFinalizations() {
-    List<MooValue> pending = world().pendingFinalization();
-    List<MooValue> recovered = new ArrayList<>(pending.size());
-    boolean changed = false;
-    for (MooValue value : pending) {
-      AnonymousObjectValue anonymous = anonymousFinalizationTarget(value).orElse(null);
-      WaifValue waif = waifFinalizationTarget(value).orElse(null);
-      if (anonymous != null) {
-        recovered.add(anonymous);
-        changed = true;
-      } else if (waif != null) {
-        recovered.add(waif);
-        changed = true;
-      } else {
-        recovered.add(value);
-      }
-    }
-    if (changed) {
-      world().replacePendingFinalization(recovered);
-    }
-  }
-
-  private static ListValue anonymousFinalizationMarker(AnonymousObjectValue anonymous) {
-    return new ListValue(List.of(encode(ANONYMOUS_FINALIZATION_MARKER), anonymous));
-  }
-
-  private static ListValue waifFinalizationMarker(WaifValue waif) {
-    return new ListValue(List.of(encode(WAIF_FINALIZATION_MARKER), waif));
-  }
-
-  private static Optional<AnonymousObjectValue> anonymousFinalizationTarget(MooValue value) {
-    if (!(value instanceof ListValue marker) || marker.elements().size() != 2) {
-      return Optional.empty();
-    }
-    if (!(marker.elements().getFirst() instanceof StringValue name)
-        || !new String(name.bytes(), StandardCharsets.ISO_8859_1)
-            .equals(ANONYMOUS_FINALIZATION_MARKER)
-        || !(marker.elements().get(1) instanceof AnonymousObjectValue anonymous)) {
-      return Optional.empty();
-    }
-    return Optional.of(anonymous);
-  }
-
-  private static Optional<WaifValue> waifFinalizationTarget(MooValue value) {
-    if (!(value instanceof ListValue marker) || marker.elements().size() != 2) {
-      return Optional.empty();
-    }
-    if (!(marker.elements().getFirst() instanceof StringValue name)
-        || !new String(name.bytes(), StandardCharsets.ISO_8859_1)
-            .equals(WAIF_FINALIZATION_MARKER)
-        || !(marker.elements().get(1) instanceof WaifValue waif)) {
-      return Optional.empty();
-    }
-    return Optional.of(waif);
+  private void queueUnreachableAnonymousObjects(
+      List<VmSnapshot> otherTaskRoots, VmSnapshot... taskRoots) {
+    queueUnreachableAnonymousObjects(otherTaskRoots, List.of(), taskRoots);
   }
 
   private void queueUnreachableAnonymousObjects(
-      List<VmSnapshot> otherTaskRoots, VmSnapshot... taskRoots) {
+      List<VmSnapshot> otherTaskRoots,
+      List<MooValue> transientRoots,
+      VmSnapshot... taskRoots) {
     WorldSnapshot snapshot = world().snapshot();
     Set<AnonymousObjectValue> reachable = new LinkedHashSet<>();
     Set<WaifValue> visitedWaifs = new LinkedHashSet<>();
@@ -2106,6 +2058,9 @@ public final class MooRuntime implements AutoCloseable {
         markReachableAnonymous(
             property.value(), snapshot, reachable, visitedWaifs);
       }
+    }
+    for (MooValue value : transientRoots) {
+      markReachableAnonymous(value, snapshot, reachable, visitedWaifs);
     }
     for (VmSnapshot task : Stream.concat(otherTaskRoots.stream(), Arrays.stream(taskRoots)).toList()) {
       for (MooValue value : task.initialLocals().values()) {
@@ -2927,6 +2882,7 @@ public final class MooRuntime implements AutoCloseable {
 
   private RuntimeStep resumeRuntime(RuntimeContinuation continuation, VmState state) {
     if (state.outcome() == VmState.Outcome.ERRORED) {
+      finishErroredFinalization(continuation);
       List<String> output = new ArrayList<>(continuation.output());
       output.addAll(state.output());
       output.addAll(formatUncaughtException(state));
@@ -2984,17 +2940,13 @@ public final class MooRuntime implements AutoCloseable {
           finishLoginTimeout(continuation.connectionId(), continuation.output());
       case BOOT_PLAYER_USER_DISCONNECTED_THEN_BOOT ->
           finishBootPlayer(continuation.connectionId(), continuation.output());
-      case ANONYMOUS_FINALIZATION_RETURN -> {
-        finishAnonymousFinalization(
-            (AnonymousObjectValue) continuation.finalizationTarget().orElseThrow());
-        yield RuntimeStep.returned(List.of());
-      }
+      case ANONYMOUS_FINALIZATION_RETURN -> RuntimeStep.returned(List.of());
       case WAIF_FINALIZATION_RETURN -> {
-        finishWaifFinalization((WaifValue) continuation.finalizationTarget().orElseThrow());
+        finishWaifFinalization((WaifValue) continuation.finalizationControl().orElseThrow().target());
         yield continueStartupAfterPendingWaifFinalization();
       }
       case WAIF_BACKGROUND_FINALIZATION_RETURN -> {
-        finishWaifFinalization((WaifValue) continuation.finalizationTarget().orElseThrow());
+        finishWaifFinalization((WaifValue) continuation.finalizationControl().orElseThrow().target());
         yield RuntimeStep.returned(List.of());
       }
       case TASK_TIMEOUT_START ->
@@ -3008,6 +2960,13 @@ public final class MooRuntime implements AutoCloseable {
       }
       case UNCAUGHT_HANDLER_RETURN -> RuntimeStep.returned(state.output());
     };
+  }
+
+  private void finishErroredFinalization(RuntimeContinuation continuation) {
+    continuation
+        .finalizationControl()
+        .filter(control -> control.kind() == FinalizationKind.WAIF)
+        .ifPresent(control -> finishWaifFinalization((WaifValue) control.target()));
   }
 
   private List<String> formatUncaughtException(VmState state) {
@@ -3374,6 +3333,35 @@ public final class MooRuntime implements AutoCloseable {
     UNCAUGHT_HANDLER_RETURN
   }
 
+  enum FinalizationKind {
+    ANONYMOUS,
+    WAIF
+  }
+
+  record FinalizationControl(FinalizationKind kind, MooValue target) {
+    FinalizationControl {
+      Objects.requireNonNull(kind, "kind");
+      Objects.requireNonNull(target, "target");
+      boolean valid =
+          switch (kind) {
+            case ANONYMOUS -> target instanceof AnonymousObjectValue;
+            case WAIF -> target instanceof WaifValue;
+          };
+      if (!valid) {
+        throw new IllegalArgumentException(
+            "finalization kind " + kind + " does not accept " + target.type());
+      }
+    }
+
+    static FinalizationControl anonymous(AnonymousObjectValue target) {
+      return new FinalizationControl(FinalizationKind.ANONYMOUS, target);
+    }
+
+    static FinalizationControl waif(WaifValue target) {
+      return new FinalizationControl(FinalizationKind.WAIF, target);
+    }
+  }
+
   record RuntimeContinuation(
       Optional<RuntimeRequest> ingress,
       Optional<RuntimeTransition> transition,
@@ -3384,18 +3372,45 @@ public final class MooRuntime implements AutoCloseable {
       long second,
       boolean flag,
       Optional<VmSnapshot> timeoutSnapshot,
-      Optional<MooValue> finalizationTarget) {
+      Optional<FinalizationControl> finalizationControl) {
     RuntimeContinuation {
       Objects.requireNonNull(ingress, "ingress");
       Objects.requireNonNull(transition, "transition");
       Objects.requireNonNull(text, "text");
       Objects.requireNonNull(timeoutSnapshot, "timeoutSnapshot");
-      Objects.requireNonNull(finalizationTarget, "finalizationTarget");
+      Objects.requireNonNull(finalizationControl, "finalizationControl");
       output = List.copyOf(output);
       if (ingress.isPresent() == transition.isPresent()) {
         throw new IllegalArgumentException(
             "runtime continuation requires exactly one ingress or transition");
       }
+      boolean finalizationTransition =
+          transition
+              .filter(
+                  value ->
+                      value == RuntimeTransition.ANONYMOUS_FINALIZATION_RETURN
+                          || value == RuntimeTransition.WAIF_FINALIZATION_RETURN
+                          || value == RuntimeTransition.WAIF_BACKGROUND_FINALIZATION_RETURN)
+              .isPresent();
+      if (finalizationTransition != finalizationControl.isPresent()) {
+        throw new IllegalArgumentException(
+            "finalization transitions require exactly one typed finalization control");
+      }
+      finalizationControl.ifPresent(
+          control -> {
+            boolean valid =
+                switch (transition.orElseThrow()) {
+                  case ANONYMOUS_FINALIZATION_RETURN ->
+                      control.kind() == FinalizationKind.ANONYMOUS;
+                  case WAIF_FINALIZATION_RETURN, WAIF_BACKGROUND_FINALIZATION_RETURN ->
+                      control.kind() == FinalizationKind.WAIF;
+                  default -> false;
+                };
+            if (!valid) {
+              throw new IllegalArgumentException(
+                  "runtime transition disagrees with typed finalization control");
+            }
+          });
     }
 
     static RuntimeContinuation ingress(RuntimeRequest request) {
@@ -3473,7 +3488,7 @@ public final class MooRuntime implements AutoCloseable {
           0,
           false,
           Optional.empty(),
-          Optional.of(target));
+          Optional.of(FinalizationControl.anonymous(target)));
     }
 
     static RuntimeContinuation waifFinalization(WaifValue target) {
@@ -3487,7 +3502,7 @@ public final class MooRuntime implements AutoCloseable {
           0,
           false,
           Optional.empty(),
-          Optional.of(target));
+          Optional.of(FinalizationControl.waif(target)));
     }
 
     static RuntimeContinuation backgroundWaifFinalization(WaifValue target) {
@@ -3501,7 +3516,7 @@ public final class MooRuntime implements AutoCloseable {
           0,
           false,
           Optional.empty(),
-          Optional.of(target));
+          Optional.of(FinalizationControl.waif(target)));
     }
   }
 
