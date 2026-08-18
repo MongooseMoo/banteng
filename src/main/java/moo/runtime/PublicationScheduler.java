@@ -781,9 +781,16 @@ final class PublicationScheduler implements AutoCloseable {
       long callerProgrammer,
       ListValue callers) {
     long taskId = ((IntegerValue) arguments.getFirst()).value();
-    if (!taskRegistry.mayControl(taskId, world, programmer)) {
-      return BuiltinResult.error(
-          taskRegistry.contains(taskId) ? ErrorValue.E_PERM : ErrorValue.E_INVARG);
+    switch (taskRegistry.taskControlDecision(taskId, world, programmer)) {
+      case DENIED -> {
+        return BuiltinResult.error(ErrorValue.E_PERM);
+      }
+      case MISSING -> {
+        return BuiltinResult.error(ErrorValue.E_INVARG);
+      }
+      case ALLOWED -> {
+        // Continue with the scheduler-owned suspended-task lookup.
+      }
     }
     MooValue value = arguments.size() == 2 ? arguments.get(1) : new IntegerValue(0);
     TimedWork resumed;
