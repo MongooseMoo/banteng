@@ -7,8 +7,8 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.LinkedHashSet;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -21,11 +21,13 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Stream;
+import moo.builtin.BuiltinCall;
 import moo.builtin.BuiltinCatalog;
 import moo.builtin.BuiltinCatalog.ConnectionOption;
 import moo.builtin.BuiltinCatalog.ConnectionOptionRequest;
 import moo.builtin.BuiltinCatalog.ForcedInputRequest;
 import moo.builtin.BuiltinCatalog.ListenerControl;
+import moo.builtin.BuiltinHosts;
 import moo.builtin.BuiltinResult;
 import moo.builtin.CheckpointRequest;
 import moo.bytecode.BytecodeProgram;
@@ -46,15 +48,15 @@ import moo.value.MooValue.WaifValue;
 import moo.value.ValueSemantics;
 import moo.world.ObjectFlags;
 import moo.world.WorldAnonymousObject;
-import moo.vm.MooVm;
-import moo.vm.VmSnapshot;
-import moo.vm.VmState;
 import moo.world.WorldObject;
 import moo.world.WorldProperty;
 import moo.world.WorldSnapshot;
 import moo.world.WorldTxn;
 import moo.world.WorldVerb;
 import moo.world.WorldWaif;
+import moo.vm.MooVm;
+import moo.vm.VmSnapshot;
+import moo.vm.VmState;
 
 /** Concrete session and command owner backed by the sole production publication scheduler. */
 public final class MooRuntime implements AutoCloseable {
@@ -105,22 +107,7 @@ public final class MooRuntime implements AutoCloseable {
         new PublicationScheduler(
             committedWorld, this, taskRegistry);
     checkpointedConnections = List.of();
-    builtins =
-        new BuiltinCatalog(
-            configuredSemantics,
-            taskRegistry::queuedTasks,
-            taskRegistry::killTask,
-            this::read,
-            scheduler::threadPool,
-            taskRegistry::threads,
-            (a, w, p, t, id, rt, rs, r, cp, c) -> connectionOptions(a, w, p),
-            (a, w, p, t, id, rt, rs, r, cp, c) -> dbDiskSize(),
-            (a, w, p, t, id, rt, rs, r, cp, c) -> flushInput(a, w, p),
-            (a, w, p, t, id, rt, rs, r, cp, c) -> outputDelimiters(a, w, p),
-            (a, w, p, t, id, rt, rs, r, cp, c) -> queueInfo(a, w, p, taskRegistry),
-            taskRegistry::taskStack,
-            scheduler::resumeTask,
-            serverLog);
+    builtins = new BuiltinCatalog(builtinHosts(configuredSemantics, taskRegistry));
   }
 
   /** Creates the production runtime with its concrete listener and checkpoint owners. */
@@ -337,22 +324,30 @@ public final class MooRuntime implements AutoCloseable {
             taskRegistry);
     builtins =
         new BuiltinCatalog(
-            configuredSemantics,
-            listenerControl,
-            taskRegistry::queuedTasks,
-            taskRegistry::killTask,
-            this::read,
-            scheduler::threadPool,
-            taskRegistry::threads,
-            (a, w, p, t, id, rt, rs, r, cp, c) -> connectionOptions(a, w, p),
-            (a, w, p, t, id, rt, rs, r, cp, c) -> dbDiskSize(),
-            (a, w, p, t, id, rt, rs, r, cp, c) -> flushInput(a, w, p),
-            (a, w, p, t, id, rt, rs, r, cp, c) -> outputDelimiters(a, w, p),
-            (a, w, p, t, id, rt, rs, r, cp, c) -> queueInfo(a, w, p, taskRegistry),
-            taskRegistry::taskStack,
-            scheduler::resumeTask,
-            serverLog);
+            listenerControl, builtinHosts(configuredSemantics, taskRegistry));
     scheduler.restoreTasks(Objects.requireNonNull(restoredTasks, "restoredTasks"));
+  }
+
+  private BuiltinHosts builtinHosts(ValueSemantics valueSemantics, TaskRegistry taskRegistry) {
+    return BuiltinHosts.builder()
+        .valueSemantics(valueSemantics)
+        .queuedTasks(taskRegistry::queuedTasks)
+        .killTask(taskRegistry::killTask)
+        .read(this::read)
+        .threadPool(scheduler::threadPool)
+        .threads(taskRegistry::threads)
+        .connectionOptions(
+            call -> connectionOptions(call.arguments(), call.world(), call.programmer()))
+        .dbDiskSize(call -> dbDiskSize())
+        .flushInput(call -> flushInput(call.arguments(), call.world(), call.programmer()))
+        .outputDelimiters(
+            call -> outputDelimiters(call.arguments(), call.world(), call.programmer()))
+        .queueInfo(
+            call -> queueInfo(call.arguments(), call.world(), call.programmer(), taskRegistry))
+        .taskStack(taskRegistry::taskStack)
+        .resumeTask(scheduler::resumeTask)
+        .serverLog(serverLog)
+        .build();
   }
 
   /** Runs the database's server_started verb through the production scheduler. */
@@ -2513,35 +2508,25 @@ public final class MooRuntime implements AutoCloseable {
     }
   }
 
-  private BuiltinResult read(
-      List<MooValue> arguments,
-      WorldTxn world,
-      long programmer,
-      MooValue taskLocal,
-      long taskId,
-      long remainingTicks,
-      long remainingSeconds,
-      MooValue receiver,
-      long callerProgrammer,
-      ListValue callers) {
-    if (arguments.isEmpty() && !scheduler.isLastInputTask(taskId)) {
+  private BuiltinResult read(BuiltinCall call) {
+    if (call.arguments().isEmpty() && !scheduler.isLastInputTask(call.taskId())) {
       return BuiltinResult.error(ErrorValue.E_PERM);
     }
     long target;
-    if (arguments.isEmpty()) {
-      OptionalLong inputPlayer = scheduler.lastInputPlayer(taskId);
+    if (call.arguments().isEmpty()) {
+      OptionalLong inputPlayer = scheduler.lastInputPlayer(call.taskId());
       if (inputPlayer.isEmpty()) {
         return BuiltinResult.error(ErrorValue.E_PERM);
       }
       target = inputPlayer.orElseThrow();
     } else {
-      target = ((ObjectValue) arguments.getFirst()).value();
+      target = ((ObjectValue) call.arguments().getFirst()).value();
     }
     long connectionId = target;
     ConnectionState connection = connections().get(connectionId);
     if (connection == null) {
       for (Map.Entry<Long, ConnectionState> entry : connections().entrySet()) {
-        if (world.connectionPlayer(entry.getKey()).orElse(Long.MIN_VALUE) == target) {
+        if (call.world().connectionPlayer(entry.getKey()).orElse(Long.MIN_VALUE) == target) {
           connectionId = entry.getKey();
           connection = entry.getValue();
           break;
@@ -2554,7 +2539,7 @@ public final class MooRuntime implements AutoCloseable {
     if (!connection.pendingInput.isEmpty()) {
       return BuiltinResult.value(StringValue.of(connection.pendingInput.removeFirst()));
     }
-    if (arguments.size() == 2 && arguments.get(1).isTruthy()) {
+    if (call.arguments().size() == 2 && call.arguments().get(1).isTruthy()) {
       return BuiltinResult.value(new IntegerValue(0));
     }
     CompletableFuture<BuiltinResult> completion = new CompletableFuture<>();

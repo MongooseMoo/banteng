@@ -17,6 +17,7 @@ import java.util.Set;
 import moo.builtin.BuiltinCatalog;
 import moo.builtin.BuiltinCatalog.ConnectionOptionRequest;
 import moo.builtin.BuiltinCatalog.ForcedInputRequest;
+import moo.builtin.BuiltinHosts;
 import moo.builtin.BuiltinResult;
 import moo.builtin.BuiltinSpec;
 import moo.builtin.CheckpointRequest;
@@ -69,7 +70,13 @@ public final class MooVm {
   void execute(BytecodeProgram program, VmState state) {
     WorldTxn root = new WorldTxn(List.of(), List.of());
     try (WorldTxn transaction = root.begin()) {
-      execute(program, state, transaction, new BuiltinCatalog(valueSemantics), 0L);
+      execute(
+          program,
+          state,
+          transaction,
+          new BuiltinCatalog(
+              BuiltinHosts.builder().valueSemantics(valueSemantics).build()),
+          0L);
       if (state.outcome() == VmState.Outcome.PENDING_BUILTIN) {
         throw new IllegalStateException("pure VM execution reached an irrevocable builtin");
       }
