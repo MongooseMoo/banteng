@@ -85,7 +85,8 @@ final class BuiltinCompositionTest {
         () -> assertNotNull(hosts.queueInfo()),
         () -> assertNotNull(hosts.taskStack()),
         () -> assertNotNull(hosts.resumeTask()),
-        () -> assertNotNull(hosts.serverLog()));
+        () -> assertNotNull(hosts.serverLog()),
+        () -> assertNotNull(hosts.connections()));
 
     BuiltinHandler queuedTasks = call -> BuiltinResult.value(new IntegerValue(17));
     ValueSemantics semantics = new ValueSemantics(true);
