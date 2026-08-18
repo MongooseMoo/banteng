@@ -105,7 +105,8 @@ final class V17HierarchyValidationTest {
     Path fixture = copyFixture(fixtureName, temporaryDirectory);
     IOException error =
         assertThrows(IOException.class, () -> new LambdaMooV17Codec().read(fixture));
-    assertTrue(error.getMessage().contains(expectedMessage), error.getMessage());
+    String message = Objects.requireNonNull(error.getMessage());
+    assertTrue(message.contains(expectedMessage), message);
   }
 
   private static WorldSnapshot readFixture(String fixtureName, Path temporaryDirectory)
