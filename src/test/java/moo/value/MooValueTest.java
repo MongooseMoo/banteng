@@ -132,6 +132,24 @@ final class MooValueTest {
   }
 
   @Test
+  void stringsEncodeAndDecodeLatinOneText() {
+    StringValue value = StringValue.of("\u00e9A");
+
+    assertArrayEquals(new byte[] {(byte) 0xE9, 'A'}, value.bytes());
+    assertEquals("\u00e9A", value.text());
+  }
+
+  @Test
+  void stringsCopyRawBytesThroughTheirFactory() {
+    byte[] source = {(byte) 0xE9, 'A'};
+    StringValue value = StringValue.of(source);
+    source[0] = 0;
+
+    assertArrayEquals(new byte[] {(byte) 0xE9, 'A'}, value.bytes());
+    assertEquals("\u00e9A", value.text());
+  }
+
+  @Test
   void stringsFoldValidUtf8ButOnlyAsciiWithinInvalidByteArrays() {
     StringValue upper = new StringValue("Wizard".getBytes(StandardCharsets.ISO_8859_1));
     StringValue lower = new StringValue("wIZARD".getBytes(StandardCharsets.ISO_8859_1));
