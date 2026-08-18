@@ -577,7 +577,7 @@ public final class MooCompiler {
       compileTry(tryStatement, instructions, forkVectors);
       return;
     }
-    throw new IllegalArgumentException("unsupported MOO statement: " + statement);
+    throw new AssertionError("unreachable MOO statement variant: " + statement);
   }
 
   private void compileIf(
@@ -818,7 +818,13 @@ public final class MooCompiler {
       compileCatch(catchExpression, instructions);
       return;
     }
-    throw new IllegalArgumentException("unsupported MOO expression: " + expression);
+    if (expression instanceof Ast.Splice) {
+      throw new IllegalArgumentException("splice expression requires list or argument context");
+    }
+    if (expression instanceof Ast.ScatterElement) {
+      throw new IllegalArgumentException("scatter element requires assignment-target context");
+    }
+    throw new AssertionError("unreachable MOO expression variant: " + expression);
   }
 
   private void compileAssignment(Ast.Assignment assignment, List<Instruction> instructions) {
@@ -912,7 +918,7 @@ public final class MooCompiler {
               Opcode.SCATTER, scatter.elements().size(), String.join(",", encodedElements)));
       return;
     }
-    throw new IllegalArgumentException("unsupported assignment target: " + assignment.target());
+    throw new AssertionError("unreachable assignment target variant: " + assignment.target());
   }
 
   private void compileBinary(Ast.Binary binary, List<Instruction> instructions) {
