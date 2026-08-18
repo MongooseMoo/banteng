@@ -50,6 +50,7 @@ import moo.value.MooValue.MapValue;
 import moo.value.MooValue.ObjectValue;
 import moo.value.MooValue.StringValue;
 import moo.value.MooValue.WaifValue;
+import moo.value.ValueSemantics;
 import moo.world.ObjectFlags;
 import moo.world.WorldAnonymousObject;
 import moo.world.WorldObject;
@@ -140,15 +141,29 @@ public final class BuiltinCatalog {
   private final SqliteService sqlite;
   private final Random floatingRandom;
   private final Map<String, BuiltinSpec> specs;
+  private final ValueSemantics valueSemantics;
 
   /** Creates a catalog without host listener access for focused VM execution. */
   public BuiltinCatalog() {
+    this(ValueSemantics.STANDARD);
+  }
+
+  /** Creates a catalog with the selected value semantics and no host listener access. */
+  public BuiltinCatalog(ValueSemantics valueSemantics) {
     this(
+        valueSemantics,
         (a, w, p, t, id, rt, rs, r, cp, c) -> emptyQueuedTasks(a),
         (a, w, p, t, id, rt, rs, r, cp, c) -> BuiltinResult.error(ErrorValue.E_INVARG),
         (a, w, p, t, id, rt, rs, r, cp, c) -> BuiltinResult.error(ErrorValue.E_INVARG),
         (a, w, p, t, id, rt, rs, r, cp, c) -> BuiltinResult.error(ErrorValue.E_INVARG),
-        (a, w, p, t, id, rt, rs, r, cp, c) -> BuiltinResult.value(new ListValue(List.of())));
+        (a, w, p, t, id, rt, rs, r, cp, c) -> BuiltinResult.value(new ListValue(List.of())),
+        (a, w, p, t, id, rt, rs, r, cp, c) -> BuiltinResult.error(ErrorValue.E_INVARG),
+        (a, w, p, t, id, rt, rs, r, cp, c) -> BuiltinResult.value(new IntegerValue(0)),
+        (a, w, p, t, id, rt, rs, r, cp, c) -> BuiltinResult.value(new IntegerValue(0)),
+        (a, w, p, t, id, rt, rs, r, cp, c) -> BuiltinResult.error(ErrorValue.E_INVARG),
+        (a, w, p, t, id, rt, rs, r, cp, c) -> BuiltinResult.value(new ListValue(List.of())),
+        (a, w, p, t, id, rt, rs, r, cp, c) -> BuiltinResult.error(ErrorValue.E_INVARG),
+        (a, w, p, t, id, rt, rs, r, cp, c) -> BuiltinResult.error(ErrorValue.E_INVARG));
   }
 
   /** Creates a catalog with the production task-registry handler. */
@@ -330,6 +345,7 @@ public final class BuiltinCatalog {
       BuiltinHandler taskStack,
       BuiltinHandler resumeTask) {
     this(
+        ValueSemantics.STANDARD,
         queuedTasks,
         killTask,
         read,
@@ -360,6 +376,72 @@ public final class BuiltinCatalog {
       BuiltinHandler taskStack,
       BuiltinHandler resumeTask,
       ServerLog serverLog) {
+    this(
+        ValueSemantics.STANDARD,
+        queuedTasks,
+        killTask,
+        read,
+        threadPool,
+        threads,
+        connectionOptions,
+        dbDiskSize,
+        flushInput,
+        outputDelimiters,
+        queueInfo,
+        taskStack,
+        resumeTask,
+        serverLog);
+  }
+
+  /** Creates a catalog with every transient owner, task operation, and value configuration. */
+  public BuiltinCatalog(
+      ValueSemantics valueSemantics,
+      BuiltinHandler queuedTasks,
+      BuiltinHandler killTask,
+      BuiltinHandler read,
+      BuiltinHandler threadPool,
+      BuiltinHandler threads,
+      BuiltinHandler connectionOptions,
+      BuiltinHandler dbDiskSize,
+      BuiltinHandler flushInput,
+      BuiltinHandler outputDelimiters,
+      BuiltinHandler queueInfo,
+      BuiltinHandler taskStack,
+      BuiltinHandler resumeTask) {
+    this(
+        valueSemantics,
+        queuedTasks,
+        killTask,
+        read,
+        threadPool,
+        threads,
+        connectionOptions,
+        dbDiskSize,
+        flushInput,
+        outputDelimiters,
+        queueInfo,
+        taskStack,
+        resumeTask,
+        ServerLog.stderr(System.Logger.Level.INFO));
+  }
+
+  /** Creates a catalog with every transient owner, value configuration, and shared server log. */
+  public BuiltinCatalog(
+      ValueSemantics valueSemantics,
+      BuiltinHandler queuedTasks,
+      BuiltinHandler killTask,
+      BuiltinHandler read,
+      BuiltinHandler threadPool,
+      BuiltinHandler threads,
+      BuiltinHandler connectionOptions,
+      BuiltinHandler dbDiskSize,
+      BuiltinHandler flushInput,
+      BuiltinHandler outputDelimiters,
+      BuiltinHandler queueInfo,
+      BuiltinHandler taskStack,
+      BuiltinHandler resumeTask,
+      ServerLog serverLog) {
+    this.valueSemantics = Objects.requireNonNull(valueSemantics, "valueSemantics");
     this.queuedTasks = Objects.requireNonNull(queuedTasks, "queuedTasks");
     this.taskStack = Objects.requireNonNull(taskStack, "taskStack");
     this.resumeTask = Objects.requireNonNull(resumeTask, "resumeTask");
@@ -589,6 +671,7 @@ public final class BuiltinCatalog {
       BuiltinHandler taskStack,
       BuiltinHandler resumeTask) {
     this(
+        ValueSemantics.STANDARD,
         listenerControl,
         queuedTasks,
         killTask,
@@ -621,6 +704,76 @@ public final class BuiltinCatalog {
       BuiltinHandler taskStack,
       BuiltinHandler resumeTask,
       ServerLog serverLog) {
+    this(
+        ValueSemantics.STANDARD,
+        listenerControl,
+        queuedTasks,
+        killTask,
+        read,
+        threadPool,
+        threads,
+        connectionOptions,
+        dbDiskSize,
+        flushInput,
+        outputDelimiters,
+        queueInfo,
+        taskStack,
+        resumeTask,
+        serverLog);
+  }
+
+  /** Creates the production catalog with listener, task, and value configuration owners. */
+  public BuiltinCatalog(
+      ValueSemantics valueSemantics,
+      ListenerControl listenerControl,
+      BuiltinHandler queuedTasks,
+      BuiltinHandler killTask,
+      BuiltinHandler read,
+      BuiltinHandler threadPool,
+      BuiltinHandler threads,
+      BuiltinHandler connectionOptions,
+      BuiltinHandler dbDiskSize,
+      BuiltinHandler flushInput,
+      BuiltinHandler outputDelimiters,
+      BuiltinHandler queueInfo,
+      BuiltinHandler taskStack,
+      BuiltinHandler resumeTask) {
+    this(
+        valueSemantics,
+        listenerControl,
+        queuedTasks,
+        killTask,
+        read,
+        threadPool,
+        threads,
+        connectionOptions,
+        dbDiskSize,
+        flushInput,
+        outputDelimiters,
+        queueInfo,
+        taskStack,
+        resumeTask,
+        ServerLog.stderr(System.Logger.Level.INFO));
+  }
+
+  /** Creates the production catalog with listener, value configuration, and shared log. */
+  public BuiltinCatalog(
+      ValueSemantics valueSemantics,
+      ListenerControl listenerControl,
+      BuiltinHandler queuedTasks,
+      BuiltinHandler killTask,
+      BuiltinHandler read,
+      BuiltinHandler threadPool,
+      BuiltinHandler threads,
+      BuiltinHandler connectionOptions,
+      BuiltinHandler dbDiskSize,
+      BuiltinHandler flushInput,
+      BuiltinHandler outputDelimiters,
+      BuiltinHandler queueInfo,
+      BuiltinHandler taskStack,
+      BuiltinHandler resumeTask,
+      ServerLog serverLog) {
+    this.valueSemantics = Objects.requireNonNull(valueSemantics, "valueSemantics");
     this.listenerControl = Optional.of(Objects.requireNonNull(listenerControl, "listenerControl"));
     this.queuedTasks = Objects.requireNonNull(queuedTasks, "queuedTasks");
     this.taskStack = Objects.requireNonNull(taskStack, "taskStack");
@@ -646,6 +799,8 @@ public final class BuiltinCatalog {
 
   private List<BuiltinSpec> buildManifest() {
     List<BuiltinSpec> entries = new ArrayList<>();
+    Set<ArgType> floatMath =
+        valueSemantics.promoteNumbers() ? NUMBER : Set.of(ArgType.FLOAT);
     BuiltinHandler setThreadMode =
         new BuiltinHandler() {
           @Override
@@ -855,7 +1010,7 @@ public final class BuiltinCatalog {
     entries.add(
         new BuiltinSpec(
             "acos",
-            List.of(new CallShape(List.of(Set.of(ArgType.FLOAT)), List.of(), Optional.empty())),
+            List.of(new CallShape(List.of(floatMath), List.of(), Optional.empty())),
             BuiltinPermissionRule.ANY,
             BuiltinCostRule.fixed(0),
             EffectClass.PURE,
@@ -864,7 +1019,7 @@ public final class BuiltinCatalog {
     entries.add(
         new BuiltinSpec(
             "acosh",
-            List.of(new CallShape(List.of(Set.of(ArgType.FLOAT)), List.of(), Optional.empty())),
+            List.of(new CallShape(List.of(floatMath), List.of(), Optional.empty())),
             BuiltinPermissionRule.ANY,
             BuiltinCostRule.fixed(0),
             EffectClass.PURE,
@@ -873,7 +1028,7 @@ public final class BuiltinCatalog {
     entries.add(
         new BuiltinSpec(
             "asin",
-            List.of(new CallShape(List.of(Set.of(ArgType.FLOAT)), List.of(), Optional.empty())),
+            List.of(new CallShape(List.of(floatMath), List.of(), Optional.empty())),
             BuiltinPermissionRule.ANY,
             BuiltinCostRule.fixed(0),
             EffectClass.PURE,
@@ -882,7 +1037,7 @@ public final class BuiltinCatalog {
     entries.add(
         new BuiltinSpec(
             "asinh",
-            List.of(new CallShape(List.of(Set.of(ArgType.FLOAT)), List.of(), Optional.empty())),
+            List.of(new CallShape(List.of(floatMath), List.of(), Optional.empty())),
             BuiltinPermissionRule.ANY,
             BuiltinCostRule.fixed(0),
             EffectClass.PURE,
@@ -893,8 +1048,8 @@ public final class BuiltinCatalog {
             "atan",
             List.of(
                 new CallShape(
-                    List.of(Set.of(ArgType.FLOAT)),
-                    List.of(Set.of(ArgType.FLOAT)),
+                    List.of(floatMath),
+                    List.of(floatMath),
                     Optional.empty())),
             BuiltinPermissionRule.ANY,
             BuiltinCostRule.fixed(0),
@@ -906,7 +1061,7 @@ public final class BuiltinCatalog {
             "atan2",
             List.of(
                 new CallShape(
-                    List.of(Set.of(ArgType.FLOAT), Set.of(ArgType.FLOAT)),
+                    List.of(floatMath, floatMath),
                     List.of(),
                     Optional.empty())),
             BuiltinPermissionRule.ANY,
@@ -917,7 +1072,7 @@ public final class BuiltinCatalog {
     entries.add(
         new BuiltinSpec(
             "atanh",
-            List.of(new CallShape(List.of(Set.of(ArgType.FLOAT)), List.of(), Optional.empty())),
+            List.of(new CallShape(List.of(floatMath), List.of(), Optional.empty())),
             BuiltinPermissionRule.ANY,
             BuiltinCostRule.fixed(0),
             EffectClass.PURE,
@@ -926,7 +1081,7 @@ public final class BuiltinCatalog {
     entries.add(
         new BuiltinSpec(
             "cbrt",
-            List.of(new CallShape(List.of(Set.of(ArgType.FLOAT)), List.of(), Optional.empty())),
+            List.of(new CallShape(List.of(floatMath), List.of(), Optional.empty())),
             BuiltinPermissionRule.ANY,
             BuiltinCostRule.fixed(0),
             EffectClass.PURE,
@@ -935,7 +1090,7 @@ public final class BuiltinCatalog {
     entries.add(
         new BuiltinSpec(
             "ceil",
-            List.of(new CallShape(List.of(Set.of(ArgType.FLOAT)), List.of(), Optional.empty())),
+            List.of(new CallShape(List.of(floatMath), List.of(), Optional.empty())),
             BuiltinPermissionRule.ANY,
             BuiltinCostRule.fixed(0),
             EffectClass.PURE,
@@ -944,7 +1099,7 @@ public final class BuiltinCatalog {
     entries.add(
         new BuiltinSpec(
             "cos",
-            List.of(new CallShape(List.of(Set.of(ArgType.FLOAT)), List.of(), Optional.empty())),
+            List.of(new CallShape(List.of(floatMath), List.of(), Optional.empty())),
             BuiltinPermissionRule.ANY,
             BuiltinCostRule.fixed(0),
             EffectClass.PURE,
@@ -953,7 +1108,7 @@ public final class BuiltinCatalog {
     entries.add(
         new BuiltinSpec(
             "cosh",
-            List.of(new CallShape(List.of(Set.of(ArgType.FLOAT)), List.of(), Optional.empty())),
+            List.of(new CallShape(List.of(floatMath), List.of(), Optional.empty())),
             BuiltinPermissionRule.ANY,
             BuiltinCostRule.fixed(0),
             EffectClass.PURE,
@@ -975,7 +1130,7 @@ public final class BuiltinCatalog {
     entries.add(
         new BuiltinSpec(
             "exp",
-            List.of(new CallShape(List.of(Set.of(ArgType.FLOAT)), List.of(), Optional.empty())),
+            List.of(new CallShape(List.of(floatMath), List.of(), Optional.empty())),
             BuiltinPermissionRule.ANY,
             BuiltinCostRule.fixed(0),
             EffectClass.PURE,
@@ -997,7 +1152,7 @@ public final class BuiltinCatalog {
     entries.add(
         new BuiltinSpec(
             "floor",
-            List.of(new CallShape(List.of(Set.of(ArgType.FLOAT)), List.of(), Optional.empty())),
+            List.of(new CallShape(List.of(floatMath), List.of(), Optional.empty())),
             BuiltinPermissionRule.ANY,
             BuiltinCostRule.fixed(0),
             EffectClass.PURE,
@@ -1006,7 +1161,7 @@ public final class BuiltinCatalog {
     entries.add(
         new BuiltinSpec(
             "log",
-            List.of(new CallShape(List.of(Set.of(ArgType.FLOAT)), List.of(), Optional.empty())),
+            List.of(new CallShape(List.of(floatMath), List.of(), Optional.empty())),
             BuiltinPermissionRule.ANY,
             BuiltinCostRule.fixed(0),
             EffectClass.PURE,
@@ -1015,7 +1170,7 @@ public final class BuiltinCatalog {
     entries.add(
         new BuiltinSpec(
             "log10",
-            List.of(new CallShape(List.of(Set.of(ArgType.FLOAT)), List.of(), Optional.empty())),
+            List.of(new CallShape(List.of(floatMath), List.of(), Optional.empty())),
             BuiltinPermissionRule.ANY,
             BuiltinCostRule.fixed(0),
             EffectClass.PURE,
@@ -1046,7 +1201,7 @@ public final class BuiltinCatalog {
     entries.add(
         new BuiltinSpec(
             "sin",
-            List.of(new CallShape(List.of(Set.of(ArgType.FLOAT)), List.of(), Optional.empty())),
+            List.of(new CallShape(List.of(floatMath), List.of(), Optional.empty())),
             BuiltinPermissionRule.ANY,
             BuiltinCostRule.fixed(0),
             EffectClass.PURE,
@@ -1055,7 +1210,7 @@ public final class BuiltinCatalog {
     entries.add(
         new BuiltinSpec(
             "sinh",
-            List.of(new CallShape(List.of(Set.of(ArgType.FLOAT)), List.of(), Optional.empty())),
+            List.of(new CallShape(List.of(floatMath), List.of(), Optional.empty())),
             BuiltinPermissionRule.ANY,
             BuiltinCostRule.fixed(0),
             EffectClass.PURE,
@@ -1064,7 +1219,7 @@ public final class BuiltinCatalog {
     entries.add(
         new BuiltinSpec(
             "sqrt",
-            List.of(new CallShape(List.of(Set.of(ArgType.FLOAT)), List.of(), Optional.empty())),
+            List.of(new CallShape(List.of(floatMath), List.of(), Optional.empty())),
             BuiltinPermissionRule.ANY,
             BuiltinCostRule.fixed(0),
             EffectClass.PURE,
@@ -1073,7 +1228,7 @@ public final class BuiltinCatalog {
     entries.add(
         new BuiltinSpec(
             "tan",
-            List.of(new CallShape(List.of(Set.of(ArgType.FLOAT)), List.of(), Optional.empty())),
+            List.of(new CallShape(List.of(floatMath), List.of(), Optional.empty())),
             BuiltinPermissionRule.ANY,
             BuiltinCostRule.fixed(0),
             EffectClass.PURE,
@@ -1082,7 +1237,7 @@ public final class BuiltinCatalog {
     entries.add(
         new BuiltinSpec(
             "tanh",
-            List.of(new CallShape(List.of(Set.of(ArgType.FLOAT)), List.of(), Optional.empty())),
+            List.of(new CallShape(List.of(floatMath), List.of(), Optional.empty())),
             BuiltinPermissionRule.ANY,
             BuiltinCostRule.fixed(0),
             EffectClass.PURE,
@@ -2216,7 +2371,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.PURE,
             BuiltinOwner.VM,
-            (a, w, p, t, id, rt, rs, r, cp, c) -> equalValues(a)));
+            (a, w, p, t, id, rt, rs, r, cp, c) -> equalValues(a, valueSemantics)));
     entries.add(
         new BuiltinSpec(
             "eval",
@@ -3463,7 +3618,7 @@ public final class BuiltinCatalog {
   }
 
   private static BuiltinResult acos(List<MooValue> arguments) {
-    double value = ((FloatValue) arguments.getFirst()).value();
+    double value = numericDouble(arguments.getFirst());
     if (Double.isNaN(value)) {
       return BuiltinResult.error(ErrorValue.E_FLOAT);
     }
@@ -3474,7 +3629,7 @@ public final class BuiltinCatalog {
   }
 
   private static BuiltinResult acosh(List<MooValue> arguments) {
-    double value = ((FloatValue) arguments.getFirst()).value();
+    double value = numericDouble(arguments.getFirst());
     if (value < 1.0) {
       return BuiltinResult.error(ErrorValue.E_INVARG);
     }
@@ -3488,7 +3643,7 @@ public final class BuiltinCatalog {
   }
 
   private static BuiltinResult asin(List<MooValue> arguments) {
-    double value = ((FloatValue) arguments.getFirst()).value();
+    double value = numericDouble(arguments.getFirst());
     if (Double.isNaN(value)) {
       return BuiltinResult.error(ErrorValue.E_FLOAT);
     }
@@ -3499,7 +3654,7 @@ public final class BuiltinCatalog {
   }
 
   private static BuiltinResult asinh(List<MooValue> arguments) {
-    double value = ((FloatValue) arguments.getFirst()).value();
+    double value = numericDouble(arguments.getFirst());
     double absolute = Math.abs(value);
     double magnitude =
         absolute > Math.sqrt(Double.MAX_VALUE)
@@ -3513,10 +3668,10 @@ public final class BuiltinCatalog {
   }
 
   private static BuiltinResult atan(List<MooValue> arguments) {
-    double y = ((FloatValue) arguments.getFirst()).value();
+    double y = numericDouble(arguments.getFirst());
     double result =
         arguments.size() == 2
-            ? Math.atan2(y, ((FloatValue) arguments.get(1)).value())
+            ? Math.atan2(y, numericDouble(arguments.get(1)))
             : Math.atan(y);
     return Double.isFinite(result)
         ? BuiltinResult.value(new FloatValue(result))
@@ -3524,13 +3679,13 @@ public final class BuiltinCatalog {
   }
 
   private static BuiltinResult atan2(List<MooValue> arguments) {
-    double y = ((FloatValue) arguments.get(0)).value();
-    double x = ((FloatValue) arguments.get(1)).value();
+    double y = numericDouble(arguments.get(0));
+    double x = numericDouble(arguments.get(1));
     return BuiltinResult.value(new FloatValue(Math.atan2(y, x)));
   }
 
   private static BuiltinResult atanh(List<MooValue> arguments) {
-    double value = ((FloatValue) arguments.getFirst()).value();
+    double value = numericDouble(arguments.getFirst());
     if (Math.abs(value) > 1.0) {
       return BuiltinResult.error(ErrorValue.E_INVARG);
     }
@@ -3544,21 +3699,21 @@ public final class BuiltinCatalog {
   }
 
   private static BuiltinResult cbrt(List<MooValue> arguments) {
-    double result = Math.cbrt(((FloatValue) arguments.getFirst()).value());
+    double result = Math.cbrt(numericDouble(arguments.getFirst()));
     return Double.isFinite(result)
         ? BuiltinResult.value(new FloatValue(result))
         : BuiltinResult.error(ErrorValue.E_FLOAT);
   }
 
   private static BuiltinResult ceil(List<MooValue> arguments) {
-    double result = Math.ceil(((FloatValue) arguments.getFirst()).value());
+    double result = Math.ceil(numericDouble(arguments.getFirst()));
     return Double.isFinite(result)
         ? BuiltinResult.value(new FloatValue(result))
         : BuiltinResult.error(ErrorValue.E_FLOAT);
   }
 
   private static BuiltinResult cosine(List<MooValue> arguments) {
-    double value = ((FloatValue) arguments.getFirst()).value();
+    double value = numericDouble(arguments.getFirst());
     if (Double.isInfinite(value)) {
       return BuiltinResult.error(ErrorValue.E_INVARG);
     }
@@ -3569,28 +3724,28 @@ public final class BuiltinCatalog {
   }
 
   private static BuiltinResult cosh(List<MooValue> arguments) {
-    double result = Math.cosh(((FloatValue) arguments.getFirst()).value());
+    double result = Math.cosh(numericDouble(arguments.getFirst()));
     return Double.isFinite(result)
         ? BuiltinResult.value(new FloatValue(result))
         : BuiltinResult.error(ErrorValue.E_FLOAT);
   }
 
   private static BuiltinResult exp(List<MooValue> arguments) {
-    double result = Math.exp(((FloatValue) arguments.getFirst()).value());
+    double result = Math.exp(numericDouble(arguments.getFirst()));
     return Double.isFinite(result)
         ? BuiltinResult.value(new FloatValue(result))
         : BuiltinResult.error(ErrorValue.E_FLOAT);
   }
 
   private static BuiltinResult floor(List<MooValue> arguments) {
-    double result = Math.floor(((FloatValue) arguments.getFirst()).value());
+    double result = Math.floor(numericDouble(arguments.getFirst()));
     return Double.isFinite(result)
         ? BuiltinResult.value(new FloatValue(result))
         : BuiltinResult.error(ErrorValue.E_FLOAT);
   }
 
   private static BuiltinResult log(List<MooValue> arguments) {
-    double value = ((FloatValue) arguments.getFirst()).value();
+    double value = numericDouble(arguments.getFirst());
     if (value < 0.0) {
       return BuiltinResult.error(ErrorValue.E_INVARG);
     }
@@ -3604,7 +3759,7 @@ public final class BuiltinCatalog {
   }
 
   private static BuiltinResult log10(List<MooValue> arguments) {
-    double value = ((FloatValue) arguments.getFirst()).value();
+    double value = numericDouble(arguments.getFirst());
     if (value < 0.0) {
       return BuiltinResult.error(ErrorValue.E_INVARG);
     }
@@ -3628,7 +3783,7 @@ public final class BuiltinCatalog {
   }
 
   private static BuiltinResult sine(List<MooValue> arguments) {
-    double value = ((FloatValue) arguments.getFirst()).value();
+    double value = numericDouble(arguments.getFirst());
     if (Double.isInfinite(value)) {
       return BuiltinResult.error(ErrorValue.E_INVARG);
     }
@@ -3639,14 +3794,14 @@ public final class BuiltinCatalog {
   }
 
   private static BuiltinResult sinh(List<MooValue> arguments) {
-    double result = Math.sinh(((FloatValue) arguments.getFirst()).value());
+    double result = Math.sinh(numericDouble(arguments.getFirst()));
     return Double.isFinite(result)
         ? BuiltinResult.value(new FloatValue(result))
         : BuiltinResult.error(ErrorValue.E_FLOAT);
   }
 
   private static BuiltinResult sqrt(List<MooValue> arguments) {
-    double value = ((FloatValue) arguments.getFirst()).value();
+    double value = numericDouble(arguments.getFirst());
     if (Double.isNaN(value)) {
       return BuiltinResult.error(ErrorValue.E_FLOAT);
     }
@@ -3660,7 +3815,7 @@ public final class BuiltinCatalog {
   }
 
   private static BuiltinResult tangent(List<MooValue> arguments) {
-    double value = ((FloatValue) arguments.getFirst()).value();
+    double value = numericDouble(arguments.getFirst());
     if (Double.isInfinite(value)) {
       return BuiltinResult.error(ErrorValue.E_INVARG);
     }
@@ -3671,7 +3826,7 @@ public final class BuiltinCatalog {
   }
 
   private static BuiltinResult tanh(List<MooValue> arguments) {
-    double result = Math.tanh(((FloatValue) arguments.getFirst()).value());
+    double result = Math.tanh(numericDouble(arguments.getFirst()));
     return Double.isFinite(result)
         ? BuiltinResult.value(new FloatValue(result))
         : BuiltinResult.error(ErrorValue.E_FLOAT);
@@ -3683,6 +3838,12 @@ public final class BuiltinCatalog {
     return Double.isFinite(result)
         ? BuiltinResult.value(new FloatValue(result))
         : BuiltinResult.error(ErrorValue.E_FLOAT);
+  }
+
+  private static double numericDouble(MooValue value) {
+    return value instanceof IntegerValue integer
+        ? integer.value()
+        : ((FloatValue) value).value();
   }
 
   private static BuiltinResult distance(List<MooValue> arguments) {
@@ -6767,17 +6928,25 @@ public final class BuiltinCatalog {
         || character == '\r';
   }
 
-  private static BuiltinResult equalValues(List<MooValue> arguments) {
+  private static BuiltinResult equalValues(
+      List<MooValue> arguments, ValueSemantics valueSemantics) {
     return BuiltinResult.value(
-        new IntegerValue(exactlyEqual(arguments.get(0), arguments.get(1)) ? 1 : 0));
+        new IntegerValue(
+            exactlyEqual(arguments.get(0), arguments.get(1), valueSemantics) ? 1 : 0));
   }
 
-  private static boolean exactlyEqual(MooValue left, MooValue right) {
+  private static boolean exactlyEqual(
+      MooValue left, MooValue right, ValueSemantics valueSemantics) {
     if (left instanceof BooleanValue bool && right instanceof IntegerValue integer) {
       return integer.value() == (bool.value() ? 1 : 0);
     }
     if (left instanceof IntegerValue integer && right instanceof BooleanValue bool) {
       return integer.value() == (bool.value() ? 1 : 0);
+    }
+    if (valueSemantics.promoteNumbers()
+        && ((left instanceof IntegerValue && right instanceof FloatValue)
+            || (left instanceof FloatValue && right instanceof IntegerValue))) {
+      return numericDouble(left) == numericDouble(right);
     }
     if (left instanceof StringValue leftString && right instanceof StringValue rightString) {
       return Arrays.equals(leftString.bytes(), rightString.bytes());
@@ -6787,7 +6956,8 @@ public final class BuiltinCatalog {
         return false;
       }
       for (int index = 0; index < leftList.size(); index++) {
-        if (!exactlyEqual(leftList.elements().get(index), rightList.elements().get(index))) {
+        if (!exactlyEqual(
+            leftList.elements().get(index), rightList.elements().get(index), valueSemantics)) {
           return false;
         }
       }
@@ -6802,8 +6972,8 @@ public final class BuiltinCatalog {
       while (leftEntries.hasNext()) {
         Map.Entry<MooValue, MooValue> leftEntry = leftEntries.next();
         Map.Entry<MooValue, MooValue> rightEntry = rightEntries.next();
-        if (!exactlyEqual(leftEntry.getKey(), rightEntry.getKey())
-            || !exactlyEqual(leftEntry.getValue(), rightEntry.getValue())) {
+        if (!exactlyEqual(leftEntry.getKey(), rightEntry.getKey(), valueSemantics)
+            || !exactlyEqual(leftEntry.getValue(), rightEntry.getValue(), valueSemantics)) {
           return false;
         }
       }

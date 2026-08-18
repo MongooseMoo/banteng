@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.PrintWriter;
 import java.io.StringWriter;
+import moo.value.ValueSemantics;
 import org.junit.jupiter.api.Test;
 import picocli.CommandLine;
 
@@ -21,14 +22,17 @@ final class BantengTest {
 
   @Test
   void acceptsTheManifestSelectedPromoteNumbersValue() {
-    CommandLine commandLine = new CommandLine(new Banteng());
+    Banteng application = new Banteng();
+    CommandLine commandLine = new CommandLine(application);
 
     assertEquals(
         CommandLine.ExitCode.OK,
         commandLine.execute("--promote-numbers=false", "--version"));
+    assertEquals(new ValueSemantics(false), application.valueSemantics());
     assertEquals(
         CommandLine.ExitCode.OK,
         commandLine.execute("--promote-numbers=true", "--version"));
+    assertEquals(new ValueSemantics(true), application.valueSemantics());
   }
 
   @Test

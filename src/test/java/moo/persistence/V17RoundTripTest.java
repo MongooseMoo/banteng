@@ -2,9 +2,11 @@ package moo.persistence;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.IOException;
@@ -38,6 +40,41 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 final class V17RoundTripTest {
+  @Test
+  void reportsUnsupportedValueTagsInDatabaseVocabulary(@TempDir Path temporaryDirectory)
+      throws IOException {
+    Path checkpoint = temporaryDirectory.resolve("unsupported-value.db");
+    Files.writeString(
+        checkpoint,
+        """
+        ** LambdaMOO Database, Format Version 17 **
+        0
+        1 values pending finalization
+        23
+        """,
+        StandardCharsets.ISO_8859_1);
+
+    IOException error =
+        assertThrows(IOException.class, () -> new LambdaMooV17Codec().read(checkpoint));
+
+    assertEquals(
+        "unsupported v17 value tag 23 at pending finalization value 1", error.getMessage());
+  }
+
+  @Test
+  void codecDiagnosticsDoNotExposeBuildProcessVocabulary() throws IOException {
+    byte[] bytecode;
+    try (var input =
+        Objects.requireNonNull(
+            LambdaMooV17Codec.class.getResourceAsStream("LambdaMooV17Codec.class"))) {
+      bytecode = input.readAllBytes();
+    }
+
+    String constants = new String(bytecode, StandardCharsets.ISO_8859_1);
+    assertFalse(constants.contains("Phase 2"));
+    assertFalse(constants.contains("unsupported v17 value type"));
+  }
+
   @Test
   void acceptsTrailingBlankLinesAfterTheProgramSection(@TempDir Path temporaryDirectory)
       throws IOException {

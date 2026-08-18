@@ -27,6 +27,7 @@ import moo.value.MooValue.MapValue;
 import moo.value.MooValue.ObjectValue;
 import moo.value.MooValue.StringValue;
 import moo.value.MooValue.WaifValue;
+import moo.value.ValueSemantics;
 import moo.world.ObjectFlags;
 import moo.world.WorldAnonymousObject;
 import moo.world.WorldObject;
@@ -3630,6 +3631,35 @@ final class MooVmTest {
 
       assertEquals(VmState.Outcome.ERRORED, state.outcome(), source);
       assertEquals(ErrorValue.E_TYPE, state.uncaughtError().orElseThrow(), source);
+    }
+  }
+
+  @Test
+  void promotesMixedIntegerFloatArithmeticEqualityAndOrderingWhenConfigured() {
+    Map<String, MooValue> cases =
+        Map.ofEntries(
+            Map.entry("return 1 + 0.5;", new FloatValue(1.5)),
+            Map.entry("return 1.5 - 1;", new FloatValue(0.5)),
+            Map.entry("return 2 * 1.5;", new FloatValue(3.0)),
+            Map.entry("return 5 / 2.0;", new FloatValue(2.5)),
+            Map.entry("return 5 % 2.0;", new FloatValue(1.0)),
+            Map.entry("return 2 ^ 3.0;", new FloatValue(8.0)),
+            Map.entry("return 1 == 1.0;", new IntegerValue(1)),
+            Map.entry("return {1} == {1.0};", new IntegerValue(1)),
+            Map.entry("return 1 in {1.0};", new IntegerValue(1)),
+            Map.entry("return 1.5 > 1;", new IntegerValue(1)),
+            Map.entry("return true == 1;", new IntegerValue(1)),
+            Map.entry("return false == 0;", new IntegerValue(1)));
+    MooVm vm = new MooVm(new ValueSemantics(true));
+
+    for (Map.Entry<String, MooValue> test : cases.entrySet()) {
+      BytecodeProgram program = new MooCompiler().compile(MooParser.parse(test.getKey()));
+      VmState state = new VmState();
+
+      vm.execute(program, state);
+
+      assertEquals(VmState.Outcome.RETURNED, state.outcome(), test.getKey());
+      assertEquals(test.getValue(), state.returnValue().orElseThrow(), test.getKey());
     }
   }
 

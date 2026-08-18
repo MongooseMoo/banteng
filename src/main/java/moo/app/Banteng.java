@@ -20,6 +20,7 @@ import moo.persistence.LambdaMooV17Codec.Checkpoint;
 import moo.persistence.LambdaMooV4Reader;
 import moo.persistence.LambdaMooV5Reader;
 import moo.server.MooServer;
+import moo.value.ValueSemantics;
 import org.jspecify.annotations.Nullable;
 import picocli.CommandLine;
 import picocli.CommandLine.Command;
@@ -56,8 +57,7 @@ public final class Banteng implements Callable<Integer> {
       names = "--promote-numbers",
       arity = "1",
       defaultValue = "false",
-      description = "Enable mixed integer/float numeric equality")
-  @SuppressWarnings("UnusedVariable") // Profile-selected configuration for the Phase 3 value slice.
+      description = "Promote integers for mixed numeric operations and float math")
   private boolean promoteNumbers;
 
   @Spec private @Nullable CommandSpec commandSpec;
@@ -111,7 +111,8 @@ public final class Banteng implements Callable<Integer> {
                   checkpointPath,
                   loaded.tasks(),
                   loaded.activeConnections(),
-                  serverLog)) {
+                  serverLog,
+                  valueSemantics())) {
         signalRegistration.keepAlive();
         if (!shutdown.attach(server)) {
           server.serve();
@@ -125,6 +126,10 @@ public final class Banteng implements Callable<Integer> {
   public static void main(String[] args) {
     int exitCode = new CommandLine(new Banteng()).execute(args);
     System.exit(exitCode);
+  }
+
+  ValueSemantics valueSemantics() {
+    return new ValueSemantics(promoteNumbers);
   }
 
   private static final class SignalRegistration implements AutoCloseable {

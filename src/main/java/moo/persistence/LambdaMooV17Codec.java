@@ -48,7 +48,7 @@ import moo.world.WorldVerb;
 import moo.world.WorldWaif;
 import org.jspecify.annotations.Nullable;
 
-/** Streaming Latin-1 reader and atomic writer for the Phase 2 LambdaMOO v17 slice. */
+/** Streaming Latin-1 reader and atomic writer for LambdaMOO format version 17. */
 public final class LambdaMooV17Codec {
   private static final String HEADER = "** LambdaMOO Database, Format Version 17 **";
   private final AtomicPromoter promoter;
@@ -337,7 +337,8 @@ public final class LambdaMooV17Codec {
       int pendingCount = readPendingFinalizationCount(input);
       List<MooValue> pendingFinalization = new ArrayList<>(pendingCount);
       for (int index = 0; index < pendingCount; index++) {
-        pendingFinalization.add(readValue(input, context));
+        pendingFinalization.add(
+            readValue(input, context, "pending finalization value " + (index + 1)));
       }
       requireExact(input, "0 clocks", "clocks count");
       int queuedTaskCount = readSectionCount(input, " queued tasks", "queued-task count");
@@ -702,12 +703,13 @@ public final class LambdaMooV17Codec {
     long scheduledEpochSecond = parseLong(fields[2], "queued-task scheduled epoch second");
     long taskId = parseLong(fields[3], "queued-task id");
 
-    MooValue sentinel = readValue(input, context);
+    MooValue sentinel = readValue(input, context, "queued task #" + taskId + " sentinel");
     if (!sentinel.equals(new IntegerValue(-111))) {
       throw malformed("invalid queued-task activation sentinel");
     }
-    MooValue receiver = readValue(input, context);
-    MooValue typedVerbLocation = readValue(input, context);
+    MooValue receiver = readValue(input, context, "queued task #" + taskId + " receiver");
+    MooValue typedVerbLocation =
+        readValue(input, context, "queued task #" + taskId + " verb location");
     if (!(typedVerbLocation instanceof ObjectValue)
         && !(typedVerbLocation instanceof AnonymousObjectValue)) {
       throw malformed("queued-task verb location must be an object reference");
@@ -749,7 +751,10 @@ public final class LambdaMooV17Codec {
     Map<String, MooValue> locals = new LinkedHashMap<>();
     for (int index = 0; index < variableCount; index++) {
       String name = requiredLine(input, "queued-task variable name");
-      if (locals.putIfAbsent(name, readValue(input, context)) != null) {
+      if (locals.putIfAbsent(
+              name,
+              readValue(input, context, "queued task #" + taskId + " variable " + name))
+          != null) {
         throw malformed("duplicate queued-task variable: " + name);
       }
     }
@@ -821,7 +826,8 @@ public final class LambdaMooV17Codec {
             : readValue(
                 input,
                 readParsedInt(header.substring(secondSpace + 1), "suspended-task resume tag"),
-                context);
+                context,
+                "suspended task #" + taskId + " resume value");
     return readSuspendedVm(
         input, context, taskId, scheduledEpochSecond, resumeValue, Optional.empty());
   }
@@ -851,7 +857,7 @@ public final class LambdaMooV17Codec {
       MooValue resumeValue,
       Optional<String> interruptionStatus)
       throws IOException {
-    MooValue taskLocal = readValue(input, context);
+    MooValue taskLocal = readValue(input, context, "suspended task #" + taskId + " task-local");
     String vmHeader = requiredLine(input, "suspended VM header");
     String[] fields = vmHeader.split(" ", -1);
     if (fields.length != 4) {
@@ -870,7 +876,7 @@ public final class LambdaMooV17Codec {
     }
     List<SuspendedActivation> activations = new ArrayList<>(topActivation + 1);
     for (int index = 0; index <= topActivation; index++) {
-      activations.add(readSuspendedActivation(input, context));
+      activations.add(readSuspendedActivation(input, context, taskId, index));
     }
     return new SuspendedTask(
         taskId,
@@ -885,7 +891,8 @@ public final class LambdaMooV17Codec {
   }
 
   private static SuspendedActivation readSuspendedActivation(
-      BufferedReader input, ReadContext context) throws IOException {
+      BufferedReader input, ReadContext context, long taskId, int activationIndex)
+      throws IOException {
     String versionLine = requiredLine(input, "suspended activation language version");
     String versionPrefix = "language version ";
     if (!versionLine.startsWith(versionPrefix)) {
@@ -904,7 +911,17 @@ public final class LambdaMooV17Codec {
       Optional<MooValue> value =
           localTag == 6
               ? Optional.empty()
-              : Optional.of(readValue(input, localTag, context));
+              : Optional.of(
+                  readValue(
+                      input,
+                      localTag,
+                      context,
+                      "suspended task #"
+                          + taskId
+                          + " activation "
+                          + activationIndex
+                          + " variable "
+                          + name));
       if (locals.putIfAbsent(name, value) != null) {
         throw malformed("duplicate suspended activation variable: " + name);
       }
@@ -928,17 +945,45 @@ public final class LambdaMooV17Codec {
       } else {
         operandStack.add(
             new SuspendedStackSlot(
-                Optional.of(readValue(input, stackTag, context)), -1, 0));
+                Optional.of(
+                    readValue(
+                        input,
+                        stackTag,
+                        context,
+                        "suspended task #"
+                            + taskId
+                            + " activation "
+                            + activationIndex
+                            + " stack slot "
+                            + index)),
+                -1,
+                0));
       }
     }
     Collections.reverse(operandStack);
 
-    MooValue sentinel = readValue(input, context);
+    MooValue sentinel =
+        readValue(
+            input,
+            context,
+            "suspended task #" + taskId + " activation " + activationIndex + " sentinel");
     if (!sentinel.equals(new IntegerValue(-111))) {
       throw malformed("invalid suspended activation sentinel");
     }
-    MooValue receiver = readValue(input, context);
-    MooValue verbLocation = readValue(input, context);
+    MooValue receiver =
+        readValue(
+            input,
+            context,
+            "suspended task #" + taskId + " activation " + activationIndex + " receiver");
+    MooValue verbLocation =
+        readValue(
+            input,
+            context,
+            "suspended task #"
+                + taskId
+                + " activation "
+                + activationIndex
+                + " verb location");
     long encodedThreadMode = readLong(input, "suspended activation thread mode");
     if (encodedThreadMode != 0 && encodedThreadMode != 1) {
       throw malformed("invalid suspended activation thread mode: " + encodedThreadMode);
@@ -984,7 +1029,16 @@ public final class LambdaMooV17Codec {
     Optional<MooValue> temporary =
         temporaryTag == 6
             ? Optional.empty()
-            : Optional.of(readValue(input, temporaryTag, context));
+            : Optional.of(
+                readValue(
+                    input,
+                    temporaryTag,
+                    context,
+                    "suspended task #"
+                        + taskId
+                        + " activation "
+                        + activationIndex
+                        + " temporary"));
     String counterLine = requiredLine(input, "suspended activation counters");
     String[] counters = counterLine.split(" ", -1);
     if (counters.length != 2 && counters.length != 3) {
@@ -1207,7 +1261,6 @@ public final class LambdaMooV17Codec {
           line(output, ".");
         }
       }
-      default -> throw new IOException("unsupported Phase 2 v17 value: " + value.type());
     }
   }
 
@@ -1226,16 +1279,22 @@ public final class LambdaMooV17Codec {
     int flags = readInt(input, "object #" + expectedId + " flags");
     long owner = readLong(input, "object #" + expectedId + " owner");
     long location =
-        requireObject(readValue(input, context), "object #" + expectedId + " location");
-    MooValue lastMove = readValue(input, context);
+        requireObject(
+            readValue(input, context, "object #" + expectedId + " location"),
+            "object #" + expectedId + " location");
+    MooValue lastMove = readValue(input, context, "object #" + expectedId + " last move");
     List<Long> contents =
         requireObjectList(
-            readValue(input, context), "object #" + expectedId + " contents");
+            readValue(input, context, "object #" + expectedId + " contents"),
+            "object #" + expectedId + " contents");
     List<Long> parents =
-        requireParents(readValue(input, context), "object #" + expectedId + " parents");
+        requireParents(
+            readValue(input, context, "object #" + expectedId + " parents"),
+            "object #" + expectedId + " parents");
     List<Long> children =
         requireObjectList(
-            readValue(input, context), "object #" + expectedId + " children");
+            readValue(input, context, "object #" + expectedId + " children"),
+            "object #" + expectedId + " children");
 
     int verbCount = readCount(input, "object #" + expectedId + " verb count");
     List<RawVerb> verbs = new ArrayList<>(verbCount);
@@ -1260,7 +1319,13 @@ public final class LambdaMooV17Codec {
         int tag = readInt(input, "property value tag");
         propertySlots.add(
             new RawPropertySlot(
-                tag == 5 ? null : readValue(input, tag, context),
+                tag == 5
+                    ? null
+                    : readValue(
+                        input,
+                        tag,
+                        context,
+                        "object #" + expectedId + " property slot " + index + " value"),
                 tag == 5,
                 readLong(input, "property owner"),
                 readInt(input, "property permissions")));
@@ -1627,13 +1692,14 @@ public final class LambdaMooV17Codec {
     visiting.remove(objectId);
   }
 
-  private static MooValue readValue(BufferedReader input, ReadContext context) throws IOException {
-    int tag = readInt(input, "value tag");
-    return readValue(input, tag, context);
+  private static MooValue readValue(
+      BufferedReader input, ReadContext context, String location) throws IOException {
+    int tag = readInt(input, location + " tag");
+    return readValue(input, tag, context, location);
   }
 
-  private static MooValue readValue(BufferedReader input, int tag, ReadContext context)
-      throws IOException {
+  private static MooValue readValue(
+      BufferedReader input, int tag, ReadContext context, String location) throws IOException {
     return switch (tag) {
       case 0 -> new IntegerValue(readLong(input, "integer value"));
       case 1 -> new ObjectValue(readLong(input, "object value"));
@@ -1648,7 +1714,8 @@ public final class LambdaMooV17Codec {
         int count = readCount(input, "list count");
         List<MooValue> values = new ArrayList<>(count);
         for (int index = 0; index < count; index++) {
-          values.add(readValue(input, context));
+          values.add(
+              readValue(input, context, location + " list element " + (index + 1)));
         }
         yield new ListValue(values);
       }
@@ -1658,8 +1725,10 @@ public final class LambdaMooV17Codec {
         List<MooValue> keys = new ArrayList<>(count);
         MapValue values = new MapValue(Map.of());
         for (int index = 0; index < count; index++) {
-          MooValue key = readValue(input, context);
-          MooValue value = readValue(input, context);
+          MooValue key =
+              readValue(input, context, location + " map entry " + (index + 1) + " key");
+          MooValue value =
+              readValue(input, context, location + " map entry " + (index + 1) + " value");
           for (MooValue existing : keys) {
             if (MapValue.compareKeys(existing, key) == 0) {
               throw malformed("duplicate map key in v17 value");
@@ -1681,14 +1750,14 @@ public final class LambdaMooV17Codec {
         yield context.anonymousById.computeIfAbsent(
             objectId, ignored -> new AnonymousObjectValue());
       }
-      case 13 -> readWaif(input, context);
+      case 13 -> readWaif(input, context, location);
       case 14 -> BooleanValue.of(readLong(input, "boolean value") != 0);
-      default -> throw malformed("unsupported Phase 2 v17 value tag " + tag);
+      default -> throw malformed("unsupported v17 value tag " + tag + " at " + location);
     };
   }
 
-  private static WaifValue readWaif(BufferedReader input, ReadContext context)
-      throws IOException {
+  private static WaifValue readWaif(
+      BufferedReader input, ReadContext context, String location) throws IOException {
     String header = requiredLine(input, "WAIF identity header");
     if (header.length() < 3 || header.charAt(1) != ' ') {
       throw malformed("invalid WAIF identity header: " + header);
@@ -1721,7 +1790,8 @@ public final class LambdaMooV17Codec {
       if (propertyIndex < 0 || propertyIndex >= propertyCount) {
         throw malformed("WAIF property index is out of range: " + propertyIndex);
       }
-      MooValue value = readValue(input, context);
+      MooValue value =
+          readValue(input, context, location + " WAIF property " + propertyIndex);
       if (overrides.putIfAbsent(propertyIndex, value) != null) {
         throw malformed("duplicate WAIF property index " + propertyIndex);
       }
