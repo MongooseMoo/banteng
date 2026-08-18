@@ -8,6 +8,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.time.Clock;
+import java.time.ZoneId;
 import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.Locale;
@@ -55,7 +56,7 @@ public final class ServerLog implements AutoCloseable {
             // The process owns standard error.
           }
         };
-    return new ServerLog(stderr, threshold, Clock.systemDefaultZone());
+    return new ServerLog(stderr, threshold, Clock.system(ZoneId.systemDefault()));
   }
 
   /** Opens an append-only file log, or uses standard error when no file is configured. */
@@ -71,7 +72,7 @@ public final class ServerLog implements AutoCloseable {
             StandardCharsets.UTF_8,
             StandardOpenOption.CREATE,
             StandardOpenOption.APPEND);
-    return new ServerLog(output, threshold, Clock.systemDefaultZone(), true);
+    return new ServerLog(output, threshold, Clock.system(ZoneId.systemDefault()), true);
   }
 
   /** Writes one normal server message when INFO is enabled. */
