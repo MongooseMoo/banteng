@@ -36,6 +36,7 @@ import moo.bytecode.MooCompiler;
 import moo.host.NativeCalls;
 import moo.host.NativeCalls.NativeCallException;
 import moo.logging.ServerLog;
+import moo.server.ConnectionRegistry;
 import moo.syntax.Ast;
 import moo.syntax.MooParser;
 import moo.syntax.MooUnparser;
@@ -113,6 +114,10 @@ public final class BuiltinCatalog {
     floatingRandom = new Random();
     manifest = buildManifest();
     specs = indexManifest(manifest);
+  }
+
+  private ConnectionRegistry connections() {
+    return Objects.requireNonNull(hosts.connections().get(), "hosts.connections().get()");
   }
 
   private List<BuiltinSpec> buildManifest() {
@@ -1317,7 +1322,11 @@ public final class BuiltinCatalog {
             call ->
                 BuiltinResult.value(
                     new ListValue(
-                        call.world().connectedPlayers(!call.arguments().isEmpty() && call.arguments().getFirst().isTruthy()).stream()
+                        connections()
+                            .connectedPlayers(
+                                !call.arguments().isEmpty()
+                                    && call.arguments().getFirst().isTruthy())
+                            .stream()
                             .map(ObjectValue::new)
                             .map(MooValue.class::cast)
                             .toList()))));
@@ -1913,10 +1922,10 @@ public final class BuiltinCatalog {
     return hosts.threadPool().invoke(call);
   }
 
-  private static BuiltinResult connectionInfo(
+  private BuiltinResult connectionInfo(
       List<MooValue> arguments, WorldTxn world, long programmer) {
     long target = ((ObjectValue) arguments.getFirst()).value();
-    Optional<MapValue> info = world.connectionInfo(target);
+    Optional<MapValue> info = connections().connectionInfo(target);
     if (info.isEmpty()) {
       return BuiltinResult.error(ErrorValue.E_INVARG);
     }
@@ -1932,7 +1941,7 @@ public final class BuiltinCatalog {
       return BuiltinResult.value(new IntegerValue(DEFAULT_MAX_QUEUED_OUTPUT));
     }
     long target = ((ObjectValue) arguments.getFirst()).value();
-    OptionalLong connectionId = world.connectionId(target);
+    OptionalLong connectionId = connections().connectionId(target);
     if (connectionId.isEmpty()) {
       return BuiltinResult.error(ErrorValue.E_INVARG);
     }
@@ -1946,13 +1955,13 @@ public final class BuiltinCatalog {
     return BuiltinResult.value(new IntegerValue(queuedBytes));
   }
 
-  private static BuiltinResult connectionName(
+  private BuiltinResult connectionName(
       List<MooValue> arguments, WorldTxn world, long programmer) {
     long target = ((ObjectValue) arguments.getFirst()).value();
     if (target != programmer && !BuiltinPermissionRule.WIZARD_ONLY.allows(world, programmer)) {
       return BuiltinResult.error(ErrorValue.E_PERM);
     }
-    MapValue info = world.connectionInfo(target).orElse(null);
+    MapValue info = connections().connectionInfo(target).orElse(null);
     if (info == null) {
       return BuiltinResult.error(ErrorValue.E_INVARG);
     }
@@ -1996,13 +2005,13 @@ public final class BuiltinCatalog {
     return new BuiltinResult.BootPlayer(target);
   }
 
-  private static BuiltinResult setConnectionOption(
+  private BuiltinResult setConnectionOption(
       List<MooValue> arguments, WorldTxn world, long programmer) {
     long target = ((ObjectValue) arguments.get(0)).value();
     if (target != programmer && !BuiltinPermissionRule.WIZARD_ONLY.allows(world, programmer)) {
       return BuiltinResult.error(ErrorValue.E_PERM);
     }
-    if (world.connectionInfo(target).isEmpty()) {
+    if (connections().connectionInfo(target).isEmpty()) {
       return BuiltinResult.error(ErrorValue.E_INVARG);
     }
     ConnectionOption option =
@@ -2024,7 +2033,7 @@ public final class BuiltinCatalog {
         return BuiltinResult.error(ErrorValue.E_INVARG);
       }
       value = normalized.orElseThrow();
-      world.setIntrinsicCommands(target, (ListValue) value);
+      connections().setIntrinsicCommands(target, (ListValue) value);
     }
     return new BuiltinResult.SetConnectionOption(target, option, value);
   }
@@ -5858,11 +5867,11 @@ public final class BuiltinCatalog {
     return BuiltinResult.error(ErrorValue.E_TYPE);
   }
 
-  private static BuiltinResult switchPlayer(List<MooValue> arguments, WorldTxn world) {
+  private BuiltinResult switchPlayer(List<MooValue> arguments, WorldTxn world) {
     long oldPlayer = ((ObjectValue) arguments.getFirst()).value();
     long newPlayer = ((ObjectValue) arguments.get(1)).value();
     if (oldPlayer == newPlayer
-        || world.connectionId(oldPlayer).isEmpty()
+        || connections().connectionId(oldPlayer).isEmpty()
         || !world.players().contains(newPlayer)) {
       return BuiltinResult.error(ErrorValue.E_INVARG);
     }

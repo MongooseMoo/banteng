@@ -2,7 +2,9 @@ package moo.builtin;
 
 import java.util.List;
 import java.util.Objects;
+import java.util.function.Supplier;
 import moo.logging.ServerLog;
+import moo.server.ConnectionRegistry;
 import moo.value.MooValue.ErrorValue;
 import moo.value.MooValue.IntegerValue;
 import moo.value.MooValue.ListValue;
@@ -23,7 +25,8 @@ public record BuiltinHosts(
     BuiltinHandler queueInfo,
     BuiltinHandler taskStack,
     BuiltinHandler resumeTask,
-    ServerLog serverLog) {
+    ServerLog serverLog,
+    Supplier<ConnectionRegistry> connections) {
   /** Rejects incomplete host composition. */
   public BuiltinHosts {
     Objects.requireNonNull(valueSemantics, "valueSemantics");
@@ -40,6 +43,7 @@ public record BuiltinHosts(
     Objects.requireNonNull(taskStack, "taskStack");
     Objects.requireNonNull(resumeTask, "resumeTask");
     Objects.requireNonNull(serverLog, "serverLog");
+    Objects.requireNonNull(connections, "connections");
   }
 
   /** Starts one host composition with behavior-preserving standalone defaults. */
@@ -72,6 +76,8 @@ public record BuiltinHosts(
     private BuiltinHandler taskStack = Builder::invalidArgument;
     private BuiltinHandler resumeTask = Builder::invalidArgument;
     private ServerLog serverLog = ServerLog.stderr(System.Logger.Level.INFO);
+    private final ConnectionRegistry standaloneConnections = new ConnectionRegistry();
+    private Supplier<ConnectionRegistry> connections = () -> standaloneConnections;
 
     private Builder() {}
 
@@ -145,6 +151,11 @@ public record BuiltinHosts(
       return this;
     }
 
+    public Builder connections(Supplier<ConnectionRegistry> value) {
+      connections = value;
+      return this;
+    }
+
     public BuiltinHosts build() {
       return new BuiltinHosts(
           valueSemantics,
@@ -160,7 +171,8 @@ public record BuiltinHosts(
           queueInfo,
           taskStack,
           resumeTask,
-          serverLog);
+          serverLog,
+          connections);
     }
 
     private static BuiltinResult invalidArgument(BuiltinCall call) {
