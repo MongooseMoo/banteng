@@ -4840,6 +4840,7 @@ public final class BuiltinCatalog {
     return salt.startsWith("$2a$") || salt.startsWith("$2x$") || salt.startsWith("$2y$");
   }
 
+  @SuppressWarnings("restricted")
   private static String nativeCrypt(byte[] password, byte[] salt) {
     try (Arena arena = Arena.ofConfined()) {
       MemorySegment passwordString = nullTerminated(arena, password);
