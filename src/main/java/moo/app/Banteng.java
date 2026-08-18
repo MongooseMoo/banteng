@@ -9,10 +9,12 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
+import moo.logging.ServerLog;
 import moo.persistence.LambdaMooV17Codec;
 import moo.persistence.LambdaMooV17Codec.Checkpoint;
 import moo.persistence.LambdaMooV4Reader;
@@ -45,9 +47,10 @@ public final class Banteng implements Callable<Integer> {
   private int port = 7777;
 
   @Option(names = "--log-level", defaultValue = "INFO", description = "System.Logger level")
-  @SuppressWarnings(
-      "UnusedVariable") // Retained CLI surface; server logging is not part of this slice.
   private System.Logger.Level logLevel = System.Logger.Level.INFO;
+
+  @Option(names = "--log-file", paramLabel = "PATH", description = "Append server log to a file")
+  private @Nullable Path logFile;
 
   @Option(
       names = "--promote-numbers",
@@ -78,38 +81,41 @@ public final class Banteng implements Callable<Integer> {
       throw new CommandLine.ParameterException(spec.commandLine(), "--checkpoint is required");
     }
 
-    Checkpoint loaded;
-    try (BufferedReader input =
-        Files.newBufferedReader(databasePath, StandardCharsets.ISO_8859_1)) {
-      String header = input.readLine();
-      loaded =
-          switch (Objects.requireNonNullElse(header, "")) {
-            case "** LambdaMOO Database, Format Version 4 **" ->
-                new Checkpoint(
-                    new LambdaMooV4Reader().read(databasePath), List.of(), List.of());
-            case "** LambdaMOO Database, Format Version 5 **" ->
-                new Checkpoint(
-                    new LambdaMooV5Reader().read(databasePath), List.of(), List.of());
-            case "** LambdaMOO Database, Format Version 17 **" ->
-                new LambdaMooV17Codec().read(databasePath);
-            default -> throw new IOException("unsupported database header: " + header);
-          };
-    }
-    GracefulShutdownCoordinator shutdown = new GracefulShutdownCoordinator();
-    try (SignalRegistration signalRegistration =
-            SignalRegistration.install("TERM", shutdown::request);
-        MooServer server =
-            new MooServer(
-                listenAddress,
-                port,
-                loaded.world(),
-                databasePath,
-                checkpointPath,
-                loaded.tasks(),
-                loaded.activeConnections())) {
-      signalRegistration.keepAlive();
-      if (!shutdown.attach(server)) {
-        server.serve();
+    try (ServerLog serverLog = ServerLog.open(logLevel, Optional.ofNullable(logFile))) {
+      Checkpoint loaded;
+      try (BufferedReader input =
+          Files.newBufferedReader(databasePath, StandardCharsets.ISO_8859_1)) {
+        String header = input.readLine();
+        loaded =
+            switch (Objects.requireNonNullElse(header, "")) {
+              case "** LambdaMOO Database, Format Version 4 **" ->
+                  new Checkpoint(
+                      new LambdaMooV4Reader().read(databasePath), List.of(), List.of());
+              case "** LambdaMOO Database, Format Version 5 **" ->
+                  new Checkpoint(
+                      new LambdaMooV5Reader(serverLog).read(databasePath), List.of(), List.of());
+              case "** LambdaMOO Database, Format Version 17 **" ->
+                  new LambdaMooV17Codec().read(databasePath);
+              default -> throw new IOException("unsupported database header: " + header);
+            };
+      }
+      GracefulShutdownCoordinator shutdown = new GracefulShutdownCoordinator();
+      try (SignalRegistration signalRegistration =
+              SignalRegistration.install("TERM", shutdown::request);
+          MooServer server =
+              new MooServer(
+                  listenAddress,
+                  port,
+                  loaded.world(),
+                  databasePath,
+                  checkpointPath,
+                  loaded.tasks(),
+                  loaded.activeConnections(),
+                  serverLog)) {
+        signalRegistration.keepAlive();
+        if (!shutdown.attach(server)) {
+          server.serve();
+        }
       }
     }
     return CommandLine.ExitCode.OK;
