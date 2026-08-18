@@ -225,7 +225,9 @@ final class PublicationScheduler implements AutoCloseable {
         restored.fullVerbName(),
         restored.firstSourceLine(),
         snapshot);
-    nextTaskId = Math.max(nextTaskId, Math.addExact(restored.taskId(), 1));
+    synchronized (this) {
+      nextTaskId = Math.max(nextTaskId, Math.addExact(restored.taskId(), 1));
+    }
     return new TimedWork(
         work,
         Math.multiplyExact(restored.scheduledEpochSecond(), 1_000L),

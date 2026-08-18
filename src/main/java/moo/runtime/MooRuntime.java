@@ -3402,7 +3402,7 @@ public final class MooRuntime implements AutoCloseable {
     }
   }
 
-  private List<ActiveConnection> activeConnections() {
+  private synchronized List<ActiveConnection> activeConnections() {
     List<ActiveConnection> active = new ArrayList<>();
     for (ConnectionState connection : publishedConnections.values()) {
       active.add(new ActiveConnection(connection.player, connection.listenerHandler));
