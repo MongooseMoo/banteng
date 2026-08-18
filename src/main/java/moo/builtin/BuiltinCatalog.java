@@ -49,6 +49,7 @@ import moo.value.MooValue.MapValue;
 import moo.value.MooValue.ObjectValue;
 import moo.value.MooValue.StringValue;
 import moo.value.MooValue.WaifValue;
+import moo.world.ObjectFlags;
 import moo.world.WorldAnonymousObject;
 import moo.world.WorldObject;
 import moo.world.WorldProperty;
@@ -111,9 +112,6 @@ public final class BuiltinCatalog {
   private static final Set<ArgType> NUMBER = Set.of(ArgType.NUMBER);
   private static final Set<ArgType> STRING = Set.of(ArgType.STRING);
   private static final Set<ArgType> OBJECT = Set.of(ArgType.OBJECT);
-  private static final int WIZARD_FLAG = 4;
-  private static final int FERTILE_FLAG = 1 << 7;
-  private static final int ANONYMOUS_FLAG = 1 << 8;
   private static final int DEFAULT_MAX_QUEUED_OUTPUT = 65_536;
   private static final long DEFAULT_MAX_LIST_VALUE_BYTES = 64_537_861L;
   private static final long MIN_LIST_VALUE_BYTES_LIMIT = 1_021L;
@@ -5006,7 +5004,7 @@ public final class BuiltinCatalog {
     }
 
     WorldObject actor = world.object(programmer).orElse(null);
-    boolean wizard = actor != null && (actor.flags() & 4) != 0;
+    boolean wizard = actor != null && ObjectFlags.isWizard(actor.flags());
     if (verb.owner() != programmer && !wizard && (verb.permissions() & 1) == 0) {
       return BuiltinResult.error(ErrorValue.E_PERM);
     }
@@ -5100,7 +5098,10 @@ public final class BuiltinCatalog {
     boolean wizard = isWizard(world, programmer);
     if ((ownerSpecified && owner != programmer && !wizard)
         || !parentsAllowed(
-            parents.ids(), world, programmer, anonymous ? ANONYMOUS_FLAG : FERTILE_FLAG)) {
+            parents.ids(),
+            world,
+            programmer,
+            anonymous ? ObjectFlags.FLAG_ANONYMOUS : ObjectFlags.FLAG_FERTILE)) {
       return BuiltinResult.error(ErrorValue.E_PERM);
     }
     if (owner != -1 && !decrementOwnershipQuota(world, owner)) {
@@ -5140,7 +5141,7 @@ public final class BuiltinCatalog {
       }
     }
     if ((owner != programmer && !isWizard(world, programmer))
-        || !parentsAllowed(parents.ids(), world, programmer, FERTILE_FLAG)) {
+        || !parentsAllowed(parents.ids(), world, programmer, ObjectFlags.FLAG_FERTILE)) {
       return BuiltinResult.error(ErrorValue.E_PERM);
     }
     if (world.object(owner).isPresent() && !decrementOwnershipQuota(world, owner)) {
@@ -5304,7 +5305,7 @@ public final class BuiltinCatalog {
       owner = body.owner();
     }
     if ((!isWizard(world, programmer) && owner != programmer)
-        || !parentsAllowed(parents.ids(), world, programmer, FERTILE_FLAG)) {
+        || !parentsAllowed(parents.ids(), world, programmer, ObjectFlags.FLAG_FERTILE)) {
       return BuiltinResult.error(ErrorValue.E_PERM);
     }
     if (recursive) {
@@ -5319,7 +5320,7 @@ public final class BuiltinCatalog {
 
   private static boolean isWizard(WorldTxn world, long programmer) {
     WorldObject object = world.object(programmer).orElse(null);
-    return object != null && (object.flags() & WIZARD_FLAG) != 0;
+    return object != null && ObjectFlags.isWizard(object.flags());
   }
 
   private static boolean parentsAllowed(
@@ -5559,7 +5560,7 @@ public final class BuiltinCatalog {
     }
 
     WorldObject actor = world.object(programmer).orElse(null);
-    boolean wizard = actor != null && (actor.flags() & 4) != 0;
+    boolean wizard = actor != null && ObjectFlags.isWizard(actor.flags());
     MooValue receiver = arguments.get(0);
     long targetOwner;
     int targetFlags;
@@ -5580,7 +5581,7 @@ public final class BuiltinCatalog {
     } else {
       return BuiltinResult.error(ErrorValue.E_TYPE);
     }
-    boolean writable = targetOwner == programmer || wizard || (targetFlags & 32) != 0;
+    boolean writable = targetOwner == programmer || wizard || ObjectFlags.isWritable(targetFlags);
     if (!writable || (owner.value() != programmer && !wizard)) {
       return BuiltinResult.error(ErrorValue.E_PERM);
     }
@@ -5646,8 +5647,8 @@ public final class BuiltinCatalog {
       return BuiltinResult.error(ErrorValue.E_TYPE);
     }
     WorldObject actor = world.object(programmer).orElse(null);
-    boolean wizard = actor != null && (actor.flags() & 4) != 0;
-    boolean writable = targetOwner == programmer || wizard || (targetFlags & 32) != 0;
+    boolean wizard = actor != null && ObjectFlags.isWizard(actor.flags());
+    boolean writable = targetOwner == programmer || wizard || ObjectFlags.isWritable(targetFlags);
     if (!writable || (owner.value() != programmer && !wizard)) {
       return BuiltinResult.error(ErrorValue.E_PERM);
     }
@@ -5680,8 +5681,8 @@ public final class BuiltinCatalog {
       return BuiltinResult.error(ErrorValue.E_INVARG);
     }
     WorldObject actor = world.object(programmer).orElse(null);
-    boolean wizard = actor != null && (actor.flags() & 4) != 0;
-    if (target.owner() != programmer && !wizard && (target.flags() & 16) == 0) {
+    boolean wizard = actor != null && ObjectFlags.isWizard(actor.flags());
+    if (target.owner() != programmer && !wizard && !ObjectFlags.isReadable(target.flags())) {
       return BuiltinResult.error(ErrorValue.E_PERM);
     }
     List<MooValue> names =
@@ -5719,7 +5720,7 @@ public final class BuiltinCatalog {
       return value;
     }
     WorldObject viewer = world.object(programmer).orElse(null);
-    boolean wizard = viewer != null && (viewer.flags() & 4) != 0;
+    boolean wizard = viewer != null && ObjectFlags.isWizard(viewer.flags());
     return wizard || body.owner() == programmer ? value : new AnonymousObjectValue();
   }
 
@@ -5750,7 +5751,7 @@ public final class BuiltinCatalog {
       return BuiltinResult.error(ErrorValue.E_PROPNF);
     }
     WorldObject actor = world.object(programmer).orElse(null);
-    boolean wizard = actor != null && (actor.flags() & 4) != 0;
+    boolean wizard = actor != null && ObjectFlags.isWizard(actor.flags());
     if (property.owner() != programmer && !wizard && (property.permissions() & 1) == 0) {
       return BuiltinResult.error(ErrorValue.E_PERM);
     }
@@ -5791,7 +5792,7 @@ public final class BuiltinCatalog {
       return BuiltinResult.error(ErrorValue.E_PROPNF);
     }
     WorldObject actor = world.object(programmer).orElse(null);
-    boolean wizard = actor != null && (actor.flags() & 4) != 0;
+    boolean wizard = actor != null && ObjectFlags.isWizard(actor.flags());
     if (property.owner() != programmer && !wizard && (property.permissions() & 1) == 0) {
       return BuiltinResult.error(ErrorValue.E_PERM);
     }
@@ -5836,7 +5837,7 @@ public final class BuiltinCatalog {
       return BuiltinResult.error(ErrorValue.E_PROPNF);
     }
     WorldObject actor = world.object(programmer).orElse(null);
-    boolean wizard = actor != null && (actor.flags() & 4) != 0;
+    boolean wizard = actor != null && ObjectFlags.isWizard(actor.flags());
     if (property.owner() != programmer && !wizard && (property.permissions() & 2) == 0) {
       return BuiltinResult.error(ErrorValue.E_PERM);
     }
@@ -5863,8 +5864,8 @@ public final class BuiltinCatalog {
       return BuiltinResult.error(ErrorValue.E_INVARG);
     }
     WorldObject actor = world.object(programmer).orElse(null);
-    boolean wizard = actor != null && (actor.flags() & 4) != 0;
-    if (target.owner() != programmer && !wizard && (target.flags() & 32) == 0) {
+    boolean wizard = actor != null && ObjectFlags.isWizard(actor.flags());
+    if (target.owner() != programmer && !wizard && !ObjectFlags.isWritable(target.flags())) {
       return BuiltinResult.error(ErrorValue.E_PERM);
     }
     String name = decode((StringValue) arguments.get(1));
@@ -5989,7 +5990,7 @@ public final class BuiltinCatalog {
     } else {
       return BuiltinResult.error(ErrorValue.E_TYPE);
     }
-    if (owner != programmer && !isWizard(world, programmer) && (flags & 16) == 0) {
+    if (owner != programmer && !isWizard(world, programmer) && !ObjectFlags.isReadable(flags)) {
       return BuiltinResult.error(ErrorValue.E_PERM);
     }
     return BuiltinResult.value(
@@ -6148,7 +6149,7 @@ public final class BuiltinCatalog {
     }
 
     boolean wizard = BuiltinPermissionRule.WIZARD_ONLY.allows(world, programmer);
-    if (target.owner() != programmer && !wizard && (target.flags() & 32) == 0) {
+    if (target.owner() != programmer && !wizard && !ObjectFlags.isWritable(target.flags())) {
       return BuiltinResult.error(ErrorValue.E_PERM);
     }
 
@@ -6344,8 +6345,8 @@ public final class BuiltinCatalog {
     }
 
     WorldObject actor = world.object(programmer).orElse(null);
-    boolean wizard = actor != null && (actor.flags() & 4) != 0;
-    boolean programmerFlag = actor != null && (actor.flags() & 2) != 0;
+    boolean wizard = actor != null && ObjectFlags.isWizard(actor.flags());
+    boolean programmerFlag = actor != null && ObjectFlags.isProgrammer(actor.flags());
     if ((!programmerFlag && !wizard)
         || (verb.owner() != programmer && !wizard && (verb.permissions() & 2) == 0)) {
       return BuiltinResult.error(ErrorValue.E_PERM);
@@ -6415,7 +6416,7 @@ public final class BuiltinCatalog {
     }
 
     WorldObject actor = world.object(programmer).orElse(null);
-    boolean wizard = actor != null && (actor.flags() & 4) != 0;
+    boolean wizard = actor != null && ObjectFlags.isWizard(actor.flags());
     if (verb.owner() != programmer && !wizard && (verb.permissions() & 1) == 0) {
       return BuiltinResult.error(ErrorValue.E_PERM);
     }
@@ -6447,7 +6448,7 @@ public final class BuiltinCatalog {
       return BuiltinResult.error(ErrorValue.E_RECMOVE);
     }
     WorldObject programmerObject = world.object(programmer).orElse(null);
-    if (programmerObject != null && (programmerObject.flags() & 4) != 0) {
+    if (programmerObject != null && ObjectFlags.isWizard(programmerObject.flags())) {
       if (destination.value() == moving.location()) {
         return position == 0 || world.move(object.value(), destination.value(), position)
             ? BuiltinResult.value(new IntegerValue(0))
@@ -6479,7 +6480,7 @@ public final class BuiltinCatalog {
   private static BuiltinResult recycle(
       List<MooValue> arguments, WorldTxn world, long programmer) {
     WorldObject actor = world.object(programmer).orElse(null);
-    boolean wizard = actor != null && (actor.flags() & 4) != 0;
+    boolean wizard = actor != null && ObjectFlags.isWizard(actor.flags());
     MooValue receiver = arguments.getFirst();
     if (receiver instanceof AnonymousObjectValue anonymous) {
       WorldAnonymousObject target = world.anonymousObject(anonymous).orElse(null);
