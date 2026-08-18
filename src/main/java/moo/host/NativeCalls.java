@@ -119,6 +119,8 @@ public final class NativeCalls {
 
   /** Checked host-linkage failure translated for code that cannot declare {@link Throwable}. */
   public static final class NativeCallException extends IllegalStateException {
+    private static final long serialVersionUID = 1L;
+
     private NativeCallException(String operation, Throwable cause) {
       super(operation + " invocation failed", cause);
     }
