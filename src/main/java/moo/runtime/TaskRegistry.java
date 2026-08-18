@@ -29,6 +29,12 @@ import moo.world.WorldTxn;
 final class TaskRegistry {
   private static final long BACKGROUND_TICKS = 30_000;
 
+  enum TaskControlDecision {
+    ALLOWED,
+    DENIED,
+    MISSING
+  }
+
   @GuardedBy("this") private final Map<Long, TaskInfo> tasks = new TreeMap<>();
   @GuardedBy("this") private final Map<Long, FutureTask<BuiltinResult>> hostWork = new TreeMap<>();
   @GuardedBy("this") private final Map<Long, Runnable> cancellationActions = new TreeMap<>();
@@ -222,18 +228,17 @@ final class TaskRegistry {
     return tasks.values().stream().filter(task -> task.programmer() == player).count();
   }
 
-  synchronized boolean mayControl(long taskId, WorldTxn world, long programmer) {
+  synchronized TaskControlDecision taskControlDecision(
+      long taskId, WorldTxn world, long programmer) {
     TaskInfo task = tasks.get(taskId);
     if (task == null) {
-      return false;
+      return TaskControlDecision.MISSING;
     }
     WorldObject actor = world.object(programmer).orElse(null);
     boolean wizard = actor != null && ObjectFlags.isWizard(actor.flags());
-    return wizard || task.programmer() == programmer;
-  }
-
-  synchronized boolean contains(long taskId) {
-    return tasks.containsKey(taskId);
+    return wizard || task.programmer() == programmer
+        ? TaskControlDecision.ALLOWED
+        : TaskControlDecision.DENIED;
   }
 
   synchronized BuiltinResult threads(

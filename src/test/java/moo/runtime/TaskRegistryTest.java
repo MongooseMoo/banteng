@@ -3,6 +3,7 @@ package moo.runtime;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 
+import java.lang.reflect.Modifier;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.FutureTask;
@@ -26,6 +27,47 @@ import moo.world.WorldTxn;
 import org.junit.jupiter.api.Test;
 
 final class TaskRegistryTest {
+  @Test
+  void classifiesTaskControlWithOneSynchronizedDecision() throws ReflectiveOperationException {
+    TaskRegistry registry = new TaskRegistry();
+    registry.registerFork(
+        17,
+        1234,
+        2,
+        new ObjectValue(7),
+        Map.of("verb", string("alpha"), "this", new ObjectValue(8)));
+
+    assertEquals(
+        List.of(
+            TaskRegistry.TaskControlDecision.ALLOWED,
+            TaskRegistry.TaskControlDecision.DENIED,
+            TaskRegistry.TaskControlDecision.MISSING),
+        List.of(TaskRegistry.TaskControlDecision.values()));
+    assertEquals(
+        true,
+        Modifier.isSynchronized(
+            TaskRegistry.class
+                .getDeclaredMethod(
+                    "taskControlDecision", long.class, WorldTxn.class, long.class)
+                .getModifiers()));
+
+    try (WorldTxn transaction = world().begin()) {
+      assertEquals(
+          TaskRegistry.TaskControlDecision.ALLOWED,
+          registry.taskControlDecision(17, transaction, 2));
+      assertEquals(
+          TaskRegistry.TaskControlDecision.ALLOWED,
+          registry.taskControlDecision(17, transaction, 1));
+      assertEquals(
+          TaskRegistry.TaskControlDecision.DENIED,
+          registry.taskControlDecision(17, transaction, 3));
+      registry.remove(17);
+      assertEquals(
+          TaskRegistry.TaskControlDecision.MISSING,
+          registry.taskControlDecision(17, transaction, 2));
+    }
+  }
+
   @Test
   void exposesEveryOtherDurableSnapshotAsAGarbageCollectionRoot() {
     TaskRegistry registry = new TaskRegistry();
