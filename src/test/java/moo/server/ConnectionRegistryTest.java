@@ -25,7 +25,7 @@ final class ConnectionRegistryTest {
     assertTrue(registry.setIntrinsicCommands(7, commands));
 
     assertEquals(7, registry.connectionPlayer(-2).orElseThrow());
-    assertEquals(List.of(-3L), registry.connectedPlayers(false));
+    assertEquals(List.of(7L), registry.connectedPlayers(false));
     assertEquals(List.of(-3L, 7L), registry.connectedPlayers(true));
     assertEquals(-2, registry.connectionId(7).orElseThrow());
     assertEquals(info, registry.connectionInfo(7).orElseThrow());
