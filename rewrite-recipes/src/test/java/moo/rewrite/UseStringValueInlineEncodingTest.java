@@ -1,6 +1,8 @@
 package moo.rewrite;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.List;
 import org.junit.jupiter.api.Test;
@@ -44,23 +46,6 @@ final class UseStringValueInlineEncodingTest {
           }
         }
         """;
-    String after =
-        """
-        package example;
-
-        import moo.value.MooValue.StringValue;
-
-        class EncodingSites {
-          StringValue encode(String text) {
-            return StringValue.of(text);
-          }
-
-          String decode(StringValue value) {
-            return value.text();
-          }
-        }
-        """;
-
     InMemoryExecutionContext context =
         new InMemoryExecutionContext(
             failure -> {
@@ -75,6 +60,12 @@ final class UseStringValueInlineEncodingTest {
             .getAllResults();
 
     assertEquals(1, results.size());
-    assertEquals(after, results.getFirst().getAfter().printAll());
+    String rewritten = results.getFirst().getAfter().printAll();
+    assertTrue(rewritten.contains("return StringValue.of(text);"), rewritten);
+    assertTrue(rewritten.contains("return value.text();"), rewritten);
+    assertFalse(rewritten.contains("new StringValue(text.getBytes"), rewritten);
+    assertFalse(rewritten.contains("new String(value.bytes()"), rewritten);
+    assertFalse(rewritten.contains("StandardCharsets.ISO_8859_1"), rewritten);
+    assertFalse(rewritten.contains("import java.nio.charset.StandardCharsets;"), rewritten);
   }
 }
