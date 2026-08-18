@@ -55,7 +55,7 @@ final class DuplicationConsolidationTest {
 
   @Test
   void firstAndLastIndexOpcodesShareOneDirectionalImplementation() throws IOException {
-    String source = source("vm", "MooVm.java");
+    String source = source("vm", "IndexOps.java");
 
     assertTrue(
         source.contains(
