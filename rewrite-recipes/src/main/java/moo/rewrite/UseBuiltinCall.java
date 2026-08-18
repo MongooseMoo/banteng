@@ -42,9 +42,6 @@ public final class UseBuiltinCall extends Recipe {
   @Override
   public TreeVisitor<?, ExecutionContext> getVisitor() {
     return new JavaVisitor<ExecutionContext>() {
-      private final JavaTemplate callParameter =
-          JavaTemplate.builder("call").contextSensitive().build();
-
       @Override
       public J visitLambda(J.Lambda lambda, ExecutionContext context) {
         List<J> parameters = lambda.getParameters().getParameters();
@@ -92,12 +89,28 @@ public final class UseBuiltinCall extends Recipe {
               }
             }.visitNonNull(lambda.getBody(), context);
 
-        J.Lambda rewrittenLambda =
-            callParameter.apply(
-                getCursor(), lambda.getParameters().getCoordinates().replace());
-        return rewrittenLambda.withBody(rewrittenBody);
+        J rewrittenParameter = callParameter(parameters.getFirst());
+        J.Lambda.Parameters rewrittenParameters =
+            lambda
+                .getParameters()
+                .withParameters(List.of(rewrittenParameter))
+                .withParenthesized(false);
+        return lambda.withParameters(rewrittenParameters).withBody(rewrittenBody);
       }
     };
+  }
+
+  private static J callParameter(J parameter) {
+    if (parameter instanceof J.VariableDeclarations declarations
+        && declarations.getVariables().size() == 1) {
+      J.VariableDeclarations.NamedVariable variable = declarations.getVariables().getFirst();
+      return declarations.withVariables(
+          List.of(variable.withName(variable.getName().withSimpleName("call"))));
+    }
+    if (parameter instanceof J.Identifier identifier) {
+      return identifier.withSimpleName("call");
+    }
+    throw new IllegalArgumentException("unsupported builtin lambda parameter");
   }
 
   private static String parameterName(J parameter) {
