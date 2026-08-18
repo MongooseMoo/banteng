@@ -43,6 +43,7 @@ import moo.vm.VmState.HandlerPhase;
 import moo.vm.VmState.IndexContext;
 import moo.vm.VmState.LoopCursor;
 import moo.vm.VmState.RangeCursor;
+import moo.world.ObjectFlags;
 import moo.world.WorldObject;
 import moo.world.WorldAnonymousObject;
 import moo.world.WorldProperty;
@@ -690,7 +691,8 @@ public final class MooVm {
       if (property != null) {
         long programmer = state.programmer();
         WorldObject programmerObject = world.object(programmer).orElse(null);
-        boolean wizard = programmerObject != null && (programmerObject.flags() & 4) != 0;
+        boolean wizard =
+            programmerObject != null && ObjectFlags.isWizard(programmerObject.flags());
         if (property.owner() != programmer && !wizard && (property.permissions() & 1) == 0) {
           raiseError(state, ErrorValue.E_PERM, world);
           return;
@@ -725,7 +727,8 @@ public final class MooVm {
       if (property != null) {
         long programmer = state.programmer();
         WorldObject programmerObject = world.object(programmer).orElse(null);
-        boolean wizard = programmerObject != null && (programmerObject.flags() & 4) != 0;
+        boolean wizard =
+            programmerObject != null && ObjectFlags.isWizard(programmerObject.flags());
         if (property.owner() != programmer && !wizard && (property.permissions() & 1) == 0) {
           raiseError(state, ErrorValue.E_PERM, world);
           return;
@@ -748,7 +751,8 @@ public final class MooVm {
     if (property != null) {
       long programmer = state.programmer();
       WorldObject programmerObject = world.object(programmer).orElse(null);
-      boolean wizard = programmerObject != null && (programmerObject.flags() & 4) != 0;
+      boolean wizard =
+          programmerObject != null && ObjectFlags.isWizard(programmerObject.flags());
       if (property.owner() != programmer && !wizard && (property.permissions() & 1) == 0) {
         raiseError(state, ErrorValue.E_PERM, world);
         return;
@@ -784,7 +788,8 @@ public final class MooVm {
       if (property != null) {
         long programmer = state.programmer();
         WorldObject programmerObject = world.object(programmer).orElse(null);
-        boolean wizard = programmerObject != null && (programmerObject.flags() & 4) != 0;
+        boolean wizard =
+            programmerObject != null && ObjectFlags.isWizard(programmerObject.flags());
         if (property.owner() != programmer && !wizard && (property.permissions() & 2) == 0) {
           raiseError(state, ErrorValue.E_PERM, world);
           return;
@@ -810,7 +815,8 @@ public final class MooVm {
       }
       long programmer = state.programmer();
       WorldObject programmerObject = world.object(programmer).orElse(null);
-      boolean wizard = programmerObject != null && (programmerObject.flags() & 4) != 0;
+      boolean wizard =
+          programmerObject != null && ObjectFlags.isWizard(programmerObject.flags());
       if (nameText.equalsIgnoreCase("owner")) {
         if (!(value instanceof ObjectValue)) {
           raiseError(state, ErrorValue.E_TYPE, world);
@@ -850,7 +856,7 @@ public final class MooVm {
     }
     if (nameText.equalsIgnoreCase("programmer") || nameText.equalsIgnoreCase("wizard")) {
       WorldObject programmerObject = world.object(state.programmer()).orElse(null);
-      if (programmerObject == null || (programmerObject.flags() & 4) == 0) {
+      if (programmerObject == null || !ObjectFlags.isWizard(programmerObject.flags())) {
         raiseError(state, ErrorValue.E_PERM, world);
         return;
       }
@@ -863,7 +869,8 @@ public final class MooVm {
     if (property != null) {
       long programmer = state.programmer();
       WorldObject programmerObject = world.object(programmer).orElse(null);
-      boolean wizard = programmerObject != null && (programmerObject.flags() & 4) != 0;
+      boolean wizard =
+          programmerObject != null && ObjectFlags.isWizard(programmerObject.flags());
       if (property.owner() != programmer && !wizard && (property.permissions() & 2) == 0) {
         raiseError(state, ErrorValue.E_PERM, world);
         return;
@@ -1128,7 +1135,7 @@ public final class MooVm {
       return;
     }
     WorldObject classOwner = world.object(waifClass.owner()).orElse(null);
-    if (classOwner == null || (classOwner.flags() & 4) == 0) {
+    if (classOwner == null || !ObjectFlags.isWizard(classOwner.flags())) {
       raiseError(state, ErrorValue.E_TYPE, world);
       return;
     }

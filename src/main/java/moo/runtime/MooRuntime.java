@@ -42,6 +42,7 @@ import moo.value.MooValue.MapValue;
 import moo.value.MooValue.ObjectValue;
 import moo.value.MooValue.StringValue;
 import moo.value.MooValue.WaifValue;
+import moo.world.ObjectFlags;
 import moo.world.WorldAnonymousObject;
 import moo.vm.MooVm;
 import moo.vm.VmSnapshot;
@@ -487,7 +488,7 @@ public final class MooRuntime implements AutoCloseable {
 
     String programPrefix = ".program ";
     boolean programmer =
-        world().object(player).map(object -> (object.flags() & 2) != 0).orElse(false);
+        world().object(player).map(object -> ObjectFlags.isProgrammer(object.flags())).orElse(false);
     if (programmer && (line.equals(".program") || line.startsWith(programPrefix))) {
       String descriptor =
           line.equals(".program") ? "" : line.substring(programPrefix.length()).trim();
@@ -531,7 +532,7 @@ public final class MooRuntime implements AutoCloseable {
             List.of("That object does not have that verb definition."));
       }
       WorldObject actor = world().object(player).orElse(null);
-      boolean wizard = actor != null && (actor.flags() & 4) != 0;
+      boolean wizard = actor != null && ObjectFlags.isWizard(actor.flags());
       if (verb.owner() != player && !wizard && (verb.permissions() & 2) == 0) {
         return RuntimeStep.returned(List.of("Permission denied."));
       }
@@ -2513,7 +2514,8 @@ public final class MooRuntime implements AutoCloseable {
     if (connection == null) {
       return BuiltinResult.error(ErrorValue.E_INVARG);
     }
-    boolean wizard = world.object(programmer).map(o -> (o.flags() & 4) != 0).orElse(false);
+    boolean wizard =
+        world.object(programmer).map(object -> ObjectFlags.isWizard(object.flags())).orElse(false);
     if (target != programmer && !wizard) {
       return BuiltinResult.error(ErrorValue.E_PERM);
     }
@@ -2550,7 +2552,8 @@ public final class MooRuntime implements AutoCloseable {
   private BuiltinResult outputDelimiters(
       List<MooValue> arguments, WorldTxn world, long programmer) {
     long target = ((ObjectValue) arguments.getFirst()).value();
-    boolean wizard = world.object(programmer).map(o -> (o.flags() & 4) != 0).orElse(false);
+    boolean wizard =
+        world.object(programmer).map(object -> ObjectFlags.isWizard(object.flags())).orElse(false);
     if (target != programmer && !wizard) {
       return BuiltinResult.error(ErrorValue.E_PERM);
     }
@@ -2582,7 +2585,8 @@ public final class MooRuntime implements AutoCloseable {
 
     long target = ((ObjectValue) arguments.getFirst()).value();
     long backgroundTasks = taskRegistry.backgroundTaskCount(target);
-    boolean wizard = world.object(programmer).map(o -> (o.flags() & 4) != 0).orElse(false);
+    boolean wizard =
+        world.object(programmer).map(object -> ObjectFlags.isWizard(object.flags())).orElse(false);
     if (!wizard) {
       return BuiltinResult.value(new IntegerValue(backgroundTasks));
     }
@@ -2643,7 +2647,8 @@ public final class MooRuntime implements AutoCloseable {
   private BuiltinResult flushInput(
       List<MooValue> arguments, WorldTxn world, long programmer) {
     long target = ((ObjectValue) arguments.getFirst()).value();
-    boolean wizard = world.object(programmer).map(o -> (o.flags() & 4) != 0).orElse(false);
+    boolean wizard =
+        world.object(programmer).map(object -> ObjectFlags.isWizard(object.flags())).orElse(false);
     if (target != programmer && !wizard) {
       return BuiltinResult.error(ErrorValue.E_PERM);
     }

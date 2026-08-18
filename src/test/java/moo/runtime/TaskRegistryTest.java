@@ -21,6 +21,7 @@ import moo.value.MooValue.StringValue;
 import moo.vm.MooVm;
 import moo.vm.VmSnapshot;
 import moo.vm.VmState;
+import moo.world.ObjectFlags;
 import moo.world.WorldObject;
 import moo.world.WorldTxn;
 import org.junit.jupiter.api.Test;
@@ -342,9 +343,9 @@ final class TaskRegistryTest {
     return new WorldTxn(
         List.of(),
         List.of(
-            object(1, 4),
-            object(2, 2),
-            object(3, 2)));
+            object(1, ObjectFlags.FLAG_WIZARD),
+            object(2, ObjectFlags.FLAG_PROGRAMMER),
+            object(3, ObjectFlags.FLAG_PROGRAMMER)));
   }
 
   private static WorldObject object(long id, int flags) {

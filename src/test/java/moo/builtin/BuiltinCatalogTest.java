@@ -37,6 +37,7 @@ import moo.value.MooValue.MapValue;
 import moo.value.MooValue.ObjectValue;
 import moo.value.MooValue.StringValue;
 import moo.value.MooValue.WaifValue;
+import moo.world.ObjectFlags;
 import moo.world.WorldObject;
 import moo.world.WorldProperty;
 import moo.world.WorldTxn;
@@ -3189,7 +3190,16 @@ final class BuiltinCatalogTest {
             List.of(programmerQuota));
     WorldObject parent =
         new WorldObject(
-            2, "parent", 128 | 256, 2, -1, -1, List.of(), List.of(), List.of(), List.of());
+            2,
+            "parent",
+            ObjectFlags.FLAG_FERTILE | ObjectFlags.FLAG_ANONYMOUS,
+            2,
+            -1,
+            -1,
+            List.of(),
+            List.of(),
+            List.of(),
+            List.of());
     WorldObject delegatedOwner =
         new WorldObject(
             4,
@@ -3206,7 +3216,7 @@ final class BuiltinCatalogTest {
         new WorldObject(
             9,
             "wizard",
-            4,
+            ObjectFlags.FLAG_WIZARD,
             9,
             -1,
             -1,

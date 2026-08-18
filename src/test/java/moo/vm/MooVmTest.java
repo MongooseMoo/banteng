@@ -27,6 +27,7 @@ import moo.value.MooValue.MapValue;
 import moo.value.MooValue.ObjectValue;
 import moo.value.MooValue.StringValue;
 import moo.value.MooValue.WaifValue;
+import moo.world.ObjectFlags;
 import moo.world.WorldAnonymousObject;
 import moo.world.WorldObject;
 import moo.world.WorldProperty;
@@ -126,7 +127,16 @@ final class MooVmTest {
   void ordinaryProgrammerCannotAssignProgrammerOrWizardBuiltInFlags() {
     WorldObject programmer =
         new WorldObject(
-            1, "programmer", 2, 1, -1, -1, List.of(), List.of(), List.of(), List.of());
+            1,
+            "programmer",
+            ObjectFlags.FLAG_PROGRAMMER,
+            1,
+            -1,
+            -1,
+            List.of(),
+            List.of(),
+            List.of(),
+            List.of());
     WorldTxn root = new WorldTxn(List.of(1L), List.of(programmer));
     MooVm vm = new MooVm();
 
@@ -143,7 +153,7 @@ final class MooVmTest {
 
       try (WorldTxn transaction = root.begin()) {
         vm.execute(program, state, transaction, new BuiltinCatalog(), 1);
-        assertEquals(2, transaction.object(1).orElseThrow().flags());
+        assertEquals(ObjectFlags.FLAG_PROGRAMMER, transaction.object(1).orElseThrow().flags());
       }
 
       assertEquals(VmState.Outcome.RETURNED, state.outcome());

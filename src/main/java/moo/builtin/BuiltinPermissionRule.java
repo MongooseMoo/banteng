@@ -1,5 +1,6 @@
 package moo.builtin;
 
+import moo.world.ObjectFlags;
 import moo.world.WorldObject;
 import moo.world.WorldTxn;
 
@@ -11,13 +12,13 @@ public interface BuiltinPermissionRule {
   BuiltinPermissionRule PROGRAMMER_ONLY =
       (world, programmer) -> {
         WorldObject actor = world.object(programmer).orElse(null);
-        return actor != null && (actor.flags() & 2) != 0;
+        return actor != null && ObjectFlags.isProgrammer(actor.flags());
       };
 
   BuiltinPermissionRule WIZARD_ONLY =
       (world, programmer) -> {
         WorldObject actor = world.object(programmer).orElse(null);
-        return actor != null && (actor.flags() & 4) != 0;
+        return actor != null && ObjectFlags.isWizard(actor.flags());
       };
 
   /** Returns whether the current programmer may invoke the builtin. */

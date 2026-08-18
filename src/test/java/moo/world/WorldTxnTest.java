@@ -311,7 +311,10 @@ final class WorldTxnTest {
         new WorldObject(
             0,
             "flagged",
-            16 | 32 | 128 | 256,
+            ObjectFlags.FLAG_READ
+                | ObjectFlags.FLAG_WRITE
+                | ObjectFlags.FLAG_FERTILE
+                | ObjectFlags.FLAG_ANONYMOUS,
             0,
             -1,
             -1,

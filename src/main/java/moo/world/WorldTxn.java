@@ -27,10 +27,6 @@ import moo.value.MooValue.WaifValue;
 
 /** The concrete transaction path for all runtime-visible world reads and writes. */
 public final class WorldTxn implements AutoCloseable {
-  private static final int PLAYER_FLAG = 1;
-  private static final int PROGRAMMER_FLAG = 2;
-  private static final int WIZARD_FLAG = 4;
-  private static final int ANONYMOUS_FLAG = 1 << 8;
   private static final ListValue DEFAULT_INTRINSIC_COMMANDS =
       new ListValue(
           List.of(
@@ -765,13 +761,15 @@ public final class WorldTxn implements AutoCloseable {
                       .toList()));
       case "owner" -> Optional.of(new ObjectValue(object.owner()));
       case "programmer" ->
-          Optional.of(new IntegerValue((object.flags() & PROGRAMMER_FLAG) == 0 ? 0 : 1));
-      case "wizard" -> Optional.of(new IntegerValue((object.flags() & WIZARD_FLAG) == 0 ? 0 : 1));
-      case "r" -> Optional.of(new IntegerValue((object.flags() & 16) == 0 ? 0 : 1));
-      case "w" -> Optional.of(new IntegerValue((object.flags() & 32) == 0 ? 0 : 1));
-      case "f" -> Optional.of(new IntegerValue((object.flags() & 128) == 0 ? 0 : 1));
+          Optional.of(new IntegerValue(ObjectFlags.isProgrammer(object.flags()) ? 1 : 0));
+      case "wizard" ->
+          Optional.of(new IntegerValue(ObjectFlags.isWizard(object.flags()) ? 1 : 0));
+      case "r" -> Optional.of(new IntegerValue(ObjectFlags.isReadable(object.flags()) ? 1 : 0));
+      case "w" -> Optional.of(new IntegerValue(ObjectFlags.isWritable(object.flags()) ? 1 : 0));
+      case "f" -> Optional.of(new IntegerValue(ObjectFlags.isFertile(object.flags()) ? 1 : 0));
       case "a" ->
-          Optional.of(new IntegerValue((object.flags() & ANONYMOUS_FLAG) == 0 ? 0 : 1));
+          Optional.of(
+              new IntegerValue((object.flags() & ObjectFlags.FLAG_ANONYMOUS) == 0 ? 0 : 1));
       default -> {
         Optional<MooValue> value = Optional.empty();
         for (long ancestor : ancestry(objectId)) {
@@ -854,35 +852,35 @@ public final class WorldTxn implements AutoCloseable {
       if (!(value instanceof IntegerValue enabled)) {
         return false;
       }
-      replaceFlags(object, PROGRAMMER_FLAG, enabled.isTruthy());
+      replaceFlags(object, ObjectFlags.FLAG_PROGRAMMER, enabled.isTruthy());
       return true;
     }
     if (normalizedName.equals("wizard")) {
       if (!(value instanceof IntegerValue enabled)) {
         return false;
       }
-      replaceFlags(object, WIZARD_FLAG, enabled.isTruthy());
+      replaceFlags(object, ObjectFlags.FLAG_WIZARD, enabled.isTruthy());
       return true;
     }
     if (normalizedName.equals("w")) {
       if (!(value instanceof IntegerValue enabled)) {
         return false;
       }
-      replaceFlags(object, 32, enabled.isTruthy());
+      replaceFlags(object, ObjectFlags.FLAG_WRITE, enabled.isTruthy());
       return true;
     }
     if (normalizedName.equals("f")) {
       if (!(value instanceof IntegerValue enabled)) {
         return false;
       }
-      replaceFlags(object, 128, enabled.isTruthy());
+      replaceFlags(object, ObjectFlags.FLAG_FERTILE, enabled.isTruthy());
       return true;
     }
     if (normalizedName.equals("a")) {
       if (!(value instanceof IntegerValue enabled)) {
         return false;
       }
-      replaceFlags(object, ANONYMOUS_FLAG, enabled.isTruthy());
+      replaceFlags(object, ObjectFlags.FLAG_ANONYMOUS, enabled.isTruthy());
       return true;
     }
     List<WorldProperty> properties = new ArrayList<>(object.properties());
@@ -1562,7 +1560,7 @@ public final class WorldTxn implements AutoCloseable {
     if (object == null) {
       return false;
     }
-    replaceFlags(object, PLAYER_FLAG, enabled);
+    replaceFlags(object, ObjectFlags.FLAG_USER, enabled);
     List<Long> players = new ArrayList<>(working.players());
     if (enabled && !players.contains(objectId)) {
       players.add(objectId);

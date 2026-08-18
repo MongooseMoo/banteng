@@ -21,6 +21,7 @@ import moo.value.MooValue.MapValue;
 import moo.value.MooValue.ObjectValue;
 import moo.value.MooValue.StringValue;
 import moo.vm.VmSnapshot;
+import moo.world.ObjectFlags;
 import moo.world.WorldObject;
 import moo.world.WorldTxn;
 
@@ -227,7 +228,7 @@ final class TaskRegistry {
       return false;
     }
     WorldObject actor = world.object(programmer).orElse(null);
-    boolean wizard = actor != null && (actor.flags() & 4) != 0;
+    boolean wizard = actor != null && ObjectFlags.isWizard(actor.flags());
     return wizard || task.programmer() == programmer;
   }
 
@@ -272,7 +273,7 @@ final class TaskRegistry {
       ListValue callers) {
     long taskId = ((IntegerValue) arguments.getFirst()).value();
     WorldObject actor = world.object(programmer).orElse(null);
-    boolean wizard = actor != null && (actor.flags() & 4) != 0;
+    boolean wizard = actor != null && ObjectFlags.isWizard(actor.flags());
     FutureTask<BuiltinResult> submitted;
     Runnable cancellation;
     synchronized (this) {
@@ -316,7 +317,7 @@ final class TaskRegistry {
     boolean returnCount =
         arguments.size() == 2 && ((IntegerValue) arguments.get(1)).isTruthy();
     WorldObject actor = world.object(programmer).orElse(null);
-    boolean wizard = actor != null && (actor.flags() & 4) != 0;
+    boolean wizard = actor != null && ObjectFlags.isWizard(actor.flags());
     List<TaskInfo> visible = visibleTo(programmer, wizard);
     if (returnCount) {
       return BuiltinResult.value(new IntegerValue(visible.size()));
@@ -348,7 +349,7 @@ final class TaskRegistry {
       return BuiltinResult.error(ErrorValue.E_INVARG);
     }
     WorldObject actor = world.object(programmer).orElse(null);
-    boolean wizard = actor != null && (actor.flags() & 4) != 0;
+    boolean wizard = actor != null && ObjectFlags.isWizard(actor.flags());
     if (!wizard && task.programmer() != programmer) {
       return BuiltinResult.error(ErrorValue.E_PERM);
     }
@@ -380,7 +381,7 @@ final class TaskRegistry {
       return value;
     }
     WorldObject viewer = world.object(programmer).orElse(null);
-    boolean wizard = viewer != null && (viewer.flags() & 4) != 0;
+    boolean wizard = viewer != null && ObjectFlags.isWizard(viewer.flags());
     return wizard || body.owner() == programmer
         ? value
         : new moo.value.MooValue.AnonymousObjectValue();
