@@ -176,8 +176,8 @@ public final class MooVm {
               world,
               Math.toIntExact(instruction.operand().orElse(0)));
       case RANGE -> range(frame, state, world);
-      case FIRST -> firstIndex(frame, state, world);
-      case LAST -> lastIndex(frame, state, world);
+      case FIRST -> boundaryIndex(frame, state, world, false);
+      case LAST -> boundaryIndex(frame, state, world, true);
       case SET_INDEX_LOCAL ->
           setIndexedLocal(
               frame,
@@ -957,72 +957,40 @@ public final class MooVm {
     raiseError(state, ErrorValue.E_TYPE, world);
   }
 
-  private static void firstIndex(Frame frame, VmState state, WorldTxn world) {
+  private static void boundaryIndex(
+      Frame frame, VmState state, WorldTxn world, boolean last) {
     MooValue collection = frame.indexCollections.getFirst().collection();
     if (collection instanceof MapValue map) {
-      if (map.entries().isEmpty()) {
+      var keys = map.entries().keySet().iterator();
+      if (!keys.hasNext()) {
         raiseError(state, ErrorValue.E_RANGE, world);
         return;
       }
-      frame.operandStack.push(map.entries().keySet().iterator().next());
+      MooValue boundary = keys.next();
+      if (last) {
+        while (keys.hasNext()) {
+          boundary = keys.next();
+        }
+      }
+      frame.operandStack.push(boundary);
       frame.instructionPointer++;
       return;
     }
+    int size;
     if (collection instanceof ListValue list) {
-      if (list.size() == 0) {
-        raiseError(state, ErrorValue.E_RANGE, world);
-        return;
-      }
-      frame.operandStack.push(new IntegerValue(1));
-      frame.instructionPointer++;
+      size = list.size();
+    } else if (collection instanceof StringValue string) {
+      size = string.length();
+    } else {
+      raiseError(state, ErrorValue.E_TYPE, world);
       return;
     }
-    if (collection instanceof StringValue string) {
-      if (string.length() == 0) {
-        raiseError(state, ErrorValue.E_RANGE, world);
-        return;
-      }
-      frame.operandStack.push(new IntegerValue(1));
-      frame.instructionPointer++;
+    if (size == 0) {
+      raiseError(state, ErrorValue.E_RANGE, world);
       return;
     }
-    raiseError(state, ErrorValue.E_TYPE, world);
-  }
-
-  private static void lastIndex(Frame frame, VmState state, WorldTxn world) {
-    MooValue collection = frame.indexCollections.getFirst().collection();
-    if (collection instanceof MapValue map) {
-      if (map.entries().isEmpty()) {
-        raiseError(state, ErrorValue.E_RANGE, world);
-        return;
-      }
-      MooValue last = null;
-      for (MooValue key : map.entries().keySet()) {
-        last = key;
-      }
-      frame.operandStack.push(Objects.requireNonNull(last));
-      frame.instructionPointer++;
-      return;
-    }
-    if (collection instanceof ListValue list) {
-      if (list.size() == 0) {
-        raiseError(state, ErrorValue.E_RANGE, world);
-        return;
-      }
-      frame.operandStack.push(new IntegerValue(list.size()));
-      frame.instructionPointer++;
-      return;
-    }
-    if (collection instanceof StringValue string) {
-      if (string.length() == 0) {
-        raiseError(state, ErrorValue.E_RANGE, world);
-        return;
-      }
-      frame.operandStack.push(new IntegerValue(string.length()));
-      frame.instructionPointer++;
-      return;
-    }
-    raiseError(state, ErrorValue.E_TYPE, world);
+    frame.operandStack.push(new IntegerValue(last ? size : 1));
+    frame.instructionPointer++;
   }
 
   private static void range(Frame frame, VmState state, WorldTxn world) {

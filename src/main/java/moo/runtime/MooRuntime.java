@@ -1416,6 +1416,37 @@ public final class MooRuntime implements AutoCloseable {
     connection.programmingSource.setLength(0);
   }
 
+  private List<String> serverMessage(long listenerHandler, String name, String fallback) {
+    MooValue listenerOptions =
+        world().readObjectProperty(listenerHandler, "server_options").orElse(null);
+    MooValue message =
+        listenerOptions instanceof ObjectValue options
+            ? world().readObjectProperty(options.value(), name).orElse(null)
+            : null;
+    if (message == null && listenerHandler != 0) {
+      MooValue rootOptions = world().readObjectProperty(0, "server_options").orElse(null);
+      if (rootOptions instanceof ObjectValue options) {
+        message = world().readObjectProperty(options.value(), name).orElse(null);
+      }
+    }
+    if (message == null) {
+      return List.of(fallback);
+    }
+    if (message instanceof StringValue string) {
+      return List.of(string.text());
+    }
+    if (message instanceof ListValue list) {
+      List<String> lines = new ArrayList<>();
+      for (MooValue element : list.elements()) {
+        if (element instanceof StringValue string) {
+          lines.add(string.text());
+        }
+      }
+      return lines;
+    }
+    return List.of();
+  }
+
   private RuntimeStep executeLogin(long connectionId, String line) {
     ConnectionState connection = requireConnection(connectionId);
     MooValue serverOptions =
@@ -1580,58 +1611,20 @@ public final class MooRuntime implements AutoCloseable {
         }
         List<String> oldLines = new ArrayList<>();
         if (redirectedConnection.printMessages) {
-          MooValue message = null;
-          MooValue listenerOptions =
-              world()
-                  .readObjectProperty(redirectedConnection.listenerHandler, "server_options")
-                  .orElse(null);
-          if (listenerOptions instanceof ObjectValue options) {
-            message = world().readObjectProperty(options.value(), "redirect_from_msg").orElse(null);
-          }
-          if (message == null && redirectedConnection.listenerHandler != 0) {
-            MooValue rootOptions = world().readObjectProperty(0, "server_options").orElse(null);
-            if (rootOptions instanceof ObjectValue options) {
-              message = world().readObjectProperty(options.value(), "redirect_from_msg").orElse(null);
-            }
-          }
-          if (message == null) {
-            oldLines.add("*** Redirecting connection to new port ***");
-          } else if (message instanceof StringValue string) {
-            oldLines.add(string.text());
-          } else if (message instanceof ListValue list) {
-            for (MooValue element : list.elements()) {
-              if (element instanceof StringValue string) {
-                oldLines.add(string.text());
-              }
-            }
-          }
+          oldLines.addAll(
+              serverMessage(
+                  redirectedConnection.listenerHandler,
+                  "redirect_from_msg",
+                  "*** Redirecting connection to new port ***"));
         }
 
         List<String> newLines = new ArrayList<>();
         if (connection.printMessages) {
-          MooValue message = null;
-          MooValue listenerOptions =
-              world().readObjectProperty(connection.listenerHandler, "server_options").orElse(null);
-          if (listenerOptions instanceof ObjectValue options) {
-            message = world().readObjectProperty(options.value(), "redirect_to_msg").orElse(null);
-          }
-          if (message == null && connection.listenerHandler != 0) {
-            MooValue rootOptions = world().readObjectProperty(0, "server_options").orElse(null);
-            if (rootOptions instanceof ObjectValue options) {
-              message = world().readObjectProperty(options.value(), "redirect_to_msg").orElse(null);
-            }
-          }
-          if (message == null) {
-            newLines.add("*** Redirecting old connection to this port ***");
-          } else if (message instanceof StringValue string) {
-            newLines.add(string.text());
-          } else if (message instanceof ListValue list) {
-            for (MooValue element : list.elements()) {
-              if (element instanceof StringValue string) {
-                newLines.add(string.text());
-              }
-            }
-          }
+          newLines.addAll(
+              serverMessage(
+                  connection.listenerHandler,
+                  "redirect_to_msg",
+                  "*** Redirecting old connection to this port ***"));
         }
 
         long redirectedConnectionId = existingConnectionId;
@@ -1826,29 +1819,11 @@ public final class MooRuntime implements AutoCloseable {
     }
     List<String> lines = new ArrayList<>();
     if (connection.printMessages) {
-      MooValue message = null;
-      MooValue listenerOptions =
-          world().readObjectProperty(connection.listenerHandler, "server_options").orElse(null);
-      if (listenerOptions instanceof ObjectValue options) {
-        message = world().readObjectProperty(options.value(), "timeout_msg").orElse(null);
-      }
-      if (message == null && connection.listenerHandler != 0) {
-        MooValue rootOptions = world().readObjectProperty(0, "server_options").orElse(null);
-        if (rootOptions instanceof ObjectValue options) {
-          message = world().readObjectProperty(options.value(), "timeout_msg").orElse(null);
-        }
-      }
-      if (message == null) {
-        lines.add("*** Timed-out waiting for login. ***");
-      } else if (message instanceof StringValue string) {
-        lines.add(string.text());
-      } else if (message instanceof ListValue list) {
-        for (MooValue element : list.elements()) {
-          if (element instanceof StringValue string) {
-            lines.add(string.text());
-          }
-        }
-      }
+      lines.addAll(
+          serverMessage(
+              connection.listenerHandler,
+              "timeout_msg",
+              "*** Timed-out waiting for login. ***"));
     }
     Optional<WorldVerb> disconnected =
         world().verb(connection.listenerHandler, "user_disconnected");
@@ -2883,29 +2858,7 @@ public final class MooRuntime implements AutoCloseable {
       long listenerHandler = connection.listenerHandler;
       List<String> lines = new ArrayList<>();
       if (connection.printMessages) {
-        MooValue message = null;
-        MooValue listenerOptions =
-            world().readObjectProperty(listenerHandler, "server_options").orElse(null);
-        if (listenerOptions instanceof ObjectValue options) {
-          message = world().readObjectProperty(options.value(), "boot_msg").orElse(null);
-        }
-        if (message == null && listenerHandler != 0) {
-          MooValue rootOptions = world().readObjectProperty(0, "server_options").orElse(null);
-          if (rootOptions instanceof ObjectValue options) {
-            message = world().readObjectProperty(options.value(), "boot_msg").orElse(null);
-          }
-        }
-        if (message == null) {
-          lines.add("*** Disconnected ***");
-        } else if (message instanceof StringValue string) {
-          lines.add(string.text());
-        } else if (message instanceof ListValue list) {
-          for (MooValue element : list.elements()) {
-            if (element instanceof StringValue string) {
-              lines.add(string.text());
-            }
-          }
-        }
+        lines.addAll(serverMessage(listenerHandler, "boot_msg", "*** Disconnected ***"));
       }
       connections().remove(connectionId);
       world().closeConnection(connectionId);
@@ -2956,29 +2909,8 @@ public final class MooRuntime implements AutoCloseable {
       world().closeConnection(connectionId);
       List<String> lines = new ArrayList<>();
       if (connection.printMessages) {
-        MooValue message = null;
-        MooValue listenerOptions =
-            world().readObjectProperty(connection.listenerHandler, "server_options").orElse(null);
-        if (listenerOptions instanceof ObjectValue options) {
-          message = world().readObjectProperty(options.value(), "recycle_msg").orElse(null);
-        }
-        if (message == null && connection.listenerHandler != 0) {
-          MooValue rootOptions = world().readObjectProperty(0, "server_options").orElse(null);
-          if (rootOptions instanceof ObjectValue options) {
-            message = world().readObjectProperty(options.value(), "recycle_msg").orElse(null);
-          }
-        }
-        if (message == null) {
-          lines.add("*** Recycled ***");
-        } else if (message instanceof StringValue string) {
-          lines.add(string.text());
-        } else if (message instanceof ListValue list) {
-          for (MooValue element : list.elements()) {
-            if (element instanceof StringValue string) {
-              lines.add(string.text());
-            }
-          }
-        }
+        lines.addAll(
+            serverMessage(connection.listenerHandler, "recycle_msg", "*** Recycled ***"));
       }
       if (listenerControl.isPresent()) {
         effects().add(RuntimeEffect.boot(connectionId, lines));

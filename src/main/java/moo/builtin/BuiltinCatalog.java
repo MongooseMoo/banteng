@@ -34,6 +34,7 @@ import java.util.Random;
 import java.util.Set;
 import java.util.StringTokenizer;
 import java.util.concurrent.CancellationException;
+import java.util.function.DoubleUnaryOperator;
 import java.util.function.Function;
 import moo.bytecode.MooCompiler;
 import moo.logging.ServerLog;
@@ -1015,7 +1016,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.PURE,
             BuiltinOwner.VM,
-            (a, w, p, t, id, rt, rs, r, cp, c) -> acos(a)));
+            unaryFloatBuiltin(BuiltinCatalog::acos)));
     entries.add(
         new BuiltinSpec(
             "acosh",
@@ -1024,7 +1025,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.PURE,
             BuiltinOwner.VM,
-            (a, w, p, t, id, rt, rs, r, cp, c) -> acosh(a)));
+            unaryFloatBuiltin(BuiltinCatalog::acosh)));
     entries.add(
         new BuiltinSpec(
             "asin",
@@ -1033,7 +1034,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.PURE,
             BuiltinOwner.VM,
-            (a, w, p, t, id, rt, rs, r, cp, c) -> asin(a)));
+            unaryFloatBuiltin(BuiltinCatalog::asin)));
     entries.add(
         new BuiltinSpec(
             "asinh",
@@ -1042,7 +1043,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.PURE,
             BuiltinOwner.VM,
-            (a, w, p, t, id, rt, rs, r, cp, c) -> asinh(a)));
+            unaryFloatBuiltin(BuiltinCatalog::asinh)));
     entries.add(
         new BuiltinSpec(
             "atan",
@@ -1077,7 +1078,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.PURE,
             BuiltinOwner.VM,
-            (a, w, p, t, id, rt, rs, r, cp, c) -> atanh(a)));
+            unaryFloatBuiltin(BuiltinCatalog::atanh)));
     entries.add(
         new BuiltinSpec(
             "cbrt",
@@ -1086,7 +1087,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.PURE,
             BuiltinOwner.VM,
-            (a, w, p, t, id, rt, rs, r, cp, c) -> cbrt(a)));
+            unaryFloatBuiltin(Math::cbrt)));
     entries.add(
         new BuiltinSpec(
             "ceil",
@@ -1095,7 +1096,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.PURE,
             BuiltinOwner.VM,
-            (a, w, p, t, id, rt, rs, r, cp, c) -> ceil(a)));
+            unaryFloatBuiltin(Math::ceil)));
     entries.add(
         new BuiltinSpec(
             "cos",
@@ -1104,7 +1105,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.PURE,
             BuiltinOwner.VM,
-            (a, w, p, t, id, rt, rs, r, cp, c) -> cosine(a)));
+            unaryFloatBuiltin(BuiltinCatalog::cosine)));
     entries.add(
         new BuiltinSpec(
             "cosh",
@@ -1113,7 +1114,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.PURE,
             BuiltinOwner.VM,
-            (a, w, p, t, id, rt, rs, r, cp, c) -> cosh(a)));
+            unaryFloatBuiltin(Math::cosh)));
     entries.add(
         new BuiltinSpec(
             "distance",
@@ -1135,7 +1136,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.PURE,
             BuiltinOwner.VM,
-            (a, w, p, t, id, rt, rs, r, cp, c) -> exp(a)));
+            unaryFloatBuiltin(Math::exp)));
     entries.add(
         new BuiltinSpec(
             "floatstr",
@@ -1157,7 +1158,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.PURE,
             BuiltinOwner.VM,
-            (a, w, p, t, id, rt, rs, r, cp, c) -> floor(a)));
+            unaryFloatBuiltin(Math::floor)));
     entries.add(
         new BuiltinSpec(
             "log",
@@ -1166,7 +1167,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.PURE,
             BuiltinOwner.VM,
-            (a, w, p, t, id, rt, rs, r, cp, c) -> log(a)));
+            unaryFloatBuiltin(BuiltinCatalog::log)));
     entries.add(
         new BuiltinSpec(
             "log10",
@@ -1175,7 +1176,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.PURE,
             BuiltinOwner.VM,
-            (a, w, p, t, id, rt, rs, r, cp, c) -> log10(a)));
+            unaryFloatBuiltin(BuiltinCatalog::log10)));
     entries.add(
         new BuiltinSpec(
             "relative_heading",
@@ -1206,7 +1207,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.PURE,
             BuiltinOwner.VM,
-            (a, w, p, t, id, rt, rs, r, cp, c) -> sine(a)));
+            unaryFloatBuiltin(BuiltinCatalog::sine)));
     entries.add(
         new BuiltinSpec(
             "sinh",
@@ -1215,7 +1216,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.PURE,
             BuiltinOwner.VM,
-            (a, w, p, t, id, rt, rs, r, cp, c) -> sinh(a)));
+            unaryFloatBuiltin(Math::sinh)));
     entries.add(
         new BuiltinSpec(
             "sqrt",
@@ -1224,7 +1225,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.PURE,
             BuiltinOwner.VM,
-            (a, w, p, t, id, rt, rs, r, cp, c) -> sqrt(a)));
+            unaryFloatBuiltin(BuiltinCatalog::sqrt)));
     entries.add(
         new BuiltinSpec(
             "tan",
@@ -1233,7 +1234,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.PURE,
             BuiltinOwner.VM,
-            (a, w, p, t, id, rt, rs, r, cp, c) -> tangent(a)));
+            unaryFloatBuiltin(BuiltinCatalog::tangent)));
     entries.add(
         new BuiltinSpec(
             "tanh",
@@ -1242,7 +1243,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.PURE,
             BuiltinOwner.VM,
-            (a, w, p, t, id, rt, rs, r, cp, c) -> tanh(a)));
+            unaryFloatBuiltin(Math::tanh)));
     entries.add(
         new BuiltinSpec(
             "trunc",
@@ -3617,54 +3618,60 @@ public final class BuiltinCatalog {
     return BuiltinResult.value(new FloatValue(Math.abs(((FloatValue) argument).value())));
   }
 
-  private static BuiltinResult acos(List<MooValue> arguments) {
-    double value = numericDouble(arguments.getFirst());
-    if (Double.isNaN(value)) {
-      return BuiltinResult.error(ErrorValue.E_FLOAT);
-    }
-    if (value < -1.0 || value > 1.0) {
-      return BuiltinResult.error(ErrorValue.E_INVARG);
-    }
-    return BuiltinResult.value(new FloatValue(Math.acos(value)));
+  private static BuiltinHandler unaryFloatBuiltin(DoubleUnaryOperator operator) {
+    DoubleUnaryOperator operation = Objects.requireNonNull(operator, "operator");
+    return (arguments,
+            world,
+            programmer,
+            taskLocal,
+            taskId,
+            remainingTicks,
+            remainingSeconds,
+            receiver,
+            callerProgrammer,
+            callers) -> {
+      final double result;
+      try {
+        result = operation.applyAsDouble(numericDouble(arguments.getFirst()));
+      } catch (IllegalArgumentException _) {
+        return BuiltinResult.error(ErrorValue.E_INVARG);
+      }
+      return Double.isFinite(result)
+          ? BuiltinResult.value(new FloatValue(result))
+          : BuiltinResult.error(ErrorValue.E_FLOAT);
+    };
   }
 
-  private static BuiltinResult acosh(List<MooValue> arguments) {
-    double value = numericDouble(arguments.getFirst());
+  private static double acos(double value) {
+    if (value < -1.0 || value > 1.0) {
+      throw new IllegalArgumentException("acos domain");
+    }
+    return Math.acos(value);
+  }
+
+  private static double acosh(double value) {
     if (value < 1.0) {
-      return BuiltinResult.error(ErrorValue.E_INVARG);
+      throw new IllegalArgumentException("acosh domain");
     }
-    double result =
-        Math.log(value)
-            + Math.log1p(
-                Math.sqrt(1.0 - 1.0 / value) * Math.sqrt(1.0 + 1.0 / value));
-    return Double.isFinite(result)
-        ? BuiltinResult.value(new FloatValue(result))
-        : BuiltinResult.error(ErrorValue.E_FLOAT);
+    return Math.log(value)
+        + Math.log1p(Math.sqrt(1.0 - 1.0 / value) * Math.sqrt(1.0 + 1.0 / value));
   }
 
-  private static BuiltinResult asin(List<MooValue> arguments) {
-    double value = numericDouble(arguments.getFirst());
-    if (Double.isNaN(value)) {
-      return BuiltinResult.error(ErrorValue.E_FLOAT);
-    }
+  private static double asin(double value) {
     if (value < -1.0 || value > 1.0) {
-      return BuiltinResult.error(ErrorValue.E_INVARG);
+      throw new IllegalArgumentException("asin domain");
     }
-    return BuiltinResult.value(new FloatValue(Math.asin(value)));
+    return Math.asin(value);
   }
 
-  private static BuiltinResult asinh(List<MooValue> arguments) {
-    double value = numericDouble(arguments.getFirst());
+  private static double asinh(double value) {
     double absolute = Math.abs(value);
     double magnitude =
         absolute > Math.sqrt(Double.MAX_VALUE)
             ? Math.log(absolute) + Math.log(2.0)
             : Math.log1p(
                 absolute + absolute * absolute / (1.0 + Math.hypot(1.0, absolute)));
-    double result = Math.copySign(magnitude, value);
-    return Double.isFinite(result)
-        ? BuiltinResult.value(new FloatValue(result))
-        : BuiltinResult.error(ErrorValue.E_FLOAT);
+    return Math.copySign(magnitude, value);
   }
 
   private static BuiltinResult atan(List<MooValue> arguments) {
@@ -3684,92 +3691,32 @@ public final class BuiltinCatalog {
     return BuiltinResult.value(new FloatValue(Math.atan2(y, x)));
   }
 
-  private static BuiltinResult atanh(List<MooValue> arguments) {
-    double value = numericDouble(arguments.getFirst());
+  private static double atanh(double value) {
     if (Math.abs(value) > 1.0) {
-      return BuiltinResult.error(ErrorValue.E_INVARG);
+      throw new IllegalArgumentException("atanh domain");
     }
-    if (Math.abs(value) == 1.0) {
-      return BuiltinResult.error(ErrorValue.E_FLOAT);
-    }
-    double result = 0.5 * (Math.log1p(value) - Math.log1p(-value));
-    return Double.isFinite(result)
-        ? BuiltinResult.value(new FloatValue(result))
-        : BuiltinResult.error(ErrorValue.E_FLOAT);
+    return 0.5 * (Math.log1p(value) - Math.log1p(-value));
   }
 
-  private static BuiltinResult cbrt(List<MooValue> arguments) {
-    double result = Math.cbrt(numericDouble(arguments.getFirst()));
-    return Double.isFinite(result)
-        ? BuiltinResult.value(new FloatValue(result))
-        : BuiltinResult.error(ErrorValue.E_FLOAT);
-  }
-
-  private static BuiltinResult ceil(List<MooValue> arguments) {
-    double result = Math.ceil(numericDouble(arguments.getFirst()));
-    return Double.isFinite(result)
-        ? BuiltinResult.value(new FloatValue(result))
-        : BuiltinResult.error(ErrorValue.E_FLOAT);
-  }
-
-  private static BuiltinResult cosine(List<MooValue> arguments) {
-    double value = numericDouble(arguments.getFirst());
+  private static double cosine(double value) {
     if (Double.isInfinite(value)) {
-      return BuiltinResult.error(ErrorValue.E_INVARG);
+      throw new IllegalArgumentException("cos domain");
     }
-    double result = Math.cos(value);
-    return Double.isFinite(result)
-        ? BuiltinResult.value(new FloatValue(result))
-        : BuiltinResult.error(ErrorValue.E_FLOAT);
+    return Math.cos(value);
   }
 
-  private static BuiltinResult cosh(List<MooValue> arguments) {
-    double result = Math.cosh(numericDouble(arguments.getFirst()));
-    return Double.isFinite(result)
-        ? BuiltinResult.value(new FloatValue(result))
-        : BuiltinResult.error(ErrorValue.E_FLOAT);
-  }
-
-  private static BuiltinResult exp(List<MooValue> arguments) {
-    double result = Math.exp(numericDouble(arguments.getFirst()));
-    return Double.isFinite(result)
-        ? BuiltinResult.value(new FloatValue(result))
-        : BuiltinResult.error(ErrorValue.E_FLOAT);
-  }
-
-  private static BuiltinResult floor(List<MooValue> arguments) {
-    double result = Math.floor(numericDouble(arguments.getFirst()));
-    return Double.isFinite(result)
-        ? BuiltinResult.value(new FloatValue(result))
-        : BuiltinResult.error(ErrorValue.E_FLOAT);
-  }
-
-  private static BuiltinResult log(List<MooValue> arguments) {
-    double value = numericDouble(arguments.getFirst());
+  private static double log(double value) {
     if (value < 0.0) {
-      return BuiltinResult.error(ErrorValue.E_INVARG);
+      throw new IllegalArgumentException("log domain");
     }
-    if (value == 0.0) {
-      return BuiltinResult.error(ErrorValue.E_FLOAT);
-    }
-    double result = Math.log(value);
-    return Double.isFinite(result)
-        ? BuiltinResult.value(new FloatValue(result))
-        : BuiltinResult.error(ErrorValue.E_FLOAT);
+    return Math.log(value);
   }
 
-  private static BuiltinResult log10(List<MooValue> arguments) {
-    double value = numericDouble(arguments.getFirst());
+  private static double log10(double value) {
     if (value < 0.0) {
-      return BuiltinResult.error(ErrorValue.E_INVARG);
+      throw new IllegalArgumentException("log10 domain");
     }
-    if (value == 0.0) {
-      return BuiltinResult.error(ErrorValue.E_FLOAT);
-    }
-    double result = Math.log10(value);
-    return Double.isFinite(result)
-        ? BuiltinResult.value(new FloatValue(result))
-        : BuiltinResult.error(ErrorValue.E_FLOAT);
+    return Math.log10(value);
   }
 
   private static BuiltinResult round(List<MooValue> arguments) {
@@ -3782,54 +3729,25 @@ public final class BuiltinCatalog {
     return BuiltinResult.value(new FloatValue(result));
   }
 
-  private static BuiltinResult sine(List<MooValue> arguments) {
-    double value = numericDouble(arguments.getFirst());
+  private static double sine(double value) {
     if (Double.isInfinite(value)) {
-      return BuiltinResult.error(ErrorValue.E_INVARG);
+      throw new IllegalArgumentException("sin domain");
     }
-    double result = Math.sin(value);
-    return Double.isFinite(result)
-        ? BuiltinResult.value(new FloatValue(result))
-        : BuiltinResult.error(ErrorValue.E_FLOAT);
+    return Math.sin(value);
   }
 
-  private static BuiltinResult sinh(List<MooValue> arguments) {
-    double result = Math.sinh(numericDouble(arguments.getFirst()));
-    return Double.isFinite(result)
-        ? BuiltinResult.value(new FloatValue(result))
-        : BuiltinResult.error(ErrorValue.E_FLOAT);
-  }
-
-  private static BuiltinResult sqrt(List<MooValue> arguments) {
-    double value = numericDouble(arguments.getFirst());
-    if (Double.isNaN(value)) {
-      return BuiltinResult.error(ErrorValue.E_FLOAT);
-    }
+  private static double sqrt(double value) {
     if (value < 0.0) {
-      return BuiltinResult.error(ErrorValue.E_INVARG);
+      throw new IllegalArgumentException("sqrt domain");
     }
-    double result = Math.sqrt(value);
-    return Double.isFinite(result)
-        ? BuiltinResult.value(new FloatValue(result))
-        : BuiltinResult.error(ErrorValue.E_FLOAT);
+    return Math.sqrt(value);
   }
 
-  private static BuiltinResult tangent(List<MooValue> arguments) {
-    double value = numericDouble(arguments.getFirst());
+  private static double tangent(double value) {
     if (Double.isInfinite(value)) {
-      return BuiltinResult.error(ErrorValue.E_INVARG);
+      throw new IllegalArgumentException("tan domain");
     }
-    double result = Math.tan(value);
-    return Double.isFinite(result)
-        ? BuiltinResult.value(new FloatValue(result))
-        : BuiltinResult.error(ErrorValue.E_FLOAT);
-  }
-
-  private static BuiltinResult tanh(List<MooValue> arguments) {
-    double result = Math.tanh(numericDouble(arguments.getFirst()));
-    return Double.isFinite(result)
-        ? BuiltinResult.value(new FloatValue(result))
-        : BuiltinResult.error(ErrorValue.E_FLOAT);
+    return Math.tan(value);
   }
 
   private static BuiltinResult trunc(List<MooValue> arguments) {
@@ -5722,6 +5640,35 @@ public final class BuiltinCatalog {
     return BuiltinResult.error(ErrorValue.E_TYPE);
   }
 
+  private static Optional<ErrorValue> resolveOwnershipPreamble(
+      MooValue receiver, long newOwner, WorldTxn world, long programmer) {
+    long targetOwner;
+    int targetFlags;
+    if (receiver instanceof ObjectValue object) {
+      WorldObject target = world.object(object.value()).orElse(null);
+      if (target == null) {
+        return Optional.of(ErrorValue.E_INVARG);
+      }
+      targetOwner = target.owner();
+      targetFlags = target.flags();
+    } else if (receiver instanceof AnonymousObjectValue anonymous) {
+      WorldAnonymousObject target = world.anonymousObject(anonymous).orElse(null);
+      if (target == null) {
+        return Optional.of(ErrorValue.E_INVARG);
+      }
+      targetOwner = target.owner();
+      targetFlags = target.flags();
+    } else {
+      return Optional.of(ErrorValue.E_TYPE);
+    }
+    WorldObject actor = world.object(programmer).orElse(null);
+    boolean wizard = actor != null && ObjectFlags.isWizard(actor.flags());
+    boolean writable = targetOwner == programmer || wizard || ObjectFlags.isWritable(targetFlags);
+    return writable && (newOwner == programmer || wizard)
+        ? Optional.empty()
+        : Optional.of(ErrorValue.E_PERM);
+  }
+
   private static BuiltinResult addVerb(
       List<MooValue> arguments, WorldTxn world, long programmer) {
     ListValue info = (ListValue) arguments.get(1);
@@ -5788,31 +5735,11 @@ public final class BuiltinCatalog {
       return BuiltinResult.error(ErrorValue.E_INVARG);
     }
 
-    WorldObject actor = world.object(programmer).orElse(null);
-    boolean wizard = actor != null && ObjectFlags.isWizard(actor.flags());
     MooValue receiver = arguments.get(0);
-    long targetOwner;
-    int targetFlags;
-    if (receiver instanceof ObjectValue object) {
-      WorldObject target = world.object(object.value()).orElse(null);
-      if (target == null) {
-        return BuiltinResult.error(ErrorValue.E_INVARG);
-      }
-      targetOwner = target.owner();
-      targetFlags = target.flags();
-    } else if (receiver instanceof AnonymousObjectValue anonymous) {
-      WorldAnonymousObject target = world.anonymousObject(anonymous).orElse(null);
-      if (target == null) {
-        return BuiltinResult.error(ErrorValue.E_INVARG);
-      }
-      targetOwner = target.owner();
-      targetFlags = target.flags();
-    } else {
-      return BuiltinResult.error(ErrorValue.E_TYPE);
-    }
-    boolean writable = targetOwner == programmer || wizard || ObjectFlags.isWritable(targetFlags);
-    if (!writable || (owner.value() != programmer && !wizard)) {
-      return BuiltinResult.error(ErrorValue.E_PERM);
+    Optional<ErrorValue> ownershipError =
+        resolveOwnershipPreamble(receiver, owner.value(), world, programmer);
+    if (ownershipError.isPresent()) {
+      return BuiltinResult.error(ownershipError.orElseThrow());
     }
 
     int encodedPermissions = permissions | (direct << 4) | (indirect << 6);
@@ -5856,30 +5783,10 @@ public final class BuiltinCatalog {
       }
     }
     MooValue receiver = arguments.get(0);
-    long targetOwner;
-    int targetFlags;
-    if (receiver instanceof ObjectValue object) {
-      WorldObject target = world.object(object.value()).orElse(null);
-      if (target == null) {
-        return BuiltinResult.error(ErrorValue.E_INVARG);
-      }
-      targetOwner = target.owner();
-      targetFlags = target.flags();
-    } else if (receiver instanceof AnonymousObjectValue anonymous) {
-      WorldAnonymousObject target = world.anonymousObject(anonymous).orElse(null);
-      if (target == null) {
-        return BuiltinResult.error(ErrorValue.E_INVARG);
-      }
-      targetOwner = target.owner();
-      targetFlags = target.flags();
-    } else {
-      return BuiltinResult.error(ErrorValue.E_TYPE);
-    }
-    WorldObject actor = world.object(programmer).orElse(null);
-    boolean wizard = actor != null && ObjectFlags.isWizard(actor.flags());
-    boolean writable = targetOwner == programmer || wizard || ObjectFlags.isWritable(targetFlags);
-    if (!writable || (owner.value() != programmer && !wizard)) {
-      return BuiltinResult.error(ErrorValue.E_PERM);
+    Optional<ErrorValue> ownershipError =
+        resolveOwnershipPreamble(receiver, owner.value(), world, programmer);
+    if (ownershipError.isPresent()) {
+      return BuiltinResult.error(ownershipError.orElseThrow());
     }
     String name = ((StringValue) arguments.get(1)).text();
     boolean added =

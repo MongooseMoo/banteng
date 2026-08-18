@@ -187,3 +187,10 @@ recipeList:
   - org.openrewrite.java.ChangeMethodTargetToStatic:
       methodPattern: moo.persistence.LambdaMooV17Codec malformed(java.lang.String, java.lang.Throwable)
       fullyQualifiedTargetTypeName: moo.persistence.DbScanner
+---
+type: specs.openrewrite.org/v1beta/recipe
+name: moo.builtin.ConsolidateUnaryFloatHandlers
+displayName: Consolidate unary-float builtin handlers
+description: Replaces the uniform manifest lambdas with the shared unary-float handler factory.
+recipeList:
+  - moo.rewrite.ConsolidateUnaryFloatHandlers
