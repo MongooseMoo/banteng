@@ -32,6 +32,15 @@ final class BantengTest {
   }
 
   @Test
+  void acceptsServerLogConfiguration() {
+    CommandLine commandLine = new CommandLine(new Banteng());
+
+    assertEquals(
+        CommandLine.ExitCode.OK,
+        commandLine.execute("--log-level", "ERROR", "--log-file", "banteng.log", "--version"));
+  }
+
+  @Test
   void rejectsInvalidPort() {
     StringWriter errors = new StringWriter();
     CommandLine commandLine = new CommandLine(new Banteng());

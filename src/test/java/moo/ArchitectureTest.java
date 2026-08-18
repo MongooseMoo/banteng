@@ -18,6 +18,7 @@ final class ArchitectureTest {
           "app",
           "builtin",
           "bytecode",
+          "logging",
           "persistence",
           "runtime",
           "server",
@@ -38,20 +39,30 @@ final class ArchitectureTest {
     assertOnlyDependsOn(productionClasses, "value");
     assertOnlyDependsOn(productionClasses, "syntax");
     assertOnlyDependsOn(productionClasses, "bytecode", "syntax", "value");
+    assertOnlyDependsOn(productionClasses, "logging");
     assertOnlyDependsOn(productionClasses, "world", "bytecode", "value");
     assertOnlyDependsOn(productionClasses, "vm", "builtin", "bytecode", "value", "world");
-    assertOnlyDependsOn(productionClasses, "builtin", "bytecode", "syntax", "value", "world");
+    assertOnlyDependsOn(
+        productionClasses, "builtin", "bytecode", "logging", "syntax", "value", "world");
     assertOnlyDependsOn(
         productionClasses,
         "runtime",
         "builtin",
         "bytecode",
+        "logging",
         "persistence",
         "value",
         "vm",
         "world");
     assertOnlyDependsOn(
-        productionClasses, "persistence", "bytecode", "syntax", "value", "vm", "world");
+        productionClasses,
+        "persistence",
+        "bytecode",
+        "logging",
+        "syntax",
+        "value",
+        "vm",
+        "world");
     noClasses()
         .that()
         .resideInAPackage("moo.persistence..")
@@ -62,12 +73,20 @@ final class ArchitectureTest {
         .resideInAPackage("moo.syntax..")
         .check(productionClasses);
     assertOnlyDependsOn(
-        productionClasses, "server", "builtin", "persistence", "runtime", "value", "world");
+        productionClasses,
+        "server",
+        "builtin",
+        "logging",
+        "persistence",
+        "runtime",
+        "value",
+        "world");
     assertOnlyDependsOn(
         productionClasses,
         "app",
         "builtin",
         "bytecode",
+        "logging",
         "persistence",
         "runtime",
         "server",

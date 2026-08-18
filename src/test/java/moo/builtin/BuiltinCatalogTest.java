@@ -4197,7 +4197,11 @@ final class BuiltinCatalogTest {
               depth == 0 ? 7_506 : depth == 1 ? 1 : 0));
     }
     expected.append("---\n");
-    assertEquals(expected.toString(), output.toString(StandardCharsets.UTF_8));
+    String payloads =
+        output.toString(StandardCharsets.UTF_8).lines()
+            .map(line -> line.replaceFirst("^[A-Z][a-z]{2} \\d{2} \\d{2}:\\d{2}:\\d{2}: ", ""))
+            .collect(java.util.stream.Collectors.joining("\n", "", "\n"));
+    assertEquals(expected.toString().replace(System.lineSeparator(), "\n"), payloads);
   }
 
   @Test
