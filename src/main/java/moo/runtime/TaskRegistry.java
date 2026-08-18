@@ -74,7 +74,7 @@ final class TaskRegistry {
         Optional.of(snapshot));
   }
 
-  private void registerFork(
+  private synchronized void registerFork(
       long taskId,
       long scheduledStart,
       long programmer,

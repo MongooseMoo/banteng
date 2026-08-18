@@ -2127,7 +2127,7 @@ final class PublicationScheduler implements AutoCloseable {
     return executor.getQueue().size() + executor.getQueue().remainingCapacity();
   }
 
-  private void ensureOpen() {
+  private synchronized void ensureOpen() {
     if (closed) {
       throw new IllegalStateException("publication scheduler is closed");
     }
