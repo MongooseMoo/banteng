@@ -3,6 +3,8 @@ package moo;
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses;
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noMethods;
 import static com.tngtech.archunit.library.dependencies.SlicesRuleDefinition.slices;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.tngtech.archunit.core.domain.JavaClasses;
 import com.tngtech.archunit.core.importer.ClassFileImporter;
@@ -10,6 +12,7 @@ import com.tngtech.archunit.core.importer.ImportOption;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import moo.builtin.ArchUnitThrowableCatchFixture;
 import moo.persistence.ToastV17ProgramLayout;
 import org.junit.jupiter.api.Test;
 
@@ -113,14 +116,19 @@ final class ArchitectureTest {
   }
 
   @Test
-  void builtinsLeaveMethodHandleInvocationAtTheHostBoundary() {
-    noClasses()
-        .that()
-        .resideInAPackage("moo.builtin..")
-        .should()
-        .dependOnClassesThat()
-        .resideInAPackage("java.lang.invoke..")
-        .check(productionClasses());
+  void builtinsNeverCatchThrowable() {
+    builtinThrowableCatchRule().check(productionClasses());
+  }
+
+  @Test
+  void builtinThrowableCatchRuleRejectsFocusedFixture() {
+    JavaClasses fixture =
+        new ClassFileImporter().importClasses(ArchUnitThrowableCatchFixture.class);
+
+    AssertionError violation =
+        assertThrows(AssertionError.class, () -> builtinThrowableCatchRule().check(fixture));
+    assertTrue(violation.getMessage().contains("ArchUnitThrowableCatchFixture"));
+    assertTrue(violation.getMessage().contains("java.lang.Throwable"));
   }
 
   private static JavaClasses productionClasses() {
