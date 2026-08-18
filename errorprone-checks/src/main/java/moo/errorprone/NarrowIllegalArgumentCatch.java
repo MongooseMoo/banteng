@@ -11,14 +11,19 @@ import com.sun.source.tree.TryTree;
 import com.sun.source.tree.UnionTypeTree;
 import com.sun.tools.javac.code.Type;
 
-/** Rejects broad try blocks whose {@code IllegalArgumentException} catch can hide other faults. */
+/** Rejects broad argument catches and keeps {@code Throwable} out of builtin boundaries. */
 @BugPattern(
-    summary = "IllegalArgumentException catches must guard exactly one operation",
+    summary = "Builtin Throwable catches are forbidden and argument catches must be narrow",
     severity = BugPattern.SeverityLevel.ERROR)
 public final class NarrowIllegalArgumentCatch extends BugChecker
     implements BugChecker.TryTreeMatcher {
   @Override
   public Description matchTry(TryTree tree, VisitorState state) {
+    if (isBuiltinPackage(state) && catches(tree, Throwable.class, state)) {
+      return buildDescription(tree)
+          .setMessage("Throwable catches are forbidden in moo.builtin")
+          .build();
+    }
     if (!catchesIllegalArgumentException(tree, state)
         || tree.getBlock().getStatements().size() == 1) {
       return Description.NO_MATCH;
@@ -29,24 +34,35 @@ public final class NarrowIllegalArgumentCatch extends BugChecker
   }
 
   private static boolean catchesIllegalArgumentException(TryTree tree, VisitorState state) {
-    Type illegalArgument = state.getTypeFromString(IllegalArgumentException.class.getName());
+    return catches(tree, IllegalArgumentException.class, state);
+  }
+
+  private static boolean catches(
+      TryTree tree, Class<? extends Throwable> exceptionType, VisitorState state) {
+    Type expected = state.getTypeFromString(exceptionType.getName());
     for (CatchTree catchTree : tree.getCatches()) {
-      if (catchesIllegalArgumentException(
-          catchTree.getParameter().getType(), illegalArgument, state)) {
+      if (catches(catchTree.getParameter().getType(), expected, state)) {
         return true;
       }
     }
     return false;
   }
 
-  private static boolean catchesIllegalArgumentException(
-      Tree caughtTree, Type illegalArgument, VisitorState state) {
+  private static boolean catches(Tree caughtTree, Type expected, VisitorState state) {
     if (caughtTree instanceof UnionTypeTree union) {
       return union.getTypeAlternatives().stream()
-          .anyMatch(alternative ->
-              catchesIllegalArgumentException(alternative, illegalArgument, state));
+          .anyMatch(alternative -> catches(alternative, expected, state));
     }
     Type caught = ASTHelpers.getType(caughtTree);
-    return caught != null && ASTHelpers.isSameType(illegalArgument, caught, state);
+    return caught != null && ASTHelpers.isSameType(expected, caught, state);
+  }
+
+  private static boolean isBuiltinPackage(VisitorState state) {
+    Tree packageName = state.getPath().getCompilationUnit().getPackageName();
+    if (packageName == null) {
+      return false;
+    }
+    String qualifiedName = packageName.toString();
+    return qualifiedName.equals("moo.builtin") || qualifiedName.startsWith("moo.builtin.");
   }
 }
