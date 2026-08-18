@@ -200,6 +200,20 @@ jobs:
             -q \
             --junitxml="${{ github.workspace }}/conformance-results.xml"
 
+      - name: Run Mongoose promotion conformance port
+        run: |
+          uv run --project moo-conformance-tests --frozen moo-conformance \
+            --moo-suite-root="${{ github.workspace }}/conformance" \
+            --candidate-root="${{ github.workspace }}" \
+            --moo-suite-path=promote_numbers.yaml \
+            --server-command "${{ github.workspace }}/build/install/banteng/bin/banteng --database {db} --checkpoint {db}.new --listen-address 127.0.0.1 --port {port} --promote-numbers=true" \
+            --server-db="${{ github.workspace }}/moo-conformance-tests/src/moo_conformance/_db/Test.db" \
+            --moo-host=127.0.0.1 \
+            --fail-on-unexpected-skip \
+            --strict-markers \
+            -q \
+            --junitxml="${{ github.workspace }}/promote-numbers-conformance-results.xml"
+
       - name: Upload conformance results
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -207,5 +221,6 @@ jobs:
           name: conformance-results
           path: |
             conformance-results.xml
+            promote-numbers-conformance-results.xml
             conformance-admission.json
           if-no-files-found: warn
