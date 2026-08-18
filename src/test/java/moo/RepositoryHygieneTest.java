@@ -71,6 +71,12 @@ final class RepositoryHygieneTest {
     assertTrue(
         Arrays.stream(ToastV17ProgramLayout.class.getDeclaredClasses())
             .noneMatch(type -> Modifier.isPublic(type.getModifiers())));
+    assertTrue(
+        Arrays.stream(ToastV17ProgramLayout.class.getDeclaredClasses())
+            .noneMatch(
+                type ->
+                    type.getSimpleName().equals("LayoutCompiler")
+                        || type.getSimpleName().equals("VectorBuilder")));
 
     int facadeLines =
         Files.readAllLines(

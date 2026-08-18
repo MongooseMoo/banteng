@@ -17,8 +17,15 @@ dependencies {
 
     testImplementation(platform("org.junit:junit-bom:6.1.2"))
     testImplementation("org.junit.jupiter:junit-jupiter")
+    testImplementation("org.openrewrite:rewrite-test:8.89.0")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
     testRuntimeOnly("org.openrewrite:rewrite-java-25:8.89.0")
+}
+
+tasks.processResources {
+    from(rootProject.file("rewrite.yml")) {
+        into("META-INF/rewrite")
+    }
 }
 
 tasks.withType<JavaCompile>().configureEach {
