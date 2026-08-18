@@ -156,7 +156,14 @@ public final class BuiltinCatalog {
         (a, w, p, t, id, rt, rs, r, cp, c) -> BuiltinResult.error(ErrorValue.E_INVARG),
         (a, w, p, t, id, rt, rs, r, cp, c) -> BuiltinResult.error(ErrorValue.E_INVARG),
         (a, w, p, t, id, rt, rs, r, cp, c) -> BuiltinResult.error(ErrorValue.E_INVARG),
-        (a, w, p, t, id, rt, rs, r, cp, c) -> BuiltinResult.value(new ListValue(List.of())));
+        (a, w, p, t, id, rt, rs, r, cp, c) -> BuiltinResult.value(new ListValue(List.of())),
+        (a, w, p, t, id, rt, rs, r, cp, c) -> BuiltinResult.error(ErrorValue.E_INVARG),
+        (a, w, p, t, id, rt, rs, r, cp, c) -> BuiltinResult.value(new IntegerValue(0)),
+        (a, w, p, t, id, rt, rs, r, cp, c) -> BuiltinResult.value(new IntegerValue(0)),
+        (a, w, p, t, id, rt, rs, r, cp, c) -> BuiltinResult.error(ErrorValue.E_INVARG),
+        (a, w, p, t, id, rt, rs, r, cp, c) -> BuiltinResult.value(new ListValue(List.of())),
+        (a, w, p, t, id, rt, rs, r, cp, c) -> BuiltinResult.error(ErrorValue.E_INVARG),
+        (a, w, p, t, id, rt, rs, r, cp, c) -> BuiltinResult.error(ErrorValue.E_INVARG));
   }
 
   /** Creates a catalog with the production task-registry handler. */
