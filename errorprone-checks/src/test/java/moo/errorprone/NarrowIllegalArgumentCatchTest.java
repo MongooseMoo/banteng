@@ -84,6 +84,52 @@ final class NarrowIllegalArgumentCatchTest {
             .anyMatch(message -> message.contains("exactly one operation")));
   }
 
+  @Test
+  void rejectsThrowableCatchInBuiltinPackage() {
+    Compilation compilation =
+        compile(
+            """
+            package moo.builtin;
+            class Test {
+              void invoke() {
+                try {
+                  operation();
+                } catch (Throwable failure) {
+                  return;
+                }
+              }
+              void operation() {}
+            }
+            """);
+
+    assertEquals(Boolean.FALSE, compilation.succeeded());
+    assertTrue(
+        compilation.diagnostics().stream()
+            .map(diagnostic -> diagnostic.getMessage(Locale.ROOT))
+            .anyMatch(message -> message.contains("Throwable catches are forbidden in moo.builtin")));
+  }
+
+  @Test
+  void acceptsThrowableCatchAtHostBoundary() {
+    Compilation compilation =
+        compile(
+            """
+            package moo.host;
+            class Test {
+              void invoke() {
+                try {
+                  operation();
+                } catch (Throwable failure) {
+                  return;
+                }
+              }
+              void operation() {}
+            }
+            """);
+
+    assertEquals(Boolean.TRUE, compilation.succeeded());
+  }
+
   private static Compilation compile(String source) {
     DiagnosticCollector<JavaFileObject> diagnostics = new DiagnosticCollector<>();
     JavaFileObject compilationUnit =

@@ -1,6 +1,5 @@
 package moo;
 
-import static com.tngtech.archunit.core.domain.JavaClass.Predicates.equivalentTo;
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses;
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noMethods;
 import static com.tngtech.archunit.library.dependencies.SlicesRuleDefinition.slices;
@@ -114,12 +113,13 @@ final class ArchitectureTest {
   }
 
   @Test
-  void builtinsNeverCatchOrDependDirectlyOnThrowable() {
+  void builtinsLeaveMethodHandleInvocationAtTheHostBoundary() {
     noClasses()
         .that()
         .resideInAPackage("moo.builtin..")
         .should()
-        .dependOnClassesThat(equivalentTo(Throwable.class))
+        .dependOnClassesThat()
+        .resideInAPackage("java.lang.invoke..")
         .check(productionClasses());
   }
 
