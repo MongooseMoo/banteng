@@ -4,8 +4,11 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Objects;
 import java.util.stream.IntStream;
 import moo.persistence.LambdaMooV4Reader;
 import moo.syntax.Ast;
@@ -16,6 +19,18 @@ import moo.world.WorldVerb;
 import org.junit.jupiter.api.Test;
 
 final class MooCompilerTest {
+  @Test
+  void compiledDiagnosticsDoNotExposeBuildProcessVocabulary() throws IOException {
+    byte[] bytecode;
+    try (var input =
+        Objects.requireNonNull(MooCompiler.class.getResourceAsStream("MooCompiler.class"))) {
+      bytecode = input.readAllBytes();
+    }
+    String constants = new String(bytecode, StandardCharsets.ISO_8859_1);
+
+    assertFalse(constants.contains("bytecode slice"));
+  }
+
   @Test
   void returnsToastFormattedSourceDiagnosticsWithoutThrowing() {
     MooCompiler.CompilationResult result = new MooCompiler().compileResult("return (\n");

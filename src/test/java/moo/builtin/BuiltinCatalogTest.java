@@ -37,6 +37,7 @@ import moo.value.MooValue.MapValue;
 import moo.value.MooValue.ObjectValue;
 import moo.value.MooValue.StringValue;
 import moo.value.MooValue.WaifValue;
+import moo.value.ValueSemantics;
 import moo.world.ObjectFlags;
 import moo.world.WorldObject;
 import moo.world.WorldProperty;
@@ -3644,6 +3645,88 @@ final class BuiltinCatalogTest {
         assertTrue(monotonicTime instanceof FloatValue);
         assertTrue(((FloatValue) monotonicTime).value() > 0.0);
       }
+    }
+  }
+
+  @Test
+  void promotesIntegersForMongooseMathBuiltinsWhenConfigured() {
+    BuiltinCatalog catalog = new BuiltinCatalog(new ValueSemantics(true));
+    CallShape unaryNumber =
+        new CallShape(List.of(Set.of(ArgType.NUMBER)), List.of(), Optional.empty());
+    for (String name :
+        List.of(
+            "acos",
+            "acosh",
+            "asin",
+            "asinh",
+            "atanh",
+            "cbrt",
+            "ceil",
+            "cos",
+            "cosh",
+            "exp",
+            "floor",
+            "log",
+            "log10",
+            "sin",
+            "sinh",
+            "sqrt",
+            "tan",
+            "tanh")) {
+      assertPureVmContract(catalog, name, unaryNumber);
+    }
+    assertPureVmContract(
+        catalog,
+        "atan",
+        new CallShape(
+            List.of(Set.of(ArgType.NUMBER)),
+            List.of(Set.of(ArgType.NUMBER)),
+            Optional.empty()));
+    assertPureVmContract(
+        catalog,
+        "atan2",
+        new CallShape(
+            List.of(Set.of(ArgType.NUMBER), Set.of(ArgType.NUMBER)),
+            List.of(),
+            Optional.empty()));
+
+    try (WorldTxn transaction = world().begin()) {
+      assertEquals(
+          Optional.of(new FloatValue(3.0)),
+          value(
+              invoke(
+                  catalog,
+                  catalog.spec("sqrt").orElseThrow(),
+                  List.of(new IntegerValue(9)),
+                  transaction,
+                  1)));
+      assertEquals(
+          Optional.of(new FloatValue(Math.atan2(1.0, 2.0))),
+          value(
+              invoke(
+                  catalog,
+                  catalog.spec("atan").orElseThrow(),
+                  List.of(new IntegerValue(1), new IntegerValue(2)),
+                  transaction,
+                  1)));
+      assertEquals(
+          Optional.of(new FloatValue(Math.atan2(1.0, 2.0))),
+          value(
+              invoke(
+                  catalog,
+                  catalog.spec("atan2").orElseThrow(),
+                  List.of(new IntegerValue(1), new IntegerValue(2)),
+                  transaction,
+                  1)));
+      assertEquals(
+          Optional.of(new IntegerValue(1)),
+          value(
+              invoke(
+                  catalog,
+                  catalog.spec("equal").orElseThrow(),
+                  List.of(new IntegerValue(1), new FloatValue(1.0)),
+                  transaction,
+                  1)));
     }
   }
 
