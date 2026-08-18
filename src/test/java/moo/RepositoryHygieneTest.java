@@ -1,0 +1,54 @@
+package moo;
+
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+import java.io.IOException;
+import java.lang.reflect.Modifier;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.List;
+import moo.persistence.ToastV17ProgramLayout;
+import moo.syntax.AstPath;
+import moo.value.MooValue;
+import moo.value.MooValue.StringValue;
+import moo.world.WorldTxn;
+import org.junit.jupiter.api.Test;
+
+final class RepositoryHygieneTest {
+  private static final Path REPOSITORY = Path.of("").toAbsolutePath();
+
+  @Test
+  void agentScratchAndGeneratedRootsAreIgnored() throws IOException {
+    List<String> ignored = Files.readAllLines(REPOSITORY.resolve(".gitignore"));
+
+    assertTrue(ignored.contains("/notes-*.md"));
+    assertTrue(ignored.contains("/prompts/"));
+    assertTrue(ignored.contains("/reports/"));
+    assertTrue(ignored.contains("/pyghidra_mcp_projects/"));
+    assertTrue(ignored.contains("/moo/"));
+  }
+
+  @Test
+  void resumeAfterSuspendInvestigationIsPartOfTheRepository() {
+    assertTrue(
+        Files.isRegularFile(
+            REPOSITORY.resolve("investigations/resume-after-suspend-background-limits.md")));
+  }
+
+  @Test
+  void obsoleteAndTestOnlySurfaceIsNotPublic() throws NoSuchMethodException {
+    assertThrows(
+        NoSuchMethodException.class,
+        () -> StringValue.class.getDeclaredMethod("equalsCaseSensitively", StringValue.class));
+    assertFalse(
+        Modifier.isPublic(
+            WorldTxn.class.getDeclaredMethod("stageEffect", MooValue.class).getModifiers()));
+    assertFalse(
+        Modifier.isPublic(
+            ToastV17ProgramLayout.class
+                .getDeclaredMethod("resolveToastFinallyLabel", String.class, int.class, AstPath.class)
+                .getModifiers()));
+  }
+}

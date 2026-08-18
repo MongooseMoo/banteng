@@ -1,6 +1,7 @@
 package moo;
 
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses;
+import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noMethods;
 import static com.tngtech.archunit.library.dependencies.SlicesRuleDefinition.slices;
 
 import com.tngtech.archunit.core.domain.JavaClasses;
@@ -75,6 +76,19 @@ final class ArchitectureTest {
         "value",
         "vm",
         "world");
+  }
+
+  @Test
+  void testOnlyWorldAndPersistenceMethodsAreNotPublicApi() {
+    noMethods()
+        .that()
+        .areDeclaredInClassesThat()
+        .resideInAnyPackage("moo.world..", "moo.persistence..")
+        .and()
+        .haveNameMatching("stageEffect|resolveToastFinallyLabel")
+        .should()
+        .bePublic()
+        .check(productionClasses());
   }
 
   private static JavaClasses productionClasses() {
