@@ -1,14 +1,20 @@
 package moo;
 
+import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.classes;
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses;
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noMethods;
 import static com.tngtech.archunit.library.dependencies.SlicesRuleDefinition.slices;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import com.tngtech.archunit.core.domain.JavaClass;
 import com.tngtech.archunit.core.domain.JavaClasses;
 import com.tngtech.archunit.core.importer.ClassFileImporter;
 import com.tngtech.archunit.core.importer.ImportOption;
+import com.tngtech.archunit.lang.ArchCondition;
+import com.tngtech.archunit.lang.ArchRule;
+import com.tngtech.archunit.lang.ConditionEvents;
+import com.tngtech.archunit.lang.SimpleConditionEvent;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -129,6 +135,32 @@ final class ArchitectureTest {
         assertThrows(AssertionError.class, () -> builtinThrowableCatchRule().check(fixture));
     assertTrue(violation.getMessage().contains("ArchUnitThrowableCatchFixture"));
     assertTrue(violation.getMessage().contains("java.lang.Throwable"));
+  }
+
+  private static ArchRule builtinThrowableCatchRule() {
+    return classes()
+        .that()
+        .resideInAPackage("moo.builtin..")
+        .should(
+            new ArchCondition<JavaClass>("not catch java.lang.Throwable") {
+              @Override
+              public void check(JavaClass javaClass, ConditionEvents events) {
+                javaClass.getCodeUnits().stream()
+                    .flatMap(codeUnit -> codeUnit.getTryCatchBlocks().stream())
+                    .filter(
+                        block ->
+                            block.getCaughtThrowables().stream()
+                                .anyMatch(caught -> caught.isEquivalentTo(Throwable.class)))
+                    .forEach(
+                        block ->
+                            events.add(
+                                SimpleConditionEvent.violated(
+                                    block,
+                                    block.getOwner().getFullName()
+                                        + " catches java.lang.Throwable at "
+                                        + block.getSourceCodeLocation())));
+              }
+            });
   }
 
   private static JavaClasses productionClasses() {
