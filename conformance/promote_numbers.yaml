@@ -1,0 +1,13 @@
+name: mongoose_promote_numbers
+description: Mongoose PROMOTE_NUMBERS cases ported from test_math.rb commit 167b814
+
+tests:
+  - name: promotes_integer_left_addition
+    code: "1 + 0.0"
+    expect:
+      value: 1.0
+
+  - name: promotes_integer_right_addition
+    code: "1.0 + 0"
+    expect:
+      value: 1.0
