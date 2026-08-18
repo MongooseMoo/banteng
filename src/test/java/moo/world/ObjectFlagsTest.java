@@ -15,15 +15,29 @@ import java.util.regex.Pattern;
 import org.junit.jupiter.api.Test;
 
 final class ObjectFlagsTest {
+  private static final String PERMANENT_OBJECT_FLAG_LITERAL =
+      "(?:1|2|4|8|16|32|64|128|256|512|1024)";
+  private static final String OBJECT_FLAGS_OPERAND =
+      "\\b(?:[A-Za-z_$][\\w$]*\\s*\\.\\s*)?flags\\s*(?:\\(\\s*\\))?";
+  private static final String NUMERIC_FLAG_OPERAND =
+      "\\(?\\s*~?\\s*" + PERMANENT_OBJECT_FLAG_LITERAL + "\\b\\s*\\)?";
   private static final Pattern NUMERIC_OBJECT_FLAG_MASK =
       Pattern.compile(
-          "(?i)\\b\\w*flags(?:\\(\\))?\\b[^\\r\\n]*&\\s*(?:1|2|4|8|16|32|64|128|256|512|1024)\\b");
+          "(?i)(?:"
+              + OBJECT_FLAGS_OPERAND
+              + "\\s*[&|^]=?\\s*"
+              + NUMERIC_FLAG_OPERAND
+              + "|"
+              + NUMERIC_FLAG_OPERAND
+              + "\\s*[&|^]\\s*"
+              + OBJECT_FLAGS_OPERAND
+              + ")");
   private static final Pattern LEGACY_FLAG_CONSTANT =
       Pattern.compile(
           "\\b(?:USER|PLAYER|PROGRAMMER|WIZARD|OBSOLETE_[12]|READ|WRITE|FERTILE|ANONYMOUS|INVALID|RECYCLED)_FLAG\\b");
   private static final Pattern NUMERIC_REPLACE_FLAG_ARGUMENT =
       Pattern.compile(
-          "\\breplaceFlags\\s*\\([^,]+,\\s*(?:1|2|4|8|16|32|64|128|256|512|1024)\\b");
+          "(?s)\\breplaceFlags\\s*\\([^;]*?,\\s*" + NUMERIC_FLAG_OPERAND);
 
   @Test
   void permanentBitsMatchTheToastObjectFlagLayout() {
