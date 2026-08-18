@@ -167,7 +167,7 @@ public final class WorldTxn implements AutoCloseable {
   }
 
   /** Stages one immutable effect value for publication with this transaction. */
-  public void stageEffect(MooValue effect) {
+  void stageEffect(MooValue effect) {
     ensureActiveTransaction();
     stagedEffects.add(Objects.requireNonNull(effect, "effect"));
   }

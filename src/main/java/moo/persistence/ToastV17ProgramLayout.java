@@ -484,8 +484,7 @@ public final class ToastV17ProgramLayout {
   }
 
   /** Resolves the unique Toast finally label owned by an exact structural path. */
-  public ToastFinallyLabel resolveToastFinallyLabel(
-      String source, int vector, AstPath ownerPath) {
+  ToastFinallyLabel resolveToastFinallyLabel(String source, int vector, AstPath ownerPath) {
     Objects.requireNonNull(source, "source");
     Objects.requireNonNull(ownerPath, "ownerPath");
     List<ToastFinallyLabel> matches =
