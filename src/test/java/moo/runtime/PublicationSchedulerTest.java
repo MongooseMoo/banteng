@@ -38,6 +38,7 @@ import moo.builtin.BuiltinCatalog.ListenerControl;
 import moo.builtin.BuiltinCatalog.ListenerDescription;
 import moo.builtin.BuiltinResult;
 import moo.bytecode.MooCompiler;
+import moo.bytecode.ToastV17ProgramModel;
 import moo.persistence.LambdaMooV17Codec;
 import moo.persistence.LambdaMooV17Codec.ActiveConnection;
 import moo.persistence.LambdaMooV17Codec.QueuedTask;
@@ -389,12 +390,12 @@ final class PublicationSchedulerTest {
           0;
         endtry
         """;
-    ToastV17ProgramLayout.StructuralStackShape protectedShape =
+    ToastV17ProgramModel.StructuralStackShape protectedShape =
         structuralShape(protectedSource, 0);
-    ToastV17ProgramLayout.CollectionLoop loop =
+    ToastV17ProgramModel.CollectionLoop loop =
         protectedShape.entriesBaseToTop().stream()
-            .filter(ToastV17ProgramLayout.CollectionLoop.class::isInstance)
-            .map(ToastV17ProgramLayout.CollectionLoop.class::cast)
+            .filter(ToastV17ProgramModel.CollectionLoop.class::isInstance)
+            .map(ToastV17ProgramModel.CollectionLoop.class::cast)
             .findFirst()
             .orElseThrow();
     ListValue loopBase =
@@ -433,9 +434,9 @@ final class PublicationSchedulerTest {
           suspend();
         endtry
         """;
-    ToastV17ProgramLayout.FinallyContinuation continuation =
+    ToastV17ProgramModel.FinallyContinuation continuation =
         assertInstanceOf(
-            ToastV17ProgramLayout.FinallyContinuation.class,
+            ToastV17ProgramModel.FinallyContinuation.class,
             structuralShape(source, 0).entriesBaseToTop().getFirst());
     ListValue exception =
         new ListValue(
@@ -472,11 +473,11 @@ final class PublicationSchedulerTest {
           endtry
         endwhile
         """;
-    ToastV17ProgramLayout.FinallyContinuation exitContinuation =
+    ToastV17ProgramModel.FinallyContinuation exitContinuation =
         assertInstanceOf(
-            ToastV17ProgramLayout.FinallyContinuation.class,
+            ToastV17ProgramModel.FinallyContinuation.class,
             structuralShape(exitSource, 0).entriesBaseToTop().getFirst());
-    ToastV17ProgramLayout.ToastExitTarget target = exitContinuation.exitTargets().getFirst();
+    ToastV17ProgramModel.ToastExitTarget target = exitContinuation.exitTargets().getFirst();
     ListValue rawExit =
         new ListValue(
             List.of(
@@ -529,9 +530,9 @@ final class PublicationSchedulerTest {
         new SuspendedStackSlot(Optional.empty(), 6, 0));
 
     String integerRange = "for value in [1..2]\n  suspend();\nendfor\n";
-    ToastV17ProgramLayout.RangeLoop integerShape =
+    ToastV17ProgramModel.RangeLoop integerShape =
         assertInstanceOf(
-            ToastV17ProgramLayout.RangeLoop.class,
+            ToastV17ProgramModel.RangeLoop.class,
             structuralShape(integerRange, 0).entriesBaseToTop().getFirst());
     assertActivationStackRoundTrips(
         integerRange,
@@ -544,9 +545,9 @@ final class PublicationSchedulerTest {
                 integerShape.endDepth(), valueSlot(new IntegerValue(Long.MAX_VALUE)))));
 
     String objectRange = "for value in [#1..#2]\n  suspend();\nendfor\n";
-    ToastV17ProgramLayout.RangeLoop objectShape =
+    ToastV17ProgramModel.RangeLoop objectShape =
         assertInstanceOf(
-            ToastV17ProgramLayout.RangeLoop.class,
+            ToastV17ProgramModel.RangeLoop.class,
             structuralShape(objectRange, 0).entriesBaseToTop().getFirst());
     assertActivationStackRoundTrips(
         objectRange,
@@ -566,14 +567,14 @@ final class PublicationSchedulerTest {
           endfor
         endfor
         """;
-    ToastV17ProgramLayout.StructuralStackShape nestedShape = structuralShape(nested, 0);
-    ToastV17ProgramLayout.CollectionLoop outer =
+    ToastV17ProgramModel.StructuralStackShape nestedShape = structuralShape(nested, 0);
+    ToastV17ProgramModel.CollectionLoop outer =
         assertInstanceOf(
-            ToastV17ProgramLayout.CollectionLoop.class,
+            ToastV17ProgramModel.CollectionLoop.class,
             nestedShape.entriesBaseToTop().get(0));
-    ToastV17ProgramLayout.RangeLoop inner =
+    ToastV17ProgramModel.RangeLoop inner =
         assertInstanceOf(
-            ToastV17ProgramLayout.RangeLoop.class,
+            ToastV17ProgramModel.RangeLoop.class,
             nestedShape.entriesBaseToTop().get(1));
     assertActivationStackRoundTrips(
         nested,
@@ -1452,9 +1453,9 @@ final class PublicationSchedulerTest {
 
   private static void assertLoopStackRoundTrips(
       String source, MooValue base, SuspendedStackSlot iterator) {
-    ToastV17ProgramLayout.CollectionLoop shape =
+    ToastV17ProgramModel.CollectionLoop shape =
         assertInstanceOf(
-            ToastV17ProgramLayout.CollectionLoop.class,
+            ToastV17ProgramModel.CollectionLoop.class,
             structuralShape(source, 0).entriesBaseToTop().getFirst());
     assertActivationStackRoundTrips(
         source,
@@ -1514,10 +1515,10 @@ final class PublicationSchedulerTest {
     throw new LinkageError(cause == null ? failure.getMessage() : cause.getMessage(), failure);
   }
 
-  private static ToastV17ProgramLayout.StructuralStackShape structuralShape(
+  private static ToastV17ProgramModel.StructuralStackShape structuralShape(
       String source, int callIndex) {
     ToastV17ProgramLayout layout = new ToastV17ProgramLayout();
-    ToastV17ProgramLayout.CallBoundary boundary =
+    ToastV17ProgramModel.CallBoundary boundary =
         layout.callBoundaries(source, -1).get(callIndex);
     return layout.resolveStructuralStack(
         source, -1, new MooCompiler().compile(source), boundary);
@@ -1527,14 +1528,14 @@ final class PublicationSchedulerTest {
       String source,
       int callIndex,
       Map<Integer, SuspendedStackSlot> supplied) {
-    ToastV17ProgramLayout.StructuralStackShape shape = structuralShape(source, callIndex);
+    ToastV17ProgramModel.StructuralStackShape shape = structuralShape(source, callIndex);
     SuspendedStackSlot[] baseToTop = new SuspendedStackSlot[shape.postArgumentDepth()];
-    for (ToastV17ProgramLayout.StructuralStackEntry entry : shape.entriesBaseToTop()) {
+    for (ToastV17ProgramModel.StructuralStackEntry entry : shape.entriesBaseToTop()) {
       switch (entry) {
-        case ToastV17ProgramLayout.CatchGroup group
-            when group.phase() == ToastV17ProgramLayout.StructuralPhase.PROTECTED -> {
+        case ToastV17ProgramModel.CatchGroup group
+            when group.phase() == ToastV17ProgramModel.StructuralPhase.PROTECTED -> {
           for (int index = 0; index < group.clauses().size(); index++) {
-            ToastV17ProgramLayout.ToastHandlerClause clause = group.clauses().get(index);
+            ToastV17ProgramModel.ToastHandlerClause clause = group.clauses().get(index);
             baseToTop[group.baseDepth() + index * 2] =
                 valueSlot(
                     clause.selector().catchesAny()
@@ -1549,7 +1550,7 @@ final class PublicationSchedulerTest {
           baseToTop[group.markerDepth().orElseThrow()] =
               new SuspendedStackSlot(Optional.empty(), 7, group.clauses().size());
         }
-        case ToastV17ProgramLayout.ProtectedFinally protectedFinally ->
+        case ToastV17ProgramModel.ProtectedFinally protectedFinally ->
             baseToTop[protectedFinally.markerDepth()] =
                 new SuspendedStackSlot(
                     Optional.empty(), 8, protectedFinally.handlerLabelProgramCounter());
@@ -1597,7 +1598,7 @@ final class PublicationSchedulerTest {
 
   private static SuspendedActivation suspendedActivation(
       String source, int callIndex, List<SuspendedStackSlot> operandStack) {
-    ToastV17ProgramLayout.CallBoundary boundary =
+    ToastV17ProgramModel.CallBoundary boundary =
         new ToastV17ProgramLayout().callBoundaries(source, -1).get(callIndex);
     Map<String, Optional<MooValue>> locals =
         Map.of(

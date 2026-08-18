@@ -194,3 +194,98 @@ displayName: Consolidate unary-float builtin handlers
 description: Replaces the uniform manifest lambdas with the shared unary-float handler factory.
 recipeList:
   - moo.rewrite.ConsolidateUnaryFloatHandlers
+---
+type: specs.openrewrite.org/v1beta/recipe
+name: moo.persistence.DecomposeToastV17ProgramLayout
+displayName: Decompose Toast v17 program layout types
+description: Retargets the layout facade's public nested model to its bytecode-owned data model.
+recipeList:
+  - moo.rewrite.PromoteToastV17LayoutCompilers
+  - org.openrewrite.java.ChangeType:
+      oldFullyQualifiedTypeName: moo.persistence.ToastV17ProgramLayout$LayoutCompiler
+      newFullyQualifiedTypeName: moo.bytecode.LayoutCompiler
+  - org.openrewrite.java.ChangeType:
+      oldFullyQualifiedTypeName: moo.persistence.ToastV17ProgramLayout$VectorBuilder
+      newFullyQualifiedTypeName: moo.bytecode.VectorBuilder
+  - org.openrewrite.java.ChangeType:
+      oldFullyQualifiedTypeName: moo.persistence.ToastV17ProgramLayout$CallKind
+      newFullyQualifiedTypeName: moo.bytecode.ToastV17ProgramModel$CallKind
+  - org.openrewrite.java.ChangeType:
+      oldFullyQualifiedTypeName: moo.persistence.ToastV17ProgramLayout$CallBoundary
+      newFullyQualifiedTypeName: moo.bytecode.ToastV17ProgramModel$CallBoundary
+  - org.openrewrite.java.ChangeType:
+      oldFullyQualifiedTypeName: moo.persistence.ToastV17ProgramLayout$BantengCallSite
+      newFullyQualifiedTypeName: moo.bytecode.ToastV17ProgramModel$BantengCallSite
+  - org.openrewrite.java.ChangeType:
+      oldFullyQualifiedTypeName: moo.persistence.ToastV17ProgramLayout$HandlerPhase
+      newFullyQualifiedTypeName: moo.bytecode.ToastV17ProgramModel$HandlerPhase
+  - org.openrewrite.java.ChangeType:
+      oldFullyQualifiedTypeName: moo.persistence.ToastV17ProgramLayout$EnclosingHandler
+      newFullyQualifiedTypeName: moo.bytecode.ToastV17ProgramModel$EnclosingHandler
+  - org.openrewrite.java.ChangeType:
+      oldFullyQualifiedTypeName: moo.persistence.ToastV17ProgramLayout$EnclosingIterate
+      newFullyQualifiedTypeName: moo.bytecode.ToastV17ProgramModel$EnclosingIterate
+  - org.openrewrite.java.ChangeType:
+      oldFullyQualifiedTypeName: moo.persistence.ToastV17ProgramLayout$ContinuationSite
+      newFullyQualifiedTypeName: moo.bytecode.ToastV17ProgramModel$ContinuationSite
+  - org.openrewrite.java.ChangeType:
+      oldFullyQualifiedTypeName: moo.persistence.ToastV17ProgramLayout$ToastErrorSelector
+      newFullyQualifiedTypeName: moo.bytecode.ToastV17ProgramModel$ToastErrorSelector
+  - org.openrewrite.java.ChangeType:
+      oldFullyQualifiedTypeName: moo.persistence.ToastV17ProgramLayout$ToastHandlerClause
+      newFullyQualifiedTypeName: moo.bytecode.ToastV17ProgramModel$ToastHandlerClause
+  - org.openrewrite.java.ChangeType:
+      oldFullyQualifiedTypeName: moo.persistence.ToastV17ProgramLayout$ToastHandlerGroup
+      newFullyQualifiedTypeName: moo.bytecode.ToastV17ProgramModel$ToastHandlerGroup
+  - org.openrewrite.java.ChangeType:
+      oldFullyQualifiedTypeName: moo.persistence.ToastV17ProgramLayout$ToastFinallyLabel
+      newFullyQualifiedTypeName: moo.bytecode.ToastV17ProgramModel$ToastFinallyLabel
+  - org.openrewrite.java.ChangeType:
+      oldFullyQualifiedTypeName: moo.persistence.ToastV17ProgramLayout$ToastControlLabels
+      newFullyQualifiedTypeName: moo.bytecode.ToastV17ProgramModel$ToastControlLabels
+  - org.openrewrite.java.ChangeType:
+      oldFullyQualifiedTypeName: moo.persistence.ToastV17ProgramLayout$StructuralPhase
+      newFullyQualifiedTypeName: moo.bytecode.ToastV17ProgramModel$StructuralPhase
+  - org.openrewrite.java.ChangeType:
+      oldFullyQualifiedTypeName: moo.persistence.ToastV17ProgramLayout$CollectionKind
+      newFullyQualifiedTypeName: moo.bytecode.ToastV17ProgramModel$CollectionKind
+  - org.openrewrite.java.ChangeType:
+      oldFullyQualifiedTypeName: moo.persistence.ToastV17ProgramLayout$RangeKind
+      newFullyQualifiedTypeName: moo.bytecode.ToastV17ProgramModel$RangeKind
+  - org.openrewrite.java.ChangeType:
+      oldFullyQualifiedTypeName: moo.persistence.ToastV17ProgramLayout$ExitAction
+      newFullyQualifiedTypeName: moo.bytecode.ToastV17ProgramModel$ExitAction
+  - org.openrewrite.java.ChangeType:
+      oldFullyQualifiedTypeName: moo.persistence.ToastV17ProgramLayout$BantengExitControl
+      newFullyQualifiedTypeName: moo.bytecode.ToastV17ProgramModel$BantengExitControl
+  - org.openrewrite.java.ChangeType:
+      oldFullyQualifiedTypeName: moo.persistence.ToastV17ProgramLayout$ToastExitTarget
+      newFullyQualifiedTypeName: moo.bytecode.ToastV17ProgramModel$ToastExitTarget
+  - org.openrewrite.java.ChangeType:
+      oldFullyQualifiedTypeName: moo.persistence.ToastV17ProgramLayout$BantengHandlerControl
+      newFullyQualifiedTypeName: moo.bytecode.ToastV17ProgramModel$BantengHandlerControl
+  - org.openrewrite.java.ChangeType:
+      oldFullyQualifiedTypeName: moo.persistence.ToastV17ProgramLayout$StructuralStackEntry
+      newFullyQualifiedTypeName: moo.bytecode.ToastV17ProgramModel$StructuralStackEntry
+  - org.openrewrite.java.ChangeType:
+      oldFullyQualifiedTypeName: moo.persistence.ToastV17ProgramLayout$CatchGroup
+      newFullyQualifiedTypeName: moo.bytecode.ToastV17ProgramModel$CatchGroup
+  - org.openrewrite.java.ChangeType:
+      oldFullyQualifiedTypeName: moo.persistence.ToastV17ProgramLayout$ProtectedFinally
+      newFullyQualifiedTypeName: moo.bytecode.ToastV17ProgramModel$ProtectedFinally
+  - org.openrewrite.java.ChangeType:
+      oldFullyQualifiedTypeName: moo.persistence.ToastV17ProgramLayout$FinallyContinuation
+      newFullyQualifiedTypeName: moo.bytecode.ToastV17ProgramModel$FinallyContinuation
+  - org.openrewrite.java.ChangeType:
+      oldFullyQualifiedTypeName: moo.persistence.ToastV17ProgramLayout$CollectionLoop
+      newFullyQualifiedTypeName: moo.bytecode.ToastV17ProgramModel$CollectionLoop
+  - org.openrewrite.java.ChangeType:
+      oldFullyQualifiedTypeName: moo.persistence.ToastV17ProgramLayout$RangeLoop
+      newFullyQualifiedTypeName: moo.bytecode.ToastV17ProgramModel$RangeLoop
+  - org.openrewrite.java.ChangeType:
+      oldFullyQualifiedTypeName: moo.persistence.ToastV17ProgramLayout$StructuralStackShape
+      newFullyQualifiedTypeName: moo.bytecode.ToastV17ProgramModel$StructuralStackShape
+  - moo.rewrite.AddToastV17ProgramModelImport
+  - org.openrewrite.java.RemoveUnusedImports
+  - org.openrewrite.java.OrderImports
+  - org.openrewrite.java.ShortenFullyQualifiedTypeReferences
