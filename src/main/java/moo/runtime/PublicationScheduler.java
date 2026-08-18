@@ -2174,43 +2174,6 @@ final class PublicationScheduler implements AutoCloseable {
         BytecodeProgram program,
         VmSnapshot snapshot,
         long taskPlayer,
-        Optional<MooRuntime.RuntimeContinuation> continuation) {
-      return vm(
-          ticket,
-          taskId,
-          program,
-          snapshot,
-          taskPlayer,
-          continuation,
-          continuation.flatMap(MooRuntime.RuntimeContinuation::finalizationControl),
-          false);
-    }
-
-    static Entry vm(
-        long ticket,
-        long taskId,
-        BytecodeProgram program,
-        VmSnapshot snapshot,
-        long taskPlayer,
-        Optional<MooRuntime.RuntimeContinuation> continuation,
-        boolean startingBackground) {
-      return vm(
-          ticket,
-          taskId,
-          program,
-          snapshot,
-          taskPlayer,
-          continuation,
-          continuation.flatMap(MooRuntime.RuntimeContinuation::finalizationControl),
-          startingBackground);
-    }
-
-    static Entry vm(
-        long ticket,
-        long taskId,
-        BytecodeProgram program,
-        VmSnapshot snapshot,
-        long taskPlayer,
         Optional<MooRuntime.RuntimeContinuation> continuation,
         Optional<MooRuntime.FinalizationControl> finalizationControl,
         boolean startingBackground) {
