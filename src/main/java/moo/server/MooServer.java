@@ -32,6 +32,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import moo.builtin.BuiltinCatalog.ListenerDescription;
 import moo.builtin.BuiltinCatalog.ListenerControl;
+import moo.logging.ServerLog;
 import moo.persistence.LambdaMooV17Codec;
 import moo.runtime.MooRuntime;
 import moo.value.MooValue;
@@ -43,6 +44,7 @@ import moo.world.WorldTxn;
 /** The concrete blocking socket server for the first managed vertical slice. */
 public final class MooServer implements AutoCloseable, ListenerControl {
   private final MooRuntime runtime;
+  private final ServerLog serverLog;
   private final InetAddress listenAddress;
   private final ServerSocket primaryListener;
   private final Listener primary;
@@ -58,7 +60,14 @@ public final class MooServer implements AutoCloseable, ListenerControl {
 
   /** Binds the configured address and port. Port zero requests an ephemeral test port. */
   public MooServer(String address, int port, WorldTxn world, Path checkpoint) throws IOException {
-    this(address, port, world, checkpoint, List.of(), List.of());
+    this(
+        address,
+        port,
+        world,
+        checkpoint,
+        List.of(),
+        List.of(),
+        ServerLog.stderr(System.Logger.Level.INFO));
   }
 
   /** Binds the listener and restores delayed fork tasks from the loaded checkpoint. */
@@ -77,7 +86,8 @@ public final class MooServer implements AutoCloseable, ListenerControl {
         Optional.empty(),
         checkpoint,
         restoredTasks,
-        activeConnections);
+        activeConnections,
+        ServerLog.stderr(System.Logger.Level.INFO));
   }
 
   /** Binds the listener with distinct loaded and checkpoint database files. */
@@ -97,7 +107,30 @@ public final class MooServer implements AutoCloseable, ListenerControl {
         Optional.of(Objects.requireNonNull(database, "database")),
         checkpoint,
         restoredTasks,
-        activeConnections);
+        activeConnections,
+        ServerLog.stderr(System.Logger.Level.INFO));
+  }
+
+  /** Binds the listener with distinct database files and the shared server log. */
+  public MooServer(
+      String address,
+      int port,
+      WorldTxn world,
+      Path database,
+      Path checkpoint,
+      List<LambdaMooV17Codec.DurableTask> restoredTasks,
+      List<LambdaMooV17Codec.ActiveConnection> activeConnections,
+      ServerLog serverLog)
+      throws IOException {
+    this(
+        address,
+        port,
+        world,
+        Optional.of(Objects.requireNonNull(database, "database")),
+        checkpoint,
+        restoredTasks,
+        activeConnections,
+        serverLog);
   }
 
   private MooServer(
@@ -107,7 +140,8 @@ public final class MooServer implements AutoCloseable, ListenerControl {
       Optional<Path> database,
       Path checkpoint,
       List<LambdaMooV17Codec.DurableTask> restoredTasks,
-      List<LambdaMooV17Codec.ActiveConnection> activeConnections)
+      List<LambdaMooV17Codec.ActiveConnection> activeConnections,
+      ServerLog serverLog)
       throws IOException {
     listenAddress = InetAddress.getByName(address);
     primaryListener = new ServerSocket();
@@ -117,6 +151,7 @@ public final class MooServer implements AutoCloseable, ListenerControl {
         Objects.requireNonNull(restoredTasks, "restoredTasks");
     List<LambdaMooV17Codec.ActiveConnection> connectionsToRestore =
         Objects.requireNonNull(activeConnections, "activeConnections");
+    this.serverLog = Objects.requireNonNull(serverLog, "serverLog");
     runtime =
         database.isPresent()
             ? new MooRuntime(
@@ -125,9 +160,15 @@ public final class MooServer implements AutoCloseable, ListenerControl {
                 database.orElseThrow(),
                 checkpointPath,
                 tasks,
-                connectionsToRestore)
+                connectionsToRestore,
+                serverLog)
             : new MooRuntime(
-                runtimeWorld, this, checkpointPath, tasks, connectionsToRestore);
+                runtimeWorld,
+                this,
+                checkpointPath,
+                tasks,
+                connectionsToRestore,
+                serverLog);
     try {
       primaryListener.bind(new InetSocketAddress(listenAddress, port));
     } catch (IOException | RuntimeException failure) {

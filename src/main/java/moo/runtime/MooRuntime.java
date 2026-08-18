@@ -30,6 +30,7 @@ import moo.builtin.BuiltinResult;
 import moo.builtin.CheckpointRequest;
 import moo.bytecode.BytecodeProgram;
 import moo.bytecode.MooCompiler;
+import moo.logging.ServerLog;
 import moo.persistence.LambdaMooV17Codec;
 import moo.persistence.LambdaMooV17Codec.ActiveConnection;
 import moo.value.MooValue;
@@ -62,6 +63,7 @@ public final class MooRuntime implements AutoCloseable {
   static final long DEFAULT_MAX_STACK_DEPTH = 50;
   private final Map<String, BytecodeProgram> compiledPrograms = new ConcurrentHashMap<>();
   private final BuiltinCatalog builtins;
+  private final ServerLog serverLog;
   private final Optional<ListenerControl> listenerControl;
   private final Optional<Path> database;
   private final Optional<Path> checkpoint;
@@ -84,6 +86,7 @@ public final class MooRuntime implements AutoCloseable {
     listenerControl = Optional.empty();
     database = Optional.empty();
     checkpoint = Optional.empty();
+    serverLog = ServerLog.stderr(System.Logger.Level.INFO);
     TaskRegistry taskRegistry = new TaskRegistry();
     scheduler =
         new PublicationScheduler(
@@ -102,7 +105,8 @@ public final class MooRuntime implements AutoCloseable {
             (a, w, p, t, id, rt, rs, r, cp, c) -> outputDelimiters(a, w, p),
             (a, w, p, t, id, rt, rs, r, cp, c) -> queueInfo(a, w, p, taskRegistry),
             taskRegistry::taskStack,
-            scheduler::resumeTask);
+            scheduler::resumeTask,
+            serverLog);
   }
 
   /** Creates the production runtime with its concrete listener and checkpoint owners. */
@@ -114,7 +118,8 @@ public final class MooRuntime implements AutoCloseable {
         Optional.empty(),
         Optional.of(Objects.requireNonNull(checkpoint, "checkpoint")),
         List.of(),
-        List.of());
+        List.of(),
+        ServerLog.stderr(System.Logger.Level.INFO));
   }
 
   /** Creates the production runtime and restores delayed fork tasks from one checkpoint. */
@@ -131,7 +136,27 @@ public final class MooRuntime implements AutoCloseable {
         Optional.empty(),
         Optional.of(Objects.requireNonNull(checkpoint, "checkpoint")),
         restoredTasks,
-        activeConnections);
+        activeConnections,
+        ServerLog.stderr(System.Logger.Level.INFO));
+  }
+
+  /** Creates the production runtime with restored state and the shared server log. */
+  public MooRuntime(
+      WorldTxn world,
+      ListenerControl listenerControl,
+      Path checkpoint,
+      List<LambdaMooV17Codec.DurableTask> restoredTasks,
+      List<ActiveConnection> activeConnections,
+      ServerLog serverLog) {
+    this(
+        world,
+        listenerControl,
+        Math.max(2, Runtime.getRuntime().availableProcessors()),
+        Optional.empty(),
+        Optional.of(Objects.requireNonNull(checkpoint, "checkpoint")),
+        restoredTasks,
+        activeConnections,
+        serverLog);
   }
 
   /** Creates the production runtime with distinct loaded and checkpoint database files. */
@@ -149,7 +174,28 @@ public final class MooRuntime implements AutoCloseable {
         Optional.of(Objects.requireNonNull(database, "database")),
         Optional.of(Objects.requireNonNull(checkpoint, "checkpoint")),
         restoredTasks,
-        activeConnections);
+        activeConnections,
+        ServerLog.stderr(System.Logger.Level.INFO));
+  }
+
+  /** Creates the production runtime with distinct database files and the shared server log. */
+  public MooRuntime(
+      WorldTxn world,
+      ListenerControl listenerControl,
+      Path database,
+      Path checkpoint,
+      List<LambdaMooV17Codec.DurableTask> restoredTasks,
+      List<ActiveConnection> activeConnections,
+      ServerLog serverLog) {
+    this(
+        world,
+        listenerControl,
+        Math.max(2, Runtime.getRuntime().availableProcessors()),
+        Optional.of(Objects.requireNonNull(database, "database")),
+        Optional.of(Objects.requireNonNull(checkpoint, "checkpoint")),
+        restoredTasks,
+        activeConnections,
+        serverLog);
   }
 
   MooRuntime(WorldTxn world, ListenerControl listenerControl, int workers) {
@@ -160,7 +206,8 @@ public final class MooRuntime implements AutoCloseable {
         Optional.empty(),
         Optional.empty(),
         List.of(),
-        List.of());
+        List.of(),
+        ServerLog.stderr(System.Logger.Level.INFO));
   }
 
   private MooRuntime(
@@ -170,11 +217,13 @@ public final class MooRuntime implements AutoCloseable {
       Optional<Path> database,
       Optional<Path> checkpoint,
       List<LambdaMooV17Codec.DurableTask> restoredTasks,
-      List<ActiveConnection> activeConnections) {
+      List<ActiveConnection> activeConnections,
+      ServerLog serverLog) {
     committedWorld = Objects.requireNonNull(world, "world");
     this.listenerControl = Optional.of(Objects.requireNonNull(listenerControl, "listenerControl"));
     this.database = Objects.requireNonNull(database, "database");
     this.checkpoint = Objects.requireNonNull(checkpoint, "checkpoint");
+    this.serverLog = Objects.requireNonNull(serverLog, "serverLog");
     checkpointedConnections = List.copyOf(activeConnections);
     TaskRegistry taskRegistry = new TaskRegistry();
     scheduler =
@@ -197,7 +246,8 @@ public final class MooRuntime implements AutoCloseable {
             (a, w, p, t, id, rt, rs, r, cp, c) -> outputDelimiters(a, w, p),
             (a, w, p, t, id, rt, rs, r, cp, c) -> queueInfo(a, w, p, taskRegistry),
             taskRegistry::taskStack,
-            scheduler::resumeTask);
+            scheduler::resumeTask,
+            serverLog);
     scheduler.restoreTasks(Objects.requireNonNull(restoredTasks, "restoredTasks"));
   }
 
@@ -3026,7 +3076,7 @@ public final class MooRuntime implements AutoCloseable {
         || state.returnValue().isEmpty()
         || !(state.returnValue().orElseThrow() instanceof ListValue exception)
         || exception.size() != 4) {
-      formatted.forEach(System.err::println);
+      formatted.forEach(serverLog::error);
       return RuntimeStep.returned(List.of());
     }
     ListValue arguments =
@@ -3208,7 +3258,7 @@ public final class MooRuntime implements AutoCloseable {
         Path target =
             checkpoint.orElseThrow(
                 () -> new IllegalStateException("dump_database() requires --checkpoint"));
-        System.err.println("CHECKPOINTING to " + target);
+        serverLog.info("CHECKPOINTING to " + target);
         try (WorldTxn.RetainedSnapshot retained = committedWorld.retainSnapshot()) {
           checkpointCodec.writeAtomic(
               target, retained.snapshot(), scheduler.durableTasks(), activeConnections());
@@ -3227,7 +3277,7 @@ public final class MooRuntime implements AutoCloseable {
                             () -> new IllegalStateException("panic requires --checkpoint"))
                         .toString()
                     + ".PANIC");
-        System.err.println("PANIC: " + effect.text);
+        serverLog.error("PANIC: " + effect.text);
         try {
           checkpointCodec.writePanic(
               target,

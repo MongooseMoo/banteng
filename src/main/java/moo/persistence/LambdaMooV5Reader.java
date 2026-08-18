@@ -13,6 +13,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import moo.logging.ServerLog;
 import moo.value.MooValue;
 import moo.value.MooValue.ErrorValue;
 import moo.value.MooValue.FloatValue;
@@ -29,6 +30,17 @@ import org.jspecify.annotations.Nullable;
 /** Reader and topology repairer for LambdaMOO's first next-generation database format. */
 public final class LambdaMooV5Reader {
   private static final String HEADER = "** LambdaMOO Database, Format Version 5 **";
+  private final ServerLog serverLog;
+
+  /** Creates a reader that emits validation diagnostics to standard error. */
+  public LambdaMooV5Reader() {
+    this(ServerLog.stderr(System.Logger.Level.INFO));
+  }
+
+  /** Creates a reader that emits validation diagnostics through the supplied server log. */
+  public LambdaMooV5Reader(ServerLog serverLog) {
+    this.serverLog = Objects.requireNonNull(serverLog, "serverLog");
+  }
 
   /** Reads a v5 world, applying the same three topology-repair phases as LambdaMOO. */
   public WorldTxn read(Path database) throws IOException {
@@ -160,8 +172,8 @@ public final class LambdaMooV5Reader {
     return programs;
   }
 
-  private static Map<Long, RepairedObject> repairTopology(Map<Long, RawObject> objects) {
-    System.err.println("VALIDATE: Phase 1: Check for invalid objects ...");
+  private Map<Long, RepairedObject> repairTopology(Map<Long, RawObject> objects) {
+    serverLog.info("VALIDATE: Phase 1: Check for invalid objects ...");
     Map<Long, RepairedObject> repaired = new LinkedHashMap<>();
     for (RawObject object : objects.values()) {
       repaired.put(
@@ -173,16 +185,16 @@ public final class LambdaMooV5Reader {
               repairObjectList(object, object.children(), "children", "child", objects)));
     }
 
-    System.err.println("VALIDATE: Phase 2: Check for cycles ...");
+    serverLog.info("VALIDATE: Phase 2: Check for cycles ...");
     Set<Long> parentCycles = new LinkedHashSet<>();
     Set<Long> locationCycles = new LinkedHashSet<>();
     for (long objectId : objects.keySet()) {
       if (hasParentCycle(objectId, repaired, new LinkedHashSet<>())) {
-        System.err.println("*** VALIDATE: Cycle in parent chain of #" + objectId + ".");
+        serverLog.error("*** VALIDATE: Cycle in parent chain of #" + objectId + ".");
         parentCycles.add(objectId);
       }
       if (hasLocationCycle(objectId, repaired)) {
-        System.err.println("*** VALIDATE: Cycle in location chain of #" + objectId + ".");
+        serverLog.error("*** VALIDATE: Cycle in location chain of #" + objectId + ".");
         locationCycles.add(objectId);
       }
     }
@@ -195,14 +207,14 @@ public final class LambdaMooV5Reader {
       repaired.put(objectId, object.withLocation(-1));
     }
 
-    System.err.println("VALIDATE: Phase 3: Check for inconsistencies ...");
+    serverLog.info("VALIDATE: Phase 3: Check for inconsistencies ...");
     for (long objectId : objects.keySet()) {
       RepairedObject object = Objects.requireNonNull(repaired.get(objectId));
       if (object.location() != -1
           && !Objects.requireNonNull(repaired.get(object.location()))
               .contents()
               .contains(objectId)) {
-        System.err.println(
+        serverLog.error(
             "*** VALIDATE: #"
                 + objectId
                 + " not in it's location's (#"
@@ -215,7 +227,7 @@ public final class LambdaMooV5Reader {
         if (Objects.requireNonNull(repaired.get(parentId)).children().contains(objectId)) {
           retainedParents.add(parentId);
         } else {
-          System.err.println(
+          serverLog.error(
               "*** VALIDATE: #"
                   + objectId
                   + " not in it's parent's (#"
@@ -232,7 +244,7 @@ public final class LambdaMooV5Reader {
         if (Objects.requireNonNull(repaired.get(childId)).parents().contains(objectId)) {
           retainedChildren.add(childId);
         } else {
-          System.err.println(
+          serverLog.error(
               "*** VALIDATE: #"
                   + objectId
                   + " not in it's child's (#"
@@ -245,7 +257,7 @@ public final class LambdaMooV5Reader {
         if (Objects.requireNonNull(repaired.get(contentId)).location() == objectId) {
           retainedContents.add(contentId);
         } else {
-          System.err.println(
+          serverLog.error(
               "*** VALIDATE: #"
                   + objectId
                   + " not in it's content's (#"
@@ -258,15 +270,15 @@ public final class LambdaMooV5Reader {
     return repaired;
   }
 
-  private static long repairLocation(RawObject object, Map<Long, RawObject> objects) {
+  private long repairLocation(RawObject object, Map<Long, RawObject> objects) {
     if (!(object.location() instanceof ObjectValue location)) {
-      System.err.println(
+      serverLog.error(
           "*** VALIDATE: #" + object.id() + ".location is not an object.");
       return -1;
     }
     long objectId = location.value();
     if (objectId != -1 && !objects.containsKey(objectId)) {
-      System.err.println(
+      serverLog.error(
           "*** VALIDATE: #"
               + object.id()
               + ".location = #"
@@ -277,7 +289,7 @@ public final class LambdaMooV5Reader {
     return objectId;
   }
 
-  private static List<Long> repairParents(RawObject object, Map<Long, RawObject> objects) {
+  private List<Long> repairParents(RawObject object, Map<Long, RawObject> objects) {
     if (object.parents() instanceof ObjectValue parent) {
       return parent.value() == -1
           ? List.of()
@@ -285,7 +297,7 @@ public final class LambdaMooV5Reader {
     }
     if (object.parents() instanceof ListValue parents) {
       if (parents.elements().stream().anyMatch(value -> !(value instanceof ObjectValue))) {
-        System.err.println(
+        serverLog.error(
             "*** VALIDATE: #"
                 + object.id()
                 + ".parents is not an object or list of objects.");
@@ -293,29 +305,29 @@ public final class LambdaMooV5Reader {
       }
       return repairReferences(object.id(), parents.elements(), "parent", objects);
     }
-    System.err.println(
+    serverLog.error(
         "*** VALIDATE: #" + object.id() + ".parents is not an object or list of objects.");
     return List.of();
   }
 
-  private static List<Long> repairObjectList(
+  private List<Long> repairObjectList(
       RawObject object,
       MooValue value,
       String field,
       String member,
       Map<Long, RawObject> objects) {
     if (!(value instanceof ListValue list)) {
-      System.err.println("*** VALIDATE: #" + object.id() + "." + field + " is not a list of objects.");
+      serverLog.error("*** VALIDATE: #" + object.id() + "." + field + " is not a list of objects.");
       return List.of();
     }
     if (list.elements().stream().anyMatch(element -> !(element instanceof ObjectValue))) {
-      System.err.println("*** VALIDATE: #" + object.id() + "." + field + " is not a list of objects.");
+      serverLog.error("*** VALIDATE: #" + object.id() + "." + field + " is not a list of objects.");
       return List.of();
     }
     return repairReferences(object.id(), list.elements(), member, objects);
   }
 
-  private static List<Long> repairReferences(
+  private List<Long> repairReferences(
       long owner, List<MooValue> values, String field, Map<Long, RawObject> objects) {
     Set<Long> retained = new LinkedHashSet<>();
     for (MooValue value : values) {
@@ -324,7 +336,7 @@ public final class LambdaMooV5Reader {
       }
       long objectId = reference.value();
       if (!objects.containsKey(objectId)) {
-        System.err.println(
+        serverLog.error(
             "*** VALIDATE: #"
                 + owner
                 + "."

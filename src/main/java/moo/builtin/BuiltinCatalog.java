@@ -36,6 +36,7 @@ import java.util.StringTokenizer;
 import java.util.concurrent.CancellationException;
 import java.util.function.Function;
 import moo.bytecode.MooCompiler;
+import moo.logging.ServerLog;
 import moo.syntax.MooParser;
 import moo.syntax.MooUnparser;
 import moo.value.MooValue;
@@ -129,6 +130,7 @@ public final class BuiltinCatalog {
   private final BuiltinHandler outputDelimiters;
   private final PcreService pcre = new PcreService();
   private final BuiltinHandler queueInfo;
+  private final ServerLog serverLog;
   private final Optional<ListenerControl> listenerControl;
   private final BuiltinHandler queuedTasks;
   private final BuiltinHandler resumeTask;
@@ -329,6 +331,37 @@ public final class BuiltinCatalog {
       BuiltinHandler queueInfo,
       BuiltinHandler taskStack,
       BuiltinHandler resumeTask) {
+    this(
+        queuedTasks,
+        killTask,
+        read,
+        threadPool,
+        threads,
+        connectionOptions,
+        dbDiskSize,
+        flushInput,
+        outputDelimiters,
+        queueInfo,
+        taskStack,
+        resumeTask,
+        ServerLog.stderr(System.Logger.Level.INFO));
+  }
+
+  /** Creates a catalog with every transient owner and the shared server log. */
+  public BuiltinCatalog(
+      BuiltinHandler queuedTasks,
+      BuiltinHandler killTask,
+      BuiltinHandler read,
+      BuiltinHandler threadPool,
+      BuiltinHandler threads,
+      BuiltinHandler connectionOptions,
+      BuiltinHandler dbDiskSize,
+      BuiltinHandler flushInput,
+      BuiltinHandler outputDelimiters,
+      BuiltinHandler queueInfo,
+      BuiltinHandler taskStack,
+      BuiltinHandler resumeTask,
+      ServerLog serverLog) {
     this.queuedTasks = Objects.requireNonNull(queuedTasks, "queuedTasks");
     this.taskStack = Objects.requireNonNull(taskStack, "taskStack");
     this.resumeTask = Objects.requireNonNull(resumeTask, "resumeTask");
@@ -341,6 +374,7 @@ public final class BuiltinCatalog {
     this.flushInput = Objects.requireNonNull(flushInput, "flushInput");
     this.outputDelimiters = Objects.requireNonNull(outputDelimiters, "outputDelimiters");
     this.queueInfo = Objects.requireNonNull(queueInfo, "queueInfo");
+    this.serverLog = Objects.requireNonNull(serverLog, "serverLog");
     ConfinedFileRoot files = new ConfinedFileRoot(Path.of("files"));
     fileIo = new FileIoService(files);
     sqlite = new SqliteService(files);
@@ -556,6 +590,39 @@ public final class BuiltinCatalog {
       BuiltinHandler queueInfo,
       BuiltinHandler taskStack,
       BuiltinHandler resumeTask) {
+    this(
+        listenerControl,
+        queuedTasks,
+        killTask,
+        read,
+        threadPool,
+        threads,
+        connectionOptions,
+        dbDiskSize,
+        flushInput,
+        outputDelimiters,
+        queueInfo,
+        taskStack,
+        resumeTask,
+        ServerLog.stderr(System.Logger.Level.INFO));
+  }
+
+  /** Creates the production catalog with every transient owner and the shared server log. */
+  public BuiltinCatalog(
+      ListenerControl listenerControl,
+      BuiltinHandler queuedTasks,
+      BuiltinHandler killTask,
+      BuiltinHandler read,
+      BuiltinHandler threadPool,
+      BuiltinHandler threads,
+      BuiltinHandler connectionOptions,
+      BuiltinHandler dbDiskSize,
+      BuiltinHandler flushInput,
+      BuiltinHandler outputDelimiters,
+      BuiltinHandler queueInfo,
+      BuiltinHandler taskStack,
+      BuiltinHandler resumeTask,
+      ServerLog serverLog) {
     this.listenerControl = Optional.of(Objects.requireNonNull(listenerControl, "listenerControl"));
     this.queuedTasks = Objects.requireNonNull(queuedTasks, "queuedTasks");
     this.taskStack = Objects.requireNonNull(taskStack, "taskStack");
@@ -569,6 +636,7 @@ public final class BuiltinCatalog {
     this.flushInput = Objects.requireNonNull(flushInput, "flushInput");
     this.outputDelimiters = Objects.requireNonNull(outputDelimiters, "outputDelimiters");
     this.queueInfo = Objects.requireNonNull(queueInfo, "queueInfo");
+    this.serverLog = Objects.requireNonNull(serverLog, "serverLog");
     ConfinedFileRoot files = new ConfinedFileRoot(Path.of("files"));
     fileIo = new FileIoService(files);
     sqlite = new SqliteService(files);
@@ -3106,25 +3174,27 @@ public final class BuiltinCatalog {
     return new BuiltinResult.Checkpoint();
   }
 
-  private static BuiltinResult serverLog(List<MooValue> arguments) {
+  private BuiltinResult serverLog(List<MooValue> arguments) {
     String message = decode((StringValue) arguments.getFirst());
-    System.err.println("> " + message);
+    serverLog.info("> " + message);
     return BuiltinResult.value(new IntegerValue(0));
   }
 
-  private static BuiltinResult logCacheStats(WorldTxn world) {
+  private BuiltinResult logCacheStats(WorldTxn world) {
     WorldTxn.VerbCacheStats stats = world.verbCacheStats();
-    System.err.printf(
-        Locale.ROOT,
-        "Verb cache stat summary: %d hits, %d misses, %d generations%n",
-        stats.hits(),
-        stats.misses(),
-        stats.generation());
-    System.err.println("Depth   Count");
+    serverLog.info(
+        String.format(
+            Locale.ROOT,
+            "Verb cache stat summary: %d hits, %d misses, %d generations",
+            stats.hits(),
+            stats.misses(),
+            stats.generation()));
+    serverLog.info("Depth   Count");
     for (int depth = 0; depth < stats.histogram().size(); depth++) {
-      System.err.printf(Locale.ROOT, "%-5d   %-5d%n", depth, stats.histogram().get(depth));
+      serverLog.info(
+          String.format(Locale.ROOT, "%-5d   %-5d", depth, stats.histogram().get(depth)));
     }
-    System.err.println("---");
+    serverLog.info("---");
     return BuiltinResult.value(new IntegerValue(0));
   }
 
