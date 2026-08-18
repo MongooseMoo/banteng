@@ -1851,7 +1851,12 @@ public final class WorldTxn implements AutoCloseable {
       replaceAnonymousObject(
           entry.getKey(),
           new WorldAnonymousObject(
-              object.name(), object.flags(), object.owner(), object.parents(), object.verbs(), properties));
+              object.name(),
+              object.flags(),
+              object.owner(),
+              object.parents(),
+              object.verbs(),
+              properties));
     }
   }
 
@@ -1901,7 +1906,8 @@ public final class WorldTxn implements AutoCloseable {
               verbs,
               properties);
       case WorldAnonymousObject _ ->
-          new WorldAnonymousObject(name, holder.flags(), owner, holder.parents(), verbs, properties);
+          new WorldAnonymousObject(
+              name, holder.flags(), owner, holder.parents(), verbs, properties);
     };
   }
 
