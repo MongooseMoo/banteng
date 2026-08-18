@@ -2006,6 +2006,7 @@ public final class MooRuntime implements AutoCloseable {
     queueUnreachableAnonymousObjects(otherTaskRoots);
     finishAnonymousFinalization(target);
     finalizePendingObjects();
+    queueUnreachableAnonymousObjects(otherTaskRoots);
   }
 
   private void finishWaifFinalization(WaifValue root) {
