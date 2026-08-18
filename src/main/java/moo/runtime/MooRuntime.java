@@ -2003,10 +2003,14 @@ public final class MooRuntime implements AutoCloseable {
   void collectAfterAnonymousFinalization(
       AnonymousObjectValue target, List<VmSnapshot> otherTaskRoots) {
     Objects.requireNonNull(target, "target");
-    queueUnreachableAnonymousObjects(otherTaskRoots);
+    List<MooValue> transientRoots =
+        world().anonymousObject(target).orElseThrow().properties().stream()
+            .filter(WorldProperty::defined)
+            .map(WorldProperty::value)
+            .toList();
     finishAnonymousFinalization(target);
+    queueUnreachableAnonymousObjects(otherTaskRoots, transientRoots);
     finalizePendingObjects();
-    queueUnreachableAnonymousObjects(otherTaskRoots);
   }
 
   private void finishWaifFinalization(WaifValue root) {
@@ -2033,6 +2037,13 @@ public final class MooRuntime implements AutoCloseable {
 
   private void queueUnreachableAnonymousObjects(
       List<VmSnapshot> otherTaskRoots, VmSnapshot... taskRoots) {
+    queueUnreachableAnonymousObjects(otherTaskRoots, List.of(), taskRoots);
+  }
+
+  private void queueUnreachableAnonymousObjects(
+      List<VmSnapshot> otherTaskRoots,
+      List<MooValue> transientRoots,
+      VmSnapshot... taskRoots) {
     WorldSnapshot snapshot = world().snapshot();
     Set<AnonymousObjectValue> reachable = new LinkedHashSet<>();
     Set<WaifValue> visitedWaifs = new LinkedHashSet<>();
@@ -2041,6 +2052,9 @@ public final class MooRuntime implements AutoCloseable {
         markReachableAnonymous(
             property.value(), snapshot, reachable, visitedWaifs);
       }
+    }
+    for (MooValue value : transientRoots) {
+      markReachableAnonymous(value, snapshot, reachable, visitedWaifs);
     }
     for (VmSnapshot task : Stream.concat(otherTaskRoots.stream(), Arrays.stream(taskRoots)).toList()) {
       for (MooValue value : task.initialLocals().values()) {
