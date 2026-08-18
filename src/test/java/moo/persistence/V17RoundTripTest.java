@@ -51,7 +51,7 @@ final class V17RoundTripTest {
         1 values pending finalization
         23
         """,
-        StandardCharsets.ISO_8859_1);
+        StringValue.charset());
 
     IOException error =
         assertThrows(IOException.class, () -> new LambdaMooV17Codec().read(checkpoint));
@@ -69,7 +69,7 @@ final class V17RoundTripTest {
       bytecode = input.readAllBytes();
     }
 
-    String constants = new String(bytecode, StandardCharsets.ISO_8859_1);
+    String constants = StringValue.of(bytecode).text();
     assertFalse(constants.contains("Phase 2"));
     assertFalse(constants.contains("unsupported v17 value type"));
   }
