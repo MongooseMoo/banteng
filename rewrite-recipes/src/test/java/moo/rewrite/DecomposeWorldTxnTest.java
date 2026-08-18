@@ -76,6 +76,8 @@ final class DecomposeWorldTxnTest {
     assertFalse(world.contains("restoreIntrinsicCommands("), world);
     assertFalse(world.contains("static List<Long> ancestryFromParents"), world);
     assertTrue(world.contains("PropertyLayoutEngine.descendantsOf(roots)"), world);
+    assertTrue(engine.contains("import java.util.List;"), engine);
+    assertFalse(engine.contains("private static List<Long> ancestryFromParents"), engine);
     assertTrue(engine.contains("static List<Long> ancestryFromParents"), engine);
     assertTrue(engine.contains("static List<Long> descendantsOf"), engine);
 
