@@ -44,40 +44,7 @@ public final class WorldTxn implements AutoCloseable {
 
   /** Creates the committed world owner from immutable snapshots of the supplied records. */
   public WorldTxn(List<Long> players, List<WorldObject> objects) {
-    this(players, objects, Map.of(), Map.of(), List.of());
-  }
-
-  /** Creates the committed world owner with permanent and anonymous records. */
-  public WorldTxn(
-      List<Long> players,
-      List<WorldObject> objects,
-      Map<AnonymousObjectValue, WorldAnonymousObject> anonymousObjects) {
-    this(players, objects, anonymousObjects, Map.of(), List.of());
-  }
-
-  /** Creates the committed world owner with permanent, anonymous, and WAIF records. */
-  public WorldTxn(
-      List<Long> players,
-      List<WorldObject> objects,
-      Map<AnonymousObjectValue, WorldAnonymousObject> anonymousObjects,
-      Map<WaifValue, WorldWaif> waifs) {
-    this(players, objects, anonymousObjects, waifs, List.of());
-  }
-
-  /** Creates the committed world owner with every v17 world-state section. */
-  public WorldTxn(
-      List<Long> players,
-      List<WorldObject> objects,
-      Map<AnonymousObjectValue, WorldAnonymousObject> anonymousObjects,
-      Map<WaifValue, WorldWaif> waifs,
-      List<MooValue> pendingFinalization) {
-    this(
-        players,
-        objects,
-        anonymousObjects,
-        waifs,
-        pendingFinalization,
-        greatestObjectId(objects));
+    this(players, objects, Map.of(), Map.of(), List.of(), greatestObjectId(objects));
   }
 
   /** Creates the committed world owner with an explicit durable object-number boundary. */
@@ -572,7 +539,7 @@ public final class WorldTxn implements AutoCloseable {
     Objects.requireNonNull(propertyName, "propertyName");
     for (long ancestor : ancestry(objectId)) {
       Optional<WorldProperty> property =
-          findProperty(object(ancestor).orElseThrow(), propertyName);
+          localProperty(object(ancestor).orElseThrow(), propertyName);
       if (property.isPresent()) {
         return property;
       }
@@ -636,7 +603,7 @@ public final class WorldTxn implements AutoCloseable {
         Optional<MooValue> value = Optional.empty();
         for (long ancestor : ancestry(objectId)) {
           WorldObject currentObject = object(ancestor).orElseThrow();
-          WorldProperty property = findProperty(currentObject, propertyName).orElse(null);
+          WorldProperty property = localProperty(currentObject, propertyName).orElse(null);
           if (property != null && !property.clear()) {
             value = Optional.of(property.value());
             break;
@@ -687,28 +654,20 @@ public final class WorldTxn implements AutoCloseable {
       if (!(value instanceof StringValue name)) {
         return WorldResult.failed(ErrorValue.E_TYPE);
       }
-      replaceObject(
-          new WorldObject(
-              object.id(),
-              name.text(),
-              object.flags(),
-              object.owner(),
-              object.location(),
-              object.lastMove(),
-              object.parents(),
-              object.contents(),
-              object.children(),
-              object.verbs(),
-              object.properties()));
+      replacePropertyHolder(
+          objectId,
+          copyPropertyHolder(
+              object, name.text(), object.owner(), object.verbs(), object.properties()));
       return WorldResult.ok(value);
     }
     if (normalizedName.equals("owner")) {
       if (!(value instanceof ObjectValue owner)) {
         return WorldResult.failed(ErrorValue.E_TYPE);
       }
-      replaceObject(
-          copyObject(
-              object, object.flags(), owner.value(), object.location(), object.properties()));
+      replacePropertyHolder(
+          objectId,
+          copyPropertyHolder(
+              object, object.name(), owner.value(), object.verbs(), object.properties()));
       return WorldResult.ok(value);
     }
     if (normalizedName.equals("programmer")) {
@@ -759,8 +718,10 @@ public final class WorldTxn implements AutoCloseable {
                 property.permissions(),
                 false,
                 property.defined()));
-        replaceObject(
-            copyObject(object, object.flags(), object.owner(), object.location(), properties));
+        replacePropertyHolder(
+            objectId,
+            copyPropertyHolder(
+                object, object.name(), object.owner(), object.verbs(), properties));
         return WorldResult.ok(value);
       }
     }
@@ -771,8 +732,9 @@ public final class WorldTxn implements AutoCloseable {
     properties.add(
         new WorldProperty(
             inherited.name(), value, inherited.owner(), inherited.permissions(), false, false));
-    replaceObject(
-        copyObject(object, object.flags(), object.owner(), object.location(), properties));
+    replacePropertyHolder(
+        objectId,
+        copyPropertyHolder(object, object.name(), object.owner(), object.verbs(), properties));
     return WorldResult.ok(value);
   }
 
@@ -817,30 +779,20 @@ public final class WorldTxn implements AutoCloseable {
       if (!(value instanceof StringValue name)) {
         return WorldResult.failed(ErrorValue.E_TYPE);
       }
-      replaceAnonymousObject(
+      replacePropertyHolder(
           identity,
-          new WorldAnonymousObject(
-              name.text(),
-              object.flags(),
-              object.owner(),
-              object.parents(),
-              object.verbs(),
-              object.properties()));
+          copyPropertyHolder(
+              object, name.text(), object.owner(), object.verbs(), object.properties()));
       return WorldResult.ok(value);
     }
     if (propertyName.equalsIgnoreCase("owner")) {
       if (!(value instanceof ObjectValue owner)) {
         return WorldResult.failed(ErrorValue.E_TYPE);
       }
-      replaceAnonymousObject(
+      replacePropertyHolder(
           identity,
-          new WorldAnonymousObject(
-              object.name(),
-              object.flags(),
-              owner.value(),
-              object.parents(),
-              object.verbs(),
-              object.properties()));
+          copyPropertyHolder(
+              object, object.name(), owner.value(), object.verbs(), object.properties()));
       return WorldResult.ok(value);
     }
     List<WorldProperty> properties = new ArrayList<>(object.properties());
@@ -856,15 +808,10 @@ public final class WorldTxn implements AutoCloseable {
                 property.permissions(),
                 false,
                 property.defined()));
-        replaceAnonymousObject(
+        replacePropertyHolder(
             identity,
-            new WorldAnonymousObject(
-                object.name(),
-                object.flags(),
-                object.owner(),
-                object.parents(),
-                object.verbs(),
-                properties));
+            copyPropertyHolder(
+                object, object.name(), object.owner(), object.verbs(), properties));
         return WorldResult.ok(value);
       }
     }
@@ -881,15 +828,9 @@ public final class WorldTxn implements AutoCloseable {
     properties.add(
         new WorldProperty(
             inherited.name(), value, inherited.owner(), inherited.permissions(), false, false));
-    replaceAnonymousObject(
+    replacePropertyHolder(
         identity,
-        new WorldAnonymousObject(
-            object.name(),
-            object.flags(),
-            object.owner(),
-            object.parents(),
-            object.verbs(),
-            properties));
+        copyPropertyHolder(object, object.name(), object.owner(), object.verbs(), properties));
     return WorldResult.ok(value);
   }
 
@@ -931,11 +872,12 @@ public final class WorldTxn implements AutoCloseable {
 
   /** Allocates the next object number with ordered direct parents. */
   public WorldObject createObject(List<Long> parentIds, long ownerId) {
-    List<Long> parents = validateNewParents(-1, parentIds);
+    List<Long> parents = validatedParents(-1, parentIds);
     scanPredicates.add(ScanPredicate.OBJECT_IDS);
     long objectId = Math.incrementExact(working.lastUsedObjectId());
     long effectiveOwner = ownerId == -1 ? objectId : ownerId;
-    List<WorldProperty> properties = inheritedProperties(parents, effectiveOwner, working.objects());
+    List<WorldProperty> properties =
+        PropertyLayoutEngine.inheritedProperties(parents, effectiveOwner, working.objects());
     WorldObject created =
         new WorldObject(
             objectId,
@@ -982,9 +924,10 @@ public final class WorldTxn implements AutoCloseable {
         || working.objects().containsKey(objectId)) {
       throw new IllegalArgumentException("object number is not recycled #" + objectId);
     }
-    List<Long> parents = validateNewParents(-1, parentIds);
+    List<Long> parents = validatedParents(-1, parentIds);
     scanPredicates.add(ScanPredicate.OBJECT_IDS);
-    List<WorldProperty> properties = inheritedProperties(parents, ownerId, working.objects());
+    List<WorldProperty> properties =
+        PropertyLayoutEngine.inheritedProperties(parents, ownerId, working.objects());
     WorldObject created =
         new WorldObject(
             objectId,
@@ -1038,8 +981,9 @@ public final class WorldTxn implements AutoCloseable {
 
   /** Allocates an anonymous object with ordered permanent parents. */
   public AnonymousObjectValue createAnonymousObject(List<Long> parentIds, long ownerId) {
-    List<Long> parents = validateNewParents(-1, parentIds);
-    List<WorldProperty> properties = inheritedProperties(parents, ownerId, working.objects());
+    List<Long> parents = validatedParents(-1, parentIds);
+    List<WorldProperty> properties =
+        PropertyLayoutEngine.inheritedProperties(parents, ownerId, working.objects());
     AnonymousObjectValue identity = new AnonymousObjectValue();
     replaceAnonymousObject(
         identity,
@@ -1198,7 +1142,7 @@ public final class WorldTxn implements AutoCloseable {
       return WorldResult.failed(ErrorValue.E_INVARG);
     }
     Map<Long, WorldObject> oldObjects = working.objects();
-    Set<Long> affectedObjects = descendantsOf(Set.of(objectId), oldObjects);
+    Set<Long> affectedObjects = PropertyLayoutEngine.descendantsOf(Set.of(objectId), oldObjects);
     Map<Long, WorldObject> objects = new LinkedHashMap<>(oldObjects);
 
     if (target.location() != -1) {
@@ -1315,7 +1259,9 @@ public final class WorldTxn implements AutoCloseable {
 
     objects.remove(objectId);
     try {
-      objects = rebuildPropertyLayouts(oldObjects, objects, new LinkedHashSet<>(target.children()));
+      objects =
+          PropertyLayoutEngine.rebuildPropertyLayouts(
+              oldObjects, objects, new LinkedHashSet<>(target.children()));
     } catch (IllegalArgumentException error) {
       return WorldResult.failed(ErrorValue.E_INVARG);
     }
@@ -1326,7 +1272,8 @@ public final class WorldTxn implements AutoCloseable {
       WorldAnonymousObject anonymous = entry.getValue();
       boolean directChild = anonymous.parents().contains(objectId);
       if (!directChild
-          && !usesAffectedAncestor(anonymous.parents(), oldObjects, affectedObjects)) {
+          && !PropertyLayoutEngine.usesAffectedAncestor(
+              anonymous.parents(), oldObjects, affectedObjects)) {
         continue;
       }
       List<Long> parents = new ArrayList<>();
@@ -1350,7 +1297,7 @@ public final class WorldTxn implements AutoCloseable {
                 anonymous.owner(),
                 parents,
                 anonymous.verbs(),
-                rebuiltAnonymousProperties(
+                PropertyLayoutEngine.rebuiltAnonymousProperties(
                     anonymous,
                     anonymous.parents(),
                     oldObjects,
@@ -1379,7 +1326,7 @@ public final class WorldTxn implements AutoCloseable {
     }
     final List<Long> newParents;
     try {
-      newParents = validateNewParents(objectId, newParentIds);
+      newParents = validatedParents(objectId, newParentIds);
     } catch (IllegalArgumentException error) {
       return WorldResult.failed(ErrorValue.E_INVARG);
     }
@@ -1450,13 +1397,13 @@ public final class WorldTxn implements AutoCloseable {
             target.verbs(),
             target.properties()));
     try {
-      objects = rebuildPropertyLayouts(oldObjects, objects, Set.of(objectId));
+      objects = PropertyLayoutEngine.rebuildPropertyLayouts(oldObjects, objects, Set.of(objectId));
     } catch (IllegalArgumentException error) {
       return WorldResult.failed(ErrorValue.E_INVARG);
     }
-    Set<Long> affectedObjects = descendantsOf(Set.of(objectId), objects);
+    Set<Long> affectedObjects = PropertyLayoutEngine.descendantsOf(Set.of(objectId), objects);
     replaceWorld(working.players(), objects);
-    rebuildAnonymousPropertyLayouts(oldObjects, objects, affectedObjects);
+    refreshAnonymousPropertyLayouts(oldObjects, objects, affectedObjects);
     return WorldResult.ok(true);
   }
 
@@ -1470,14 +1417,14 @@ public final class WorldTxn implements AutoCloseable {
     }
     final List<Long> newParents;
     try {
-      newParents = validateNewParents(-1, newParentIds);
+      newParents = validatedParents(-1, newParentIds);
     } catch (IllegalArgumentException error) {
       return WorldResult.failed(ErrorValue.E_INVARG);
     }
     final List<WorldProperty> properties;
     try {
       properties =
-          rebuiltAnonymousProperties(
+          PropertyLayoutEngine.rebuiltAnonymousProperties(
               target,
               target.parents(),
               working.objects(),
@@ -1582,13 +1529,16 @@ public final class WorldTxn implements AutoCloseable {
     }
     properties.add(
         propertyIndex, new WorldProperty(name, value, owner, permissions, false, true));
-    replaceObject(
-        copyObject(object, object.flags(), object.owner(), object.location(), properties));
+    replacePropertyHolder(
+        objectId,
+        copyPropertyHolder(object, object.name(), object.owner(), object.verbs(), properties));
     Map<Long, WorldObject> newObjects =
-        rebuildPropertyLayouts(oldObjects, working.objects(), Set.of(objectId));
-    Set<Long> affectedObjects = descendantsOf(Set.of(objectId), newObjects);
+        PropertyLayoutEngine.rebuildPropertyLayouts(
+            oldObjects, working.objects(), Set.of(objectId));
+    Set<Long> affectedObjects =
+        PropertyLayoutEngine.descendantsOf(Set.of(objectId), newObjects);
     replaceWorld(working.players(), newObjects);
-    rebuildAnonymousPropertyLayouts(oldObjects, newObjects, affectedObjects);
+    refreshAnonymousPropertyLayouts(oldObjects, newObjects, affectedObjects);
     return WorldResult.ok(true);
   }
 
@@ -1613,15 +1563,9 @@ public final class WorldTxn implements AutoCloseable {
     }
     properties.add(
         propertyIndex, new WorldProperty(name, value, owner, permissions, false, true));
-    replaceAnonymousObject(
+    replacePropertyHolder(
         identity,
-        new WorldAnonymousObject(
-            object.name(),
-            object.flags(),
-            object.owner(),
-            object.parents(),
-            object.verbs(),
-            properties));
+        copyPropertyHolder(object, object.name(), object.owner(), object.verbs(), properties));
     return WorldResult.ok(true);
   }
 
@@ -1649,10 +1593,12 @@ public final class WorldTxn implements AutoCloseable {
     replaceObject(
         copyObject(object, object.flags(), object.owner(), object.location(), properties));
     Map<Long, WorldObject> newObjects =
-        rebuildPropertyLayouts(oldObjects, working.objects(), Set.of(objectId));
-    Set<Long> affectedObjects = descendantsOf(Set.of(objectId), newObjects);
+        PropertyLayoutEngine.rebuildPropertyLayouts(
+            oldObjects, working.objects(), Set.of(objectId));
+    Set<Long> affectedObjects =
+        PropertyLayoutEngine.descendantsOf(Set.of(objectId), newObjects);
     replaceWorld(working.players(), newObjects);
-    rebuildAnonymousPropertyLayouts(oldObjects, newObjects, affectedObjects);
+    refreshAnonymousPropertyLayouts(oldObjects, newObjects, affectedObjects);
     return WorldResult.ok(true);
   }
 
@@ -1693,19 +1639,9 @@ public final class WorldTxn implements AutoCloseable {
     }
     List<WorldVerb> verbs = new ArrayList<>(object.verbs());
     verbs.add(new WorldVerb(names, owner, permissions, preposition, ""));
-    replaceObject(
-        new WorldObject(
-            object.id(),
-            object.name(),
-            object.flags(),
-            object.owner(),
-            object.location(),
-            object.lastMove(),
-            object.parents(),
-            object.contents(),
-            object.children(),
-            verbs,
-            object.properties()));
+    replacePropertyHolder(
+        objectId,
+        copyPropertyHolder(object, object.name(), object.owner(), verbs, object.properties()));
     return verbs.size();
   }
 
@@ -1724,15 +1660,9 @@ public final class WorldTxn implements AutoCloseable {
     }
     List<WorldVerb> verbs = new ArrayList<>(object.verbs());
     verbs.add(new WorldVerb(names, owner, permissions, preposition, ""));
-    replaceAnonymousObject(
+    replacePropertyHolder(
         identity,
-        new WorldAnonymousObject(
-            object.name(),
-            object.flags(),
-            object.owner(),
-            object.parents(),
-            verbs,
-            object.properties()));
+        copyPropertyHolder(object, object.name(), object.owner(), verbs, object.properties()));
     return verbs.size();
   }
 
@@ -1744,19 +1674,9 @@ public final class WorldTxn implements AutoCloseable {
     }
     List<WorldVerb> verbs = new ArrayList<>(object.verbs());
     verbs.remove(verbIndex);
-    replaceObject(
-        new WorldObject(
-            object.id(),
-            object.name(),
-            object.flags(),
-            object.owner(),
-            object.location(),
-            object.lastMove(),
-            object.parents(),
-            object.contents(),
-            object.children(),
-            verbs,
-            object.properties()));
+    replacePropertyHolder(
+        objectId,
+        copyPropertyHolder(object, object.name(), object.owner(), verbs, object.properties()));
     return WorldResult.ok(true);
   }
 
@@ -1805,15 +1725,9 @@ public final class WorldTxn implements AutoCloseable {
         verbIndex,
         new WorldVerb(
             verb.names(), verb.owner(), verb.permissions(), verb.preposition(), programSource));
-    replaceAnonymousObject(
+    replacePropertyHolder(
         identity,
-        new WorldAnonymousObject(
-            object.name(),
-            object.flags(),
-            object.owner(),
-            object.parents(),
-            verbs,
-            object.properties()));
+        copyPropertyHolder(object, object.name(), object.owner(), verbs, object.properties()));
     return WorldResult.ok(true);
   }
 
@@ -1884,7 +1798,8 @@ public final class WorldTxn implements AutoCloseable {
     return WorldResult.ok(true);
   }
 
-  private static Optional<WorldProperty> findProperty(WorldObject object, String propertyName) {
+  private static Optional<WorldProperty> localProperty(
+      PropertyHolder object, String propertyName) {
     for (WorldProperty property : object.properties()) {
       if (property.name().equalsIgnoreCase(propertyName)) {
         return Optional.of(property);
@@ -1898,277 +1813,35 @@ public final class WorldTxn implements AutoCloseable {
     return object != null && ObjectFlags.isWizard(object.flags());
   }
 
-  private List<Long> validateNewParents(long objectId, List<Long> requestedParents) {
-    Objects.requireNonNull(requestedParents, "requestedParents");
-    List<Long> parents = List.copyOf(requestedParents);
-    if (new LinkedHashSet<>(parents).size() != parents.size()) {
-      throw new IllegalArgumentException("duplicate inheritance parent");
-    }
-    for (long parentId : parents) {
-      if (parentId < 0 || object(parentId).isEmpty()) {
-        throw new IllegalArgumentException("missing parent #" + parentId);
-      }
-      if (parentId == objectId || ancestry(parentId).contains(objectId)) {
-        throw new IllegalArgumentException("recursive inheritance parent #" + parentId);
+  private List<Long> validatedParents(long objectId, List<Long> requestedParents) {
+    for (long parentId : requestedParents) {
+      object(parentId);
+      if (parentId >= 0) {
+        ancestry(parentId);
       }
     }
-
-    Map<String, Long> definitions = new LinkedHashMap<>();
     if (objectId >= 0) {
-      WorldObject target = object(objectId).orElseThrow();
-      for (WorldProperty property : target.properties()) {
-        if (property.defined()) {
-          definitions.put(property.name().toLowerCase(Locale.ROOT), objectId);
-        }
-      }
+      object(objectId);
     }
-    for (long ancestorId : ancestryFromParents(parents, working.objects())) {
-      WorldObject ancestor = Objects.requireNonNull(working.objects().get(ancestorId));
-      for (WorldProperty property : ancestor.properties()) {
-        if (!property.defined()) {
-          continue;
-        }
-        String name = property.name().toLowerCase(Locale.ROOT);
-        Long previous = definitions.putIfAbsent(name, ancestorId);
-        if (previous != null && previous != ancestorId) {
-          throw new IllegalArgumentException("conflicting inherited property " + property.name());
-        }
-      }
-    }
-    return parents;
+    return PropertyLayoutEngine.validateNewParents(
+        objectId, requestedParents, working.objects());
   }
 
-  private static List<Long> ancestryFromParents(
-      List<Long> parents, Map<Long, WorldObject> objects) {
-    List<Long> result = new ArrayList<>();
-    Set<Long> visited = new LinkedHashSet<>();
-    for (long parentId : parents) {
-      collectAncestry(parentId, objects, new LinkedHashSet<>(), visited, result);
-    }
-    return List.copyOf(result);
-  }
-
-  private static void collectAncestry(
-      long objectId,
-      Map<Long, WorldObject> objects,
-      Set<Long> visiting,
-      Set<Long> visited,
-      List<Long> result) {
-    if (visited.contains(objectId)) {
-      return;
-    }
-    WorldObject object = objects.get(objectId);
-    if (object == null || !visiting.add(objectId)) {
-      throw new IllegalArgumentException("invalid inheritance graph at #" + objectId);
-    }
-    visited.add(objectId);
-    result.add(objectId);
-    for (long parentId : object.parents()) {
-      collectAncestry(parentId, objects, visiting, visited, result);
-    }
-    visiting.remove(objectId);
-  }
-
-  private static List<WorldProperty> inheritedProperties(
-      List<Long> parents, long owner, Map<Long, WorldObject> objects) {
-    List<WorldProperty> properties = new ArrayList<>();
-    for (long ancestorId : ancestryFromParents(parents, objects)) {
-      WorldObject ancestor = Objects.requireNonNull(objects.get(ancestorId));
-      for (WorldProperty property : ancestor.properties()) {
-        if (!property.defined()) {
-          continue;
-        }
-        WorldProperty fallback =
-            directParentProperty(parents, property.name(), objects).orElseThrow(
-                () ->
-                    new IllegalArgumentException(
-                        "missing direct-parent property " + property.name()));
-        properties.add(
-            new WorldProperty(
-                property.name(),
-                fallback.value(),
-                (fallback.permissions() & 8) != 0 ? owner : fallback.owner(),
-                fallback.permissions(),
-                true,
-                false));
-      }
-    }
-    return properties;
-  }
-
-  private static Map<Long, WorldObject> rebuildPropertyLayouts(
-      Map<Long, WorldObject> oldSource,
-      Map<Long, WorldObject> newSource,
-      Set<Long> roots) {
-    Set<Long> affected = descendantsOf(roots, newSource);
-    Map<Long, WorldObject> rebuilt = new LinkedHashMap<>(newSource);
-    Set<Long> complete = new LinkedHashSet<>();
-    for (long objectId : affected) {
-      rebuildPropertyLayout(objectId, oldSource, newSource, rebuilt, affected, complete);
-    }
-    return rebuilt;
-  }
-
-  private static void rebuildPropertyLayout(
-      long objectId,
-      Map<Long, WorldObject> oldSource,
-      Map<Long, WorldObject> newSource,
-      Map<Long, WorldObject> rebuilt,
-      Set<Long> affected,
-      Set<Long> complete) {
-    if (!complete.add(objectId)) {
-      return;
-    }
-    WorldObject object = Objects.requireNonNull(newSource.get(objectId));
-    for (long parentId : object.parents()) {
-      if (affected.contains(parentId)) {
-        rebuildPropertyLayout(parentId, oldSource, newSource, rebuilt, affected, complete);
-      }
-    }
-    List<WorldProperty> properties = new ArrayList<>();
-    for (WorldProperty property : object.properties()) {
-      if (property.defined()) {
-        properties.add(property);
-      }
-    }
-    WorldObject oldObject = oldSource.get(objectId);
-    Map<PropertyDefinition, WorldProperty> old =
-        oldObject == null ? Map.of() : oldPropertySlots(oldObject, oldSource);
-    Set<String> names = new LinkedHashSet<>();
-    for (WorldProperty property : properties) {
-      names.add(property.name().toLowerCase(Locale.ROOT));
-    }
-    for (long ancestorId : ancestryFromParents(object.parents(), newSource)) {
-      WorldObject ancestor = Objects.requireNonNull(newSource.get(ancestorId));
-      for (WorldProperty definition : ancestor.properties()) {
-        if (!definition.defined()) {
-          continue;
-        }
-        String normalized = definition.name().toLowerCase(Locale.ROOT);
-        if (!names.add(normalized)) {
-          throw new IllegalArgumentException("conflicting inherited property " + definition.name());
-        }
-        WorldProperty fallback =
-            directParentProperty(object.parents(), definition.name(), rebuilt).orElseThrow(
-                () ->
-                    new IllegalArgumentException(
-                        "missing direct-parent property " + definition.name()));
-        WorldProperty previous = old.get(new PropertyDefinition(ancestorId, normalized));
-        if (previous != null && !previous.defined()) {
-          properties.add(
-              new WorldProperty(
-                  definition.name(),
-                  previous.clear() ? fallback.value() : previous.value(),
-                  previous.owner(),
-                  previous.permissions(),
-                  previous.clear(),
-                  false));
-        } else {
-          properties.add(
-              new WorldProperty(
-                  definition.name(),
-                  fallback.value(),
-                  (fallback.permissions() & 8) != 0 ? object.owner() : fallback.owner(),
-                  fallback.permissions(),
-                  true,
-                  false));
-        }
-      }
-    }
-    WorldObject replacement =
-        new WorldObject(
-            object.id(),
-            object.name(),
-            object.flags(),
-            object.owner(),
-            object.location(),
-            object.lastMove(),
-            object.parents(),
-            object.contents(),
-            object.children(),
-            object.verbs(),
-            properties);
-    rebuilt.put(objectId, replacement);
-  }
-
-  private static Map<PropertyDefinition, WorldProperty> oldPropertySlots(
-      WorldObject object, Map<Long, WorldObject> source) {
-    Map<PropertyDefinition, WorldProperty> slots = new LinkedHashMap<>();
-    if (object == null) {
-      return slots;
-    }
-    List<PropertyDefinition> definitions = new ArrayList<>();
-    for (WorldProperty property : object.properties()) {
-      if (property.defined()) {
-        definitions.add(
-            new PropertyDefinition(object.id(), property.name().toLowerCase(Locale.ROOT)));
-      }
-    }
-    for (long ancestorId : ancestryFromParents(object.parents(), source)) {
-      WorldObject ancestor = Objects.requireNonNull(source.get(ancestorId));
-      for (WorldProperty property : ancestor.properties()) {
-        if (property.defined()) {
-          definitions.add(
-              new PropertyDefinition(ancestorId, property.name().toLowerCase(Locale.ROOT)));
-        }
-      }
-    }
-    int count = Math.min(definitions.size(), object.properties().size());
-    for (int index = 0; index < count; index++) {
-      slots.put(definitions.get(index), object.properties().get(index));
-    }
-    return slots;
-  }
-
-  private static Set<Long> descendantsOf(
-      Set<Long> roots, Map<Long, WorldObject> objects) {
-    Set<Long> descendants = new LinkedHashSet<>();
-    List<Long> pending = new ArrayList<>(roots);
-    for (int index = 0; index < pending.size(); index++) {
-      long objectId = pending.get(index);
-      if (!descendants.add(objectId)) {
-        continue;
-      }
-      WorldObject object = objects.get(objectId);
-      if (object != null) {
-        pending.addAll(object.children());
-      }
-    }
-    descendants.retainAll(objects.keySet());
-    return descendants;
-  }
-
-  private record PropertyDefinition(long objectId, String name) {}
-
-  private static Optional<WorldProperty> directParentProperty(
-      List<Long> parents, String name, Map<Long, WorldObject> objects) {
-    for (long parentId : parents) {
-      WorldObject parent = objects.get(parentId);
-      if (parent == null) {
-        continue;
-      }
-      for (WorldProperty property : parent.properties()) {
-        if (property.name().equalsIgnoreCase(name)) {
-          return Optional.of(property);
-        }
-      }
-    }
-    return Optional.empty();
-  }
-
-  private void rebuildAnonymousPropertyLayouts(
+  private void refreshAnonymousPropertyLayouts(
       Map<Long, WorldObject> oldObjects,
       Map<Long, WorldObject> newObjects,
       Set<Long> affectedObjects) {
     for (Map.Entry<AnonymousObjectValue, WorldAnonymousObject> entry :
         List.copyOf(working.anonymousObjects().entrySet())) {
       WorldAnonymousObject object = entry.getValue();
-      if (!usesAffectedAncestor(object.parents(), oldObjects, affectedObjects)
-          && !usesAffectedAncestor(object.parents(), newObjects, affectedObjects)) {
+      if (!PropertyLayoutEngine.usesAffectedAncestor(
+              object.parents(), oldObjects, affectedObjects)
+          && !PropertyLayoutEngine.usesAffectedAncestor(
+              object.parents(), newObjects, affectedObjects)) {
         continue;
       }
       List<WorldProperty> properties =
-          rebuiltAnonymousProperties(
+          PropertyLayoutEngine.rebuiltAnonymousProperties(
               object,
               object.parents(),
               oldObjects,
@@ -2182,94 +1855,6 @@ public final class WorldTxn implements AutoCloseable {
     }
   }
 
-  private static boolean usesAffectedAncestor(
-      List<Long> parents, Map<Long, WorldObject> objects, Set<Long> affectedObjects) {
-    for (long parent : parents) {
-      if (objects.containsKey(parent)) {
-        for (long ancestor : ancestryFromParents(List.of(parent), objects)) {
-          if (affectedObjects.contains(ancestor)) {
-            return true;
-          }
-        }
-      }
-    }
-    return false;
-  }
-
-  private static List<WorldProperty> rebuiltAnonymousProperties(
-      WorldAnonymousObject oldObject,
-      List<Long> oldParents,
-      Map<Long, WorldObject> oldObjects,
-      WorldAnonymousObject object,
-      List<Long> parents,
-      Map<Long, WorldObject> objects) {
-    List<WorldProperty> properties = new ArrayList<>();
-    Map<PropertyDefinition, WorldProperty> old = new LinkedHashMap<>();
-    Set<String> names = new LinkedHashSet<>();
-    List<PropertyDefinition> oldDefinitions = new ArrayList<>();
-    for (WorldProperty property : oldObject.properties()) {
-      if (property.defined()) {
-        oldDefinitions.add(
-            new PropertyDefinition(Long.MIN_VALUE, property.name().toLowerCase(Locale.ROOT)));
-      }
-    }
-    for (long ancestorId : ancestryFromParents(oldParents, oldObjects)) {
-      WorldObject ancestor = Objects.requireNonNull(oldObjects.get(ancestorId));
-      for (WorldProperty property : ancestor.properties()) {
-        if (property.defined()) {
-          oldDefinitions.add(
-              new PropertyDefinition(ancestorId, property.name().toLowerCase(Locale.ROOT)));
-        }
-      }
-    }
-    int oldCount = Math.min(oldDefinitions.size(), oldObject.properties().size());
-    for (int index = 0; index < oldCount; index++) {
-      old.put(oldDefinitions.get(index), oldObject.properties().get(index));
-    }
-    for (WorldProperty property : object.properties()) {
-      String normalized = property.name().toLowerCase(Locale.ROOT);
-      if (property.defined()) {
-        names.add(normalized);
-        properties.add(property);
-      }
-    }
-    for (long ancestorId : ancestryFromParents(parents, objects)) {
-      WorldObject ancestor = Objects.requireNonNull(objects.get(ancestorId));
-      for (WorldProperty definition : ancestor.properties()) {
-        if (!definition.defined()) {
-          continue;
-        }
-        String normalized = definition.name().toLowerCase(Locale.ROOT);
-        if (!names.add(normalized)) {
-          throw new IllegalArgumentException("conflicting inherited property " + definition.name());
-        }
-        WorldProperty fallback =
-            directParentProperty(parents, definition.name(), objects).orElseThrow();
-        WorldProperty previous = old.get(new PropertyDefinition(ancestorId, normalized));
-        if (previous != null && !previous.defined()) {
-          properties.add(
-              new WorldProperty(
-                  definition.name(),
-                  previous.clear() ? fallback.value() : previous.value(),
-                  previous.owner(),
-                  previous.permissions(),
-                  previous.clear(),
-                  false));
-        } else {
-          properties.add(
-              new WorldProperty(
-                  definition.name(),
-                  fallback.value(),
-                  (fallback.permissions() & 8) != 0 ? object.owner() : fallback.owner(),
-                  fallback.permissions(),
-                  true,
-                  false));
-        }
-      }
-    }
-    return List.copyOf(properties);
-  }
-
   private void replaceFlags(WorldObject object, int flag, boolean enabled) {
     int flags = enabled ? object.flags() | flag : object.flags() & ~flag;
     replaceObject(
@@ -2280,6 +1865,44 @@ public final class WorldTxn implements AutoCloseable {
     Map<Long, WorldObject> objects = new LinkedHashMap<>(working.objects());
     objects.put(replacement.id(), replacement);
     replaceWorld(working.players(), objects);
+  }
+
+  private void replacePropertyHolder(Object identity, PropertyHolder replacement) {
+    if (identity instanceof Long && replacement instanceof WorldObject object) {
+      replaceObject(object);
+      return;
+    }
+    if (identity instanceof AnonymousObjectValue anonymous
+        && replacement instanceof WorldAnonymousObject object) {
+      replaceAnonymousObject(anonymous, object);
+      return;
+    }
+    throw new IllegalArgumentException("property holder identity does not match record kind");
+  }
+
+  private static PropertyHolder copyPropertyHolder(
+      PropertyHolder holder,
+      String name,
+      long owner,
+      List<WorldVerb> verbs,
+      List<WorldProperty> properties) {
+    return switch (holder) {
+      case WorldObject object ->
+          new WorldObject(
+              object.id(),
+              name,
+              object.flags(),
+              owner,
+              object.location(),
+              object.lastMove(),
+              object.parents(),
+              object.contents(),
+              object.children(),
+              verbs,
+              properties);
+      case WorldAnonymousObject _ ->
+          new WorldAnonymousObject(name, holder.flags(), owner, holder.parents(), verbs, properties);
+    };
   }
 
   private void replaceAnonymousObject(

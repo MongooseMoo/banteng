@@ -4076,7 +4076,13 @@ final class MooVmTest {
     executeAndClose(
         new MooCompiler().compile(MooParser.parse("return anon:which();")),
         state,
-        new WorldTxn(List.of(), List.of(parent), Map.of(identity, anonymous)),
+        new WorldTxn(
+            List.of(),
+            List.of(parent),
+            Map.of(identity, anonymous),
+            Map.of(),
+            List.of(),
+            1),
         new BuiltinCatalog(BuiltinHosts.builder().build()));
 
     assertEquals(
@@ -4839,7 +4845,10 @@ final class MooVmTest {
         new WorldTxn(
             List.of(),
             List.of(parent, wizard, programmer, replacement),
-            Map.of(identity, anonymous));
+            Map.of(identity, anonymous),
+            Map.of(),
+            List.of(),
+            3);
 
     VmState wizardWrite =
         new VmState(Map.of("subject", identity, "this", new ObjectValue(1)), 1);
@@ -4902,7 +4911,13 @@ final class MooVmTest {
     WorldAnonymousObject anonymous =
         new WorldAnonymousObject("anonymous", 0, 1, List.of(0L), List.of(), List.of());
     WorldTxn world =
-        new WorldTxn(List.of(), List.of(parent, wizard), Map.of(identity, anonymous));
+        new WorldTxn(
+            List.of(),
+            List.of(parent, wizard),
+            Map.of(identity, anonymous),
+            Map.of(),
+            List.of(),
+            1);
     VmState state =
         new VmState(
             Map.of("subject", identity, "player", new ObjectValue(1), "this", new ObjectValue(1)),
@@ -4954,7 +4969,13 @@ final class MooVmTest {
     WorldAnonymousObject anonymous =
         new WorldAnonymousObject("anonymous", 1, 0, List.of(0L), List.of(), List.of());
     WorldTxn world =
-        new WorldTxn(List.of(1L), List.of(parent, programmer), Map.of(identity, anonymous));
+        new WorldTxn(
+            List.of(1L),
+            List.of(parent, programmer),
+            Map.of(identity, anonymous),
+            Map.of(),
+            List.of(),
+            1);
     VmState state =
         new VmState(
             Map.of(
@@ -5004,7 +5025,13 @@ final class MooVmTest {
     WorldAnonymousObject anonymous =
         new WorldAnonymousObject("anonymous", 1, 0, List.of(0L), List.of(), List.of());
     WorldTxn world =
-        new WorldTxn(List.of(1L), List.of(parent, programmer), Map.of(identity, anonymous));
+        new WorldTxn(
+            List.of(1L),
+            List.of(parent, programmer),
+            Map.of(identity, anonymous),
+            Map.of(),
+            List.of(),
+            1);
     VmState state =
         new VmState(
             Map.of(

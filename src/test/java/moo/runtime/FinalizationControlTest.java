@@ -60,7 +60,13 @@ final class FinalizationControlTest {
     ListValue anonymousList = marker(ANONYMOUS_MARKER, anonymous);
     ListValue waifList = marker(WAIF_MARKER, waif);
     WorldTxn world =
-        new WorldTxn(List.of(), List.of(), Map.of(), Map.of(), List.of(anonymousList, waifList));
+        new WorldTxn(
+            List.of(),
+            List.of(),
+            Map.of(),
+            Map.of(),
+            List.of(anonymousList, waifList),
+            -1);
 
     try (MooRuntime runtime = new MooRuntime(world)) {
       runtime.startServer();

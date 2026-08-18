@@ -145,7 +145,14 @@ final class QueuedTaskV17CodecTest {
         new QueuedTask(
             7, 12, 1, "tick", "tick", "return 0;\n", locals, 0, identity, 0, true);
     WorldSnapshot world =
-        new WorldTxn(List.of(), List.of(parent), Map.of(identity, body)).snapshot();
+        new WorldTxn(
+                List.of(),
+                List.of(parent),
+                Map.of(identity, body),
+                Map.of(),
+                List.of(),
+                0)
+            .snapshot();
     Path checkpoint = temporaryDirectory.resolve("anonymous-queued.db");
 
     LambdaMooV17Codec codec = new LambdaMooV17Codec();
