@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.IOException;
+import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -20,7 +21,7 @@ final class ServerLogRoutingTest {
     assertTrue(hasServerLogField(LambdaMooV5Reader.class));
     assertTrue(hasServerLogField(BuiltinCatalog.class));
     assertTrue(hasServerLogField(MooRuntime.class));
-    assertTrue(hasServerLogField(MooServer.class));
+    assertTrue(hasServerLogParameter(MooServer.class));
   }
 
   @Test
@@ -43,6 +44,17 @@ final class ServerLogRoutingTest {
     for (Field field : owner.getDeclaredFields()) {
       if (field.getType().equals(ServerLog.class)) {
         return true;
+      }
+    }
+    return false;
+  }
+
+  private static boolean hasServerLogParameter(Class<?> owner) {
+    for (Constructor<?> constructor : owner.getConstructors()) {
+      for (Class<?> parameter : constructor.getParameterTypes()) {
+        if (parameter.equals(ServerLog.class)) {
+          return true;
+        }
       }
     }
     return false;

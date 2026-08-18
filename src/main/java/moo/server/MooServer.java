@@ -44,7 +44,6 @@ import moo.world.WorldTxn;
 /** The concrete blocking socket server for the first managed vertical slice. */
 public final class MooServer implements AutoCloseable, ListenerControl {
   private final MooRuntime runtime;
-  private final ServerLog serverLog;
   private final InetAddress listenAddress;
   private final ServerSocket primaryListener;
   private final Listener primary;
@@ -144,7 +143,7 @@ public final class MooServer implements AutoCloseable, ListenerControl {
         Objects.requireNonNull(restoredTasks, "restoredTasks");
     List<LambdaMooV17Codec.ActiveConnection> connectionsToRestore =
         Objects.requireNonNull(activeConnections, "activeConnections");
-    this.serverLog = Objects.requireNonNull(serverLog, "serverLog");
+    ServerLog runtimeLog = Objects.requireNonNull(serverLog, "serverLog");
     runtime =
         database.isPresent()
             ? new MooRuntime(
@@ -154,14 +153,14 @@ public final class MooServer implements AutoCloseable, ListenerControl {
                 checkpointPath,
                 tasks,
                 connectionsToRestore,
-                serverLog)
+                runtimeLog)
             : new MooRuntime(
                 runtimeWorld,
                 this,
                 checkpointPath,
                 tasks,
                 connectionsToRestore,
-                serverLog);
+                runtimeLog);
     try {
       primaryListener.bind(new InetSocketAddress(listenAddress, port));
     } catch (IOException | RuntimeException failure) {
