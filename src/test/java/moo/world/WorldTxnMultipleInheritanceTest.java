@@ -43,8 +43,8 @@ final class WorldTxnMultipleInheritanceTest {
   void parentMutationRejectsDuplicatesCyclesAndConflictingAncestorDefinitionsAtomically() {
     WorldTxn root = diamond();
     try (WorldTxn transaction = root.begin()) {
-      assertFalse(transaction.changeParents(4, List.of(2L, 2L)));
-      assertFalse(transaction.changeParents(1, List.of(4L)));
+      assertFalse(transaction.changeParents(4, List.of(2L, 2L)).isOk());
+      assertFalse(transaction.changeParents(1, List.of(4L)).isOk());
       assertEquals(List.of(2L, 3L), transaction.object(4).orElseThrow().parents());
     }
 
@@ -89,7 +89,7 @@ final class WorldTxnMultipleInheritanceTest {
                         property("right", 3, false))),
                 conflicting));
     try (WorldTxn transaction = conflictRoot.begin()) {
-      assertFalse(transaction.changeParents(4, List.of(2L, 5L)));
+      assertFalse(transaction.changeParents(4, List.of(2L, 5L)).isOk());
       assertEquals(List.of(2L, 3L), transaction.object(4).orElseThrow().parents());
     }
   }
@@ -99,7 +99,7 @@ final class WorldTxnMultipleInheritanceTest {
     WorldTxn root = diamond();
     try (WorldTxn transaction = root.begin()) {
       AnonymousObjectValue anonymous = transaction.createAnonymousObject(List.of(2L, 3L), 1);
-      assertTrue(transaction.recycleObject(2));
+      assertTrue(transaction.recycleObject(2).isOk());
 
       assertEquals(List.of(1L, 3L), transaction.object(4).orElseThrow().parents());
       assertEquals(
@@ -120,7 +120,7 @@ final class WorldTxnMultipleInheritanceTest {
         new WorldProperty("shared", new IntegerValue(99), 1, 0, false, false);
     WorldObject child = object(3, "child", List.of(1L), List.of(), List.of(override));
     try (WorldTxn transaction = new WorldTxn(List.of(), List.of(first, second, child)).begin()) {
-      assertTrue(transaction.changeParents(3, List.of(2L)));
+      assertTrue(transaction.changeParents(3, List.of(2L)).isOk());
 
       WorldProperty replacement = transaction.object(3).orElseThrow().properties().getFirst();
       assertEquals(new IntegerValue(20), replacement.value());
@@ -135,7 +135,7 @@ final class WorldTxnMultipleInheritanceTest {
       AnonymousObjectValue anonymous = transaction.createAnonymousObject(List.of(4L), 1);
       WorldObject unrelated = transaction.object(1).orElseThrow();
 
-      assertTrue(transaction.changeParents(4, List.of(2L)));
+      assertTrue(transaction.changeParents(4, List.of(2L)).isOk());
 
       assertEquals(
           List.of("left", "root"),
@@ -150,7 +150,7 @@ final class WorldTxnMultipleInheritanceTest {
     WorldObject target = object(2, "target", List.of(1L), List.of(3L), List.of());
     WorldObject child = object(3, "child", List.of(2L, 1L), List.of(), List.of());
     try (WorldTxn transaction = new WorldTxn(List.of(), List.of(root, target, child)).begin()) {
-      assertTrue(transaction.recycleObject(2));
+      assertTrue(transaction.recycleObject(2).isOk());
 
       assertEquals(List.of(1L), transaction.object(3).orElseThrow().parents());
       assertEquals(List.of(3L), transaction.object(1).orElseThrow().children());
@@ -184,7 +184,7 @@ final class WorldTxnMultipleInheritanceTest {
           List.of("child", "target", "root"),
           names(transaction.anonymousObject(anonymous).orElseThrow().properties()));
 
-      assertTrue(transaction.recycleObject(2));
+      assertTrue(transaction.recycleObject(2).isOk());
 
       assertEquals(List.of(1L), transaction.object(3).orElseThrow().parents());
       assertEquals(List.of(3L), transaction.anonymousObject(anonymous).orElseThrow().parents());
@@ -221,7 +221,7 @@ final class WorldTxnMultipleInheritanceTest {
     try (WorldTxn transaction = new WorldTxn(List.of(), objects).begin()) {
       Map<Long, WorldObject> before = transaction.snapshot().objects();
 
-      assertTrue(transaction.changeParents(799, List.of(796L, 795L)));
+      assertTrue(transaction.changeParents(799, List.of(796L, 795L)).isOk());
 
       Map<Long, WorldObject> after = transaction.snapshot().objects();
       for (long id : List.of(795L, 796L, 797L, 798L, 799L)) {

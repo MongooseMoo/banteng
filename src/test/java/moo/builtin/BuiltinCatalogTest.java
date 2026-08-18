@@ -339,7 +339,7 @@ final class BuiltinCatalogTest {
     WaifValue waif;
     try (WorldTxn setup = root.begin()) {
       waif = setup.createWaif(7, 1);
-      assertTrue(setup.writeWaifProperty(waif, "marker", new IntegerValue(42)));
+      assertTrue(setup.writeWaifProperty(waif, "marker", new IntegerValue(42)).isOk());
       assertTrue(setup.commit().isCommitted());
     }
 
@@ -749,7 +749,7 @@ final class BuiltinCatalogTest {
     try (WorldTxn transaction =
         new WorldTxn(List.of(2L, 3L), List.of(wizard, oldPlayer, newPlayer)).begin()) {
       transaction.openConnection(-17, new MapValue(Map.of()));
-      assertTrue(transaction.switchConnectionPlayer(-17, 2));
+      assertTrue(transaction.switchConnectionPlayer(-17, 2).isOk());
       assertEquals(
           OptionalLong.of(3),
           switchedPlayer(invoke(
@@ -2263,7 +2263,7 @@ final class BuiltinCatalogTest {
                   1)
               ));
 
-      assertTrue(transaction.writeObjectProperty(2, "test", new IntegerValue(2)));
+      assertTrue(transaction.writeObjectProperty(2, "test", new IntegerValue(2)).isOk());
       assertEquals(
           Optional.of(new IntegerValue(0)),
           value(invoke(

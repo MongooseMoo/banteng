@@ -26,7 +26,7 @@ final class WorldTxnTest {
     try (WorldTxn transaction = root.begin()) {
       long before = System.currentTimeMillis() / 1_000L;
 
-      assertTrue(transaction.move(0, 1));
+      assertTrue(transaction.move(0, 1).isOk());
 
       long after = System.currentTimeMillis() / 1_000L;
       MapValue lastMove =
@@ -39,7 +39,7 @@ final class WorldTxnTest {
       assertTrue(movedAt >= before);
       assertTrue(movedAt <= after);
 
-      assertTrue(transaction.writeObjectProperty(0, "name", string("renamed")));
+      assertTrue(transaction.writeObjectProperty(0, "name", string("renamed")).isOk());
       assertEquals(lastMove, transaction.readObjectProperty(0, "last_move").orElseThrow());
     }
   }
@@ -62,13 +62,13 @@ final class WorldTxnTest {
     WorldObject second = locatedObject(2, 0);
     WorldObject third = locatedObject(3, 0);
     try (WorldTxn transaction = root(room, first, second, third).begin()) {
-      assertTrue(transaction.move(3, 0, 1));
+      assertTrue(transaction.move(3, 0, 1).isOk());
       assertEquals(List.of(3L, 1L, 2L), transaction.object(0).orElseThrow().contents());
 
-      assertTrue(transaction.move(3, 0, 0));
+      assertTrue(transaction.move(3, 0, 0).isOk());
       assertEquals(List.of(1L, 2L, 3L), transaction.object(0).orElseThrow().contents());
 
-      assertTrue(transaction.move(1, 0, Long.MAX_VALUE));
+      assertTrue(transaction.move(1, 0, Long.MAX_VALUE).isOk());
       assertEquals(List.of(2L, 3L, 1L), transaction.object(0).orElseThrow().contents());
     }
   }
@@ -79,8 +79,8 @@ final class WorldTxnTest {
     WorldTxn transaction = root.begin();
 
     assertTrue(
-        transaction.writeObjectProperty(0, "name", string("after")));
-    assertTrue(transaction.move(0, 1));
+        transaction.writeObjectProperty(0, "name", string("after")).isOk());
+    assertTrue(transaction.move(0, 1).isOk());
     transaction.stageEffect(new IntegerValue(37));
 
     assertEquals("before", snapshotObject(root.snapshot(), 0).name());
@@ -105,11 +105,11 @@ final class WorldTxnTest {
     WorldTxn winner = root.begin();
 
     assertEquals("base", stale.object(0).orElseThrow().name());
-    assertTrue(winner.writeObjectProperty(0, "name", string("winner")));
+    assertTrue(winner.writeObjectProperty(0, "name", string("winner")).isOk());
     assertTrue(winner.commit().isCommitted());
 
     assertEquals("base", stale.object(0).orElseThrow().name());
-    assertTrue(stale.writeObjectProperty(0, "name", string("stale")));
+    assertTrue(stale.writeObjectProperty(0, "name", string("stale")).isOk());
     WorldTxn.CommitResult result = stale.commit();
 
     assertEquals(WorldTxn.Status.CONFLICT, result.status());
@@ -124,7 +124,7 @@ final class WorldTxnTest {
     WorldTxn root = root(object(0, "base"));
     try (WorldTxn candidate = root.begin()) {
       assertEquals("base", candidate.object(0).orElseThrow().name());
-      assertTrue(candidate.writeObjectProperty(0, "name", string("candidate")));
+      assertTrue(candidate.writeObjectProperty(0, "name", string("candidate")).isOk());
 
       WorldTxn.ValidationResult current = candidate.validate();
 
@@ -133,7 +133,7 @@ final class WorldTxnTest {
       assertEquals("base", snapshotObject(root.snapshot(), 0).name());
 
       try (WorldTxn winner = root.begin()) {
-        assertTrue(winner.writeObjectProperty(0, "name", string("winner")));
+        assertTrue(winner.writeObjectProperty(0, "name", string("winner")).isOk());
         assertTrue(winner.commit().isCommitted());
       }
 
@@ -210,7 +210,7 @@ final class WorldTxnTest {
     WorldTxn stale = root.begin();
     try (WorldTxn winner = root.begin()) {
       assertEquals("", stale.anonymousObject(identity).orElseThrow().name());
-      assertTrue(winner.writeObjectProperty(identity, "name", string("winner")));
+      assertTrue(winner.writeObjectProperty(identity, "name", string("winner")).isOk());
       assertTrue(winner.commit().isCommitted());
     }
 
@@ -242,7 +242,7 @@ final class WorldTxnTest {
       committed = transaction.createWaif(7, 1);
       assertEquals(
           new IntegerValue(0), transaction.readWaifProperty(committed, "marker").orElseThrow());
-      assertTrue(transaction.writeWaifProperty(committed, "marker", new IntegerValue(7)));
+      assertTrue(transaction.writeWaifProperty(committed, "marker", new IntegerValue(7)).isOk());
       assertEquals(
           new IntegerValue(7), transaction.readWaifProperty(committed, "marker").orElseThrow());
       assertTrue(transaction.commit().isCommitted());
@@ -254,7 +254,7 @@ final class WorldTxnTest {
     }
 
     try (WorldTxn rolledBack = root.begin()) {
-      assertTrue(rolledBack.writeWaifProperty(committed, "marker", new IntegerValue(42)));
+      assertTrue(rolledBack.writeWaifProperty(committed, "marker", new IntegerValue(42)).isOk());
       assertEquals(
           new IntegerValue(42), rolledBack.readWaifProperty(committed, "marker").orElseThrow());
     }
@@ -270,7 +270,7 @@ final class WorldTxnTest {
 
     try (WorldTxn transaction = root.begin()) {
       identity = transaction.createAnonymousObject(0, 0);
-      assertTrue(transaction.addProperty(0, "later", new IntegerValue(17), 0, 1));
+      assertTrue(transaction.addProperty(0, "later", new IntegerValue(17), 0, 1).isOk());
 
       WorldProperty inherited =
           transaction.anonymousObject(identity).orElseThrow().properties().getFirst();
@@ -295,7 +295,7 @@ final class WorldTxnTest {
     WorldTxn writer = root.begin();
 
     assertEquals(List.of(), scanner.players());
-    assertTrue(writer.setPlayerFlag(1, true));
+    assertTrue(writer.setPlayerFlag(1, true).isOk());
     assertTrue(writer.commit().isCommitted());
 
     WorldTxn.CommitResult result = scanner.commit();
@@ -327,7 +327,7 @@ final class WorldTxnTest {
       assertEquals(Optional.of(new IntegerValue(1)), transaction.readObjectProperty(0, "w"));
       assertEquals(Optional.of(new IntegerValue(1)), transaction.readObjectProperty(0, "f"));
       assertEquals(Optional.of(new IntegerValue(1)), transaction.readObjectProperty(0, "a"));
-      assertTrue(transaction.writeObjectProperty(0, "a", new IntegerValue(0)));
+      assertTrue(transaction.writeObjectProperty(0, "a", new IntegerValue(0)).isOk());
       assertEquals(Optional.of(new IntegerValue(0)), transaction.readObjectProperty(0, "a"));
     }
   }
@@ -367,12 +367,12 @@ final class WorldTxnTest {
       assertEquals(Optional.of(new IntegerValue(1)), transaction.readObjectProperty(1, "test"));
       assertTrue(transaction.property(1, "test").orElseThrow().clear());
 
-      assertTrue(transaction.writeObjectProperty(1, "test", new IntegerValue(2)));
+      assertTrue(transaction.writeObjectProperty(1, "test", new IntegerValue(2)).isOk());
       assertEquals(Optional.of(new IntegerValue(2)), transaction.readObjectProperty(1, "test"));
       assertFalse(transaction.property(1, "test").orElseThrow().clear());
       assertFalse(transaction.property(1, "test").orElseThrow().defined());
 
-      assertTrue(transaction.clearProperty(1, "test"));
+      assertTrue(transaction.clearProperty(1, "test").isOk());
       assertEquals(Optional.of(new IntegerValue(1)), transaction.readObjectProperty(1, "test"));
       assertTrue(transaction.property(1, "test").orElseThrow().clear());
       assertFalse(transaction.property(1, "test").orElseThrow().defined());
@@ -407,7 +407,7 @@ final class WorldTxnTest {
             List.of());
 
     try (WorldTxn transaction = root(root, child).begin()) {
-      assertTrue(transaction.addProperty(0, "test", new IntegerValue(1), 0, 7));
+      assertTrue(transaction.addProperty(0, "test", new IntegerValue(1), 0, 7).isOk());
       WorldProperty definition = transaction.object(0).orElseThrow().properties().getFirst();
       WorldProperty inherited = transaction.object(1).orElseThrow().properties().getFirst();
       assertTrue(definition.defined());
@@ -421,7 +421,7 @@ final class WorldTxnTest {
       assertTrue(grandchildSlot.clear());
       assertEquals(Optional.of(new IntegerValue(1)), transaction.readObjectProperty(2, "test"));
 
-      assertTrue(transaction.deleteProperty(0, "test"));
+      assertTrue(transaction.deleteProperty(0, "test").isOk());
       assertTrue(transaction.object(0).orElseThrow().properties().isEmpty());
       assertTrue(transaction.object(1).orElseThrow().properties().isEmpty());
       assertTrue(transaction.object(2).orElseThrow().properties().isEmpty());
@@ -434,7 +434,7 @@ final class WorldTxnTest {
     WorldTxn retained = root.begin();
     WorldTxn writer = root.begin();
 
-    assertTrue(writer.writeObjectProperty(0, "name", string("next")));
+    assertTrue(writer.writeObjectProperty(0, "name", string("next")).isOk());
     assertTrue(writer.commit().isCommitted());
     assertEquals(List.of(0L, 1L), root.retainedRevisions());
     assertEquals(2, root.retainedRevisionCount());
@@ -450,7 +450,7 @@ final class WorldTxnTest {
     WorldTxn transaction = root(object(0, "base"), object(1, "other")).begin();
 
     transaction.object(0);
-    assertTrue(transaction.writeObjectProperty(1, "name", string("changed")));
+    assertTrue(transaction.writeObjectProperty(1, "name", string("changed")).isOk());
     transaction.maximumObjectId();
 
     assertEquals(Set.of(0L, 1L), transaction.recordReads());
@@ -497,16 +497,17 @@ final class WorldTxnTest {
           transaction.writeObjectProperty(0, "protected", new IntegerValue(2), 1));
       assertWorldFailure(ErrorValue.E_INVARG, transaction.move(99, 0));
 
-      WorldResult.Ok<MooValue> written =
-          assertInstanceOf(
-              WorldResult.Ok.class,
-              transaction.writeObjectProperty(0, "protected", new IntegerValue(2), 0));
+      WorldResult<MooValue> result =
+          transaction.writeObjectProperty(0, "protected", new IntegerValue(2), 0);
+      assertInstanceOf(WorldResult.Ok.class, result);
+      WorldResult.Ok<?> written = (WorldResult.Ok<?>) result;
       assertEquals(new IntegerValue(2), written.value());
     }
   }
 
   private static void assertWorldFailure(ErrorValue expected, WorldResult<?> result) {
-    WorldResult.Failed<?> failed = assertInstanceOf(WorldResult.Failed.class, result);
+    assertInstanceOf(WorldResult.Failed.class, result);
+    WorldResult.Failed<?> failed = (WorldResult.Failed<?>) result;
     assertEquals(expected, failed.reason().value());
   }
 

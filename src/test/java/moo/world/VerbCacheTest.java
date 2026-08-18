@@ -45,7 +45,7 @@ final class VerbCacheTest {
   void mutationBeforeLazyAllocationDoesNotInventAGeneration() {
     WorldTxn root = world();
     try (WorldTxn transaction = root.begin()) {
-      assertTrue(transaction.setVerbArgs(1, 0, 1, -1, 0));
+      assertTrue(transaction.setVerbArgs(1, 0, 1, -1, 0).isOk());
       assertTrue(transaction.commit().isCommitted());
     }
 
@@ -62,7 +62,7 @@ final class VerbCacheTest {
     }
 
     try (WorldTxn transaction = root.begin()) {
-      assertTrue(transaction.setVerbInfo(1, 0, "examine", 1, 4));
+      assertTrue(transaction.setVerbInfo(1, 0, "examine", 1, 4).isOk());
       assertTrue(transaction.commit().isCommitted());
     }
 
@@ -84,7 +84,7 @@ final class VerbCacheTest {
     WorldTxn stale = root.begin();
     try (WorldTxn transaction = root.begin()) {
       assertTrue(transaction.verb(2, "look").isPresent());
-      assertTrue(transaction.setVerbCode(1, 0, "return 2;"));
+      assertTrue(transaction.setVerbCode(1, 0, "return 2;").isOk());
       assertTrue(transaction.commit().isCommitted());
     }
 
@@ -96,7 +96,7 @@ final class VerbCacheTest {
         root.verbCacheStats());
 
     try (WorldTxn transaction = root.begin()) {
-      assertTrue(transaction.setVerbArgs(1, 0, 1, -1, 0));
+      assertTrue(transaction.setVerbArgs(1, 0, 1, -1, 0).isOk());
       assertTrue(transaction.commit().isCommitted());
     }
     assertTrue(stale.verb(2, "look").isPresent());

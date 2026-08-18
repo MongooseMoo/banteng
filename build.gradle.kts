@@ -58,6 +58,7 @@ dependencies {
 
     errorprone("com.google.errorprone:error_prone_core:2.50.0")
     errorprone("com.uber.nullaway:nullaway:0.13.7")
+    errorprone(project(":errorprone-checks"))
 
     testImplementation(platform("org.junit:junit-bom:6.1.2"))
     testImplementation("org.junit.jupiter:junit-jupiter")
@@ -85,6 +86,9 @@ tasks.withType<JavaCompile>().configureEach {
     options.compilerArgs.addAll(listOf("-Xlint:all", "-Werror"))
     options.errorprone {
         error("GuardedBy")
+        if (name == "compileJava") {
+            error("NarrowIllegalArgumentCatch")
+        }
         error("NullAway", "RequireExplicitNullMarking")
         option("NullAway:OnlyNullMarked", "true")
         option("NullAway:JSpecifyMode", "true")

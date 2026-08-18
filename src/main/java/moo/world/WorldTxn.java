@@ -17,6 +17,7 @@ import java.util.Set;
 import java.util.StringTokenizer;
 import moo.value.MooValue;
 import moo.value.MooValue.AnonymousObjectValue;
+import moo.value.MooValue.ErrorValue;
 import moo.value.MooValue.IntegerValue;
 import moo.value.MooValue.ListValue;
 import moo.value.MooValue.MapValue;
@@ -304,36 +305,36 @@ public final class WorldTxn implements AutoCloseable {
   }
 
   /** Replaces the intrinsic command table for a live connection or attached player. */
-  public boolean setIntrinsicCommands(long objectId, ListValue commands) {
+  public WorldResult<Boolean> setIntrinsicCommands(long objectId, ListValue commands) {
     ensureActiveTransaction();
     Objects.requireNonNull(commands, "commands");
     if (connections.containsKey(objectId)) {
       intrinsicCommands.put(objectId, commands);
-      return true;
+      return WorldResult.ok(true);
     }
     for (Map.Entry<Long, Long> connection : connections.entrySet()) {
       if (connection.getValue() == objectId) {
         intrinsicCommands.put(connection.getKey(), commands);
-        return true;
+        return WorldResult.ok(true);
       }
     }
-    return false;
+    return WorldResult.failed(ErrorValue.E_INVARG);
   }
 
   /** Restores every intrinsic command for a live connection or attached player. */
-  public boolean restoreIntrinsicCommands(long objectId) {
+  public WorldResult<Boolean> restoreIntrinsicCommands(long objectId) {
     ensureActiveTransaction();
     return setIntrinsicCommands(objectId, DEFAULT_INTRINSIC_COMMANDS);
   }
 
   /** Stages a player switch on an existing connection. */
-  public boolean switchConnectionPlayer(long connectionId, long playerId) {
+  public WorldResult<Boolean> switchConnectionPlayer(long connectionId, long playerId) {
     ensureActiveTransaction();
     if (!connections.containsKey(connectionId) || object(playerId).isEmpty()) {
-      return false;
+      return WorldResult.failed(ErrorValue.E_INVARG);
     }
     connections.put(connectionId, playerId);
-    return true;
+    return WorldResult.ok(true);
   }
 
   /** Looks up an object by its signed object number. */
@@ -352,11 +353,11 @@ public final class WorldTxn implements AutoCloseable {
   }
 
   /** Removes one anonymous body while preserving the identity of every other body. */
-  public boolean removeAnonymousObject(AnonymousObjectValue identity) {
+  public WorldResult<Boolean> removeAnonymousObject(AnonymousObjectValue identity) {
     ensureActiveTransaction();
     Objects.requireNonNull(identity, "identity");
     if (!working.anonymousObjects().containsKey(identity)) {
-      return false;
+      return WorldResult.failed(ErrorValue.E_INVARG);
     }
     Map<AnonymousObjectValue, WorldAnonymousObject> anonymousObjects =
         new LinkedHashMap<>(working.anonymousObjects());
@@ -372,7 +373,7 @@ public final class WorldTxn implements AutoCloseable {
             working.pendingFinalization());
     anonymousWrites.add(identity);
     working = next;
-    return true;
+    return WorldResult.ok(true);
   }
 
   /** Returns one WAIF body by reference identity. */
@@ -382,11 +383,11 @@ public final class WorldTxn implements AutoCloseable {
   }
 
   /** Removes one WAIF body while preserving the identity of every other body. */
-  public boolean removeWaif(WaifValue identity) {
+  public WorldResult<Boolean> removeWaif(WaifValue identity) {
     ensureActiveTransaction();
     Objects.requireNonNull(identity, "identity");
     if (!working.waifs().containsKey(identity)) {
-      return false;
+      return WorldResult.failed(ErrorValue.E_INVARG);
     }
     Map<WaifValue, WorldWaif> waifs = new LinkedHashMap<>(working.waifs());
     waifs.remove(identity);
@@ -401,7 +402,7 @@ public final class WorldTxn implements AutoCloseable {
             working.pendingFinalization());
     waifWrites.add(identity);
     working = next;
-    return true;
+    return WorldResult.ok(true);
   }
 
   /** Looks up a zero-based verb slot on an object. */
@@ -810,18 +811,19 @@ public final class WorldTxn implements AutoCloseable {
     return Optional.empty();
   }
 
-  /** Writes an authorized built-in object property and returns whether it exists. */
-  public boolean writeObjectProperty(long objectId, String propertyName, MooValue value) {
+  /** Writes an existing built-in or ordinary object property. */
+  public WorldResult<MooValue> writeObjectProperty(
+      long objectId, String propertyName, MooValue value) {
     Objects.requireNonNull(propertyName, "propertyName");
     Objects.requireNonNull(value, "value");
     WorldObject object = object(objectId).orElse(null);
     if (object == null) {
-      return false;
+      return WorldResult.failed(ErrorValue.E_PROPNF);
     }
     String normalizedName = propertyName.toLowerCase(Locale.ROOT);
     if (normalizedName.equals("name")) {
       if (!(value instanceof StringValue name)) {
-        return false;
+        return WorldResult.failed(ErrorValue.E_TYPE);
       }
       replaceObject(
           new WorldObject(
@@ -836,51 +838,51 @@ public final class WorldTxn implements AutoCloseable {
               object.children(),
               object.verbs(),
               object.properties()));
-      return true;
+      return WorldResult.ok(value);
     }
     if (normalizedName.equals("owner")) {
       if (!(value instanceof ObjectValue owner)) {
-        return false;
+        return WorldResult.failed(ErrorValue.E_TYPE);
       }
       replaceObject(
           copyObject(
               object, object.flags(), owner.value(), object.location(), object.properties()));
-      return true;
+      return WorldResult.ok(value);
     }
     if (normalizedName.equals("programmer")) {
       if (!(value instanceof IntegerValue enabled)) {
-        return false;
+        return WorldResult.failed(ErrorValue.E_TYPE);
       }
       replaceFlags(object, ObjectFlags.FLAG_PROGRAMMER, enabled.isTruthy());
-      return true;
+      return WorldResult.ok(value);
     }
     if (normalizedName.equals("wizard")) {
       if (!(value instanceof IntegerValue enabled)) {
-        return false;
+        return WorldResult.failed(ErrorValue.E_TYPE);
       }
       replaceFlags(object, ObjectFlags.FLAG_WIZARD, enabled.isTruthy());
-      return true;
+      return WorldResult.ok(value);
     }
     if (normalizedName.equals("w")) {
       if (!(value instanceof IntegerValue enabled)) {
-        return false;
+        return WorldResult.failed(ErrorValue.E_TYPE);
       }
       replaceFlags(object, ObjectFlags.FLAG_WRITE, enabled.isTruthy());
-      return true;
+      return WorldResult.ok(value);
     }
     if (normalizedName.equals("f")) {
       if (!(value instanceof IntegerValue enabled)) {
-        return false;
+        return WorldResult.failed(ErrorValue.E_TYPE);
       }
       replaceFlags(object, ObjectFlags.FLAG_FERTILE, enabled.isTruthy());
-      return true;
+      return WorldResult.ok(value);
     }
     if (normalizedName.equals("a")) {
       if (!(value instanceof IntegerValue enabled)) {
-        return false;
+        return WorldResult.failed(ErrorValue.E_TYPE);
       }
       replaceFlags(object, ObjectFlags.FLAG_ANONYMOUS, enabled.isTruthy());
-      return true;
+      return WorldResult.ok(value);
     }
     List<WorldProperty> properties = new ArrayList<>(object.properties());
     for (int index = 0; index < properties.size(); index++) {
@@ -897,34 +899,61 @@ public final class WorldTxn implements AutoCloseable {
                 property.defined()));
         replaceObject(
             copyObject(object, object.flags(), object.owner(), object.location(), properties));
-        return true;
+        return WorldResult.ok(value);
       }
     }
     WorldProperty inherited = property(objectId, propertyName).orElse(null);
     if (inherited == null) {
-      return false;
+      return WorldResult.failed(ErrorValue.E_PROPNF);
     }
     properties.add(
         new WorldProperty(
             inherited.name(), value, inherited.owner(), inherited.permissions(), false, false));
     replaceObject(
         copyObject(object, object.flags(), object.owner(), object.location(), properties));
-    return true;
+    return WorldResult.ok(value);
+  }
+
+  /** Authorizes and writes one permanent-object property for a MOO programmer. */
+  public WorldResult<MooValue> writeObjectProperty(
+      long objectId, String propertyName, MooValue value, long programmer) {
+    Objects.requireNonNull(propertyName, "propertyName");
+    WorldObject target = object(objectId).orElse(null);
+    if (target == null) {
+      return WorldResult.failed(ErrorValue.E_PROPNF);
+    }
+    boolean wizard = isWizard(programmer);
+    if ((propertyName.equalsIgnoreCase("programmer")
+            || propertyName.equalsIgnoreCase("wizard"))
+        && !wizard) {
+      return WorldResult.failed(ErrorValue.E_PERM);
+    }
+    if (propertyName.equalsIgnoreCase("last_move")) {
+      return WorldResult.failed(ErrorValue.E_PERM);
+    }
+    WorldProperty property = property(objectId, propertyName).orElse(null);
+    if (property != null
+        && property.owner() != programmer
+        && !wizard
+        && (property.permissions() & 2) == 0) {
+      return WorldResult.failed(ErrorValue.E_PERM);
+    }
+    return writeObjectProperty(objectId, propertyName, value);
   }
 
   /** Writes an ordinary or built-in property on an anonymous object. */
-  public boolean writeObjectProperty(
+  public WorldResult<MooValue> writeObjectProperty(
       AnonymousObjectValue identity, String propertyName, MooValue value) {
     Objects.requireNonNull(identity, "identity");
     Objects.requireNonNull(propertyName, "propertyName");
     Objects.requireNonNull(value, "value");
     WorldAnonymousObject object = anonymousObject(identity).orElse(null);
     if (object == null) {
-      return false;
+      return WorldResult.failed(ErrorValue.E_PROPNF);
     }
     if (propertyName.equalsIgnoreCase("name")) {
       if (!(value instanceof StringValue name)) {
-        return false;
+        return WorldResult.failed(ErrorValue.E_TYPE);
       }
       replaceAnonymousObject(
           identity,
@@ -935,11 +964,11 @@ public final class WorldTxn implements AutoCloseable {
               object.parents(),
               object.verbs(),
               object.properties()));
-      return true;
+      return WorldResult.ok(value);
     }
     if (propertyName.equalsIgnoreCase("owner")) {
       if (!(value instanceof ObjectValue owner)) {
-        return false;
+        return WorldResult.failed(ErrorValue.E_TYPE);
       }
       replaceAnonymousObject(
           identity,
@@ -950,7 +979,7 @@ public final class WorldTxn implements AutoCloseable {
               object.parents(),
               object.verbs(),
               object.properties()));
-      return true;
+      return WorldResult.ok(value);
     }
     List<WorldProperty> properties = new ArrayList<>(object.properties());
     for (int index = 0; index < properties.size(); index++) {
@@ -974,7 +1003,7 @@ public final class WorldTxn implements AutoCloseable {
                 object.parents(),
                 object.verbs(),
                 properties));
-        return true;
+        return WorldResult.ok(value);
       }
     }
     WorldProperty inherited = null;
@@ -985,7 +1014,7 @@ public final class WorldTxn implements AutoCloseable {
       }
     }
     if (inherited == null) {
-      return false;
+      return WorldResult.failed(ErrorValue.E_PROPNF);
     }
     properties.add(
         new WorldProperty(
@@ -999,7 +1028,38 @@ public final class WorldTxn implements AutoCloseable {
             object.parents(),
             object.verbs(),
             properties));
-    return true;
+    return WorldResult.ok(value);
+  }
+
+  /** Authorizes and writes one anonymous-object property for a MOO programmer. */
+  public WorldResult<MooValue> writeObjectProperty(
+      AnonymousObjectValue identity, String propertyName, MooValue value, long programmer) {
+    Objects.requireNonNull(identity, "identity");
+    Objects.requireNonNull(propertyName, "propertyName");
+    if (anonymousObject(identity).isEmpty()) {
+      return WorldResult.failed(ErrorValue.E_INVIND);
+    }
+    boolean wizard = isWizard(programmer);
+    if (propertyName.equalsIgnoreCase("owner")) {
+      if (!(value instanceof ObjectValue)) {
+        return WorldResult.failed(ErrorValue.E_TYPE);
+      }
+      if (!wizard) {
+        return WorldResult.failed(ErrorValue.E_PERM);
+      }
+    }
+    if (propertyName.equalsIgnoreCase("programmer")
+        || propertyName.equalsIgnoreCase("wizard")) {
+      return WorldResult.failed(wizard ? ErrorValue.E_INVARG : ErrorValue.E_PERM);
+    }
+    WorldProperty property = property(identity, propertyName).orElse(null);
+    if (property != null
+        && property.owner() != programmer
+        && !wizard
+        && (property.permissions() & 2) == 0) {
+      return WorldResult.failed(ErrorValue.E_PERM);
+    }
+    return writeObjectProperty(identity, propertyName, value);
   }
 
   /** Allocates the next object number and returns the new object. */
@@ -1174,13 +1234,14 @@ public final class WorldTxn implements AutoCloseable {
     return property(identity.classObject().value(), ":" + propertyName);
   }
 
-  /** Writes one existing WAIF property override and returns whether the slot exists. */
-  public boolean writeWaifProperty(WaifValue identity, String propertyName, MooValue value) {
+  /** Writes one existing WAIF property override. */
+  public WorldResult<MooValue> writeWaifProperty(
+      WaifValue identity, String propertyName, MooValue value) {
     Objects.requireNonNull(propertyName, "propertyName");
     Objects.requireNonNull(value, "value");
     WorldWaif body = waif(identity).orElse(null);
     if (body == null) {
-      return false;
+      return WorldResult.failed(ErrorValue.E_PROPNF);
     }
     String classPropertyName = ":" + propertyName;
     List<WorldProperty> properties = new ArrayList<>(body.properties());
@@ -1197,10 +1258,37 @@ public final class WorldTxn implements AutoCloseable {
                 false,
                 property.defined()));
         replaceWaif(identity, new WorldWaif(properties));
-        return true;
+        return WorldResult.ok(value);
       }
     }
-    return false;
+    return WorldResult.failed(ErrorValue.E_PROPNF);
+  }
+
+  /** Authorizes and writes one WAIF property for a MOO programmer. */
+  public WorldResult<MooValue> writeWaifProperty(
+      WaifValue identity, String propertyName, MooValue value, long programmer) {
+    Objects.requireNonNull(identity, "identity");
+    Objects.requireNonNull(propertyName, "propertyName");
+    if (waif(identity).isEmpty()) {
+      return WorldResult.failed(ErrorValue.E_INVIND);
+    }
+    if (propertyName.equalsIgnoreCase("class")
+        || propertyName.equalsIgnoreCase("owner")
+        || propertyName.equalsIgnoreCase("wizard")
+        || propertyName.equalsIgnoreCase("programmer")) {
+      return WorldResult.failed(ErrorValue.E_PERM);
+    }
+    WorldProperty property = waifProperty(identity, propertyName).orElse(null);
+    if (property != null
+        && property.owner() != programmer
+        && !isWizard(programmer)
+        && (property.permissions() & 2) == 0) {
+      return WorldResult.failed(ErrorValue.E_PERM);
+    }
+    if (property != null && valueRefersToWaif(value, identity)) {
+      return WorldResult.failed(ErrorValue.E_RECMOVE);
+    }
+    return writeWaifProperty(identity, propertyName, value);
   }
 
   /** Returns whether a value graph contains the requested WAIF by reference identity. */
@@ -1242,10 +1330,10 @@ public final class WorldTxn implements AutoCloseable {
   }
 
   /** Removes one object from the current immutable world snapshot. */
-  public boolean recycleObject(long objectId) {
+  public WorldResult<Boolean> recycleObject(long objectId) {
     WorldObject target = object(objectId).orElse(null);
     if (target == null) {
-      return false;
+      return WorldResult.failed(ErrorValue.E_INVARG);
     }
     Map<Long, WorldObject> oldObjects = working.objects();
     Set<Long> affectedObjects = descendantsOf(Set.of(objectId), oldObjects);
@@ -1367,7 +1455,7 @@ public final class WorldTxn implements AutoCloseable {
     try {
       objects = rebuildPropertyLayouts(oldObjects, objects, new LinkedHashSet<>(target.children()));
     } catch (IllegalArgumentException error) {
-      return false;
+      return WorldResult.failed(ErrorValue.E_INVARG);
     }
     Map<AnonymousObjectValue, WorldAnonymousObject> anonymousReplacements =
         new LinkedHashMap<>();
@@ -1408,7 +1496,7 @@ public final class WorldTxn implements AutoCloseable {
                     parents,
                     objects)));
       } catch (IllegalArgumentException error) {
-        return false;
+        return WorldResult.failed(ErrorValue.E_INVARG);
       }
     }
     List<Long> players = new ArrayList<>(working.players());
@@ -1418,25 +1506,25 @@ public final class WorldTxn implements AutoCloseable {
         anonymousReplacements.entrySet()) {
       replaceAnonymousObject(entry.getKey(), entry.getValue());
     }
-    return true;
+    return WorldResult.ok(true);
   }
 
   /** Changes one object's parent while updating both reciprocal topology records. */
-  public boolean changeParent(long objectId, long newParentId) {
+  public WorldResult<Boolean> changeParent(long objectId, long newParentId) {
     return changeParents(objectId, newParentId == -1 ? List.of() : List.of(newParentId));
   }
 
   /** Changes one object's ordered parents while updating every reciprocal topology record. */
-  public boolean changeParents(long objectId, List<Long> newParentIds) {
+  public WorldResult<Boolean> changeParents(long objectId, List<Long> newParentIds) {
     WorldObject target = object(objectId).orElse(null);
     if (target == null) {
-      return false;
+      return WorldResult.failed(ErrorValue.E_INVARG);
     }
     final List<Long> newParents;
     try {
       newParents = validateNewParents(objectId, newParentIds);
     } catch (IllegalArgumentException error) {
-      return false;
+      return WorldResult.failed(ErrorValue.E_INVARG);
     }
 
     Map<Long, WorldObject> oldObjects = working.objects();
@@ -1507,26 +1595,27 @@ public final class WorldTxn implements AutoCloseable {
     try {
       objects = rebuildPropertyLayouts(oldObjects, objects, Set.of(objectId));
     } catch (IllegalArgumentException error) {
-      return false;
+      return WorldResult.failed(ErrorValue.E_INVARG);
     }
     Set<Long> affectedObjects = descendantsOf(Set.of(objectId), objects);
     replaceWorld(working.players(), objects);
     rebuildAnonymousPropertyLayouts(oldObjects, objects, affectedObjects);
-    return true;
+    return WorldResult.ok(true);
   }
 
   /** Changes one anonymous object's ordered permanent parents atomically. */
-  public boolean changeParents(AnonymousObjectValue identity, List<Long> newParentIds) {
+  public WorldResult<Boolean> changeParents(
+      AnonymousObjectValue identity, List<Long> newParentIds) {
     Objects.requireNonNull(identity, "identity");
     WorldAnonymousObject target = anonymousObject(identity).orElse(null);
     if (target == null) {
-      return false;
+      return WorldResult.failed(ErrorValue.E_INVARG);
     }
     final List<Long> newParents;
     try {
       newParents = validateNewParents(-1, newParentIds);
     } catch (IllegalArgumentException error) {
-      return false;
+      return WorldResult.failed(ErrorValue.E_INVARG);
     }
     final List<WorldProperty> properties;
     try {
@@ -1539,7 +1628,7 @@ public final class WorldTxn implements AutoCloseable {
               newParents,
               working.objects());
     } catch (IllegalArgumentException error) {
-      return false;
+      return WorldResult.failed(ErrorValue.E_INVARG);
     }
     replaceAnonymousObject(
         identity,
@@ -1550,14 +1639,14 @@ public final class WorldTxn implements AutoCloseable {
             newParents,
             target.verbs(),
             properties));
-    return true;
+    return WorldResult.ok(true);
   }
 
   /** Adds or removes the player flag and keeps the player index in the same transaction. */
-  public boolean setPlayerFlag(long objectId, boolean enabled) {
+  public WorldResult<Boolean> setPlayerFlag(long objectId, boolean enabled) {
     WorldObject object = object(objectId).orElse(null);
     if (object == null) {
-      return false;
+      return WorldResult.failed(ErrorValue.E_INVARG);
     }
     replaceFlags(object, ObjectFlags.FLAG_USER, enabled);
     List<Long> players = new ArrayList<>(working.players());
@@ -1567,20 +1656,20 @@ public final class WorldTxn implements AutoCloseable {
       players.remove(objectId);
     }
     replaceWorld(players, working.objects());
-    return true;
+    return WorldResult.ok(true);
   }
 
   /** Moves an object while updating both reciprocal topology records. */
-  public boolean move(long objectId, long destinationId) {
+  public WorldResult<Boolean> move(long objectId, long destinationId) {
     return move(objectId, destinationId, 0);
   }
 
   /** Moves an object to a one-based contents position; zero appends. */
-  public boolean move(long objectId, long destinationId, long position) {
+  public WorldResult<Boolean> move(long objectId, long destinationId, long position) {
     WorldObject object = object(objectId).orElse(null);
     WorldObject destination = object(destinationId).orElse(null);
     if (object == null || (destinationId != -1 && destination == null) || position < 0) {
-      return false;
+      return WorldResult.failed(ErrorValue.E_INVARG);
     }
     if (object.location() != -1) {
       WorldObject previous = object(object.location()).orElseThrow();
@@ -1616,17 +1705,17 @@ public final class WorldTxn implements AutoCloseable {
             destinationId,
             new MapValue(lastMove),
             object.properties()));
-    return true;
+    return WorldResult.ok(true);
   }
 
   /** Adds one local property, rejecting a duplicate inherited or local name. */
-  public boolean addProperty(
+  public WorldResult<Boolean> addProperty(
       long objectId, String name, MooValue value, long owner, int permissions) {
     Objects.requireNonNull(name, "name");
     Objects.requireNonNull(value, "value");
     WorldObject object = object(objectId).orElse(null);
     if (object == null || property(objectId, name).isPresent()) {
-      return false;
+      return WorldResult.failed(ErrorValue.E_INVARG);
     }
     Map<Long, WorldObject> oldObjects = working.objects();
     List<WorldProperty> properties = new ArrayList<>(object.properties());
@@ -1643,11 +1732,11 @@ public final class WorldTxn implements AutoCloseable {
     Set<Long> affectedObjects = descendantsOf(Set.of(objectId), newObjects);
     replaceWorld(working.players(), newObjects);
     rebuildAnonymousPropertyLayouts(oldObjects, newObjects, affectedObjects);
-    return true;
+    return WorldResult.ok(true);
   }
 
   /** Adds one local property to an anonymous object. */
-  public boolean addProperty(
+  public WorldResult<Boolean> addProperty(
       AnonymousObjectValue identity,
       String name,
       MooValue value,
@@ -1658,7 +1747,7 @@ public final class WorldTxn implements AutoCloseable {
     Objects.requireNonNull(value, "value");
     WorldAnonymousObject object = anonymousObject(identity).orElse(null);
     if (object == null || property(identity, name).isPresent()) {
-      return false;
+      return WorldResult.failed(ErrorValue.E_INVARG);
     }
     List<WorldProperty> properties = new ArrayList<>(object.properties());
     int propertyIndex = 0;
@@ -1676,15 +1765,15 @@ public final class WorldTxn implements AutoCloseable {
             object.parents(),
             object.verbs(),
             properties));
-    return true;
+    return WorldResult.ok(true);
   }
 
   /** Deletes one property definition local to the exact object. */
-  public boolean deleteProperty(long objectId, String name) {
+  public WorldResult<Boolean> deleteProperty(long objectId, String name) {
     Objects.requireNonNull(name, "name");
     WorldObject object = object(objectId).orElse(null);
     if (object == null) {
-      return false;
+      return WorldResult.failed(ErrorValue.E_INVARG);
     }
     Map<Long, WorldObject> oldObjects = working.objects();
     List<WorldProperty> properties = new ArrayList<>(object.properties());
@@ -1697,7 +1786,7 @@ public final class WorldTxn implements AutoCloseable {
       }
     }
     if (propertyIndex < 0) {
-      return false;
+      return WorldResult.failed(ErrorValue.E_PROPNF);
     }
     properties.remove(propertyIndex);
     replaceObject(
@@ -1707,15 +1796,15 @@ public final class WorldTxn implements AutoCloseable {
     Set<Long> affectedObjects = descendantsOf(Set.of(objectId), newObjects);
     replaceWorld(working.players(), newObjects);
     rebuildAnonymousPropertyLayouts(oldObjects, newObjects, affectedObjects);
-    return true;
+    return WorldResult.ok(true);
   }
 
   /** Clears one inherited property value slot without deleting its definition. */
-  public boolean clearProperty(long objectId, String name) {
+  public WorldResult<Boolean> clearProperty(long objectId, String name) {
     Objects.requireNonNull(name, "name");
     WorldObject object = object(objectId).orElse(null);
     if (object == null) {
-      return false;
+      return WorldResult.failed(ErrorValue.E_INVARG);
     }
     List<WorldProperty> properties = new ArrayList<>(object.properties());
     for (int index = 0; index < properties.size(); index++) {
@@ -1732,10 +1821,10 @@ public final class WorldTxn implements AutoCloseable {
                 false));
         replaceObject(
             copyObject(object, object.flags(), object.owner(), object.location(), properties));
-        return true;
+        return WorldResult.ok(true);
       }
     }
-    return false;
+    return WorldResult.failed(ErrorValue.E_PROPNF);
   }
 
   /** Adds one local verb using the existing immutable verb record. */
@@ -1791,10 +1880,10 @@ public final class WorldTxn implements AutoCloseable {
   }
 
   /** Deletes one resolved zero-based local verb from the immutable object record. */
-  public boolean deleteVerb(long objectId, int verbIndex) {
+  public WorldResult<Boolean> deleteVerb(long objectId, int verbIndex) {
     WorldObject object = object(objectId).orElse(null);
     if (object == null || verbIndex < 0 || verbIndex >= object.verbs().size()) {
-      return false;
+      return WorldResult.failed(ErrorValue.E_VERBNF);
     }
     List<WorldVerb> verbs = new ArrayList<>(object.verbs());
     verbs.remove(verbIndex);
@@ -1811,15 +1900,16 @@ public final class WorldTxn implements AutoCloseable {
             object.children(),
             verbs,
             object.properties()));
-    return true;
+    return WorldResult.ok(true);
   }
 
   /** Replaces the source of one resolved zero-based local verb. */
-  public boolean setVerbCode(long objectId, int verbIndex, String programSource) {
+  public WorldResult<Boolean> setVerbCode(
+      long objectId, int verbIndex, String programSource) {
     Objects.requireNonNull(programSource, "programSource");
     WorldObject object = object(objectId).orElse(null);
     if (object == null || verbIndex < 0 || verbIndex >= object.verbs().size()) {
-      return false;
+      return WorldResult.failed(ErrorValue.E_VERBNF);
     }
     List<WorldVerb> verbs = new ArrayList<>(object.verbs());
     WorldVerb verb = verbs.get(verbIndex);
@@ -1840,17 +1930,17 @@ public final class WorldTxn implements AutoCloseable {
             object.children(),
             verbs,
             object.properties()));
-    return true;
+    return WorldResult.ok(true);
   }
 
   /** Replaces the source of one zero-based local verb on an anonymous object. */
-  public boolean setVerbCode(
+  public WorldResult<Boolean> setVerbCode(
       AnonymousObjectValue identity, int verbIndex, String programSource) {
     Objects.requireNonNull(identity, "identity");
     Objects.requireNonNull(programSource, "programSource");
     WorldAnonymousObject object = anonymousObject(identity).orElse(null);
     if (object == null || verbIndex < 0 || verbIndex >= object.verbs().size()) {
-      return false;
+      return WorldResult.failed(ErrorValue.E_VERBNF);
     }
     List<WorldVerb> verbs = new ArrayList<>(object.verbs());
     WorldVerb verb = verbs.get(verbIndex);
@@ -1867,16 +1957,16 @@ public final class WorldTxn implements AutoCloseable {
             object.parents(),
             verbs,
             object.properties()));
-    return true;
+    return WorldResult.ok(true);
   }
 
   /** Replaces the information fields of one resolved zero-based local verb. */
-  public boolean setVerbInfo(
+  public WorldResult<Boolean> setVerbInfo(
       long objectId, int verbIndex, String names, long owner, int permissions) {
     Objects.requireNonNull(names, "names");
     WorldObject object = object(objectId).orElse(null);
     if (object == null || verbIndex < 0 || verbIndex >= object.verbs().size()) {
-      return false;
+      return WorldResult.failed(ErrorValue.E_VERBNF);
     }
     List<WorldVerb> verbs = new ArrayList<>(object.verbs());
     WorldVerb verb = verbs.get(verbIndex);
@@ -1901,15 +1991,15 @@ public final class WorldTxn implements AutoCloseable {
             object.children(),
             verbs,
             object.properties()));
-    return true;
+    return WorldResult.ok(true);
   }
 
   /** Replaces the argument fields of one resolved zero-based local verb. */
-  public boolean setVerbArgs(
+  public WorldResult<Boolean> setVerbArgs(
       long objectId, int verbIndex, int direct, int preposition, int indirect) {
     WorldObject object = object(objectId).orElse(null);
     if (object == null || verbIndex < 0 || verbIndex >= object.verbs().size()) {
-      return false;
+      return WorldResult.failed(ErrorValue.E_VERBNF);
     }
     List<WorldVerb> verbs = new ArrayList<>(object.verbs());
     WorldVerb verb = verbs.get(verbIndex);
@@ -1934,7 +2024,7 @@ public final class WorldTxn implements AutoCloseable {
             object.children(),
             verbs,
             object.properties()));
-    return true;
+    return WorldResult.ok(true);
   }
 
   private static Optional<WorldProperty> findProperty(WorldObject object, String propertyName) {
@@ -1944,6 +2034,11 @@ public final class WorldTxn implements AutoCloseable {
       }
     }
     return Optional.empty();
+  }
+
+  private boolean isWizard(long programmer) {
+    WorldObject object = object(programmer).orElse(null);
+    return object != null && ObjectFlags.isWizard(object.flags());
   }
 
   private List<Long> validateNewParents(long objectId, List<Long> requestedParents) {

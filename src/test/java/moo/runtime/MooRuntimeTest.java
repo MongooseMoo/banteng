@@ -223,7 +223,9 @@ final class MooRuntimeTest {
       assertTrue(verbNumber > 0);
       verbIndex = verbNumber - 1;
       assertTrue(
-          transaction.setVerbCode(player, verbIndex, "notify(player, \"EXECUTED\");"));
+          transaction
+              .setVerbCode(player, verbIndex, "notify(player, \"EXECUTED\");")
+              .isOk());
       assertTrue(transaction.commit().isCommitted());
     }
     assertEquals(8, readVerb(world, player, verbIndex).orElseThrow().permissions());
@@ -526,7 +528,7 @@ final class MooRuntimeTest {
     try (WorldTxn transaction = world.begin()) {
       WorldObject parent = transaction.createObject(requested.parents(), player);
       definingObject = parent.id();
-      assertTrue(transaction.changeParent(player, definingObject));
+      assertTrue(transaction.changeParent(player, definingObject).isOk());
       assertTrue(transaction.addVerb(definingObject, "inherited_program", player, 6, -1) > 0);
       assertTrue(transaction.commit().isCommitted());
     }
@@ -582,7 +584,8 @@ final class MooRuntimeTest {
     long player = runtime.connectionPlayer(connectionId).orElseThrow();
 
     try (WorldTxn transaction = world.begin()) {
-      assertTrue(transaction.writeObjectProperty(player, "programmer", new IntegerValue(0)));
+      assertTrue(
+          transaction.writeObjectProperty(player, "programmer", new IntegerValue(0)).isOk());
       assertTrue(transaction.commit().isCommitted());
     }
     int actorFlags = readObject(world, player).orElseThrow().flags();
@@ -623,7 +626,7 @@ final class MooRuntimeTest {
         runtime.executeLine(connectionId, ".program me:program_reordered"));
     assertEquals(List.of(), runtime.executeLine(connectionId, "return 23;"));
     try (WorldTxn transaction = world.begin()) {
-      assertTrue(transaction.deleteVerb(player, anchorIndex));
+      assertTrue(transaction.deleteVerb(player, anchorIndex).isOk());
       assertTrue(transaction.commit().isCommitted());
     }
     assertEquals(
@@ -640,7 +643,7 @@ final class MooRuntimeTest {
     try (WorldTxn transaction = world.begin()) {
       WorldObject object = transaction.object(player).orElseThrow();
       int currentIndex = object.verbs().indexOf(transaction.verb(player, "program_reordered", false).orElseThrow());
-      assertTrue(transaction.deleteVerb(player, currentIndex));
+      assertTrue(transaction.deleteVerb(player, currentIndex).isOk());
       assertTrue(transaction.commit().isCommitted());
     }
     assertEquals(
@@ -670,7 +673,7 @@ final class MooRuntimeTest {
             .endsWith(":vanishing_program.  Use \".\" to end."));
     assertEquals(List.of(), runtime.executeLine(connectionId, "return \"unterminated;"));
     try (WorldTxn transaction = world.begin()) {
-      assertTrue(transaction.recycleObject(objectId));
+      assertTrue(transaction.recycleObject(objectId).isOk());
       assertTrue(transaction.commit().isCommitted());
     }
     assertEquals(

@@ -61,9 +61,11 @@ final class SchedulerTestHarness implements AutoCloseable {
       boolean written =
           transaction.property(0, "scheduler_counter").isPresent()
               ? transaction.writeObjectProperty(
-                  0, "scheduler_counter", new IntegerValue(value))
+                      0, "scheduler_counter", new IntegerValue(value))
+                  .isOk()
               : transaction.addProperty(
-                  0, "scheduler_counter", new IntegerValue(value), 0, 3);
+                      0, "scheduler_counter", new IntegerValue(value), 0, 3)
+                  .isOk();
       assertTrue(written);
       assertTrue(transaction.commit().isCommitted());
     }
@@ -83,9 +85,11 @@ final class SchedulerTestHarness implements AutoCloseable {
       boolean written =
           transaction.property(serverOptions.value(), name).isPresent()
               ? transaction.writeObjectProperty(
-                  serverOptions.value(), name, new IntegerValue(value))
+                      serverOptions.value(), name, new IntegerValue(value))
+                  .isOk()
               : transaction.addProperty(
-                  serverOptions.value(), name, new IntegerValue(value), 0, 3);
+                      serverOptions.value(), name, new IntegerValue(value), 0, 3)
+                  .isOk();
       assertTrue(written);
       assertTrue(transaction.commit().isCommitted());
     }

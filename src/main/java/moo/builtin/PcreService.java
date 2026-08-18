@@ -71,20 +71,29 @@ final class PcreService {
       return invalidArgument();
     }
     NamedPattern named = translateNamedGroups(substitution.pattern);
+    final Pattern pattern;
     try {
-      Pattern pattern =
+      pattern =
           Pattern.compile(
               named.source,
               substitution.insensitive
                   ? Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE
                   : 0);
-      String replacement = substitution.replacement.replace("$&", "$0");
-      Matcher matcher = pattern.matcher(subject);
-      return BuiltinResult.value(
-          StringValue.of(substitution.global ? matcher.replaceAll(replacement) : matcher.replaceFirst(replacement)));
+    } catch (PatternSyntaxException failure) {
+      return invalidArgument();
+    }
+    String replacement = substitution.replacement.replace("$&", "$0");
+    Matcher matcher = pattern.matcher(subject);
+    final String replaced;
+    try {
+      replaced =
+          substitution.global
+              ? matcher.replaceAll(replacement)
+              : matcher.replaceFirst(replacement);
     } catch (IllegalArgumentException failure) {
       return invalidArgument();
     }
+    return BuiltinResult.value(StringValue.of(replaced));
   }
 
   synchronized BuiltinResult cacheStats() {
