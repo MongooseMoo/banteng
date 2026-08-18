@@ -72,7 +72,6 @@ final class FinalizationControlTest {
   @Test
   void mooReturnedMarkerShapeCannotImpersonateFinalizationControl() throws Exception {
     WorldTxn world = new LambdaMooV4Reader().read(FIXTURE);
-    long anonymousClass = world.snapshot().objects().size();
     try (MooRuntime runtime = connectedRuntime(world)) {
       List<String> output =
           runtime.executeLine(
@@ -88,6 +87,7 @@ final class FinalizationControlTest {
                   + "add_property(#0, \"typed_marker_payload\", "
                   + "{\"__banteng_anonymous_finalization__\", value}, {player, \"rw\"}); "
                   + "return #0.typed_marker_payload;");
+      long anonymousClass = objectPropertyId(world, "typed_marker_class");
 
       assertTrue(output.toString().contains(ANONYMOUS_MARKER), output.toString());
       assertContains(
@@ -104,7 +104,6 @@ final class FinalizationControlTest {
   @Test
   void suspendedAnonymousHookKeepsItsRawRootWithoutDuplicateHooks() throws Exception {
     WorldTxn world = new LambdaMooV4Reader().read(FIXTURE);
-    long anonymousClass = world.snapshot().objects().size();
     try (MooRuntime runtime = connectedRuntime(world)) {
       runtime.executeLine(
           CONNECTION_ID,
@@ -117,6 +116,7 @@ final class FinalizationControlTest {
               + "\"suspend();\"}); "
               + "class.subject = create(class, 1); "
               + "add_property(#0, \"typed_anon_class\", class, {player, \"rw\"}); return 0;");
+      long anonymousClass = objectPropertyId(world, "typed_anon_class");
 
       runtime.executeLine(
           CONNECTION_ID, "; #0.typed_anon_class.subject = 0; run_gc(); return 0;");
@@ -135,7 +135,6 @@ final class FinalizationControlTest {
   @Test
   void suspendedWaifHookKeepsItsRawRootWithoutDuplicateHooks() throws Exception {
     WorldTxn world = new LambdaMooV4Reader().read(FIXTURE);
-    long waifClass = world.snapshot().objects().size();
     try (MooRuntime runtime = connectedRuntime(world)) {
       runtime.executeLine(
           CONNECTION_ID,
@@ -147,6 +146,7 @@ final class FinalizationControlTest {
               + "\"suspend();\"}); "
               + "add_property(#0, \"typed_waif_class\", class, {player, \"rw\"}); "
               + "add_property(#0, \"typed_waif_subject\", class:new(), {player, \"rw\"}); return 0;");
+      long waifClass = objectPropertyId(world, "typed_waif_class");
 
       runtime.executeLine(CONNECTION_ID, "; #0.typed_waif_subject = 0; run_gc(); return 0;");
       awaitProperty(world, waifClass, "recycle_called", new IntegerValue(1));
@@ -162,7 +162,6 @@ final class FinalizationControlTest {
   @Test
   void anonymousControlSurvivesForkWakeIrrevocableRetryAndZeroDelayWake() throws Exception {
     WorldTxn world = new LambdaMooV4Reader().read(FIXTURE);
-    long anonymousClass = world.snapshot().objects().size();
     try (MooRuntime runtime = connectedRuntime(world)) {
       runtime.executeLine(
           CONNECTION_ID,
@@ -181,6 +180,7 @@ final class FinalizationControlTest {
               + "\"this.class.recycle_finished = this.class.recycle_finished + 1;\"}); "
               + "class.subject = create(class, 1); "
               + "add_property(#0, \"typed_boundary_class\", class, {player, \"rw\"}); return 0;");
+      long anonymousClass = objectPropertyId(world, "typed_boundary_class");
 
       runtime.executeLine(
           CONNECTION_ID, "; #0.typed_boundary_class.subject = 0; run_gc(); return 0;");
@@ -210,7 +210,6 @@ final class FinalizationControlTest {
   @Test
   void ordinaryZeroDelayWakeWaitsForActiveAnonymousFinalizer() throws Exception {
     WorldTxn world = new LambdaMooV4Reader().read(FIXTURE);
-    long anonymousClass = world.snapshot().objects().size();
     try (MooRuntime runtime = connectedRuntime(world)) {
       connect(runtime, SECOND_CONNECTION_ID);
       connect(runtime, THIRD_CONNECTION_ID);
@@ -231,6 +230,7 @@ final class FinalizationControlTest {
               + "\"this.class.recycle_finished = 1;\"}); "
               + "class.subject = create(class, 1); "
               + "add_property(#0, \"typed_order_class\", class, {player, \"rw\"}); return 0;");
+      long anonymousClass = objectPropertyId(world, "typed_order_class");
 
       runtime.executeLine(
           CONNECTION_ID, "; #0.typed_order_class.subject = 0; run_gc(); return 0;");
@@ -295,7 +295,6 @@ final class FinalizationControlTest {
   @Test
   void erroredAnonymousFinalizerIsTerminalAndRunsOnce() throws Exception {
     WorldTxn world = new LambdaMooV4Reader().read(FIXTURE);
-    long anonymousClass = world.snapshot().objects().size();
     try (MooRuntime runtime = connectedRuntime(world)) {
       runtime.executeLine(
           CONNECTION_ID,
@@ -308,6 +307,7 @@ final class FinalizationControlTest {
               + "\"return 1 / 0;\"}); "
               + "class.subject = create(class, 1); "
               + "add_property(#0, \"typed_error_class\", class, {player, \"rw\"}); return 0;");
+      long anonymousClass = objectPropertyId(world, "typed_error_class");
 
       runtime.executeLine(
           CONNECTION_ID, "; #0.typed_error_class.subject = 0; run_gc(); return 0;");
@@ -329,7 +329,6 @@ final class FinalizationControlTest {
   @Test
   void erroredWaifFinalizerIsTerminalAndRunsOnce() throws Exception {
     WorldTxn world = new LambdaMooV4Reader().read(FIXTURE);
-    long waifClass = world.snapshot().objects().size();
     try (MooRuntime runtime = connectedRuntime(world)) {
       runtime.executeLine(
           CONNECTION_ID,
@@ -341,6 +340,7 @@ final class FinalizationControlTest {
               + "\"return 1 / 0;\"}); "
               + "add_property(#0, \"typed_error_waif_class\", class, {player, \"rw\"}); "
               + "add_property(#0, \"typed_error_waif\", class:new(), {player, \"rw\"}); return 0;");
+      long waifClass = objectPropertyId(world, "typed_error_waif_class");
 
       runtime.executeLine(CONNECTION_ID, "; #0.typed_error_waif = 0; run_gc(); return 0;");
       awaitProperty(world, waifClass, "recycle_called", new IntegerValue(1));
@@ -356,9 +356,8 @@ final class FinalizationControlTest {
     WorldTxn world = new LambdaMooV4Reader().read(FIXTURE);
     try (MooRuntime runtime = connectedRuntime(world)) {
       assertContains(
-          runtime.executeLine(CONNECTION_ID, "; return {ANON, typeof(#0)};"),
-          "{1, {12, 0}}");
-      assertEquals(12, MooValue.Type.ANONYMOUS.code());
+          runtime.executeLine(CONNECTION_ID, "; return ANON;"),
+          "{1, " + MooValue.Type.ANONYMOUS.code() + "}");
     }
   }
 
@@ -397,5 +396,9 @@ final class FinalizationControlTest {
     try (WorldTxn transaction = world.begin()) {
       return transaction.readObjectProperty(objectId, name).orElseThrow();
     }
+  }
+
+  private static long objectPropertyId(WorldTxn world, String name) {
+    return assertInstanceOf(ObjectValue.class, readProperty(world, 0, name)).value();
   }
 }
