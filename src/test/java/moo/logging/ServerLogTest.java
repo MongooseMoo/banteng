@@ -26,8 +26,10 @@ final class ServerLogTest {
     log.error("PANIC: unable to checkpoint");
 
     assertEquals(
-        "Aug 18 19:20:21: CHECKPOINTING on banteng.db\n"
-            + "Aug 18 19:20:21: PANIC: unable to checkpoint\n",
+        """
+        Aug 18 19:20:21: CHECKPOINTING on banteng.db
+        Aug 18 19:20:21: PANIC: unable to checkpoint
+        """,
         output.toString());
   }
 
