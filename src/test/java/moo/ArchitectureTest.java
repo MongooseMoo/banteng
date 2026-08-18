@@ -1,5 +1,6 @@
 package moo;
 
+import static com.tngtech.archunit.core.domain.JavaClass.Predicates.equivalentTo;
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses;
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noMethods;
 import static com.tngtech.archunit.library.dependencies.SlicesRuleDefinition.slices;
@@ -118,8 +119,7 @@ final class ArchitectureTest {
         .that()
         .resideInAPackage("moo.builtin..")
         .should()
-        .dependOnClassesThat()
-        .areEquivalentTo(Throwable.class)
+        .dependOnClassesThat(equivalentTo(Throwable.class))
         .check(productionClasses());
   }
 

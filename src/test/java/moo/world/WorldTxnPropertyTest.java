@@ -1,6 +1,7 @@
 package moo.world;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.ArrayList;
@@ -24,10 +25,18 @@ final class WorldTxnPropertyTest {
     WorldTxn first = root.begin();
     WorldTxn second = root.begin();
 
-    assertTrue(
-        first.writeObjectProperty(pair.first(), "name", string("first-" + pair.first())));
-    assertTrue(
-        second.writeObjectProperty(pair.second(), "name", string("second-" + pair.second())));
+    StringValue firstName = string("first-" + pair.first());
+    StringValue secondName = string("second-" + pair.second());
+    WorldResult.Ok<?> firstWrite =
+        assertInstanceOf(
+            WorldResult.Ok.class,
+            first.writeObjectProperty(pair.first(), "name", firstName));
+    WorldResult.Ok<?> secondWrite =
+        assertInstanceOf(
+            WorldResult.Ok.class,
+            second.writeObjectProperty(pair.second(), "name", secondName));
+    assertEquals(firstName, firstWrite.value());
+    assertEquals(secondName, secondWrite.value());
     assertTrue(first.commit().isCommitted());
     WorldTxn.CommitResult secondResult = second.commit();
 
