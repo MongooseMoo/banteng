@@ -60,14 +60,7 @@ public final class MooServer implements AutoCloseable, ListenerControl {
 
   /** Binds the configured address and port. Port zero requests an ephemeral test port. */
   public MooServer(String address, int port, WorldTxn world, Path checkpoint) throws IOException {
-    this(
-        address,
-        port,
-        world,
-        checkpoint,
-        List.of(),
-        List.of(),
-        ServerLog.stderr(System.Logger.Level.INFO));
+    this(address, port, world, checkpoint, List.of(), List.of());
   }
 
   /** Binds the listener and restores delayed fork tasks from the loaded checkpoint. */
