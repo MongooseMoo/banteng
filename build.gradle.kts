@@ -117,6 +117,10 @@ tasks.named<Test>("test") {
     )
 }
 
+tasks.named("check") {
+    dependsOn(":rewrite-recipes:check")
+}
+
 tasks.register<Test>("fuzzTest") {
     description = "Runs the bounded coverage-guided Jazzer target"
     group = "verification"
