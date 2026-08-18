@@ -14,6 +14,7 @@ final class ThreadingContractTest {
   @Test
   void guardedByIsACompilerEnforcedMainDependency() throws IOException {
     String build = source("build.gradle.kts");
+    String locks = source("gradle.lockfile");
 
     assertTrue(build.contains("error(\"GuardedBy\")"));
     assertTrue(build.contains("com.google.errorprone:error_prone_annotations:2.50.0"));
@@ -21,6 +22,10 @@ final class ThreadingContractTest {
         build.contains(
             "configurations[jcstress.compileOnlyConfigurationName]"
                 + ".extendsFrom(configurations.compileOnly.get())"));
+    assertTrue(
+        locks.contains(
+            "com.google.errorprone:error_prone_annotations:2.50.0="
+                + "annotationProcessor,compileClasspath,jcstressCompileClasspath,"));
   }
 
   @Test
