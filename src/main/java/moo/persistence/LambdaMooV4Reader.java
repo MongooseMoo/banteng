@@ -1,5 +1,14 @@
 package moo.persistence;
 
+import static moo.persistence.DbScanner.malformed;
+import static moo.persistence.DbScanner.parseCount;
+import static moo.persistence.DbScanner.parseLong;
+import static moo.persistence.DbScanner.readCount;
+import static moo.persistence.DbScanner.readInt;
+import static moo.persistence.DbScanner.readLong;
+import static moo.persistence.DbScanner.requireExact;
+import static moo.persistence.DbScanner.requiredLine;
+
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -316,70 +325,6 @@ public final class LambdaMooV4Reader {
     }
     return new WorldTxn(players, objects);
   }
-
-  private static int readCount(BufferedReader input, String field) throws IOException {
-    return parseCount(requiredLine(input, field), field);
-  }
-
-  private static int parseCount(String text, String field) throws IOException {
-    int value = parseInt(text, field);
-    if (value < 0) {
-      throw malformed(field + " must not be negative");
-    }
-    return value;
-  }
-
-  private static int readInt(BufferedReader input, String field) throws IOException {
-    return parseInt(requiredLine(input, field), field);
-  }
-
-  private static int parseInt(String text, String field) throws IOException {
-    try {
-      return Integer.parseInt(text);
-    } catch (NumberFormatException error) {
-      throw malformed("invalid " + field + ": " + text, error);
-    }
-  }
-
-  private static long readLong(BufferedReader input, String field) throws IOException {
-    return parseLong(requiredLine(input, field), field);
-  }
-
-  private static long parseLong(String text, String field) throws IOException {
-    try {
-      return Long.parseLong(text);
-    } catch (NumberFormatException error) {
-      throw malformed("invalid " + field + ": " + text, error);
-    }
-  }
-
-  private static void requireExact(BufferedReader input, String expected, String field)
-      throws IOException {
-    String actual = requiredLine(input, field);
-    if (!actual.equals(expected)) {
-      throw malformed("invalid " + field + ": " + actual);
-    }
-  }
-
-  private static String requiredLine(BufferedReader input, String field) throws IOException {
-    String line = input.readLine();
-    if (line == null) {
-      throw malformed("unexpected end of file while reading " + field);
-    }
-    return line;
-  }
-
-  private static IOException malformed(String message) {
-    return new IOException(message);
-  }
-
-  private static IOException malformed(String message, Throwable cause) {
-    return new IOException(message, cause);
-  }
-
-  private record ProgramSlot(long objectId, int verbIndex) {}
-
-  private record RawVerb(String names, long owner, int permissions, int preposition) {}
 
   private record RawObject(
       long id,
