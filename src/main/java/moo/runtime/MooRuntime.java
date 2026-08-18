@@ -2000,8 +2000,12 @@ public final class MooRuntime implements AutoCloseable {
     world().replacePendingFinalization(remaining);
   }
 
-  void collectAfterAnonymousFinalization(List<VmSnapshot> otherTaskRoots) {
+  void collectAfterAnonymousFinalization(
+      AnonymousObjectValue target, List<VmSnapshot> otherTaskRoots) {
+    Objects.requireNonNull(target, "target");
     queueUnreachableAnonymousObjects(otherTaskRoots);
+    finishAnonymousFinalization(target);
+    finalizePendingObjects();
   }
 
   private void finishWaifFinalization(WaifValue root) {
@@ -2915,11 +2919,7 @@ public final class MooRuntime implements AutoCloseable {
           finishLoginTimeout(continuation.connectionId(), continuation.output());
       case BOOT_PLAYER_USER_DISCONNECTED_THEN_BOOT ->
           finishBootPlayer(continuation.connectionId(), continuation.output());
-      case ANONYMOUS_FINALIZATION_RETURN -> {
-        finishAnonymousFinalization(
-            (AnonymousObjectValue) continuation.finalizationControl().orElseThrow().target());
-        yield RuntimeStep.returned(List.of());
-      }
+      case ANONYMOUS_FINALIZATION_RETURN -> RuntimeStep.returned(List.of());
       case WAIF_FINALIZATION_RETURN -> {
         finishWaifFinalization((WaifValue) continuation.finalizationControl().orElseThrow().target());
         yield continueStartupAfterPendingWaifFinalization();
@@ -2944,14 +2944,8 @@ public final class MooRuntime implements AutoCloseable {
   private void finishErroredFinalization(RuntimeContinuation continuation) {
     continuation
         .finalizationControl()
-        .ifPresent(
-            control -> {
-              switch (control.kind()) {
-                case ANONYMOUS ->
-                    finishAnonymousFinalization((AnonymousObjectValue) control.target());
-                case WAIF -> finishWaifFinalization((WaifValue) control.target());
-              }
-            });
+        .filter(control -> control.kind() == FinalizationKind.WAIF)
+        .ifPresent(control -> finishWaifFinalization((WaifValue) control.target()));
   }
 
   private List<String> formatUncaughtException(VmState state) {

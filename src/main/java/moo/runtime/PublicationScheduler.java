@@ -37,6 +37,7 @@ import moo.persistence.LambdaMooV17Codec.SuspendedTask;
 import moo.persistence.ToastV17ProgramLayout;
 import moo.persistence.ToastV17ProgramLayout.ContinuationSite;
 import moo.value.MooValue;
+import moo.value.MooValue.AnonymousObjectValue;
 import moo.value.MooValue.ErrorValue;
 import moo.value.MooValue.IntegerValue;
 import moo.value.MooValue.ListValue;
@@ -1345,7 +1346,10 @@ final class PublicationScheduler implements AutoCloseable {
               .filter(
                   control -> control.kind() == MooRuntime.FinalizationKind.ANONYMOUS)
               .isPresent()) {
+            MooRuntime.FinalizationControl anonymousFinalization =
+                executingFinalization.orElseThrow();
             runtime.collectAfterAnonymousFinalization(
+                (AnonymousObjectValue) anonymousFinalization.target(),
                 taskRegistry.snapshotsExcluding(start.taskId()));
           }
           return SegmentResult.returned(
