@@ -312,7 +312,7 @@ final class MooVmTest {
   @Test
   void executesDynamicSourceThroughParserCompilerAndExplicitVmState() {
     byte[] source = StringValue.of("return 1 + 1;").bytes();
-    Ast.Program syntax = MooParser.parse(source);
+    Ast.Program syntax = parse(source);
     Ast.Return returnStatement =
         assertInstanceOf(Ast.Return.class, syntax.statements().getFirst());
     Ast.Binary addition =
@@ -539,7 +539,7 @@ final class MooVmTest {
   @Test
   void comparesErrorValuesByTheirNumericCodes() {
     byte[] source = StringValue.of("return E_NONE < E_TYPE;").bytes();
-    Ast.Program syntax = MooParser.parse(source);
+    Ast.Program syntax = parse(source);
     Ast.Return returnStatement =
         assertInstanceOf(Ast.Return.class, syntax.statements().getFirst());
     Ast.Binary comparison =
@@ -629,7 +629,7 @@ final class MooVmTest {
   @Test
   void executesIfBranchThroughTheCompleteControlFlowPipeline() {
     byte[] source = StringValue.of("if (1) return 2; endif").bytes();
-    Ast.Program syntax = MooParser.parse(source);
+    Ast.Program syntax = parse(source);
     Ast.If ifStatement = assertInstanceOf(Ast.If.class, syntax.statements().getFirst());
     Ast.Return returnStatement =
         assertInstanceOf(Ast.Return.class, ifStatement.body().getFirst());
@@ -658,7 +658,7 @@ final class MooVmTest {
   @Test
   void executesTernaryThroughTheCompleteControlFlowPipeline() {
     byte[] source = StringValue.of("return 1 ? 2 | 3;").bytes();
-    Ast.Program syntax = MooParser.parse(source);
+    Ast.Program syntax = parse(source);
     Ast.Return returnStatement =
         assertInstanceOf(Ast.Return.class, syntax.statements().getFirst());
     Ast.Ternary ternary =
@@ -701,10 +701,10 @@ final class MooVmTest {
           endif
         endwhile
         return {x, y};""").bytes();
-    Ast.Program syntax = MooParser.parse(source);
+    Ast.Program syntax = parse(source);
     Ast.While whileStatement = assertInstanceOf(Ast.While.class, syntax.statements().get(2));
     assertEquals("loop", whileStatement.loopVariable().orElseThrow());
-    assertEquals(new String(source, StringValue.charset()), MooUnparser.unparse(syntax));
+    assertEquals(StringValue.of(source).text(), MooUnparser.unparse(syntax));
 
     VmState state = new VmState();
     new MooVm().execute(new MooCompiler().compile(syntax), state);
@@ -732,10 +732,10 @@ final class MooVmTest {
           endif
         endwhile
         return {x, y};""").bytes();
-    Ast.Program syntax = MooParser.parse(source);
+    Ast.Program syntax = parse(source);
     Ast.While whileStatement = assertInstanceOf(Ast.While.class, syntax.statements().get(2));
     assertTrue(whileStatement.loopVariable().isEmpty());
-    assertEquals(new String(source, StringValue.charset()), MooUnparser.unparse(syntax));
+    assertEquals(StringValue.of(source).text(), MooUnparser.unparse(syntax));
 
     VmState state = new VmState();
     new MooVm().execute(new MooCompiler().compile(syntax), state);
@@ -755,7 +755,7 @@ final class MooVmTest {
           x = {@x, i};
         endfor
         return x;""").bytes();
-    Ast.Program syntax = MooParser.parse(source);
+    Ast.Program syntax = parse(source);
     Ast.For forStatement = assertInstanceOf(Ast.For.class, syntax.statements().get(1));
     assertEquals("i", forStatement.variable());
     assertInstanceOf(Ast.StringLiteral.class, forStatement.iterable());
@@ -824,11 +824,11 @@ final class MooVmTest {
           single = i;
         endfor
         return {ascending, reversed, single};""").bytes();
-    Ast.Program syntax = MooParser.parse(source);
+    Ast.Program syntax = parse(source);
     Ast.For ascending = assertInstanceOf(Ast.For.class, syntax.statements().get(1));
     assertEquals(new Ast.IntegerLiteral(1), ascending.iterable());
     assertEquals(new Ast.IntegerLiteral(5), ascending.rangeEnd().orElseThrow());
-    assertEquals(new String(source, StringValue.charset()), MooUnparser.unparse(syntax));
+    assertEquals(StringValue.of(source).text(), MooUnparser.unparse(syntax));
 
     VmState state = new VmState();
     new MooVm().execute(new MooCompiler().compile(syntax), state);
@@ -849,7 +849,7 @@ final class MooVmTest {
           x = {@x, {i, j}};
         endfor
         return x;""").bytes();
-    Ast.Program syntax = MooParser.parse(source);
+    Ast.Program syntax = parse(source);
     Ast.For forStatement = assertInstanceOf(Ast.For.class, syntax.statements().get(1));
     assertEquals("i", forStatement.variable());
     assertEquals("j", forStatement.indexVariable().orElseThrow());
@@ -914,7 +914,7 @@ final class MooVmTest {
           x = {@x, v};
         endfor
         return x;""").bytes();
-    Ast.Program syntax = MooParser.parse(source);
+    Ast.Program syntax = parse(source);
     Ast.For forStatement = assertInstanceOf(Ast.For.class, syntax.statements().get(1));
     assertEquals("v", forStatement.variable());
     assertTrue(forStatement.indexVariable().isEmpty());
@@ -974,7 +974,7 @@ final class MooVmTest {
           x = {@x, {v, k}};
         endfor
         return x;""").bytes();
-    Ast.Program syntax = MooParser.parse(source);
+    Ast.Program syntax = parse(source);
     Ast.For forStatement = assertInstanceOf(Ast.For.class, syntax.statements().get(1));
     assertEquals("v", forStatement.variable());
     assertEquals("k", forStatement.indexVariable().orElseThrow());
@@ -1046,7 +1046,7 @@ final class MooVmTest {
           x = {@x, i};
         endfor
         return x;""").bytes();
-    Ast.Program syntax = MooParser.parse(source);
+    Ast.Program syntax = parse(source);
     Ast.For forStatement = assertInstanceOf(Ast.For.class, syntax.statements().get(1));
     Ast.If ifStatement = assertInstanceOf(Ast.If.class, forStatement.body().getFirst());
     Ast.Break breakStatement = assertInstanceOf(Ast.Break.class, ifStatement.body().getFirst());
@@ -1119,7 +1119,7 @@ final class MooVmTest {
           x = {@x, i};
         endfor
         return x;""").bytes();
-    Ast.Program syntax = MooParser.parse(source);
+    Ast.Program syntax = parse(source);
     Ast.For forStatement = assertInstanceOf(Ast.For.class, syntax.statements().get(1));
     assertEquals("j", forStatement.indexVariable().orElseThrow());
     Ast.If ifStatement = assertInstanceOf(Ast.If.class, forStatement.body().getFirst());
@@ -1199,7 +1199,7 @@ final class MooVmTest {
           x = {@x, i};
         endfor
         return x;""").bytes();
-    Ast.Program syntax = MooParser.parse(source);
+    Ast.Program syntax = parse(source);
     Ast.For forStatement = assertInstanceOf(Ast.For.class, syntax.statements().get(1));
     Ast.If ifStatement = assertInstanceOf(Ast.If.class, forStatement.body().getFirst());
     Ast.Continue continueStatement =
@@ -1268,7 +1268,7 @@ final class MooVmTest {
   @Test
   void comparesStringOrderingCaseInsensitively() {
     byte[] source = StringValue.of("return \"a\" < \"B\";").bytes();
-    Ast.Program syntax = MooParser.parse(source);
+    Ast.Program syntax = parse(source);
     Ast.Return returnStatement =
         assertInstanceOf(Ast.Return.class, syntax.statements().getFirst());
     Ast.Binary comparison =
@@ -1289,7 +1289,7 @@ final class MooVmTest {
   @Test
   void concatenatesListsThroughTheCompleteCollectionPipeline() {
     byte[] source = StringValue.of("return {1, 2} + {3, 4};").bytes();
-    Ast.Program syntax = MooParser.parse(source);
+    Ast.Program syntax = parse(source);
     Ast.Return returnStatement =
         assertInstanceOf(Ast.Return.class, syntax.statements().getFirst());
     Ast.Binary addition =
@@ -1331,7 +1331,7 @@ final class MooVmTest {
   @Test
   void appendsAValueToAListThroughTheCompleteCollectionPipeline() {
     byte[] source = StringValue.of("return {1, 2} + 3;").bytes();
-    Ast.Program syntax = MooParser.parse(source);
+    Ast.Program syntax = parse(source);
     Ast.Return returnStatement =
         assertInstanceOf(Ast.Return.class, syntax.statements().getFirst());
     Ast.Binary addition =
@@ -1365,7 +1365,7 @@ final class MooVmTest {
   void bindsARestVariableThroughTheCompleteScatterPipeline() {
     byte[] source =
         StringValue.of("{a, b, @c} = {1, 2, 3, 4, 5}; return {a, b, c};").bytes();
-    Ast.Program syntax = MooParser.parse(source);
+    Ast.Program syntax = parse(source);
     Ast.ExpressionStatement assignmentStatement =
         assertInstanceOf(Ast.ExpressionStatement.class, syntax.statements().getFirst());
     Ast.Assignment assignment =
@@ -1395,7 +1395,7 @@ final class MooVmTest {
   void bindsAPresentOptionalVariableThroughTheCompleteScatterPipeline() {
     byte[] source =
         StringValue.of("{a, ?b, c} = {1, 2, 3}; return {a, b, c};").bytes();
-    Ast.Program syntax = MooParser.parse(source);
+    Ast.Program syntax = parse(source);
     Ast.ExpressionStatement assignmentStatement =
         assertInstanceOf(Ast.ExpressionStatement.class, syntax.statements().getFirst());
     Ast.Assignment assignment =
@@ -1418,7 +1418,7 @@ final class MooVmTest {
   void bindsADefaultForAMissingOptionalThroughTheCompleteScatterPipeline() {
     byte[] source =
         StringValue.of("{a, ?b = 99, c} = {1, 2}; return {a, b, c};").bytes();
-    Ast.Program syntax = MooParser.parse(source);
+    Ast.Program syntax = parse(source);
     Ast.ExpressionStatement assignmentStatement =
         assertInstanceOf(Ast.ExpressionStatement.class, syntax.statements().getFirst());
     Ast.Assignment assignment =
@@ -1441,7 +1441,7 @@ final class MooVmTest {
   void evaluatesMapValuesBeforeKeysThroughTheCompleteCollectionPipeline() {
     byte[] source =
         StringValue.of("trace = 0; mapping = [(trace = 1) -> (trace = 2)]; return trace;").bytes();
-    Ast.Program syntax = MooParser.parse(source);
+    Ast.Program syntax = parse(source);
     Ast.ExpressionStatement mappingStatement =
         assertInstanceOf(Ast.ExpressionStatement.class, syntax.statements().get(1));
     Ast.Assignment mappingAssignment =
@@ -1484,7 +1484,7 @@ final class MooVmTest {
   void findsAValueInAMapThroughTheCompleteCollectionPipeline() {
     byte[] source =
         StringValue.of("return 2 in [\"a\" -> 1, \"b\" -> 2, \"c\" -> 3];").bytes();
-    Ast.Program syntax = MooParser.parse(source);
+    Ast.Program syntax = parse(source);
     Ast.Return returnStatement =
         assertInstanceOf(Ast.Return.class, syntax.statements().getFirst());
     Ast.Binary membership =
@@ -1520,7 +1520,7 @@ final class MooVmTest {
   void returnsAnInclusiveListRangeThroughTheCompleteCollectionPipeline() {
     byte[] source =
         StringValue.of("return {\"one\", \"two\", \"three\"}[3..3];").bytes();
-    Ast.Program syntax = MooParser.parse(source);
+    Ast.Program syntax = parse(source);
     Ast.Return returnStatement =
         assertInstanceOf(Ast.Return.class, syntax.statements().getFirst());
     Ast.RangeAccess range =
@@ -1566,7 +1566,7 @@ final class MooVmTest {
   @Test
   void returnsAnEmptyListForAnInvertedRangeThroughTheCompleteCollectionPipeline() {
     byte[] source = StringValue.of("return {1, 2, 3}[17..12];").bytes();
-    Ast.Program syntax = MooParser.parse(source);
+    Ast.Program syntax = parse(source);
     Ast.Return returnStatement =
         assertInstanceOf(Ast.Return.class, syntax.statements().getFirst());
     Ast.RangeAccess range =
@@ -1608,7 +1608,7 @@ final class MooVmTest {
   void replacesAListRangeThroughTheCompleteCollectionPipeline() {
     byte[] source =
         StringValue.of("l = {1, 2, 3}; l[2..3] = {6, 7, 8, 9}; return l;").bytes();
-    Ast.Program syntax = MooParser.parse(source);
+    Ast.Program syntax = parse(source);
     Ast.ExpressionStatement initialAssignmentStatement =
         assertInstanceOf(Ast.ExpressionStatement.class, syntax.statements().getFirst());
     Ast.Assignment initialAssignment =
@@ -1685,7 +1685,7 @@ final class MooVmTest {
   void insertsAtAnInvertedListRangeThroughTheCompleteCollectionPipeline() {
     byte[] source =
         StringValue.of("l = {1, 6, 7, 8, 9}; l[2..1] = {10, \"foo\"}; return l;").bytes();
-    Ast.Program syntax = MooParser.parse(source);
+    Ast.Program syntax = parse(source);
     Ast.ExpressionStatement initialAssignmentStatement =
         assertInstanceOf(Ast.ExpressionStatement.class, syntax.statements().getFirst());
     Ast.Assignment initialAssignment =
@@ -1764,7 +1764,7 @@ final class MooVmTest {
   void assignsANestedStringRangeThroughTheCompleteCollectionPipeline() {
     byte[] source =
         StringValue.of("l = {1, 10, \"foo\", 6, 7, 8, 9}; l[3][2..$] = \"u\"; return l;").bytes();
-    Ast.Program syntax = MooParser.parse(source);
+    Ast.Program syntax = parse(source);
     Ast.ExpressionStatement initialAssignmentStatement =
         assertInstanceOf(Ast.ExpressionStatement.class, syntax.statements().getFirst());
     Ast.Assignment initialAssignment =
@@ -1855,7 +1855,7 @@ final class MooVmTest {
   void assignsANestedListIndexThroughTheCompleteCollectionPipeline() {
     byte[] source =
         StringValue.of("l = {{1, 2}, {1, 2}}; l[1][2] = 9; return l;").bytes();
-    Ast.Program syntax = MooParser.parse(source);
+    Ast.Program syntax = parse(source);
     Ast.ExpressionStatement assignmentStatement =
         assertInstanceOf(Ast.ExpressionStatement.class, syntax.statements().get(1));
     Ast.Assignment assignment =
@@ -1952,7 +1952,7 @@ final class MooVmTest {
   void assignsAnInvertedListRangeThroughTheCompleteCollectionPipeline() {
     byte[] source =
         StringValue.of("t = {1, 2, 3, 4, 5, 6, 7}; t[7..1] = {\"a\", \"b\", \"c\"}; return t;").bytes();
-    Ast.Program syntax = MooParser.parse(source);
+    Ast.Program syntax = parse(source);
     Ast.ExpressionStatement initialAssignmentStatement =
         assertInstanceOf(Ast.ExpressionStatement.class, syntax.statements().getFirst());
     Ast.Assignment initialAssignment =
@@ -2049,7 +2049,7 @@ final class MooVmTest {
   void appendsAStringRangeThroughTheCompleteCollectionPipeline() {
     byte[] source =
         StringValue.of("s = \"foobar\"; s[7..12] = \"baz\"; return s;").bytes();
-    Ast.Program syntax = MooParser.parse(source);
+    Ast.Program syntax = parse(source);
     Ast.ExpressionStatement initialAssignmentStatement =
         assertInstanceOf(Ast.ExpressionStatement.class, syntax.statements().getFirst());
     Ast.Assignment initialAssignment =
@@ -2112,7 +2112,7 @@ final class MooVmTest {
   void prependsAStringRangeThroughTheCompleteCollectionPipeline() {
     byte[] source =
         StringValue.of("s = \"fubarbaz\"; s[1..0] = \"test\"; return s;").bytes();
-    Ast.Program syntax = MooParser.parse(source);
+    Ast.Program syntax = parse(source);
     Ast.ExpressionStatement initialAssignmentStatement =
         assertInstanceOf(Ast.ExpressionStatement.class, syntax.statements().getFirst());
     Ast.Assignment initialAssignment =
@@ -2175,7 +2175,7 @@ final class MooVmTest {
   void assignsAnInvertedStringRangeThroughTheCompleteCollectionPipeline() {
     byte[] source =
         StringValue.of("s = \"1234567\"; s[7..1] = \"abc\"; return s;").bytes();
-    Ast.Program syntax = MooParser.parse(source);
+    Ast.Program syntax = parse(source);
     Ast.ExpressionStatement initialAssignmentStatement =
         assertInstanceOf(Ast.ExpressionStatement.class, syntax.statements().getFirst());
     Ast.Assignment initialAssignment =
@@ -2237,7 +2237,7 @@ final class MooVmTest {
   @Test
   void returnsAnInclusiveStringRangeThroughTheCompleteCollectionPipeline() {
     byte[] source = StringValue.of("return \"foobar\"[3..3];").bytes();
-    Ast.Program syntax = MooParser.parse(source);
+    Ast.Program syntax = parse(source);
     Ast.Return returnStatement =
         assertInstanceOf(Ast.Return.class, syntax.statements().getFirst());
     Ast.RangeAccess range =
@@ -2274,7 +2274,7 @@ final class MooVmTest {
   @Test
   void returnsAnEmptyStringForAnInvertedRangeThroughTheCompleteCollectionPipeline() {
     byte[] source = StringValue.of("return \"foobar\"[15..12];").bytes();
-    Ast.Program syntax = MooParser.parse(source);
+    Ast.Program syntax = parse(source);
     Ast.Return returnStatement =
         assertInstanceOf(Ast.Return.class, syntax.statements().getFirst());
     Ast.RangeAccess range =
@@ -2310,7 +2310,7 @@ final class MooVmTest {
   void returnsAFullMapRangeThroughTheCompleteCollectionPipeline() {
     byte[] source =
         StringValue.of("return [1 -> 1, 2 -> 2, 3 -> 3, 4 -> 4, 5 -> 5, 6 -> 6, 7 -> 7][^..$];").bytes();
-    Ast.Program syntax = MooParser.parse(source);
+    Ast.Program syntax = parse(source);
     Ast.Return returnStatement =
         assertInstanceOf(Ast.Return.class, syntax.statements().getFirst());
     Ast.RangeAccess range =
@@ -2374,7 +2374,7 @@ final class MooVmTest {
   void rejectsACollectionValuedMapRangeEndThroughTheCompleteCollectionPipeline() {
     byte[] source =
         StringValue.of("return [1 -> 1, 2 -> 2, 3 -> 3, 4 -> 4, 5 -> 5][1..[]];").bytes();
-    Ast.Program syntax = MooParser.parse(source);
+    Ast.Program syntax = parse(source);
     Ast.Return returnStatement =
         assertInstanceOf(Ast.Return.class, syntax.statements().getFirst());
     Ast.RangeAccess range =
@@ -2421,7 +2421,7 @@ final class MooVmTest {
                 "t = [1 -> 1, 2 -> 2, 3 -> 3, 4 -> 4, 5 -> 5, 6 -> 6, 7 -> 7]; "
                     + "t[2..4] = [2 -> \"two\", 3 -> \"three\", 4 -> \"four\"]; return t;")
             .bytes();
-    Ast.Program syntax = MooParser.parse(source);
+    Ast.Program syntax = parse(source);
     Ast.ExpressionStatement initialAssignmentStatement =
         assertInstanceOf(Ast.ExpressionStatement.class, syntax.statements().getFirst());
     Ast.Assignment initialAssignment =
@@ -2509,7 +2509,7 @@ final class MooVmTest {
   void rejectsACollectionValuedMapRangeAssignmentEndThroughTheCompleteCollectionPipeline() {
     byte[] source =
         StringValue.of("t = [1 -> 1]; t[1..[]] = [\"1\" -> \"1\"]; return t;").bytes();
-    Ast.Program syntax = MooParser.parse(source);
+    Ast.Program syntax = parse(source);
     Ast.ExpressionStatement initialAssignmentStatement =
         assertInstanceOf(Ast.ExpressionStatement.class, syntax.statements().getFirst());
     Ast.Assignment initialAssignment =
@@ -2565,7 +2565,7 @@ final class MooVmTest {
                 "t = [1 -> 1, 2 -> 2, 3 -> 3, 4 -> 4, 5 -> 5, 6 -> 6, 7 -> 7]; "
                     + "t[7..1] = [\"a\" -> \"a\", \"b\" -> \"b\", \"c\" -> \"c\"]; return t;")
             .bytes();
-    Ast.Program syntax = MooParser.parse(source);
+    Ast.Program syntax = parse(source);
     Ast.ExpressionStatement initialAssignmentStatement =
         assertInstanceOf(Ast.ExpressionStatement.class, syntax.statements().getFirst());
     Ast.Assignment initialAssignment =
@@ -2658,7 +2658,7 @@ final class MooVmTest {
   @Test
   void returnsAnEmptyMapForAnInvertedRangeThroughTheCompleteCollectionPipeline() {
     byte[] source = StringValue.of("return [1 -> 1][6..2];").bytes();
-    Ast.Program syntax = MooParser.parse(source);
+    Ast.Program syntax = parse(source);
     Ast.Return returnStatement =
         assertInstanceOf(Ast.Return.class, syntax.statements().getFirst());
     Ast.RangeAccess range =
@@ -2695,7 +2695,7 @@ final class MooVmTest {
   @Test
   void indexesTheFirstMapKeyThroughTheCompleteCollectionPipeline() {
     byte[] source = StringValue.of("return [1 -> 1][^];").bytes();
-    Ast.Program syntax = MooParser.parse(source);
+    Ast.Program syntax = parse(source);
     Ast.Return returnStatement =
         assertInstanceOf(Ast.Return.class, syntax.statements().getFirst());
     Ast.IndexAccess index =
@@ -2731,7 +2731,7 @@ final class MooVmTest {
   void indexesTheLastMapKeyThroughTheCompleteCollectionPipeline() {
     byte[] source =
         StringValue.of("return [1 -> 1, 2 -> 2, 3 -> 3, 4 -> 4, 5 -> 5, 6 -> 6, 7 -> 7][$];").bytes();
-    Ast.Program syntax = MooParser.parse(source);
+    Ast.Program syntax = parse(source);
     Ast.Return returnStatement =
         assertInstanceOf(Ast.Return.class, syntax.statements().getFirst());
     Ast.IndexAccess index =
@@ -2780,7 +2780,7 @@ final class MooVmTest {
   @Test
   void indexesTheFirstListValueThroughTheCompleteCollectionPipeline() {
     byte[] source = StringValue.of("return {1, 2, 3}[^];").bytes();
-    Ast.Program syntax = MooParser.parse(source);
+    Ast.Program syntax = parse(source);
     Ast.Return returnStatement =
         assertInstanceOf(Ast.Return.class, syntax.statements().getFirst());
     Ast.IndexAccess index =
@@ -2820,7 +2820,7 @@ final class MooVmTest {
   void indexesTheLastListValueThroughTheCompleteCollectionPipeline() {
     byte[] source =
         StringValue.of("return {1, 2, 3, 4, 5, 6, 7}[$];").bytes();
-    Ast.Program syntax = MooParser.parse(source);
+    Ast.Program syntax = parse(source);
     Ast.Return returnStatement =
         assertInstanceOf(Ast.Return.class, syntax.statements().getFirst());
     Ast.IndexAccess index =
@@ -2867,7 +2867,7 @@ final class MooVmTest {
   @Test
   void indexesTheLastStringByteThroughTheCompleteCollectionPipeline() {
     byte[] source = StringValue.of("return \"foobar\"[$];").bytes();
-    Ast.Program syntax = MooParser.parse(source);
+    Ast.Program syntax = parse(source);
     Ast.Return returnStatement =
         assertInstanceOf(Ast.Return.class, syntax.statements().getFirst());
     Ast.IndexAccess index =
@@ -2903,7 +2903,7 @@ final class MooVmTest {
   @Test
   void indexesTheFirstStringByteThroughTheCompleteCollectionPipeline() {
     byte[] source = StringValue.of("return \"foobar\"[^];").bytes();
-    Ast.Program syntax = MooParser.parse(source);
+    Ast.Program syntax = parse(source);
     Ast.Return returnStatement =
         assertInstanceOf(Ast.Return.class, syntax.statements().getFirst());
     Ast.IndexAccess index =
@@ -2983,7 +2983,7 @@ final class MooVmTest {
   void assignsTheFirstStringByteThroughTheCompleteCollectionPipeline() {
     byte[] source =
         StringValue.of("s = \"foobar\"; s[^] = \"x\"; return s;").bytes();
-    Ast.Program syntax = MooParser.parse(source);
+    Ast.Program syntax = parse(source);
     Ast.ExpressionStatement assignmentStatement =
         assertInstanceOf(Ast.ExpressionStatement.class, syntax.statements().get(1));
     Ast.Assignment assignment =
@@ -3030,7 +3030,7 @@ final class MooVmTest {
   void assignsTheFirstListValueThroughTheCompleteCollectionPipeline() {
     byte[] source =
         StringValue.of("t = {1, 2, 3}; t[^] = 9; return t;").bytes();
-    Ast.Program syntax = MooParser.parse(source);
+    Ast.Program syntax = parse(source);
     Ast.ExpressionStatement assignmentStatement =
         assertInstanceOf(Ast.ExpressionStatement.class, syntax.statements().get(1));
     Ast.Assignment assignment =
@@ -3082,7 +3082,7 @@ final class MooVmTest {
   @Test
   void returnsInterruptErrorThroughTheCompleteLiteralPipeline() {
     byte[] source = StringValue.of("return E_INTRPT;").bytes();
-    Ast.Program syntax = MooParser.parse(source);
+    Ast.Program syntax = parse(source);
     Ast.Return returnStatement =
         assertInstanceOf(Ast.Return.class, syntax.statements().getFirst());
     Ast.ErrorLiteral errorLiteral =
@@ -3108,7 +3108,7 @@ final class MooVmTest {
   @Test
   void returnsIntegerThroughTheCompleteLiteralPipeline() {
     byte[] source = StringValue.of("return 42;").bytes();
-    Ast.Program syntax = MooParser.parse(source);
+    Ast.Program syntax = parse(source);
     Ast.Return returnStatement =
         assertInstanceOf(Ast.Return.class, syntax.statements().getFirst());
     Ast.IntegerLiteral integerLiteral =
@@ -3132,7 +3132,7 @@ final class MooVmTest {
   @Test
   void wrapsIntegerLiteralAtTheSignedBoundaryThroughTheCompleteLiteralPipeline() {
     byte[] source = StringValue.of("return 9223372036854775808;").bytes();
-    Ast.Program syntax = MooParser.parse(source);
+    Ast.Program syntax = parse(source);
     Ast.Return returnStatement =
         assertInstanceOf(Ast.Return.class, syntax.statements().getFirst());
     Ast.IntegerLiteral integerLiteral =
@@ -3157,7 +3157,7 @@ final class MooVmTest {
   @Test
   void returnsFloatThroughTheCompleteLiteralPipeline() {
     byte[] source = StringValue.of("return 3.5;").bytes();
-    Ast.Program syntax = MooParser.parse(source);
+    Ast.Program syntax = parse(source);
     Ast.Return returnStatement =
         assertInstanceOf(Ast.Return.class, syntax.statements().getFirst());
     Ast.FloatLiteral floatLiteral =
@@ -3183,7 +3183,7 @@ final class MooVmTest {
   @Test
   void returnsObjectThroughTheCompleteLiteralPipeline() {
     byte[] source = StringValue.of("return #2;").bytes();
-    Ast.Program syntax = MooParser.parse(source);
+    Ast.Program syntax = parse(source);
     Ast.Return returnStatement =
         assertInstanceOf(Ast.Return.class, syntax.statements().getFirst());
     Ast.ObjectLiteral objectLiteral =
@@ -3207,7 +3207,7 @@ final class MooVmTest {
   @Test
   void wrapsObjectLiteralAtTheSignedBoundaryThroughTheCompleteLiteralPipeline() {
     byte[] source = StringValue.of("return #9223372036854775808;").bytes();
-    Ast.Program syntax = MooParser.parse(source);
+    Ast.Program syntax = parse(source);
     Ast.Return returnStatement =
         assertInstanceOf(Ast.Return.class, syntax.statements().getFirst());
     Ast.ObjectLiteral objectLiteral =
@@ -3232,7 +3232,7 @@ final class MooVmTest {
   @Test
   void returnsLatin1StringThroughTheCompleteLiteralPipeline() {
     byte[] source = StringValue.of("return \"é\";").bytes();
-    Ast.Program syntax = MooParser.parse(source);
+    Ast.Program syntax = parse(source);
     Ast.Return returnStatement =
         assertInstanceOf(Ast.Return.class, syntax.statements().getFirst());
     Ast.StringLiteral stringLiteral =
@@ -3257,7 +3257,7 @@ final class MooVmTest {
   @Test
   void returnsEmptyListThroughTheCompleteLiteralPipeline() {
     byte[] source = StringValue.of("return {};").bytes();
-    Ast.Program syntax = MooParser.parse(source);
+    Ast.Program syntax = parse(source);
     Ast.Return returnStatement =
         assertInstanceOf(Ast.Return.class, syntax.statements().getFirst());
     Ast.ListLiteral listLiteral =
@@ -3282,7 +3282,7 @@ final class MooVmTest {
   @Test
   void returnsEmptyMapThroughTheCompleteLiteralPipeline() {
     byte[] source = StringValue.of("return [];").bytes();
-    Ast.Program syntax = MooParser.parse(source);
+    Ast.Program syntax = parse(source);
     Ast.Return returnStatement =
         assertInstanceOf(Ast.Return.class, syntax.statements().getFirst());
     Ast.MapLiteral mapLiteral =
@@ -3307,7 +3307,7 @@ final class MooVmTest {
   @Test
   void negatesIntegerTruthThroughTheCompleteLiteralPipeline() {
     byte[] source = StringValue.of("return !0;").bytes();
-    Ast.Program syntax = MooParser.parse(source);
+    Ast.Program syntax = parse(source);
     Ast.Return returnStatement =
         assertInstanceOf(Ast.Return.class, syntax.statements().getFirst());
     Ast.Unary truth =
@@ -3334,7 +3334,7 @@ final class MooVmTest {
   @Test
   void assignsAndLoadsLocalThroughTheCompleteVariablePipeline() {
     byte[] source = StringValue.of("x = 7; return x;").bytes();
-    Ast.Program syntax = MooParser.parse(source);
+    Ast.Program syntax = parse(source);
     Ast.ExpressionStatement assignmentStatement =
         assertInstanceOf(Ast.ExpressionStatement.class, syntax.statements().get(0));
     Ast.Assignment assignment =
@@ -3597,7 +3597,7 @@ final class MooVmTest {
   @Test
   void rejectsMixedFloatIntegerArithmeticAndOrdering() {
     for (String source : new String[] {"return 1.0 + 1;", "return 5.5 > 5;"}) {
-      BytecodeProgram program = new MooCompiler().compile(MooParser.parse(source));
+      BytecodeProgram program = new MooCompiler().compile(parse(source));
       VmState state = new VmState();
 
       new MooVm().execute(program, state);
@@ -3639,7 +3639,7 @@ final class MooVmTest {
   @Test
   void floatDivisionAndModuloByZeroRaiseDivisionError() {
     for (String source : new String[] {"return 1.0 / 0.0;", "return 1.0 % -0.0;"}) {
-      BytecodeProgram program = new MooCompiler().compile(MooParser.parse(source));
+      BytecodeProgram program = new MooCompiler().compile(parse(source));
       VmState state = new VmState();
 
       new MooVm().execute(program, state);
@@ -3652,7 +3652,7 @@ final class MooVmTest {
   @Test
   void floatModuloUsesDivisorSign() {
     for (String source : new String[] {"return -15.0 % 4.0;", "return 15.0 % -4.0;"}) {
-      BytecodeProgram program = new MooCompiler().compile(MooParser.parse(source));
+      BytecodeProgram program = new MooCompiler().compile(parse(source));
       VmState state = new VmState();
 
       new MooVm().execute(program, state);
@@ -3722,7 +3722,7 @@ final class MooVmTest {
   void bindsAStringMessageInStructuredExceptionsThroughTheCompletePipeline() {
     byte[] source =
         StringValue.of("try 1 / 0; except error (E_DIV) return error[2]; endtry").bytes();
-    Ast.Program syntax = MooParser.parse(source);
+    Ast.Program syntax = parse(source);
     Ast.Try tryStatement = assertInstanceOf(Ast.Try.class, syntax.statements().getFirst());
     assertEquals("error", tryStatement.exceptClauses().getFirst().variable().orElseThrow());
 
@@ -3816,7 +3816,7 @@ final class MooVmTest {
           "return `[{} -> 1] ! ANY';",
           "map = []; return `map[{}] = 1 ! ANY';"
         }) {
-      BytecodeProgram program = new MooCompiler().compile(MooParser.parse(source));
+      BytecodeProgram program = new MooCompiler().compile(parse(source));
       VmState state = new VmState();
 
       new MooVm().execute(program, state);
@@ -3882,7 +3882,7 @@ final class MooVmTest {
     VmState state = new VmState();
 
     executeAndClose(
-        new MooCompiler().compile(MooParser.parse(source)),
+        new MooCompiler().compile(parse(source)),
         state,
         new WorldTxn(List.of(), List.of()),
         new BuiltinCatalog());
@@ -5078,5 +5078,13 @@ final class MooVmTest {
 
   private static StringValue text(String value) {
     return StringValue.of(value);
+  }
+
+  private static Ast.Program parse(byte[] source) {
+    return MooParser.parse(StringValue.of(source).text());
+  }
+
+  private static Ast.Program parse(String source) {
+    return MooParser.parse(source);
   }
 }

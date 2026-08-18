@@ -6,7 +6,6 @@ import java.util.List;
 import java.util.Optional;
 import moo.syntax.MooLexer.Token;
 import moo.syntax.MooLexer.TokenKind;
-import moo.value.MooValue.StringValue;
 import org.jspecify.annotations.Nullable;
 
 /** Concrete entry point for parsing one MOO verb body. */
@@ -51,11 +50,6 @@ public final class MooParser {
           Optional.of(new Ast.Program(List.of())),
           List.of(new ParseDiagnostic(error.line(), error.column(), error.detail())));
     }
-  }
-
-  /** Parses one ISO-8859-1 MOO source byte sequence. */
-  public static Ast.Program parse(byte[] source) {
-    return parse(new String(source, StringValue.charset()));
   }
 
   private Ast.Program parseProgram() {
