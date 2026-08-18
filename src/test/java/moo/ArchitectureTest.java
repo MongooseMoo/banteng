@@ -110,6 +110,17 @@ final class ArchitectureTest {
         .check(productionClasses());
   }
 
+  @Test
+  void builtinsNeverCatchOrDependDirectlyOnThrowable() {
+    noClasses()
+        .that()
+        .resideInAPackage("moo.builtin..")
+        .should()
+        .dependOnClassesThat()
+        .areEquivalentTo(Throwable.class)
+        .check(productionClasses());
+  }
+
   private static JavaClasses productionClasses() {
     return new ClassFileImporter()
         .withImportOption(ImportOption.Predefined.DO_NOT_INCLUDE_TESTS)

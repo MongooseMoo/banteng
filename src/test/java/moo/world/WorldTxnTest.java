@@ -468,6 +468,48 @@ final class WorldTxnTest {
     assertThrows(IllegalStateException.class, root::commit);
   }
 
+  @Test
+  void mutationsCarrySpecificMooFailureReasons() {
+    WorldProperty protectedProperty =
+        new WorldProperty("protected", new IntegerValue(1), 0, 0, false, true);
+    WorldObject target =
+        new WorldObject(
+            0,
+            "target",
+            0,
+            0,
+            -1,
+            -1,
+            List.of(),
+            List.of(),
+            List.of(),
+            List.of(protectedProperty));
+    WorldObject programmer = object(1, "programmer");
+    try (WorldTxn transaction = root(target, programmer).begin()) {
+      assertWorldFailure(
+          ErrorValue.E_PROPNF,
+          transaction.writeObjectProperty(0, "missing", new IntegerValue(2), 0));
+      assertWorldFailure(
+          ErrorValue.E_TYPE,
+          transaction.writeObjectProperty(0, "name", new IntegerValue(2), 0));
+      assertWorldFailure(
+          ErrorValue.E_PERM,
+          transaction.writeObjectProperty(0, "protected", new IntegerValue(2), 1));
+      assertWorldFailure(ErrorValue.E_INVARG, transaction.move(99, 0));
+
+      WorldResult.Ok<MooValue> written =
+          assertInstanceOf(
+              WorldResult.Ok.class,
+              transaction.writeObjectProperty(0, "protected", new IntegerValue(2), 0));
+      assertEquals(new IntegerValue(2), written.value());
+    }
+  }
+
+  private static void assertWorldFailure(ErrorValue expected, WorldResult<?> result) {
+    WorldResult.Failed<?> failed = assertInstanceOf(WorldResult.Failed.class, result);
+    assertEquals(expected, failed.reason().value());
+  }
+
   private static WorldTxn root(WorldObject... objects) {
     return new WorldTxn(List.of(), List.of(objects));
   }
