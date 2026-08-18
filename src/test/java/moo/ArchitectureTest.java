@@ -9,6 +9,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.tngtech.archunit.core.domain.JavaClass;
 import com.tngtech.archunit.core.domain.JavaClasses;
+import com.tngtech.archunit.core.domain.JavaCodeUnit;
 import com.tngtech.archunit.core.importer.ClassFileImporter;
 import com.tngtech.archunit.core.importer.ImportOption;
 import com.tngtech.archunit.lang.ArchCondition;
@@ -153,6 +154,7 @@ final class ArchitectureTest {
                         block ->
                             block.getCaughtThrowables().stream()
                                 .anyMatch(caught -> caught.isEquivalentTo(Throwable.class)))
+                    .filter(block -> !hasTryWithResourcesScaffolding(block.getOwner()))
                     .forEach(
                         block ->
                             events.add(
@@ -163,6 +165,15 @@ final class ArchitectureTest {
                                         + block.getSourceCodeLocation())));
               }
             });
+  }
+
+  private static boolean hasTryWithResourcesScaffolding(JavaCodeUnit codeUnit) {
+    // javac implements try-with-resources with synthetic Throwable handlers and addSuppressed.
+    return codeUnit.getMethodCallsFromSelf().stream()
+        .anyMatch(
+            call ->
+                call.getTarget().getOwner().isEquivalentTo(Throwable.class)
+                    && call.getTarget().getName().equals("addSuppressed"));
   }
 
   private static JavaClasses productionClasses() {
