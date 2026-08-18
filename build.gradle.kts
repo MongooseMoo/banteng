@@ -36,6 +36,7 @@ val jmh = sourceSets.create("jmh") {
 }
 
 configurations[jcstress.implementationConfigurationName].extendsFrom(configurations.implementation.get())
+configurations[jcstress.compileOnlyConfigurationName].extendsFrom(configurations.compileOnly.get())
 configurations[jcstress.runtimeOnlyConfigurationName].extendsFrom(configurations.runtimeOnly.get())
 configurations[jcstress.annotationProcessorConfigurationName].setExtendsFrom(emptyList())
 configurations[jmh.implementationConfigurationName].extendsFrom(configurations.implementation.get())
@@ -45,10 +46,6 @@ configurations[jmh.annotationProcessorConfigurationName].setExtendsFrom(emptyLis
 dependencies {
     compileOnly("com.google.errorprone:error_prone_annotations:2.50.0")
     testCompileOnly("com.google.errorprone:error_prone_annotations:2.50.0")
-    add(
-        jcstress.compileOnlyConfigurationName,
-        "com.google.errorprone:error_prone_annotations:2.50.0",
-    )
     implementation("info.picocli:picocli:4.7.7")
     implementation("org.bouncycastle:bcprov-jdk18on:1.84")
     implementation("org.jspecify:jspecify:1.0.0")

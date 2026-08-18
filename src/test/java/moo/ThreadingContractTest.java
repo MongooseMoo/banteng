@@ -17,7 +17,10 @@ final class ThreadingContractTest {
 
     assertTrue(build.contains("error(\"GuardedBy\")"));
     assertTrue(build.contains("com.google.errorprone:error_prone_annotations:2.50.0"));
-    assertTrue(build.contains("jcstress.compileOnlyConfigurationName"));
+    assertTrue(
+        build.contains(
+            "configurations[jcstress.compileOnlyConfigurationName]"
+                + ".extendsFrom(configurations.compileOnly.get())"));
   }
 
   @Test
