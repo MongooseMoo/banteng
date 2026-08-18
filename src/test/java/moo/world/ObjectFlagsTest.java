@@ -2,6 +2,7 @@ package moo.world;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.IOException;
@@ -40,6 +41,15 @@ final class ObjectFlagsTest {
   }
 
   @Test
+  void canonicalVocabularyKeepsToastUserNamingAndAnonymousPermissionMeaning() {
+    assertThrows(
+        NoSuchFieldException.class, () -> ObjectFlags.class.getDeclaredField("FLAG_PLAYER"));
+    assertThrows(
+        NoSuchMethodException.class,
+        () -> ObjectFlags.class.getDeclaredMethod("isAnonymous", int.class));
+  }
+
+  @Test
   void predicatesTestTheirNamedBits() {
     int allFlags =
         ObjectFlags.FLAG_PROGRAMMER
@@ -61,6 +71,42 @@ final class ObjectFlagsTest {
   }
 
   @Test
+  void sourceGuardRecognizesEveryInlineNumericObjectFlagMaskAndMutation() {
+    List<String> forbidden =
+        List.of(
+            "boolean wizard = (object.flags() & 4) != 0;",
+            "boolean wizard = (4 & object.flags()) != 0;",
+            "int updated = object.flags() | 32;",
+            "int updated = 32 | object.flags();",
+            "int updated = object.flags() ^ 128;",
+            "int updated = 128 ^ object.flags();",
+            "flags &= ~256;",
+            "flags |= 512;",
+            "flags ^= 1024;",
+            """
+            replaceFlags(
+                object,
+                16,
+                enabled);
+            """);
+
+    for (String source : forbidden) {
+      assertTrue(isForbiddenObjectFlagSyntax(source), source);
+    }
+  }
+
+  @Test
+  void sourceGuardLeavesCanonicalAndUnrelatedBitmasksAlone() {
+    for (String source :
+        List.of(
+            "boolean wizard = (object.flags() & ObjectFlags.FLAG_WIZARD) != 0;",
+            "boolean executable = (verb.permissions() & 4) != 0;",
+            "boolean readable = (modeBits & 4) != 0;")) {
+      assertFalse(isForbiddenObjectFlagSyntax(source), source);
+    }
+  }
+
+  @Test
   void productionUsesTheCanonicalObjectFlagVocabulary() throws IOException {
     Path productionRoot = Path.of("src", "main", "java");
     List<String> violations = new ArrayList<>();
@@ -70,13 +116,6 @@ final class ObjectFlagsTest {
           continue;
         }
         String source = Files.readString(path);
-        Matcher numericMutation = NUMERIC_REPLACE_FLAG_ARGUMENT.matcher(source);
-        if (numericMutation.find()) {
-          long line =
-              source.substring(0, numericMutation.start()).chars().filter(c -> c == '\n').count()
-                  + 1;
-          violations.add(path + ":" + line + ":numeric object flag passed to replaceFlags");
-        }
         List<String> lines = source.lines().toList();
         for (int index = 0; index < lines.size(); index++) {
           String line = lines.get(index);
@@ -85,9 +124,21 @@ final class ObjectFlagsTest {
             violations.add(path + ":" + (index + 1) + ":" + line.strip());
           }
         }
+        Matcher numericMutation = NUMERIC_REPLACE_FLAG_ARGUMENT.matcher(source);
+        while (numericMutation.find()) {
+          long line =
+              source.substring(0, numericMutation.start()).chars().filter(c -> c == '\n').count()
+                  + 1;
+          violations.add(path + ":" + line + ":numeric object flag passed to replaceFlags");
+        }
       }
     }
 
     assertEquals(List.of(), violations);
+  }
+
+  private static boolean isForbiddenObjectFlagSyntax(String source) {
+    return NUMERIC_OBJECT_FLAG_MASK.matcher(source).find()
+        || NUMERIC_REPLACE_FLAG_ARGUMENT.matcher(source).find();
   }
 }

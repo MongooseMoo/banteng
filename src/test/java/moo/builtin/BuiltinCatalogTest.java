@@ -3142,17 +3142,65 @@ final class BuiltinCatalogTest {
         new WorldObject(1, "programmer", 0, 1, -1, -1, List.of(), List.of(), List.of(), List.of());
     WorldObject ordinaryParent =
         new WorldObject(
-            2, "ordinary", 128, 2, -1, -1, List.of(), List.of(), List.of(initialize), List.of());
+            2,
+            "ordinary",
+            ObjectFlags.FLAG_FERTILE,
+            2,
+            -1,
+            -1,
+            List.of(),
+            List.of(),
+            List.of(initialize),
+            List.of());
     WorldObject anonymousParent =
         new WorldObject(
-            3, "anonymous", 256, 2, -1, -1, List.of(), List.of(), List.of(initialize), List.of());
+            3,
+            "anonymous",
+            ObjectFlags.FLAG_ANONYMOUS,
+            2,
+            -1,
+            -1,
+            List.of(),
+            List.of(),
+            List.of(initialize),
+            List.of());
     WorldObject owner =
         new WorldObject(4, "owner", 0, 4, -1, -1, List.of(), List.of(), List.of(), List.of());
+    WorldObject userOnlyParent =
+        new WorldObject(
+            5,
+            "user",
+            ObjectFlags.FLAG_USER,
+            5,
+            -1,
+            -1,
+            List.of(),
+            List.of(),
+            List.of(initialize),
+            List.of());
     WorldObject wizard =
-        new WorldObject(9, "wizard", 4, 9, -1, -1, List.of(), List.of(), List.of(), List.of());
+        new WorldObject(
+            9,
+            "wizard",
+            ObjectFlags.FLAG_WIZARD,
+            9,
+            -1,
+            -1,
+            List.of(),
+            List.of(),
+            List.of(),
+            List.of());
     ListValue initializer = new ListValue(List.of(new IntegerValue(42)));
     try (WorldTxn transaction =
-        new WorldTxn(List.of(), List.of(programmer, ordinaryParent, anonymousParent, owner, wizard))
+        new WorldTxn(
+                List.of(),
+                List.of(
+                    programmer,
+                    ordinaryParent,
+                    anonymousParent,
+                    owner,
+                    userOnlyParent,
+                    wizard))
             .begin()) {
       BuiltinResult ordinary =
           invoke(catalog, create, List.of(new ObjectValue(2), initializer), transaction, 1);
@@ -3173,6 +3221,16 @@ final class BuiltinCatalogTest {
       assertEquals(initializer, anonymousInitialize.arguments());
       assertInstanceOf(
           AnonymousObjectValue.class, anonymousInitialize.created());
+
+      assertEquals(
+          Optional.of(ErrorValue.E_PERM),
+          error(
+              invoke(
+                  catalog,
+                  create,
+                  List.of(new ObjectValue(5), new IntegerValue(1)),
+                  transaction,
+                  1)));
 
       assertEquals(
           Optional.of(ErrorValue.E_PERM),
