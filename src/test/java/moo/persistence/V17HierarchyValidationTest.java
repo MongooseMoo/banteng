@@ -55,6 +55,17 @@ final class V17HierarchyValidationTest {
   }
 
   @Test
+  void preservesNothingSentinelsInHierarchyLists(@TempDir Path temporaryDirectory)
+      throws IOException {
+    WorldSnapshot restored = readFixture("phase1-nothing-sentinels.db", temporaryDirectory);
+    WorldObject object = Objects.requireNonNull(restored.objects().get(0L));
+
+    assertEquals(List.of(-1L), object.parents());
+    assertEquals(List.of(-1L), object.contents());
+    assertEquals(List.of(-1L), object.children());
+  }
+
+  @Test
   void rejectsParentCycle(@TempDir Path temporaryDirectory) throws IOException {
     assertRejected(
         "phase2-parent-cycle.db", "cyclic parent hierarchy at object #0", temporaryDirectory);
@@ -98,6 +109,20 @@ final class V17HierarchyValidationTest {
         "phase3-content-without-location.db",
         "object #1 has non-reciprocal content location #0",
         temporaryDirectory);
+  }
+
+  @Test
+  void preservesDuplicateReciprocalHierarchyLinks(@TempDir Path temporaryDirectory)
+      throws IOException {
+    WorldSnapshot restored =
+        readFixture("phase3-duplicate-reciprocal-links.db", temporaryDirectory);
+    WorldObject child = Objects.requireNonNull(restored.objects().get(0L));
+    WorldObject parent = Objects.requireNonNull(restored.objects().get(1L));
+
+    assertEquals(1, child.location());
+    assertEquals(List.of(1L, 1L), child.parents());
+    assertEquals(List.of(0L, 0L), parent.contents());
+    assertEquals(List.of(0L, 0L), parent.children());
   }
 
   private static void assertRejected(
