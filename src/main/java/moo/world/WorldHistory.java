@@ -221,15 +221,13 @@ final class WorldHistory {
     return List.copyOf(revisions.navigableKeySet());
   }
 
-  @GuardedBy("this")
-  private void reclaimVersions() {
+  private synchronized void reclaimVersions() {
     long currentRevision = current.revision().value();
     revisions.keySet().removeIf(
         revision -> revision != currentRevision && !activeTransactions.containsKey(revision));
   }
 
-  @GuardedBy("this")
-  private void emitRetention() {
+  private synchronized void emitRetention() {
     VersionRetentionEvent event = new VersionRetentionEvent();
     event.currentRevision = current.revision().value();
     event.oldestRetainedRevision = revisions.firstKey();

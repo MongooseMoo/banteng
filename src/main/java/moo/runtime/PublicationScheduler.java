@@ -324,7 +324,9 @@ final class PublicationScheduler implements AutoCloseable {
             false);
     taskRegistry.registerSuspended(
         restored.taskId(), restored.scheduledEpochSecond(), snapshot);
-    nextTaskId = Math.max(nextTaskId, Math.addExact(restored.taskId(), 1));
+    synchronized (this) {
+      nextTaskId = Math.max(nextTaskId, Math.addExact(restored.taskId(), 1));
+    }
     BuiltinResult wake =
         restored.interruptionStatus().isPresent()
             ? BuiltinResult.error(ErrorValue.E_INTRPT)
@@ -1291,7 +1293,7 @@ final class PublicationScheduler implements AutoCloseable {
     return OptionalLong.empty();
   }
 
-  private void dispatch() {
+  private synchronized void dispatch() {
     if (closed) {
       return;
     }
@@ -1893,7 +1895,7 @@ final class PublicationScheduler implements AutoCloseable {
     launchTimer(timed);
   }
 
-  private void registerTimer(TimedWork timed) {
+  private synchronized void registerTimer(TimedWork timed) {
     if (timedWork.putIfAbsent(timed.work().taskId(), timed) != null) {
       throw new IllegalStateException("task already has a pending timer");
     }
@@ -1977,7 +1979,7 @@ final class PublicationScheduler implements AutoCloseable {
     dispatch();
   }
 
-  private boolean hasActiveAnonymousFinalization() {
+  private synchronized boolean hasActiveAnonymousFinalization() {
     return activeFinalizations.keySet().stream()
         .anyMatch(control -> control.kind() == MooRuntime.FinalizationKind.ANONYMOUS);
   }
@@ -2036,7 +2038,7 @@ final class PublicationScheduler implements AutoCloseable {
             Optional.of(failure)));
   }
 
-  private void enqueueSpawned(MooRuntime.RuntimeStep step) {
+  private synchronized void enqueueSpawned(MooRuntime.RuntimeStep step) {
     if (step.output().isPresent()) {
       return;
     }
