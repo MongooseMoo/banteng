@@ -9,3 +9,8 @@ out/
 hs_err_pid*
 replay_pid*
 /fixtures/mongoose.db
+/notes-*.md
+/prompts/
+/reports/
+/pyghidra_mcp_projects/
+/moo/

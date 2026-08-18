@@ -259,11 +259,6 @@ public sealed interface MooValue
       return -1;
     }
 
-    /** Returns whether both strings contain exactly the same bytes. */
-    public boolean equalsCaseSensitively(StringValue other) {
-      return Arrays.equals(bytes, other.bytes);
-    }
-
     @Override
     public Type type() {
       return Type.STRING;
