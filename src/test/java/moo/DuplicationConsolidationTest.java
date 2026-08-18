@@ -53,6 +53,19 @@ final class DuplicationConsolidationTest {
     assertEquals(0, occurrences(source, "MooValue message = null;"));
   }
 
+  @Test
+  void firstAndLastIndexOpcodesShareOneDirectionalImplementation() throws IOException {
+    String source = source("vm", "MooVm.java");
+
+    assertTrue(
+        source.contains(
+            "private static void boundaryIndex(\n"
+                + "      Frame frame, VmState state, WorldTxn world, boolean last)"));
+    assertEquals(2, occurrences(source, "boundaryIndex(frame, state, world,"));
+    assertFalse(source.contains("private static void firstIndex("));
+    assertFalse(source.contains("private static void lastIndex("));
+  }
+
   private static String source(String... path) throws IOException {
     return Files.readString(PRODUCTION.resolve(Path.of("", path)));
   }
