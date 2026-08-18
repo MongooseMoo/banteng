@@ -1280,12 +1280,11 @@ final class PublicationSchedulerTest {
       try (ConflictScenario scenario = startConflictScenario(harness)) {
         scenario.finish();
       }
-      try {
-        harness.runtime.executeLine(-999, "; return 1;");
-        fail("unknown connection request must fail");
-      } catch (IllegalArgumentException expected) {
-        assertEquals("unknown connection #-999", expected.getMessage());
-      }
+      IllegalArgumentException expected =
+          assertThrows(
+              IllegalArgumentException.class,
+              () -> harness.runtime.executeLine(-999, "; return 1;"));
+      assertEquals("unknown connection #-999", expected.getMessage());
 
       assertEquals(1, retainedRevisionCount(harness.root));
     }
