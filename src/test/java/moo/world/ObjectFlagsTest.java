@@ -2,6 +2,7 @@ package moo.world;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.IOException;
@@ -14,15 +15,29 @@ import java.util.regex.Pattern;
 import org.junit.jupiter.api.Test;
 
 final class ObjectFlagsTest {
+  private static final String PERMANENT_OBJECT_FLAG_LITERAL =
+      "(?:1|2|4|8|16|32|64|128|256|512|1024)";
+  private static final String OBJECT_FLAGS_OPERAND =
+      "\\b(?:[A-Za-z_$][\\w$]*\\s*\\.\\s*)?flags\\s*(?:\\(\\s*\\))?";
+  private static final String NUMERIC_FLAG_OPERAND =
+      "\\(?\\s*~?\\s*" + PERMANENT_OBJECT_FLAG_LITERAL + "\\b\\s*\\)?";
   private static final Pattern NUMERIC_OBJECT_FLAG_MASK =
       Pattern.compile(
-          "(?i)\\b\\w*flags(?:\\(\\))?\\b[^\\r\\n]*&\\s*(?:1|2|4|8|16|32|64|128|256|512|1024)\\b");
+          "(?i)(?:"
+              + OBJECT_FLAGS_OPERAND
+              + "\\s*[&|^]=?\\s*"
+              + NUMERIC_FLAG_OPERAND
+              + "|"
+              + NUMERIC_FLAG_OPERAND
+              + "\\s*[&|^]\\s*"
+              + OBJECT_FLAGS_OPERAND
+              + ")");
   private static final Pattern LEGACY_FLAG_CONSTANT =
       Pattern.compile(
           "\\b(?:USER|PLAYER|PROGRAMMER|WIZARD|OBSOLETE_[12]|READ|WRITE|FERTILE|ANONYMOUS|INVALID|RECYCLED)_FLAG\\b");
   private static final Pattern NUMERIC_REPLACE_FLAG_ARGUMENT =
       Pattern.compile(
-          "\\breplaceFlags\\s*\\([^,]+,\\s*(?:1|2|4|8|16|32|64|128|256|512|1024)\\b");
+          "(?s)\\breplaceFlags\\s*\\([^;]*?,\\s*" + NUMERIC_FLAG_OPERAND);
 
   @Test
   void permanentBitsMatchTheToastObjectFlagLayout() {
@@ -37,6 +52,15 @@ final class ObjectFlagsTest {
     assertEquals(1 << 8, ObjectFlags.FLAG_ANONYMOUS);
     assertEquals(1 << 9, ObjectFlags.FLAG_INVALID);
     assertEquals(1 << 10, ObjectFlags.FLAG_RECYCLED);
+  }
+
+  @Test
+  void canonicalVocabularyKeepsToastUserNamingAndAnonymousPermissionMeaning() {
+    assertThrows(
+        NoSuchFieldException.class, () -> ObjectFlags.class.getDeclaredField("FLAG_PLAYER"));
+    assertThrows(
+        NoSuchMethodException.class,
+        () -> ObjectFlags.class.getDeclaredMethod("isAnonymous", int.class));
   }
 
   @Test
@@ -61,6 +85,42 @@ final class ObjectFlagsTest {
   }
 
   @Test
+  void sourceGuardRecognizesEveryInlineNumericObjectFlagMaskAndMutation() {
+    List<String> forbidden =
+        List.of(
+            "boolean wizard = (object.flags() & 4) != 0;",
+            "boolean wizard = (4 & object.flags()) != 0;",
+            "int updated = object.flags() | 32;",
+            "int updated = 32 | object.flags();",
+            "int updated = object.flags() ^ 128;",
+            "int updated = 128 ^ object.flags();",
+            "flags &= ~256;",
+            "flags |= 512;",
+            "flags ^= 1024;",
+            """
+            replaceFlags(
+                object,
+                16,
+                enabled);
+            """);
+
+    for (String source : forbidden) {
+      assertTrue(isForbiddenObjectFlagSyntax(source), source);
+    }
+  }
+
+  @Test
+  void sourceGuardLeavesCanonicalAndUnrelatedBitmasksAlone() {
+    for (String source :
+        List.of(
+            "boolean wizard = (object.flags() & ObjectFlags.FLAG_WIZARD) != 0;",
+            "boolean executable = (verb.permissions() & 4) != 0;",
+            "boolean readable = (modeBits & 4) != 0;")) {
+      assertFalse(isForbiddenObjectFlagSyntax(source), source);
+    }
+  }
+
+  @Test
   void productionUsesTheCanonicalObjectFlagVocabulary() throws IOException {
     Path productionRoot = Path.of("src", "main", "java");
     List<String> violations = new ArrayList<>();
@@ -70,13 +130,6 @@ final class ObjectFlagsTest {
           continue;
         }
         String source = Files.readString(path);
-        Matcher numericMutation = NUMERIC_REPLACE_FLAG_ARGUMENT.matcher(source);
-        if (numericMutation.find()) {
-          long line =
-              source.substring(0, numericMutation.start()).chars().filter(c -> c == '\n').count()
-                  + 1;
-          violations.add(path + ":" + line + ":numeric object flag passed to replaceFlags");
-        }
         List<String> lines = source.lines().toList();
         for (int index = 0; index < lines.size(); index++) {
           String line = lines.get(index);
@@ -85,9 +138,21 @@ final class ObjectFlagsTest {
             violations.add(path + ":" + (index + 1) + ":" + line.strip());
           }
         }
+        Matcher numericMutation = NUMERIC_REPLACE_FLAG_ARGUMENT.matcher(source);
+        while (numericMutation.find()) {
+          long line =
+              source.substring(0, numericMutation.start()).chars().filter(c -> c == '\n').count()
+                  + 1;
+          violations.add(path + ":" + line + ":numeric object flag passed to replaceFlags");
+        }
       }
     }
 
     assertEquals(List.of(), violations);
+  }
+
+  private static boolean isForbiddenObjectFlagSyntax(String source) {
+    return NUMERIC_OBJECT_FLAG_MASK.matcher(source).find()
+        || NUMERIC_REPLACE_FLAG_ARGUMENT.matcher(source).find();
   }
 }
