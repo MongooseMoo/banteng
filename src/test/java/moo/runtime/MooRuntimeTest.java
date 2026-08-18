@@ -8,6 +8,7 @@ import java.util.List;
 import java.util.Optional;
 import moo.persistence.LambdaMooV4Reader;
 import moo.value.MooValue.IntegerValue;
+import moo.world.ObjectFlags;
 import moo.world.WorldObject;
 import moo.world.WorldTxn;
 import moo.world.WorldVerb;
@@ -197,7 +198,8 @@ final class MooRuntimeTest {
               return object.f = 0;
               """);
 
-      assertEquals(0, readObject(world, object).orElseThrow().flags() & 128);
+      assertEquals(
+          0, readObject(world, object).orElseThrow().flags() & ObjectFlags.FLAG_FERTILE);
       assertEquals(List.of(CONNECTION_PREFIX, "{1, 0}", CONNECTION_SUFFIX), output);
     } finally {
       if (readObject(world, object).isPresent()) {
@@ -584,8 +586,8 @@ final class MooRuntimeTest {
       assertTrue(transaction.commit().isCommitted());
     }
     int actorFlags = readObject(world, player).orElseThrow().flags();
-    assertEquals(0, actorFlags & 2);
-    assertEquals(4, actorFlags & 4);
+    assertEquals(0, actorFlags & ObjectFlags.FLAG_PROGRAMMER);
+    assertEquals(ObjectFlags.FLAG_WIZARD, actorFlags & ObjectFlags.FLAG_WIZARD);
 
     assertEquals(
         List.of("I couldn't understand that."),
