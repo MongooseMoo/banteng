@@ -4,8 +4,6 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import java.io.PrintWriter;
-import java.io.StringWriter;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.openrewrite.InMemoryExecutionContext;
@@ -49,9 +47,7 @@ final class UseBuiltinCallTest {
     InMemoryExecutionContext context =
         new InMemoryExecutionContext(
             failure -> {
-              StringWriter trace = new StringWriter();
-              failure.printStackTrace(new PrintWriter(trace));
-              throw new AssertionError(trace.toString(), failure);
+              throw new AssertionError(failure);
             });
     List<SourceFile> sources =
         JavaParser.fromJavaVersion().build().parse(context, protocol, before).toList();
