@@ -1,5 +1,6 @@
 package moo.runtime;
 
+import com.google.errorprone.annotations.concurrent.GuardedBy;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -29,12 +30,12 @@ import moo.world.WorldTxn;
 final class TaskRegistry {
   private static final long BACKGROUND_TICKS = 30_000;
 
-  private final Map<Long, TaskInfo> tasks = new TreeMap<>();
-  private final Map<Long, FutureTask<BuiltinResult>> hostWork = new TreeMap<>();
-  private final Map<Long, Runnable> cancellationActions = new TreeMap<>();
-  private final Set<Long> canceled = new HashSet<>();
-  private long nextHostHandle = 1;
-  private long nextQueueSequence = 1;
+  @GuardedBy("this") private final Map<Long, TaskInfo> tasks = new TreeMap<>();
+  @GuardedBy("this") private final Map<Long, FutureTask<BuiltinResult>> hostWork = new TreeMap<>();
+  @GuardedBy("this") private final Map<Long, Runnable> cancellationActions = new TreeMap<>();
+  @GuardedBy("this") private final Set<Long> canceled = new HashSet<>();
+  @GuardedBy("this") private long nextHostHandle = 1;
+  @GuardedBy("this") private long nextQueueSequence = 1;
 
   synchronized void registerFork(
       long taskId,
@@ -73,7 +74,7 @@ final class TaskRegistry {
         Optional.of(snapshot));
   }
 
-  private void registerFork(
+  private synchronized void registerFork(
       long taskId,
       long scheduledStart,
       long programmer,

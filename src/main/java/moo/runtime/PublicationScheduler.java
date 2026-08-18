@@ -1,5 +1,6 @@
 package moo.runtime;
 
+import com.google.errorprone.annotations.concurrent.GuardedBy;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
@@ -56,20 +57,34 @@ final class PublicationScheduler implements AutoCloseable {
   private volatile int workers;
   private volatile int backgroundWorkers;
   private final ThreadPoolExecutor executor;
+  @GuardedBy("this")
   private final Queue<Entry> ready = new ArrayDeque<>();
+  @GuardedBy("this")
   private final Map<Long, Attempt> completed = new TreeMap<>();
+  @GuardedBy("this")
   private final Map<Long, CompletableFuture<List<String>>> ingress = new TreeMap<>();
+  @GuardedBy("this")
   private final Map<Long, Long> lastInputTasks = new TreeMap<>();
+  @GuardedBy("this")
   private final Map<Long, TimedWork> timedWork = new TreeMap<>();
+  @GuardedBy("this")
   private final Map<Long, TimedWork> checkpointingWork = new TreeMap<>();
+  @GuardedBy("this")
   private final Map<Long, SuspendedWork> finalizationBlocked = new LinkedHashMap<>();
+  @GuardedBy("this")
   private final Map<MooRuntime.FinalizationControl, Long> activeFinalizations =
       new LinkedHashMap<>();
+  @GuardedBy("this")
   private long nextTicket;
+  @GuardedBy("this")
   private long nextTaskId;
+  @GuardedBy("this")
   private long nextPublicationTicket;
+  @GuardedBy("this")
   private boolean publicationDraining;
+  @GuardedBy("this")
   private boolean restoredTasksActivated;
+  @GuardedBy("this")
   private boolean closed;
 
   PublicationScheduler(WorldTxn committedWorld, MooRuntime runtime) {
@@ -210,7 +225,9 @@ final class PublicationScheduler implements AutoCloseable {
         restored.fullVerbName(),
         restored.firstSourceLine(),
         snapshot);
-    nextTaskId = Math.max(nextTaskId, Math.addExact(restored.taskId(), 1));
+    synchronized (this) {
+      nextTaskId = Math.max(nextTaskId, Math.addExact(restored.taskId(), 1));
+    }
     return new TimedWork(
         work,
         Math.multiplyExact(restored.scheduledEpochSecond(), 1_000L),
@@ -307,7 +324,9 @@ final class PublicationScheduler implements AutoCloseable {
             false);
     taskRegistry.registerSuspended(
         restored.taskId(), restored.scheduledEpochSecond(), snapshot);
-    nextTaskId = Math.max(nextTaskId, Math.addExact(restored.taskId(), 1));
+    synchronized (this) {
+      nextTaskId = Math.max(nextTaskId, Math.addExact(restored.taskId(), 1));
+    }
     BuiltinResult wake =
         restored.interruptionStatus().isPresent()
             ? BuiltinResult.error(ErrorValue.E_INTRPT)
@@ -1274,7 +1293,7 @@ final class PublicationScheduler implements AutoCloseable {
     return OptionalLong.empty();
   }
 
-  private void dispatch() {
+  private synchronized void dispatch() {
     if (closed) {
       return;
     }
@@ -1876,7 +1895,7 @@ final class PublicationScheduler implements AutoCloseable {
     launchTimer(timed);
   }
 
-  private void registerTimer(TimedWork timed) {
+  private synchronized void registerTimer(TimedWork timed) {
     if (timedWork.putIfAbsent(timed.work().taskId(), timed) != null) {
       throw new IllegalStateException("task already has a pending timer");
     }
@@ -1960,7 +1979,7 @@ final class PublicationScheduler implements AutoCloseable {
     dispatch();
   }
 
-  private boolean hasActiveAnonymousFinalization() {
+  private synchronized boolean hasActiveAnonymousFinalization() {
     return activeFinalizations.keySet().stream()
         .anyMatch(control -> control.kind() == MooRuntime.FinalizationKind.ANONYMOUS);
   }
@@ -2019,7 +2038,7 @@ final class PublicationScheduler implements AutoCloseable {
             Optional.of(failure)));
   }
 
-  private void enqueueSpawned(MooRuntime.RuntimeStep step) {
+  private synchronized void enqueueSpawned(MooRuntime.RuntimeStep step) {
     if (step.output().isPresent()) {
       return;
     }
@@ -2044,7 +2063,7 @@ final class PublicationScheduler implements AutoCloseable {
             false));
   }
 
-  private boolean registerActiveFinalization(
+  private synchronized boolean registerActiveFinalization(
       long taskId, Optional<MooRuntime.FinalizationControl> control) {
     activeFinalizations.entrySet().removeIf(entry -> entry.getValue() == taskId);
     if (control.isEmpty()) {
@@ -2057,7 +2076,7 @@ final class PublicationScheduler implements AutoCloseable {
     return false;
   }
 
-  private void finishActiveFinalization(
+  private synchronized void finishActiveFinalization(
       long taskId, Optional<MooRuntime.FinalizationControl> control) {
     if (control.isEmpty()) {
       return;
@@ -2069,7 +2088,7 @@ final class PublicationScheduler implements AutoCloseable {
     }
   }
 
-  private RootCompletion finishSuccess(
+  private synchronized RootCompletion finishSuccess(
       Entry entry,
       Optional<MooRuntime.FinalizationControl> finalizationControl,
       List<String> output) {
@@ -2081,7 +2100,7 @@ final class PublicationScheduler implements AutoCloseable {
     return future == null ? RootCompletion.none() : RootCompletion.success(future, output);
   }
 
-  private RootCompletion finishFailure(Entry entry, Throwable failure) {
+  private synchronized RootCompletion finishFailure(Entry entry, Throwable failure) {
     nextPublicationTicket++;
     checkpointingWork.remove(entry.taskId());
     taskRegistry.remove(entry.taskId());
@@ -2108,7 +2127,7 @@ final class PublicationScheduler implements AutoCloseable {
     return executor.getQueue().size() + executor.getQueue().remainingCapacity();
   }
 
-  private void ensureOpen() {
+  private synchronized void ensureOpen() {
     if (closed) {
       throw new IllegalStateException("publication scheduler is closed");
     }

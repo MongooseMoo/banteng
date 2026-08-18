@@ -1,5 +1,6 @@
 package moo.world;
 
+import com.google.errorprone.annotations.concurrent.GuardedBy;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
@@ -16,10 +17,10 @@ import moo.value.MooValue.WaifValue;
 
 /** Owns committed revisions; all record access remains on {@link WorldTxn}. */
 final class WorldHistory {
-  private final NavigableMap<Long, World> revisions = new TreeMap<>();
-  private final Map<Long, Integer> activeTransactions = new HashMap<>();
-  private final VerbCache verbCache = new VerbCache();
-  private World current;
+  @GuardedBy("this") private final NavigableMap<Long, World> revisions = new TreeMap<>();
+  @GuardedBy("this") private final Map<Long, Integer> activeTransactions = new HashMap<>();
+  @GuardedBy("this") private final VerbCache verbCache = new VerbCache();
+  @GuardedBy("this") private World current;
 
   WorldHistory(List<Long> players, List<WorldObject> objects) {
     this(players, objects, Map.of(), Map.of(), List.of());
@@ -220,13 +221,14 @@ final class WorldHistory {
     return List.copyOf(revisions.navigableKeySet());
   }
 
-  private void reclaimVersions() {
+  private synchronized void reclaimVersions() {
     long currentRevision = current.revision().value();
+    Set<Long> retainedByTransactions = Set.copyOf(activeTransactions.keySet());
     revisions.keySet().removeIf(
-        revision -> revision != currentRevision && !activeTransactions.containsKey(revision));
+        revision -> revision != currentRevision && !retainedByTransactions.contains(revision));
   }
 
-  private void emitRetention() {
+  private synchronized void emitRetention() {
     VersionRetentionEvent event = new VersionRetentionEvent();
     event.currentRevision = current.revision().value();
     event.oldestRetainedRevision = revisions.firstKey();
