@@ -92,10 +92,10 @@ public final class UseBuiltinCall extends Recipe {
               }
             }.visitNonNull(lambda.getBody(), context);
 
-        J.Lambda.Parameters rewrittenParameters =
+        J.Lambda rewrittenLambda =
             callParameter.apply(
                 getCursor(), lambda.getParameters().getCoordinates().replace());
-        return lambda.withParameters(rewrittenParameters).withBody(rewrittenBody);
+        return rewrittenLambda.withBody(rewrittenBody);
       }
     };
   }
