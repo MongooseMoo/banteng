@@ -1,5 +1,6 @@
 package moo;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -25,6 +26,21 @@ final class DuplicationConsolidationTest {
     }
   }
 
+  @Test
+  void promotionAwareUnaryFloatBuiltinsShareOneFactory() throws IOException {
+    String source = source("builtin", "BuiltinCatalog.java");
+    String manifest =
+        between(
+            source,
+            "private List<BuiltinSpec> buildManifest()",
+            "private static BuiltinSpec fileIoSpec(");
+
+    assertTrue(
+        source.contains(
+            "private static BuiltinHandler unaryFloatBuiltin(DoubleUnaryOperator operator)"));
+    assertEquals(18, occurrences(manifest, "unaryFloatBuiltin("));
+  }
+
   private static String source(String... path) throws IOException {
     return Files.readString(PRODUCTION.resolve(Path.of("", path)));
   }
@@ -35,5 +51,15 @@ final class DuplicationConsolidationTest {
     assertTrue(startIndex >= 0, start);
     assertTrue(endIndex > startIndex, end);
     return source.substring(startIndex, endIndex);
+  }
+
+  private static int occurrences(String source, String text) {
+    int count = 0;
+    int offset = 0;
+    while ((offset = source.indexOf(text, offset)) >= 0) {
+      count++;
+      offset += text.length();
+    }
+    return count;
   }
 }
