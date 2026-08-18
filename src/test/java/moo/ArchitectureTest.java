@@ -17,6 +17,7 @@ import com.tngtech.archunit.lang.ConditionEvents;
 import com.tngtech.archunit.lang.SimpleConditionEvent;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Objects;
 import java.util.Set;
 import moo.builtin.ArchUnitThrowableCatchFixture;
 import moo.persistence.ToastV17ProgramLayout;
@@ -133,8 +134,9 @@ final class ArchitectureTest {
 
     AssertionError violation =
         assertThrows(AssertionError.class, () -> builtinThrowableCatchRule().check(fixture));
-    assertTrue(violation.getMessage().contains("ArchUnitThrowableCatchFixture"));
-    assertTrue(violation.getMessage().contains("java.lang.Throwable"));
+    String message = Objects.requireNonNull(violation.getMessage());
+    assertTrue(message.contains("ArchUnitThrowableCatchFixture"));
+    assertTrue(message.contains("java.lang.Throwable"));
   }
 
   private static ArchRule builtinThrowableCatchRule() {
