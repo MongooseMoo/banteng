@@ -30,6 +30,25 @@ public final class DecomposeWorldTxn extends ScanningRecipe<DecomposeWorldTxn.Ac
           "directParentProperty",
           "usesAffectedAncestor",
           "rebuiltAnonymousProperties");
+  private static final Set<String> PACKAGE_VISIBLE_METHODS =
+      Set.of(
+          "ancestryFromParents",
+          "inheritedProperties",
+          "rebuildPropertyLayouts",
+          "descendantsOf",
+          "usesAffectedAncestor",
+          "rebuiltAnonymousProperties");
+  private static final List<String> ENGINE_IMPORTS =
+      List.of(
+          "java.util.ArrayList",
+          "java.util.LinkedHashMap",
+          "java.util.LinkedHashSet",
+          "java.util.List",
+          "java.util.Locale",
+          "java.util.Map",
+          "java.util.Objects",
+          "java.util.Optional",
+          "java.util.Set");
 
   @Override
   public String getDisplayName() {
@@ -110,8 +129,18 @@ public final class DecomposeWorldTxn extends ScanningRecipe<DecomposeWorldTxn.Ac
           return candidate.withBody(candidate.getBody().withStatements(retained));
         }
         if (candidate.getSimpleName().equals("PropertyLayoutEngine")) {
+          for (String engineImport : ENGINE_IMPORTS) {
+            maybeAddImport(engineImport);
+          }
           List<Statement> statements = new ArrayList<>(candidate.getBody().getStatements());
           for (J.MethodDeclaration method : accumulator.moved.values()) {
+            if (PACKAGE_VISIBLE_METHODS.contains(method.getSimpleName())) {
+              method =
+                  method.withModifiers(
+                      method.getModifiers().stream()
+                          .filter(modifier -> modifier.getType() != J.Modifier.Type.Private)
+                          .toList());
+            }
             statements.add(method.withPrefix(Space.format("\n\n  ")));
           }
           if (accumulator.propertyDefinition != null) {
