@@ -57,7 +57,8 @@ final class V17RoundTripTest {
     IOException error =
         assertThrows(IOException.class, () -> new LambdaMooV17Codec().read(checkpoint));
 
-    assertEquals("unsupported v17 value tag 23", error.getMessage());
+    assertEquals(
+        "unsupported v17 value tag 23 at pending finalization value 1", error.getMessage());
   }
 
   @Test
@@ -69,7 +70,9 @@ final class V17RoundTripTest {
       bytecode = input.readAllBytes();
     }
 
-    assertFalse(new String(bytecode, StandardCharsets.ISO_8859_1).contains("Phase 2"));
+    String constants = new String(bytecode, StandardCharsets.ISO_8859_1);
+    assertFalse(constants.contains("Phase 2"));
+    assertFalse(constants.contains("unsupported v17 value type"));
   }
 
   @Test

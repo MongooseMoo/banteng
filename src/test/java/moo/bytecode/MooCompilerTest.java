@@ -2,6 +2,7 @@ package moo.bytecode;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.IOException;
@@ -9,6 +10,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.stream.IntStream;
 import moo.persistence.LambdaMooV4Reader;
 import moo.syntax.Ast;
@@ -19,6 +21,29 @@ import moo.world.WorldVerb;
 import org.junit.jupiter.api.Test;
 
 final class MooCompilerTest {
+  @Test
+  void reportsContextOnlyExpressionNodesPrecisely() {
+    MooCompiler compiler = new MooCompiler();
+    Ast.Program spliceProgram =
+        new Ast.Program(
+            List.of(
+                new Ast.ExpressionStatement(new Ast.Splice(new Ast.IntegerLiteral(1)))));
+    Ast.Program scatterElementProgram =
+        new Ast.Program(
+            List.of(
+                new Ast.ExpressionStatement(
+                    new Ast.ScatterElement("value", false, false, Optional.empty()))));
+
+    assertEquals(
+        "splice expression requires list or argument context",
+        assertThrows(IllegalArgumentException.class, () -> compiler.compile(spliceProgram))
+            .getMessage());
+    assertEquals(
+        "scatter element requires assignment-target context",
+        assertThrows(IllegalArgumentException.class, () -> compiler.compile(scatterElementProgram))
+            .getMessage());
+  }
+
   @Test
   void compiledDiagnosticsDoNotExposeBuildProcessVocabulary() throws IOException {
     byte[] bytecode;
