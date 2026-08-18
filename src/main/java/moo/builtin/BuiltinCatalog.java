@@ -2491,17 +2491,7 @@ public final class BuiltinCatalog {
     };
   }
 
-  private static BuiltinResult dumpDatabase(
-      List<MooValue> arguments,
-      WorldTxn world,
-      long programmer,
-      MooValue taskLocal,
-      long taskId,
-      long remainingTicks,
-      long remainingSeconds,
-      MooValue receiver,
-      long callerProgrammer,
-      ListValue callers) {
+  private static BuiltinResult dumpDatabase(BuiltinCall call) {
     return new BuiltinResult.Checkpoint();
   }
 

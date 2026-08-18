@@ -69,29 +69,28 @@ public final class UseBuiltinCall extends Recipe {
         }
 
         J rewrittenBody =
-            (J)
-                new JavaVisitor<ExecutionContext>() {
-                  @Override
-                  public J visitIdentifier(J.Identifier identifier, ExecutionContext ignored) {
-                    String accessor = typedAccessors.get(identifier.getFieldType());
-                    if (accessor == null && identifier.getFieldType() == null) {
-                      accessor = parameterAccessors.get(identifier.getSimpleName());
-                    }
-                    if (accessor == null) {
-                      return super.visitIdentifier(identifier, ignored);
-                    }
-                    J.Identifier call =
-                        identifier
-                            .withSimpleName("call")
-                            .withType(JavaType.ShallowClass.build(BUILTIN_CALL_TYPE))
-                            .withFieldType(null);
-                    return JavaTemplate.builder(
-                            "#{any(" + BUILTIN_CALL_TYPE + ")}." + accessor + "()")
-                        .contextSensitive()
-                        .build()
-                        .apply(getCursor(), identifier.getCoordinates().replace(), call);
-                  }
-                }.visitNonNull(lambda.getBody(), context);
+            new JavaVisitor<ExecutionContext>() {
+              @Override
+              public J visitIdentifier(J.Identifier identifier, ExecutionContext ignored) {
+                String accessor = typedAccessors.get(identifier.getFieldType());
+                if (accessor == null && identifier.getFieldType() == null) {
+                  accessor = parameterAccessors.get(identifier.getSimpleName());
+                }
+                if (accessor == null) {
+                  return super.visitIdentifier(identifier, ignored);
+                }
+                J.Identifier call =
+                    identifier
+                        .withSimpleName("call")
+                        .withType(JavaType.ShallowClass.build(BUILTIN_CALL_TYPE))
+                        .withFieldType(null);
+                return JavaTemplate.builder(
+                        "#{any(" + BUILTIN_CALL_TYPE + ")}." + accessor + "()")
+                    .contextSensitive()
+                    .build()
+                    .apply(getCursor(), identifier.getCoordinates().replace(), call);
+              }
+            }.visitNonNull(lambda.getBody(), context);
 
         J.Lambda.Parameters rewrittenParameters =
             callParameter.apply(
