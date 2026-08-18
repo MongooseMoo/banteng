@@ -1,7 +1,6 @@
 package moo.runtime;
 
 import com.google.errorprone.annotations.concurrent.GuardedBy;
-import java.nio.charset.StandardCharsets;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -42,6 +41,7 @@ import moo.value.MooValue.AnonymousObjectValue;
 import moo.value.MooValue.ErrorValue;
 import moo.value.MooValue.IntegerValue;
 import moo.value.MooValue.ListValue;
+import moo.value.MooValue.StringValue;
 import moo.vm.VmSnapshot;
 import moo.vm.VmState;
 import moo.world.WorldTxn;
@@ -1214,7 +1214,7 @@ final class PublicationScheduler implements AutoCloseable {
     frame.locals().forEach((name, value) -> locals.put(name, Optional.of(value)));
     String verb =
         frame.locals().get("verb") instanceof moo.value.MooValue.StringValue value
-            ? new String(value.bytes(), StandardCharsets.ISO_8859_1)
+            ? value.text()
             : "";
     return new SuspendedActivation(
         17,

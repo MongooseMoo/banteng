@@ -3,7 +3,6 @@ package moo.runtime;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 
-import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.FutureTask;
@@ -336,7 +335,7 @@ final class TaskRegistryTest {
   }
 
   private static StringValue string(String value) {
-    return new StringValue(value.getBytes(StandardCharsets.ISO_8859_1));
+    return StringValue.of(value);
   }
 
   private static WorldTxn world() {

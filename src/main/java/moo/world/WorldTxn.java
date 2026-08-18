@@ -1,6 +1,5 @@
 package moo.world;
 
-import java.nio.charset.StandardCharsets;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -30,11 +29,11 @@ public final class WorldTxn implements AutoCloseable {
   private static final ListValue DEFAULT_INTRINSIC_COMMANDS =
       new ListValue(
           List.of(
-              new StringValue(".program".getBytes(StandardCharsets.ISO_8859_1)),
-              new StringValue("PREFIX".getBytes(StandardCharsets.ISO_8859_1)),
-              new StringValue("SUFFIX".getBytes(StandardCharsets.ISO_8859_1)),
-              new StringValue("OUTPUTPREFIX".getBytes(StandardCharsets.ISO_8859_1)),
-              new StringValue("OUTPUTSUFFIX".getBytes(StandardCharsets.ISO_8859_1))));
+              StringValue.of(".program"),
+              StringValue.of("PREFIX"),
+              StringValue.of("SUFFIX"),
+              StringValue.of("OUTPUTPREFIX"),
+              StringValue.of("OUTPUTSUFFIX")));
 
   private final Map<Long, Long> connections = new LinkedHashMap<>();
   private final Map<Long, MapValue> connectionInfo = new LinkedHashMap<>();
@@ -750,7 +749,7 @@ public final class WorldTxn implements AutoCloseable {
     WorldObject object = candidate.orElseThrow();
     return switch (propertyName.toLowerCase(Locale.ROOT)) {
       case "name" ->
-          Optional.of(new StringValue(object.name().getBytes(StandardCharsets.ISO_8859_1)));
+          Optional.of(StringValue.of(object.name()));
       case "location" -> Optional.of(new ObjectValue(object.location()));
       case "last_move" -> Optional.of(object.lastMove());
       case "contents" ->
@@ -795,7 +794,7 @@ public final class WorldTxn implements AutoCloseable {
       return Optional.empty();
     }
     if (propertyName.equalsIgnoreCase("name")) {
-      return Optional.of(new StringValue(object.name().getBytes(StandardCharsets.ISO_8859_1)));
+      return Optional.of(StringValue.of(object.name()));
     }
     for (WorldProperty property : object.properties()) {
       if (property.name().equalsIgnoreCase(propertyName) && !property.clear()) {
@@ -827,7 +826,7 @@ public final class WorldTxn implements AutoCloseable {
       replaceObject(
           new WorldObject(
               object.id(),
-              new String(name.bytes(), StandardCharsets.ISO_8859_1),
+              name.text(),
               object.flags(),
               object.owner(),
               object.location(),
@@ -930,7 +929,7 @@ public final class WorldTxn implements AutoCloseable {
       replaceAnonymousObject(
           identity,
           new WorldAnonymousObject(
-              new String(name.bytes(), StandardCharsets.ISO_8859_1),
+              name.text(),
               object.flags(),
               object.owner(),
               object.parents(),
@@ -1604,10 +1603,10 @@ public final class WorldTxn implements AutoCloseable {
             ? new LinkedHashMap<>(map.entries())
             : new LinkedHashMap<>();
     lastMove.put(
-        new StringValue("time".getBytes(StandardCharsets.ISO_8859_1)),
+        StringValue.of("time"),
         new IntegerValue(System.currentTimeMillis() / 1_000L));
     lastMove.put(
-        new StringValue("source".getBytes(StandardCharsets.ISO_8859_1)),
+        StringValue.of("source"),
         new ObjectValue(object.location()));
     replaceObject(
         copyObject(

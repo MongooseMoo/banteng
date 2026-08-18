@@ -1,7 +1,6 @@
 package moo.runtime;
 
 import com.google.errorprone.annotations.concurrent.GuardedBy;
-import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashSet;
@@ -69,7 +68,7 @@ final class TaskRegistry {
         programmer,
         verbLocation,
         variables,
-        string(fullVerbName),
+        StringValue.of(fullVerbName),
         sourceLine,
         Optional.of(snapshot));
   }
@@ -129,7 +128,7 @@ final class TaskRegistry {
         queueSequence,
         activation.programmer(),
         activation.verbLocation(),
-        string(activation.fullVerbName()),
+        StringValue.of(activation.fullVerbName()),
         activation.program().sourceLine(suspendedInstruction),
         activation.receiver(),
         snapshot.byteSize(),
@@ -168,11 +167,11 @@ final class TaskRegistry {
         taskId,
         new TaskInfo(
             taskId,
-            string("waiting on thread " + handle),
+            StringValue.of("waiting on thread " + handle),
             queueSequence,
             activation.programmer(),
             activation.verbLocation(),
-            string(activation.fullVerbName()),
+            StringValue.of(activation.fullVerbName()),
             activation.program().sourceLine(suspendedInstruction),
             activation.receiver(),
             snapshot.byteSize(),
@@ -392,7 +391,7 @@ final class TaskRegistry {
       VmSnapshot.Frame frame, boolean includeLines, boolean includeVariables) {
     List<MooValue> fields = new ArrayList<>(5 + (includeLines ? 1 : 0) + (includeVariables ? 1 : 0));
     fields.add(frame.receiver());
-    fields.add(string(frame.calledVerb()));
+    fields.add(StringValue.of(frame.calledVerb()));
     fields.add(new ObjectValue(frame.programmer()));
     fields.add(frame.verbLocation());
     fields.add(frame.locals().getOrDefault("player", new ObjectValue(-1)));
@@ -408,7 +407,7 @@ final class TaskRegistry {
     }
     if (includeVariables) {
       Map<MooValue, MooValue> variables = new LinkedHashMap<>();
-      frame.locals().forEach((name, value) -> variables.put(string(name), value));
+      frame.locals().forEach((name, value) -> variables.put(StringValue.of(name), value));
       fields.add(new MapValue(variables));
     }
     return new ListValue(fields);
@@ -434,11 +433,7 @@ final class TaskRegistry {
 
   private static StringValue stringVariable(Map<String, MooValue> variables, String name) {
     MooValue value = variables.get(name);
-    return value instanceof StringValue string ? string : string("");
-  }
-
-  private static StringValue string(String value) {
-    return new StringValue(value.getBytes(StandardCharsets.ISO_8859_1));
+    return value instanceof StringValue string ? string : StringValue.of("");
   }
 
   private record TaskInfo(
@@ -475,7 +470,7 @@ final class TaskRegistry {
       fields.add(new IntegerValue(bytes));
       if (appendVariables) {
         Map<MooValue, MooValue> runtimeVariables = new LinkedHashMap<>();
-        variables.forEach((name, value) -> runtimeVariables.put(string(name), value));
+        variables.forEach((name, value) -> runtimeVariables.put(StringValue.of(name), value));
         fields.add(new MapValue(runtimeVariables));
       }
       return new ListValue(fields);

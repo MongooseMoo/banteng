@@ -1,6 +1,5 @@
 package moo.vm;
 
-import java.nio.charset.StandardCharsets;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -125,7 +124,7 @@ public final class MooVm {
         frame.instructionPointer++;
       }
       case PUSH_STRING -> {
-        frame.operandStack.push(encode(instruction.text().orElseThrow()));
+        frame.operandStack.push(StringValue.of(instruction.text().orElseThrow()));
         frame.instructionPointer++;
       }
       case PUSH_OBJECT -> {
@@ -212,7 +211,7 @@ public final class MooVm {
             return;
           }
 
-          String verbName = new String(verbNameValue.bytes(), StandardCharsets.ISO_8859_1);
+          String verbName = verbNameValue.text();
           MooValue receiver = thisValue;
           List<Long> directParents;
           if (frame.verbLocation instanceof ObjectValue currentLocation) {
@@ -289,7 +288,7 @@ public final class MooVm {
           raiseError(state, ErrorValue.E_TYPE, world);
           return;
         }
-        String verbName = new String(name.bytes(), StandardCharsets.ISO_8859_1);
+        String verbName = name.text();
         WorldVerb verb;
         MooValue definingLocation;
         String lookupName;
@@ -339,14 +338,14 @@ public final class MooVm {
         locals.put("this", receiverValue);
         locals.put("player", frame.locals.getOrDefault("player", new ObjectValue(-1)));
         locals.put("caller", frame.receiver);
-        locals.put("verb", encode(lookupName));
+        locals.put("verb", StringValue.of(lookupName));
         locals.put("args", arguments);
-        locals.put("argstr", frame.locals.getOrDefault("argstr", encode("")));
+        locals.put("argstr", frame.locals.getOrDefault("argstr", StringValue.of("")));
         locals.put("dobj", frame.locals.getOrDefault("dobj", new ObjectValue(-1)));
-        locals.put("dobjstr", frame.locals.getOrDefault("dobjstr", encode("")));
-        locals.put("prepstr", frame.locals.getOrDefault("prepstr", encode("")));
+        locals.put("dobjstr", frame.locals.getOrDefault("dobjstr", StringValue.of("")));
+        locals.put("prepstr", frame.locals.getOrDefault("prepstr", StringValue.of("")));
         locals.put("iobj", frame.locals.getOrDefault("iobj", new ObjectValue(-1)));
-        locals.put("iobjstr", frame.locals.getOrDefault("iobjstr", encode("")));
+        locals.put("iobjstr", frame.locals.getOrDefault("iobjstr", StringValue.of("")));
         if (!state.pushVerbFrame(
             verbProgram,
             locals,
@@ -680,7 +679,7 @@ public final class MooVm {
       raiseError(state, ErrorValue.E_TYPE, world);
       return;
     }
-    String nameText = new String(propertyName.bytes(), StandardCharsets.ISO_8859_1);
+    String nameText = propertyName.text();
     if (receiver instanceof WaifValue waif) {
       if (nameText.equalsIgnoreCase("class")) {
         frame.operandStack.push(
@@ -788,7 +787,7 @@ public final class MooVm {
       raiseError(state, ErrorValue.E_TYPE, world);
       return;
     }
-    String nameText = new String(propertyName.bytes(), StandardCharsets.ISO_8859_1);
+    String nameText = propertyName.text();
     if (receiver instanceof WaifValue waif) {
       if (nameText.equalsIgnoreCase("class")
           || nameText.equalsIgnoreCase("owner")
@@ -931,7 +930,7 @@ public final class MooVm {
       }
       byte[] bytes = string.bytes();
       frame.operandStack.push(
-          new StringValue(new byte[] {bytes[Math.toIntExact(integer.value() - 1)]}));
+          StringValue.of(new byte[] {bytes[Math.toIntExact(integer.value() - 1)]}));
       frame.instructionPointer++;
       return;
     }
@@ -1036,7 +1035,7 @@ public final class MooVm {
         && end instanceof IntegerValue last) {
       byte[] bytes = string.bytes();
       if (last.value() < first.value()) {
-        frame.operandStack.push(new StringValue(new byte[0]));
+        frame.operandStack.push(StringValue.of(new byte[0]));
         frame.instructionPointer++;
         return;
       }
@@ -1045,7 +1044,7 @@ public final class MooVm {
         return;
       }
       frame.operandStack.push(
-          new StringValue(
+          StringValue.of(
               Arrays.copyOfRange(
                   bytes, Math.toIntExact(first.value() - 1), Math.toIntExact(last.value()))));
       frame.instructionPointer++;
@@ -1169,14 +1168,14 @@ public final class MooVm {
     locals.put("this", waif);
     locals.put("player", frame.locals.getOrDefault("player", new ObjectValue(-1)));
     locals.put("caller", frame.receiver);
-    locals.put("verb", encode(verbName));
+    locals.put("verb", StringValue.of(verbName));
     locals.put("args", arguments);
-    locals.put("argstr", frame.locals.getOrDefault("argstr", encode("")));
+    locals.put("argstr", frame.locals.getOrDefault("argstr", StringValue.of("")));
     locals.put("dobj", frame.locals.getOrDefault("dobj", new ObjectValue(-1)));
-    locals.put("dobjstr", frame.locals.getOrDefault("dobjstr", encode("")));
-    locals.put("prepstr", frame.locals.getOrDefault("prepstr", encode("")));
+    locals.put("dobjstr", frame.locals.getOrDefault("dobjstr", StringValue.of("")));
+    locals.put("prepstr", frame.locals.getOrDefault("prepstr", StringValue.of("")));
     locals.put("iobj", frame.locals.getOrDefault("iobj", new ObjectValue(-1)));
-    locals.put("iobjstr", frame.locals.getOrDefault("iobjstr", encode("")));
+    locals.put("iobjstr", frame.locals.getOrDefault("iobjstr", StringValue.of("")));
     frame.instructionPointer++;
     if (!state.pushVerbFrame(
         program,
@@ -1227,7 +1226,7 @@ public final class MooVm {
       }
       byte[] replaced = string.bytes();
       replaced[Math.toIntExact(index.value() - 1)] = replacement.bytes()[0];
-      return Optional.of(new StringValue(replaced));
+      return Optional.of(StringValue.of(replaced));
     }
     raiseError(state, ErrorValue.E_TYPE, world);
     return Optional.empty();
@@ -1264,7 +1263,7 @@ public final class MooVm {
       }
       byte[] replaced = string.bytes();
       replaced[Math.toIntExact(index.value() - 1)] = replacement.bytes()[0];
-      updatedCollection = new StringValue(replaced);
+      updatedCollection = StringValue.of(replaced);
     } else {
       raiseError(state, ErrorValue.E_TYPE, world);
       return;
@@ -1306,7 +1305,7 @@ public final class MooVm {
             replaced,
             insertionPoint + inserted.length,
             original.length - insertionPoint);
-        updatedCollection = new StringValue(replaced);
+        updatedCollection = StringValue.of(replaced);
       } else if (last.value() < first.value()
           && first.value() >= 1
           && first.value() <= string.length()
@@ -1325,13 +1324,13 @@ public final class MooVm {
             replaced,
             prefixLength + inserted.length,
             original.length - suffixStart);
-        updatedCollection = new StringValue(replaced);
+        updatedCollection = StringValue.of(replaced);
       } else if (first.value() == string.length() + 1L && last.value() >= first.value()) {
         byte[] original = string.bytes();
         byte[] inserted = replacement.bytes();
         byte[] appended = Arrays.copyOf(original, original.length + inserted.length);
         System.arraycopy(inserted, 0, appended, original.length, inserted.length);
-        updatedCollection = new StringValue(appended);
+        updatedCollection = StringValue.of(appended);
       } else {
         if (first.value() < 1 || last.value() < first.value() || last.value() > string.length()) {
           raiseError(state, ErrorValue.E_RANGE, world);
@@ -1350,7 +1349,7 @@ public final class MooVm {
             replaced,
             prefixLength + inserted.length,
             original.length - suffixStart);
-        updatedCollection = new StringValue(replaced);
+        updatedCollection = StringValue.of(replaced);
       }
     } else if (collection instanceof ListValue list && value instanceof ListValue replacement) {
       if (!(start instanceof IntegerValue first) || !(end instanceof IntegerValue last)) {
@@ -1635,7 +1634,7 @@ public final class MooVm {
           new ListValue(
               List.of(
                   new IntegerValue(0),
-                  new ListValue(List.of(encode("Parse error: " + diagnostic))))));
+                  new ListValue(List.of(StringValue.of("Parse error: " + diagnostic))))));
     }
   }
 
@@ -1662,9 +1661,9 @@ public final class MooVm {
     locals.put("this", destination);
     locals.put("player", frame.locals.getOrDefault("player", new ObjectValue(-1)));
     locals.put("caller", frame.receiver);
-    locals.put("verb", encode("accept"));
+    locals.put("verb", StringValue.of("accept"));
     locals.put("args", new ListValue(List.of(new ObjectValue(move.object()))));
-    locals.put("argstr", encode(""));
+    locals.put("argstr", StringValue.of(""));
     if (!state.pushVerbFrame(
         hookProgram,
         locals,
@@ -1705,9 +1704,9 @@ public final class MooVm {
     locals.put("this", target);
     locals.put("player", frame.locals.getOrDefault("player", new ObjectValue(-1)));
     locals.put("caller", frame.locals.getOrDefault("this", new ObjectValue(-1)));
-    locals.put("verb", encode("recycle"));
+    locals.put("verb", StringValue.of("recycle"));
     locals.put("args", new ListValue(List.of()));
-    locals.put("argstr", encode(""));
+    locals.put("argstr", StringValue.of(""));
     OptionalLong definingLocation = world.verbLocation(recycleTarget, "recycle", true);
     if (!state.pushVerbFrame(
         hookProgram,
@@ -1752,9 +1751,9 @@ public final class MooVm {
     locals.put("this", recycleTarget);
     locals.put("player", frame.locals.getOrDefault("player", new ObjectValue(-1)));
     locals.put("caller", frame.locals.getOrDefault("this", new ObjectValue(-1)));
-    locals.put("verb", encode("recycle"));
+    locals.put("verb", StringValue.of("recycle"));
     locals.put("args", new ListValue(List.of()));
-    locals.put("argstr", encode(""));
+    locals.put("argstr", StringValue.of(""));
     MooValue definingLocation =
         world.verbLocation(recycleTarget, "recycle", true).orElse(recycleTarget);
     List<AnonymousObjectValue> collectionDeferrals = new ArrayList<>();
@@ -1812,9 +1811,9 @@ public final class MooVm {
     locals.put("this", created);
     locals.put("player", frame.locals.getOrDefault("player", new ObjectValue(-1)));
     locals.put("caller", frame.receiver);
-    locals.put("verb", encode("initialize"));
+    locals.put("verb", StringValue.of("initialize"));
     locals.put("args", request.arguments());
-    locals.put("argstr", encode(""));
+    locals.put("argstr", StringValue.of(""));
     if (!state.pushCreateInitializeFrame(
         initializeProgram,
         locals,
@@ -1979,7 +1978,7 @@ public final class MooVm {
       byte[] concatenated = new byte[Math.addExact(leftBytes.length, rightBytes.length)];
       System.arraycopy(leftBytes, 0, concatenated, 0, leftBytes.length);
       System.arraycopy(rightBytes, 0, concatenated, leftBytes.length, rightBytes.length);
-      frame.operandStack.push(new StringValue(concatenated));
+      frame.operandStack.push(StringValue.of(concatenated));
       frame.instructionPointer++;
       return;
     }
@@ -2395,7 +2394,7 @@ public final class MooVm {
       value = ((ListValue) cursor.base).elements().get(Math.toIntExact(oneBasedIndex - 1));
     } else {
       byte character = ((StringValue) cursor.base).bytes()[Math.toIntExact(oneBasedIndex - 1)];
-      value = new StringValue(new byte[] {character});
+      value = StringValue.of(new byte[] {character});
     }
     cursor.next = Optional.of(new IntegerValue(Math.addExact(oneBasedIndex, 1L)));
     return Optional.of(new CollectionElement(value, new IntegerValue(oneBasedIndex)));
@@ -2576,7 +2575,7 @@ public final class MooVm {
     raiseError(
         state,
         error,
-        new ListValue(List.of(encode(error.description()), new IntegerValue(0))),
+        new ListValue(List.of(StringValue.of(error.description()), new IntegerValue(0))),
         world,
         advanceInstruction);
   }
@@ -2584,7 +2583,7 @@ public final class MooVm {
   private static ListValue exceptionTuple(ErrorValue error, ListValue details) {
     List<MooValue> normalized = new ArrayList<>(4);
     normalized.add(error);
-    normalized.add(details.size() > 0 ? details.elements().get(0) : encode(""));
+    normalized.add(details.size() > 0 ? details.elements().get(0) : StringValue.of(""));
     normalized.add(details.size() > 1 ? details.elements().get(1) : new IntegerValue(0));
     normalized.add(
         details.size() > 2 ? details.elements().get(2) : new ListValue(List.of()));
@@ -2681,7 +2680,7 @@ public final class MooVm {
   private static ListValue completeErrorDetails(
       VmState state, ErrorValue error, ListValue details) {
     MooValue message =
-        details.size() > 0 ? details.elements().get(0) : encode(error.description());
+        details.size() > 0 ? details.elements().get(0) : StringValue.of(error.description());
     MooValue value =
         details.size() > 1 ? details.elements().get(1) : new IntegerValue(0);
     ListValue traceback =
@@ -2726,7 +2725,7 @@ public final class MooVm {
     return new ListValue(
         List.of(
             evalFrame ? new ObjectValue(-1) : tracebackReference(frame.receiver),
-            evalFrame ? encode("") : frame.locals.getOrDefault("verb", encode("")),
+            evalFrame ? StringValue.of("") : frame.locals.getOrDefault("verb", StringValue.of("")),
             evalFrame ? new ObjectValue(-1) : new ObjectValue(frame.programmer),
             evalFrame ? new ObjectValue(-1) : tracebackReference(frame.verbLocation),
             frame.locals.getOrDefault("player", new ObjectValue(-1)),
@@ -2772,7 +2771,4 @@ public final class MooVm {
     }
   }
 
-  private static StringValue encode(String value) {
-    return new StringValue(value.getBytes(StandardCharsets.ISO_8859_1));
-  }
 }

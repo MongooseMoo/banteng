@@ -1,7 +1,6 @@
 package moo.syntax;
 
 import java.math.BigInteger;
-import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
@@ -51,11 +50,6 @@ public final class MooParser {
           Optional.of(new Ast.Program(List.of())),
           List.of(new ParseDiagnostic(error.line(), error.column(), error.detail())));
     }
-  }
-
-  /** Parses one ISO-8859-1 MOO source byte sequence. */
-  public static Ast.Program parse(byte[] source) {
-    return parse(new String(source, StandardCharsets.ISO_8859_1));
   }
 
   private Ast.Program parseProgram() {

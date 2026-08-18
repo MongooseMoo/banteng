@@ -7,3 +7,44 @@ recipeList:
   - org.openrewrite.java.ChangeType:
       oldFullyQualifiedTypeName: moo.builtin.BuiltinCatalog.Result
       newFullyQualifiedTypeName: moo.builtin.BuiltinResult
+---
+type: specs.openrewrite.org/v1beta/recipe
+name: moo.value.UseStringValueFactories
+displayName: Move Latin-1 encoding helpers to StringValue
+description: Retargets private Java-string encoders to the StringValue factory before deleting them.
+causesAnotherCycle: true
+recipeList:
+  - moo.rewrite.UseStringValueInlineEncoding
+  - org.openrewrite.java.ChangeMethodTargetToStatic:
+      methodPattern: moo.builtin.BuiltinCatalog encode(java.lang.String)
+      fullyQualifiedTargetTypeName: moo.value.MooValue.StringValue
+  - org.openrewrite.java.ChangeMethodTargetToStatic:
+      methodPattern: moo.runtime.MooRuntime encode(java.lang.String)
+      fullyQualifiedTargetTypeName: moo.value.MooValue.StringValue
+  - org.openrewrite.java.ChangeMethodTargetToStatic:
+      methodPattern: moo.server.MooServer encode(java.lang.String)
+      fullyQualifiedTargetTypeName: moo.value.MooValue.StringValue
+  - org.openrewrite.java.ChangeMethodTargetToStatic:
+      methodPattern: moo.vm.MooVm encode(java.lang.String)
+      fullyQualifiedTargetTypeName: moo.value.MooValue.StringValue
+  - org.openrewrite.java.ChangeMethodTargetToStatic:
+      methodPattern: moo.runtime.TaskRegistry string(java.lang.String)
+      fullyQualifiedTargetTypeName: moo.value.MooValue.StringValue
+  - org.openrewrite.java.ChangeMethodTargetToStatic:
+      methodPattern: moo.builtin.FileIoService mooString(java.lang.String)
+      fullyQualifiedTargetTypeName: moo.value.MooValue.StringValue
+  - org.openrewrite.java.ChangeMethodTargetToStatic:
+      methodPattern: moo.builtin.PcreService string(java.lang.String)
+      fullyQualifiedTargetTypeName: moo.value.MooValue.StringValue
+  - org.openrewrite.java.ChangeMethodTargetToStatic:
+      methodPattern: moo.builtin.SqliteService string(java.lang.String)
+      fullyQualifiedTargetTypeName: moo.value.MooValue.StringValue
+  - org.openrewrite.java.ChangeMethodName:
+      methodPattern: moo.value.MooValue.StringValue encode(java.lang.String)
+      newMethodName: of
+  - org.openrewrite.java.ChangeMethodName:
+      methodPattern: moo.value.MooValue.StringValue string(java.lang.String)
+      newMethodName: of
+  - org.openrewrite.java.ChangeMethodName:
+      methodPattern: moo.value.MooValue.StringValue mooString(java.lang.String)
+      newMethodName: of

@@ -1,6 +1,5 @@
 package moo.builtin;
 
-import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -22,8 +21,8 @@ final class PcreService {
   private final LinkedHashMap<CacheKey, CacheEntry> cache = new LinkedHashMap<>();
 
   synchronized BuiltinResult match(List<MooValue> arguments) {
-    String subject = text(arguments.get(0));
-    String source = text(arguments.get(1));
+    String subject = ((StringValue) arguments.get(0)).text();
+    String source = ((StringValue) arguments.get(1)).text();
     if (source.isEmpty()) {
       return invalidArgument();
     }
@@ -48,13 +47,13 @@ final class PcreService {
         String key = named.names.getOrDefault(group, Integer.toString(group));
         Map<MooValue, MooValue> detail = new LinkedHashMap<>();
         detail.put(
-            string("position"),
+            StringValue.of("position"),
             new ListValue(
                 List.of(
                     new IntegerValue(matcher.start(group) + 1),
                     new IntegerValue(matcher.end(group)))));
-        detail.put(string("match"), string(matcher.group(group)));
-        groups.put(string(key), new MapValue(detail));
+        detail.put(StringValue.of("match"), StringValue.of(matcher.group(group)));
+        groups.put(StringValue.of(key), new MapValue(detail));
       }
       matches.add(new MapValue(groups));
       if (!findAll) {
@@ -65,8 +64,9 @@ final class PcreService {
   }
 
   synchronized BuiltinResult replace(List<MooValue> arguments) {
-    String subject = text(arguments.get(0));
-    Substitution substitution = Substitution.parse(text(arguments.get(1)));
+    String subject = ((StringValue) arguments.get(0)).text();
+    Substitution substitution =
+        Substitution.parse(((StringValue) arguments.get(1)).text());
     if (substitution == null) {
       return invalidArgument();
     }
@@ -81,7 +81,7 @@ final class PcreService {
       String replacement = substitution.replacement.replace("$&", "$0");
       Matcher matcher = pattern.matcher(subject);
       return BuiltinResult.value(
-          string(substitution.global ? matcher.replaceAll(replacement) : matcher.replaceFirst(replacement)));
+          StringValue.of(substitution.global ? matcher.replaceAll(replacement) : matcher.replaceFirst(replacement)));
     } catch (IllegalArgumentException failure) {
       return invalidArgument();
     }
@@ -92,7 +92,7 @@ final class PcreService {
     for (Map.Entry<CacheKey, CacheEntry> entry : cache.entrySet()) {
       entries.add(
           new ListValue(
-              List.of(string(entry.getKey().pattern), new IntegerValue(entry.getValue().hits))));
+              List.of(StringValue.of(entry.getKey().pattern), new IntegerValue(entry.getValue().hits))));
     }
     return BuiltinResult.value(new ListValue(entries));
   }
@@ -152,14 +152,6 @@ final class PcreService {
       translated.append(current);
     }
     return new NamedPattern(translated.toString(), names);
-  }
-
-  private static String text(MooValue value) {
-    return new String(((StringValue) value).bytes(), StandardCharsets.ISO_8859_1);
-  }
-
-  private static StringValue string(String value) {
-    return new StringValue(value.getBytes(StandardCharsets.ISO_8859_1));
   }
 
   private static BuiltinResult invalidArgument() {

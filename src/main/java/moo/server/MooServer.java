@@ -16,7 +16,6 @@ import java.net.InetSocketAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.net.SocketException;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -286,7 +285,7 @@ public final class MooServer implements AutoCloseable, ListenerControl {
         InputStream input = socket.getInputStream();
         BufferedWriter output =
             new BufferedWriter(
-                new OutputStreamWriter(socket.getOutputStream(), StandardCharsets.ISO_8859_1))) {
+                new OutputStreamWriter(socket.getOutputStream(), StringValue.charset()))) {
       outputs.put(connectionId, output);
       List<String> initialOutput =
           runtime.openConnection(
@@ -307,7 +306,7 @@ public final class MooServer implements AutoCloseable, ListenerControl {
               output,
               runtime.executeLine(
                   connectionId,
-                  new String(inputBuffer, 0, inputCount, StandardCharsets.ISO_8859_1)));
+                  new String(inputBuffer, 0, inputCount, StringValue.charset())));
           continue;
         }
         for (int inputIndex = 0; inputIndex < inputCount; inputIndex++) {
@@ -366,7 +365,7 @@ public final class MooServer implements AutoCloseable, ListenerControl {
           if (inputByte == '\r') {
             writeLines(
                 output,
-                runtime.executeLine(connectionId, line.toString(StandardCharsets.ISO_8859_1)));
+                runtime.executeLine(connectionId, line.toString(StringValue.charset())));
             line.reset();
             afterCarriageReturn = true;
             continue;
@@ -378,7 +377,7 @@ public final class MooServer implements AutoCloseable, ListenerControl {
             }
             writeLines(
                 output,
-                runtime.executeLine(connectionId, line.toString(StandardCharsets.ISO_8859_1)));
+                runtime.executeLine(connectionId, line.toString(StringValue.charset())));
             line.reset();
             continue;
           }
@@ -388,7 +387,7 @@ public final class MooServer implements AutoCloseable, ListenerControl {
       }
       if (line.size() > 0) {
         writeLines(
-            output, runtime.executeLine(connectionId, line.toString(StandardCharsets.ISO_8859_1)));
+            output, runtime.executeLine(connectionId, line.toString(StringValue.charset())));
       }
     } catch (IOException error) {
       if (!closed.get() && !socket.isClosed()) {
@@ -414,26 +413,22 @@ public final class MooServer implements AutoCloseable, ListenerControl {
     }
   }
 
-  private static StringValue encode(String value) {
-    return new StringValue(value.getBytes(StandardCharsets.ISO_8859_1));
-  }
-
   private static MapValue connectionInfo(Socket socket, boolean outbound) {
     Map<MooValue, MooValue> connectionInfo = new LinkedHashMap<>();
     String sourceAddress = socket.getLocalAddress().getHostAddress();
     String destinationAddress = socket.getInetAddress().getHostAddress();
-    connectionInfo.put(encode("source_address"), encode(sourceAddress));
-    connectionInfo.put(encode("source_ip"), encode(sourceAddress));
-    connectionInfo.put(encode("source_port"), new IntegerValue(socket.getLocalPort()));
-    connectionInfo.put(encode("destination_address"), encode(destinationAddress));
-    connectionInfo.put(encode("destination_ip"), encode(destinationAddress));
-    connectionInfo.put(encode("destination_port"), new IntegerValue(socket.getPort()));
+    connectionInfo.put(StringValue.of("source_address"), StringValue.of(sourceAddress));
+    connectionInfo.put(StringValue.of("source_ip"), StringValue.of(sourceAddress));
+    connectionInfo.put(StringValue.of("source_port"), new IntegerValue(socket.getLocalPort()));
+    connectionInfo.put(StringValue.of("destination_address"), StringValue.of(destinationAddress));
+    connectionInfo.put(StringValue.of("destination_ip"), StringValue.of(destinationAddress));
+    connectionInfo.put(StringValue.of("destination_port"), new IntegerValue(socket.getPort()));
     connectionInfo.put(
-        encode("protocol"),
-        encode(socket.getInetAddress().getAddress().length == 16 ? "IPv6" : "IPv4"));
-    connectionInfo.put(encode("outbound"), new IntegerValue(outbound ? 1 : 0));
+        StringValue.of("protocol"),
+        StringValue.of(socket.getInetAddress().getAddress().length == 16 ? "IPv6" : "IPv4"));
+    connectionInfo.put(StringValue.of("outbound"), new IntegerValue(outbound ? 1 : 0));
     connectionInfo.put(
-        encode("TLS"), new MapValue(Map.of(encode("active"), new IntegerValue(0))));
+        StringValue.of("TLS"), new MapValue(Map.of(StringValue.of("active"), new IntegerValue(0))));
     return new MapValue(connectionInfo);
   }
 
@@ -552,7 +547,7 @@ public final class MooServer implements AutoCloseable, ListenerControl {
       socket.connect(new InetSocketAddress(remote, port));
       BufferedWriter output =
           new BufferedWriter(
-              new OutputStreamWriter(socket.getOutputStream(), StandardCharsets.ISO_8859_1));
+              new OutputStreamWriter(socket.getOutputStream(), StringValue.charset()));
       connections.put(connectionId, socket);
       outputs.put(connectionId, output);
       runtime.registerOutboundConnection(

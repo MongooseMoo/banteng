@@ -6,7 +6,6 @@ import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
@@ -62,7 +61,7 @@ final class AnonymousObjectPersistenceTest {
 
     runUntilFixtureShutdown(codec.read(STARTUP_FIXTURES.resolve("Anon1.db")), first);
 
-    String firstText = Files.readString(first, StandardCharsets.ISO_8859_1);
+    String firstText = Files.readString(first, StringValue.charset());
     assertTrue(firstText.contains("1 values pending finalization\n12\n4\n"));
     LambdaMooV17Codec.Checkpoint firstCheckpoint = codec.read(first);
     WorldSnapshot firstWorld = firstCheckpoint.world().snapshot();
@@ -279,7 +278,7 @@ final class AnonymousObjectPersistenceTest {
           assertInstanceOf(
               AnonymousObjectValue.class,
               indirect
-                  .get(new StringValue("foo".getBytes(StandardCharsets.ISO_8859_1)))
+                  .get(StringValue.of("foo"))
                   .orElseThrow());
       WorldAnonymousObject anonymousBody =
           Objects.requireNonNull(world.anonymousObjects().get(anonymous));

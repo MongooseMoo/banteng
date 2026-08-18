@@ -6,7 +6,6 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.IOException;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Objects;
@@ -15,6 +14,7 @@ import java.util.stream.IntStream;
 import moo.persistence.LambdaMooV4Reader;
 import moo.syntax.Ast;
 import moo.syntax.MooParser;
+import moo.value.MooValue.StringValue;
 import moo.world.WorldObject;
 import moo.world.WorldTxn;
 import moo.world.WorldVerb;
@@ -51,7 +51,7 @@ final class MooCompilerTest {
         Objects.requireNonNull(MooCompiler.class.getResourceAsStream("MooCompiler.class"))) {
       bytecode = input.readAllBytes();
     }
-    String constants = new String(bytecode, StandardCharsets.ISO_8859_1);
+    String constants = StringValue.of(bytecode).text();
 
     assertFalse(constants.contains("bytecode slice"));
   }

@@ -7,7 +7,6 @@ import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.IOException;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.LinkedHashMap;
@@ -86,7 +85,7 @@ final class QueuedTaskV17CodecTest {
 
     LambdaMooV17Codec.Checkpoint restored = codec.read(checkpoint);
     assertEquals(List.of(task), restored.tasks());
-    assertEquals(expectedDatabase(), Files.readString(checkpoint, StandardCharsets.ISO_8859_1));
+    assertEquals(expectedDatabase(), Files.readString(checkpoint, StringValue.charset()));
   }
 
   @Test
@@ -185,7 +184,7 @@ final class QueuedTaskV17CodecTest {
     assertEquals(List.of(disabled), codec.read(checkpoint).tasks());
     assertEquals(
         0,
-        Files.readString(checkpoint, StandardCharsets.ISO_8859_1)
+        Files.readString(checkpoint, StringValue.charset())
             .lines()
             .skip(12)
             .findFirst()
@@ -218,7 +217,7 @@ final class QueuedTaskV17CodecTest {
   }
 
   private static StringValue string(String value) {
-    return new StringValue(value.getBytes(StandardCharsets.ISO_8859_1));
+    return StringValue.of(value);
   }
 
   private static String expectedDatabase() {

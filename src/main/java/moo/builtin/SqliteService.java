@@ -1,6 +1,5 @@
 package moo.builtin;
 
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.sql.Connection;
 import java.sql.DriverManager;
@@ -48,7 +47,7 @@ final class SqliteService {
     if (databases.size() >= MAX_HANDLES) {
       return BuiltinResult.error(ErrorValue.E_QUOTA);
     }
-    String unresolved = text(arguments.get(0));
+    String unresolved = ((StringValue) arguments.get(0)).text();
     int options =
         arguments.size() == 2 ? Math.toIntExact(integer(arguments.get(1))) : PARSE_TYPES | PARSE_OBJECTS;
     Path path = null;
@@ -126,11 +125,11 @@ final class SqliteService {
       return BuiltinResult.error(ErrorValue.E_INVARG);
     }
     Map<MooValue, MooValue> values = new LinkedHashMap<>();
-    values.put(string("path"), string(database.displayPath));
-    values.put(string("parse_types"), truth((database.options & PARSE_TYPES) != 0));
-    values.put(string("parse_objects"), truth((database.options & PARSE_OBJECTS) != 0));
-    values.put(string("sanitize_strings"), truth((database.options & SANITIZE_STRINGS) != 0));
-    values.put(string("locks"), new IntegerValue(database.locks.get()));
+    values.put(StringValue.of("path"), StringValue.of(database.displayPath));
+    values.put(StringValue.of("parse_types"), truth((database.options & PARSE_TYPES) != 0));
+    values.put(StringValue.of("parse_objects"), truth((database.options & PARSE_OBJECTS) != 0));
+    values.put(StringValue.of("sanitize_strings"), truth((database.options & SANITIZE_STRINGS) != 0));
+    values.put(StringValue.of("locks"), new IntegerValue(database.locks.get()));
     return BuiltinResult.value(new MapValue(values));
   }
 
@@ -139,7 +138,7 @@ final class SqliteService {
     if (database == null) {
       return BuiltinResult.value(ErrorValue.E_INVARG);
     }
-    String sql = text(arguments.get(1));
+    String sql = ((StringValue) arguments.get(1)).text();
     boolean headers = arguments.size() == 3 && arguments.get(2).isTruthy();
     database.locks.incrementAndGet();
     return BuiltinResult.hostWork(() -> run(database, () -> executeQuery(database, sql, headers)));
@@ -150,7 +149,7 @@ final class SqliteService {
     if (database == null) {
       return BuiltinResult.value(ErrorValue.E_INVARG);
     }
-    String sql = text(arguments.get(1));
+    String sql = ((StringValue) arguments.get(1)).text();
     ListValue parameters = (ListValue) arguments.get(2);
     database.locks.incrementAndGet();
     return BuiltinResult.hostWork(() -> run(database, () -> executePrepared(database, sql, parameters)));
@@ -264,7 +263,7 @@ final class SqliteService {
     int index = 1;
     for (MooValue parameter : parameters.elements()) {
       switch (parameter) {
-        case StringValue string -> statement.setString(index, text(string));
+        case StringValue string -> statement.setString(index, string.text());
         case IntegerValue integer -> statement.setLong(index, integer.value());
         case FloatValue floating -> statement.setDouble(index, floating.value());
         case ObjectValue object -> statement.setString(index, "#" + object.value());
@@ -286,7 +285,7 @@ final class SqliteService {
         if (headers) {
           row.add(
               new ListValue(
-                  List.of(string(metadata.getColumnLabel(column)), value)));
+                  List.of(StringValue.of(metadata.getColumnLabel(column)), value)));
         } else {
           row.add(value);
         }
@@ -299,7 +298,7 @@ final class SqliteService {
   private static MooValue databaseValue(int options, @Nullable String raw) {
     String value = raw == null ? "NULL" : raw;
     if ((options & PARSE_TYPES) == 0) {
-      return string(sanitize(options, value));
+      return StringValue.of(sanitize(options, value));
     }
     if ((options & PARSE_OBJECTS) != 0 && value.matches("#[+-]?[0-9]+")) {
       try {
@@ -322,7 +321,7 @@ final class SqliteService {
         // Not a Java-representable floating value.
       }
     }
-    return string(sanitize(options, value));
+    return StringValue.of(sanitize(options, value));
   }
 
   private static boolean looksFloating(String value) {
@@ -343,7 +342,7 @@ final class SqliteService {
       return category < Integer.MIN_VALUE || category > Integer.MAX_VALUE ? -1 : (int) category;
     }
     if (value instanceof StringValue string) {
-      return LIMIT_CATEGORIES.getOrDefault(text(string), -1);
+      return LIMIT_CATEGORIES.getOrDefault(string.text(), -1);
     }
     return -1;
   }
@@ -361,20 +360,8 @@ final class SqliteService {
     return ((IntegerValue) value).value();
   }
 
-  private static String text(MooValue value) {
-    return text((StringValue) value);
-  }
-
-  private static String text(StringValue value) {
-    return new String(value.bytes(), StandardCharsets.ISO_8859_1);
-  }
-
-  private static StringValue string(String value) {
-    return new StringValue(value.getBytes(StandardCharsets.ISO_8859_1));
-  }
-
   private static BuiltinResult stringResult(@Nullable String value) {
-    return BuiltinResult.value(string(value == null ? "SQLite error" : value));
+    return BuiltinResult.value(StringValue.of(value == null ? "SQLite error" : value));
   }
 
   private static IntegerValue truth(boolean value) {

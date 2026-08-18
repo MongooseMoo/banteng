@@ -26,7 +26,7 @@ final class JsonCodec {
     EMBEDDED_TYPES;
 
     static Optional<Mode> parse(StringValue value) {
-      String name = new String(value.bytes(), StandardCharsets.ISO_8859_1);
+      String name = value.text();
       return switch (name.toLowerCase(Locale.ROOT)) {
         case "common-subset" -> Optional.of(COMMON_SUBSET);
         case "embedded-types" -> Optional.of(EMBEDDED_TYPES);
@@ -40,7 +40,7 @@ final class JsonCodec {
   static StringValue generate(MooValue value, Mode mode, boolean disableBinaryEscapes) {
     ByteArrayOutputStream output = new ByteArrayOutputStream();
     generateValue(output, value, mode, disableBinaryEscapes);
-    return new StringValue(output.toByteArray());
+    return StringValue.of(output.toByteArray());
   }
 
   static MooValue parse(StringValue source, Mode mode) {
@@ -72,19 +72,21 @@ final class JsonCodec {
     } else if (value instanceof ObjectValue object) {
       quoted(
           output,
-          bytes("#" + object.value() + (mode == Mode.EMBEDDED_TYPES ? "|obj" : "")),
+          StringValue.of("#" + object.value() + (mode == Mode.EMBEDDED_TYPES ? "|obj" : ""))
+              .bytes(),
           disableBinaryEscapes);
     } else if (value instanceof ErrorValue error) {
       quoted(
           output,
-          bytes(error.name() + (mode == Mode.EMBEDDED_TYPES ? "|err" : "")),
+          StringValue.of(error.name() + (mode == Mode.EMBEDDED_TYPES ? "|err" : ""))
+              .bytes(),
           disableBinaryEscapes);
     } else if (value instanceof StringValue string) {
       byte[] bytes = string.bytes();
       if (mode == Mode.EMBEDDED_TYPES && hasTypeSuffix(bytes)) {
         ByteArrayOutputStream typed = new ByteArrayOutputStream(bytes.length + 4);
         typed.writeBytes(bytes);
-        typed.writeBytes(bytes("|str"));
+        typed.writeBytes(StringValue.of("|str").bytes());
         bytes = typed.toByteArray();
       }
       quoted(output, bytes, disableBinaryEscapes);
@@ -126,7 +128,7 @@ final class JsonCodec {
       if (mode == Mode.EMBEDDED_TYPES && hasTypeSuffix(bytes)) {
         ByteArrayOutputStream typed = new ByteArrayOutputStream(bytes.length + 4);
         typed.writeBytes(bytes);
-        typed.writeBytes(bytes("|str"));
+        typed.writeBytes(StringValue.of("|str").bytes());
         bytes = typed.toByteArray();
       }
       quoted(output, bytes, disableBinaryEscapes);
@@ -144,13 +146,19 @@ final class JsonCodec {
                       : key instanceof ErrorValue ? "|err" : "";
     }
     if (key instanceof IntegerValue integer) {
-      quoted(output, bytes(Long.toString(integer.value()) + suffix), disableBinaryEscapes);
+      quoted(
+          output,
+          StringValue.of(Long.toString(integer.value()) + suffix).bytes(),
+          disableBinaryEscapes);
     } else if (key instanceof FloatValue floating) {
-      quoted(output, bytes(Double.toString(floating.value()) + suffix), disableBinaryEscapes);
+      quoted(
+          output,
+          StringValue.of(Double.toString(floating.value()) + suffix).bytes(),
+          disableBinaryEscapes);
     } else if (key instanceof ObjectValue object) {
-      quoted(output, bytes("#" + object.value() + suffix), disableBinaryEscapes);
+      quoted(output, StringValue.of("#" + object.value() + suffix).bytes(), disableBinaryEscapes);
     } else if (key instanceof ErrorValue error) {
-      quoted(output, bytes(error.name() + suffix), disableBinaryEscapes);
+      quoted(output, StringValue.of(error.name() + suffix).bytes(), disableBinaryEscapes);
     } else {
       throw new IllegalArgumentException("JSON object key is not representable");
     }
@@ -201,7 +209,7 @@ final class JsonCodec {
   }
 
   private static boolean endsWith(byte[] value, String suffix) {
-    byte[] expected = bytes(suffix);
+    byte[] expected = StringValue.of(suffix).bytes();
     if (expected.length > value.length) {
       return false;
     }
@@ -213,12 +221,8 @@ final class JsonCodec {
     return true;
   }
 
-  private static byte[] bytes(String value) {
-    return value.getBytes(StandardCharsets.ISO_8859_1);
-  }
-
   private static void ascii(ByteArrayOutputStream output, String value) {
-    output.writeBytes(bytes(value));
+    output.writeBytes(StringValue.of(value).bytes());
   }
 
   private static final class Parser {
@@ -327,7 +331,7 @@ final class JsonCodec {
         }
       }
       String number =
-          new String(input, start, position - start, StandardCharsets.ISO_8859_1);
+          new String(input, start, position - start, StringValue.charset());
       rootNumber = root;
       if (!floating) {
         try {
@@ -357,7 +361,7 @@ final class JsonCodec {
       while (!atEnd()) {
         int current = take();
         if (current == '"') {
-          return new StringValue(value.toByteArray());
+          return StringValue.of(value.toByteArray());
         }
         if (current < 0x20) {
           throw new IllegalArgumentException("unescaped control byte in JSON string");
@@ -454,7 +458,7 @@ final class JsonCodec {
         }
       }
       if (endsWith(value, "|str")) {
-        return new StringValue(prefix(value, 4).getBytes(StandardCharsets.ISO_8859_1));
+        return StringValue.of(prefix(value, 4));
       }
       return string;
     }
@@ -507,7 +511,7 @@ final class JsonCodec {
 
     private static String prefix(byte[] value, int suffixLength) {
       return new String(
-          value, 0, value.length - suffixLength, StandardCharsets.ISO_8859_1);
+          value, 0, value.length - suffixLength, StringValue.charset());
     }
 
     private MooValue literal(String expected, MooValue value) {

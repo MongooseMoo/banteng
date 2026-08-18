@@ -2,7 +2,6 @@ package moo.persistence;
 
 import java.io.BufferedReader;
 import java.io.IOException;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -46,7 +45,7 @@ public final class LambdaMooV5Reader {
   public WorldTxn read(Path database) throws IOException {
     Objects.requireNonNull(database, "database");
     try (BufferedReader input =
-        Files.newBufferedReader(database, StandardCharsets.ISO_8859_1)) {
+        Files.newBufferedReader(database, StringValue.charset())) {
       requireExact(input, HEADER, "v5 header");
       int objectSlotCount = readCount(input, "object slot count");
       int programCount = readCount(input, "program count");
@@ -440,7 +439,7 @@ public final class LambdaMooV5Reader {
       case 0 -> new IntegerValue(readLong(input, "integer value"));
       case 1 -> new ObjectValue(readLong(input, "object value"));
       case 2 ->
-          new StringValue(requiredLine(input, "string value").getBytes(StandardCharsets.ISO_8859_1));
+          StringValue.of(requiredLine(input, "string value"));
       case 3 -> {
         long code = readLong(input, "error value");
         yield ErrorValue.fromCode(code & 0xffff_ffffL)

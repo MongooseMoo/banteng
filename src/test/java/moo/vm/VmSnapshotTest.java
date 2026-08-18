@@ -6,7 +6,6 @@ import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import java.nio.charset.StandardCharsets;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -189,7 +188,7 @@ final class VmSnapshotTest {
                     new MapValue(
                         Map.of(
                             new IntegerValue(1),
-                            new StringValue(new byte[] {'"'}))))));
+                            StringValue.of(new byte[] {'"'}))))));
     smaller.currentFrame().instructionPointer = 0;
 
     VmState larger = new VmState();
@@ -203,7 +202,7 @@ final class VmSnapshotTest {
                     new MapValue(
                         Map.of(
                             new IntegerValue(1),
-                            new StringValue(new byte[] {'"', '\\', 'x', 'y', 'z'}))))));
+                            StringValue.of(new byte[] {'"', '\\', 'x', 'y', 'z'}))))));
     larger.currentFrame().instructionPointer = 1;
 
     VmSnapshot smallerSnapshot = smaller.snapshot(0);
@@ -563,6 +562,6 @@ final class VmSnapshotTest {
   }
 
   private static StringValue text(String value) {
-    return new StringValue(value.getBytes(StandardCharsets.ISO_8859_1));
+    return StringValue.of(value);
   }
 }

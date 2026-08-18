@@ -3,3 +3,5 @@ plugins {
 }
 
 rootProject.name = "banteng"
+
+include("rewrite-recipes")

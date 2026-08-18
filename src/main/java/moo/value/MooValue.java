@@ -3,6 +3,7 @@ package moo.value;
 import java.math.BigDecimal;
 import java.nio.ByteBuffer;
 import java.nio.charset.CharacterCodingException;
+import java.nio.charset.Charset;
 import java.nio.charset.CodingErrorAction;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
@@ -195,16 +196,37 @@ public sealed interface MooValue
 
   /** An immutable binary MOO string represented as owned Latin-1 bytes. */
   final class StringValue implements MooValue {
+    private static final Charset CHARSET = StandardCharsets.ISO_8859_1;
     private final byte[] bytes;
 
     /** Creates a string by taking a defensive copy of {@code bytes}. */
-    public StringValue(byte[] bytes) {
+    private StringValue(byte[] bytes) {
       this.bytes = Arrays.copyOf(bytes, bytes.length);
+    }
+
+    /** Creates a binary string by taking a defensive copy of {@code bytes}. */
+    public static StringValue of(byte[] bytes) {
+      return new StringValue(bytes);
+    }
+
+    /** Encodes {@code text} as one Latin-1 byte per character. */
+    public static StringValue of(String text) {
+      return new StringValue(text.getBytes(CHARSET));
+    }
+
+    /** Returns the one encoding used by MOO strings and their external streams. */
+    public static Charset charset() {
+      return CHARSET;
     }
 
     /** Returns a defensive copy of the binary string contents. */
     public byte[] bytes() {
       return Arrays.copyOf(bytes, bytes.length);
+    }
+
+    /** Decodes the binary string as Latin-1 text without losing any byte values. */
+    public String text() {
+      return new String(bytes, CHARSET);
     }
 
     /** Returns the byte length of this string. */

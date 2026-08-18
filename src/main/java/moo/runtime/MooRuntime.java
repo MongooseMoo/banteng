@@ -5,7 +5,6 @@ import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.LinkedHashSet;
@@ -435,9 +434,9 @@ public final class MooRuntime implements AutoCloseable {
       locals.put("this", waif);
       locals.put("player", new ObjectValue(-1));
       locals.put("caller", new ObjectValue(-1));
-      locals.put("verb", encode(":recycle"));
+      locals.put("verb", StringValue.of(":recycle"));
       locals.put("args", new ListValue(List.of()));
-      locals.put("argstr", encode(""));
+      locals.put("argstr", StringValue.of(""));
       return startStored(recycle, locals, RuntimeContinuation.waifFinalization(waif));
     }
     WorldVerb started = world().verb(0, "server_started").orElse(null);
@@ -749,7 +748,7 @@ public final class MooRuntime implements AutoCloseable {
 
     List<MooValue> commandWords = new ArrayList<>();
     for (String word : words) {
-      commandWords.add(encode(word));
+      commandWords.add(StringValue.of(word));
     }
     if (line.startsWith("#$#") && !connection.disableOob) {
       Optional<WorldVerb> outOfBand =
@@ -900,7 +899,7 @@ public final class MooRuntime implements AutoCloseable {
       {
         List<MooValue> arguments = new ArrayList<>();
         for (int index = 1; index < words.size(); index++) {
-          arguments.add(encode(words.get(index)));
+          arguments.add(StringValue.of(words.get(index)));
         }
         List<List<String>> prepositionsByCode =
             List.of(
@@ -1018,7 +1017,7 @@ public final class MooRuntime implements AutoCloseable {
                     if (!(aliasValue instanceof StringValue alias)) {
                       continue;
                     }
-                    String candidateAlias = new String(alias.bytes(), StandardCharsets.ISO_8859_1);
+                    String candidateAlias = alias.text();
                     if (candidateAlias.regionMatches(
                         true, 0, directObjectString, 0, directObjectString.length())) {
                       if (candidateAlias.length() == directObjectString.length()) {
@@ -1104,7 +1103,7 @@ public final class MooRuntime implements AutoCloseable {
                     if (!(aliasValue instanceof StringValue alias)) {
                       continue;
                     }
-                    String candidateAlias = new String(alias.bytes(), StandardCharsets.ISO_8859_1);
+                    String candidateAlias = alias.text();
                     if (candidateAlias.regionMatches(
                         true, 0, indirectObjectString, 0, indirectObjectString.length())) {
                       if (candidateAlias.length() == indirectObjectString.length()) {
@@ -1226,9 +1225,9 @@ public final class MooRuntime implements AutoCloseable {
                 words.getFirst(),
                 new ListValue(arguments),
                 dispatchLine.substring(argumentStart));
-        locals.put("dobjstr", encode(directObjectString));
-        locals.put("prepstr", encode(prepositionString));
-        locals.put("iobjstr", encode(indirectObjectString));
+        locals.put("dobjstr", StringValue.of(directObjectString));
+        locals.put("prepstr", StringValue.of(prepositionString));
+        locals.put("iobjstr", StringValue.of(indirectObjectString));
         locals.put("dobj", new ObjectValue(directObject));
         locals.put("iobj", new ObjectValue(indirectObject));
         return startStored(
@@ -1288,7 +1287,7 @@ public final class MooRuntime implements AutoCloseable {
         inputIndex++;
       } else if (Character.isWhitespace(character) && !inQuotes) {
         if (!currentWord.isEmpty()) {
-          arguments.add(encode(currentWord.toString()));
+          arguments.add(StringValue.of(currentWord.toString()));
           currentWord.setLength(0);
         }
         inputIndex++;
@@ -1298,7 +1297,7 @@ public final class MooRuntime implements AutoCloseable {
       }
     }
     if (!currentWord.isEmpty()) {
-      arguments.add(encode(currentWord.toString()));
+      arguments.add(StringValue.of(currentWord.toString()));
     }
     return startStored(
         outOfBand.orElseThrow(),
@@ -1383,7 +1382,7 @@ public final class MooRuntime implements AutoCloseable {
           if (!(aliasValue instanceof StringValue alias)) {
             continue;
           }
-          String candidateAlias = new String(alias.bytes(), StandardCharsets.ISO_8859_1);
+          String candidateAlias = alias.text();
           if (candidateAlias.regionMatches(true, 0, reference, 0, reference.length())) {
             if (candidateAlias.length() == reference.length()) {
               exact = true;
@@ -1431,7 +1430,7 @@ public final class MooRuntime implements AutoCloseable {
     MooValue destinationIp =
         world()
             .connectionInfo(connectionId)
-            .flatMap(info -> info.get(encode("destination_ip")))
+            .flatMap(info -> info.get(StringValue.of("destination_ip")))
             .orElse(null);
     boolean trusted = false;
     if (destinationIp instanceof StringValue && trustedProxies instanceof ListValue proxyList) {
@@ -1482,7 +1481,7 @@ public final class MooRuntime implements AutoCloseable {
     MooValue destinationIp =
         world()
             .connectionInfo(connectionId)
-            .flatMap(info -> info.get(encode("destination_ip")))
+            .flatMap(info -> info.get(StringValue.of("destination_ip")))
             .orElse(null);
     boolean trusted = false;
     if (destinationIp instanceof StringValue && trustedProxies instanceof ListValue proxyList) {
@@ -1514,7 +1513,7 @@ public final class MooRuntime implements AutoCloseable {
         quoted = !quoted;
       } else if (character == ' ' && !quoted) {
         if (!word.isEmpty()) {
-          arguments.add(encode(word.toString()));
+          arguments.add(StringValue.of(word.toString()));
           word.setLength(0);
         }
       } else {
@@ -1522,7 +1521,7 @@ public final class MooRuntime implements AutoCloseable {
       }
     }
     if (!word.isEmpty()) {
-      arguments.add(encode(word.toString()));
+      arguments.add(StringValue.of(word.toString()));
     }
     Map<String, MooValue> locals =
         verbLocals(
@@ -1598,11 +1597,11 @@ public final class MooRuntime implements AutoCloseable {
           if (message == null) {
             oldLines.add("*** Redirecting connection to new port ***");
           } else if (message instanceof StringValue string) {
-            oldLines.add(new String(string.bytes(), StandardCharsets.ISO_8859_1));
+            oldLines.add(string.text());
           } else if (message instanceof ListValue list) {
             for (MooValue element : list.elements()) {
               if (element instanceof StringValue string) {
-                oldLines.add(new String(string.bytes(), StandardCharsets.ISO_8859_1));
+                oldLines.add(string.text());
               }
             }
           }
@@ -1625,11 +1624,11 @@ public final class MooRuntime implements AutoCloseable {
           if (message == null) {
             newLines.add("*** Redirecting old connection to this port ***");
           } else if (message instanceof StringValue string) {
-            newLines.add(new String(string.bytes(), StandardCharsets.ISO_8859_1));
+            newLines.add(string.text());
           } else if (message instanceof ListValue list) {
             for (MooValue element : list.elements()) {
               if (element instanceof StringValue string) {
-                newLines.add(new String(string.bytes(), StandardCharsets.ISO_8859_1));
+                newLines.add(string.text());
               }
             }
           }
@@ -1842,11 +1841,11 @@ public final class MooRuntime implements AutoCloseable {
       if (message == null) {
         lines.add("*** Timed-out waiting for login. ***");
       } else if (message instanceof StringValue string) {
-        lines.add(new String(string.bytes(), StandardCharsets.ISO_8859_1));
+        lines.add(string.text());
       } else if (message instanceof ListValue list) {
         for (MooValue element : list.elements()) {
           if (element instanceof StringValue string) {
-            lines.add(new String(string.bytes(), StandardCharsets.ISO_8859_1));
+            lines.add(string.text());
           }
         }
       }
@@ -1894,7 +1893,7 @@ public final class MooRuntime implements AutoCloseable {
     List<MooValue> stack = new ArrayList<>();
     for (VmSnapshot.Frame frame : timedOut.frames()) {
       MooValue thisValue = frame.locals().getOrDefault("this", frame.receiver());
-      MooValue verbValue = frame.locals().getOrDefault("verb", encode(""));
+      MooValue verbValue = frame.locals().getOrDefault("verb", StringValue.of(""));
       MooValue playerValue =
           frame.locals().getOrDefault("player", new ObjectValue(continuation.first()));
       stack.add(
@@ -1912,7 +1911,7 @@ public final class MooRuntime implements AutoCloseable {
           new ListValue(
               List.of(
                   timedOut.initialLocals().getOrDefault("this", new ObjectValue(-1)),
-                  timedOut.initialLocals().getOrDefault("verb", encode("")),
+                  timedOut.initialLocals().getOrDefault("verb", StringValue.of("")),
                   new ObjectValue(timedOut.initialProgrammer()),
                   timedOut.initialVerbLocation(),
                   timedOut
@@ -1922,9 +1921,9 @@ public final class MooRuntime implements AutoCloseable {
     }
     ListValue traceback =
         new ListValue(
-            List.of(encode("Task ran out of ticks"), encode("(End of traceback)")));
+            List.of(StringValue.of("Task ran out of ticks"), StringValue.of("(End of traceback)")));
     ListValue arguments =
-        new ListValue(List.of(encode("ticks"), new ListValue(stack), traceback));
+        new ListValue(List.of(StringValue.of("ticks"), new ListValue(stack), traceback));
     return startStored(
         handler.orElseThrow(),
         verbLocals(0, continuation.first(), -1, "handle_task_timeout", arguments, ""),
@@ -1939,7 +1938,7 @@ public final class MooRuntime implements AutoCloseable {
     MooValue receiver = locals.getOrDefault("this", new ObjectValue(-1));
     String verbName =
         locals.get("verb") instanceof StringValue name
-            ? new String(name.bytes(), StandardCharsets.ISO_8859_1)
+            ? name.text()
             : "";
     MooValue verbLocation;
     if (receiver instanceof ObjectValue object) {
@@ -2110,9 +2109,9 @@ public final class MooRuntime implements AutoCloseable {
       locals.put("this", anonymous);
       locals.put("player", new ObjectValue(-1));
       locals.put("caller", new ObjectValue(-1));
-      locals.put("verb", encode("recycle"));
+      locals.put("verb", StringValue.of("recycle"));
       locals.put("args", new ListValue(List.of()));
-      locals.put("argstr", encode(""));
+      locals.put("argstr", StringValue.of(""));
       spawnedSteps()
           .add(
               startStored(
@@ -2131,9 +2130,9 @@ public final class MooRuntime implements AutoCloseable {
       locals.put("this", waif);
       locals.put("player", new ObjectValue(-1));
       locals.put("caller", new ObjectValue(-1));
-      locals.put("verb", encode(":recycle"));
+      locals.put("verb", StringValue.of(":recycle"));
       locals.put("args", new ListValue(List.of()));
-      locals.put("argstr", encode(""));
+      locals.put("argstr", StringValue.of(""));
       spawnedSteps()
           .add(
               startStored(
@@ -2576,7 +2575,7 @@ public final class MooRuntime implements AutoCloseable {
       return BuiltinResult.error(ErrorValue.E_INVARG);
     }
     if (!connection.pendingInput.isEmpty()) {
-      return BuiltinResult.value(encode(connection.pendingInput.removeFirst()));
+      return BuiltinResult.value(StringValue.of(connection.pendingInput.removeFirst()));
     }
     if (arguments.size() == 2 && arguments.get(1).isTruthy()) {
       return BuiltinResult.value(new IntegerValue(0));
@@ -2608,7 +2607,7 @@ public final class MooRuntime implements AutoCloseable {
     if (completion == null) {
       return false;
     }
-    completion.complete(BuiltinResult.value(encode(line)));
+    completion.complete(BuiltinResult.value(StringValue.of(line)));
     return true;
   }
 
@@ -2650,7 +2649,7 @@ public final class MooRuntime implements AutoCloseable {
         connection.intrinsicCommands = (ListValue) request.value();
       } else if (request.value() instanceof StringValue command && command.length() > 0) {
         connection.flushCommand =
-            Optional.of(new String(command.bytes(), StandardCharsets.ISO_8859_1));
+            Optional.of(command.text());
       } else {
         connection.flushCommand = Optional.empty();
       }
@@ -2675,12 +2674,12 @@ public final class MooRuntime implements AutoCloseable {
     }
     if (arguments.size() == 2) {
       String option =
-          new String(((StringValue) arguments.get(1)).bytes(), StandardCharsets.ISO_8859_1)
+          ((StringValue) arguments.get(1)).text()
               .toLowerCase(java.util.Locale.ROOT);
       MooValue value =
           switch (option) {
             case "binary" -> new IntegerValue(connection.binary ? 1 : 0);
-            case "flush-command" -> encode(connection.flushCommand.orElse(""));
+            case "flush-command" -> StringValue.of(connection.flushCommand.orElse(""));
             case "hold-input" -> new IntegerValue(connection.holdInput ? 1 : 0);
             case "disable-oob" -> new IntegerValue(connection.disableOob ? 1 : 0);
             case "intrinsic-commands" ->
@@ -2693,7 +2692,7 @@ public final class MooRuntime implements AutoCloseable {
     }
     List<MooValue> options = new ArrayList<>();
     options.add(connectionOptionPair("binary", new IntegerValue(connection.binary ? 1 : 0)));
-    options.add(connectionOptionPair("flush-command", encode(connection.flushCommand.orElse(""))));
+    options.add(connectionOptionPair("flush-command", StringValue.of(connection.flushCommand.orElse(""))));
     options.add(connectionOptionPair("hold-input", new IntegerValue(connection.holdInput ? 1 : 0)));
     options.add(connectionOptionPair("disable-oob", new IntegerValue(connection.disableOob ? 1 : 0)));
     options.add(
@@ -2722,7 +2721,7 @@ public final class MooRuntime implements AutoCloseable {
     return BuiltinResult.value(
         new ListValue(
             List.of(
-                encode(connection.prefix.orElse("")), encode(connection.suffix.orElse("")))));
+                StringValue.of(connection.prefix.orElse("")), StringValue.of(connection.suffix.orElse("")))));
   }
 
   private BuiltinResult queueInfo(
@@ -2763,26 +2762,26 @@ public final class MooRuntime implements AutoCloseable {
             ? 0
             : connection.pendingInput.stream().mapToLong(String::length).sum();
     Map<MooValue, MooValue> values = new LinkedHashMap<>();
-    values.put(encode("player"), new ObjectValue(player));
+    values.put(StringValue.of("player"), new ObjectValue(player));
     values.put(
-        encode("handler"),
+        StringValue.of("handler"),
         new ObjectValue(connection == null ? -1 : connection.listenerHandler));
-    values.put(encode("connected"), BooleanValue.of(connection != null));
-    values.put(encode("total_input_length"), new IntegerValue(inputLength));
-    values.put(encode("last_input_task_id"), new IntegerValue(0));
+    values.put(StringValue.of("connected"), BooleanValue.of(connection != null));
+    values.put(StringValue.of("total_input_length"), new IntegerValue(inputLength));
+    values.put(StringValue.of("last_input_task_id"), new IntegerValue(0));
     values.put(
-        encode("input_suspended"),
+        StringValue.of("input_suspended"),
         BooleanValue.of(connection != null && connection.holdInput));
-    values.put(encode("usage"), new IntegerValue(0));
-    values.put(encode("num_bg_tasks"), new IntegerValue(backgroundTasks));
+    values.put(StringValue.of("usage"), new IntegerValue(0));
+    values.put(StringValue.of("num_bg_tasks"), new IntegerValue(backgroundTasks));
     // Toast's queue_info() exposes hold_input from its zero-valued usage field.
-    values.put(encode("hold_input"), BooleanValue.FALSE);
+    values.put(StringValue.of("hold_input"), BooleanValue.FALSE);
     values.put(
-        encode("disable_oob"),
+        StringValue.of("disable_oob"),
         BooleanValue.of(connection != null && connection.disableOob));
-    values.put(encode("reading"), BooleanValue.FALSE);
-    values.put(encode("parsing"), BooleanValue.FALSE);
-    values.put(encode("reading_task_id"), new IntegerValue(0));
+    values.put(StringValue.of("reading"), BooleanValue.FALSE);
+    values.put(StringValue.of("parsing"), BooleanValue.FALSE);
+    values.put(StringValue.of("reading_task_id"), new IntegerValue(0));
     return BuiltinResult.value(new MapValue(values));
   }
 
@@ -2836,7 +2835,7 @@ public final class MooRuntime implements AutoCloseable {
   }
 
   private static ListValue connectionOptionPair(String name, MooValue value) {
-    return new ListValue(List.of(encode(name), value));
+    return new ListValue(List.of(StringValue.of(name), value));
   }
 
   private void applyForcedInputRequests(VmState task) {
@@ -2899,11 +2898,11 @@ public final class MooRuntime implements AutoCloseable {
         if (message == null) {
           lines.add("*** Disconnected ***");
         } else if (message instanceof StringValue string) {
-          lines.add(new String(string.bytes(), StandardCharsets.ISO_8859_1));
+          lines.add(string.text());
         } else if (message instanceof ListValue list) {
           for (MooValue element : list.elements()) {
             if (element instanceof StringValue string) {
-              lines.add(new String(string.bytes(), StandardCharsets.ISO_8859_1));
+              lines.add(string.text());
             }
           }
         }
@@ -2972,11 +2971,11 @@ public final class MooRuntime implements AutoCloseable {
         if (message == null) {
           lines.add("*** Recycled ***");
         } else if (message instanceof StringValue string) {
-          lines.add(new String(string.bytes(), StandardCharsets.ISO_8859_1));
+          lines.add(string.text());
         } else if (message instanceof ListValue list) {
           for (MooValue element : list.elements()) {
             if (element instanceof StringValue string) {
-              lines.add(new String(string.bytes(), StandardCharsets.ISO_8859_1));
+              lines.add(string.text());
             }
           }
         }
@@ -2998,9 +2997,9 @@ public final class MooRuntime implements AutoCloseable {
     locals.put("this", new ObjectValue(thisObject));
     locals.put("player", new ObjectValue(player));
     locals.put("caller", new ObjectValue(caller));
-    locals.put("verb", encode(verb));
+    locals.put("verb", StringValue.of(verb));
     locals.put("args", arguments);
-    locals.put("argstr", encode(argumentString));
+    locals.put("argstr", StringValue.of(argumentString));
     return locals;
   }
 
@@ -3139,7 +3138,7 @@ public final class MooRuntime implements AutoCloseable {
           "(End of traceback)");
     }
     List<String> lines = new ArrayList<>();
-    String description = new String(message.bytes(), StandardCharsets.ISO_8859_1);
+    String description = message.text();
     for (int index = 0; index < traceback.size(); index++) {
       if (!(traceback.elements().get(index) instanceof ListValue frame) || frame.size() < 6) {
         continue;
@@ -3147,7 +3146,7 @@ public final class MooRuntime implements AutoCloseable {
       MooValue receiver = frame.elements().get(0);
       String verb =
           frame.elements().get(1) instanceof StringValue name
-              ? new String(name.bytes(), StandardCharsets.ISO_8859_1)
+              ? name.text()
               : "";
       MooValue location = frame.elements().get(3);
       long line =
@@ -3195,7 +3194,7 @@ public final class MooRuntime implements AutoCloseable {
                 exception.elements().get(1),
                 exception.elements().get(2),
                 exception.elements().get(3),
-                new ListValue(formatted.stream().map(MooRuntime::encode).toList())));
+                new ListValue(formatted.stream().map(StringValue::of).toList())));
     long player =
         exception.elements().get(3) instanceof ListValue traceback
                 && traceback.size() > 0
@@ -3459,10 +3458,6 @@ public final class MooRuntime implements AutoCloseable {
       throw new IllegalArgumentException("unknown connection #" + connectionId);
     }
     return connection;
-  }
-
-  private static StringValue encode(String value) {
-    return new StringValue(value.getBytes(StandardCharsets.ISO_8859_1));
   }
 
   enum RuntimeTransition {
