@@ -1,5 +1,6 @@
 package moo.world;
 
+import com.google.errorprone.annotations.concurrent.GuardedBy;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
@@ -16,10 +17,10 @@ import moo.value.MooValue.WaifValue;
 
 /** Owns committed revisions; all record access remains on {@link WorldTxn}. */
 final class WorldHistory {
-  private final NavigableMap<Long, World> revisions = new TreeMap<>();
-  private final Map<Long, Integer> activeTransactions = new HashMap<>();
-  private final VerbCache verbCache = new VerbCache();
-  private World current;
+  @GuardedBy("this") private final NavigableMap<Long, World> revisions = new TreeMap<>();
+  @GuardedBy("this") private final Map<Long, Integer> activeTransactions = new HashMap<>();
+  @GuardedBy("this") private final VerbCache verbCache = new VerbCache();
+  @GuardedBy("this") private World current;
 
   WorldHistory(List<Long> players, List<WorldObject> objects) {
     this(players, objects, Map.of(), Map.of(), List.of());

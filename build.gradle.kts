@@ -43,6 +43,7 @@ configurations[jmh.runtimeOnlyConfigurationName].extendsFrom(configurations.runt
 configurations[jmh.annotationProcessorConfigurationName].setExtendsFrom(emptyList())
 
 dependencies {
+    compileOnly("com.google.errorprone:error_prone_annotations:2.50.0")
     implementation("info.picocli:picocli:4.7.7")
     implementation("org.bouncycastle:bcprov-jdk18on:1.84")
     implementation("org.jspecify:jspecify:1.0.0")
@@ -80,6 +81,7 @@ tasks.withType<JavaCompile>().configureEach {
     options.encoding = "UTF-8"
     options.compilerArgs.addAll(listOf("-Xlint:all", "-Werror"))
     options.errorprone {
+        error("GuardedBy")
         error("NullAway", "RequireExplicitNullMarking")
         option("NullAway:OnlyNullMarked", "true")
         option("NullAway:JSpecifyMode", "true")

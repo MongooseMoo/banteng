@@ -1,5 +1,6 @@
 package moo.runtime;
 
+import com.google.errorprone.annotations.concurrent.GuardedBy;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.file.Files;
@@ -74,12 +75,15 @@ public final class MooRuntime implements AutoCloseable {
   private final MooVm vm;
   private final PublicationScheduler scheduler;
   private final List<ActiveConnection> checkpointedConnections;
+  @GuardedBy("this")
   private final Map<Long, ConnectionState> publishedConnections = new LinkedHashMap<>();
+  @GuardedBy("this")
   private final Map<Long, CompletableFuture<BuiltinResult>> pendingReads =
       new LinkedHashMap<>();
   private static final ThreadLocal<AttemptContext> ATTEMPT = new ThreadLocal<>();
   private final AtomicLong connectionGenerations = new AtomicLong();
   private volatile boolean checkpointPublished;
+  @GuardedBy("this")
   private long sessionRevision;
 
   /** Creates a runtime over the one concrete world transaction. */

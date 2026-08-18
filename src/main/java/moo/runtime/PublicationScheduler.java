@@ -1,5 +1,6 @@
 package moo.runtime;
 
+import com.google.errorprone.annotations.concurrent.GuardedBy;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
@@ -56,20 +57,34 @@ final class PublicationScheduler implements AutoCloseable {
   private volatile int workers;
   private volatile int backgroundWorkers;
   private final ThreadPoolExecutor executor;
+  @GuardedBy("this")
   private final Queue<Entry> ready = new ArrayDeque<>();
+  @GuardedBy("this")
   private final Map<Long, Attempt> completed = new TreeMap<>();
+  @GuardedBy("this")
   private final Map<Long, CompletableFuture<List<String>>> ingress = new TreeMap<>();
+  @GuardedBy("this")
   private final Map<Long, Long> lastInputTasks = new TreeMap<>();
+  @GuardedBy("this")
   private final Map<Long, TimedWork> timedWork = new TreeMap<>();
+  @GuardedBy("this")
   private final Map<Long, TimedWork> checkpointingWork = new TreeMap<>();
+  @GuardedBy("this")
   private final Map<Long, SuspendedWork> finalizationBlocked = new LinkedHashMap<>();
+  @GuardedBy("this")
   private final Map<MooRuntime.FinalizationControl, Long> activeFinalizations =
       new LinkedHashMap<>();
+  @GuardedBy("this")
   private long nextTicket;
+  @GuardedBy("this")
   private long nextTaskId;
+  @GuardedBy("this")
   private long nextPublicationTicket;
+  @GuardedBy("this")
   private boolean publicationDraining;
+  @GuardedBy("this")
   private boolean restoredTasksActivated;
+  @GuardedBy("this")
   private boolean closed;
 
   PublicationScheduler(WorldTxn committedWorld, MooRuntime runtime) {

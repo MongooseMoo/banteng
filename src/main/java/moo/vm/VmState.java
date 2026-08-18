@@ -31,7 +31,13 @@ import moo.value.MooValue.MapValue;
 import moo.value.MooValue.ObjectValue;
 import moo.value.MooValue.StringValue;
 
-/** Explicit heap state for one MOO bytecode execution. */
+/**
+ * Explicit heap state for one MOO bytecode execution.
+ *
+ * <p>This is single-owner mutable task state. A scheduler worker owns an instance for one execution
+ * segment, then publishes an immutable {@link VmSnapshot}; no {@code VmState} instance is shared
+ * between workers or accessed concurrently.
+ */
 public final class VmState {
   private static final long DEFAULT_FOREGROUND_TICKS = 60_000;
   private static final long DEFAULT_FOREGROUND_SECONDS = 5;
