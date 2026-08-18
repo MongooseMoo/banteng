@@ -4,4 +4,5 @@ plugins {
 
 rootProject.name = "banteng"
 
+include("errorprone-checks")
 include("rewrite-recipes")

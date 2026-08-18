@@ -88,7 +88,7 @@ final class JetCheckAcceptanceTest {
                     Generator.integers(0, liveObjectIds.size() - 1), "recycle model index %s");
             long objectId = liveObjectIds.remove(index);
             try (WorldTxn transaction = world.begin()) {
-              assertTrue(transaction.recycleObject(objectId));
+              assertTrue(transaction.recycleObject(objectId).isOk());
               assertTrue(transaction.object(objectId).isEmpty());
               assertWorldMatchesModel(transaction, liveObjectIds);
               assertTrue(transaction.commit().isCommitted());

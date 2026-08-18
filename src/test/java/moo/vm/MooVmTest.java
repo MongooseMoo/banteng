@@ -5029,7 +5029,7 @@ final class MooVmTest {
                 contentNine,
                 location));
     try (WorldTxn world = root.begin()) {
-      assertTrue(world.recycleObject(1));
+      assertTrue(world.recycleObject(1).isOk());
 
       assertTrue(world.object(1).isEmpty());
       assertEquals(List.of(), world.players());

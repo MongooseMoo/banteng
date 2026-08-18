@@ -933,9 +933,11 @@ final class PublicationSchedulerTest {
         boolean configured =
             transaction.property(serverOptions.value(), "fg_ticks").isPresent()
                 ? transaction.writeObjectProperty(
-                    serverOptions.value(), "fg_ticks", new IntegerValue(20_000_000))
+                        serverOptions.value(), "fg_ticks", new IntegerValue(20_000_000))
+                    .isOk()
                 : transaction.addProperty(
-                    serverOptions.value(), "fg_ticks", new IntegerValue(20_000_000), 0, 3);
+                        serverOptions.value(), "fg_ticks", new IntegerValue(20_000_000), 0, 3)
+                    .isOk();
         assertTrue(configured);
         assertTrue(transaction.commit().isCommitted());
       }
@@ -1124,9 +1126,11 @@ final class PublicationSchedulerTest {
         boolean configured =
             transaction.property(serverOptions.value(), "fg_ticks").isPresent()
                 ? transaction.writeObjectProperty(
-                    serverOptions.value(), "fg_ticks", new IntegerValue(100))
+                        serverOptions.value(), "fg_ticks", new IntegerValue(100))
+                    .isOk()
                 : transaction.addProperty(
-                    serverOptions.value(), "fg_ticks", new IntegerValue(100), 0, 3);
+                        serverOptions.value(), "fg_ticks", new IntegerValue(100), 0, 3)
+                    .isOk();
         assertTrue(configured);
         assertTrue(transaction.commit().isCommitted());
       }
@@ -1159,9 +1163,11 @@ final class PublicationSchedulerTest {
         boolean configured =
             transaction.property(serverOptions.value(), "bg_ticks").isPresent()
                 ? transaction.writeObjectProperty(
-                    serverOptions.value(), "bg_ticks", new IntegerValue(100))
+                        serverOptions.value(), "bg_ticks", new IntegerValue(100))
+                    .isOk()
                 : transaction.addProperty(
-                    serverOptions.value(), "bg_ticks", new IntegerValue(100), 0, 3);
+                        serverOptions.value(), "bg_ticks", new IntegerValue(100), 0, 3)
+                    .isOk();
         assertTrue(configured);
         WorldObject system = transaction.object(0).orElseThrow();
         int handlerIndex =
@@ -1175,7 +1181,8 @@ final class PublicationSchedulerTest {
                 handlerIndex,
                 "#0.scheduler_counter = length(args) == 3 && args[1] == \"ticks\" "
                     + "&& typeof(args[2]) == LIST && length(args[2]) > 0 "
-                    + "&& typeof(args[3]) == LIST && length(args[3]) > 0; return 1;"));
+                    + "&& typeof(args[3]) == LIST && length(args[3]) > 0; return 1;")
+                .isOk());
         assertTrue(transaction.commit().isCommitted());
       }
 
@@ -1273,12 +1280,11 @@ final class PublicationSchedulerTest {
       try (ConflictScenario scenario = startConflictScenario(harness)) {
         scenario.finish();
       }
-      try {
-        harness.runtime.executeLine(-999, "; return 1;");
-        fail("unknown connection request must fail");
-      } catch (IllegalArgumentException expected) {
-        assertEquals("unknown connection #-999", expected.getMessage());
-      }
+      IllegalArgumentException expected =
+          assertThrows(
+              IllegalArgumentException.class,
+              () -> harness.runtime.executeLine(-999, "; return 1;"));
+      assertEquals("unknown connection #-999", expected.getMessage());
 
       assertEquals(1, retainedRevisionCount(harness.root));
     }
@@ -1370,9 +1376,11 @@ final class PublicationSchedulerTest {
       boolean configured =
           transaction.property(serverOptions.value(), "fg_ticks").isPresent()
               ? transaction.writeObjectProperty(
-                  serverOptions.value(), "fg_ticks", new IntegerValue(20_000_000))
+                      serverOptions.value(), "fg_ticks", new IntegerValue(20_000_000))
+                  .isOk()
               : transaction.addProperty(
-                  serverOptions.value(), "fg_ticks", new IntegerValue(20_000_000), 0, 3);
+                      serverOptions.value(), "fg_ticks", new IntegerValue(20_000_000), 0, 3)
+                  .isOk();
       assertTrue(configured);
       assertTrue(transaction.commit().isCommitted());
     }
@@ -1754,9 +1762,11 @@ final class PublicationSchedulerTest {
         boolean written =
             transaction.property(0, "scheduler_counter").isPresent()
                 ? transaction.writeObjectProperty(
-                    0, "scheduler_counter", new IntegerValue(0))
+                        0, "scheduler_counter", new IntegerValue(0))
+                    .isOk()
                 : transaction.addProperty(
-                    0, "scheduler_counter", new IntegerValue(0), 0, 3);
+                        0, "scheduler_counter", new IntegerValue(0), 0, 3)
+                    .isOk();
         assertTrue(written);
         assertTrue(transaction.commit().isCommitted());
       }

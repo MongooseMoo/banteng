@@ -1,15 +1,26 @@
 package moo;
 
+import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.classes;
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses;
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noMethods;
 import static com.tngtech.archunit.library.dependencies.SlicesRuleDefinition.slices;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import com.tngtech.archunit.core.domain.JavaClass;
 import com.tngtech.archunit.core.domain.JavaClasses;
+import com.tngtech.archunit.core.domain.JavaCodeUnit;
 import com.tngtech.archunit.core.importer.ClassFileImporter;
 import com.tngtech.archunit.core.importer.ImportOption;
+import com.tngtech.archunit.lang.ArchCondition;
+import com.tngtech.archunit.lang.ArchRule;
+import com.tngtech.archunit.lang.ConditionEvents;
+import com.tngtech.archunit.lang.SimpleConditionEvent;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Objects;
 import java.util.Set;
+import moo.builtin.ArchUnitThrowableCatchFixture;
 import moo.persistence.ToastV17ProgramLayout;
 import org.junit.jupiter.api.Test;
 
@@ -19,6 +30,7 @@ final class ArchitectureTest {
           "app",
           "builtin",
           "bytecode",
+          "host",
           "logging",
           "persistence",
           "runtime",
@@ -40,11 +52,12 @@ final class ArchitectureTest {
     assertOnlyDependsOn(productionClasses, "value");
     assertOnlyDependsOn(productionClasses, "syntax");
     assertOnlyDependsOn(productionClasses, "bytecode", "syntax", "value");
+    assertOnlyDependsOn(productionClasses, "host");
     assertOnlyDependsOn(productionClasses, "logging");
     assertOnlyDependsOn(productionClasses, "world", "bytecode", "value");
     assertOnlyDependsOn(productionClasses, "vm", "builtin", "bytecode", "value", "world");
     assertOnlyDependsOn(
-        productionClasses, "builtin", "bytecode", "logging", "syntax", "value", "world");
+        productionClasses, "builtin", "bytecode", "host", "logging", "syntax", "value", "world");
     assertOnlyDependsOn(
         productionClasses,
         "runtime",
@@ -108,6 +121,59 @@ final class ArchitectureTest {
         .should()
         .bePublic()
         .check(productionClasses());
+  }
+
+  @Test
+  void builtinsNeverCatchThrowable() {
+    builtinThrowableCatchRule().check(productionClasses());
+  }
+
+  @Test
+  void builtinThrowableCatchRuleRejectsFocusedFixture() {
+    JavaClasses fixture =
+        new ClassFileImporter().importClasses(ArchUnitThrowableCatchFixture.class);
+
+    AssertionError violation =
+        assertThrows(AssertionError.class, () -> builtinThrowableCatchRule().check(fixture));
+    String message = Objects.requireNonNull(violation.getMessage());
+    assertTrue(message.contains("ArchUnitThrowableCatchFixture"));
+    assertTrue(message.contains("java.lang.Throwable"));
+  }
+
+  private static ArchRule builtinThrowableCatchRule() {
+    return classes()
+        .that()
+        .resideInAPackage("moo.builtin..")
+        .should(
+            new ArchCondition<JavaClass>("not catch java.lang.Throwable") {
+              @Override
+              public void check(JavaClass javaClass, ConditionEvents events) {
+                javaClass.getCodeUnits().stream()
+                    .flatMap(codeUnit -> codeUnit.getTryCatchBlocks().stream())
+                    .filter(
+                        block ->
+                            block.getCaughtThrowables().stream()
+                                .anyMatch(caught -> caught.isEquivalentTo(Throwable.class)))
+                    .filter(block -> !hasTryWithResourcesScaffolding(block.getOwner()))
+                    .forEach(
+                        block ->
+                            events.add(
+                                SimpleConditionEvent.violated(
+                                    block,
+                                    block.getOwner().getFullName()
+                                        + " catches java.lang.Throwable at "
+                                        + block.getSourceCodeLocation())));
+              }
+            });
+  }
+
+  private static boolean hasTryWithResourcesScaffolding(JavaCodeUnit codeUnit) {
+    // javac implements try-with-resources with synthetic Throwable handlers and addSuppressed.
+    return codeUnit.getMethodCallsFromSelf().stream()
+        .anyMatch(
+            call ->
+                call.getTarget().getOwner().isEquivalentTo(Throwable.class)
+                    && call.getTarget().getName().equals("addSuppressed"));
   }
 
   private static JavaClasses productionClasses() {

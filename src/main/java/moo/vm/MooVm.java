@@ -48,6 +48,7 @@ import moo.world.WorldObject;
 import moo.world.WorldAnonymousObject;
 import moo.world.WorldProperty;
 import moo.world.WorldTxn;
+import moo.world.WorldResult;
 import moo.world.WorldVerb;
 
 /** Iterative executor for the authorized explicit bytecode state. */
@@ -511,16 +512,23 @@ public final class MooVm {
       keys.addFirst(frame.operandStack.pop());
       values.addFirst(frame.operandStack.pop());
     }
+    final MapValue map;
     try {
-      MapValue map = new MapValue(Map.of());
-      for (int index = 0; index < count; index++) {
-        map = map.with(keys.get(index), values.get(index));
-      }
-      frame.operandStack.push(map);
-      frame.instructionPointer++;
+      map = mapFrom(keys, values);
     } catch (IllegalArgumentException error) {
       raiseError(state, ErrorValue.E_TYPE, world);
+      return;
     }
+    frame.operandStack.push(map);
+    frame.instructionPointer++;
+  }
+
+  private static MapValue mapFrom(List<MooValue> keys, List<MooValue> values) {
+    MapValue map = new MapValue(Map.of());
+    for (int index = 0; index < keys.size(); index++) {
+      map = map.with(keys.get(index), values.get(index));
+    }
+    return map;
   }
 
   private static void loadLocal(Frame frame, String name, VmState state, WorldTxn world) {
@@ -789,30 +797,9 @@ public final class MooVm {
     }
     String nameText = propertyName.text();
     if (receiver instanceof WaifValue waif) {
-      if (nameText.equalsIgnoreCase("class")
-          || nameText.equalsIgnoreCase("owner")
-          || nameText.equalsIgnoreCase("wizard")
-          || nameText.equalsIgnoreCase("programmer")) {
-        raiseError(state, ErrorValue.E_PERM, world);
-        return;
-      }
-      WorldProperty property = world.waifProperty(waif, nameText).orElse(null);
-      if (property != null) {
-        long programmer = state.programmer();
-        WorldObject programmerObject = world.object(programmer).orElse(null);
-        boolean wizard =
-            programmerObject != null && ObjectFlags.isWizard(programmerObject.flags());
-        if (property.owner() != programmer && !wizard && (property.permissions() & 2) == 0) {
-          raiseError(state, ErrorValue.E_PERM, world);
-          return;
-        }
-        if (world.valueRefersToWaif(value, waif)) {
-          raiseError(state, ErrorValue.E_RECMOVE, world);
-          return;
-        }
-      }
-      if (!world.writeWaifProperty(waif, nameText, value)) {
-        raiseError(state, ErrorValue.E_PROPNF, world);
+      WorldResult<MooValue> result =
+          world.writeWaifProperty(waif, nameText, value, state.programmer());
+      if (!propagateWorldFailure(result, state, world)) {
         return;
       }
       frame.operandStack.push(value);
@@ -820,42 +807,9 @@ public final class MooVm {
       return;
     }
     if (receiver instanceof AnonymousObjectValue anonymous) {
-      WorldAnonymousObject body = world.anonymousObject(anonymous).orElse(null);
-      if (body == null) {
-        raiseError(state, ErrorValue.E_INVIND, world);
-        return;
-      }
-      long programmer = state.programmer();
-      WorldObject programmerObject = world.object(programmer).orElse(null);
-      boolean wizard =
-          programmerObject != null && ObjectFlags.isWizard(programmerObject.flags());
-      if (nameText.equalsIgnoreCase("owner")) {
-        if (!(value instanceof ObjectValue)) {
-          raiseError(state, ErrorValue.E_TYPE, world);
-          return;
-        }
-        if (!wizard) {
-          raiseError(state, ErrorValue.E_PERM, world);
-          return;
-        }
-        world.writeObjectProperty(anonymous, nameText, value);
-        frame.operandStack.push(value);
-        frame.instructionPointer++;
-        return;
-      }
-      if (nameText.equalsIgnoreCase("programmer") || nameText.equalsIgnoreCase("wizard")) {
-        raiseError(state, wizard ? ErrorValue.E_INVARG : ErrorValue.E_PERM, world);
-        return;
-      }
-      WorldProperty property = world.property(anonymous, nameText).orElse(null);
-      if (property != null) {
-        if (property.owner() != programmer && !wizard && (property.permissions() & 2) == 0) {
-          raiseError(state, ErrorValue.E_PERM, world);
-          return;
-        }
-      }
-      if (!world.writeObjectProperty(anonymous, nameText, value)) {
-        raiseError(state, ErrorValue.E_PROPNF, world);
+      WorldResult<MooValue> result =
+          world.writeObjectProperty(anonymous, nameText, value, state.programmer());
+      if (!propagateWorldFailure(result, state, world)) {
         return;
       }
       frame.operandStack.push(value);
@@ -866,30 +820,9 @@ public final class MooVm {
       raiseError(state, ErrorValue.E_TYPE, world);
       return;
     }
-    if (nameText.equalsIgnoreCase("programmer") || nameText.equalsIgnoreCase("wizard")) {
-      WorldObject programmerObject = world.object(state.programmer()).orElse(null);
-      if (programmerObject == null || !ObjectFlags.isWizard(programmerObject.flags())) {
-        raiseError(state, ErrorValue.E_PERM, world);
-        return;
-      }
-    }
-    if (nameText.equalsIgnoreCase("last_move")) {
-      raiseError(state, ErrorValue.E_PERM, world);
-      return;
-    }
-    WorldProperty property = world.property(object.value(), nameText).orElse(null);
-    if (property != null) {
-      long programmer = state.programmer();
-      WorldObject programmerObject = world.object(programmer).orElse(null);
-      boolean wizard =
-          programmerObject != null && ObjectFlags.isWizard(programmerObject.flags());
-      if (property.owner() != programmer && !wizard && (property.permissions() & 2) == 0) {
-        raiseError(state, ErrorValue.E_PERM, world);
-        return;
-      }
-    }
-    if (!world.writeObjectProperty(object.value(), nameText, value)) {
-      raiseError(state, ErrorValue.E_PROPNF, world);
+    WorldResult<MooValue> result =
+        world.writeObjectProperty(object.value(), nameText, value, state.programmer());
+    if (!propagateWorldFailure(result, state, world)) {
       return;
     }
     frame.operandStack.push(value);
@@ -1588,11 +1521,9 @@ public final class MooVm {
 
   private static void applyDynamicEval(
       String source, Frame frame, VmState state, WorldTxn world) {
+    final BytecodeProgram dynamicProgram;
     try {
-      BytecodeProgram dynamicProgram = new MooCompiler().compile(source);
-      if (!state.pushEvalFrame(dynamicProgram)) {
-        raiseError(state, ErrorValue.E_MAXREC, world);
-      }
+      dynamicProgram = new MooCompiler().compile(source);
     } catch (IllegalArgumentException error) {
       String diagnostic = error.getMessage();
       if (diagnostic == null) {
@@ -1603,6 +1534,10 @@ public final class MooVm {
               List.of(
                   new IntegerValue(0),
                   new ListValue(List.of(StringValue.of("Parse error: " + diagnostic))))));
+      return;
+    }
+    if (!state.pushEvalFrame(dynamicProgram)) {
+      raiseError(state, ErrorValue.E_MAXREC, world);
     }
   }
 
@@ -1610,8 +1545,8 @@ public final class MooVm {
       BuiltinResult.Move move, Frame frame, VmState state, WorldTxn world) {
     WorldVerb hook = world.verb(move.destination(), "accept").orElse(null);
     if (hook == null) {
-      if (!world.move(move.object(), move.destination(), move.position())) {
-        raiseError(state, ErrorValue.E_INVARG, world);
+      if (!propagateWorldFailure(
+          world.move(move.object(), move.destination(), move.position()), state, world)) {
         return;
       }
       frame.operandStack.push(new IntegerValue(0));
@@ -1653,8 +1588,7 @@ public final class MooVm {
       long recycleTarget, Frame frame, VmState state, WorldTxn world) {
     WorldVerb hook = world.verb(recycleTarget, "recycle").orElse(null);
     if (hook == null) {
-      if (!world.recycleObject(recycleTarget)) {
-        raiseError(state, ErrorValue.E_INVARG, world);
+      if (!propagateWorldFailure(world.recycleObject(recycleTarget), state, world)) {
         return;
       }
       frame.operandStack.push(new IntegerValue(0));
@@ -1701,8 +1635,7 @@ public final class MooVm {
     }
     WorldVerb hook = world.verb(recycleTarget, "recycle", true).orElse(null);
     if (hook == null) {
-      if (!world.removeAnonymousObject(recycleTarget)) {
-        raiseError(state, ErrorValue.E_INVARG, world);
+      if (!propagateWorldFailure(world.removeAnonymousObject(recycleTarget), state, world)) {
         return;
       }
       frame.operandStack.push(new IntegerValue(0));
@@ -1731,8 +1664,7 @@ public final class MooVm {
       }
     }
     state.deferAnonymousCollection(collectionDeferrals);
-    if (!world.removeAnonymousObject(recycleTarget)) {
-      raiseError(state, ErrorValue.E_INVARG, world);
+    if (!propagateWorldFailure(world.removeAnonymousObject(recycleTarget), state, world)) {
       return;
     }
     if (!state.pushAnonymousRecycleFrame(
@@ -2505,8 +2437,9 @@ public final class MooVm {
     if (frame.recycleTarget.isPresent()) {
       long recycleTarget = frame.recycleTarget.orElseThrow();
       state.unwindChildFrame();
-      if (!world.recycleObject(recycleTarget)) {
-        raiseError(state, ErrorValue.E_INVARG, world, false);
+      WorldResult<Boolean> result = world.recycleObject(recycleTarget);
+      if (result instanceof WorldResult.Failed<?> failed) {
+        raiseError(state, failed.reason().value(), world, false);
         return;
       }
       state.currentFrame().operandStack.push(new IntegerValue(0));
@@ -2524,8 +2457,8 @@ public final class MooVm {
       long moveDestination = frame.moveDestination.orElseThrow();
       long movePosition = frame.movePosition.orElseThrow();
       state.unwindChildFrame();
-      if (!world.move(moveObject, moveDestination, movePosition)) {
-        raiseError(state, ErrorValue.E_INVARG, world);
+      if (!propagateWorldFailure(
+          world.move(moveObject, moveDestination, movePosition), state, world)) {
         return;
       }
       state.currentFrame().operandStack.push(new IntegerValue(0));
@@ -2536,6 +2469,15 @@ public final class MooVm {
 
   private static void raiseError(VmState state, ErrorValue error, WorldTxn world) {
     raiseError(state, error, world, true);
+  }
+
+  private static boolean propagateWorldFailure(
+      WorldResult<?> result, VmState state, WorldTxn world) {
+    if (result instanceof WorldResult.Failed<?> failed) {
+      raiseError(state, failed.reason().value(), world);
+      return false;
+    }
+    return true;
   }
 
   private static void raiseError(

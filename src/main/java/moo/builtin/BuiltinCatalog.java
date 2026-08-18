@@ -3,12 +3,8 @@ package moo.builtin;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.lang.foreign.Arena;
-import java.lang.foreign.FunctionDescriptor;
-import java.lang.foreign.Linker;
 import java.lang.foreign.MemorySegment;
-import java.lang.foreign.SymbolLookup;
 import java.lang.foreign.ValueLayout;
-import java.lang.invoke.MethodHandle;
 import java.math.BigInteger;
 import java.math.RoundingMode;
 import java.nio.charset.StandardCharsets;
@@ -37,7 +33,10 @@ import java.util.concurrent.CancellationException;
 import java.util.function.DoubleUnaryOperator;
 import java.util.function.Function;
 import moo.bytecode.MooCompiler;
+import moo.host.NativeCalls;
+import moo.host.NativeCalls.NativeCallException;
 import moo.logging.ServerLog;
+import moo.syntax.Ast;
 import moo.syntax.MooParser;
 import moo.syntax.MooUnparser;
 import moo.value.MooValue;
@@ -56,6 +55,7 @@ import moo.world.ObjectFlags;
 import moo.world.WorldAnonymousObject;
 import moo.world.WorldObject;
 import moo.world.WorldProperty;
+import moo.world.WorldResult;
 import moo.world.WorldTxn;
 import moo.world.WorldVerb;
 import org.bouncycastle.crypto.generators.Argon2BytesGenerator;
@@ -68,48 +68,6 @@ public final class BuiltinCatalog {
   private static final int CLOCK_MONOTONIC_RAW = 4;
   private static final long CTIME_MAX_SECONDS = (long) Integer.MAX_VALUE * 31_536_000L;
   private static final SecureRandom SECURE_RANDOM = new SecureRandom();
-  @SuppressWarnings("restricted")
-  private static final SymbolLookup CRYPT_LIBRARY =
-      SymbolLookup.libraryLookup("libcrypt.so.1", Arena.global());
-  @SuppressWarnings("restricted")
-  private static final MethodHandle CRYPT =
-      Linker.nativeLinker()
-          .downcallHandle(
-              CRYPT_LIBRARY.findOrThrow("crypt"),
-              FunctionDescriptor.of(
-                  ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS));
-  @SuppressWarnings("restricted")
-  private static final MethodHandle CLOCK_GETTIME =
-      Linker.nativeLinker()
-          .downcallHandle(
-              Linker.nativeLinker().defaultLookup().findOrThrow("clock_gettime"),
-              FunctionDescriptor.of(
-                  ValueLayout.JAVA_INT, ValueLayout.JAVA_INT, ValueLayout.ADDRESS));
-  @SuppressWarnings("restricted")
-  private static final MethodHandle GETRUSAGE =
-      Linker.nativeLinker()
-          .downcallHandle(
-              Linker.nativeLinker().defaultLookup().findOrThrow("getrusage"),
-              FunctionDescriptor.of(
-                  ValueLayout.JAVA_INT, ValueLayout.JAVA_INT, ValueLayout.ADDRESS));
-  @SuppressWarnings("restricted")
-  private static final MethodHandle LOCALTIME_R =
-      Linker.nativeLinker()
-          .downcallHandle(
-              Linker.nativeLinker().defaultLookup().findOrThrow("localtime_r"),
-              FunctionDescriptor.of(
-                  ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS));
-  @SuppressWarnings("restricted")
-  private static final MethodHandle STRFTIME =
-      Linker.nativeLinker()
-          .downcallHandle(
-              Linker.nativeLinker().defaultLookup().findOrThrow("strftime"),
-              FunctionDescriptor.of(
-                  ValueLayout.JAVA_LONG,
-                  ValueLayout.ADDRESS,
-                  ValueLayout.JAVA_LONG,
-                  ValueLayout.ADDRESS,
-                  ValueLayout.ADDRESS));
   private static final Set<ArgType> ANY = Set.of(ArgType.ANY);
   private static final Set<ArgType> INTEGER = Set.of(ArgType.INTEGER);
   private static final Set<ArgType> NUMBER = Set.of(ArgType.NUMBER);
@@ -1608,7 +1566,8 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.PURE,
             BuiltinOwner.VM,
-            (a, w, p, t, id, rt, rs, r, cp, c) -> argon2Verify(a)));
+            (a, w, p, t, id, rt, rs, r, cp, c) ->
+                argon2Verify(a, serverLog, BuiltinCatalog::argon2Hash)));
     entries.add(
         new BuiltinSpec(
             "decode_binary",
@@ -2947,13 +2906,18 @@ public final class BuiltinCatalog {
     if (listenerControl.isEmpty()) {
       return BuiltinResult.error(ErrorValue.E_INVARG);
     }
+    final int port;
     try {
-      int port = Math.toIntExact(descriptor.value());
-      int listening =
-          listenerControl
-              .orElseThrow()
-              .listen(handler.value(), port, ipv6, printMessages, interfaceAddress);
-      return BuiltinResult.value(new IntegerValue(listening));
+      port = Math.toIntExact(descriptor.value());
+    } catch (ArithmeticException invalid) {
+      return BuiltinResult.error(ErrorValue.E_INVARG);
+    }
+    try {
+      return BuiltinResult.value(
+          new IntegerValue(
+              listenerControl
+                  .orElseThrow()
+                  .listen(handler.value(), port, ipv6, printMessages, interfaceAddress)));
     } catch (IllegalArgumentException invalid) {
       return BuiltinResult.error(ErrorValue.E_INVARG);
     } catch (IOException bindFailure) {
@@ -3001,8 +2965,13 @@ public final class BuiltinCatalog {
     if (listenerControl.isEmpty()) {
       return BuiltinResult.error(ErrorValue.E_INVARG);
     }
+    final int description;
     try {
-      int description = Math.toIntExact(descriptor.value());
+      description = Math.toIntExact(descriptor.value());
+    } catch (ArithmeticException invalid) {
+      return BuiltinResult.error(ErrorValue.E_INVARG);
+    }
+    try {
       return listenerControl.orElseThrow().unlisten(description, ipv6)
           ? BuiltinResult.value(new IntegerValue(0))
           : BuiltinResult.error(ErrorValue.E_INVARG);
@@ -3030,12 +2999,18 @@ public final class BuiltinCatalog {
         listenerHandler = object.value();
       }
     }
+    final int port;
     try {
-      long connection =
-          listenerControl
-              .orElseThrow()
-              .openNetworkConnection(host, Math.toIntExact(rawPort), ipv6, listenerHandler);
-      return BuiltinResult.value(new ObjectValue(connection));
+      port = Math.toIntExact(rawPort);
+    } catch (ArithmeticException invalid) {
+      return BuiltinResult.error(ErrorValue.E_INVARG);
+    }
+    try {
+      return BuiltinResult.value(
+          new ObjectValue(
+              listenerControl
+                  .orElseThrow()
+                  .openNetworkConnection(host, port, ipv6, listenerHandler)));
     } catch (IllegalArgumentException invalid) {
       return BuiltinResult.error(ErrorValue.E_INVARG);
     } catch (IOException unavailable) {
@@ -3396,7 +3371,6 @@ public final class BuiltinCatalog {
     return BuiltinResult.value(new ListValue(result));
   }
 
-  @SuppressWarnings("restricted")
   private static BuiltinResult usage() {
     List<MooValue> loads = new ArrayList<>(3);
     try {
@@ -3414,7 +3388,7 @@ public final class BuiltinCatalog {
     long[] resource = new long[11];
     try (Arena arena = Arena.ofConfined()) {
       MemorySegment value = arena.allocate(144, 8);
-      int result = (int) GETRUSAGE.invokeExact(0, value);
+      int result = NativeCalls.getrusage(0, value);
       if (result == 0) {
         resource[0] = value.get(ValueLayout.JAVA_LONG, 0);
         resource[1] = value.get(ValueLayout.JAVA_LONG, 8);
@@ -3428,7 +3402,7 @@ public final class BuiltinCatalog {
         resource[9] = value.get(ValueLayout.JAVA_LONG, 112);
         resource[10] = value.get(ValueLayout.JAVA_LONG, 96);
       }
-    } catch (Throwable failure) {
+    } catch (NativeCallException failure) {
       Arrays.fill(resource, 0);
     }
     List<MooValue> result = new ArrayList<>(10);
@@ -3907,16 +3881,14 @@ public final class BuiltinCatalog {
       MemorySegment time = arena.allocate(ValueLayout.JAVA_LONG);
       time.set(ValueLayout.JAVA_LONG, 0, epochSecond);
       MemorySegment localTime = arena.allocate(64, Long.BYTES);
-      MemorySegment converted =
-          (MemorySegment) LOCALTIME_R.invokeExact(time, localTime);
+      MemorySegment converted = NativeCalls.localtimeR(time, localTime);
       if (converted.address() == 0) {
         return BuiltinResult.error(ErrorValue.E_INVARG);
       }
       MemorySegment format = arena.allocate(32);
       format.setString(0, "%a %b %d %H:%M:%S %Y %Z");
       MemorySegment buffer = arena.allocate(128);
-      long length =
-          (long) STRFTIME.invokeExact(buffer, 128L, format, localTime);
+      long length = NativeCalls.strftime(buffer, 128L, format, localTime);
       if (length == 0) {
         return BuiltinResult.error(ErrorValue.E_INVARG);
       }
@@ -3925,8 +3897,6 @@ public final class BuiltinCatalog {
         text = text.substring(0, 8) + ' ' + text.substring(9);
       }
       return BuiltinResult.value(StringValue.of(text));
-    } catch (Throwable error) {
-      throw new IllegalStateException("libc ctime formatting failed", error);
     }
   }
 
@@ -3940,7 +3910,7 @@ public final class BuiltinCatalog {
     }
     try (Arena arena = Arena.ofConfined()) {
       MemorySegment timespec = arena.allocate(16, Long.BYTES);
-      int status = (int) CLOCK_GETTIME.invokeExact(clockId, timespec);
+      int status = NativeCalls.clockGettime(clockId, timespec);
       if (status != 0) {
         return BuiltinResult.error(ErrorValue.E_FLOAT);
       }
@@ -3948,8 +3918,6 @@ public final class BuiltinCatalog {
       long nanoseconds = timespec.get(ValueLayout.JAVA_LONG, Long.BYTES);
       return BuiltinResult.value(
           new FloatValue(seconds + nanoseconds / 1_000_000_000.0));
-    } catch (Throwable error) {
-      throw new IllegalStateException("clock_gettime invocation failed", error);
     }
   }
 
@@ -4106,15 +4074,16 @@ public final class BuiltinCatalog {
       return BuiltinResult.value(new ListValue(values));
     }
     for (int index = 1; index < arguments.size(); index++) {
+      final Optional<MooValue> value;
       try {
-        Optional<MooValue> value = map.get(arguments.get(index), true);
-        if (value.isEmpty()) {
-          return BuiltinResult.error(ErrorValue.E_RANGE);
-        }
-        values.add(value.orElseThrow());
+        value = map.get(arguments.get(index), true);
       } catch (IllegalArgumentException invalidKey) {
         return BuiltinResult.error(ErrorValue.E_RANGE);
       }
+      if (value.isEmpty()) {
+        return BuiltinResult.error(ErrorValue.E_RANGE);
+      }
+      values.add(value.orElseThrow());
     }
     return BuiltinResult.value(new ListValue(values));
   }
@@ -4872,17 +4841,15 @@ public final class BuiltinCatalog {
   }
 
   @SuppressWarnings("restricted")
-  private static synchronized String nativeCrypt(byte[] password, byte[] salt) {
+  private static String nativeCrypt(byte[] password, byte[] salt) {
     try (Arena arena = Arena.ofConfined()) {
       MemorySegment passwordString = nullTerminated(arena, password);
       MemorySegment saltString = nullTerminated(arena, salt);
-      MemorySegment result = (MemorySegment) CRYPT.invokeExact(passwordString, saltString);
+      MemorySegment result = NativeCalls.crypt(passwordString, saltString);
       if (result.equals(MemorySegment.NULL)) {
         return "*0";
       }
       return result.reinterpret(128).getString(0, StringValue.charset());
-    } catch (Throwable failure) {
-      throw new IllegalStateException("platform crypt(3) failed", failure);
     }
   }
 
@@ -4896,66 +4863,122 @@ public final class BuiltinCatalog {
   private static BuiltinResult argon2(List<MooValue> arguments) {
     byte[] password = cStringBytes((StringValue) arguments.get(0));
     byte[] salt = cStringBytes((StringValue) arguments.get(1));
+    final Argon2Settings settings;
     try {
-      int iterations = optionalPositiveInt(arguments, 2, 3);
-      int memoryKiB = optionalPositiveInt(arguments, 3, 4096);
-      int parallelism = optionalPositiveInt(arguments, 4, 1);
-      byte[] hash = argon2Hash(password, salt, iterations, memoryKiB, parallelism, 32);
-      Base64.Encoder encoder = Base64.getEncoder().withoutPadding();
-      String encoded =
-          "$argon2id$v=19$m="
-              + memoryKiB
-              + ",t="
-              + iterations
-              + ",p="
-              + parallelism
-              + "$"
-              + encoder.encodeToString(salt)
-              + "$"
-              + encoder.encodeToString(hash);
-      return BuiltinResult.value(StringValue.of(encoded));
+      settings = argon2Settings(arguments);
     } catch (IllegalArgumentException | ArithmeticException error) {
       return BuiltinResult.error(ErrorValue.E_INVIND);
     }
+    final byte[] hash;
+    try {
+      hash =
+          argon2Hash(
+              password,
+              salt,
+              settings.iterations(),
+              settings.memoryKiB(),
+              settings.parallelism(),
+              32);
+    } catch (IllegalArgumentException error) {
+      return BuiltinResult.error(ErrorValue.E_INVIND);
+    }
+    Base64.Encoder encoder = Base64.getEncoder().withoutPadding();
+    String encoded =
+        "$argon2id$v=19$m="
+            + settings.memoryKiB()
+            + ",t="
+            + settings.iterations()
+            + ",p="
+            + settings.parallelism()
+            + "$"
+            + encoder.encodeToString(salt)
+            + "$"
+            + encoder.encodeToString(hash);
+    return BuiltinResult.value(StringValue.of(encoded));
   }
 
-  private static BuiltinResult argon2Verify(List<MooValue> arguments) {
+  private static Argon2Settings argon2Settings(List<MooValue> arguments) {
+    return new Argon2Settings(
+        optionalPositiveInt(arguments, 2, 3),
+        optionalPositiveInt(arguments, 3, 4096),
+        optionalPositiveInt(arguments, 4, 1));
+  }
+
+  private record Argon2Settings(int iterations, int memoryKiB, int parallelism) {}
+
+  static BuiltinResult argon2Verify(
+      List<MooValue> arguments, ServerLog serverLog, Argon2Hasher hasher) {
     String encoded = ((StringValue) arguments.get(0)).text();
     byte[] password = cStringBytes((StringValue) arguments.get(1));
-    try {
-      String[] fields = encoded.split("\\$", -1);
-      if (fields.length != 6
-          || !fields[0].isEmpty()
-          || !fields[1].equals("argon2id")
-          || !fields[2].equals("v=19")) {
-        return BuiltinResult.value(new IntegerValue(0));
-      }
-      int memoryKiB = 0;
-      int iterations = 0;
-      int parallelism = 0;
-      for (String parameter : fields[3].split(",", -1)) {
-        String[] pair = parameter.split("=", 2);
-        if (pair.length != 2) {
-          return BuiltinResult.value(new IntegerValue(0));
-        }
-        int value = Integer.parseInt(pair[1]);
-        switch (pair[0]) {
-          case "m" -> memoryKiB = value;
-          case "t" -> iterations = value;
-          case "p" -> parallelism = value;
-          default -> {
-            return BuiltinResult.value(new IntegerValue(0));
-          }
-        }
-      }
-      byte[] salt = Base64.getDecoder().decode(fields[4]);
-      byte[] expected = Base64.getDecoder().decode(fields[5]);
-      byte[] actual =
-          argon2Hash(password, salt, iterations, memoryKiB, parallelism, expected.length);
-      return BuiltinResult.value(new IntegerValue(MessageDigest.isEqual(expected, actual) ? 1 : 0));
-    } catch (IllegalArgumentException error) {
+    String[] fields = encoded.split("\\$", -1);
+    if (fields.length != 6
+        || !fields[0].isEmpty()
+        || !fields[1].equals("argon2id")
+        || !fields[2].equals("v=19")) {
       return BuiltinResult.value(new IntegerValue(0));
     }
+    int memoryKiB = 0;
+    int iterations = 0;
+    int parallelism = 0;
+    for (String parameter : fields[3].split(",", -1)) {
+      String[] pair = parameter.split("=", 2);
+      if (pair.length != 2) {
+        return BuiltinResult.value(new IntegerValue(0));
+      }
+      final int value;
+      try {
+        value = Integer.parseInt(pair[1]);
+      } catch (NumberFormatException malformed) {
+        return BuiltinResult.value(new IntegerValue(0));
+      }
+      switch (pair[0]) {
+        case "m" -> memoryKiB = value;
+        case "t" -> iterations = value;
+        case "p" -> parallelism = value;
+        default -> {
+          return BuiltinResult.value(new IntegerValue(0));
+        }
+      }
+    }
+    if (memoryKiB <= 0 || iterations <= 0 || parallelism <= 0) {
+      return BuiltinResult.value(new IntegerValue(0));
+    }
+    byte[] salt;
+    try {
+      salt = Base64.getDecoder().decode(fields[4]);
+    } catch (IllegalArgumentException malformed) {
+      return BuiltinResult.value(new IntegerValue(0));
+    }
+    byte[] expected;
+    try {
+      expected = Base64.getDecoder().decode(fields[5]);
+    } catch (IllegalArgumentException malformed) {
+      return BuiltinResult.value(new IntegerValue(0));
+    }
+    if (salt.length == 0 || expected.length == 0) {
+      return BuiltinResult.value(new IntegerValue(0));
+    }
+    final byte[] actual;
+    try {
+      actual =
+          hasher.hash(password, salt, iterations, memoryKiB, parallelism, expected.length);
+    } catch (RuntimeException failure) {
+      serverLog.error(
+          "ARGON2 VERIFY: internal failure: " + failure.getClass().getSimpleName());
+      return BuiltinResult.error(ErrorValue.E_QUOTA);
+    }
+    return BuiltinResult.value(new IntegerValue(MessageDigest.isEqual(expected, actual) ? 1 : 0));
+  }
+
+  @FunctionalInterface
+  interface Argon2Hasher {
+    byte[] hash(
+        byte[] password,
+        byte[] salt,
+        int iterations,
+        int memoryKiB,
+        int parallelism,
+        int outputLength);
   }
 
   private static byte[] argon2Hash(
@@ -5254,21 +5277,27 @@ public final class BuiltinCatalog {
     if (owner != -1 && !decrementOwnershipQuota(world, owner)) {
       return BuiltinResult.error(ErrorValue.E_QUOTA);
     }
-    try {
-      if (anonymous) {
-        AnonymousObjectValue created = world.createAnonymousObject(parents.ids(), owner);
-        return world.verb(created, "initialize", true).isPresent()
-            ? new BuiltinResult.Initialize(created, initializeArguments)
-            : BuiltinResult.value(created);
+    if (anonymous) {
+      final AnonymousObjectValue created;
+      try {
+        created = world.createAnonymousObject(parents.ids(), owner);
+      } catch (IllegalArgumentException error) {
+        return BuiltinResult.error(ErrorValue.E_INVARG);
       }
-      WorldObject created = world.createObject(parents.ids(), owner);
-      ObjectValue identity = new ObjectValue(created.id());
-      return world.verb(created.id(), "initialize", true).isPresent()
-          ? new BuiltinResult.Initialize(identity, initializeArguments)
-          : BuiltinResult.value(identity);
+      return world.verb(created, "initialize", true).isPresent()
+          ? new BuiltinResult.Initialize(created, initializeArguments)
+          : BuiltinResult.value(created);
+    }
+    final WorldObject created;
+    try {
+      created = world.createObject(parents.ids(), owner);
     } catch (IllegalArgumentException error) {
       return BuiltinResult.error(ErrorValue.E_INVARG);
     }
+    ObjectValue identity = new ObjectValue(created.id());
+    return world.verb(created.id(), "initialize", true).isPresent()
+        ? new BuiltinResult.Initialize(identity, initializeArguments)
+        : BuiltinResult.value(identity);
   }
 
   private static BuiltinResult recreate(List<MooValue> arguments, WorldTxn world, long programmer) {
@@ -5294,15 +5323,16 @@ public final class BuiltinCatalog {
     if (world.object(owner).isPresent() && !decrementOwnershipQuota(world, owner)) {
       return BuiltinResult.error(ErrorValue.E_QUOTA);
     }
+    final WorldObject created;
     try {
-      WorldObject created = world.recreateObject(objectId, parents.ids(), owner);
-      ObjectValue identity = new ObjectValue(created.id());
-      return world.verb(created.id(), "initialize", true).isPresent()
-          ? new BuiltinResult.Initialize(identity, new ListValue(List.of()))
-          : BuiltinResult.value(identity);
+      created = world.recreateObject(objectId, parents.ids(), owner);
     } catch (IllegalArgumentException error) {
       return BuiltinResult.error(ErrorValue.E_INVARG);
     }
+    ObjectValue identity = new ObjectValue(created.id());
+    return world.verb(created.id(), "initialize", true).isPresent()
+        ? new BuiltinResult.Initialize(identity, new ListValue(List.of()))
+        : BuiltinResult.value(identity);
   }
 
   private static boolean decrementOwnershipQuota(WorldTxn world, long owner) {
@@ -5313,8 +5343,9 @@ public final class BuiltinCatalog {
     if (integer.value() <= 0) {
       return false;
     }
-    if (!world.writeObjectProperty(
-        owner, "ownership_quota", new IntegerValue(integer.value() - 1))) {
+    if (!world
+        .writeObjectProperty(owner, "ownership_quota", new IntegerValue(integer.value() - 1))
+        .isOk()) {
       throw new IllegalStateException("ownership_quota disappeared during create");
     }
     return true;
@@ -5458,16 +5489,23 @@ public final class BuiltinCatalog {
     if (recursive) {
       return BuiltinResult.error(ErrorValue.E_RECMOVE);
     }
-    boolean changed =
+    WorldResult<Boolean> changed =
         target instanceof ObjectValue object
             ? world.changeParents(object.value(), parents.ids())
             : world.changeParents((AnonymousObjectValue) target, parents.ids());
-    return changed ? BuiltinResult.value(new IntegerValue(0)) : BuiltinResult.error(ErrorValue.E_INVARG);
+    return mutationResult(changed, new IntegerValue(0));
   }
 
   private static boolean isWizard(WorldTxn world, long programmer) {
     WorldObject object = world.object(programmer).orElse(null);
     return object != null && ObjectFlags.isWizard(object.flags());
+  }
+
+  private static BuiltinResult mutationResult(WorldResult<?> result, MooValue success) {
+    if (result instanceof WorldResult.Failed<?> failed) {
+      return BuiltinResult.error(failed.reason().value());
+    }
+    return BuiltinResult.value(success);
   }
 
   private static boolean parentsAllowed(
@@ -5789,7 +5827,7 @@ public final class BuiltinCatalog {
       return BuiltinResult.error(ownershipError.orElseThrow());
     }
     String name = ((StringValue) arguments.get(1)).text();
-    boolean added =
+    WorldResult<Boolean> added =
         receiver instanceof ObjectValue object
             ? world.addProperty(
                 object.value(), name, arguments.get(2), owner.value(), permissions)
@@ -5799,9 +5837,7 @@ public final class BuiltinCatalog {
                 arguments.get(2),
                 owner.value(),
                 permissions);
-    return added
-        ? BuiltinResult.value(new IntegerValue(0))
-        : BuiltinResult.error(ErrorValue.E_INVARG);
+    return mutationResult(added, new IntegerValue(0));
   }
 
   private static BuiltinResult properties(
@@ -5985,9 +6021,7 @@ public final class BuiltinCatalog {
     if (local == null || local.defined()) {
       return BuiltinResult.error(ErrorValue.E_INVARG);
     }
-    return world.clearProperty(object.value(), name)
-        ? BuiltinResult.value(new IntegerValue(0))
-        : BuiltinResult.error(ErrorValue.E_PROPNF);
+    return mutationResult(world.clearProperty(object.value(), name), new IntegerValue(0));
   }
 
   private static BuiltinResult deleteProperty(
@@ -6011,16 +6045,13 @@ public final class BuiltinCatalog {
     if (!defined) {
       return BuiltinResult.error(ErrorValue.E_PROPNF);
     }
-    return world.deleteProperty(object.value(), name)
-        ? BuiltinResult.value(new IntegerValue(0))
-        : BuiltinResult.error(ErrorValue.E_PROPNF);
+    return mutationResult(world.deleteProperty(object.value(), name), new IntegerValue(0));
   }
 
   private static BuiltinResult setPlayerFlag(List<MooValue> arguments, WorldTxn world) {
     ObjectValue object = (ObjectValue) arguments.get(0);
-    return world.setPlayerFlag(object.value(), arguments.get(1).isTruthy())
-        ? BuiltinResult.value(new IntegerValue(0))
-        : BuiltinResult.error(ErrorValue.E_INVARG);
+    return mutationResult(
+        world.setPlayerFlag(object.value(), arguments.get(1).isTruthy()), new IntegerValue(0));
   }
 
   private static BuiltinResult setVerbInfo(
@@ -6097,9 +6128,9 @@ public final class BuiltinCatalog {
         || (!wizard && verb.owner() != owner.value())) {
       return BuiltinResult.error(ErrorValue.E_PERM);
     }
-    boolean updated =
+    WorldResult<Boolean> updated =
         world.setVerbInfo(object.value(), verbIndex, names, owner.value(), permissions);
-    return updated ? BuiltinResult.value(new IntegerValue(0)) : BuiltinResult.error(ErrorValue.E_VERBNF);
+    return mutationResult(updated, new IntegerValue(0));
   }
 
   private static BuiltinResult verbs(List<MooValue> arguments, WorldTxn world, long programmer) {
@@ -6304,9 +6335,7 @@ public final class BuiltinCatalog {
       }
       verbIndex = target.verbs().indexOf(candidate);
     }
-    return world.deleteVerb(object.value(), verbIndex)
-        ? BuiltinResult.value(new IntegerValue(0))
-        : BuiltinResult.error(ErrorValue.E_VERBNF);
+    return mutationResult(world.deleteVerb(object.value(), verbIndex), new IntegerValue(0));
   }
 
   private static BuiltinResult setVerbArgs(
@@ -6419,9 +6448,9 @@ public final class BuiltinCatalog {
     if (verb.owner() != programmer && !wizard && (verb.permissions() & 2) == 0) {
       return BuiltinResult.error(ErrorValue.E_PERM);
     }
-    boolean updated =
+    WorldResult<Boolean> updated =
         world.setVerbArgs(object.value(), verbIndex, direct, preposition, indirect);
-    return updated ? BuiltinResult.value(new IntegerValue(0)) : BuiltinResult.error(ErrorValue.E_VERBNF);
+    return mutationResult(updated, new IntegerValue(0));
   }
 
   private static BuiltinResult setVerbCode(
@@ -6493,29 +6522,34 @@ public final class BuiltinCatalog {
             .map(StringValue.class::cast)
             .map(StringValue::text)
             .collect(java.util.stream.Collectors.joining("\n"));
-    String canonicalSource;
+    final Ast.Program program;
     try {
-      var program = MooParser.parse(suppliedSource);
-      new MooCompiler().compile(program);
-      canonicalSource =
-          MooUnparser.unparse(program).lines()
-              .map(String::stripLeading)
-              .collect(java.util.stream.Collectors.joining("\n"));
+      program = MooParser.parse(suppliedSource);
     } catch (IllegalArgumentException error) {
-      String diagnostic = error.getMessage();
-      if (diagnostic == null) {
-        diagnostic = error.getClass().getSimpleName();
-      }
-      return BuiltinResult.value(new ListValue(List.of(StringValue.of(diagnostic))));
+      return compilationDiagnostic(error);
     }
-    boolean updated =
+    try {
+      new MooCompiler().compile(program);
+    } catch (IllegalArgumentException error) {
+      return compilationDiagnostic(error);
+    }
+    String canonicalSource =
+        MooUnparser.unparse(program).lines()
+            .map(String::stripLeading)
+            .collect(java.util.stream.Collectors.joining("\n"));
+    WorldResult<Boolean> updated =
         receiver instanceof ObjectValue object
             ? world.setVerbCode(object.value(), verbIndex, canonicalSource)
             : world.setVerbCode((AnonymousObjectValue) receiver, verbIndex, canonicalSource);
-    if (!updated) {
-      return BuiltinResult.error(ErrorValue.E_VERBNF);
+    return mutationResult(updated, new ListValue(List.of()));
+  }
+
+  private static BuiltinResult compilationDiagnostic(IllegalArgumentException error) {
+    String diagnostic = error.getMessage();
+    if (diagnostic == null) {
+      diagnostic = error.getClass().getSimpleName();
     }
-    return BuiltinResult.value(new ListValue(List.of()));
+    return BuiltinResult.value(new ListValue(List.of(StringValue.of(diagnostic))));
   }
 
   private static BuiltinResult verbCode(
@@ -6586,15 +6620,15 @@ public final class BuiltinCatalog {
     WorldObject programmerObject = world.object(programmer).orElse(null);
     if (programmerObject != null && ObjectFlags.isWizard(programmerObject.flags())) {
       if (destination.value() == moving.location()) {
-        return position == 0 || world.move(object.value(), destination.value(), position)
+        return position == 0
             ? BuiltinResult.value(new IntegerValue(0))
-            : BuiltinResult.error(ErrorValue.E_INVARG);
+            : mutationResult(
+                world.move(object.value(), destination.value(), position), new IntegerValue(0));
       }
       return new BuiltinResult.Move(object.value(), destination.value(), position);
     }
-    return world.move(object.value(), destination.value(), position)
-        ? BuiltinResult.value(new IntegerValue(0))
-        : BuiltinResult.error(ErrorValue.E_INVARG);
+    return mutationResult(
+        world.move(object.value(), destination.value(), position), new IntegerValue(0));
   }
 
   private static boolean recursiveMove(WorldTxn world, long object, long destination) {

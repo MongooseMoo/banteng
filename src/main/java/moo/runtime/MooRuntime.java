@@ -633,7 +633,8 @@ public final class MooRuntime implements AutoCloseable {
       boolean installed =
           compilation.program().isPresent()
               && world()
-                  .setVerbCode(connection.programmingObject, verbIndex, source);
+                  .setVerbCode(connection.programmingObject, verbIndex, source)
+                  .isOk();
       output.add(installed ? "Verb programmed." : "Verb not programmed.");
       clearProgramming(connection);
       return RuntimeStep.returned(output);
@@ -1606,7 +1607,8 @@ public final class MooRuntime implements AutoCloseable {
       if (existingConnection != null) {
         ConnectionState redirectedConnection = existingConnection;
         boolean sameListener = redirectedConnection.listenerHandler == connection.listenerHandler;
-        if (sameListener && !world().switchConnectionPlayer(connectionId, switchedPlayer)) {
+        if (sameListener
+            && !world().switchConnectionPlayer(connectionId, switchedPlayer).isOk()) {
           throw new IllegalStateException("stored login switched to a missing player");
         }
         List<String> oldLines = new ArrayList<>();
@@ -1687,7 +1689,7 @@ public final class MooRuntime implements AutoCloseable {
         return associateRedirectedLogin(association);
       }
 
-      if (!world().switchConnectionPlayer(connectionId, switchedPlayer)) {
+      if (!world().switchConnectionPlayer(connectionId, switchedPlayer).isOk()) {
         throw new IllegalStateException("stored login switched to a missing player");
       }
       if (returnedPlayerAssociation) {
@@ -1729,7 +1731,7 @@ public final class MooRuntime implements AutoCloseable {
   private RuntimeStep associateRedirectedLogin(RuntimeContinuation continuation) {
     long connectionId = continuation.connectionId();
     long switchedPlayer = continuation.first();
-    if (!world().switchConnectionPlayer(connectionId, switchedPlayer)) {
+    if (!world().switchConnectionPlayer(connectionId, switchedPlayer).isOk()) {
       throw new IllegalStateException("stored login switched to a missing player");
     }
     return startConnectedHook(
