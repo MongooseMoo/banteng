@@ -1,5 +1,15 @@
 package moo.persistence;
 
+import static moo.persistence.DbScanner.malformed;
+import static moo.persistence.DbScanner.parseCount;
+import static moo.persistence.DbScanner.parseLong;
+import static moo.persistence.DbScanner.readCount;
+import static moo.persistence.DbScanner.readInt;
+import static moo.persistence.DbScanner.readLong;
+import static moo.persistence.DbScanner.requireExact;
+import static moo.persistence.DbScanner.requiredLine;
+import static moo.persistence.ValueTagDecoder.readV5;
+
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -14,9 +24,6 @@ import java.util.Optional;
 import java.util.Set;
 import moo.logging.ServerLog;
 import moo.value.MooValue;
-import moo.value.MooValue.ErrorValue;
-import moo.value.MooValue.FloatValue;
-import moo.value.MooValue.IntegerValue;
 import moo.value.MooValue.ListValue;
 import moo.value.MooValue.ObjectValue;
 import moo.value.MooValue.StringValue;
@@ -94,10 +101,10 @@ public final class LambdaMooV5Reader {
     String name = requiredLine(input, "object name");
     int flags = readInt(input, "object flags");
     long owner = readLong(input, "object owner");
-    MooValue location = readValue(input);
-    MooValue contents = readValue(input);
-    MooValue parents = readValue(input);
-    MooValue children = readValue(input);
+    MooValue location = readV5(input);
+    MooValue contents = readV5(input);
+    MooValue parents = readV5(input);
+    MooValue children = readV5(input);
 
     int verbCount = readCount(input, "verb count");
     List<RawVerb> verbs = new ArrayList<>(verbCount);
@@ -121,7 +128,7 @@ public final class LambdaMooV5Reader {
       int tag = readInt(input, "property value tag");
       propertySlots.add(
           new RawPropertySlot(
-              tag == 5 ? null : readValue(input, tag),
+              tag == 5 ? null : readV5(input, tag),
               tag == 5,
               readLong(input, "property owner"),
               readInt(input, "property permissions")));
@@ -430,34 +437,6 @@ public final class LambdaMooV5Reader {
     return List.copyOf(properties);
   }
 
-  private static MooValue readValue(BufferedReader input) throws IOException {
-    return readValue(input, readInt(input, "value tag"));
-  }
-
-  private static MooValue readValue(BufferedReader input, int tag) throws IOException {
-    return switch (tag) {
-      case 0 -> new IntegerValue(readLong(input, "integer value"));
-      case 1 -> new ObjectValue(readLong(input, "object value"));
-      case 2 ->
-          StringValue.of(requiredLine(input, "string value"));
-      case 3 -> {
-        long code = readLong(input, "error value");
-        yield ErrorValue.fromCode(code & 0xffff_ffffL)
-            .orElseThrow(() -> malformed("unsupported error value " + code));
-      }
-      case 4 -> {
-        int count = readCount(input, "list count");
-        List<MooValue> values = new ArrayList<>(count);
-        for (int index = 0; index < count; index++) {
-          values.add(readValue(input));
-        }
-        yield new ListValue(values);
-      }
-      case 9 -> new FloatValue(readDouble(input, "float value"));
-      default -> throw malformed("unsupported v5 value tag " + tag);
-    };
-  }
-
   private static void validatePlayers(List<Long> players, Map<Long, RawObject> objects)
       throws IOException {
     for (long player : players) {
@@ -466,79 +445,6 @@ public final class LambdaMooV5Reader {
       }
     }
   }
-
-  private static int readCount(BufferedReader input, String field) throws IOException {
-    return parseCount(requiredLine(input, field), field);
-  }
-
-  private static int parseCount(String text, String field) throws IOException {
-    int value = readInt(text, field);
-    if (value < 0) {
-      throw malformed(field + " must not be negative");
-    }
-    return value;
-  }
-
-  private static int readInt(BufferedReader input, String field) throws IOException {
-    return readInt(requiredLine(input, field), field);
-  }
-
-  private static int readInt(String text, String field) throws IOException {
-    try {
-      return Integer.parseInt(text);
-    } catch (NumberFormatException error) {
-      throw malformed("invalid " + field + ": " + text, error);
-    }
-  }
-
-  private static long readLong(BufferedReader input, String field) throws IOException {
-    return parseLong(requiredLine(input, field), field);
-  }
-
-  private static long parseLong(String text, String field) throws IOException {
-    try {
-      return Long.parseLong(text);
-    } catch (NumberFormatException error) {
-      throw malformed("invalid " + field + ": " + text, error);
-    }
-  }
-
-  private static double readDouble(BufferedReader input, String field) throws IOException {
-    String text = requiredLine(input, field);
-    try {
-      return Double.parseDouble(text);
-    } catch (NumberFormatException error) {
-      throw malformed("invalid " + field + ": " + text, error);
-    }
-  }
-
-  private static void requireExact(BufferedReader input, String expected, String field)
-      throws IOException {
-    String actual = requiredLine(input, field);
-    if (!actual.equals(expected)) {
-      throw malformed("invalid " + field + ": " + actual);
-    }
-  }
-
-  private static String requiredLine(BufferedReader input, String field) throws IOException {
-    String line = input.readLine();
-    if (line == null) {
-      throw malformed("unexpected end of file while reading " + field);
-    }
-    return line;
-  }
-
-  private static IOException malformed(String message) {
-    return new IOException(message);
-  }
-
-  private static IOException malformed(String message, Throwable cause) {
-    return new IOException(message, cause);
-  }
-
-  private record ProgramSlot(long objectId, int verbIndex) {}
-
-  private record RawVerb(String names, long owner, int permissions, int preposition) {}
 
   private record RawPropertySlot(
       @Nullable MooValue value, boolean clear, long owner, int permissions) {}

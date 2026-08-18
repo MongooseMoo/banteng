@@ -2,6 +2,15 @@ package moo.persistence;
 
 import static java.nio.file.StandardCopyOption.ATOMIC_MOVE;
 import static java.nio.file.StandardCopyOption.REPLACE_EXISTING;
+import static moo.persistence.DbScanner.malformed;
+import static moo.persistence.DbScanner.parseCount;
+import static moo.persistence.DbScanner.parseInt;
+import static moo.persistence.DbScanner.parseLong;
+import static moo.persistence.DbScanner.readCount;
+import static moo.persistence.DbScanner.readInt;
+import static moo.persistence.DbScanner.readLong;
+import static moo.persistence.DbScanner.requireExact;
+import static moo.persistence.DbScanner.requiredLine;
 
 import java.io.BufferedReader;
 import java.io.BufferedWriter;
@@ -695,7 +704,7 @@ public final class LambdaMooV17Codec {
     if (fields.length != 4 || !fields[0].equals("0")) {
       throw malformed("invalid queued-task header: " + header);
     }
-    int firstLine = readParsedInt(fields[1], "queued-task first line");
+    int firstLine = parseInt(fields[1], "queued-task first line");
     if (firstLine < 1) {
       throw malformed("invalid queued-task first line: " + firstLine);
     }
@@ -824,7 +833,7 @@ public final class LambdaMooV17Codec {
             ? new IntegerValue(0)
             : readValue(
                 input,
-                readParsedInt(header.substring(secondSpace + 1), "suspended-task resume tag"),
+                parseInt(header.substring(secondSpace + 1), "suspended-task resume tag"),
                 context,
                 "suspended task #" + taskId + " resume value");
     return readSuspendedVm(
@@ -862,12 +871,12 @@ public final class LambdaMooV17Codec {
     if (fields.length != 4) {
       throw malformed("invalid suspended VM header: " + vmHeader);
     }
-    int topActivation = readParsedInt(fields[0], "suspended VM top activation");
+    int topActivation = parseInt(fields[0], "suspended VM top activation");
     if (topActivation < 0) {
       throw malformed("negative suspended VM top activation");
     }
     int rootActivationVector =
-        readParsedInt(fields[1], "suspended VM root activation vector");
+        parseInt(fields[1], "suspended VM root activation vector");
     long functionId = parseLong(fields[2], "suspended VM function id");
     long maxStackDepth = parseLong(fields[3], "suspended VM maximum stack depth");
     if (maxStackDepth < 1) {
@@ -898,7 +907,7 @@ public final class LambdaMooV17Codec {
       throw malformed("invalid suspended activation language version: " + versionLine);
     }
     int languageVersion =
-        readParsedInt(versionLine.substring(versionPrefix.length()), "activation language version");
+        parseInt(versionLine.substring(versionPrefix.length()), "activation language version");
     String programSource = readProgramSource(input, "suspended activation program");
 
     int variableCount =
@@ -1699,26 +1708,19 @@ public final class LambdaMooV17Codec {
 
   private static MooValue readValue(
       BufferedReader input, int tag, ReadContext context, String location) throws IOException {
+    Optional<MooValue> common =
+        ValueTagDecoder.readCommon(
+            input,
+            tag,
+            (nestedInput, index) ->
+                readValue(
+                    nestedInput,
+                    context,
+                    location + " list element " + (index + 1)));
+    if (common.isPresent()) {
+      return common.orElseThrow();
+    }
     return switch (tag) {
-      case 0 -> new IntegerValue(readLong(input, "integer value"));
-      case 1 -> new ObjectValue(readLong(input, "object value"));
-      case 2 ->
-          StringValue.of(requiredLine(input, "string value"));
-      case 3 -> {
-        long code = readLong(input, "error value");
-        yield ErrorValue.fromCode(code & 0xffff_ffffL)
-            .orElseThrow(() -> malformed("unsupported error value " + code));
-      }
-      case 4 -> {
-        int count = readCount(input, "list count");
-        List<MooValue> values = new ArrayList<>(count);
-        for (int index = 0; index < count; index++) {
-          values.add(
-              readValue(input, context, location + " list element " + (index + 1)));
-        }
-        yield new ListValue(values);
-      }
-      case 9 -> new FloatValue(readDouble(input, "float value"));
       case 10 -> {
         int count = readCount(input, "map count");
         List<MooValue> keys = new ArrayList<>(count);
@@ -1838,10 +1840,6 @@ public final class LambdaMooV17Codec {
     output.write('\n');
   }
 
-  private static int readCount(BufferedReader input, String field) throws IOException {
-    return parseCount(requiredLine(input, field), field);
-  }
-
   private static int readPendingFinalizationCount(BufferedReader input) throws IOException {
     String line = requiredLine(input, "pending-finalization count");
     String suffix = " values pending finalization";
@@ -1859,71 +1857,6 @@ public final class LambdaMooV17Codec {
       throw malformed("invalid " + field + ": " + line);
     }
     return parseCount(line.substring(0, line.length() - suffix.length()), field);
-  }
-
-  private static int parseCount(String text, String field) throws IOException {
-    int value = readParsedInt(text, field);
-    if (value < 0) {
-      throw malformed(field + " must not be negative");
-    }
-    return value;
-  }
-
-  private static int readInt(BufferedReader input, String field) throws IOException {
-    return readParsedInt(requiredLine(input, field), field);
-  }
-
-  private static int readParsedInt(String text, String field) throws IOException {
-    try {
-      return Integer.parseInt(text);
-    } catch (NumberFormatException error) {
-      throw malformed("invalid " + field + ": " + text, error);
-    }
-  }
-
-  private static long readLong(BufferedReader input, String field) throws IOException {
-    return parseLong(requiredLine(input, field), field);
-  }
-
-  private static long parseLong(String text, String field) throws IOException {
-    try {
-      return Long.parseLong(text);
-    } catch (NumberFormatException error) {
-      throw malformed("invalid " + field + ": " + text, error);
-    }
-  }
-
-  private static double readDouble(BufferedReader input, String field) throws IOException {
-    String text = requiredLine(input, field);
-    try {
-      return Double.parseDouble(text);
-    } catch (NumberFormatException error) {
-      throw malformed("invalid " + field + ": " + text, error);
-    }
-  }
-
-  private static void requireExact(BufferedReader input, String expected, String field)
-      throws IOException {
-    String actual = requiredLine(input, field);
-    if (!actual.equals(expected)) {
-      throw malformed("invalid " + field + ": " + actual);
-    }
-  }
-
-  private static String requiredLine(BufferedReader input, String field) throws IOException {
-    String line = input.readLine();
-    if (line == null) {
-      throw malformed("unexpected end of file while reading " + field);
-    }
-    return line;
-  }
-
-  private static IOException malformed(String message) {
-    return new IOException(message);
-  }
-
-  private static IOException malformed(String message, Throwable cause) {
-    return new IOException(message, cause);
   }
 
   private static final class WriteContext {
@@ -1960,10 +1893,6 @@ public final class LambdaMooV17Codec {
     private final Map<Integer, WaifValue> waifs = new LinkedHashMap<>();
     private final IdentityHashMap<WaifValue, RawWaif> waifBodies = new IdentityHashMap<>();
   }
-
-  private record ProgramSlot(long objectId, int verbIndex) {}
-
-  private record RawVerb(String names, long owner, int permissions, int preposition) {}
 
   private record RawPropertySlot(
       @Nullable MooValue value, boolean clear, long owner, int permissions) {}

@@ -48,3 +48,142 @@ recipeList:
   - org.openrewrite.java.ChangeMethodName:
       methodPattern: moo.value.MooValue.StringValue mooString(java.lang.String)
       newMethodName: of
+---
+type: specs.openrewrite.org/v1beta/recipe
+name: moo.persistence.ShareDbReaderInfrastructure
+displayName: Share LambdaMOO database reader infrastructure
+description: Retargets duplicated scanner, value, and record references to their shared owners.
+causesAnotherCycle: true
+recipeList:
+  - org.openrewrite.java.ChangeType:
+      oldFullyQualifiedTypeName: moo.persistence.LambdaMooV4Reader$ProgramSlot
+      newFullyQualifiedTypeName: moo.persistence.ProgramSlot
+  - org.openrewrite.java.ChangeType:
+      oldFullyQualifiedTypeName: moo.persistence.LambdaMooV5Reader$ProgramSlot
+      newFullyQualifiedTypeName: moo.persistence.ProgramSlot
+  - org.openrewrite.java.ChangeType:
+      oldFullyQualifiedTypeName: moo.persistence.LambdaMooV17Codec$ProgramSlot
+      newFullyQualifiedTypeName: moo.persistence.ProgramSlot
+  - org.openrewrite.java.ChangeType:
+      oldFullyQualifiedTypeName: moo.persistence.LambdaMooV4Reader$RawVerb
+      newFullyQualifiedTypeName: moo.persistence.RawVerb
+  - org.openrewrite.java.ChangeType:
+      oldFullyQualifiedTypeName: moo.persistence.LambdaMooV5Reader$RawVerb
+      newFullyQualifiedTypeName: moo.persistence.RawVerb
+  - org.openrewrite.java.ChangeType:
+      oldFullyQualifiedTypeName: moo.persistence.LambdaMooV17Codec$RawVerb
+      newFullyQualifiedTypeName: moo.persistence.RawVerb
+  - org.openrewrite.java.ChangeMethodName:
+      methodPattern: moo.persistence.LambdaMooV5Reader readInt(java.lang.String, java.lang.String)
+      newMethodName: parseInt
+  - org.openrewrite.java.ChangeMethodName:
+      methodPattern: moo.persistence.LambdaMooV17Codec readParsedInt(java.lang.String, java.lang.String)
+      newMethodName: parseInt
+  - org.openrewrite.java.ChangeMethodName:
+      methodPattern: moo.persistence.LambdaMooV5Reader readValue(java.io.BufferedReader)
+      newMethodName: readV5
+  - org.openrewrite.java.ChangeMethodName:
+      methodPattern: moo.persistence.LambdaMooV5Reader readValue(java.io.BufferedReader, int)
+      newMethodName: readV5
+  - org.openrewrite.java.ChangeMethodTargetToStatic:
+      methodPattern: moo.persistence.LambdaMooV5Reader readV5(java.io.BufferedReader)
+      fullyQualifiedTargetTypeName: moo.persistence.ValueTagDecoder
+  - org.openrewrite.java.ChangeMethodTargetToStatic:
+      methodPattern: moo.persistence.LambdaMooV5Reader readV5(java.io.BufferedReader, int)
+      fullyQualifiedTargetTypeName: moo.persistence.ValueTagDecoder
+  - org.openrewrite.java.ChangeMethodTargetToStatic:
+      methodPattern: moo.persistence.LambdaMooV4Reader readCount(java.io.BufferedReader, java.lang.String)
+      fullyQualifiedTargetTypeName: moo.persistence.DbScanner
+  - org.openrewrite.java.ChangeMethodTargetToStatic:
+      methodPattern: moo.persistence.LambdaMooV4Reader parseCount(java.lang.String, java.lang.String)
+      fullyQualifiedTargetTypeName: moo.persistence.DbScanner
+  - org.openrewrite.java.ChangeMethodTargetToStatic:
+      methodPattern: moo.persistence.LambdaMooV4Reader readInt(java.io.BufferedReader, java.lang.String)
+      fullyQualifiedTargetTypeName: moo.persistence.DbScanner
+  - org.openrewrite.java.ChangeMethodTargetToStatic:
+      methodPattern: moo.persistence.LambdaMooV4Reader parseInt(java.lang.String, java.lang.String)
+      fullyQualifiedTargetTypeName: moo.persistence.DbScanner
+  - org.openrewrite.java.ChangeMethodTargetToStatic:
+      methodPattern: moo.persistence.LambdaMooV4Reader readLong(java.io.BufferedReader, java.lang.String)
+      fullyQualifiedTargetTypeName: moo.persistence.DbScanner
+  - org.openrewrite.java.ChangeMethodTargetToStatic:
+      methodPattern: moo.persistence.LambdaMooV4Reader parseLong(java.lang.String, java.lang.String)
+      fullyQualifiedTargetTypeName: moo.persistence.DbScanner
+  - org.openrewrite.java.ChangeMethodTargetToStatic:
+      methodPattern: moo.persistence.LambdaMooV4Reader requireExact(java.io.BufferedReader, java.lang.String, java.lang.String)
+      fullyQualifiedTargetTypeName: moo.persistence.DbScanner
+  - org.openrewrite.java.ChangeMethodTargetToStatic:
+      methodPattern: moo.persistence.LambdaMooV4Reader requiredLine(java.io.BufferedReader, java.lang.String)
+      fullyQualifiedTargetTypeName: moo.persistence.DbScanner
+  - org.openrewrite.java.ChangeMethodTargetToStatic:
+      methodPattern: moo.persistence.LambdaMooV4Reader malformed(java.lang.String)
+      fullyQualifiedTargetTypeName: moo.persistence.DbScanner
+  - org.openrewrite.java.ChangeMethodTargetToStatic:
+      methodPattern: moo.persistence.LambdaMooV4Reader malformed(java.lang.String, java.lang.Throwable)
+      fullyQualifiedTargetTypeName: moo.persistence.DbScanner
+  - org.openrewrite.java.ChangeMethodTargetToStatic:
+      methodPattern: moo.persistence.LambdaMooV5Reader readCount(java.io.BufferedReader, java.lang.String)
+      fullyQualifiedTargetTypeName: moo.persistence.DbScanner
+  - org.openrewrite.java.ChangeMethodTargetToStatic:
+      methodPattern: moo.persistence.LambdaMooV5Reader parseCount(java.lang.String, java.lang.String)
+      fullyQualifiedTargetTypeName: moo.persistence.DbScanner
+  - org.openrewrite.java.ChangeMethodTargetToStatic:
+      methodPattern: moo.persistence.LambdaMooV5Reader readInt(java.io.BufferedReader, java.lang.String)
+      fullyQualifiedTargetTypeName: moo.persistence.DbScanner
+  - org.openrewrite.java.ChangeMethodTargetToStatic:
+      methodPattern: moo.persistence.LambdaMooV5Reader parseInt(java.lang.String, java.lang.String)
+      fullyQualifiedTargetTypeName: moo.persistence.DbScanner
+  - org.openrewrite.java.ChangeMethodTargetToStatic:
+      methodPattern: moo.persistence.LambdaMooV5Reader readLong(java.io.BufferedReader, java.lang.String)
+      fullyQualifiedTargetTypeName: moo.persistence.DbScanner
+  - org.openrewrite.java.ChangeMethodTargetToStatic:
+      methodPattern: moo.persistence.LambdaMooV5Reader parseLong(java.lang.String, java.lang.String)
+      fullyQualifiedTargetTypeName: moo.persistence.DbScanner
+  - org.openrewrite.java.ChangeMethodTargetToStatic:
+      methodPattern: moo.persistence.LambdaMooV5Reader readDouble(java.io.BufferedReader, java.lang.String)
+      fullyQualifiedTargetTypeName: moo.persistence.DbScanner
+  - org.openrewrite.java.ChangeMethodTargetToStatic:
+      methodPattern: moo.persistence.LambdaMooV5Reader requireExact(java.io.BufferedReader, java.lang.String, java.lang.String)
+      fullyQualifiedTargetTypeName: moo.persistence.DbScanner
+  - org.openrewrite.java.ChangeMethodTargetToStatic:
+      methodPattern: moo.persistence.LambdaMooV5Reader requiredLine(java.io.BufferedReader, java.lang.String)
+      fullyQualifiedTargetTypeName: moo.persistence.DbScanner
+  - org.openrewrite.java.ChangeMethodTargetToStatic:
+      methodPattern: moo.persistence.LambdaMooV5Reader malformed(java.lang.String)
+      fullyQualifiedTargetTypeName: moo.persistence.DbScanner
+  - org.openrewrite.java.ChangeMethodTargetToStatic:
+      methodPattern: moo.persistence.LambdaMooV5Reader malformed(java.lang.String, java.lang.Throwable)
+      fullyQualifiedTargetTypeName: moo.persistence.DbScanner
+  - org.openrewrite.java.ChangeMethodTargetToStatic:
+      methodPattern: moo.persistence.LambdaMooV17Codec readCount(java.io.BufferedReader, java.lang.String)
+      fullyQualifiedTargetTypeName: moo.persistence.DbScanner
+  - org.openrewrite.java.ChangeMethodTargetToStatic:
+      methodPattern: moo.persistence.LambdaMooV17Codec parseCount(java.lang.String, java.lang.String)
+      fullyQualifiedTargetTypeName: moo.persistence.DbScanner
+  - org.openrewrite.java.ChangeMethodTargetToStatic:
+      methodPattern: moo.persistence.LambdaMooV17Codec readInt(java.io.BufferedReader, java.lang.String)
+      fullyQualifiedTargetTypeName: moo.persistence.DbScanner
+  - org.openrewrite.java.ChangeMethodTargetToStatic:
+      methodPattern: moo.persistence.LambdaMooV17Codec parseInt(java.lang.String, java.lang.String)
+      fullyQualifiedTargetTypeName: moo.persistence.DbScanner
+  - org.openrewrite.java.ChangeMethodTargetToStatic:
+      methodPattern: moo.persistence.LambdaMooV17Codec readLong(java.io.BufferedReader, java.lang.String)
+      fullyQualifiedTargetTypeName: moo.persistence.DbScanner
+  - org.openrewrite.java.ChangeMethodTargetToStatic:
+      methodPattern: moo.persistence.LambdaMooV17Codec parseLong(java.lang.String, java.lang.String)
+      fullyQualifiedTargetTypeName: moo.persistence.DbScanner
+  - org.openrewrite.java.ChangeMethodTargetToStatic:
+      methodPattern: moo.persistence.LambdaMooV17Codec readDouble(java.io.BufferedReader, java.lang.String)
+      fullyQualifiedTargetTypeName: moo.persistence.DbScanner
+  - org.openrewrite.java.ChangeMethodTargetToStatic:
+      methodPattern: moo.persistence.LambdaMooV17Codec requireExact(java.io.BufferedReader, java.lang.String, java.lang.String)
+      fullyQualifiedTargetTypeName: moo.persistence.DbScanner
+  - org.openrewrite.java.ChangeMethodTargetToStatic:
+      methodPattern: moo.persistence.LambdaMooV17Codec requiredLine(java.io.BufferedReader, java.lang.String)
+      fullyQualifiedTargetTypeName: moo.persistence.DbScanner
+  - org.openrewrite.java.ChangeMethodTargetToStatic:
+      methodPattern: moo.persistence.LambdaMooV17Codec malformed(java.lang.String)
+      fullyQualifiedTargetTypeName: moo.persistence.DbScanner
+  - org.openrewrite.java.ChangeMethodTargetToStatic:
+      methodPattern: moo.persistence.LambdaMooV17Codec malformed(java.lang.String, java.lang.Throwable)
+      fullyQualifiedTargetTypeName: moo.persistence.DbScanner
