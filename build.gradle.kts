@@ -54,6 +54,7 @@ dependencies {
     rewrite(platform("org.openrewrite.recipe:rewrite-recipe-bom:3.37.0"))
     rewrite("org.openrewrite.recipe:rewrite-static-analysis")
     rewrite("org.openrewrite.recipe:rewrite-migrate-java")
+    rewrite(project(":rewrite-recipes"))
 
     errorprone("com.google.errorprone:error_prone_core:2.50.0")
     errorprone("com.uber.nullaway:nullaway:0.13.7")

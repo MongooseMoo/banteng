@@ -14,6 +14,7 @@ displayName: Move Latin-1 encoding helpers to StringValue
 description: Retargets private Java-string encoders to the StringValue factory before deleting them.
 causesAnotherCycle: true
 recipeList:
+  - moo.rewrite.UseStringValueInlineEncoding
   - org.openrewrite.java.ChangeMethodTargetToStatic:
       methodPattern: moo.builtin.BuiltinCatalog encode(java.lang.String)
       fullyQualifiedTargetTypeName: moo.value.MooValue.StringValue
