@@ -5722,6 +5722,35 @@ public final class BuiltinCatalog {
     return BuiltinResult.error(ErrorValue.E_TYPE);
   }
 
+  private static Optional<ErrorValue> resolveOwnershipPreamble(
+      MooValue receiver, long newOwner, WorldTxn world, long programmer) {
+    long targetOwner;
+    int targetFlags;
+    if (receiver instanceof ObjectValue object) {
+      WorldObject target = world.object(object.value()).orElse(null);
+      if (target == null) {
+        return Optional.of(ErrorValue.E_INVARG);
+      }
+      targetOwner = target.owner();
+      targetFlags = target.flags();
+    } else if (receiver instanceof AnonymousObjectValue anonymous) {
+      WorldAnonymousObject target = world.anonymousObject(anonymous).orElse(null);
+      if (target == null) {
+        return Optional.of(ErrorValue.E_INVARG);
+      }
+      targetOwner = target.owner();
+      targetFlags = target.flags();
+    } else {
+      return Optional.of(ErrorValue.E_TYPE);
+    }
+    WorldObject actor = world.object(programmer).orElse(null);
+    boolean wizard = actor != null && ObjectFlags.isWizard(actor.flags());
+    boolean writable = targetOwner == programmer || wizard || ObjectFlags.isWritable(targetFlags);
+    return writable && (newOwner == programmer || wizard)
+        ? Optional.empty()
+        : Optional.of(ErrorValue.E_PERM);
+  }
+
   private static BuiltinResult addVerb(
       List<MooValue> arguments, WorldTxn world, long programmer) {
     ListValue info = (ListValue) arguments.get(1);
@@ -5788,31 +5817,11 @@ public final class BuiltinCatalog {
       return BuiltinResult.error(ErrorValue.E_INVARG);
     }
 
-    WorldObject actor = world.object(programmer).orElse(null);
-    boolean wizard = actor != null && ObjectFlags.isWizard(actor.flags());
     MooValue receiver = arguments.get(0);
-    long targetOwner;
-    int targetFlags;
-    if (receiver instanceof ObjectValue object) {
-      WorldObject target = world.object(object.value()).orElse(null);
-      if (target == null) {
-        return BuiltinResult.error(ErrorValue.E_INVARG);
-      }
-      targetOwner = target.owner();
-      targetFlags = target.flags();
-    } else if (receiver instanceof AnonymousObjectValue anonymous) {
-      WorldAnonymousObject target = world.anonymousObject(anonymous).orElse(null);
-      if (target == null) {
-        return BuiltinResult.error(ErrorValue.E_INVARG);
-      }
-      targetOwner = target.owner();
-      targetFlags = target.flags();
-    } else {
-      return BuiltinResult.error(ErrorValue.E_TYPE);
-    }
-    boolean writable = targetOwner == programmer || wizard || ObjectFlags.isWritable(targetFlags);
-    if (!writable || (owner.value() != programmer && !wizard)) {
-      return BuiltinResult.error(ErrorValue.E_PERM);
+    Optional<ErrorValue> ownershipError =
+        resolveOwnershipPreamble(receiver, owner.value(), world, programmer);
+    if (ownershipError.isPresent()) {
+      return BuiltinResult.error(ownershipError.orElseThrow());
     }
 
     int encodedPermissions = permissions | (direct << 4) | (indirect << 6);
@@ -5856,30 +5865,10 @@ public final class BuiltinCatalog {
       }
     }
     MooValue receiver = arguments.get(0);
-    long targetOwner;
-    int targetFlags;
-    if (receiver instanceof ObjectValue object) {
-      WorldObject target = world.object(object.value()).orElse(null);
-      if (target == null) {
-        return BuiltinResult.error(ErrorValue.E_INVARG);
-      }
-      targetOwner = target.owner();
-      targetFlags = target.flags();
-    } else if (receiver instanceof AnonymousObjectValue anonymous) {
-      WorldAnonymousObject target = world.anonymousObject(anonymous).orElse(null);
-      if (target == null) {
-        return BuiltinResult.error(ErrorValue.E_INVARG);
-      }
-      targetOwner = target.owner();
-      targetFlags = target.flags();
-    } else {
-      return BuiltinResult.error(ErrorValue.E_TYPE);
-    }
-    WorldObject actor = world.object(programmer).orElse(null);
-    boolean wizard = actor != null && ObjectFlags.isWizard(actor.flags());
-    boolean writable = targetOwner == programmer || wizard || ObjectFlags.isWritable(targetFlags);
-    if (!writable || (owner.value() != programmer && !wizard)) {
-      return BuiltinResult.error(ErrorValue.E_PERM);
+    Optional<ErrorValue> ownershipError =
+        resolveOwnershipPreamble(receiver, owner.value(), world, programmer);
+    if (ownershipError.isPresent()) {
+      return BuiltinResult.error(ownershipError.orElseThrow());
     }
     String name = ((StringValue) arguments.get(1)).text();
     boolean added =
