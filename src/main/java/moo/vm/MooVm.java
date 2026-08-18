@@ -36,6 +36,7 @@ import moo.value.MooValue.MapValue;
 import moo.value.MooValue.ObjectValue;
 import moo.value.MooValue.StringValue;
 import moo.value.MooValue.WaifValue;
+import moo.value.ValueSemantics;
 import moo.vm.VmState.ActiveHandler;
 import moo.vm.VmState.CollectionCursor;
 import moo.vm.VmState.Frame;
@@ -52,11 +53,23 @@ import moo.world.WorldVerb;
 
 /** Iterative executor for the authorized explicit bytecode state. */
 public final class MooVm {
+  private final ValueSemantics valueSemantics;
+
+  /** Creates a VM with stock value semantics. */
+  public MooVm() {
+    this(ValueSemantics.STANDARD);
+  }
+
+  /** Creates a VM with the selected value semantics. */
+  public MooVm(ValueSemantics valueSemantics) {
+    this.valueSemantics = Objects.requireNonNull(valueSemantics, "valueSemantics");
+  }
+
   /** Executes a pure program for package-level VM tests without publishing world state or effects. */
   void execute(BytecodeProgram program, VmState state) {
     WorldTxn root = new WorldTxn(List.of(), List.of());
     try (WorldTxn transaction = root.begin()) {
-      execute(program, state, transaction, new BuiltinCatalog(), 0L);
+      execute(program, state, transaction, new BuiltinCatalog(valueSemantics), 0L);
       if (state.outcome() == VmState.Outcome.PENDING_BUILTIN) {
         throw new IllegalStateException("pure VM execution reached an irrevocable builtin");
       }
@@ -87,7 +100,7 @@ public final class MooVm {
     }
   }
 
-  private static void executeInstruction(
+  private void executeInstruction(
       Instruction instruction,
       VmState state,
       WorldTxn world,
@@ -1827,7 +1840,7 @@ public final class MooVm {
     }
   }
 
-  private static void membership(Frame frame, VmState state, WorldTxn world) {
+  private void membership(Frame frame, VmState state, WorldTxn world) {
     MooValue collection = frame.operandStack.pop();
     MooValue requested = frame.operandStack.pop();
     if (collection instanceof StringValue haystack && requested instanceof StringValue needle) {
@@ -1841,7 +1854,7 @@ public final class MooVm {
       int index = 0;
       for (MooValue value : map.entries().values()) {
         index++;
-        if (requested.equals(value)) {
+        if (mooEquals(requested, value)) {
           position = index;
           break;
         }
@@ -1856,7 +1869,7 @@ public final class MooVm {
     }
     long position = 0;
     for (int index = 0; index < list.elements().size(); index++) {
-      if (requested.equals(list.elements().get(index))) {
+      if (mooEquals(requested, list.elements().get(index))) {
         position = index + 1L;
         break;
       }
@@ -1954,7 +1967,7 @@ public final class MooVm {
     frame.instructionPointer++;
   }
 
-  private static void arithmetic(
+  private void arithmetic(
       Instruction instruction, Frame frame, VmState state, WorldTxn world) {
     MooValue rightValue = frame.operandStack.pop();
     MooValue leftValue = frame.operandStack.pop();
@@ -1982,6 +1995,11 @@ public final class MooVm {
       frame.operandStack.push(left.append(rightValue));
       frame.instructionPointer++;
       return;
+    }
+    if (valueSemantics.promoteNumbers()
+        && isMixedIntegerFloat(leftValue, rightValue)) {
+      leftValue = promoteInteger(leftValue);
+      rightValue = promoteInteger(rightValue);
     }
     if (leftValue instanceof IntegerValue left && rightValue instanceof IntegerValue right) {
       if ((instruction.opcode() == BytecodeProgram.Opcode.DIVIDE
@@ -2088,7 +2106,7 @@ public final class MooVm {
     return result;
   }
 
-  private static void equality(Instruction instruction, Frame frame) {
+  private void equality(Instruction instruction, Frame frame) {
     MooValue right = frame.operandStack.pop();
     MooValue left = frame.operandStack.pop();
     boolean equal;
@@ -2100,12 +2118,15 @@ public final class MooVm {
     frame.instructionPointer++;
   }
 
-  private static boolean mooEquals(MooValue left, MooValue right) {
+  private boolean mooEquals(MooValue left, MooValue right) {
     if (left instanceof BooleanValue bool && right instanceof IntegerValue integer) {
       return integer.value() == (bool.value() ? 1 : 0);
     }
     if (left instanceof IntegerValue integer && right instanceof BooleanValue bool) {
       return integer.value() == (bool.value() ? 1 : 0);
+    }
+    if (valueSemantics.promoteNumbers() && isMixedIntegerFloat(left, right)) {
+      return numericDouble(left) == numericDouble(right);
     }
     if (left instanceof ListValue leftList && right instanceof ListValue rightList) {
       if (leftList.size() != rightList.size()) {
@@ -2137,7 +2158,7 @@ public final class MooVm {
     return left.equals(right);
   }
 
-  private static void comparison(
+  private void comparison(
       Instruction instruction, Frame frame, VmState state, WorldTxn world) {
     MooValue rightValue = frame.operandStack.pop();
     MooValue leftValue = frame.operandStack.pop();
@@ -2152,6 +2173,11 @@ public final class MooVm {
       frame.operandStack.push(new IntegerValue(result ? 1 : 0));
       frame.instructionPointer++;
       return;
+    }
+    if (valueSemantics.promoteNumbers()
+        && isMixedIntegerFloat(leftValue, rightValue)) {
+      leftValue = promoteInteger(leftValue);
+      rightValue = promoteInteger(rightValue);
     }
     if (leftValue instanceof IntegerValue left && rightValue instanceof IntegerValue right) {
       boolean result =
@@ -2220,6 +2246,23 @@ public final class MooVm {
       return;
     }
     raiseError(state, ErrorValue.E_TYPE, world);
+  }
+
+  private static boolean isMixedIntegerFloat(MooValue left, MooValue right) {
+    return (left instanceof IntegerValue && right instanceof FloatValue)
+        || (left instanceof FloatValue && right instanceof IntegerValue);
+  }
+
+  private static MooValue promoteInteger(MooValue value) {
+    return value instanceof IntegerValue integer
+        ? new FloatValue((double) integer.value())
+        : value;
+  }
+
+  private static double numericDouble(MooValue value) {
+    return value instanceof IntegerValue integer
+        ? integer.value()
+        : ((FloatValue) value).value();
   }
 
   private static void conditionalJump(Instruction instruction, Frame frame, boolean truth) {

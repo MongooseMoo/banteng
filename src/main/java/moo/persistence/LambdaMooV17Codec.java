@@ -48,7 +48,7 @@ import moo.world.WorldVerb;
 import moo.world.WorldWaif;
 import org.jspecify.annotations.Nullable;
 
-/** Streaming Latin-1 reader and atomic writer for the Phase 2 LambdaMOO v17 slice. */
+/** Streaming Latin-1 reader and atomic writer for LambdaMOO format version 17. */
 public final class LambdaMooV17Codec {
   private static final String HEADER = "** LambdaMOO Database, Format Version 17 **";
   private final AtomicPromoter promoter;
@@ -1207,7 +1207,7 @@ public final class LambdaMooV17Codec {
           line(output, ".");
         }
       }
-      default -> throw new IOException("unsupported Phase 2 v17 value: " + value.type());
+      default -> throw new IOException("unsupported v17 value type: " + value.type());
     }
   }
 
@@ -1683,7 +1683,7 @@ public final class LambdaMooV17Codec {
       }
       case 13 -> readWaif(input, context);
       case 14 -> BooleanValue.of(readLong(input, "boolean value") != 0);
-      default -> throw malformed("unsupported Phase 2 v17 value tag " + tag);
+      default -> throw malformed("unsupported v17 value tag " + tag);
     };
   }
 

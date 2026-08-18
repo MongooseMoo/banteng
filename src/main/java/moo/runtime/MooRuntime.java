@@ -43,6 +43,7 @@ import moo.value.MooValue.MapValue;
 import moo.value.MooValue.ObjectValue;
 import moo.value.MooValue.StringValue;
 import moo.value.MooValue.WaifValue;
+import moo.value.ValueSemantics;
 import moo.world.ObjectFlags;
 import moo.world.WorldAnonymousObject;
 import moo.vm.MooVm;
@@ -70,7 +71,7 @@ public final class MooRuntime implements AutoCloseable {
   private final Optional<Path> checkpoint;
   private final WorldTxn committedWorld;
   private final LambdaMooV17Codec checkpointCodec = new LambdaMooV17Codec();
-  private final MooVm vm = new MooVm();
+  private final MooVm vm;
   private final PublicationScheduler scheduler;
   private final List<ActiveConnection> checkpointedConnections;
   private final Map<Long, ConnectionState> publishedConnections = new LinkedHashMap<>();
@@ -83,7 +84,15 @@ public final class MooRuntime implements AutoCloseable {
 
   /** Creates a runtime over the one concrete world transaction. */
   public MooRuntime(WorldTxn world) {
+    this(world, ValueSemantics.STANDARD);
+  }
+
+  /** Creates a runtime over one world transaction with selected value semantics. */
+  public MooRuntime(WorldTxn world, ValueSemantics valueSemantics) {
     committedWorld = Objects.requireNonNull(world, "world");
+    ValueSemantics configuredSemantics =
+        Objects.requireNonNull(valueSemantics, "valueSemantics");
+    vm = new MooVm(configuredSemantics);
     listenerControl = Optional.empty();
     database = Optional.empty();
     checkpoint = Optional.empty();
@@ -95,6 +104,7 @@ public final class MooRuntime implements AutoCloseable {
     checkpointedConnections = List.of();
     builtins =
         new BuiltinCatalog(
+            configuredSemantics,
             taskRegistry::queuedTasks,
             taskRegistry::killTask,
             this::read,
@@ -120,7 +130,8 @@ public final class MooRuntime implements AutoCloseable {
         Optional.of(Objects.requireNonNull(checkpoint, "checkpoint")),
         List.of(),
         List.of(),
-        ServerLog.stderr(System.Logger.Level.INFO));
+        ServerLog.stderr(System.Logger.Level.INFO),
+        ValueSemantics.STANDARD);
   }
 
   /** Creates the production runtime and restores delayed fork tasks from one checkpoint. */
@@ -133,12 +144,30 @@ public final class MooRuntime implements AutoCloseable {
     this(
         world,
         listenerControl,
+        checkpoint,
+        restoredTasks,
+        activeConnections,
+        ValueSemantics.STANDARD);
+  }
+
+  /** Creates the production runtime from one checkpoint with selected value semantics. */
+  public MooRuntime(
+      WorldTxn world,
+      ListenerControl listenerControl,
+      Path checkpoint,
+      List<LambdaMooV17Codec.DurableTask> restoredTasks,
+      List<ActiveConnection> activeConnections,
+      ValueSemantics valueSemantics) {
+    this(
+        world,
+        listenerControl,
         Math.max(2, Runtime.getRuntime().availableProcessors()),
         Optional.empty(),
         Optional.of(Objects.requireNonNull(checkpoint, "checkpoint")),
         restoredTasks,
         activeConnections,
-        ServerLog.stderr(System.Logger.Level.INFO));
+        ServerLog.stderr(System.Logger.Level.INFO),
+        valueSemantics);
   }
 
   /** Creates the production runtime with restored state and the shared server log. */
@@ -157,7 +186,29 @@ public final class MooRuntime implements AutoCloseable {
         Optional.of(Objects.requireNonNull(checkpoint, "checkpoint")),
         restoredTasks,
         activeConnections,
-        serverLog);
+        serverLog,
+        ValueSemantics.STANDARD);
+  }
+
+  /** Creates the production runtime with restored state, shared log, and value semantics. */
+  public MooRuntime(
+      WorldTxn world,
+      ListenerControl listenerControl,
+      Path checkpoint,
+      List<LambdaMooV17Codec.DurableTask> restoredTasks,
+      List<ActiveConnection> activeConnections,
+      ServerLog serverLog,
+      ValueSemantics valueSemantics) {
+    this(
+        world,
+        listenerControl,
+        Math.max(2, Runtime.getRuntime().availableProcessors()),
+        Optional.empty(),
+        Optional.of(Objects.requireNonNull(checkpoint, "checkpoint")),
+        restoredTasks,
+        activeConnections,
+        serverLog,
+        valueSemantics);
   }
 
   /** Creates the production runtime with distinct loaded and checkpoint database files. */
@@ -171,12 +222,32 @@ public final class MooRuntime implements AutoCloseable {
     this(
         world,
         listenerControl,
+        database,
+        checkpoint,
+        restoredTasks,
+        activeConnections,
+        ValueSemantics.STANDARD);
+  }
+
+  /** Creates the production runtime with selected value semantics. */
+  public MooRuntime(
+      WorldTxn world,
+      ListenerControl listenerControl,
+      Path database,
+      Path checkpoint,
+      List<LambdaMooV17Codec.DurableTask> restoredTasks,
+      List<ActiveConnection> activeConnections,
+      ValueSemantics valueSemantics) {
+    this(
+        world,
+        listenerControl,
         Math.max(2, Runtime.getRuntime().availableProcessors()),
         Optional.of(Objects.requireNonNull(database, "database")),
         Optional.of(Objects.requireNonNull(checkpoint, "checkpoint")),
         restoredTasks,
         activeConnections,
-        ServerLog.stderr(System.Logger.Level.INFO));
+        ServerLog.stderr(System.Logger.Level.INFO),
+        valueSemantics);
   }
 
   /** Creates the production runtime with distinct database files and the shared server log. */
@@ -196,7 +267,30 @@ public final class MooRuntime implements AutoCloseable {
         Optional.of(Objects.requireNonNull(checkpoint, "checkpoint")),
         restoredTasks,
         activeConnections,
-        serverLog);
+        serverLog,
+        ValueSemantics.STANDARD);
+  }
+
+  /** Creates the production runtime with database files, shared log, and value semantics. */
+  public MooRuntime(
+      WorldTxn world,
+      ListenerControl listenerControl,
+      Path database,
+      Path checkpoint,
+      List<LambdaMooV17Codec.DurableTask> restoredTasks,
+      List<ActiveConnection> activeConnections,
+      ServerLog serverLog,
+      ValueSemantics valueSemantics) {
+    this(
+        world,
+        listenerControl,
+        Math.max(2, Runtime.getRuntime().availableProcessors()),
+        Optional.of(Objects.requireNonNull(database, "database")),
+        Optional.of(Objects.requireNonNull(checkpoint, "checkpoint")),
+        restoredTasks,
+        activeConnections,
+        serverLog,
+        valueSemantics);
   }
 
   MooRuntime(WorldTxn world, ListenerControl listenerControl, int workers) {
@@ -208,7 +302,8 @@ public final class MooRuntime implements AutoCloseable {
         Optional.empty(),
         List.of(),
         List.of(),
-        ServerLog.stderr(System.Logger.Level.INFO));
+        ServerLog.stderr(System.Logger.Level.INFO),
+        ValueSemantics.STANDARD);
   }
 
   private MooRuntime(
@@ -219,8 +314,12 @@ public final class MooRuntime implements AutoCloseable {
       Optional<Path> checkpoint,
       List<LambdaMooV17Codec.DurableTask> restoredTasks,
       List<ActiveConnection> activeConnections,
-      ServerLog serverLog) {
+      ServerLog serverLog,
+      ValueSemantics valueSemantics) {
     committedWorld = Objects.requireNonNull(world, "world");
+    ValueSemantics configuredSemantics =
+        Objects.requireNonNull(valueSemantics, "valueSemantics");
+    vm = new MooVm(configuredSemantics);
     this.listenerControl = Optional.of(Objects.requireNonNull(listenerControl, "listenerControl"));
     this.database = Objects.requireNonNull(database, "database");
     this.checkpoint = Objects.requireNonNull(checkpoint, "checkpoint");
@@ -235,6 +334,7 @@ public final class MooRuntime implements AutoCloseable {
             taskRegistry);
     builtins =
         new BuiltinCatalog(
+            configuredSemantics,
             listenerControl,
             taskRegistry::queuedTasks,
             taskRegistry::killTask,

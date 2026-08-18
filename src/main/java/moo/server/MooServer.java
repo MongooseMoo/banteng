@@ -39,6 +39,7 @@ import moo.value.MooValue;
 import moo.value.MooValue.IntegerValue;
 import moo.value.MooValue.MapValue;
 import moo.value.MooValue.StringValue;
+import moo.value.ValueSemantics;
 import moo.world.WorldTxn;
 
 /** The concrete blocking socket server for the first managed vertical slice. */
@@ -79,7 +80,8 @@ public final class MooServer implements AutoCloseable, ListenerControl {
         checkpoint,
         restoredTasks,
         activeConnections,
-        ServerLog.stderr(System.Logger.Level.INFO));
+        ServerLog.stderr(System.Logger.Level.INFO),
+        ValueSemantics.STANDARD);
   }
 
   /** Binds the listener with distinct loaded and checkpoint database files. */
@@ -96,11 +98,34 @@ public final class MooServer implements AutoCloseable, ListenerControl {
         address,
         port,
         world,
+        database,
+        checkpoint,
+        restoredTasks,
+        activeConnections,
+        ValueSemantics.STANDARD);
+  }
+
+  /** Binds the listener with distinct files and selected value semantics. */
+  public MooServer(
+      String address,
+      int port,
+      WorldTxn world,
+      Path database,
+      Path checkpoint,
+      List<LambdaMooV17Codec.DurableTask> restoredTasks,
+      List<LambdaMooV17Codec.ActiveConnection> activeConnections,
+      ValueSemantics valueSemantics)
+      throws IOException {
+    this(
+        address,
+        port,
+        world,
         Optional.of(Objects.requireNonNull(database, "database")),
         checkpoint,
         restoredTasks,
         activeConnections,
-        ServerLog.stderr(System.Logger.Level.INFO));
+        ServerLog.stderr(System.Logger.Level.INFO),
+        valueSemantics);
   }
 
   /** Binds the listener with distinct database files and the shared server log. */
@@ -122,7 +147,32 @@ public final class MooServer implements AutoCloseable, ListenerControl {
         checkpoint,
         restoredTasks,
         activeConnections,
-        serverLog);
+        serverLog,
+        ValueSemantics.STANDARD);
+  }
+
+  /** Binds the listener with shared logging and selected value semantics. */
+  public MooServer(
+      String address,
+      int port,
+      WorldTxn world,
+      Path database,
+      Path checkpoint,
+      List<LambdaMooV17Codec.DurableTask> restoredTasks,
+      List<LambdaMooV17Codec.ActiveConnection> activeConnections,
+      ServerLog serverLog,
+      ValueSemantics valueSemantics)
+      throws IOException {
+    this(
+        address,
+        port,
+        world,
+        Optional.of(Objects.requireNonNull(database, "database")),
+        checkpoint,
+        restoredTasks,
+        activeConnections,
+        serverLog,
+        valueSemantics);
   }
 
   private MooServer(
@@ -133,7 +183,8 @@ public final class MooServer implements AutoCloseable, ListenerControl {
       Path checkpoint,
       List<LambdaMooV17Codec.DurableTask> restoredTasks,
       List<LambdaMooV17Codec.ActiveConnection> activeConnections,
-      ServerLog serverLog)
+      ServerLog serverLog,
+      ValueSemantics valueSemantics)
       throws IOException {
     listenAddress = InetAddress.getByName(address);
     primaryListener = new ServerSocket();
@@ -153,14 +204,16 @@ public final class MooServer implements AutoCloseable, ListenerControl {
                 checkpointPath,
                 tasks,
                 connectionsToRestore,
-                runtimeLog)
+                runtimeLog,
+                valueSemantics)
             : new MooRuntime(
                 runtimeWorld,
                 this,
                 checkpointPath,
                 tasks,
                 connectionsToRestore,
-                runtimeLog);
+                runtimeLog,
+                valueSemantics);
     try {
       primaryListener.bind(new InetSocketAddress(listenAddress, port));
     } catch (IOException | RuntimeException failure) {

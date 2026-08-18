@@ -173,7 +173,7 @@ public final class LambdaMooV5Reader {
   }
 
   private Map<Long, RepairedObject> repairTopology(Map<Long, RawObject> objects) {
-    serverLog.info("VALIDATE: Phase 1: Check for invalid objects ...");
+    serverLog.info("VALIDATE: checking object references ...");
     Map<Long, RepairedObject> repaired = new LinkedHashMap<>();
     for (RawObject object : objects.values()) {
       repaired.put(
@@ -185,7 +185,7 @@ public final class LambdaMooV5Reader {
               repairObjectList(object, object.children(), "children", "child", objects)));
     }
 
-    serverLog.info("VALIDATE: Phase 2: Check for cycles ...");
+    serverLog.info("VALIDATE: checking inheritance graph for cycles ...");
     Set<Long> parentCycles = new LinkedHashSet<>();
     Set<Long> locationCycles = new LinkedHashSet<>();
     for (long objectId : objects.keySet()) {
@@ -207,7 +207,7 @@ public final class LambdaMooV5Reader {
       repaired.put(objectId, object.withLocation(-1));
     }
 
-    serverLog.info("VALIDATE: Phase 3: Check for inconsistencies ...");
+    serverLog.info("VALIDATE: checking object relationships ...");
     for (long objectId : objects.keySet()) {
       RepairedObject object = Objects.requireNonNull(repaired.get(objectId));
       if (object.location() != -1

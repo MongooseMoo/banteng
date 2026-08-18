@@ -15,7 +15,7 @@ import moo.syntax.Ast;
 import moo.syntax.MooParser;
 import moo.syntax.MooUnparser;
 
-/** Lowers the authorized syntax slice directly into executable bytecode. */
+/** Lowers parsed MOO syntax directly into executable bytecode. */
 public final class MooCompiler {
   private int catchSequence;
   private final List<List<String>> activeLoopVariables = new ArrayList<>();
@@ -577,7 +577,7 @@ public final class MooCompiler {
       compileTry(tryStatement, instructions, forkVectors);
       return;
     }
-    throw new IllegalArgumentException("unsupported statement in bytecode slice: " + statement);
+    throw new IllegalArgumentException("unsupported MOO statement: " + statement);
   }
 
   private void compileIf(
@@ -818,7 +818,7 @@ public final class MooCompiler {
       compileCatch(catchExpression, instructions);
       return;
     }
-    throw new IllegalArgumentException("unsupported expression in bytecode slice: " + expression);
+    throw new IllegalArgumentException("unsupported MOO expression: " + expression);
   }
 
   private void compileAssignment(Ast.Assignment assignment, List<Instruction> instructions) {
