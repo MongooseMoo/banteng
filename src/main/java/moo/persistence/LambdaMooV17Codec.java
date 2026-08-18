@@ -423,7 +423,7 @@ public final class LambdaMooV17Codec {
         }
       }
 
-      validateInheritanceGraph(objects, permanentSlotCount);
+      objects = validateAndRepairHierarchy(objects, permanentSlotCount);
       Map<Long, List<WorldProperty>> restoredProperties = restoreAllProperties(objects);
       List<WorldObject> restored =
           restoreObjects(objects, programs, restoredProperties, permanentSlotCount);
@@ -1531,6 +1531,9 @@ public final class LambdaMooV17Codec {
     ancestry.add(object.id());
 
     for (long parentId : object.parents()) {
+      if (parentId == -1) {
+        continue;
+      }
       RawObject parent = objects.get(parentId);
       if (parent == null) {
         throw malformed("object #" + object.id() + " has missing parent #" + parentId);
@@ -1588,6 +1591,9 @@ public final class LambdaMooV17Codec {
       RawObject object, String propertyName, Map<Long, List<WorldProperty>> restored)
       throws IOException {
     for (long parentId : object.parents()) {
+      if (parentId == -1) {
+        continue;
+      }
       List<WorldProperty> parentProperties = restored.get(parentId);
       if (parentProperties == null) {
         continue;
@@ -1603,46 +1609,67 @@ public final class LambdaMooV17Codec {
             + propertyName);
   }
 
-  private static void validateInheritanceGraph(
+  private static Map<Long, RawObject> validateAndRepairHierarchy(
       Map<Long, RawObject> objects, int permanentSlotCount) throws IOException {
-    Map<Long, List<Long>> expectedChildren = new LinkedHashMap<>();
-    Map<Long, RawVisitState> inheritanceState = new LinkedHashMap<>();
-    for (RawObject object : objects.values()) {
-      if (new LinkedHashSet<>(object.parents()).size() != object.parents().size()) {
-        throw malformed("object #" + object.id() + " repeats an inheritance parent");
-      }
-      validateRawAcyclic(object.id(), objects, inheritanceState);
-      if (object.id() >= permanentSlotCount) {
-        continue;
-      }
-      for (long parentId : object.parents()) {
-        if (parentId >= permanentSlotCount) {
-          throw malformed("object #" + object.id() + " has non-permanent parent #" + parentId);
-        }
-        expectedChildren.computeIfAbsent(parentId, ignored -> new ArrayList<>()).add(object.id());
-      }
-    }
+    Map<Long, RawObject> repaired = new LinkedHashMap<>(objects);
     for (RawObject object : objects.values()) {
       if (object.id() >= permanentSlotCount) {
         continue;
       }
-      if (new LinkedHashSet<>(object.children()).size() != object.children().size()) {
-        throw malformed("object #" + object.id() + " repeats an inheritance child");
-      }
-      List<Long> expected = expectedChildren.getOrDefault(object.id(), List.of());
-      if (!new LinkedHashSet<>(object.children()).equals(new LinkedHashSet<>(expected))) {
-        throw malformed("object #" + object.id() + " has non-reciprocal inheritance children");
-      }
-      for (long childId : object.children()) {
-        RawObject child = objects.get(childId);
-        if (child == null || childId >= permanentSlotCount || !child.parents().contains(object.id())) {
-          throw malformed("object #" + object.id() + " names non-reciprocal child #" + childId);
-        }
-      }
+      repaired.put(
+          object.id(),
+          new RawObject(
+              object.id(),
+              object.name(),
+              object.flags(),
+              object.owner(),
+              repairLocation(object.location(), objects, permanentSlotCount),
+              object.lastMove(),
+              repairReferences(object.parents(), objects, permanentSlotCount),
+              repairReferences(object.contents(), objects, permanentSlotCount),
+              repairReferences(object.children(), objects, permanentSlotCount),
+              object.verbs(),
+              object.propertyNames(),
+              object.propertySlots()));
     }
+
+    Map<Long, RawVisitState> parentState = new LinkedHashMap<>();
+    Map<Long, RawVisitState> locationState = new LinkedHashMap<>();
+    for (RawObject object : repaired.values()) {
+      if (object.id() >= permanentSlotCount) {
+        continue;
+      }
+      validateParentAcyclic(object.id(), repaired, parentState);
+      validateLocationAcyclic(object.id(), repaired, locationState);
+    }
+    validateHierarchyReciprocity(repaired, permanentSlotCount);
+    return repaired;
   }
 
-  private static void validateRawAcyclic(
+  private static long repairLocation(
+      long location, Map<Long, RawObject> objects, int permanentSlotCount) {
+    return location == -1 || isPermanentObject(location, objects, permanentSlotCount)
+        ? location
+        : -1;
+  }
+
+  private static List<Long> repairReferences(
+      List<Long> references, Map<Long, RawObject> objects, int permanentSlotCount) {
+    List<Long> repaired = new ArrayList<>(references.size());
+    for (long reference : references) {
+      if (reference == -1 || isPermanentObject(reference, objects, permanentSlotCount)) {
+        repaired.add(reference);
+      }
+    }
+    return List.copyOf(repaired);
+  }
+
+  private static boolean isPermanentObject(
+      long objectId, Map<Long, RawObject> objects, int permanentSlotCount) {
+    return objectId >= 0 && objectId < permanentSlotCount && objects.containsKey(objectId);
+  }
+
+  private static void validateParentAcyclic(
       long objectId, Map<Long, RawObject> objects, Map<Long, RawVisitState> state)
       throws IOException {
     RawVisitState existing = state.get(objectId);
@@ -1650,17 +1677,97 @@ public final class LambdaMooV17Codec {
       return;
     }
     if (existing == RawVisitState.VISITING) {
-      throw malformed("cyclic property ancestry at object #" + objectId);
+      throw malformed("cyclic parent hierarchy at object #" + objectId);
     }
-    RawObject object = objects.get(objectId);
-    if (object == null) {
-      throw malformed("missing inheritance object #" + objectId);
-    }
+    RawObject object = requireHierarchyObject(objectId, objects);
     state.put(objectId, RawVisitState.VISITING);
     for (long parentId : object.parents()) {
-      validateRawAcyclic(parentId, objects, state);
+      if (parentId != -1) {
+        validateParentAcyclic(parentId, objects, state);
+      }
     }
     state.put(objectId, RawVisitState.COMPLETE);
+  }
+
+  private static void validateLocationAcyclic(
+      long objectId, Map<Long, RawObject> objects, Map<Long, RawVisitState> state)
+      throws IOException {
+    RawVisitState existing = state.get(objectId);
+    if (existing == RawVisitState.COMPLETE) {
+      return;
+    }
+    if (existing == RawVisitState.VISITING) {
+      throw malformed("cyclic location hierarchy at object #" + objectId);
+    }
+    RawObject object = requireHierarchyObject(objectId, objects);
+    state.put(objectId, RawVisitState.VISITING);
+    if (object.location() != -1) {
+      validateLocationAcyclic(object.location(), objects, state);
+    }
+    state.put(objectId, RawVisitState.COMPLETE);
+  }
+
+  private static void validateHierarchyReciprocity(
+      Map<Long, RawObject> objects, int permanentSlotCount) throws IOException {
+    for (RawObject object : objects.values()) {
+      if (object.id() >= permanentSlotCount) {
+        continue;
+      }
+      if (object.location() != -1) {
+        RawObject location = requireHierarchyObject(object.location(), objects);
+        if (!location.contents().contains(object.id())) {
+          throw malformed(
+              "object #"
+                  + object.id()
+                  + " is absent from location #"
+                  + object.location()
+                  + " contents");
+        }
+      }
+      for (long contentId : object.contents()) {
+        if (contentId == -1) {
+          continue;
+        }
+        RawObject content = requireHierarchyObject(contentId, objects);
+        if (content.location() != object.id()) {
+          throw malformed(
+              "object #" + contentId + " has non-reciprocal content location #" + object.id());
+        }
+      }
+      for (long parentId : object.parents()) {
+        if (parentId == -1) {
+          continue;
+        }
+        RawObject parent = requireHierarchyObject(parentId, objects);
+        if (!parent.children().contains(object.id())) {
+          throw malformed(
+              "object #"
+                  + object.id()
+                  + " is absent from parent #"
+                  + parentId
+                  + " children");
+        }
+      }
+      for (long childId : object.children()) {
+        if (childId == -1) {
+          continue;
+        }
+        RawObject child = requireHierarchyObject(childId, objects);
+        if (!child.parents().contains(object.id())) {
+          throw malformed(
+              "object #" + childId + " has non-reciprocal inheritance parent #" + object.id());
+        }
+      }
+    }
+  }
+
+  private static RawObject requireHierarchyObject(
+      long objectId, Map<Long, RawObject> objects) throws IOException {
+    RawObject object = objects.get(objectId);
+    if (object == null) {
+      throw malformed("missing hierarchy object #" + objectId);
+    }
+    return object;
   }
 
   private enum RawVisitState {
@@ -1695,7 +1802,9 @@ public final class LambdaMooV17Codec {
     visited.add(objectId);
     result.add(objectId);
     for (long parentId : object.parents()) {
-      collectRawAncestry(parentId, objects, visiting, visited, result);
+      if (parentId != -1) {
+        collectRawAncestry(parentId, objects, visiting, visited, result);
+      }
     }
     visiting.remove(objectId);
   }

@@ -304,9 +304,6 @@ final class WorldHistory {
       if (object.id() != objectId) {
         throw new IllegalStateException("object key does not match record #" + objectId);
       }
-      requireUnique(object.contents(), "contents", objectId);
-      requireUnique(object.children(), "children", objectId);
-      requireUnique(object.parents(), "parents", objectId);
       if (object.location() != -1) {
         WorldObject location = objects.get(object.location());
         if (location == null || !location.contents().contains(objectId)) {
@@ -314,18 +311,27 @@ final class WorldHistory {
         }
       }
       for (long parentId : object.parents()) {
+        if (parentId == -1) {
+          continue;
+        }
         WorldObject parent = objects.get(parentId);
         if (parent == null || !parent.children().contains(objectId)) {
           throw new IllegalStateException("parent relation is not reciprocal for #" + objectId);
         }
       }
       for (long contentId : object.contents()) {
+        if (contentId == -1) {
+          continue;
+        }
         WorldObject content = objects.get(contentId);
         if (content == null || content.location() != objectId) {
           throw new IllegalStateException("contents relation is not reciprocal for #" + objectId);
         }
       }
       for (long childId : object.children()) {
+        if (childId == -1) {
+          continue;
+        }
         WorldObject child = objects.get(childId);
         if (child == null || !child.parents().contains(objectId)) {
           throw new IllegalStateException("children relation is not reciprocal for #" + objectId);
@@ -437,7 +443,9 @@ final class WorldHistory {
       throw new IllegalStateException("inheritance names missing object #" + objectId);
     }
     for (long parentId : object.parents()) {
-      validateAcyclic(parentId, objects, state);
+      if (parentId != -1) {
+        validateAcyclic(parentId, objects, state);
+      }
     }
     state.put(objectId, VisitState.COMPLETE);
   }
