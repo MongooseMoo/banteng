@@ -32,6 +32,14 @@ final class V17HierarchyValidationTest {
   }
 
   @Test
+  void rejectsNonObjectContentsElement(@TempDir Path temporaryDirectory) throws IOException {
+    assertRejected(
+        "phase1-contents-element-type.db",
+        "object #0 contents must be an object reference",
+        temporaryDirectory);
+  }
+
+  @Test
   void rejectsNonObjectOrListParents(@TempDir Path temporaryDirectory) throws IOException {
     assertRejected(
         "phase1-parents-type.db", "object #0 parents must be a list", temporaryDirectory);
