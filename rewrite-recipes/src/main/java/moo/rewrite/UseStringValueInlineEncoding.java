@@ -86,7 +86,7 @@ public final class UseStringValueInlineEncoding extends Recipe {
     if (!(bytesExpression instanceof J.MethodInvocation bytes)
         || !bytes.getSimpleName().equals("bytes")
         || bytes.getSelect() == null
-        || !bytes.getArguments().isEmpty()
+        || !hasNoArguments(bytes.getArguments())
         || !isStringValue(bytes.getSelect().getType())
         || !isLatin1(newClass.getArguments().get(1))) {
       return null;
@@ -96,6 +96,11 @@ public final class UseStringValueInlineEncoding extends Recipe {
 
   private static boolean hasLatin1Argument(List<Expression> arguments) {
     return arguments.size() == 1 && isLatin1(arguments.getFirst());
+  }
+
+  private static boolean hasNoArguments(List<Expression> arguments) {
+    return arguments.isEmpty()
+        || (arguments.size() == 1 && arguments.getFirst() instanceof J.Empty);
   }
 
   private static boolean isLatin1(Expression expression) {
