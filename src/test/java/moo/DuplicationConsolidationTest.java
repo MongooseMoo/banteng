@@ -44,11 +44,11 @@ final class DuplicationConsolidationTest {
   @Test
   void runtimeServerMessagesShareListenerAwareFallbackResolution() throws IOException {
     String source = source("runtime", "MooRuntime.java");
+    String compactSource = source.replaceAll("\\s+", "");
 
     assertTrue(
-        source.contains(
-            "private List<String> serverMessage(\n"
-                + "      long listenerHandler, String name, String fallback)"));
+        compactSource.contains(
+            "privateList<String>serverMessage(longlistenerHandler,Stringname,Stringfallback)"));
     assertEquals(6, occurrences(source, "serverMessage("));
     assertEquals(0, occurrences(source, "MooValue message = null;"));
   }
