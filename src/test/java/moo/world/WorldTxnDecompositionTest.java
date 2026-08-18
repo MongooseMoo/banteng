@@ -110,6 +110,20 @@ final class WorldTxnDecompositionTest {
             .collect(Collectors.toSet());
 
     assertFalse(privateMethods.contains("findProperty"));
-    assertTrue(privateMethods.contains("replacePropertyHolder"));
+    assertTrue(
+        privateMethods.containsAll(
+            Set.of(
+                "replacePropertyHolder",
+                "propertyHolder",
+                "verbFor",
+                "verbLocationFor",
+                "propertyFor",
+                "readPropertyFor",
+                "writePropertyFor",
+                "writePropertyForProgrammer",
+                "addPropertyFor",
+                "addVerbFor",
+                "setVerbCodeFor")),
+        privateMethods.toString());
   }
 }
