@@ -61,6 +61,14 @@ final class NamespaceOwnershipTest {
           "persistence/v17-hierarchy/phase3-location-without-content.db",
           "persistence/v17-hierarchy/phase3-parent-without-child.db",
           "syntax/MooParserFuzzTestInputs/parsesArbitraryLatin1/return-one");
+  private static final Set<String> CHANGE_PACKAGE_TEST_RESIDUALS =
+      Set.of(
+          "package moo.example;",
+          "package moo.caller;",
+          "import moo.example.Example;",
+          "private moo.example.Example example;",
+          "private Holder moo;",
+          "return moo.example;");
   private static final Map<String, Set<String>> HISTORICAL_NAMESPACE_EVIDENCE =
       Map.ofEntries(
           Map.entry(
@@ -359,13 +367,29 @@ final class NamespaceOwnershipTest {
             "./gradlew test --tests moo.syntax.MooParserFuzzTest"));
   }
 
+  @Test
+  void changePackageProofClassifiesOnlyItsExactResiduals() throws IOException {
+    String path =
+        "rewrite-recipes/src/test/java/world/mongoose/banteng/rewrite/ChangePackageTest.java";
+    for (String residual : CHANGE_PACKAGE_TEST_RESIDUALS) {
+      assertTrue(isClassified(path, residual), residual);
+    }
+    assertFalse(isClassified(path, "package moo.unrelated;"));
+    assertFalse(isClassified(path, "unrelated moo text"));
+
+    String report =
+        Files.readString(REPOSITORY.resolve("docs/reports/banteng-namespace-residuals.md"));
+    assertTrue(report.contains("`private Holder moo;`"));
+    assertTrue(report.contains("`return moo.example;`"));
+  }
+
   private static boolean isClassified(String path, String line) {
     if (isHistoricalEvidence(path, line)) {
       return true;
     }
     if (path.equals(
         "rewrite-recipes/src/test/java/world/mongoose/banteng/rewrite/ChangePackageTest.java")) {
-      return true;
+      return CHANGE_PACKAGE_TEST_RESIDUALS.contains(line.strip());
     }
     if (path.equals(
         "rewrite-recipes/src/main/java/world/mongoose/banteng/rewrite/"
