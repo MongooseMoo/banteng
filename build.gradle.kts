@@ -7,7 +7,7 @@ plugins {
     id("org.openrewrite.rewrite") version "7.39.0"
 }
 
-group = "moo"
+group = "world.mongoose"
 version = "0.1.0-SNAPSHOT"
 
 repositories {
@@ -21,7 +21,7 @@ java {
 }
 
 application {
-    mainClass = "moo.app.Banteng"
+    mainClass = "world.mongoose.banteng.app.Banteng"
     applicationDefaultJvmArgs = listOf("--enable-native-access=ALL-UNNAMED")
 }
 
@@ -131,7 +131,7 @@ tasks.register<Test>("fuzzTest") {
     testClassesDirs = sourceSets.test.get().output.classesDirs
     classpath = sourceSets.test.get().runtimeClasspath
     filter {
-        includeTestsMatching("moo.syntax.MooParserFuzzTest.parsesArbitraryLatin1")
+        includeTestsMatching("world.mongoose.banteng.syntax.MooParserFuzzTest.parsesArbitraryLatin1")
     }
     environment("JAZZER_FUZZ", "1")
     maxParallelForks = 1
@@ -144,7 +144,7 @@ tasks.register<Test>("schedulerStress") {
     testClassesDirs = sourceSets.test.get().output.classesDirs
     classpath = sourceSets.test.get().runtimeClasspath
     filter {
-        includeTestsMatching("moo.runtime.ConcurrentSchedulerStressTest")
+        includeTestsMatching("world.mongoose.banteng.runtime.ConcurrentSchedulerStressTest")
     }
     maxParallelForks = 1
     outputs.upToDateWhen { false }
@@ -175,7 +175,7 @@ tasks.register<JavaExec>("jcstress") {
     workingDir(layout.buildDirectory.get().asFile)
     args(
         "-t",
-        "^moo\\.jcstress\\.(VolatilePublicationTest|WorldPublicationTest)$",
+        "^world\\.mongoose\\.banteng\\.jcstress\\.(VolatilePublicationTest|WorldPublicationTest)$",
         "-m",
         "quick",
         "-f",
@@ -209,7 +209,7 @@ tasks.register<JavaExec>("jmh") {
     }
     workingDir(layout.buildDirectory.get().asFile)
     args(
-        "^moo\\.benchmark\\.ParserBenchmark\\.parse$",
+        "^world\\.mongoose\\.banteng\\.benchmark\\.ParserBenchmark\\.parse$",
         "-f",
         "1",
         "-wi",

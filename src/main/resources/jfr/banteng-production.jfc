@@ -1,31 +1,31 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <configuration version="2.0" label="Banteng Production" description="Banteng task, world, checkpoint, and socket diagnostics" provider="Banteng">
-  <event name="moo.TaskSegment">
+  <event name="world.mongoose.banteng.TaskSegment">
     <setting name="enabled">true</setting>
     <setting name="stackTrace">false</setting>
     <setting name="threshold">20 ms</setting>
   </event>
-  <event name="moo.WorldCommit">
+  <event name="world.mongoose.banteng.WorldCommit">
     <setting name="enabled">true</setting>
     <setting name="stackTrace">false</setting>
   </event>
-  <event name="moo.WorldConflict">
+  <event name="world.mongoose.banteng.WorldConflict">
     <setting name="enabled">true</setting>
     <setting name="stackTrace">false</setting>
   </event>
-  <event name="moo.TaskRetry">
+  <event name="world.mongoose.banteng.TaskRetry">
     <setting name="enabled">true</setting>
     <setting name="stackTrace">false</setting>
   </event>
-  <event name="moo.TaskFallback">
+  <event name="world.mongoose.banteng.TaskFallback">
     <setting name="enabled">true</setting>
     <setting name="stackTrace">false</setting>
   </event>
-  <event name="moo.Checkpoint">
+  <event name="world.mongoose.banteng.Checkpoint">
     <setting name="enabled">true</setting>
     <setting name="stackTrace">false</setting>
   </event>
-  <event name="moo.VersionRetention">
+  <event name="world.mongoose.banteng.VersionRetention">
     <setting name="enabled">true</setting>
     <setting name="stackTrace">false</setting>
   </event>
