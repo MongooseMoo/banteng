@@ -61,24 +61,71 @@ final class NamespaceOwnershipTest {
           "persistence/v17-hierarchy/phase3-location-without-content.db",
           "persistence/v17-hierarchy/phase3-parent-without-child.db",
           "syntax/MooParserFuzzTestInputs/parsesArbitraryLatin1/return-one");
-  private static final Set<String> HISTORICAL_EVIDENCE_REPORTS =
-      Set.of(
-          "docs/reports/arithmetic-float-eval-authority.md",
-          "docs/reports/background-tick-budget-authority.md",
-          "docs/reports/connection-lifecycle-authority.md",
-          "docs/reports/foreground-tick-budget-authority.md",
-          "docs/reports/java-ots-library-review.md",
-          "docs/reports/java25-static-analysis-decision.md",
-          "docs/reports/jazzer-java25-junit6-proof.md",
-          "docs/reports/jcstress-java25-proof.md",
-          "docs/reports/jetcheck-acceptance-spike.md",
-          "docs/reports/jmh-java25-proof.md",
-          "docs/reports/jvm-moo-architecture-research.md",
-          "docs/reports/object-movement-authority.md",
-          "docs/reports/object-parent-authority.md",
-          "docs/reports/phase1-java-skeleton-proof.md",
-          "docs/reports/splice-computed-access-authority.md",
-          "docs/reports/telnet-transport-authority.md");
+  private static final Map<String, Set<String>> HISTORICAL_NAMESPACE_EVIDENCE =
+      Map.ofEntries(
+          Map.entry(
+              "docs/reports/arithmetic-float-eval-authority.md",
+              Set.of(
+                  "`src/main/java/moo/vm/MooVm.java:397-424` searches only the active frame and",
+                  "calls `failUncaught`. `src/main/java/moo/vm/VmState.java:102-117` already has")),
+          Map.entry(
+              "docs/reports/background-tick-budget-authority.md",
+              Set.of(
+                  "At the committed base, `src/main/java/moo/runtime/MooRuntime.java:1091-1118`",
+                  "`src/main/java/moo/vm/VmState.java:26-64` initializes that constructor path to")),
+          Map.entry(
+              "docs/reports/foreground-tick-budget-authority.md",
+              Set.of(
+                  "At the committed base, `src/main/java/moo/vm/VmState.java` contains no tick",
+                  "limit or remaining-tick field, and `src/main/java/moo/vm/MooVm.java:36-50`",
+                  "`src/main/java/moo/builtin/BuiltinCatalog.java:43-519` has no `ticks_left`")),
+          Map.entry(
+              "docs/reports/jcstress-java25-proof.md",
+              Set.of(
+                  "`^moo\\.jcstress\\.VolatilePublicationTest$`, uses quick mode and one fork, and")),
+          Map.entry(
+              "docs/reports/jmh-java25-proof.md",
+              Set.of(
+                  "`^moo\\.benchmark\\.ParserBenchmark\\.parse$`, uses one fork, one 100 ms warmup,")),
+          Map.entry(
+              "docs/reports/object-movement-authority.md",
+              Set.of(
+                  "`src/main/java/moo/builtin/BuiltinCatalog.java:353` to the direct catalog",
+                  "`src/main/java/moo/world/WorldTxn.java:579-598` already performs the physical")),
+          Map.entry(
+              "docs/reports/object-parent-authority.md",
+              Set.of(
+                  "`src/main/java/moo/vm/MooVm.java:423-447` routes object property assignment to",
+                  "`src/main/java/moo/world/WorldTxn.java:244-335` recognizes intrinsic writes")),
+          Map.entry(
+              "docs/reports/phase1-java-skeleton-proof.md",
+              Set.of(
+                  "- `moo.app.Banteng` is the concrete picocli composition root with the planned")),
+          Map.entry(
+              "docs/reports/splice-computed-access-authority.md",
+              Set.of(
+                  "`src/main/java/moo/world/WorldTxn.java:193-274` omits built-in `.w`, so setup",
+                  "assignment returns false and `src/main/java/moo/vm/MooVm.java:333-345` raises",
+                  "`src/main/java/moo/syntax/MooParser.java:380-407` and",
+                  "`src/main/java/moo/bytecode/MooCompiler.java:263-266,304-308`.",
+                  "`src/main/java/moo/builtin/BuiltinCatalog.java` has no `connection_options`",
+                  "`src/main/java/moo/runtime/MooRuntime.java:1208-1252` only after VM execution,",
+                  "`src/main/java/moo/world/WorldTxn.java:65-116` already owns active connection",
+                  "`src/main/java/moo/runtime/MooRuntime.java:352-353` asks",
+                  "`src/main/java/moo/world/WorldTxn.java:184-218` returns a match only when its",
+                  "lookup; `src/test/java/moo/vm/MooVmTest.java:987-1034` durably proves they must",
+                  "`src/main/java/moo/builtin/BuiltinCatalog.java` has neither `set_task_local`",
+                  "`src/main/java/moo/vm/VmState.java` has no task-local field. Existing fork",
+                  "and `src/main/java/moo/runtime/MooRuntime.java:1074-1152` creates a fresh child")),
+          Map.entry(
+              "docs/reports/telnet-transport-authority.md",
+              Set.of(
+                  "Committed `src/main/java/moo/server/MooServer.java:101-128` uses an",
+                  "`U+00FF` characters. `src/main/java/moo/runtime/MooRuntime.java:707-745` and",
+                  "`src/main/java/moo/value/MooValue.java:143-183` is not the source of the input",
+                  "VM result at `src/main/java/moo/vm/MooVm.java:399-423`. However,",
+                  "`src/main/java/moo/runtime/MooRuntime.java:1071-1093,1195` invokes",
+                  "`src/main/java/moo/server/MooServer.java:312-328` writes and flushes the banner")));
 
   @Test
   void everyJavaSourceUsesTheOwnedNamespaceAndPath() throws IOException {
@@ -251,6 +298,49 @@ final class NamespaceOwnershipTest {
         Files.isRegularFile(REPOSITORY.resolve("docs/reports/banteng-namespace-residuals.md")));
   }
 
+  @Test
+  void currentDocumentationUsesTheOwnedNamespace() throws IOException {
+    Map<String, List<String>> expectedReferences =
+        Map.of(
+            "docs/reports/jvm-moo-architecture-research.md",
+            List.of(
+                "`world.mongoose.banteng.value`",
+                "`world.mongoose.banteng.persistence`",
+                "`world.mongoose.banteng.app`"),
+            "docs/reports/java-ots-library-review.md",
+            List.of("`world.mongoose.banteng.app`"),
+            "docs/reports/java25-static-analysis-decision.md",
+            List.of(
+                "`world.mongoose.banteng.value.MooValue`",
+                "`world.mongoose.banteng.syntax.Ast`",
+                "`world.mongoose.banteng.app.Banteng`"),
+            "docs/reports/connection-lifecycle-authority.md",
+            List.of(
+                "`world.mongoose.banteng.server`",
+                "`world.mongoose.banteng.builtin`",
+                "`world.mongoose.banteng.runtime`"),
+            "docs/reports/jazzer-java25-junit6-proof.md",
+            List.of("world.mongoose.banteng.syntax.MooParserFuzzTest"),
+            "docs/reports/jetcheck-acceptance-spike.md",
+            List.of("world.mongoose.banteng.JetCheckAcceptanceTest"));
+
+    for (Map.Entry<String, List<String>> entry : expectedReferences.entrySet()) {
+      String report = Files.readString(REPOSITORY.resolve(entry.getKey()));
+      for (String expected : entry.getValue()) {
+        assertTrue(report.contains(expected), entry.getKey() + ": " + expected);
+      }
+    }
+
+    assertFalse(
+        isHistoricalEvidence(
+            "docs/reports/jvm-moo-architecture-research.md",
+            "- `moo.value`: current package architecture."));
+    assertFalse(
+        isHistoricalEvidence(
+            "docs/reports/jazzer-java25-junit6-proof.md",
+            "./gradlew test --tests moo.syntax.MooParserFuzzTest"));
+  }
+
   private static boolean isClassified(String path, String line) {
     if (isHistoricalEvidence(path, line)) {
       return true;
@@ -314,14 +404,9 @@ final class NamespaceOwnershipTest {
   }
 
   private static boolean isHistoricalEvidence(String path, String line) {
-    if (!HISTORICAL_EVIDENCE_REPORTS.contains(path)) {
-      return false;
-    }
-    return OLD_NAMESPACE_SHAPE.matcher(line).find()
-        || isExternalMooTerm(line)
-        || line.contains("CMakeFiles/moo.dir")
-        || line.contains("`moo`")
-        || line.contains("mvcc-concurrent-moo:");
+    return HISTORICAL_NAMESPACE_EVIDENCE
+        .getOrDefault(path, Set.of())
+        .contains(line.strip());
   }
 
   private static boolean isExternalMooTerm(String line) {
