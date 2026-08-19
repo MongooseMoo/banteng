@@ -559,7 +559,7 @@ final class MooRuntimeTest {
     try (WorldTxn transaction = world.begin()) {
       WorldObject parent = transaction.createObject(requested.parents(), player);
       definingObject = parent.id();
-      assertTrue(transaction.changeParent(player, definingObject).isOk());
+      assertTrue(transaction.changeParents(player, List.of(definingObject)).isOk());
       assertTrue(transaction.addVerb(definingObject, "inherited_program", player, 6, -1) > 0);
       assertTrue(transaction.commit().isCommitted());
     }
