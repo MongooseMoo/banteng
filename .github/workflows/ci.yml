@@ -89,6 +89,28 @@ jobs:
           ./gradlew --no-daemon jcstress
           ./gradlew --no-daemon jmh
 
+      - name: Verify namespace rewrite coverage and fixed point
+        run: |
+          error_prone_proof=errorprone-checks/src/test/java/moo/namespace_rewrite_proof/ErrorProneRewriteProof.java
+          recipe_proof=rewrite-recipes/src/test/java/moo/namespace_rewrite_proof/RecipeRewriteProof.java
+          cleanup_namespace_proofs() {
+            rm --force -- "$error_prone_proof" "$recipe_proof"
+            rmdir --ignore-fail-on-non-empty -- "$(dirname "$error_prone_proof")"
+            rmdir --ignore-fail-on-non-empty -- "$(dirname "$recipe_proof")"
+          }
+          trap cleanup_namespace_proofs EXIT
+          install -d -- "$(dirname "$error_prone_proof")" "$(dirname "$recipe_proof")"
+          printf '%s\n' 'package moo.namespace_rewrite_proof; final class ErrorProneRewriteProof {}' > "$error_prone_proof"
+          printf '%s\n' 'package moo.namespace_rewrite_proof; final class RecipeRewriteProof {}' > "$recipe_proof"
+          scripts/rewrite.sh world.mongoose.banteng.ChangePackage
+          grep --fixed-strings 'errorprone-checks/src/test/java/world/mongoose/banteng/namespace_rewrite_proof/ErrorProneRewriteProof.java' build/reports/rewrite/rewrite.patch
+          grep --fixed-strings 'rewrite-recipes/src/test/java/world/mongoose/banteng/namespace_rewrite_proof/RecipeRewriteProof.java' build/reports/rewrite/rewrite.patch
+          cleanup_namespace_proofs
+          trap - EXIT
+          rm --force -- build/reports/rewrite/rewrite.patch
+          scripts/rewrite.sh world.mongoose.banteng.ChangePackage
+          test ! -s build/reports/rewrite/rewrite.patch
+
       - name: Upload Java test reports
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

@@ -310,3 +310,13 @@ displayName: Decompose WorldTxn
 description: Deletes dead methods and moves static property-layout algorithms to their owner.
 recipeList:
   - moo.rewrite.DecomposeWorldTxn
+---
+type: specs.openrewrite.org/v1beta/recipe
+name: world.mongoose.banteng.ChangePackage
+displayName: Move Banteng to its owned Java namespace
+description: Moves Banteng packages from moo to world.mongoose.banteng recursively.
+recipeList:
+  - org.openrewrite.java.ChangePackage:
+      oldPackageName: moo
+      newPackageName: world.mongoose.banteng
+      recursive: true
