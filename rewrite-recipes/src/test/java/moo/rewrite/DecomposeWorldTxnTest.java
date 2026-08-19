@@ -23,12 +23,24 @@ final class DecomposeWorldTxnTest {
         package moo.world;
 
         import java.util.List;
+        import java.util.Map;
+        import java.util.Set;
 
         public class WorldTxn {
           public long baseRevision() { return 0; }
           public void changeParent(long object, long parent) {}
           public void restoreIntrinsicCommands(long object) {}
-          static List<Long> ancestryFromParents(List<Long> parents) { return parents; }
+          List<Long> ancestry(long id, Set<Long> visited, List<Long> result) {
+            collectAncestry(id, visited, result);
+            return result;
+          }
+          private void collectAncestry(long id, Set<Long> visited, List<Long> result) {}
+          static List<Long> ancestryFromParents(List<Long> parents) {
+            collectAncestry(0, Map.of(), Set.of(), parents);
+            return parents;
+          }
+          private static void collectAncestry(
+              long id, Map<Long, String> objects, Set<Long> visited, List<Long> result) {}
           static List<Long> descendantsOf(List<Long> roots) { return roots; }
           List<Long> use(List<Long> roots) { return descendantsOf(roots); }
         }
@@ -75,10 +87,14 @@ final class DecomposeWorldTxnTest {
     assertFalse(world.contains("changeParent("), world);
     assertFalse(world.contains("restoreIntrinsicCommands("), world);
     assertFalse(world.contains("static List<Long> ancestryFromParents"), world);
+    assertTrue(world.contains("private void collectAncestry("), world);
+    assertTrue(world.contains("collectAncestry(id, visited, result)"), world);
+    assertFalse(world.contains("private static void collectAncestry("), world);
     assertTrue(world.contains("PropertyLayoutEngine.descendantsOf(roots)"), world);
     assertTrue(engine.contains("import java.util.List;"), engine);
     assertFalse(engine.contains("private static List<Long> ancestryFromParents"), engine);
     assertTrue(engine.contains("static List<Long> ancestryFromParents"), engine);
+    assertTrue(engine.contains("private static void collectAncestry("), engine);
     assertTrue(engine.contains("static List<Long> descendantsOf"), engine);
 
     List<SourceFile> rewrittenSources =
