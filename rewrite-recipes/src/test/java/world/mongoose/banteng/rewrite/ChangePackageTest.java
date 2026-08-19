@@ -79,4 +79,55 @@ final class ChangePackageTest implements RewriteTest {
             }
             """));
   }
+
+  @Test
+  void leavesInstanceAccessesThroughAMooNamedVariableAlone() {
+    rewriteRun(
+        java(
+            """
+            package moo.example;
+
+            public final class Example {}
+            """,
+            """
+            package world.mongoose.banteng.example;
+
+            public final class Example {}
+            """),
+        java(
+            """
+            package consumer;
+
+            import moo.example.Example;
+
+            final class Holder {
+              Example example;
+            }
+
+            final class Caller {
+              private Holder moo;
+
+              Example example() {
+                return moo.example;
+              }
+            }
+            """,
+            """
+            package consumer;
+
+            import world.mongoose.banteng.example.Example;
+
+            final class Holder {
+              Example example;
+            }
+
+            final class Caller {
+              private Holder moo;
+
+              Example example() {
+                return moo.example;
+              }
+            }
+            """));
+  }
 }
