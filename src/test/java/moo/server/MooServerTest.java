@@ -14,6 +14,7 @@ import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import moo.persistence.LambdaMooV17Codec;
 import moo.persistence.LambdaMooV4Reader;
 import moo.value.MooValue.StringValue;
@@ -26,6 +27,14 @@ final class MooServerTest {
       Path.of("..", "moo-conformance-tests", "src", "moo_conformance", "_db", "Test.db");
   private static final String CONNECTION_PREFIX = "-=!-^-!=-";
   private static final String CONNECTION_SUFFIX = "-=!-v-!=-";
+
+  @Test
+  void ownsConnectionRegistrySeparatelyFromSocketConnections() throws Exception {
+    assertEquals(
+        ConnectionRegistry.class,
+        MooServer.class.getDeclaredField("connectionRegistry").getType());
+    assertEquals(Map.class, MooServer.class.getDeclaredField("connections").getType());
+  }
 
   @Test
   void servesTheFirstManagedRowOverRealSockets(@TempDir Path temporaryDirectory) throws Exception {
