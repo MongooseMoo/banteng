@@ -41,7 +41,7 @@ final class NamespaceOwnershipTest {
           Path.of("src", "jcstress", "java"), 2,
           Path.of("errorprone-checks", "src", "main", "java"), 1,
           Path.of("errorprone-checks", "src", "test", "java"), 1,
-          Path.of("rewrite-recipes", "src", "main", "java"), 7,
+          Path.of("rewrite-recipes", "src", "main", "java"), 8,
           Path.of("rewrite-recipes", "src", "test", "java"), 9);
   private static final Set<String> PACKAGE_RESOURCES =
       Set.of(
@@ -227,6 +227,11 @@ final class NamespaceOwnershipTest {
     assertTrue(yaml.contains("oldPackageName: moo"));
     assertTrue(yaml.contains("newPackageName: world.mongoose.banteng"));
     assertTrue(yaml.contains("recursive: true"));
+    int stockChangePackage = yaml.indexOf("- org.openrewrite.java.ChangePackage:");
+    int singleSegmentCompanion =
+        yaml.indexOf("- world.mongoose.banteng.rewrite.RetargetSingleSegmentPackageReferences");
+    assertTrue(stockChangePackage >= 0);
+    assertTrue(singleSegmentCompanion > stockChangePackage);
     assertTrue(rootBuild.contains("id(\"org.openrewrite.rewrite\") version \"7.39.0\""));
     assertFalse(errorProneBuild.contains("id(\"org.openrewrite.rewrite\")"));
     assertFalse(recipesBuild.contains("id(\"org.openrewrite.rewrite\")"));

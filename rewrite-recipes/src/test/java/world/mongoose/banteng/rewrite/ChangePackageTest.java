@@ -3,7 +3,6 @@ package world.mongoose.banteng.rewrite;
 import static org.openrewrite.java.Assertions.java;
 
 import org.junit.jupiter.api.Test;
-import org.openrewrite.java.JavaParser;
 import org.openrewrite.test.RecipeSpec;
 import org.openrewrite.test.RewriteTest;
 
@@ -16,7 +15,7 @@ final class ChangePackageTest implements RewriteTest {
   }
 
   @Test
-  void movesRecursivePackageAndSourcePath() {
+  void movesRecursivePackagesAndReferences() {
     rewriteRun(
         java(
             """
@@ -28,21 +27,7 @@ final class ChangePackageTest implements RewriteTest {
             package world.mongoose.banteng.example;
 
             public final class Example {}
-            """));
-  }
-
-  @Test
-  void retargetsAttributedReferences() {
-    rewriteRun(
-        spec ->
-            spec.parser(
-                JavaParser.fromJavaVersion()
-                    .dependsOn(
-                        """
-                        package moo.example;
-
-                        public final class Example {}
-                        """)),
+            """),
         java(
             """
             package moo.caller;
@@ -60,6 +45,37 @@ final class ChangePackageTest implements RewriteTest {
 
             final class Caller {
               private Example example;
+            }
+            """));
+  }
+
+  @Test
+  void retargetsAttributedFullyQualifiedReferences() {
+    rewriteRun(
+        java(
+            """
+            package moo.example;
+
+            public final class Example {}
+            """,
+            """
+            package world.mongoose.banteng.example;
+
+            public final class Example {}
+            """),
+        java(
+            """
+            package consumer;
+
+            final class Caller {
+              private moo.example.Example example;
+            }
+            """,
+            """
+            package consumer;
+
+            final class Caller {
+              private world.mongoose.banteng.example.Example example;
             }
             """));
   }
