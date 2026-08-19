@@ -19,12 +19,12 @@ import org.openrewrite.TreeVisitor;
 import org.openrewrite.java.JavaIsoVisitor;
 import org.openrewrite.java.JavaTemplate;
 import org.openrewrite.java.RandomizeIdVisitor;
-import org.openrewrite.java.TypeUtils;
 import org.openrewrite.java.format.AutoFormatVisitor;
 import org.openrewrite.java.tree.J;
 import org.openrewrite.java.tree.JavaType;
 import org.openrewrite.java.tree.Space;
 import org.openrewrite.java.tree.Statement;
+import org.openrewrite.java.tree.TypeUtils;
 
 /** Deletes the dead WorldTxn surface and moves its exact static property-layout closure. */
 public final class DecomposeWorldTxn extends ScanningRecipe<DecomposeWorldTxn.Accumulator> {
