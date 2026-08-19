@@ -73,6 +73,7 @@ public final class MooRuntime implements AutoCloseable {
   private final Optional<Path> database;
   private final Optional<Path> checkpoint;
   private final WorldTxn committedWorld;
+  @GuardedBy("this")
   private final ConnectionRegistryAccess publishedConnectionRegistry;
   private final LambdaMooV17Codec checkpointCodec = new LambdaMooV17Codec();
   private final MooVm vm;
@@ -527,9 +528,6 @@ public final class MooRuntime implements AutoCloseable {
     ConnectionState connection =
         new ConnectionState(
             listenerHandler, printMessages, connectionGenerations.incrementAndGet());
-    connection.connectionInfo = connectionInfo;
-    connection.intrinsicCommands =
-        connectionRegistry().intrinsicCommands(connectionId).orElseThrow();
     connections().put(connectionId, connection);
     try {
       effects().add(RuntimeEffect.startTimeout(connectionId, connection.generation));
@@ -547,9 +545,6 @@ public final class MooRuntime implements AutoCloseable {
     connectionRegistry().openConnection(connectionId, connectionInfo);
     ConnectionState connection =
         new ConnectionState(listenerHandler, false, connectionGenerations.incrementAndGet());
-    connection.connectionInfo = connectionInfo;
-    connection.intrinsicCommands =
-        connectionRegistry().intrinsicCommands(connectionId).orElseThrow();
     if (connections().putIfAbsent(connectionId, connection) != null) {
       connectionRegistry().closeConnection(connectionId);
       throw new IllegalArgumentException("duplicate connection #" + connectionId);
@@ -2649,8 +2644,7 @@ public final class MooRuntime implements AutoCloseable {
           effects().add(RuntimeEffect.binary(binaryConnectionId, connection.binary));
         }
       } else if (request.option() == ConnectionOption.INTRINSIC_COMMANDS) {
-        connection.intrinsicCommands = (ListValue) request.value();
-        connectionRegistry().setIntrinsicCommands(connectionId, connection.intrinsicCommands);
+        connectionRegistry().setIntrinsicCommands(connectionId, (ListValue) request.value());
       } else if (request.value() instanceof StringValue command && command.length() > 0) {
         connection.flushCommand =
             Optional.of(command.text());
@@ -2689,7 +2683,7 @@ public final class MooRuntime implements AutoCloseable {
             case "intrinsic-commands" ->
                 connectionRegistry()
                     .intrinsicCommands(target)
-                    .orElse(connection.intrinsicCommands);
+                    .orElseThrow();
             default -> null;
           };
       return value == null
@@ -2708,7 +2702,7 @@ public final class MooRuntime implements AutoCloseable {
             "intrinsic-commands",
             connectionRegistry()
                 .intrinsicCommands(target)
-                .orElse(connection.intrinsicCommands)));
+                .orElseThrow()));
     return BuiltinResult.value(new ListValue(options));
   }
 
@@ -2739,7 +2733,7 @@ public final class MooRuntime implements AutoCloseable {
     if (arguments.isEmpty()) {
       Set<Long> players = new LinkedHashSet<>();
       for (Map.Entry<Long, ConnectionState> entry : connections().entrySet()) {
-        players.add(entry.getValue().player >= 0 ? entry.getValue().player : entry.getKey());
+        players.add(connectionRegistry().connectionPlayer(entry.getKey()).orElse(entry.getKey()));
       }
       players.addAll(taskRegistry.queuePlayers());
       return BuiltinResult.value(
@@ -2756,7 +2750,9 @@ public final class MooRuntime implements AutoCloseable {
 
     Map.Entry<Long, ConnectionState> selected = null;
     for (Map.Entry<Long, ConnectionState> entry : connections().entrySet()) {
-      if (entry.getKey() == target || entry.getValue().player == target) {
+      if (entry.getKey() == target
+          || connectionRegistry().connectionPlayer(entry.getKey()).orElse(Long.MIN_VALUE)
+              == target) {
         selected = entry;
         break;
       }
@@ -2766,7 +2762,10 @@ public final class MooRuntime implements AutoCloseable {
     }
 
     ConnectionState connection = selected == null ? null : selected.getValue();
-    long player = connection != null && connection.player >= 0 ? connection.player : target;
+    long player =
+        selected == null
+            ? target
+            : connectionRegistry().connectionPlayer(selected.getKey()).orElse(target);
     long inputLength =
         connection == null
             ? 0
@@ -2818,7 +2817,9 @@ public final class MooRuntime implements AutoCloseable {
 
     Map.Entry<Long, ConnectionState> selected = null;
     for (Map.Entry<Long, ConnectionState> entry : connections().entrySet()) {
-      if (entry.getKey() == target || entry.getValue().player == target) {
+      if (entry.getKey() == target
+          || connectionRegistry().connectionPlayer(entry.getKey()).orElse(Long.MIN_VALUE)
+              == target) {
         selected = entry;
         break;
       }
@@ -3206,13 +3207,6 @@ public final class MooRuntime implements AutoCloseable {
 
   AttemptContext finishAttempt() {
     AttemptContext context = requireAttempt();
-    for (Map.Entry<Long, ConnectionState> entry : context.sessions.entrySet()) {
-      long connectionId = entry.getKey();
-      ConnectionState state = entry.getValue();
-      state.player = context.connections.connectionPlayer(connectionId).orElse(-1);
-      state.intrinsicCommands =
-          context.connections.intrinsicCommands(connectionId).orElse(state.intrinsicCommands);
-    }
     ATTEMPT.remove();
     return context;
   }
@@ -3226,21 +3220,11 @@ public final class MooRuntime implements AutoCloseable {
   }
 
   synchronized OptionalLong connectionPlayer(long connectionId) {
-    ConnectionState connection = publishedConnections.get(connectionId);
-    return connection == null ? OptionalLong.empty() : OptionalLong.of(connection.player);
+    return publishedConnectionRegistry.connectionPlayer(connectionId);
   }
 
   synchronized Optional<MapValue> connectionInfo(long objectId) {
-    ConnectionState direct = publishedConnections.get(objectId);
-    if (direct != null) {
-      return Optional.of(direct.connectionInfo);
-    }
-    for (ConnectionState connection : publishedConnections.values()) {
-      if (connection.player == objectId) {
-        return Optional.of(connection.connectionInfo);
-      }
-    }
-    return Optional.empty();
+    return publishedConnectionRegistry.connectionInfo(objectId);
   }
 
   void publishAttempt(AttemptContext context, WorldSnapshot committedWorld) {
@@ -3250,7 +3234,9 @@ public final class MooRuntime implements AutoCloseable {
       if (context.baseSessionRevision != sessionRevision) {
         throw new IllegalStateException("session attempt is stale");
       }
-      boolean sessionsChanged = context.sessions.size() != publishedConnections.size();
+      boolean sessionsChanged =
+          context.sessions.size() != publishedConnections.size()
+              || !context.connections.sameState(publishedConnectionRegistry);
       if (!sessionsChanged) {
         for (Map.Entry<Long, ConnectionState> entry : context.sessions.entrySet()) {
           ConnectionState published = publishedConnections.get(entry.getKey());
@@ -3361,8 +3347,10 @@ public final class MooRuntime implements AutoCloseable {
 
   private synchronized List<ActiveConnection> activeConnections() {
     List<ActiveConnection> active = new ArrayList<>();
-    for (ConnectionState connection : publishedConnections.values()) {
-      active.add(new ActiveConnection(connection.player, connection.listenerHandler));
+    for (Map.Entry<Long, ConnectionState> entry : publishedConnections.entrySet()) {
+      long player =
+          publishedConnectionRegistry.connectionPlayer(entry.getKey()).orElse(entry.getKey());
+      active.add(new ActiveConnection(player, entry.getValue().listenerHandler));
     }
     active.sort(
         (left, right) -> {
@@ -3682,9 +3670,6 @@ public final class MooRuntime implements AutoCloseable {
     private final long listenerHandler;
     private final boolean printMessages;
     private final long generation;
-    private MapValue connectionInfo = new MapValue(Map.of());
-    private long player = -1;
-    private ListValue intrinsicCommands = new ListValue(List.of());
     private long lastActivityNanos = System.nanoTime();
     private boolean holdInput;
     private boolean disableOob;
@@ -3705,9 +3690,6 @@ public final class MooRuntime implements AutoCloseable {
 
     private ConnectionState copy() {
       ConnectionState copy = new ConnectionState(listenerHandler, printMessages, generation);
-      copy.connectionInfo = connectionInfo;
-      copy.player = player;
-      copy.intrinsicCommands = intrinsicCommands;
       copy.lastActivityNanos = lastActivityNanos;
       copy.holdInput = holdInput;
       copy.disableOob = disableOob;
@@ -3726,9 +3708,6 @@ public final class MooRuntime implements AutoCloseable {
       return listenerHandler == other.listenerHandler
           && printMessages == other.printMessages
           && generation == other.generation
-          && connectionInfo.equals(other.connectionInfo)
-          && player == other.player
-          && intrinsicCommands.equals(other.intrinsicCommands)
           && lastActivityNanos == other.lastActivityNanos
           && holdInput == other.holdInput
           && disableOob == other.disableOob

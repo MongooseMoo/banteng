@@ -14,8 +14,11 @@ public interface ConnectionRegistryAccess {
   /** Returns an independent attempt-local copy. */
   ConnectionRegistryAccess copy();
 
-  /** Atomically replaces this registry's contents from an independent registry. */
+  /** Replaces this registry's contents from an independent registry. */
   void replaceWith(ConnectionRegistryAccess source);
+
+  /** Returns whether both registries contain the same ordered connection state. */
+  boolean sameState(ConnectionRegistryAccess other);
 
   /** Registers one negative pre-login connection object. */
   void openConnection(long connectionId);

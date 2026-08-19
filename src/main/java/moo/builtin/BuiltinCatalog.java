@@ -145,6 +145,11 @@ public final class BuiltinCatalog {
     }
 
     @Override
+    public boolean sameState(ConnectionRegistryAccess other) {
+      return Objects.requireNonNull(other, "other").connectionIds().isEmpty();
+    }
+
+    @Override
     public void openConnection(long connectionId) {
       throw new IllegalStateException("connection registry is unavailable");
     }

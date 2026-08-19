@@ -77,6 +77,23 @@ public final class ConnectionRegistry implements ConnectionRegistryAccess {
     intrinsicCommands.putAll(replacementCommands);
   }
 
+  @Override
+  public boolean sameState(ConnectionRegistryAccess other) {
+    Objects.requireNonNull(other, "other");
+    List<Long> ids = connectionIds();
+    if (!ids.equals(other.connectionIds())) {
+      return false;
+    }
+    for (long connectionId : ids) {
+      if (!connectionPlayer(connectionId).equals(other.connectionPlayer(connectionId))
+          || !connectionInfo(connectionId).equals(other.connectionInfo(connectionId))
+          || !intrinsicCommands(connectionId).equals(other.intrinsicCommands(connectionId))) {
+        return false;
+      }
+    }
+    return true;
+  }
+
   /** Registers one negative pre-login connection object. */
   @Override
   public void openConnection(long connectionId) {
