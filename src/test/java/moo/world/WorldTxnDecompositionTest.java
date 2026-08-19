@@ -121,6 +121,7 @@ final class WorldTxnDecompositionTest {
                 "readPropertyFor",
                 "writePropertyFor",
                 "writePropertyForProgrammer",
+                "changeParentsFor",
                 "addPropertyFor",
                 "addVerbFor",
                 "setVerbCodeFor")),
