@@ -10,8 +10,12 @@ an upstream Toast path.
 
 - `rewrite.yml` retains `oldPackageName: moo` because
   `world.mongoose.banteng.ChangePackage` names the source package it migrates.
-- `ChangePackageTest` retains two `moo.*` source snippets to prove a one-cycle recursive package and
-  import rewrite followed by a fixed point.
+- `RetargetSingleSegmentPackageReferences` retains the exact `OLD_PACKAGE = "moo"` migration input
+  needed to complete references that stock `ChangePackage` misses for a single-segment root.
+- `ChangePackageTest` retains exact `moo.*` package, import, and fully-qualified type inputs to prove
+  a one-cycle recursive rewrite followed by a fixed point. Its `private Holder moo;` and
+  `return moo.example;` lines are the negative proof that an ordinary variable named `moo` and its
+  instance access remain unchanged.
 - The CI namespace step temporarily creates one `moo.namespace_rewrite_proof` source in each of
   `errorprone-checks` and `rewrite-recipes`. The single root OpenRewrite task must report both moved
   paths before CI removes the probes and requires a clean repository-wide fixed point.
