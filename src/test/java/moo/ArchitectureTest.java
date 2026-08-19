@@ -21,7 +21,6 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Set;
 import moo.builtin.ArchUnitThrowableCatchFixture;
-import moo.persistence.ToastV17ProgramLayout;
 import org.junit.jupiter.api.Test;
 
 final class ArchitectureTest {
@@ -80,8 +79,6 @@ final class ArchitectureTest {
     noClasses()
         .that()
         .resideInAPackage("moo.persistence..")
-        .and()
-        .doNotBelongToAnyOf(ToastV17ProgramLayout.class)
         .should()
         .dependOnClassesThat()
         .resideInAPackage("moo.syntax..")

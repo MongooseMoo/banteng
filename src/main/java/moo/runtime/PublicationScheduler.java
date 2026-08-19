@@ -29,13 +29,14 @@ import moo.bytecode.BytecodeProgram;
 import moo.bytecode.BytecodeProgram.Instruction;
 import moo.bytecode.BytecodeProgram.Opcode;
 import moo.bytecode.MooCompiler;
+import moo.bytecode.ToastV17ProgramModel;
+import moo.bytecode.ToastV17ProgramModel.ContinuationSite;
 import moo.persistence.LambdaMooV17Codec.DurableTask;
 import moo.persistence.LambdaMooV17Codec.QueuedTask;
 import moo.persistence.LambdaMooV17Codec.SuspendedActivation;
 import moo.persistence.LambdaMooV17Codec.SuspendedStackSlot;
 import moo.persistence.LambdaMooV17Codec.SuspendedTask;
 import moo.persistence.ToastV17ProgramLayout;
-import moo.persistence.ToastV17ProgramLayout.ContinuationSite;
 import moo.value.MooValue;
 import moo.value.MooValue.AnonymousObjectValue;
 import moo.value.MooValue.ErrorValue;
@@ -361,7 +362,7 @@ final class PublicationScheduler implements AutoCloseable {
         vector < 0
             ? compiled
             : compiled.forkVectors().get(vector);
-    ToastV17ProgramLayout.CallBoundary boundary =
+    ToastV17ProgramModel.CallBoundary boundary =
         layout.resolve(
             activation.programSource(),
             vector,
@@ -369,7 +370,7 @@ final class PublicationScheduler implements AutoCloseable {
             activation.programCounter());
 
     ContinuationSite site = layout.resolveContinuation(selected, boundary);
-    ToastV17ProgramLayout.StructuralStackShape structural =
+    ToastV17ProgramModel.StructuralStackShape structural =
         layout.resolveStructuralStack(
             activation.programSource(), vector, selected, boundary);
     ImportedActivationStack imported =
@@ -403,7 +404,7 @@ final class PublicationScheduler implements AutoCloseable {
   }
 
   private static ImportedActivationStack importStructuralStack(
-      ToastV17ProgramLayout.StructuralStackShape shape,
+      ToastV17ProgramModel.StructuralStackShape shape,
       List<SuspendedStackSlot> topToBase) {
     if (shape.postArgumentDepth() != topToBase.size()) {
       throw new IllegalArgumentException(
@@ -419,11 +420,11 @@ final class PublicationScheduler implements AutoCloseable {
     List<ImportedFinally> finallyStates = new ArrayList<>();
     Map<Integer, VmSnapshot.LoopState> loops = new LinkedHashMap<>();
 
-    for (ToastV17ProgramLayout.StructuralStackEntry entry : shape.entriesBaseToTop()) {
+    for (ToastV17ProgramModel.StructuralStackEntry entry : shape.entriesBaseToTop()) {
       switch (entry) {
-        case ToastV17ProgramLayout.CatchGroup group ->
+        case ToastV17ProgramModel.CatchGroup group ->
             importCatchGroup(group, baseToTop, consumed, handlerGroups);
-        case ToastV17ProgramLayout.ProtectedFinally protectedFinally -> {
+        case ToastV17ProgramModel.ProtectedFinally protectedFinally -> {
           requireControl(
               baseToTop,
               consumed,
@@ -439,7 +440,7 @@ final class PublicationScheduler implements AutoCloseable {
                           protectedFinally.ownerControl(),
                           VmSnapshot.HandlerPhase.TRY))));
         }
-        case ToastV17ProgramLayout.FinallyContinuation continuation -> {
+        case ToastV17ProgramModel.FinallyContinuation continuation -> {
           MooValue reason =
               requireValue(
                   baseToTop,
@@ -457,11 +458,11 @@ final class PublicationScheduler implements AutoCloseable {
                   continuation.baseDepth(),
                   importFinallyState(continuation, reason, value)));
         }
-        case ToastV17ProgramLayout.CollectionLoop loop ->
+        case ToastV17ProgramModel.CollectionLoop loop ->
             loops.put(
                 loop.control().instructionIndex(),
                 importCollectionLoop(loop, baseToTop, consumed));
-        case ToastV17ProgramLayout.RangeLoop loop ->
+        case ToastV17ProgramModel.RangeLoop loop ->
             loops.put(
                 loop.control().instructionIndex(),
                 importRangeLoop(loop, baseToTop, consumed));
@@ -503,7 +504,7 @@ final class PublicationScheduler implements AutoCloseable {
   }
 
   private static void importCatchGroup(
-      ToastV17ProgramLayout.CatchGroup group,
+      ToastV17ProgramModel.CatchGroup group,
       List<SuspendedStackSlot> baseToTop,
       boolean[] consumed,
       List<ImportedHandlerGroup> handlerGroups) {
@@ -511,7 +512,7 @@ final class PublicationScheduler implements AutoCloseable {
     switch (group.phase()) {
       case PROTECTED -> {
         for (int index = 0; index < group.clauses().size(); index++) {
-          ToastV17ProgramLayout.ToastHandlerClause clause = group.clauses().get(index);
+          ToastV17ProgramModel.ToastHandlerClause clause = group.clauses().get(index);
           requireExactValue(
               baseToTop,
               consumed,
@@ -555,14 +556,14 @@ final class PublicationScheduler implements AutoCloseable {
   }
 
   private static VmSnapshot.HandlerState handlerState(
-      ToastV17ProgramLayout.BantengHandlerControl control,
+      ToastV17ProgramModel.BantengHandlerControl control,
       int operandDepth,
       VmSnapshot.HandlerPhase phase) {
     return new VmSnapshot.HandlerState(control.specification(), operandDepth, phase);
   }
 
   private static MooValue toastSelectorValue(
-      ToastV17ProgramLayout.ToastErrorSelector selector) {
+      ToastV17ProgramModel.ToastErrorSelector selector) {
     if (selector.catchesAny()) {
       return new IntegerValue(0);
     }
@@ -573,7 +574,7 @@ final class PublicationScheduler implements AutoCloseable {
   }
 
   private static VmSnapshot.FinallyState importFinallyState(
-      ToastV17ProgramLayout.FinallyContinuation continuation,
+      ToastV17ProgramModel.FinallyContinuation continuation,
       MooValue reasonValue,
       MooValue value) {
     if (!(reasonValue instanceof IntegerValue reason)) {
@@ -594,14 +595,14 @@ final class PublicationScheduler implements AutoCloseable {
   }
 
   private static VmSnapshot.FinallyState importFinallyExit(
-      ToastV17ProgramLayout.FinallyContinuation continuation, MooValue value) {
+      ToastV17ProgramModel.FinallyContinuation continuation, MooValue value) {
     if (!(value instanceof ListValue exit)
         || exit.size() != 2
         || !(exit.elements().get(0) instanceof IntegerValue depth)
         || !(exit.elements().get(1) instanceof IntegerValue programCounter)) {
       throw new IllegalArgumentException("v17 exit continuation requires [depth, pc]");
     }
-    ToastV17ProgramLayout.ToastExitTarget target =
+    ToastV17ProgramModel.ToastExitTarget target =
         continuation.resolveToastExitTarget(
             depth.value(), programCounter.value());
     return new VmSnapshot.Exit(
@@ -614,7 +615,7 @@ final class PublicationScheduler implements AutoCloseable {
   }
 
   private static VmSnapshot.LoopState importCollectionLoop(
-      ToastV17ProgramLayout.CollectionLoop loop,
+      ToastV17ProgramModel.CollectionLoop loop,
       List<SuspendedStackSlot> baseToTop,
       boolean[] consumed) {
     MooValue base =
@@ -634,7 +635,7 @@ final class PublicationScheduler implements AutoCloseable {
   }
 
   private static VmSnapshot.CollectionKind collectionKind(
-      ToastV17ProgramLayout.CollectionLoop loop, MooValue base) {
+      ToastV17ProgramModel.CollectionLoop loop, MooValue base) {
     VmSnapshot.CollectionKind actual =
         switch (base) {
           case ListValue ignored -> VmSnapshot.CollectionKind.LIST;
@@ -650,7 +651,7 @@ final class PublicationScheduler implements AutoCloseable {
   }
 
   private static VmSnapshot.LoopState importRangeLoop(
-      ToastV17ProgramLayout.RangeLoop loop,
+      ToastV17ProgramModel.RangeLoop loop,
       List<SuspendedStackSlot> baseToTop,
       boolean[] consumed) {
     MooValue next = requireValue(baseToTop, consumed, loop.nextDepth(), "range next");
@@ -858,26 +859,26 @@ final class PublicationScheduler implements AutoCloseable {
   }
 
   private static List<SuspendedStackSlot> exportStructuralStack(
-      ToastV17ProgramLayout.StructuralStackShape shape, VmSnapshot.Frame frame) {
+      ToastV17ProgramModel.StructuralStackShape shape, VmSnapshot.Frame frame) {
     SuspendedStackSlot[] baseToTop = new SuspendedStackSlot[shape.postArgumentDepth()];
     boolean[] structural = new boolean[baseToTop.length];
     List<ImportedHandlerGroup> expectedHandlerGroups = new ArrayList<>();
-    List<ToastV17ProgramLayout.StructuralStackEntry> innerToOuter =
+    List<ToastV17ProgramModel.StructuralStackEntry> innerToOuter =
         new ArrayList<>(shape.entriesBaseToTop());
     innerToOuter.sort(
         java.util.Comparator.comparingInt(
-                ToastV17ProgramLayout.StructuralStackEntry::baseDepth)
+                ToastV17ProgramModel.StructuralStackEntry::baseDepth)
             .reversed());
     int finallyIndex = 0;
     Map<Integer, VmSnapshot.LoopState> remainingLoops =
         new LinkedHashMap<>(frame.loops());
 
-    for (ToastV17ProgramLayout.StructuralStackEntry entry : innerToOuter) {
+    for (ToastV17ProgramModel.StructuralStackEntry entry : innerToOuter) {
       switch (entry) {
-        case ToastV17ProgramLayout.CatchGroup group -> {
-          if (group.phase() == ToastV17ProgramLayout.StructuralPhase.PROTECTED) {
+        case ToastV17ProgramModel.CatchGroup group -> {
+          if (group.phase() == ToastV17ProgramModel.StructuralPhase.PROTECTED) {
             for (int index = 0; index < group.clauses().size(); index++) {
-              ToastV17ProgramLayout.ToastHandlerClause clause = group.clauses().get(index);
+              ToastV17ProgramModel.ToastHandlerClause clause = group.clauses().get(index);
               putValue(
                   baseToTop,
                   structural,
@@ -901,7 +902,7 @@ final class PublicationScheduler implements AutoCloseable {
           }
           expectedHandlerGroups.add(exportedCatchHandlers(group));
         }
-        case ToastV17ProgramLayout.ProtectedFinally protectedFinally -> {
+        case ToastV17ProgramModel.ProtectedFinally protectedFinally -> {
           putControl(
               baseToTop,
               structural,
@@ -917,7 +918,7 @@ final class PublicationScheduler implements AutoCloseable {
                           protectedFinally.ownerControl(),
                           VmSnapshot.HandlerPhase.TRY))));
         }
-        case ToastV17ProgramLayout.FinallyContinuation continuation -> {
+        case ToastV17ProgramModel.FinallyContinuation continuation -> {
           if (finallyIndex >= frame.finallyStates().size()) {
             throw new IllegalStateException("missing Banteng finally continuation");
           }
@@ -927,14 +928,14 @@ final class PublicationScheduler implements AutoCloseable {
               baseToTop,
               structural);
         }
-        case ToastV17ProgramLayout.CollectionLoop loop -> {
+        case ToastV17ProgramModel.CollectionLoop loop -> {
           VmSnapshot.LoopState state = remainingLoops.remove(loop.control().instructionIndex());
           if (!(state instanceof VmSnapshot.CollectionLoop collection)) {
             throw new IllegalStateException("missing Banteng collection-loop state");
           }
           exportCollectionLoop(loop, collection, baseToTop, structural);
         }
-        case ToastV17ProgramLayout.RangeLoop loop -> {
+        case ToastV17ProgramModel.RangeLoop loop -> {
           VmSnapshot.LoopState state = remainingLoops.remove(loop.control().instructionIndex());
           if (!(state instanceof VmSnapshot.RangeLoop range)) {
             throw new IllegalStateException("missing Banteng range-loop state");
@@ -957,7 +958,7 @@ final class PublicationScheduler implements AutoCloseable {
   }
 
   private static ImportedHandlerGroup exportedCatchHandlers(
-      ToastV17ProgramLayout.CatchGroup group) {
+      ToastV17ProgramModel.CatchGroup group) {
     List<ImportedHandler> handlers = new ArrayList<>();
     switch (group.phase()) {
       case PROTECTED -> {
@@ -1080,7 +1081,7 @@ final class PublicationScheduler implements AutoCloseable {
   }
 
   private static void exportFinallyState(
-      ToastV17ProgramLayout.FinallyContinuation continuation,
+      ToastV17ProgramModel.FinallyContinuation continuation,
       VmSnapshot.FinallyState state,
       SuspendedStackSlot[] baseToTop,
       boolean[] structural) {
@@ -1109,7 +1110,7 @@ final class PublicationScheduler implements AutoCloseable {
       }
       case VmSnapshot.Exit exit -> {
         reason = 5;
-        ToastV17ProgramLayout.ToastExitTarget target =
+        ToastV17ProgramModel.ToastExitTarget target =
             continuation.resolveBantengExitTarget(exit.operandDepth(), exit.target());
         value =
             new ListValue(
@@ -1133,7 +1134,7 @@ final class PublicationScheduler implements AutoCloseable {
   }
 
   private static void exportCollectionLoop(
-      ToastV17ProgramLayout.CollectionLoop shape,
+      ToastV17ProgramModel.CollectionLoop shape,
       VmSnapshot.CollectionLoop state,
       SuspendedStackSlot[] baseToTop,
       boolean[] structural) {
@@ -1167,7 +1168,7 @@ final class PublicationScheduler implements AutoCloseable {
   }
 
   private static void exportRangeLoop(
-      ToastV17ProgramLayout.RangeLoop shape,
+      ToastV17ProgramModel.RangeLoop shape,
       VmSnapshot.RangeLoop state,
       SuspendedStackSlot[] baseToTop,
       boolean[] structural) {
@@ -1205,7 +1206,7 @@ final class PublicationScheduler implements AutoCloseable {
       throw new IllegalStateException("suspended call disagrees with canonical source structure");
     }
     ToastV17ProgramLayout layout = new ToastV17ProgramLayout();
-    List<ToastV17ProgramLayout.CallBoundary> boundaries =
+    List<ToastV17ProgramModel.CallBoundary> boundaries =
         layout.callBoundaries(frame.program().source(), -1).stream()
             .filter(boundary -> boundary.astPath().equals(canonicalCall.astPath().orElseThrow()))
             .toList();
@@ -1213,8 +1214,8 @@ final class PublicationScheduler implements AutoCloseable {
       throw new IllegalStateException(
           "suspended call resolved " + boundaries.size() + " v17 boundaries");
     }
-    ToastV17ProgramLayout.CallBoundary boundary = boundaries.getFirst();
-    ToastV17ProgramLayout.StructuralStackShape structural =
+    ToastV17ProgramModel.CallBoundary boundary = boundaries.getFirst();
+    ToastV17ProgramModel.StructuralStackShape structural =
         layout.resolveStructuralStack(frame.program().source(), -1, canonical, boundary);
     List<SuspendedStackSlot> stack = exportStructuralStack(structural, frame);
     Map<String, Optional<MooValue>> locals = new LinkedHashMap<>();
@@ -2287,7 +2288,7 @@ final class PublicationScheduler implements AutoCloseable {
   }
 
   private record ImportedHandler(
-      ToastV17ProgramLayout.BantengHandlerControl control,
+      ToastV17ProgramModel.BantengHandlerControl control,
       VmSnapshot.HandlerPhase phase) {}
 
   private record ImportedHandlerGroup(int baseDepth, List<ImportedHandler> handlers) {

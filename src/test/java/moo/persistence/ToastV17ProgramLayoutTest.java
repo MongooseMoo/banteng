@@ -14,6 +14,7 @@ import moo.bytecode.BytecodeProgram.HandlerSpec;
 import moo.bytecode.BytecodeProgram.Instruction;
 import moo.bytecode.BytecodeProgram.Opcode;
 import moo.bytecode.MooCompiler;
+import moo.bytecode.ToastV17ProgramModel;
 import org.junit.jupiter.api.Test;
 
 final class ToastV17ProgramLayoutTest {
@@ -27,29 +28,29 @@ final class ToastV17ProgramLayoutTest {
         except allErrors (ANY)
         endtry
         """;
-    ToastV17ProgramLayout.StructuralStackShape shape = structuralShape(source, -1, 0);
-    ToastV17ProgramLayout.CatchGroup group =
+    ToastV17ProgramModel.StructuralStackShape shape = structuralShape(source, -1, 0);
+    ToastV17ProgramModel.CatchGroup group =
         assertInstanceOf(
-            ToastV17ProgramLayout.CatchGroup.class, shape.entriesBaseToTop().getFirst());
+            ToastV17ProgramModel.CatchGroup.class, shape.entriesBaseToTop().getFirst());
 
     assertEquals(5, shape.postArgumentDepth());
     assertEquals(0, group.baseDepth());
     assertEquals(4, group.markerDepth().orElseThrow());
-    assertEquals(ToastV17ProgramLayout.StructuralPhase.PROTECTED, group.phase());
+    assertEquals(ToastV17ProgramModel.StructuralPhase.PROTECTED, group.phase());
     assertTrue(group.activeClauseIndex().isEmpty());
     assertEquals(2, group.clauses().size());
     assertEquals(
-        new ToastV17ProgramLayout.ToastErrorSelector(false, List.of("E_TYPE", "E_INVARG")),
+        new ToastV17ProgramModel.ToastErrorSelector(false, List.of("E_TYPE", "E_INVARG")),
         group.clauses().get(0).selector());
     assertEquals(
-        new ToastV17ProgramLayout.ToastErrorSelector(true, List.of()),
+        new ToastV17ProgramModel.ToastErrorSelector(true, List.of()),
         group.clauses().get(1).selector());
     assertEquals(2, group.clauseControls().size());
     assertEquals(group.ownerPath(), group.ownerControl().astPath());
     assertEquals(
-        group.clauses().stream().map(ToastV17ProgramLayout.ToastHandlerClause::astPath).toList(),
+        group.clauses().stream().map(ToastV17ProgramModel.ToastHandlerClause::astPath).toList(),
         group.clauseControls().stream()
-            .map(ToastV17ProgramLayout.BantengHandlerControl::astPath)
+            .map(ToastV17ProgramModel.BantengHandlerControl::astPath)
             .toList());
   }
 
@@ -63,29 +64,29 @@ final class ToastV17ProgramLayoutTest {
           suspend();
         endtry
         """;
-    ToastV17ProgramLayout.StructuralStackShape clauseShape =
+    ToastV17ProgramModel.StructuralStackShape clauseShape =
         structuralShape(clauseSource, -1, 0);
-    ToastV17ProgramLayout.CatchGroup clauseGroup =
+    ToastV17ProgramModel.CatchGroup clauseGroup =
         assertInstanceOf(
-            ToastV17ProgramLayout.CatchGroup.class,
+            ToastV17ProgramModel.CatchGroup.class,
             clauseShape.entriesBaseToTop().getFirst());
 
     assertEquals(0, clauseShape.postArgumentDepth());
-    assertEquals(ToastV17ProgramLayout.StructuralPhase.EXCEPT_CLAUSE, clauseGroup.phase());
+    assertEquals(ToastV17ProgramModel.StructuralPhase.EXCEPT_CLAUSE, clauseGroup.phase());
     assertEquals(0, clauseGroup.activeClauseIndex().orElseThrow());
     assertTrue(clauseGroup.markerDepth().isEmpty());
 
     String fallbackSource = "return `1 / 0 ! E_DIV => suspend()';\n";
-    ToastV17ProgramLayout.StructuralStackShape fallbackShape =
+    ToastV17ProgramModel.StructuralStackShape fallbackShape =
         structuralShape(fallbackSource, -1, 0);
-    ToastV17ProgramLayout.CatchGroup fallbackGroup =
+    ToastV17ProgramModel.CatchGroup fallbackGroup =
         assertInstanceOf(
-            ToastV17ProgramLayout.CatchGroup.class,
+            ToastV17ProgramModel.CatchGroup.class,
             fallbackShape.entriesBaseToTop().getFirst());
 
     assertEquals(0, fallbackShape.postArgumentDepth());
     assertEquals(
-        ToastV17ProgramLayout.StructuralPhase.EXPRESSION_FALLBACK,
+        ToastV17ProgramModel.StructuralPhase.EXPRESSION_FALLBACK,
         fallbackGroup.phase());
     assertEquals(0, fallbackGroup.activeClauseIndex().orElseThrow());
     assertTrue(fallbackGroup.markerDepth().isEmpty());
@@ -102,17 +103,17 @@ final class ToastV17ProgramLayoutTest {
           suspend();
         endtry
         """;
-    ToastV17ProgramLayout.StructuralStackShape protectedShape =
+    ToastV17ProgramModel.StructuralStackShape protectedShape =
         structuralShape(source, -1, 0);
-    ToastV17ProgramLayout.ProtectedFinally protectedFinally =
+    ToastV17ProgramModel.ProtectedFinally protectedFinally =
         assertInstanceOf(
-            ToastV17ProgramLayout.ProtectedFinally.class,
+            ToastV17ProgramModel.ProtectedFinally.class,
             protectedShape.entriesBaseToTop().getFirst());
-    ToastV17ProgramLayout.StructuralStackShape handlerShape =
+    ToastV17ProgramModel.StructuralStackShape handlerShape =
         structuralShape(source, -1, 1);
-    ToastV17ProgramLayout.FinallyContinuation continuation =
+    ToastV17ProgramModel.FinallyContinuation continuation =
         assertInstanceOf(
-            ToastV17ProgramLayout.FinallyContinuation.class,
+            ToastV17ProgramModel.FinallyContinuation.class,
             handlerShape.entriesBaseToTop().getFirst());
 
     assertEquals(1, protectedShape.postArgumentDepth());
@@ -122,7 +123,7 @@ final class ToastV17ProgramLayoutTest {
     assertEquals(0, continuation.reasonDepth());
     assertEquals(1, continuation.valueDepth());
     assertEquals(
-        ToastV17ProgramLayout.StructuralPhase.FINALLY_HANDLER, continuation.phase());
+        ToastV17ProgramModel.StructuralPhase.FINALLY_HANDLER, continuation.phase());
     assertEquals(protectedFinally.ownerPath(), continuation.ownerPath());
     assertEquals(protectedFinally.ownerControl(), continuation.ownerControl());
     assertEquals(List.of(), continuation.exitTargets());
@@ -144,20 +145,20 @@ final class ToastV17ProgramLayoutTest {
           endtry
         endwhile
         """;
-    ToastV17ProgramLayout.FinallyContinuation continuation =
+    ToastV17ProgramModel.FinallyContinuation continuation =
         assertInstanceOf(
-            ToastV17ProgramLayout.FinallyContinuation.class,
+            ToastV17ProgramModel.FinallyContinuation.class,
             structuralShape(source, -1, 0).entriesBaseToTop().getFirst());
 
     assertEquals(2, continuation.exitTargets().size());
-    ToastV17ProgramLayout.ToastExitTarget broken =
+    ToastV17ProgramModel.ToastExitTarget broken =
         continuation.exitTargets().stream()
-            .filter(target -> target.bantengControl().action() == ToastV17ProgramLayout.ExitAction.BREAK)
+            .filter(target -> target.bantengControl().action() == ToastV17ProgramModel.ExitAction.BREAK)
             .findFirst()
             .orElseThrow();
-    ToastV17ProgramLayout.ToastExitTarget continued =
+    ToastV17ProgramModel.ToastExitTarget continued =
         continuation.exitTargets().stream()
-            .filter(target -> target.bantengControl().action() == ToastV17ProgramLayout.ExitAction.CONTINUE)
+            .filter(target -> target.bantengControl().action() == ToastV17ProgramModel.ExitAction.CONTINUE)
             .findFirst()
             .orElseThrow();
     assertEquals(0, broken.targetStackDepth());
@@ -165,7 +166,7 @@ final class ToastV17ProgramLayoutTest {
     assertEquals(0, broken.bantengOperandDepth());
     assertEquals(0, continued.bantengOperandDepth());
     assertTrue(broken.targetProgramCounter() != continued.targetProgramCounter());
-    for (ToastV17ProgramLayout.ToastExitTarget target : continuation.exitTargets()) {
+    for (ToastV17ProgramModel.ToastExitTarget target : continuation.exitTargets()) {
       assertEquals(
           target,
           continuation.resolveToastExitTarget(
@@ -198,25 +199,25 @@ final class ToastV17ProgramLayoutTest {
           endfor
         endfor
         """;
-    ToastV17ProgramLayout.StructuralStackShape shape = structuralShape(source, -1, 0);
-    ToastV17ProgramLayout.CollectionLoop outer =
+    ToastV17ProgramModel.StructuralStackShape shape = structuralShape(source, -1, 0);
+    ToastV17ProgramModel.CollectionLoop outer =
         assertInstanceOf(
-            ToastV17ProgramLayout.CollectionLoop.class, shape.entriesBaseToTop().get(0));
-    ToastV17ProgramLayout.CollectionLoop inner =
+            ToastV17ProgramModel.CollectionLoop.class, shape.entriesBaseToTop().get(0));
+    ToastV17ProgramModel.CollectionLoop inner =
         assertInstanceOf(
-            ToastV17ProgramLayout.CollectionLoop.class, shape.entriesBaseToTop().get(1));
-    ToastV17ProgramLayout.FinallyContinuation continuation =
+            ToastV17ProgramModel.CollectionLoop.class, shape.entriesBaseToTop().get(1));
+    ToastV17ProgramModel.FinallyContinuation continuation =
         assertInstanceOf(
-            ToastV17ProgramLayout.FinallyContinuation.class,
+            ToastV17ProgramModel.FinallyContinuation.class,
             shape.entriesBaseToTop().get(2));
 
     assertEquals(3, continuation.exitTargets().size());
-    ToastV17ProgramLayout.ToastExitTarget breakOuter =
-        findExit(continuation, ToastV17ProgramLayout.ExitAction.BREAK, outer.ownerPath());
-    ToastV17ProgramLayout.ToastExitTarget continueOuter =
-        findExit(continuation, ToastV17ProgramLayout.ExitAction.CONTINUE, outer.ownerPath());
-    ToastV17ProgramLayout.ToastExitTarget breakInner =
-        findExit(continuation, ToastV17ProgramLayout.ExitAction.BREAK, inner.ownerPath());
+    ToastV17ProgramModel.ToastExitTarget breakOuter =
+        findExit(continuation, ToastV17ProgramModel.ExitAction.BREAK, outer.ownerPath());
+    ToastV17ProgramModel.ToastExitTarget continueOuter =
+        findExit(continuation, ToastV17ProgramModel.ExitAction.CONTINUE, outer.ownerPath());
+    ToastV17ProgramModel.ToastExitTarget breakInner =
+        findExit(continuation, ToastV17ProgramModel.ExitAction.BREAK, inner.ownerPath());
     assertEquals(0, breakOuter.targetStackDepth());
     assertEquals(2, continueOuter.targetStackDepth());
     assertEquals(2, breakInner.targetStackDepth());
@@ -241,13 +242,13 @@ final class ToastV17ProgramLayoutTest {
           endtry
         endwhile
         """;
-    ToastV17ProgramLayout.FinallyContinuation inner =
+    ToastV17ProgramModel.FinallyContinuation inner =
         assertInstanceOf(
-            ToastV17ProgramLayout.FinallyContinuation.class,
+            ToastV17ProgramModel.FinallyContinuation.class,
             structuralShape(exitSource, -1, 0).entriesBaseToTop().getLast());
-    ToastV17ProgramLayout.FinallyContinuation outer =
+    ToastV17ProgramModel.FinallyContinuation outer =
         assertInstanceOf(
-            ToastV17ProgramLayout.FinallyContinuation.class,
+            ToastV17ProgramModel.FinallyContinuation.class,
             structuralShape(exitSource, -1, 1).entriesBaseToTop().getLast());
     assertEquals(1, inner.exitTargets().size());
     assertEquals(inner.exitTargets(), outer.exitTargets());
@@ -260,9 +261,9 @@ final class ToastV17ProgramLayoutTest {
           suspend();
         endtry
         """;
-    ToastV17ProgramLayout.FinallyContinuation returned =
+    ToastV17ProgramModel.FinallyContinuation returned =
         assertInstanceOf(
-            ToastV17ProgramLayout.FinallyContinuation.class,
+            ToastV17ProgramModel.FinallyContinuation.class,
             structuralShape(returnSource, -1, 0).entriesBaseToTop().getFirst());
     assertEquals(List.of(), returned.exitTargets());
   }
@@ -277,14 +278,14 @@ final class ToastV17ProgramLayoutTest {
             + "      finally\n        suspend();\n      endtry\n"
             + "    endwhile\n  endfork\nendfork\n";
     ToastV17ProgramLayout layout = new ToastV17ProgramLayout();
-    ToastV17ProgramLayout.CallBoundary boundary = layout.callBoundaries(source, 0).getFirst();
-    ToastV17ProgramLayout.StructuralStackShape shape =
+    ToastV17ProgramModel.CallBoundary boundary = layout.callBoundaries(source, 0).getFirst();
+    ToastV17ProgramModel.StructuralStackShape shape =
         layout.resolveStructuralStack(source, 0, new MooCompiler().compile(source), boundary);
-    ToastV17ProgramLayout.FinallyContinuation continuation =
+    ToastV17ProgramModel.FinallyContinuation continuation =
         assertInstanceOf(
-            ToastV17ProgramLayout.FinallyContinuation.class,
+            ToastV17ProgramModel.FinallyContinuation.class,
             shape.entriesBaseToTop().getLast());
-    ToastV17ProgramLayout.ToastExitTarget target = continuation.exitTargets().getFirst();
+    ToastV17ProgramModel.ToastExitTarget target = continuation.exitTargets().getFirst();
 
     assertTrue(target.targetProgramCounter() > 256);
     assertEquals(
@@ -313,19 +314,19 @@ final class ToastV17ProgramLayoutTest {
           0;
         endtry
         """;
-    ToastV17ProgramLayout.StructuralStackShape shape = structuralShape(source, -1, 0);
+    ToastV17ProgramModel.StructuralStackShape shape = structuralShape(source, -1, 0);
 
     assertEquals(6, shape.postArgumentDepth());
     assertEquals(3, shape.entriesBaseToTop().size());
-    ToastV17ProgramLayout.ProtectedFinally outer =
+    ToastV17ProgramModel.ProtectedFinally outer =
         assertInstanceOf(
-            ToastV17ProgramLayout.ProtectedFinally.class, shape.entriesBaseToTop().get(0));
-    ToastV17ProgramLayout.CollectionLoop loop =
+            ToastV17ProgramModel.ProtectedFinally.class, shape.entriesBaseToTop().get(0));
+    ToastV17ProgramModel.CollectionLoop loop =
         assertInstanceOf(
-            ToastV17ProgramLayout.CollectionLoop.class, shape.entriesBaseToTop().get(1));
-    ToastV17ProgramLayout.CatchGroup inner =
+            ToastV17ProgramModel.CollectionLoop.class, shape.entriesBaseToTop().get(1));
+    ToastV17ProgramModel.CatchGroup inner =
         assertInstanceOf(
-            ToastV17ProgramLayout.CatchGroup.class, shape.entriesBaseToTop().get(2));
+            ToastV17ProgramModel.CatchGroup.class, shape.entriesBaseToTop().get(2));
     assertEquals(0, outer.baseDepth());
     assertEquals(1, loop.baseDepth());
     assertEquals(2, loop.iteratorDepth());
@@ -346,17 +347,17 @@ final class ToastV17ProgramLayoutTest {
         endtry
         """;
     ToastV17ProgramLayout layout = new ToastV17ProgramLayout();
-    ToastV17ProgramLayout.CallBoundary boundary = layout.callBoundaries(source, -1).getFirst();
-    ToastV17ProgramLayout.ToastControlLabels controls =
+    ToastV17ProgramModel.CallBoundary boundary = layout.callBoundaries(source, -1).getFirst();
+    ToastV17ProgramModel.ToastControlLabels controls =
         layout.resolveToastControls(source, -1, boundary.astPath());
 
     assertEquals(2, controls.handlersOuterToInner().size());
-    ToastV17ProgramLayout.ToastHandlerGroup outer = controls.handlersOuterToInner().get(0);
-    ToastV17ProgramLayout.ToastHandlerGroup inner = controls.handlersOuterToInner().get(1);
+    ToastV17ProgramModel.ToastHandlerGroup outer = controls.handlersOuterToInner().get(0);
+    ToastV17ProgramModel.ToastHandlerGroup inner = controls.handlersOuterToInner().get(1);
     assertTrue(outer.ownerPath().components().size() < inner.ownerPath().components().size());
-    assertEquals(new ToastV17ProgramLayout.ToastErrorSelector(true, List.of()),
+    assertEquals(new ToastV17ProgramModel.ToastErrorSelector(true, List.of()),
         outer.clauses().getFirst().selector());
-    assertEquals(new ToastV17ProgramLayout.ToastErrorSelector(false, List.of("E_TYPE")),
+    assertEquals(new ToastV17ProgramModel.ToastErrorSelector(false, List.of("E_TYPE")),
         inner.clauses().getFirst().selector());
     assertTrue(inner.clauses().getFirst().handlerLabelProgramCounter()
         < outer.clauses().getFirst().handlerLabelProgramCounter());
@@ -369,12 +370,12 @@ final class ToastV17ProgramLayoutTest {
   void exposesCollectionKindsVariableAritiesAndPostVerbCallDepth() {
     List<CollectionCase> cases =
         List.of(
-            new CollectionCase("{1, 2}", "value", ToastV17ProgramLayout.CollectionKind.LIST),
-            new CollectionCase("{1, 2}", "value, index", ToastV17ProgramLayout.CollectionKind.LIST),
-            new CollectionCase("\"ab\"", "value", ToastV17ProgramLayout.CollectionKind.STRING),
-            new CollectionCase("\"ab\"", "value, index", ToastV17ProgramLayout.CollectionKind.STRING),
-            new CollectionCase("[1 -> 2]", "value", ToastV17ProgramLayout.CollectionKind.MAP),
-            new CollectionCase("[1 -> 2]", "value, key", ToastV17ProgramLayout.CollectionKind.MAP));
+            new CollectionCase("{1, 2}", "value", ToastV17ProgramModel.CollectionKind.LIST),
+            new CollectionCase("{1, 2}", "value, index", ToastV17ProgramModel.CollectionKind.LIST),
+            new CollectionCase("\"ab\"", "value", ToastV17ProgramModel.CollectionKind.STRING),
+            new CollectionCase("\"ab\"", "value, index", ToastV17ProgramModel.CollectionKind.STRING),
+            new CollectionCase("[1 -> 2]", "value", ToastV17ProgramModel.CollectionKind.MAP),
+            new CollectionCase("[1 -> 2]", "value, key", ToastV17ProgramModel.CollectionKind.MAP));
 
     for (CollectionCase expected : cases) {
       String source =
@@ -383,10 +384,10 @@ final class ToastV17ProgramLayoutTest {
               + " in ("
               + expected.expression()
               + ")\n  #0:probe(1);\nendfor\n";
-      ToastV17ProgramLayout.StructuralStackShape shape = structuralShape(source, -1, 0);
-      ToastV17ProgramLayout.CollectionLoop loop =
+      ToastV17ProgramModel.StructuralStackShape shape = structuralShape(source, -1, 0);
+      ToastV17ProgramModel.CollectionLoop loop =
           assertInstanceOf(
-              ToastV17ProgramLayout.CollectionLoop.class,
+              ToastV17ProgramModel.CollectionLoop.class,
               shape.entriesBaseToTop().getFirst(),
               source);
 
@@ -403,18 +404,18 @@ final class ToastV17ProgramLayoutTest {
   void exposesIntegerAndObjectRangeDepthsAndTwoNestedLoops() {
     for (RangeCase expected :
         List.of(
-            new RangeCase("1", "3", ToastV17ProgramLayout.RangeKind.INTEGER),
-            new RangeCase("#1", "#3", ToastV17ProgramLayout.RangeKind.OBJECT))) {
+            new RangeCase("1", "3", ToastV17ProgramModel.RangeKind.INTEGER),
+            new RangeCase("#1", "#3", ToastV17ProgramModel.RangeKind.OBJECT))) {
       String source =
           "for value in ["
               + expected.start()
               + ".."
               + expected.end()
               + "]\n  suspend();\nendfor\n";
-      ToastV17ProgramLayout.StructuralStackShape shape = structuralShape(source, -1, 0);
-      ToastV17ProgramLayout.RangeLoop loop =
+      ToastV17ProgramModel.StructuralStackShape shape = structuralShape(source, -1, 0);
+      ToastV17ProgramModel.RangeLoop loop =
           assertInstanceOf(
-              ToastV17ProgramLayout.RangeLoop.class,
+              ToastV17ProgramModel.RangeLoop.class,
               shape.entriesBaseToTop().getFirst(),
               source);
 
@@ -433,16 +434,16 @@ final class ToastV17ProgramLayoutTest {
           endfor
         endfor
         """;
-    ToastV17ProgramLayout.StructuralStackShape nestedShape = structuralShape(nested, -1, 0);
+    ToastV17ProgramModel.StructuralStackShape nestedShape = structuralShape(nested, -1, 0);
     assertEquals(4, nestedShape.postArgumentDepth());
     assertEquals(2, nestedShape.entriesBaseToTop().size());
-    ToastV17ProgramLayout.CollectionLoop outer =
+    ToastV17ProgramModel.CollectionLoop outer =
         assertInstanceOf(
-            ToastV17ProgramLayout.CollectionLoop.class,
+            ToastV17ProgramModel.CollectionLoop.class,
             nestedShape.entriesBaseToTop().get(0));
-    ToastV17ProgramLayout.RangeLoop inner =
+    ToastV17ProgramModel.RangeLoop inner =
         assertInstanceOf(
-            ToastV17ProgramLayout.RangeLoop.class,
+            ToastV17ProgramModel.RangeLoop.class,
             nestedShape.entriesBaseToTop().get(1));
     assertEquals(0, outer.baseDepth());
     assertEquals(1, outer.iteratorDepth());
@@ -464,20 +465,20 @@ final class ToastV17ProgramLayoutTest {
         endfork
         """;
     ToastV17ProgramLayout layout = new ToastV17ProgramLayout();
-    ToastV17ProgramLayout.CallBoundary boundary = layout.callBoundaries(source, 0).getFirst();
-    ToastV17ProgramLayout.ToastControlLabels controls =
+    ToastV17ProgramModel.CallBoundary boundary = layout.callBoundaries(source, 0).getFirst();
+    ToastV17ProgramModel.ToastControlLabels controls =
         layout.resolveToastControls(source, 0, boundary.astPath());
 
     assertEquals(1, controls.handlersOuterToInner().size());
-    ToastV17ProgramLayout.ToastHandlerGroup group = controls.handlersOuterToInner().getFirst();
+    ToastV17ProgramModel.ToastHandlerGroup group = controls.handlersOuterToInner().getFirst();
     assertEquals(List.of("E_TYPE", "E_INVARG"), group.clauses().getFirst().selector().errors());
     assertEquals(group, layout.resolveToastHandlerGroup(source, 0, group.ownerPath()));
 
-    ToastV17ProgramLayout.StructuralStackShape shape =
+    ToastV17ProgramModel.StructuralStackShape shape =
         layout.resolveStructuralStack(source, 0, new MooCompiler().compile(source), boundary);
-    ToastV17ProgramLayout.CatchGroup structuralGroup =
+    ToastV17ProgramModel.CatchGroup structuralGroup =
         assertInstanceOf(
-            ToastV17ProgramLayout.CatchGroup.class, shape.entriesBaseToTop().getFirst());
+            ToastV17ProgramModel.CatchGroup.class, shape.entriesBaseToTop().getFirst());
     assertEquals(group.ownerPath(), structuralGroup.ownerPath());
     assertEquals(group.clauses(), structuralGroup.clauses());
     assertEquals(3, shape.postArgumentDepth());
@@ -488,9 +489,9 @@ final class ToastV17ProgramLayoutTest {
     ToastV17ProgramLayout layout = new ToastV17ProgramLayout();
     String oneByteLabels = handlerThresholdSource(120);
     String twoByteLabels = handlerThresholdSource(121);
-    ToastV17ProgramLayout.CallBoundary oneByteCall =
+    ToastV17ProgramModel.CallBoundary oneByteCall =
         layout.callBoundaries(oneByteLabels, -1).getFirst();
-    ToastV17ProgramLayout.CallBoundary twoByteCall =
+    ToastV17ProgramModel.CallBoundary twoByteCall =
         layout.callBoundaries(twoByteLabels, -1).getFirst();
 
     assertEquals(
@@ -504,13 +505,13 @@ final class ToastV17ProgramLayoutTest {
             .handlersOuterToInner().getFirst().clauses().getFirst()
             .handlerLabelProgramCounter());
 
-    ToastV17ProgramLayout.CatchGroup oneByteShape =
+    ToastV17ProgramModel.CatchGroup oneByteShape =
         assertInstanceOf(
-            ToastV17ProgramLayout.CatchGroup.class,
+            ToastV17ProgramModel.CatchGroup.class,
             structuralShape(oneByteLabels, -1, 0).entriesBaseToTop().getFirst());
-    ToastV17ProgramLayout.CatchGroup twoByteShape =
+    ToastV17ProgramModel.CatchGroup twoByteShape =
         assertInstanceOf(
-            ToastV17ProgramLayout.CatchGroup.class,
+            ToastV17ProgramModel.CatchGroup.class,
             structuralShape(twoByteLabels, -1, 0).entriesBaseToTop().getFirst());
     assertEquals(254, oneByteShape.clauses().getFirst().handlerLabelProgramCounter());
     assertEquals(258, twoByteShape.clauses().getFirst().handlerLabelProgramCounter());
@@ -529,13 +530,13 @@ final class ToastV17ProgramLayoutTest {
         endtry
         """;
     ToastV17ProgramLayout layout = new ToastV17ProgramLayout();
-    ToastV17ProgramLayout.CallBoundary boundary = layout.callBoundaries(source, -1).getFirst();
-    ToastV17ProgramLayout.ToastControlLabels controls =
+    ToastV17ProgramModel.CallBoundary boundary = layout.callBoundaries(source, -1).getFirst();
+    ToastV17ProgramModel.ToastControlLabels controls =
         layout.resolveToastControls(source, -1, boundary.astPath());
 
     assertEquals(List.of(), controls.handlersOuterToInner());
     assertEquals(1, controls.finallyLabelsOuterToInner().size());
-    ToastV17ProgramLayout.ToastFinallyLabel label = controls.finallyLabelsOuterToInner().getFirst();
+    ToastV17ProgramModel.ToastFinallyLabel label = controls.finallyLabelsOuterToInner().getFirst();
     assertEquals(9, label.handlerLabelProgramCounter());
     assertEquals(label, layout.resolveToastFinallyLabel(source, -1, label.ownerPath()));
   }
@@ -552,10 +553,10 @@ final class ToastV17ProgramLayoutTest {
         endfor
         """;
     ToastV17ProgramLayout layout = new ToastV17ProgramLayout();
-    ToastV17ProgramLayout.CallBoundary boundary = layout.callBoundaries(source, -1).getFirst();
+    ToastV17ProgramModel.CallBoundary boundary = layout.callBoundaries(source, -1).getFirst();
     BytecodeProgram compiled = new MooCompiler().compile(source);
 
-    ToastV17ProgramLayout.ContinuationSite site =
+    ToastV17ProgramModel.ContinuationSite site =
         layout.resolveContinuation(compiled, boundary, 2, true);
 
     assertEquals(2, site.handlers().size());
@@ -564,7 +565,7 @@ final class ToastV17ProgramLayoutTest {
     assertEquals(Opcode.ITERATE, site.iterate().orElseThrow().opcode());
 
     String unguardedSource = "suspend();\n";
-    ToastV17ProgramLayout.CallBoundary unguardedBoundary =
+    ToastV17ProgramModel.CallBoundary unguardedBoundary =
         layout.callBoundaries(unguardedSource, -1).getFirst();
     BytecodeProgram unguarded = new MooCompiler().compile(unguardedSource);
     assertThrows(
@@ -582,9 +583,9 @@ final class ToastV17ProgramLayoutTest {
                 new Instruction(owner, ownerPath),
                 new Instruction(Opcode.CALL, "suspend", callPath),
                 new Instruction(Opcode.RETURN)));
-    ToastV17ProgramLayout.CallBoundary ambiguousBoundary =
-        new ToastV17ProgramLayout.CallBoundary(
-            -1, 0, 2, callPath, ToastV17ProgramLayout.CallKind.BUILTIN);
+    ToastV17ProgramModel.CallBoundary ambiguousBoundary =
+        new ToastV17ProgramModel.CallBoundary(
+            -1, 0, 2, callPath, ToastV17ProgramModel.CallKind.BUILTIN);
     assertThrows(
         IllegalArgumentException.class,
         () -> layout.resolveContinuation(ambiguous, ambiguousBoundary, 1, false));
@@ -594,11 +595,11 @@ final class ToastV17ProgramLayoutTest {
   void resolvesToastFlatNestedForkVectorIntoBantengHierarchicalOwner() {
     String source = "fork (0)\nfork (0)\nsuspend();\nendfork\nendfork\n";
     ToastV17ProgramLayout layout = new ToastV17ProgramLayout();
-    ToastV17ProgramLayout.CallBoundary boundary = layout.callBoundaries(source, 0).getFirst();
+    ToastV17ProgramModel.CallBoundary boundary = layout.callBoundaries(source, 0).getFirst();
     BytecodeProgram compiled = new MooCompiler().compile(source);
     BytecodeProgram nestedOwner = compiled.forkVectors().getFirst().forkVectors().getFirst();
 
-    ToastV17ProgramLayout.BantengCallSite call =
+    ToastV17ProgramModel.BantengCallSite call =
         layout.locateBantengCall(compiled, boundary.astPath());
 
     assertSame(nestedOwner, call.program());
@@ -622,7 +623,7 @@ final class ToastV17ProgramLayoutTest {
     }
     source.append("suspend();\n");
 
-    ToastV17ProgramLayout.CallBoundary boundary =
+    ToastV17ProgramModel.CallBoundary boundary =
         new ToastV17ProgramLayout().callBoundaries(source.toString(), -1).getFirst();
 
     assertEquals(72_525, boundary.errorProgramCounter());
@@ -636,18 +637,18 @@ final class ToastV17ProgramLayoutTest {
     return source.toString();
   }
 
-  private static ToastV17ProgramLayout.StructuralStackShape structuralShape(
+  private static ToastV17ProgramModel.StructuralStackShape structuralShape(
       String source, int vector, int callIndex) {
     ToastV17ProgramLayout layout = new ToastV17ProgramLayout();
-    ToastV17ProgramLayout.CallBoundary boundary =
+    ToastV17ProgramModel.CallBoundary boundary =
         layout.callBoundaries(source, vector).get(callIndex);
     return layout.resolveStructuralStack(
         source, vector, new MooCompiler().compile(source), boundary);
   }
 
-  private static ToastV17ProgramLayout.ToastExitTarget findExit(
-      ToastV17ProgramLayout.FinallyContinuation continuation,
-      ToastV17ProgramLayout.ExitAction action,
+  private static ToastV17ProgramModel.ToastExitTarget findExit(
+      ToastV17ProgramModel.FinallyContinuation continuation,
+      ToastV17ProgramModel.ExitAction action,
       AstPath targetLoopPath) {
     return continuation.exitTargets().stream()
         .filter(target -> target.bantengControl().action() == action)
@@ -657,8 +658,8 @@ final class ToastV17ProgramLayoutTest {
   }
 
   private record CollectionCase(
-      String expression, String variables, ToastV17ProgramLayout.CollectionKind kind) {}
+      String expression, String variables, ToastV17ProgramModel.CollectionKind kind) {}
 
   private record RangeCase(
-      String start, String end, ToastV17ProgramLayout.RangeKind kind) {}
+      String start, String end, ToastV17ProgramModel.RangeKind kind) {}
 }
