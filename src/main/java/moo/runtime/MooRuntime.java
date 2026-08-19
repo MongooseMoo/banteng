@@ -30,12 +30,12 @@ import moo.builtin.BuiltinCatalog.ListenerControl;
 import moo.builtin.BuiltinHosts;
 import moo.builtin.BuiltinResult;
 import moo.builtin.CheckpointRequest;
+import moo.builtin.ConnectionRegistryAccess;
 import moo.bytecode.BytecodeProgram;
 import moo.bytecode.MooCompiler;
 import moo.logging.ServerLog;
 import moo.persistence.LambdaMooV17Codec;
 import moo.persistence.LambdaMooV17Codec.ActiveConnection;
-import moo.server.ConnectionRegistry;
 import moo.value.MooValue;
 import moo.value.MooValue.AnonymousObjectValue;
 import moo.value.MooValue.BooleanValue;
@@ -73,6 +73,7 @@ public final class MooRuntime implements AutoCloseable {
   private final Optional<Path> database;
   private final Optional<Path> checkpoint;
   private final WorldTxn committedWorld;
+  private final ConnectionRegistryAccess publishedConnectionRegistry;
   private final LambdaMooV17Codec checkpointCodec = new LambdaMooV17Codec();
   private final MooVm vm;
   private final PublicationScheduler scheduler;
@@ -89,13 +90,17 @@ public final class MooRuntime implements AutoCloseable {
   private long sessionRevision;
 
   /** Creates a runtime over the one concrete world transaction. */
-  public MooRuntime(WorldTxn world) {
-    this(world, ValueSemantics.STANDARD);
+  public MooRuntime(WorldTxn world, ConnectionRegistryAccess connections) {
+    this(world, ValueSemantics.STANDARD, connections);
   }
 
   /** Creates a runtime over one world transaction with selected value semantics. */
-  public MooRuntime(WorldTxn world, ValueSemantics valueSemantics) {
+  public MooRuntime(
+      WorldTxn world,
+      ValueSemantics valueSemantics,
+      ConnectionRegistryAccess connections) {
     committedWorld = Objects.requireNonNull(world, "world");
+    publishedConnectionRegistry = Objects.requireNonNull(connections, "connections");
     ValueSemantics configuredSemantics =
         Objects.requireNonNull(valueSemantics, "valueSemantics");
     vm = new MooVm(configuredSemantics);
@@ -112,7 +117,11 @@ public final class MooRuntime implements AutoCloseable {
   }
 
   /** Creates the production runtime with its concrete listener and checkpoint owners. */
-  public MooRuntime(WorldTxn world, ListenerControl listenerControl, Path checkpoint) {
+  public MooRuntime(
+      WorldTxn world,
+      ListenerControl listenerControl,
+      Path checkpoint,
+      ConnectionRegistryAccess connections) {
     this(
         world,
         listenerControl,
@@ -122,7 +131,8 @@ public final class MooRuntime implements AutoCloseable {
         List.of(),
         List.of(),
         ServerLog.stderr(System.Logger.Level.INFO),
-        ValueSemantics.STANDARD);
+        ValueSemantics.STANDARD,
+        connections);
   }
 
   /** Creates the production runtime and restores delayed fork tasks from one checkpoint. */
@@ -131,14 +141,16 @@ public final class MooRuntime implements AutoCloseable {
       ListenerControl listenerControl,
       Path checkpoint,
       List<LambdaMooV17Codec.DurableTask> restoredTasks,
-      List<ActiveConnection> activeConnections) {
+      List<ActiveConnection> activeConnections,
+      ConnectionRegistryAccess connections) {
     this(
         world,
         listenerControl,
         checkpoint,
         restoredTasks,
         activeConnections,
-        ValueSemantics.STANDARD);
+        ValueSemantics.STANDARD,
+        connections);
   }
 
   /** Creates the production runtime from one checkpoint with selected value semantics. */
@@ -148,7 +160,8 @@ public final class MooRuntime implements AutoCloseable {
       Path checkpoint,
       List<LambdaMooV17Codec.DurableTask> restoredTasks,
       List<ActiveConnection> activeConnections,
-      ValueSemantics valueSemantics) {
+      ValueSemantics valueSemantics,
+      ConnectionRegistryAccess connections) {
     this(
         world,
         listenerControl,
@@ -158,7 +171,8 @@ public final class MooRuntime implements AutoCloseable {
         restoredTasks,
         activeConnections,
         ServerLog.stderr(System.Logger.Level.INFO),
-        valueSemantics);
+        valueSemantics,
+        connections);
   }
 
   /** Creates the production runtime with restored state and the shared server log. */
@@ -168,7 +182,8 @@ public final class MooRuntime implements AutoCloseable {
       Path checkpoint,
       List<LambdaMooV17Codec.DurableTask> restoredTasks,
       List<ActiveConnection> activeConnections,
-      ServerLog serverLog) {
+      ServerLog serverLog,
+      ConnectionRegistryAccess connections) {
     this(
         world,
         listenerControl,
@@ -178,7 +193,8 @@ public final class MooRuntime implements AutoCloseable {
         restoredTasks,
         activeConnections,
         serverLog,
-        ValueSemantics.STANDARD);
+        ValueSemantics.STANDARD,
+        connections);
   }
 
   /** Creates the production runtime with restored state, shared log, and value semantics. */
@@ -189,7 +205,8 @@ public final class MooRuntime implements AutoCloseable {
       List<LambdaMooV17Codec.DurableTask> restoredTasks,
       List<ActiveConnection> activeConnections,
       ServerLog serverLog,
-      ValueSemantics valueSemantics) {
+      ValueSemantics valueSemantics,
+      ConnectionRegistryAccess connections) {
     this(
         world,
         listenerControl,
@@ -199,7 +216,8 @@ public final class MooRuntime implements AutoCloseable {
         restoredTasks,
         activeConnections,
         serverLog,
-        valueSemantics);
+        valueSemantics,
+        connections);
   }
 
   /** Creates the production runtime with distinct loaded and checkpoint database files. */
@@ -209,7 +227,8 @@ public final class MooRuntime implements AutoCloseable {
       Path database,
       Path checkpoint,
       List<LambdaMooV17Codec.DurableTask> restoredTasks,
-      List<ActiveConnection> activeConnections) {
+      List<ActiveConnection> activeConnections,
+      ConnectionRegistryAccess connections) {
     this(
         world,
         listenerControl,
@@ -217,7 +236,8 @@ public final class MooRuntime implements AutoCloseable {
         checkpoint,
         restoredTasks,
         activeConnections,
-        ValueSemantics.STANDARD);
+        ValueSemantics.STANDARD,
+        connections);
   }
 
   /** Creates the production runtime with selected value semantics. */
@@ -228,7 +248,8 @@ public final class MooRuntime implements AutoCloseable {
       Path checkpoint,
       List<LambdaMooV17Codec.DurableTask> restoredTasks,
       List<ActiveConnection> activeConnections,
-      ValueSemantics valueSemantics) {
+      ValueSemantics valueSemantics,
+      ConnectionRegistryAccess connections) {
     this(
         world,
         listenerControl,
@@ -238,7 +259,8 @@ public final class MooRuntime implements AutoCloseable {
         restoredTasks,
         activeConnections,
         ServerLog.stderr(System.Logger.Level.INFO),
-        valueSemantics);
+        valueSemantics,
+        connections);
   }
 
   /** Creates the production runtime with distinct database files and the shared server log. */
@@ -249,7 +271,8 @@ public final class MooRuntime implements AutoCloseable {
       Path checkpoint,
       List<LambdaMooV17Codec.DurableTask> restoredTasks,
       List<ActiveConnection> activeConnections,
-      ServerLog serverLog) {
+      ServerLog serverLog,
+      ConnectionRegistryAccess connections) {
     this(
         world,
         listenerControl,
@@ -259,7 +282,8 @@ public final class MooRuntime implements AutoCloseable {
         restoredTasks,
         activeConnections,
         serverLog,
-        ValueSemantics.STANDARD);
+        ValueSemantics.STANDARD,
+        connections);
   }
 
   /** Creates the production runtime with database files, shared log, and value semantics. */
@@ -271,7 +295,8 @@ public final class MooRuntime implements AutoCloseable {
       List<LambdaMooV17Codec.DurableTask> restoredTasks,
       List<ActiveConnection> activeConnections,
       ServerLog serverLog,
-      ValueSemantics valueSemantics) {
+      ValueSemantics valueSemantics,
+      ConnectionRegistryAccess connections) {
     this(
         world,
         listenerControl,
@@ -281,10 +306,15 @@ public final class MooRuntime implements AutoCloseable {
         restoredTasks,
         activeConnections,
         serverLog,
-        valueSemantics);
+        valueSemantics,
+        connections);
   }
 
-  MooRuntime(WorldTxn world, ListenerControl listenerControl, int workers) {
+  MooRuntime(
+      WorldTxn world,
+      ListenerControl listenerControl,
+      int workers,
+      ConnectionRegistryAccess connections) {
     this(
         world,
         listenerControl,
@@ -294,7 +324,8 @@ public final class MooRuntime implements AutoCloseable {
         List.of(),
         List.of(),
         ServerLog.stderr(System.Logger.Level.INFO),
-        ValueSemantics.STANDARD);
+        ValueSemantics.STANDARD,
+        connections);
   }
 
   private MooRuntime(
@@ -306,8 +337,10 @@ public final class MooRuntime implements AutoCloseable {
       List<LambdaMooV17Codec.DurableTask> restoredTasks,
       List<ActiveConnection> activeConnections,
       ServerLog serverLog,
-      ValueSemantics valueSemantics) {
+      ValueSemantics valueSemantics,
+      ConnectionRegistryAccess connections) {
     committedWorld = Objects.requireNonNull(world, "world");
+    publishedConnectionRegistry = Objects.requireNonNull(connections, "connections");
     ValueSemantics configuredSemantics =
         Objects.requireNonNull(valueSemantics, "valueSemantics");
     vm = new MooVm(configuredSemantics);
@@ -3149,7 +3182,7 @@ public final class MooRuntime implements AutoCloseable {
   synchronized AttemptContext openAttempt(WorldTxn transaction, long taskId) {
     Map<Long, ConnectionState> sessions = new LinkedHashMap<>();
     publishedConnections.forEach((id, state) -> sessions.put(id, state.copy()));
-    ConnectionRegistry connections = connectionRegistry(sessions);
+    ConnectionRegistryAccess connections = publishedConnectionRegistry.copy();
     AttemptContext context =
         new AttemptContext(
             transaction,
@@ -3162,19 +3195,6 @@ public final class MooRuntime implements AutoCloseable {
             new ArrayList<>());
     ATTEMPT.set(context);
     return context;
-  }
-
-  private static ConnectionRegistry connectionRegistry(Map<Long, ConnectionState> sessions) {
-    ConnectionRegistry connections = new ConnectionRegistry();
-    for (Map.Entry<Long, ConnectionState> entry : sessions.entrySet()) {
-      ConnectionState state = entry.getValue();
-      connections.openConnection(entry.getKey(), state.connectionInfo);
-      if (state.player >= 0) {
-        connections.switchConnectionPlayer(entry.getKey(), state.player);
-      }
-      connections.setIntrinsicCommands(entry.getKey(), state.intrinsicCommands);
-    }
-    return connections;
   }
 
   void replaceAttemptWorld(AttemptContext context, WorldTxn transaction) {
@@ -3243,6 +3263,7 @@ public final class MooRuntime implements AutoCloseable {
       if (sessionsChanged) {
         publishedConnections.clear();
         context.sessions.forEach((id, state) -> publishedConnections.put(id, state.copy()));
+        publishedConnectionRegistry.replaceWith(context.connections);
         sessionRevision = Math.incrementExact(sessionRevision);
       }
       context.baseSessionRevision = sessionRevision;
@@ -3369,7 +3390,7 @@ public final class MooRuntime implements AutoCloseable {
     return requireAttempt().world;
   }
 
-  private ConnectionRegistry connectionRegistry() {
+  private ConnectionRegistryAccess connectionRegistry() {
     return requireAttempt().connections;
   }
 
@@ -3805,7 +3826,7 @@ public final class MooRuntime implements AutoCloseable {
     WorldTxn world;
     final long taskId;
     final Map<Long, ConnectionState> sessions;
-    final ConnectionRegistry connections;
+    final ConnectionRegistryAccess connections;
     long baseSessionRevision;
     final List<RuntimeEffect> effects;
     final List<RuntimeStep> spawnedSteps;
@@ -3815,7 +3836,7 @@ public final class MooRuntime implements AutoCloseable {
         WorldTxn world,
         long taskId,
         Map<Long, ConnectionState> sessions,
-        ConnectionRegistry connections,
+        ConnectionRegistryAccess connections,
         long baseSessionRevision,
         List<RuntimeEffect> effects,
         List<RuntimeStep> spawnedSteps,

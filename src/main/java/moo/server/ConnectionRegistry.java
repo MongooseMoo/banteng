@@ -7,12 +7,13 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.OptionalLong;
+import moo.builtin.ConnectionRegistryAccess;
 import moo.value.MooValue.ListValue;
 import moo.value.MooValue.MapValue;
 import moo.value.MooValue.StringValue;
 
 /** Attempt-local connection identity, metadata, and intrinsic-command state. */
-public final class ConnectionRegistry {
+public final class ConnectionRegistry implements ConnectionRegistryAccess {
   private static final ListValue DEFAULT_INTRINSIC_COMMANDS =
       new ListValue(
           List.of(
@@ -41,6 +42,7 @@ public final class ConnectionRegistry {
   }
 
   /** Returns an independent attempt-local copy. */
+  @Override
   public ConnectionRegistry copy() {
     return new ConnectionRegistry(
         new LinkedHashMap<>(players),
@@ -48,12 +50,41 @@ public final class ConnectionRegistry {
         new LinkedHashMap<>(intrinsicCommands));
   }
 
+  @Override
+  public List<Long> connectionIds() {
+    return List.copyOf(players.keySet());
+  }
+
+  @Override
+  public void replaceWith(ConnectionRegistryAccess source) {
+    Objects.requireNonNull(source, "source");
+    Map<Long, Long> replacementPlayers = new LinkedHashMap<>();
+    Map<Long, MapValue> replacementInfo = new LinkedHashMap<>();
+    Map<Long, ListValue> replacementCommands = new LinkedHashMap<>();
+    for (long connectionId : source.connectionIds()) {
+      replacementPlayers.put(
+          connectionId, source.connectionPlayer(connectionId).orElse(connectionId));
+      replacementInfo.put(
+          connectionId, source.connectionInfo(connectionId).orElse(new MapValue(Map.of())));
+      replacementCommands.put(
+          connectionId, source.intrinsicCommands(connectionId).orElse(DEFAULT_INTRINSIC_COMMANDS));
+    }
+    players.clear();
+    players.putAll(replacementPlayers);
+    connectionInfo.clear();
+    connectionInfo.putAll(replacementInfo);
+    intrinsicCommands.clear();
+    intrinsicCommands.putAll(replacementCommands);
+  }
+
   /** Registers one negative pre-login connection object. */
+  @Override
   public void openConnection(long connectionId) {
     openConnection(connectionId, new MapValue(Map.of()));
   }
 
   /** Registers one negative connection and its immutable network metadata. */
+  @Override
   public void openConnection(long connectionId, MapValue info) {
     if (connectionId >= 0) {
       throw new IllegalArgumentException("connection object must be negative");
@@ -66,6 +97,7 @@ public final class ConnectionRegistry {
   }
 
   /** Removes one connection record. */
+  @Override
   public void closeConnection(long connectionId) {
     players.remove(connectionId);
     connectionInfo.remove(connectionId);
@@ -73,12 +105,14 @@ public final class ConnectionRegistry {
   }
 
   /** Returns the player currently attached to a connection. */
+  @Override
   public OptionalLong connectionPlayer(long connectionId) {
     Long player = players.get(connectionId);
     return player == null ? OptionalLong.empty() : OptionalLong.of(player);
   }
 
   /** Returns attached players in newest-connection-first order. */
+  @Override
   public List<Long> connectedPlayers(boolean showAll) {
     List<Long> connected = new ArrayList<>();
     for (long player : players.values()) {
@@ -90,6 +124,7 @@ public final class ConnectionRegistry {
   }
 
   /** Returns network metadata for a connection object or its attached player. */
+  @Override
   public Optional<MapValue> connectionInfo(long objectId) {
     OptionalLong connectionId = connectionId(objectId);
     return connectionId.isEmpty()
@@ -98,6 +133,7 @@ public final class ConnectionRegistry {
   }
 
   /** Resolves a live connection object or its attached player to the connection ID. */
+  @Override
   public OptionalLong connectionId(long objectId) {
     if (players.containsKey(objectId)) {
       return OptionalLong.of(objectId);
@@ -111,6 +147,7 @@ public final class ConnectionRegistry {
   }
 
   /** Returns the enabled intrinsic command table for a live connection or attached player. */
+  @Override
   public Optional<ListValue> intrinsicCommands(long objectId) {
     OptionalLong connectionId = connectionId(objectId);
     return connectionId.isEmpty()
@@ -119,6 +156,7 @@ public final class ConnectionRegistry {
   }
 
   /** Replaces the intrinsic command table for a live connection or attached player. */
+  @Override
   public boolean setIntrinsicCommands(long objectId, ListValue commands) {
     Objects.requireNonNull(commands, "commands");
     OptionalLong connectionId = connectionId(objectId);
@@ -130,6 +168,7 @@ public final class ConnectionRegistry {
   }
 
   /** Stages a player switch on an existing connection. */
+  @Override
   public boolean switchConnectionPlayer(long connectionId, long playerId) {
     if (!players.containsKey(connectionId)) {
       return false;

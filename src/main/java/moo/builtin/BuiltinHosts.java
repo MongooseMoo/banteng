@@ -4,7 +4,6 @@ import java.util.List;
 import java.util.Objects;
 import java.util.function.Supplier;
 import moo.logging.ServerLog;
-import moo.server.ConnectionRegistry;
 import moo.value.MooValue.ErrorValue;
 import moo.value.MooValue.IntegerValue;
 import moo.value.MooValue.ListValue;
@@ -26,7 +25,7 @@ public record BuiltinHosts(
     BuiltinHandler taskStack,
     BuiltinHandler resumeTask,
     ServerLog serverLog,
-    Supplier<ConnectionRegistry> connections) {
+    Supplier<ConnectionRegistryAccess> connections) {
   /** Rejects incomplete host composition. */
   public BuiltinHosts {
     Objects.requireNonNull(valueSemantics, "valueSemantics");
@@ -76,8 +75,8 @@ public record BuiltinHosts(
     private BuiltinHandler taskStack = Builder::invalidArgument;
     private BuiltinHandler resumeTask = Builder::invalidArgument;
     private ServerLog serverLog = ServerLog.stderr(System.Logger.Level.INFO);
-    private final ConnectionRegistry standaloneConnections = new ConnectionRegistry();
-    private Supplier<ConnectionRegistry> connections = () -> standaloneConnections;
+    private Supplier<ConnectionRegistryAccess> connections =
+        BuiltinCatalog.standaloneConnections();
 
     private Builder() {}
 
@@ -151,7 +150,7 @@ public record BuiltinHosts(
       return this;
     }
 
-    public Builder connections(Supplier<ConnectionRegistry> value) {
+    public Builder connections(Supplier<ConnectionRegistryAccess> value) {
       connections = value;
       return this;
     }

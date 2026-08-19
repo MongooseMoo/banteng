@@ -32,11 +32,11 @@ import java.util.StringTokenizer;
 import java.util.concurrent.CancellationException;
 import java.util.function.DoubleUnaryOperator;
 import java.util.function.Function;
+import java.util.function.Supplier;
 import moo.bytecode.MooCompiler;
 import moo.host.NativeCalls;
 import moo.host.NativeCalls.NativeCallException;
 import moo.logging.ServerLog;
-import moo.server.ConnectionRegistry;
 import moo.syntax.Ast;
 import moo.syntax.MooParser;
 import moo.syntax.MooUnparser;
@@ -116,8 +116,81 @@ public final class BuiltinCatalog {
     specs = indexManifest(manifest);
   }
 
-  private ConnectionRegistry connections() {
+  static Supplier<ConnectionRegistryAccess> standaloneConnections() {
+    return () -> EmptyConnectionRegistry.INSTANCE;
+  }
+
+  private ConnectionRegistryAccess connections() {
     return Objects.requireNonNull(hosts.connections().get(), "hosts.connections().get()");
+  }
+
+  private enum EmptyConnectionRegistry implements ConnectionRegistryAccess {
+    INSTANCE;
+
+    @Override
+    public List<Long> connectionIds() {
+      return List.of();
+    }
+
+    @Override
+    public ConnectionRegistryAccess copy() {
+      return this;
+    }
+
+    @Override
+    public void replaceWith(ConnectionRegistryAccess source) {
+      if (!Objects.requireNonNull(source, "source").connectionIds().isEmpty()) {
+        throw new IllegalStateException("connection registry is unavailable");
+      }
+    }
+
+    @Override
+    public void openConnection(long connectionId) {
+      throw new IllegalStateException("connection registry is unavailable");
+    }
+
+    @Override
+    public void openConnection(long connectionId, MapValue info) {
+      throw new IllegalStateException("connection registry is unavailable");
+    }
+
+    @Override
+    public void closeConnection(long connectionId) {}
+
+    @Override
+    public OptionalLong connectionPlayer(long connectionId) {
+      return OptionalLong.empty();
+    }
+
+    @Override
+    public List<Long> connectedPlayers(boolean showAll) {
+      return List.of();
+    }
+
+    @Override
+    public Optional<MapValue> connectionInfo(long objectId) {
+      return Optional.empty();
+    }
+
+    @Override
+    public OptionalLong connectionId(long objectId) {
+      return OptionalLong.empty();
+    }
+
+    @Override
+    public Optional<ListValue> intrinsicCommands(long objectId) {
+      return Optional.empty();
+    }
+
+    @Override
+    public boolean setIntrinsicCommands(long objectId, ListValue commands) {
+      return false;
+    }
+
+    @Override
+    public boolean switchConnectionPlayer(long connectionId, long playerId) {
+      return false;
+    }
   }
 
   private List<BuiltinSpec> buildManifest() {
