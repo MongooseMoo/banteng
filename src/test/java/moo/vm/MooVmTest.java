@@ -12,6 +12,8 @@ import moo.builtin.BuiltinCatalog;
 import moo.builtin.BuiltinHosts;
 import moo.builtin.BuiltinResult;
 import moo.bytecode.BytecodeProgram;
+import moo.bytecode.BytecodeProgram.Instruction;
+import moo.bytecode.BytecodeProgram.Opcode;
 import moo.bytecode.MooCompiler;
 import moo.syntax.Ast;
 import moo.syntax.MooParser;
@@ -3634,6 +3636,42 @@ final class MooVmTest {
 
       assertEquals(VmState.Outcome.RETURNED, state.outcome(), test.getKey());
       assertEquals(test.getValue(), state.returnValue().orElseThrow(), test.getKey());
+    }
+  }
+
+  @Test
+  void unorderedFloatRelationsAndEqualityPreservePrimitiveSemantics() {
+    Map<Opcode, IntegerValue> expected =
+        Map.of(
+            Opcode.LESS_THAN, new IntegerValue(0),
+            Opcode.LESS_THAN_OR_EQUAL, new IntegerValue(0),
+            Opcode.GREATER_THAN, new IntegerValue(0),
+            Opcode.GREATER_THAN_OR_EQUAL, new IntegerValue(0),
+            Opcode.EQUAL, new IntegerValue(0),
+            Opcode.NOT_EQUAL, new IntegerValue(1));
+
+    for (double[] operands :
+        List.of(
+            new double[] {Double.NaN, 1.0},
+            new double[] {1.0, Double.NaN},
+            new double[] {Double.NaN, Double.NaN})) {
+      for (Map.Entry<Opcode, IntegerValue> test : expected.entrySet()) {
+        BytecodeProgram program =
+            new BytecodeProgram(
+                List.of(
+                    new Instruction(
+                        Opcode.PUSH_FLOAT, Double.doubleToRawLongBits(operands[0])),
+                    new Instruction(
+                        Opcode.PUSH_FLOAT, Double.doubleToRawLongBits(operands[1])),
+                    new Instruction(test.getKey()),
+                    new Instruction(Opcode.RETURN)));
+        VmState state = new VmState();
+
+        new MooVm().execute(program, state);
+
+        assertEquals(VmState.Outcome.RETURNED, state.outcome(), test.getKey().name());
+        assertEquals(test.getValue(), state.returnValue().orElseThrow(), test.getKey().name());
+      }
     }
   }
 

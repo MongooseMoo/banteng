@@ -1,5 +1,12 @@
 ---
 type: specs.openrewrite.org/v1beta/recipe
+name: moo.vm.DecomposeMooVmOpcodeFamilies
+displayName: Decompose MooVm opcode families
+description: Moves MooVm's static opcode-family methods into dedicated helper files.
+recipeList:
+  - moo.rewrite.MoveMooVmOpcodeFamilies
+---
+type: specs.openrewrite.org/v1beta/recipe
 name: moo.builtin.ExtractBuiltinResult
 displayName: Extract BuiltinResult type
 description: Migrates the nested BuiltinCatalog.Result protocol to top-level BuiltinResult.
