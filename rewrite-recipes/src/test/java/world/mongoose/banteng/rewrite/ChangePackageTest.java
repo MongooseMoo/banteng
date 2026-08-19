@@ -9,7 +9,9 @@ import org.openrewrite.test.RewriteTest;
 final class ChangePackageTest implements RewriteTest {
   @Override
   public void defaults(RecipeSpec spec) {
-    spec.recipeFromResources("world.mongoose.banteng.ChangePackage");
+    spec.recipeFromResources("world.mongoose.banteng.ChangePackage")
+        .cycles(2)
+        .expectedCyclesThatMakeChanges(1);
   }
 
   @Test
