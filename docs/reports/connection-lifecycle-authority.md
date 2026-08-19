@@ -129,9 +129,9 @@ and connection state on every failure path. `listen`, `unlisten`, and `close`
 serialize listener registry mutation so shutdown cannot race a newly bound
 socket into a leak.
 
-The production package-cycle gate forbids importing `moo.server` back into
-`moo.builtin` or `moo.runtime`. The single nested `ListenerControl` capability
-is the composition boundary needed to preserve direct `moo.server` socket
+The production package-cycle gate forbids importing `world.mongoose.banteng.server` back into
+`world.mongoose.banteng.builtin` or `world.mongoose.banteng.runtime`. The single nested
+`ListenerControl` capability is the composition boundary needed to preserve direct server socket
 ownership without a package cycle. It does not own state or adapt another
 network API. No parser, compiler, VM, world model, alternate server, listener
 adapter, sender, or general networking abstraction is part of this slice.

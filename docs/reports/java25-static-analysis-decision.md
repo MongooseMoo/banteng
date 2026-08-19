@@ -17,15 +17,15 @@ warnings-as-errors remain enabled for those compilation tasks.
 The pinned Java 25 build compiles representative language and nullness shapes,
 not only trivial classes:
 
-- sealed hierarchies and nested closed families in `moo.value.MooValue` and
-  `moo.syntax.Ast`;
+- sealed hierarchies and nested closed families in `world.mongoose.banteng.value.MooValue` and
+  `world.mongoose.banteng.syntax.Ast`;
 - records containing scalar, collection, and optional components in
   `MooValue`, `Ast`, `WorldObject`, `WorldVerb`, and `WorldProperty`;
 - nested generic collections and futures throughout `WorldTxn`, `VmState`, and
   `MooRuntime`;
 - package-level `@NullMarked` across every production ownership package and
   the shared test packages;
-- explicit `@Nullable` picocli-injected fields in `moo.app.Banteng`;
+- explicit `@Nullable` picocli-injected fields in `world.mongoose.banteng.app.Banteng`;
 - defensive-copy constructors and collection-return boundaries in the value,
   syntax, world, and persistence owners.
 
