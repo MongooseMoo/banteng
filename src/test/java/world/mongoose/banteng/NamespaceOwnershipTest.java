@@ -9,6 +9,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.regex.Pattern;
 import java.util.stream.Stream;
@@ -32,6 +33,16 @@ final class NamespaceOwnershipTest {
           Path.of("errorprone-checks", "src", "test", "java"),
           Path.of("rewrite-recipes", "src", "main", "java"),
           Path.of("rewrite-recipes", "src", "test", "java"));
+  private static final Map<Path, Integer> JAVA_SOURCE_COUNTS =
+      Map.of(
+          Path.of("src", "main", "java"), 91,
+          Path.of("src", "test", "java"), 59,
+          Path.of("src", "jmh", "java"), 1,
+          Path.of("src", "jcstress", "java"), 2,
+          Path.of("errorprone-checks", "src", "main", "java"), 1,
+          Path.of("errorprone-checks", "src", "test", "java"), 1,
+          Path.of("rewrite-recipes", "src", "main", "java"), 7,
+          Path.of("rewrite-recipes", "src", "test", "java"), 9);
   private static final Set<String> PACKAGE_RESOURCES =
       Set.of(
           "persistence/queued-task-source-and-dispatch.db",
@@ -50,7 +61,7 @@ final class NamespaceOwnershipTest {
           "persistence/v17-hierarchy/phase3-location-without-content.db",
           "persistence/v17-hierarchy/phase3-parent-without-child.db",
           "syntax/MooParserFuzzTestInputs/parsesArbitraryLatin1/return-one");
-  private static final Set<String> HISTORICAL_REPORTS =
+  private static final Set<String> HISTORICAL_EVIDENCE_REPORTS =
       Set.of(
           "docs/reports/arithmetic-float-eval-authority.md",
           "docs/reports/background-tick-budget-authority.md",
@@ -77,7 +88,7 @@ final class NamespaceOwnershipTest {
       try (Stream<Path> paths = Files.walk(root)) {
         sources = paths.filter(path -> path.toString().endsWith(".java")).sorted().toList();
       }
-      assertFalse(sources.isEmpty(), relativeRoot.toString());
+      assertEquals(JAVA_SOURCE_COUNTS.get(relativeRoot), sources.size(), relativeRoot.toString());
       for (Path source : sources) {
         Path relativeSource = root.relativize(source);
         assertTrue(relativeSource.startsWith(OWNED_PATH), relativeSource.toString());
@@ -101,6 +112,9 @@ final class NamespaceOwnershipTest {
     assertFalse(Files.exists(REPOSITORY.resolve("rewrite-recipes/src/main/java/moo")));
     assertFalse(Files.exists(REPOSITORY.resolve("rewrite-recipes/src/test/java/moo")));
     assertFalse(Files.exists(REPOSITORY.resolve("src/main/java/module-info.java")));
+    String ignored = Files.readString(REPOSITORY.resolve(".gitignore"));
+    assertFalse(ignored.contains("/moo/"));
+    assertTrue(ignored.contains("/world/"));
   }
 
   @Test
@@ -238,7 +252,7 @@ final class NamespaceOwnershipTest {
   }
 
   private static boolean isClassified(String path, String line) {
-    if (HISTORICAL_REPORTS.contains(path)) {
+    if (isHistoricalEvidence(path, line)) {
       return true;
     }
     if (OLD_NAMESPACE_SHAPE.matcher(line).find()) {
@@ -276,12 +290,6 @@ final class NamespaceOwnershipTest {
   }
 
   private static boolean isAllowedNamespaceShape(String path, String line) {
-    if (path.equals(".gitignore")) {
-      return line.equals("/moo/");
-    }
-    if (path.equals("src/test/java/world/mongoose/banteng/RepositoryHygieneTest.java")) {
-      return line.contains("/moo/");
-    }
     if (path.equals("rewrite.yml")) {
       return line.strip().equals("oldPackageName: moo");
     }
@@ -301,6 +309,16 @@ final class NamespaceOwnershipTest {
           || line.contains("--moo-");
     }
     return false;
+  }
+
+  private static boolean isHistoricalEvidence(String path, String line) {
+    if (!HISTORICAL_EVIDENCE_REPORTS.contains(path)) {
+      return false;
+    }
+    return OLD_NAMESPACE_SHAPE.matcher(line).find()
+        || isExternalMooTerm(line)
+        || line.contains("CMakeFiles/moo.dir")
+        || line.contains("`moo`");
   }
 
   private static boolean isExternalMooTerm(String line) {
