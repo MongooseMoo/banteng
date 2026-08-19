@@ -367,6 +367,11 @@ final class NamespaceOwnershipTest {
         "rewrite-recipes/src/test/java/world/mongoose/banteng/rewrite/ChangePackageTest.java")) {
       return true;
     }
+    if (path.equals(
+        "rewrite-recipes/src/main/java/world/mongoose/banteng/rewrite/"
+            + "RetargetSingleSegmentPackageReferences.java")) {
+      return line.strip().equals("private static final String OLD_PACKAGE = \"moo\";");
+    }
     if (path.equals(".github/workflows/ci.yml")
         && (line.contains("namespace_rewrite_proof")
             || line.contains("package moo.namespace_rewrite_proof"))) {
