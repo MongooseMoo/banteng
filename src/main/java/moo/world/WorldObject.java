@@ -18,7 +18,7 @@ public record WorldObject(
     List<Long> contents,
     List<Long> children,
     List<WorldVerb> verbs,
-    List<WorldProperty> properties) {
+    List<WorldProperty> properties) implements PropertyHolder {
   /** Creates an object by taking immutable snapshots of all ordered members. */
   public WorldObject {
     Objects.requireNonNull(name, "name");

@@ -10,7 +10,7 @@ public record WorldAnonymousObject(
     long owner,
     List<Long> parents,
     List<WorldVerb> verbs,
-    List<WorldProperty> properties) {
+    List<WorldProperty> properties) implements PropertyHolder {
   /** Creates an anonymous object by taking immutable snapshots of its ordered members. */
   public WorldAnonymousObject {
     Objects.requireNonNull(name, "name");

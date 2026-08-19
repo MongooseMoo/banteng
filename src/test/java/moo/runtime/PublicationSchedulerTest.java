@@ -48,6 +48,7 @@ import moo.persistence.LambdaMooV17Codec.SuspendedStackSlot;
 import moo.persistence.LambdaMooV17Codec.SuspendedTask;
 import moo.persistence.LambdaMooV4Reader;
 import moo.persistence.ToastV17ProgramLayout;
+import moo.server.ConnectionRegistry;
 import moo.value.MooValue;
 import moo.value.MooValue.ErrorValue;
 import moo.value.MooValue.IntegerValue;
@@ -233,7 +234,8 @@ final class PublicationSchedulerTest {
             new RecordingListener(),
             Path.of("unused-startup-order.db"),
             List.of(task),
-            List.of(new ActiveConnection(41, 0), new ActiveConnection(42, 0)));
+            List.of(new ActiveConnection(41, 0), new ActiveConnection(42, 0)),
+            new ConnectionRegistry());
     try {
       runtime.startServer();
       long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(3);
@@ -285,7 +287,8 @@ final class PublicationSchedulerTest {
               new RecordingListener(),
               Path.of("unused-native-restart.db"),
               List.of(durable),
-              List.of());
+              List.of(),
+              new ConnectionRegistry());
       try {
         restarted.startServer();
         long completionDeadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(4);
@@ -337,7 +340,8 @@ final class PublicationSchedulerTest {
     Path checkpoint = temporaryDirectory.resolve("panic.db.new");
     RecordingListener listener = new RecordingListener();
     listener.expectedPanicDump = Optional.of(Path.of(checkpoint.toString() + ".PANIC"));
-    MooRuntime runtime = new MooRuntime(world, listener, checkpoint);
+    MooRuntime runtime =
+        new MooRuntime(world, listener, checkpoint, new ConnectionRegistry());
     try {
       runtime.openConnection(CONNECTION_ID, 0, true, new MapValue(Map.of()));
       runtime.executeLine(CONNECTION_ID, "connect Wizard");
@@ -596,7 +600,7 @@ final class PublicationSchedulerTest {
   @Test
   void usesFixedWorkersAndWorkersTimesFourBoundedQueue() throws Exception {
     WorldTxn root = new LambdaMooV4Reader().read(FIXTURE);
-    MooRuntime runtime = new MooRuntime(root);
+    MooRuntime runtime = new MooRuntime(root, new ConnectionRegistry());
     try (PublicationScheduler scheduler = new PublicationScheduler(root, runtime, 3)) {
       ThreadPoolExecutor executor = field(scheduler, "executor", ThreadPoolExecutor.class);
 
@@ -1730,7 +1734,8 @@ final class PublicationSchedulerTest {
 
     static Harness open(int workers, ListenerControl listener) throws IOException {
       WorldTxn root = new LambdaMooV4Reader().read(FIXTURE);
-      MooRuntime runtime = new MooRuntime(root, listener, workers);
+      MooRuntime runtime =
+          new MooRuntime(root, listener, workers, new ConnectionRegistry());
       PublicationScheduler scheduler = scheduler(runtime);
       Harness harness = new Harness(root, runtime, scheduler);
       runtime.openConnection(CONNECTION_ID, 0, true, new MapValue(Map.of()));

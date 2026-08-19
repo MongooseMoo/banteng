@@ -12,6 +12,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
 import moo.persistence.LambdaMooV4Reader;
+import moo.server.ConnectionRegistry;
 import moo.value.MooValue;
 import moo.value.MooValue.AnonymousObjectValue;
 import moo.value.MooValue.IntegerValue;
@@ -60,9 +61,15 @@ final class FinalizationControlTest {
     ListValue anonymousList = marker(ANONYMOUS_MARKER, anonymous);
     ListValue waifList = marker(WAIF_MARKER, waif);
     WorldTxn world =
-        new WorldTxn(List.of(), List.of(), Map.of(), Map.of(), List.of(anonymousList, waifList));
+        new WorldTxn(
+            List.of(),
+            List.of(),
+            Map.of(),
+            Map.of(),
+            List.of(anonymousList, waifList),
+            -1);
 
-    try (MooRuntime runtime = new MooRuntime(world)) {
+    try (MooRuntime runtime = new MooRuntime(world, new ConnectionRegistry())) {
       runtime.startServer();
       assertEquals(List.of(anonymousList, waifList), world.snapshot().pendingFinalization());
     }
@@ -366,7 +373,7 @@ final class FinalizationControlTest {
   }
 
   private static MooRuntime connectedRuntime(WorldTxn world) throws Exception {
-    MooRuntime runtime = new MooRuntime(world);
+    MooRuntime runtime = new MooRuntime(world, new ConnectionRegistry());
     connect(runtime, CONNECTION_ID);
     return runtime;
   }

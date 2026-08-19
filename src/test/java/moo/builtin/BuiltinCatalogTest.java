@@ -29,6 +29,7 @@ import java.util.concurrent.Callable;
 import moo.builtin.BuiltinCatalog.ConnectionOption;
 import moo.builtin.BuiltinResult;
 import moo.logging.ServerLog;
+import moo.server.ConnectionRegistry;
 import moo.value.MooValue;
 import moo.value.MooValue.AnonymousObjectValue;
 import moo.value.MooValue.BooleanValue;
@@ -733,7 +734,9 @@ final class BuiltinCatalogTest {
 
   @Test
   void switchPlayerAcceptsAnOptionalIntegerSilentFlagAndRejectsOtherTypes() {
-    BuiltinCatalog catalog = new BuiltinCatalog(BuiltinHosts.builder().build());
+    ConnectionRegistry connections = new ConnectionRegistry();
+    BuiltinCatalog catalog =
+        new BuiltinCatalog(BuiltinHosts.builder().connections(() -> connections).build());
     BuiltinSpec spec = catalog.spec("switch_player").orElseThrow();
 
     assertEquals(
@@ -751,8 +754,8 @@ final class BuiltinCatalogTest {
         new WorldObject(3, "New", 0, 3, -1, -1, List.of(), List.of(), List.of(), List.of());
     try (WorldTxn transaction =
         new WorldTxn(List.of(2L, 3L), List.of(wizard, oldPlayer, newPlayer)).begin()) {
-      transaction.openConnection(-17, new MapValue(Map.of()));
-      assertTrue(transaction.switchConnectionPlayer(-17, 2).isOk());
+      connections.openConnection(-17, new MapValue(Map.of()));
+      assertTrue(connections.switchConnectionPlayer(-17, 2));
       assertEquals(
           OptionalLong.of(3),
           switchedPlayer(invoke(
@@ -908,7 +911,9 @@ final class BuiltinCatalogTest {
 
   @Test
   void connectionInfoReadsTheLiveConnectionWithToastPermissions() {
-    BuiltinCatalog catalog = new BuiltinCatalog(BuiltinHosts.builder().build());
+    ConnectionRegistry connections = new ConnectionRegistry();
+    BuiltinCatalog catalog =
+        new BuiltinCatalog(BuiltinHosts.builder().connections(() -> connections).build());
     BuiltinSpec spec = catalog.spec("connection_info").orElseThrow();
     MapValue info =
         new MapValue(
@@ -923,10 +928,10 @@ final class BuiltinCatalogTest {
     assertEquals(EffectClass.EXTERNAL_READ, spec.effect());
     assertEquals(BuiltinOwner.CONNECTION, spec.owner());
     try (WorldTxn transaction = world().begin()) {
-      transaction.openConnection(-2, info);
-      transaction.switchConnectionPlayer(-2, 2);
-      transaction.openConnection(-3, info);
-      transaction.switchConnectionPlayer(-3, 1);
+      connections.openConnection(-2, info);
+      connections.switchConnectionPlayer(-2, 2);
+      connections.openConnection(-3, info);
+      connections.switchConnectionPlayer(-3, 1);
 
       assertEquals(
           Optional.of(info),
@@ -950,7 +955,9 @@ final class BuiltinCatalogTest {
 
   @Test
   void connectionNameUsesSavedRemoteAddressAndToastLegacyFormatting() {
-    BuiltinCatalog catalog = new BuiltinCatalog(BuiltinHosts.builder().build());
+    ConnectionRegistry connections = new ConnectionRegistry();
+    BuiltinCatalog catalog =
+        new BuiltinCatalog(BuiltinHosts.builder().connections(() -> connections).build());
     BuiltinSpec spec = catalog.spec("connection_name").orElseThrow();
     MapValue info =
         new MapValue(
@@ -974,8 +981,8 @@ final class BuiltinCatalogTest {
     assertEquals(EffectClass.EXTERNAL_READ, spec.effect());
     assertEquals(BuiltinOwner.CONNECTION, spec.owner());
     try (WorldTxn transaction = world().begin()) {
-      transaction.openConnection(-2, info);
-      transaction.switchConnectionPlayer(-2, 2);
+      connections.openConnection(-2, info);
+      connections.switchConnectionPlayer(-2, 2);
 
       assertEquals(
           Optional.of(string("client.example")),
@@ -1013,7 +1020,9 @@ final class BuiltinCatalogTest {
 
   @Test
   void connectedPlayersReturnsNewestConnectionsWithOptionalNegativePlayers() {
-    BuiltinCatalog catalog = new BuiltinCatalog(BuiltinHosts.builder().build());
+    ConnectionRegistry connections = new ConnectionRegistry();
+    BuiltinCatalog catalog =
+        new BuiltinCatalog(BuiltinHosts.builder().connections(() -> connections).build());
     BuiltinSpec spec = catalog.spec("connected_players").orElseThrow();
 
     assertEquals(
@@ -1025,9 +1034,9 @@ final class BuiltinCatalogTest {
     assertEquals(EffectClass.EXTERNAL_READ, spec.effect());
     assertEquals(BuiltinOwner.CONNECTION, spec.owner());
     try (WorldTxn transaction = world().begin()) {
-      transaction.openConnection(-2);
-      transaction.switchConnectionPlayer(-2, 2);
-      transaction.openConnection(-3);
+      connections.openConnection(-2);
+      connections.switchConnectionPlayer(-2, 2);
+      connections.openConnection(-3);
 
       assertEquals(
           Optional.of(new ListValue(List.of(new ObjectValue(2)))),
@@ -1051,8 +1060,10 @@ final class BuiltinCatalogTest {
   void bufferedOutputLengthUsesToastSignaturePermissionsAndLiveConnectionOwner() {
     RecordingListener listener = new RecordingListener();
     listener.bufferedOutputLength = 37;
+    ConnectionRegistry connections = new ConnectionRegistry();
     BuiltinCatalog catalog =
-        new BuiltinCatalog(listener, BuiltinHosts.builder().build());
+        new BuiltinCatalog(
+            listener, BuiltinHosts.builder().connections(() -> connections).build());
     BuiltinSpec spec = catalog.spec("buffered_output_length").orElseThrow();
 
     assertEquals(
@@ -1062,10 +1073,10 @@ final class BuiltinCatalogTest {
     assertEquals(EffectClass.EXTERNAL_READ, spec.effect());
     assertEquals(BuiltinOwner.CONNECTION, spec.owner());
     try (WorldTxn transaction = world().begin()) {
-      transaction.openConnection(-2);
-      transaction.switchConnectionPlayer(-2, 2);
-      transaction.openConnection(-3);
-      transaction.switchConnectionPlayer(-3, 1);
+      connections.openConnection(-2);
+      connections.switchConnectionPlayer(-2, 2);
+      connections.openConnection(-3);
+      connections.switchConnectionPlayer(-3, 1);
 
       assertEquals(
           Optional.of(new IntegerValue(65_536)),
@@ -1152,7 +1163,9 @@ final class BuiltinCatalogTest {
 
   @Test
   void setConnectionOptionStagesOneAuthorizedDeferredConnectionMutation() {
-    BuiltinCatalog catalog = new BuiltinCatalog(BuiltinHosts.builder().build());
+    ConnectionRegistry connections = new ConnectionRegistry();
+    BuiltinCatalog catalog =
+        new BuiltinCatalog(BuiltinHosts.builder().connections(() -> connections).build());
     BuiltinSpec spec = catalog.spec("set_connection_option").orElseThrow();
     MapValue info = new MapValue(Map.of(string("destination_ip"), string("127.0.0.1")));
 
@@ -1168,10 +1181,10 @@ final class BuiltinCatalogTest {
     assertEquals(EffectClass.DEFERRED_COMMIT, spec.effect());
     assertEquals(BuiltinOwner.CONNECTION, spec.owner());
     try (WorldTxn transaction = world().begin()) {
-      transaction.openConnection(-2, info);
-      transaction.switchConnectionPlayer(-2, 2);
-      transaction.openConnection(-3, info);
-      transaction.switchConnectionPlayer(-3, 1);
+      connections.openConnection(-2, info);
+      connections.switchConnectionPlayer(-2, 2);
+      connections.openConnection(-3, info);
+      connections.switchConnectionPlayer(-3, 1);
 
       BuiltinResult held =
           invoke(
