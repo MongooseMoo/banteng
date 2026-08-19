@@ -320,3 +320,4 @@ recipeList:
       oldPackageName: moo
       newPackageName: world.mongoose.banteng
       recursive: true
+  - world.mongoose.banteng.rewrite.RetargetSingleSegmentPackageReferences
