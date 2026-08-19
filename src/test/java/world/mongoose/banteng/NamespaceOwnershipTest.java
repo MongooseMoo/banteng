@@ -88,6 +88,19 @@ final class NamespaceOwnershipTest {
               Set.of(
                   "`^moo\\.benchmark\\.ParserBenchmark\\.parse$`, uses one fork, one 100 ms warmup,")),
           Map.entry(
+              "docs/reports/jvm-moo-architecture-research.md",
+              Set.of(
+                  "- The branch's original architecture is sound in broad shape: runtime "
+                      + "read/write sets, task-segment transactions, output/fork deferral, retry "
+                      + "before irreversible effects, and a serialized fallback "
+                      + "(`work/mvcc-concurrent-moo:plans/mvcc-concurrent-moo-plan.md`).",
+                  "- Its initial global commit lock erased scaling. Converting published objects "
+                      + "to immutable copy-on-write images plus per-object slots improved a "
+                      + "commit-dominated disjoint-write microbenchmark from flat/degrading to "
+                      + "about 1.1-1.6x at higher worker counts, but still paid a roughly 20-30% "
+                      + "one-worker tax (`work/mvcc-concurrent-moo:reports/cow-phase0-coder.md`, "
+                      + "`cow-phase1-coder.md`).")),
+          Map.entry(
               "docs/reports/object-movement-authority.md",
               Set.of(
                   "`src/main/java/moo/builtin/BuiltinCatalog.java:353` to the direct catalog",
