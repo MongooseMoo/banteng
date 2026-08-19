@@ -1172,10 +1172,47 @@ public final class WorldTxn implements AutoCloseable {
 
   /** Changes one object's ordered parents while updating every reciprocal topology record. */
   public WorldResult<Boolean> changeParents(long objectId, List<Long> newParentIds) {
-    WorldObject target = object(objectId).orElse(null);
-    if (target == null) {
+    return changeParentsFor(objectId, newParentIds);
+  }
+
+  private WorldResult<Boolean> changeParentsFor(Object identity, List<Long> newParentIds) {
+    PropertyHolder holder = propertyHolder(identity).orElse(null);
+    if (holder == null) {
       return WorldResult.failed(ErrorValue.E_INVARG);
     }
+    if (holder instanceof WorldAnonymousObject anonymous) {
+      final List<Long> newParents;
+      try {
+        newParents = validatedParents(-1, newParentIds);
+      } catch (IllegalArgumentException error) {
+        return WorldResult.failed(ErrorValue.E_INVARG);
+      }
+      final List<WorldProperty> properties;
+      try {
+        properties =
+            PropertyLayoutEngine.rebuiltAnonymousProperties(
+                anonymous,
+                anonymous.parents(),
+                working.objects(),
+                anonymous,
+                newParents,
+                working.objects());
+      } catch (IllegalArgumentException error) {
+        return WorldResult.failed(ErrorValue.E_INVARG);
+      }
+      replaceAnonymousObject(
+          (AnonymousObjectValue) identity,
+          new WorldAnonymousObject(
+              anonymous.name(),
+              anonymous.flags(),
+              anonymous.owner(),
+              newParents,
+              anonymous.verbs(),
+              properties));
+      return WorldResult.ok(true);
+    }
+    WorldObject target = (WorldObject) holder;
+    long objectId = (Long) identity;
     final List<Long> newParents;
     try {
       newParents = validatedParents(objectId, newParentIds);
@@ -1262,40 +1299,7 @@ public final class WorldTxn implements AutoCloseable {
   /** Changes one anonymous object's ordered permanent parents atomically. */
   public WorldResult<Boolean> changeParents(
       AnonymousObjectValue identity, List<Long> newParentIds) {
-    Objects.requireNonNull(identity, "identity");
-    WorldAnonymousObject target = anonymousObject(identity).orElse(null);
-    if (target == null) {
-      return WorldResult.failed(ErrorValue.E_INVARG);
-    }
-    final List<Long> newParents;
-    try {
-      newParents = validatedParents(-1, newParentIds);
-    } catch (IllegalArgumentException error) {
-      return WorldResult.failed(ErrorValue.E_INVARG);
-    }
-    final List<WorldProperty> properties;
-    try {
-      properties =
-          PropertyLayoutEngine.rebuiltAnonymousProperties(
-              target,
-              target.parents(),
-              working.objects(),
-              target,
-              newParents,
-              working.objects());
-    } catch (IllegalArgumentException error) {
-      return WorldResult.failed(ErrorValue.E_INVARG);
-    }
-    replaceAnonymousObject(
-        identity,
-        new WorldAnonymousObject(
-            target.name(),
-            target.flags(),
-            target.owner(),
-            newParents,
-            target.verbs(),
-            properties));
-    return WorldResult.ok(true);
+    return changeParentsFor(Objects.requireNonNull(identity, "identity"), newParentIds);
   }
 
   /** Adds or removes the player flag and keeps the player index in the same transaction. */
