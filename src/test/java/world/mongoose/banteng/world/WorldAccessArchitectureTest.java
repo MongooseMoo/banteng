@@ -19,7 +19,7 @@ final class WorldAccessArchitectureTest {
     JavaClasses productionClasses =
         new ClassFileImporter()
             .withImportOption(ImportOption.Predefined.DO_NOT_INCLUDE_TESTS)
-            .importPackages("moo");
+            .importPackages("world.mongoose.banteng");
 
     noClasses()
         .that()

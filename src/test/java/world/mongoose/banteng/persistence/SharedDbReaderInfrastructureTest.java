@@ -180,7 +180,8 @@ final class SharedDbReaderInfrastructureTest {
 
   private static String source(String fileName) throws IOException {
     return Files.readString(
-        Path.of("src", "main", "java", "moo", "persistence", fileName),
+        Path.of(
+            "src", "main", "java", "world", "mongoose", "banteng", "persistence", fileName),
         StandardCharsets.UTF_8);
   }
 

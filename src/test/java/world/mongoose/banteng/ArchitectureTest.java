@@ -176,7 +176,7 @@ final class ArchitectureTest {
   private static JavaClasses productionClasses() {
     return new ClassFileImporter()
         .withImportOption(ImportOption.Predefined.DO_NOT_INCLUDE_TESTS)
-        .importPackages("moo");
+        .importPackages("world.mongoose.banteng");
   }
 
   private static void assertOnlyDependsOn(

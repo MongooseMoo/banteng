@@ -11,7 +11,8 @@ import java.util.List;
 import org.junit.jupiter.api.Test;
 
 final class OpcodeFamilyArchitectureTest {
-  private static final Path VM_SOURCE = Path.of("src", "main", "java", "moo", "vm");
+  private static final Path VM_SOURCE =
+      Path.of("src", "main", "java", "world", "mongoose", "banteng", "vm");
   private static final List<String> FAMILIES =
       List.of("ListOps", "PropertyOps", "IndexOps", "ArithmeticOps", "LoopOps", "ErrorOps");
 

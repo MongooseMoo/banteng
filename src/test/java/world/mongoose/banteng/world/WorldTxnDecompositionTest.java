@@ -19,7 +19,16 @@ final class WorldTxnDecompositionTest {
   @Test
   void anonymousPropertyHolderBranchDoesNotBindAnUnreadPatternVariable() throws Exception {
     String source =
-        Files.readString(Path.of("src", "main", "java", "moo", "world", "WorldTxn.java"))
+        Files.readString(
+                Path.of(
+                    "src",
+                    "main",
+                    "java",
+                    "world",
+                    "mongoose",
+                    "banteng",
+                    "world",
+                    "WorldTxn.java"))
             .replace("\r\n", "\n");
 
     assertFalse(source.contains("case WorldAnonymousObject _ ->"), source);

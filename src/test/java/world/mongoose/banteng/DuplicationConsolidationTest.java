@@ -10,7 +10,8 @@ import java.nio.file.Path;
 import org.junit.jupiter.api.Test;
 
 final class DuplicationConsolidationTest {
-  private static final Path PRODUCTION = Path.of("src", "main", "java", "moo");
+  private static final Path PRODUCTION =
+      Path.of("src", "main", "java", "world", "mongoose", "banteng");
 
   @Test
   void verbAndPropertyMutationShareTheOwnershipPreamble() throws IOException {

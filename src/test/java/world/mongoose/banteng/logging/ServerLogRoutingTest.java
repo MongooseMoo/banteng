@@ -37,7 +37,9 @@ final class ServerLogRoutingTest {
               .toList();
     }
 
-    assertEquals(List.of(Path.of("moo", "logging", "ServerLog.java")), owners);
+    assertEquals(
+        List.of(Path.of("world", "mongoose", "banteng", "logging", "ServerLog.java")),
+        owners);
   }
 
   private static boolean hasServerLogField(Class<?> owner) {
