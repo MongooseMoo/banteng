@@ -24,6 +24,7 @@ import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import jdk.jfr.FlightRecorder;
+import moo.builtin.BuiltinCall;
 import moo.builtin.BuiltinResult;
 import moo.bytecode.BytecodeProgram;
 import moo.bytecode.BytecodeProgram.Instruction;
@@ -164,19 +165,11 @@ final class PublicationScheduler implements AutoCloseable {
         .forEach(this::launchTimer);
   }
 
-  synchronized BuiltinResult threadPool(
-      List<MooValue> arguments,
-      WorldTxn world,
-      long programmer,
-      MooValue taskLocal,
-      long currentTaskId,
-      long remainingTicks,
-      long remainingSeconds,
-      MooValue receiver,
-      long callerProgrammer,
-      ListValue callers) {
+  synchronized BuiltinResult threadPool(BuiltinCall call) {
     int requested =
-        arguments.size() == 3 ? Math.toIntExact(((IntegerValue) arguments.get(2)).value()) : 0;
+        call.arguments().size() == 3
+            ? Math.toIntExact(((IntegerValue) call.arguments().get(2)).value())
+            : 0;
     backgroundWorkers = requested;
     if (requested == 0) {
       return BuiltinResult.value(new IntegerValue(1));
@@ -770,19 +763,9 @@ final class PublicationScheduler implements AutoCloseable {
         snapshot.frames().isEmpty() || snapshot.frames().getFirst().threadMode());
   }
 
-  BuiltinResult resumeTask(
-      List<MooValue> arguments,
-      WorldTxn world,
-      long programmer,
-      MooValue taskLocal,
-      long currentTaskId,
-      long remainingTicks,
-      long remainingSeconds,
-      MooValue receiver,
-      long callerProgrammer,
-      ListValue callers) {
-    long taskId = ((IntegerValue) arguments.getFirst()).value();
-    switch (taskRegistry.taskControlDecision(taskId, world, programmer)) {
+  BuiltinResult resumeTask(BuiltinCall call) {
+    long taskId = ((IntegerValue) call.arguments().getFirst()).value();
+    switch (taskRegistry.taskControlDecision(taskId, call.world(), call.programmer())) {
       case DENIED -> {
         return BuiltinResult.error(ErrorValue.E_PERM);
       }
@@ -793,7 +776,8 @@ final class PublicationScheduler implements AutoCloseable {
         // Continue with the scheduler-owned suspended-task lookup.
       }
     }
-    MooValue value = arguments.size() == 2 ? arguments.get(1) : new IntegerValue(0);
+    MooValue value =
+        call.arguments().size() == 2 ? call.arguments().get(1) : new IntegerValue(0);
     TimedWork resumed;
     synchronized (this) {
       resumed = timedWork.get(taskId);

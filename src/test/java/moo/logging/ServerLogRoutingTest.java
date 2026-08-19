@@ -9,7 +9,7 @@ import java.lang.reflect.Field;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
-import moo.builtin.BuiltinCatalog;
+import moo.builtin.BuiltinHosts;
 import moo.persistence.LambdaMooV5Reader;
 import moo.runtime.MooRuntime;
 import moo.server.MooServer;
@@ -19,7 +19,7 @@ final class ServerLogRoutingTest {
   @Test
   void everyServerDiagnosticOwnerAcceptsTheSharedLog() {
     assertTrue(hasServerLogField(LambdaMooV5Reader.class));
-    assertTrue(hasServerLogField(BuiltinCatalog.class));
+    assertTrue(hasServerLogField(BuiltinHosts.class));
     assertTrue(hasServerLogField(MooRuntime.class));
     assertTrue(hasServerLogParameter(MooServer.class));
   }

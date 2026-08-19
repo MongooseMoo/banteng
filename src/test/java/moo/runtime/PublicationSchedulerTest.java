@@ -33,6 +33,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.stream.IntStream;
 import jdk.jfr.Recording;
 import jdk.jfr.consumer.RecordedEvent;
+import moo.builtin.BuiltinCall;
 import jdk.jfr.consumer.RecordingFile;
 import moo.builtin.BuiltinCatalog.ListenerControl;
 import moo.builtin.BuiltinCatalog.ListenerDescription;
@@ -124,17 +125,7 @@ final class PublicationSchedulerTest {
 
       try (WorldTxn transaction = harness.root.begin()) {
         BuiltinResult queuedResult =
-            registry.queuedTasks(
-                List.of(),
-                transaction,
-                0,
-                new MapValue(Map.of()),
-                -1,
-                60_000,
-                5,
-                new ObjectValue(0),
-                0,
-                new ListValue(List.of()));
+            registry.queuedTasks(builtinCall(List.of(), transaction, -1));
         ListValue rows =
             assertInstanceOf(
                 ListValue.class,
@@ -145,16 +136,10 @@ final class PublicationSchedulerTest {
 
         BuiltinResult stackResult =
             registry.taskStack(
-                List.of(new IntegerValue(task.taskId()), new IntegerValue(1)),
-                transaction,
-                0,
-                new MapValue(Map.of()),
-                -1,
-                60_000,
-                5,
-                new ObjectValue(0),
-                0,
-                new ListValue(List.of()));
+                builtinCall(
+                    List.of(new IntegerValue(task.taskId()), new IntegerValue(1)),
+                    transaction,
+                    -1));
         ListValue stack =
             assertInstanceOf(
                 ListValue.class,
@@ -1720,6 +1705,22 @@ final class PublicationSchedulerTest {
       events.close();
       Files.deleteIfExists(eventFile);
     }
+  }
+
+  private static BuiltinCall builtinCall(
+      List<MooValue> arguments, WorldTxn world, long taskId) {
+    return new BuiltinCall(
+        arguments,
+        world,
+        0,
+        new MapValue(Map.of()),
+        taskId,
+        60_000,
+        5,
+        new ObjectValue(0),
+        0,
+        new ListValue(List.of()),
+        false);
   }
 
   private static final class Harness implements AutoCloseable {

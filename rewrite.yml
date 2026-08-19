@@ -9,6 +9,13 @@ recipeList:
       newFullyQualifiedTypeName: moo.builtin.BuiltinResult
 ---
 type: specs.openrewrite.org/v1beta/recipe
+name: moo.builtin.UseBuiltinCall
+displayName: Collapse builtin handler arguments into BuiltinCall
+description: Rewrites legacy ten-parameter builtin lambdas to the BuiltinCall protocol.
+recipeList:
+  - moo.rewrite.UseBuiltinCall
+---
+type: specs.openrewrite.org/v1beta/recipe
 name: moo.value.UseStringValueFactories
 displayName: Move Latin-1 encoding helpers to StringValue
 description: Retargets private Java-string encoders to the StringValue factory before deleting them.

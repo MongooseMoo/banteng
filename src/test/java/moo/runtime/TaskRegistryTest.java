@@ -7,7 +7,9 @@ import java.lang.reflect.Modifier;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.FutureTask;
+import moo.builtin.BuiltinCall;
 import moo.builtin.BuiltinCatalog;
+import moo.builtin.BuiltinHosts;
 import moo.builtin.BuiltinResult;
 import moo.bytecode.BytecodeProgram;
 import moo.bytecode.MooCompiler;
@@ -131,7 +133,7 @@ final class TaskRegistryTest {
     VmState state = new VmState(locals, 2, new ObjectValue(7));
 
     try (WorldTxn transaction = world().begin()) {
-      new MooVm().execute(program, state, transaction, new BuiltinCatalog(), 17);
+      new MooVm().execute(program, state, transaction, new BuiltinCatalog(BuiltinHosts.builder().build()), 17);
     }
     VmSnapshot snapshot = state.snapshot();
     FutureTask<BuiltinResult> submitted =
@@ -249,7 +251,7 @@ final class TaskRegistryTest {
     BytecodeProgram program = new MooCompiler().compile("x = 9;\nsuspend(100);");
     VmState state = new VmState(locals, 2, new ObjectValue(7));
     try (WorldTxn transaction = world().begin()) {
-      new MooVm().execute(program, state, transaction, new BuiltinCatalog(), 17);
+      new MooVm().execute(program, state, transaction, new BuiltinCatalog(BuiltinHosts.builder().build()), 17);
     }
     VmSnapshot snapshot = state.snapshot();
     registry.updateSuspended(99, 1234, snapshot);
@@ -297,31 +299,12 @@ final class TaskRegistryTest {
   private static BuiltinResult killResult(
       TaskRegistry registry, long taskId, WorldTxn world, long programmer) {
     return registry.killTask(
-        List.of(new IntegerValue(taskId)),
-        world,
-        programmer,
-        new MapValue(Map.of()),
-        0,
-        60_000,
-        5,
-        new ObjectValue(programmer),
-        programmer,
-        new ListValue(List.of()));
+        call(List.of(new IntegerValue(taskId)), world, programmer, 0));
   }
 
   private static MooValue handles(TaskRegistry registry, WorldTxn world) {
     return value(
-        registry.threads(
-            List.of(),
-            world,
-            1,
-            new MapValue(Map.of()),
-            0,
-            60_000,
-            5,
-            new ObjectValue(1),
-            1,
-            new ListValue(List.of())));
+        registry.threads(call(List.of(), world, 1, 0)));
   }
 
   private static BuiltinResult taskStackResult(
@@ -330,17 +313,7 @@ final class TaskRegistryTest {
       WorldTxn world,
       long programmer,
       long currentTaskId) {
-    return registry.taskStack(
-        arguments,
-        world,
-        programmer,
-        new MapValue(Map.of()),
-        currentTaskId,
-        60_000,
-        5,
-        new ObjectValue(programmer),
-        programmer,
-        new ListValue(List.of()));
+    return registry.taskStack(call(arguments, world, programmer, currentTaskId));
   }
 
   private static ListValue value(
@@ -350,19 +323,24 @@ final class TaskRegistryTest {
 
   private static MooValue result(
       TaskRegistry registry, List<MooValue> arguments, WorldTxn world, long programmer) {
-    BuiltinResult result =
-        registry.queuedTasks(
-            arguments,
-            world,
-            programmer,
-            new MapValue(Map.of()),
-            0,
-            60_000,
-            5,
-            new ObjectValue(programmer),
-            programmer,
-            new ListValue(List.of()));
+    BuiltinResult result = registry.queuedTasks(call(arguments, world, programmer, 0));
     return value(result);
+  }
+
+  private static BuiltinCall call(
+      List<MooValue> arguments, WorldTxn world, long programmer, long taskId) {
+    return new BuiltinCall(
+        arguments,
+        world,
+        programmer,
+        new MapValue(Map.of()),
+        taskId,
+        60_000,
+        5,
+        new ObjectValue(programmer),
+        programmer,
+        new ListValue(List.of()),
+        false);
   }
 
   private static MooValue value(BuiltinResult result) {

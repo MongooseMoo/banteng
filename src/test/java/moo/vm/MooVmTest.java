@@ -9,6 +9,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import java.util.List;
 import java.util.Map;
 import moo.builtin.BuiltinCatalog;
+import moo.builtin.BuiltinHosts;
 import moo.builtin.BuiltinResult;
 import moo.bytecode.BytecodeProgram;
 import moo.bytecode.MooCompiler;
@@ -54,7 +55,7 @@ final class MooVmTest {
             false);
 
     try (WorldTxn transaction = new WorldTxn(List.of(), List.of()).begin()) {
-      new MooVm().execute(program, state, transaction, new BuiltinCatalog(), 1);
+      new MooVm().execute(program, state, transaction, new BuiltinCatalog(BuiltinHosts.builder().build()), 1);
     }
 
     assertEquals(VmState.Outcome.RETURNED, state.outcome());
@@ -82,7 +83,7 @@ final class MooVmTest {
         new MooCompiler().compile("return subject:work();"),
         state,
         world,
-        new BuiltinCatalog());
+        new BuiltinCatalog(BuiltinHosts.builder().build()));
 
     assertEquals(VmState.Outcome.RETURNED, state.outcome());
     assertEquals(
@@ -106,7 +107,7 @@ final class MooVmTest {
             new ObjectValue(-1));
 
     try (WorldTxn transaction = new WorldTxn(List.of(), List.of()).begin()) {
-      new MooVm().execute(program, state, transaction, new BuiltinCatalog(), 1);
+      new MooVm().execute(program, state, transaction, new BuiltinCatalog(BuiltinHosts.builder().build()), 1);
     }
 
     assertEquals(VmState.Outcome.RETURNED, state.outcome());
@@ -152,7 +153,7 @@ final class MooVmTest {
           new VmState(Map.of("player", new ObjectValue(1)), 1, new ObjectValue(1));
 
       try (WorldTxn transaction = root.begin()) {
-        vm.execute(program, state, transaction, new BuiltinCatalog(), 1);
+        vm.execute(program, state, transaction, new BuiltinCatalog(BuiltinHosts.builder().build()), 1);
         assertEquals(ObjectFlags.FLAG_PROGRAMMER, transaction.object(1).orElseThrow().flags());
       }
 
@@ -169,12 +170,12 @@ final class MooVmTest {
 
     try (WorldTxn transaction = root.begin()) {
       VmState noYield = new VmState(Map.of(), -1, new ObjectValue(-1), 2_001, 5);
-      vm.execute(program, noYield, transaction, new BuiltinCatalog(), 1);
+      vm.execute(program, noYield, transaction, new BuiltinCatalog(BuiltinHosts.builder().build()), 1);
       assertEquals(VmState.Outcome.RETURNED, noYield.outcome());
       assertEquals(new IntegerValue(0), noYield.returnValue().orElseThrow());
 
       VmState yielded = new VmState(Map.of(), -1, new ObjectValue(-1), 2_000, 5);
-      vm.execute(program, yielded, transaction, new BuiltinCatalog(), 1);
+      vm.execute(program, yielded, transaction, new BuiltinCatalog(BuiltinHosts.builder().build()), 1);
       assertEquals(VmState.Outcome.SUSPENDED, yielded.outcome());
       assertEquals(0.0, yielded.suspensionDelaySeconds().orElseThrow());
     }
@@ -255,7 +256,7 @@ final class MooVmTest {
         new MooCompiler().compile("preserved = subject; suspend(60); preserved = subject;");
     VmState state = new VmState(Map.of("subject", anonymous), 3, new ObjectValue(0));
 
-    executeAndClose(program, state, new WorldTxn(List.of(), List.of()), new BuiltinCatalog());
+    executeAndClose(program, state, new WorldTxn(List.of(), List.of()), new BuiltinCatalog(BuiltinHosts.builder().build()));
 
     assertEquals(VmState.Outcome.SUSPENDED, state.outcome());
     Map<String, MooValue> locals = state.snapshot().frames().getFirst().locals();
@@ -278,7 +279,7 @@ final class MooVmTest {
         StringValue.of("host failure");
 
     try (WorldTxn transaction = root.begin()) {
-      vm.execute(program, state, transaction, new BuiltinCatalog(), 1);
+      vm.execute(program, state, transaction, new BuiltinCatalog(BuiltinHosts.builder().build()), 1);
       assertEquals(VmState.Outcome.SUSPENDED, state.outcome());
 
       vm.resumeWithError(
@@ -286,7 +287,7 @@ final class MooVmTest {
           BuiltinResult.raised(
               ErrorValue.E_INVARG, message, new IntegerValue(17)),
           transaction);
-      vm.execute(program, state, transaction, new BuiltinCatalog(), 1);
+      vm.execute(program, state, transaction, new BuiltinCatalog(BuiltinHosts.builder().build()), 1);
     }
 
     assertEquals(VmState.Outcome.RETURNED, state.outcome());
@@ -386,7 +387,7 @@ final class MooVmTest {
     VmState state = new VmState();
 
     executeAndClose(
-        program, state, new WorldTxn(List.of(), List.of()), new BuiltinCatalog());
+        program, state, new WorldTxn(List.of(), List.of()), new BuiltinCatalog(BuiltinHosts.builder().build()));
 
     MooValue large = StringValue.of("large");
     assertEquals(VmState.Outcome.RETURNED, state.outcome());
@@ -479,7 +480,7 @@ final class MooVmTest {
         program,
         state,
         new WorldTxn(List.of(), List.of(system, options)),
-        new BuiltinCatalog());
+        new BuiltinCatalog(BuiltinHosts.builder().build()));
 
     assertEquals(VmState.Outcome.ABORTED, state.outcome());
     assertTrue(state.returnValue().isEmpty());
@@ -530,7 +531,7 @@ final class MooVmTest {
         program,
         state,
         new WorldTxn(List.of(), List.of(system, options)),
-        new BuiltinCatalog());
+        new BuiltinCatalog(BuiltinHosts.builder().build()));
 
     assertEquals(VmState.Outcome.RETURNED, state.outcome());
     assertEquals(ErrorValue.E_QUOTA, state.returnValue().orElseThrow());
@@ -594,7 +595,7 @@ final class MooVmTest {
         new MooCompiler().compile(MooParser.parse("return encode_binary(chr(200));")),
         state,
         new WorldTxn(List.of(), List.of()),
-        new BuiltinCatalog());
+        new BuiltinCatalog(BuiltinHosts.builder().build()));
 
     assertEquals(VmState.Outcome.RETURNED, state.outcome());
     assertEquals(
@@ -614,7 +615,7 @@ final class MooVmTest {
                         + "return {length(mapping), mapping[#0], mapping[#4294967296]};")),
         state,
         new WorldTxn(List.of(), List.of()),
-        new BuiltinCatalog());
+        new BuiltinCatalog(BuiltinHosts.builder().build()));
 
     assertEquals(VmState.Outcome.RETURNED, state.outcome());
     assertEquals(
@@ -2968,7 +2969,7 @@ final class MooVmTest {
                     "assigned = this.numbers[2] = 9; return {assigned, this.numbers};")),
         state,
         world,
-        new BuiltinCatalog());
+        new BuiltinCatalog(BuiltinHosts.builder().build()));
 
     ListValue updated =
         new ListValue(List.of(new IntegerValue(1), new IntegerValue(9)));
@@ -3394,7 +3395,7 @@ final class MooVmTest {
         new MooCompiler().compile(MooParser.parse("return typeof(1.0) == FLOAT;"));
     VmState state = new VmState();
 
-    executeAndClose(program, state, new WorldTxn(List.of(), List.of()), new BuiltinCatalog());
+    executeAndClose(program, state, new WorldTxn(List.of(), List.of()), new BuiltinCatalog(BuiltinHosts.builder().build()));
 
     assertEquals(VmState.Outcome.RETURNED, state.outcome());
     assertEquals(new IntegerValue(1), state.returnValue().orElseThrow());
@@ -3406,7 +3407,7 @@ final class MooVmTest {
         new MooCompiler().compile(MooParser.parse("return typeof(#0) == OBJ;"));
     VmState state = new VmState();
 
-    executeAndClose(program, state, new WorldTxn(List.of(), List.of()), new BuiltinCatalog());
+    executeAndClose(program, state, new WorldTxn(List.of(), List.of()), new BuiltinCatalog(BuiltinHosts.builder().build()));
 
     assertEquals(VmState.Outcome.RETURNED, state.outcome());
     assertEquals(new IntegerValue(1), state.returnValue().orElseThrow());
@@ -3838,7 +3839,7 @@ final class MooVmTest {
                 MooParser.parse("name = \"name\"; return {#0.(name), #0.(\"name\") == #0.name};"));
     VmState state = new VmState();
 
-    executeAndClose(program, state, world, new BuiltinCatalog());
+    executeAndClose(program, state, world, new BuiltinCatalog(BuiltinHosts.builder().build()));
 
     assertEquals(VmState.Outcome.RETURNED, state.outcome());
     assertEquals(
@@ -3862,7 +3863,7 @@ final class MooVmTest {
       BytecodeProgram program = new MooCompiler().compile(MooParser.parse(sources[index]));
       VmState state = new VmState();
 
-      executeAndClose(program, state, world, new BuiltinCatalog());
+      executeAndClose(program, state, world, new BuiltinCatalog(BuiltinHosts.builder().build()));
 
       assertEquals(VmState.Outcome.ERRORED, state.outcome(), sources[index]);
       assertEquals(errors[index], state.uncaughtError().orElseThrow(), sources[index]);
@@ -3885,7 +3886,7 @@ final class MooVmTest {
         new MooCompiler().compile(parse(source)),
         state,
         new WorldTxn(List.of(), List.of()),
-        new BuiltinCatalog());
+        new BuiltinCatalog(BuiltinHosts.builder().build()));
 
     assertEquals(VmState.Outcome.RETURNED, state.outcome());
     assertEquals(
@@ -3946,7 +3947,7 @@ final class MooVmTest {
         new MooCompiler().compile(MooParser.parse("return #4:which();")),
         state,
         world,
-        new BuiltinCatalog());
+        new BuiltinCatalog(BuiltinHosts.builder().build()));
 
     assertEquals(VmState.Outcome.RETURNED, state.outcome());
     assertEquals(
@@ -3990,7 +3991,7 @@ final class MooVmTest {
             .compile(MooParser.parse("return `#4:which() ! E_VERBNF => \"none\"';")),
         state,
         new WorldTxn(List.of(), List.of(root, left, right, child)),
-        new BuiltinCatalog());
+        new BuiltinCatalog(BuiltinHosts.builder().build()));
 
     assertEquals(
         StringValue.of("none"),
@@ -4011,7 +4012,7 @@ final class MooVmTest {
             .compile(MooParser.parse("return `#1:which() ! E_INVIND => \"none\"';")),
         state,
         new WorldTxn(List.of(), List.of(object)),
-        new BuiltinCatalog());
+        new BuiltinCatalog(BuiltinHosts.builder().build()));
 
     assertEquals(
         StringValue.of("none"),
@@ -4038,7 +4039,7 @@ final class MooVmTest {
         new MooCompiler().compile(MooParser.parse("return anon:which();")),
         state,
         new WorldTxn(List.of(), List.of(parent), Map.of(identity, anonymous)),
-        new BuiltinCatalog());
+        new BuiltinCatalog(BuiltinHosts.builder().build()));
 
     assertEquals(
         new ListValue(List.of(identity, identity)), state.returnValue().orElseThrow());
@@ -4077,7 +4078,7 @@ final class MooVmTest {
         new MooCompiler().compile(MooParser.parse("return #2:inspect(subject);")),
         state,
         new WorldTxn(List.of(), List.of(parent, child)),
-        new BuiltinCatalog());
+        new BuiltinCatalog(BuiltinHosts.builder().build()));
 
     assertEquals(VmState.Outcome.RETURNED, state.outcome());
     assertEquals(new IntegerValue(12), state.returnValue().orElseThrow());
@@ -4111,7 +4112,7 @@ final class MooVmTest {
         new MooCompiler().compile(MooParser.parse("return value:inspect();")),
         state,
         new WorldTxn(List.of(), List.of(system, prototype)),
-        new BuiltinCatalog());
+        new BuiltinCatalog(BuiltinHosts.builder().build()));
 
     assertEquals(VmState.Outcome.RETURNED, state.outcome());
     assertEquals(receiver, state.returnValue().orElseThrow());
@@ -4151,7 +4152,7 @@ final class MooVmTest {
           new MooCompiler().compile(MooParser.parse("return 123:missing();")),
           state,
           world,
-          new BuiltinCatalog());
+          new BuiltinCatalog(BuiltinHosts.builder().build()));
 
       assertEquals(VmState.Outcome.ERRORED, state.outcome());
       assertEquals(expectedErrors.get(index), state.uncaughtError().orElseThrow());
@@ -4187,7 +4188,7 @@ final class MooVmTest {
         new MooCompiler().compile(MooParser.parse("return {1, 2, 3}:length();")),
         state,
         new WorldTxn(List.of(), List.of(system, base, prototype)),
-        new BuiltinCatalog());
+        new BuiltinCatalog(BuiltinHosts.builder().build()));
 
     assertEquals(VmState.Outcome.RETURNED, state.outcome());
     assertEquals(new IntegerValue(3), state.returnValue().orElseThrow());
@@ -4224,7 +4225,7 @@ final class MooVmTest {
                     "created = create(#0, {42}); return {created, created.marker};")),
         state,
         world,
-        new BuiltinCatalog());
+        new BuiltinCatalog(BuiltinHosts.builder().build()));
 
     assertEquals(
         new ListValue(List.of(new ObjectValue(2), new IntegerValue(42))),
@@ -4269,7 +4270,7 @@ final class MooVmTest {
             .compile(MooParser.parse("return {#0:ordinary(), create(#0)};")),
         state,
         new WorldTxn(List.of(1L), List.of(parent, wizard)),
-        new BuiltinCatalog());
+        new BuiltinCatalog(BuiltinHosts.builder().build()));
 
     assertEquals(
         new ListValue(List.of(new IntegerValue(88), new ObjectValue(2))),
@@ -4315,7 +4316,7 @@ final class MooVmTest {
                         + "return {result, after};")),
         state,
         world,
-        new BuiltinCatalog());
+        new BuiltinCatalog(BuiltinHosts.builder().build()));
 
     assertEquals(VmState.Outcome.RETURNED, state.outcome());
     assertEquals(
@@ -4366,7 +4367,7 @@ final class MooVmTest {
                         + "return {nested, set_thread_mode()};")),
         state,
         world,
-        new BuiltinCatalog());
+        new BuiltinCatalog(BuiltinHosts.builder().build()));
 
     assertEquals(VmState.Outcome.RETURNED, state.outcome());
     assertEquals(
@@ -4412,7 +4413,7 @@ final class MooVmTest {
                         + "dobjstr, iobjstr, argstr, prepstr, verb, args};\");")),
         state,
         world,
-        new BuiltinCatalog());
+        new BuiltinCatalog(BuiltinHosts.builder().build()));
 
     MooValue emptyString = StringValue.of(new byte[0]);
     assertEquals(VmState.Outcome.RETURNED, state.outcome());
@@ -4451,7 +4452,7 @@ final class MooVmTest {
         new MooCompiler().compile(MooParser.parse("return #1:inspect();")),
         state,
         world,
-        new BuiltinCatalog());
+        new BuiltinCatalog(BuiltinHosts.builder().build()));
 
     ListValue caller =
         new ListValue(
@@ -4493,7 +4494,7 @@ final class MooVmTest {
             .compile(MooParser.parse("return eval(\"return {callers(), callers(1)};\");")),
         state,
         world,
-        new BuiltinCatalog());
+        new BuiltinCatalog(BuiltinHosts.builder().build()));
 
     ListValue evalBuiltin =
         new ListValue(
@@ -4572,7 +4573,7 @@ final class MooVmTest {
         new MooCompiler().compile(MooParser.parse("return #1:inspect();")),
         state,
         world,
-        new BuiltinCatalog());
+        new BuiltinCatalog(BuiltinHosts.builder().build()));
 
     assertEquals(VmState.Outcome.RETURNED, state.outcome());
     assertEquals(
@@ -4610,7 +4611,7 @@ final class MooVmTest {
         new MooCompiler().compile(MooParser.parse("move(#3, #0, 1); return #0.contents;")),
         state,
         world,
-        new BuiltinCatalog());
+        new BuiltinCatalog(BuiltinHosts.builder().build()));
 
     assertEquals(VmState.Outcome.RETURNED, state.outcome());
     assertEquals(
@@ -4644,7 +4645,7 @@ final class MooVmTest {
         new MooCompiler().compile(MooParser.parse("return #7:new();")),
         state,
         world,
-        new BuiltinCatalog());
+        new BuiltinCatalog(BuiltinHosts.builder().build()));
 
     assertEquals(VmState.Outcome.RETURNED, state.outcome());
     WaifValue waif = assertInstanceOf(WaifValue.class, state.returnValue().orElseThrow());
@@ -4688,7 +4689,7 @@ final class MooVmTest {
                         + "return {waif == alias, waif.marker, alias.class == #7};")),
         state,
         world,
-        new BuiltinCatalog());
+        new BuiltinCatalog(BuiltinHosts.builder().build()));
 
     assertEquals(VmState.Outcome.RETURNED, state.outcome());
     assertEquals(
@@ -4723,7 +4724,7 @@ final class MooVmTest {
             .compile(MooParser.parse("waif = #7:new(); recycle(#7); return waif.class;")),
         state,
         world,
-        new BuiltinCatalog());
+        new BuiltinCatalog(BuiltinHosts.builder().build()));
 
     assertEquals(VmState.Outcome.RETURNED, state.outcome());
     assertEquals(new ObjectValue(-1), state.returnValue().orElseThrow());
@@ -4747,7 +4748,7 @@ final class MooVmTest {
             .compile(MooParser.parse("anonymous = create(#7, 1); return anonymous:new();")),
         state,
         world,
-        new BuiltinCatalog());
+        new BuiltinCatalog(BuiltinHosts.builder().build()));
 
     assertEquals(VmState.Outcome.ERRORED, state.outcome());
     assertEquals(ErrorValue.E_INVARG, state.uncaughtError().orElseThrow());
@@ -4769,7 +4770,7 @@ final class MooVmTest {
         new MooCompiler().compile(MooParser.parse("return create(#0, 1);")),
         state,
         world,
-        new BuiltinCatalog());
+        new BuiltinCatalog(BuiltinHosts.builder().build()));
 
     assertEquals(VmState.Outcome.RETURNED, state.outcome());
     AnonymousObjectValue identity =
@@ -4808,7 +4809,7 @@ final class MooVmTest {
         new MooCompiler().compile("subject.owner = #3; return subject.owner;"),
         wizardWrite,
         world,
-        new BuiltinCatalog());
+        new BuiltinCatalog(BuiltinHosts.builder().build()));
     assertEquals(new ObjectValue(3), wizardWrite.returnValue().orElseThrow());
     try (WorldTxn view = world.begin()) {
       assertEquals(3, view.anonymousObject(identity).orElseThrow().owner());
@@ -4820,7 +4821,7 @@ final class MooVmTest {
         new MooCompiler().compile("subject.owner = #2;"),
         programmerWrite,
         world,
-        new BuiltinCatalog());
+        new BuiltinCatalog(BuiltinHosts.builder().build()));
     assertEquals(ErrorValue.E_PERM, programmerWrite.uncaughtError().orElseThrow());
 
     VmState wrongType =
@@ -4829,7 +4830,7 @@ final class MooVmTest {
         new MooCompiler().compile("subject.owner = 1;"),
         wrongType,
         world,
-        new BuiltinCatalog());
+        new BuiltinCatalog(BuiltinHosts.builder().build()));
     assertEquals(ErrorValue.E_TYPE, wrongType.uncaughtError().orElseThrow());
 
     VmState programmerFlag =
@@ -4838,7 +4839,7 @@ final class MooVmTest {
         new MooCompiler().compile("subject.wizard = 0;"),
         programmerFlag,
         world,
-        new BuiltinCatalog());
+        new BuiltinCatalog(BuiltinHosts.builder().build()));
     assertEquals(ErrorValue.E_PERM, programmerFlag.uncaughtError().orElseThrow());
 
     VmState wizardFlag =
@@ -4847,7 +4848,7 @@ final class MooVmTest {
         new MooCompiler().compile("subject.wizard = 0;"),
         wizardFlag,
         world,
-        new BuiltinCatalog());
+        new BuiltinCatalog(BuiltinHosts.builder().build()));
     assertEquals(ErrorValue.E_INVARG, wizardFlag.uncaughtError().orElseThrow());
   }
 
@@ -4877,7 +4878,7 @@ final class MooVmTest {
                     + "return {typeof(value), valid(value), toliteral(value)}; endtry"),
         state,
         world,
-        new BuiltinCatalog());
+        new BuiltinCatalog(BuiltinHosts.builder().build()));
 
     assertEquals(VmState.Outcome.RETURNED, state.outcome());
     assertEquals(
@@ -4932,7 +4933,7 @@ final class MooVmTest {
                         + "#0.recycle_called, valid(subject)};")),
         state,
         world,
-        new BuiltinCatalog());
+        new BuiltinCatalog(BuiltinHosts.builder().build()));
 
     assertEquals(VmState.Outcome.RETURNED, state.outcome());
     assertEquals(
@@ -4981,7 +4982,7 @@ final class MooVmTest {
                     "recycle(subject); return {typeof(#0.keep) == ANON, valid(#0.keep)};")),
         state,
         world,
-        new BuiltinCatalog());
+        new BuiltinCatalog(BuiltinHosts.builder().build()));
 
     assertEquals(VmState.Outcome.RETURNED, state.outcome());
     assertEquals(
@@ -5070,7 +5071,7 @@ final class MooVmTest {
     BytecodeProgram program = new MooCompiler().compile("preserved = " + name + "; suspend(60);");
     VmState state = new VmState(Map.of(name, value), 3, new ObjectValue(0));
 
-    executeAndClose(program, state, new WorldTxn(List.of(), List.of()), new BuiltinCatalog());
+    executeAndClose(program, state, new WorldTxn(List.of(), List.of()), new BuiltinCatalog(BuiltinHosts.builder().build()));
 
     assertEquals(VmState.Outcome.SUSPENDED, state.outcome(), name);
     return state.snapshot().frames().getFirst().locals();

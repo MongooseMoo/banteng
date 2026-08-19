@@ -80,673 +80,32 @@ public final class BuiltinCatalog {
   private static final String SERVER_VERSION = "0.1.0-SNAPSHOT";
 
   private final List<BuiltinSpec> manifest;
-  private final BuiltinHandler connectionOptions;
-  private final BuiltinHandler dbDiskSize;
-  private final BuiltinHandler flushInput;
   private final FileIoService fileIo;
-  private final BuiltinHandler killTask;
-  private final BuiltinHandler outputDelimiters;
+  private final BuiltinHosts hosts;
   private final PcreService pcre = new PcreService();
-  private final BuiltinHandler queueInfo;
-  private final ServerLog serverLog;
   private final Optional<ListenerControl> listenerControl;
-  private final BuiltinHandler queuedTasks;
-  private final BuiltinHandler resumeTask;
-  private final BuiltinHandler taskStack;
-  private final BuiltinHandler read;
-  private final BuiltinHandler threadPool;
-  private final BuiltinHandler threads;
   private final Random random;
   private final SqliteService sqlite;
   private final Random floatingRandom;
   private final Map<String, BuiltinSpec> specs;
-  private final ValueSemantics valueSemantics;
 
-  /** Creates a catalog without host listener access for focused VM execution. */
-  public BuiltinCatalog() {
-    this(ValueSemantics.STANDARD);
-  }
-
-  /** Creates a catalog with the selected value semantics and no host listener access. */
-  public BuiltinCatalog(ValueSemantics valueSemantics) {
-    this(
-        valueSemantics,
-        (a, w, p, t, id, rt, rs, r, cp, c) -> emptyQueuedTasks(a),
-        (a, w, p, t, id, rt, rs, r, cp, c) -> BuiltinResult.error(ErrorValue.E_INVARG),
-        (a, w, p, t, id, rt, rs, r, cp, c) -> BuiltinResult.error(ErrorValue.E_INVARG),
-        (a, w, p, t, id, rt, rs, r, cp, c) -> BuiltinResult.error(ErrorValue.E_INVARG),
-        (a, w, p, t, id, rt, rs, r, cp, c) -> BuiltinResult.value(new ListValue(List.of())),
-        (a, w, p, t, id, rt, rs, r, cp, c) -> BuiltinResult.error(ErrorValue.E_INVARG),
-        (a, w, p, t, id, rt, rs, r, cp, c) -> BuiltinResult.value(new IntegerValue(0)),
-        (a, w, p, t, id, rt, rs, r, cp, c) -> BuiltinResult.value(new IntegerValue(0)),
-        (a, w, p, t, id, rt, rs, r, cp, c) -> BuiltinResult.error(ErrorValue.E_INVARG),
-        (a, w, p, t, id, rt, rs, r, cp, c) -> BuiltinResult.value(new ListValue(List.of())),
-        (a, w, p, t, id, rt, rs, r, cp, c) -> BuiltinResult.error(ErrorValue.E_INVARG),
-        (a, w, p, t, id, rt, rs, r, cp, c) -> BuiltinResult.error(ErrorValue.E_INVARG));
-  }
-
-  /** Creates a catalog with the production task-registry handler. */
-  public BuiltinCatalog(BuiltinHandler queuedTasks) {
-    this(
-        queuedTasks,
-        (a, w, p, t, id, rt, rs, r, cp, c) -> BuiltinResult.error(ErrorValue.E_INVARG),
-        (a, w, p, t, id, rt, rs, r, cp, c) -> BuiltinResult.error(ErrorValue.E_INVARG),
-        (a, w, p, t, id, rt, rs, r, cp, c) -> BuiltinResult.error(ErrorValue.E_INVARG),
-        (a, w, p, t, id, rt, rs, r, cp, c) -> BuiltinResult.value(new ListValue(List.of())));
-  }
-
-  /** Creates a catalog with the production task-registry and input handlers. */
-  public BuiltinCatalog(
-      BuiltinHandler queuedTasks,
-      BuiltinHandler killTask,
-      BuiltinHandler read,
-      BuiltinHandler threadPool,
-      BuiltinHandler threads) {
-    this(
-        queuedTasks,
-        killTask,
-        read,
-        threadPool,
-        threads,
-        (a, w, p, t, id, rt, rs, r, cp, c) -> BuiltinResult.error(ErrorValue.E_INVARG));
-  }
-
-  /** Creates a catalog with task, input, and transient connection readers. */
-  public BuiltinCatalog(
-      BuiltinHandler queuedTasks,
-      BuiltinHandler killTask,
-      BuiltinHandler read,
-      BuiltinHandler threadPool,
-      BuiltinHandler threads,
-      BuiltinHandler connectionOptions) {
-    this(
-        queuedTasks,
-        killTask,
-        read,
-        threadPool,
-        threads,
-        connectionOptions,
-        (a, w, p, t, id, rt, rs, r, cp, c) -> BuiltinResult.value(new IntegerValue(0)));
-  }
-
-  /** Creates a catalog with task, input, connection, and database-file readers. */
-  public BuiltinCatalog(
-      BuiltinHandler queuedTasks,
-      BuiltinHandler killTask,
-      BuiltinHandler read,
-      BuiltinHandler threadPool,
-      BuiltinHandler threads,
-      BuiltinHandler connectionOptions,
-      BuiltinHandler dbDiskSize) {
-    this(
-        queuedTasks,
-        killTask,
-        read,
-        threadPool,
-        threads,
-        connectionOptions,
-        dbDiskSize,
-        (a, w, p, t, id, rt, rs, r, cp, c) -> BuiltinResult.value(new IntegerValue(0)));
-  }
-
-  /** Creates a catalog with every transient host reader and input mutator. */
-  public BuiltinCatalog(
-      BuiltinHandler queuedTasks,
-      BuiltinHandler killTask,
-      BuiltinHandler read,
-      BuiltinHandler threadPool,
-      BuiltinHandler threads,
-      BuiltinHandler connectionOptions,
-      BuiltinHandler dbDiskSize,
-      BuiltinHandler flushInput) {
-    this(
-        queuedTasks,
-        killTask,
-        read,
-        threadPool,
-        threads,
-        connectionOptions,
-        dbDiskSize,
-        flushInput,
-        (a, w, p, t, id, rt, rs, r, cp, c) -> BuiltinResult.error(ErrorValue.E_INVARG));
-  }
-
-  /** Creates a catalog with every transient host operation and reader. */
-  public BuiltinCatalog(
-      BuiltinHandler queuedTasks,
-      BuiltinHandler killTask,
-      BuiltinHandler read,
-      BuiltinHandler threadPool,
-      BuiltinHandler threads,
-      BuiltinHandler connectionOptions,
-      BuiltinHandler dbDiskSize,
-      BuiltinHandler flushInput,
-      BuiltinHandler outputDelimiters) {
-    this(
-        queuedTasks,
-        killTask,
-        read,
-        threadPool,
-        threads,
-        connectionOptions,
-        dbDiskSize,
-        flushInput,
-        outputDelimiters,
-        (a, w, p, t, id, rt, rs, r, cp, c) -> BuiltinResult.value(new ListValue(List.of())));
-  }
-
-  /** Creates a catalog with every transient host operation and reader. */
-  public BuiltinCatalog(
-      BuiltinHandler queuedTasks,
-      BuiltinHandler killTask,
-      BuiltinHandler read,
-      BuiltinHandler threadPool,
-      BuiltinHandler threads,
-      BuiltinHandler connectionOptions,
-      BuiltinHandler dbDiskSize,
-      BuiltinHandler flushInput,
-      BuiltinHandler outputDelimiters,
-      BuiltinHandler queueInfo) {
-    this(
-        queuedTasks,
-        killTask,
-        read,
-        threadPool,
-        threads,
-        connectionOptions,
-        dbDiskSize,
-        flushInput,
-        outputDelimiters,
-        queueInfo,
-        (a, w, p, t, id, rt, rs, r, cp, c) -> BuiltinResult.error(ErrorValue.E_INVARG));
-  }
-
-  /** Creates a catalog with every transient host operation, reader, and task stack owner. */
-  public BuiltinCatalog(
-      BuiltinHandler queuedTasks,
-      BuiltinHandler killTask,
-      BuiltinHandler read,
-      BuiltinHandler threadPool,
-      BuiltinHandler threads,
-      BuiltinHandler connectionOptions,
-      BuiltinHandler dbDiskSize,
-      BuiltinHandler flushInput,
-      BuiltinHandler outputDelimiters,
-      BuiltinHandler queueInfo,
-      BuiltinHandler taskStack) {
-    this(
-        queuedTasks,
-        killTask,
-        read,
-        threadPool,
-        threads,
-        connectionOptions,
-        dbDiskSize,
-        flushInput,
-        outputDelimiters,
-        queueInfo,
-        taskStack,
-        (a, w, p, t, id, rt, rs, r, cp, c) -> BuiltinResult.error(ErrorValue.E_INVARG));
-  }
-
-  /** Creates a catalog with every transient owner and task-control operation. */
-  public BuiltinCatalog(
-      BuiltinHandler queuedTasks,
-      BuiltinHandler killTask,
-      BuiltinHandler read,
-      BuiltinHandler threadPool,
-      BuiltinHandler threads,
-      BuiltinHandler connectionOptions,
-      BuiltinHandler dbDiskSize,
-      BuiltinHandler flushInput,
-      BuiltinHandler outputDelimiters,
-      BuiltinHandler queueInfo,
-      BuiltinHandler taskStack,
-      BuiltinHandler resumeTask) {
-    this(
-        ValueSemantics.STANDARD,
-        queuedTasks,
-        killTask,
-        read,
-        threadPool,
-        threads,
-        connectionOptions,
-        dbDiskSize,
-        flushInput,
-        outputDelimiters,
-        queueInfo,
-        taskStack,
-        resumeTask,
-        ServerLog.stderr(System.Logger.Level.INFO));
-  }
-
-  /** Creates a catalog with every transient owner and the shared server log. */
-  public BuiltinCatalog(
-      BuiltinHandler queuedTasks,
-      BuiltinHandler killTask,
-      BuiltinHandler read,
-      BuiltinHandler threadPool,
-      BuiltinHandler threads,
-      BuiltinHandler connectionOptions,
-      BuiltinHandler dbDiskSize,
-      BuiltinHandler flushInput,
-      BuiltinHandler outputDelimiters,
-      BuiltinHandler queueInfo,
-      BuiltinHandler taskStack,
-      BuiltinHandler resumeTask,
-      ServerLog serverLog) {
-    this(
-        ValueSemantics.STANDARD,
-        queuedTasks,
-        killTask,
-        read,
-        threadPool,
-        threads,
-        connectionOptions,
-        dbDiskSize,
-        flushInput,
-        outputDelimiters,
-        queueInfo,
-        taskStack,
-        resumeTask,
-        serverLog);
-  }
-
-  /** Creates a catalog with every transient owner, task operation, and value configuration. */
-  public BuiltinCatalog(
-      ValueSemantics valueSemantics,
-      BuiltinHandler queuedTasks,
-      BuiltinHandler killTask,
-      BuiltinHandler read,
-      BuiltinHandler threadPool,
-      BuiltinHandler threads,
-      BuiltinHandler connectionOptions,
-      BuiltinHandler dbDiskSize,
-      BuiltinHandler flushInput,
-      BuiltinHandler outputDelimiters,
-      BuiltinHandler queueInfo,
-      BuiltinHandler taskStack,
-      BuiltinHandler resumeTask) {
-    this(
-        valueSemantics,
-        queuedTasks,
-        killTask,
-        read,
-        threadPool,
-        threads,
-        connectionOptions,
-        dbDiskSize,
-        flushInput,
-        outputDelimiters,
-        queueInfo,
-        taskStack,
-        resumeTask,
-        ServerLog.stderr(System.Logger.Level.INFO));
-  }
-
-  /** Creates a catalog with every transient owner, value configuration, and shared server log. */
-  public BuiltinCatalog(
-      ValueSemantics valueSemantics,
-      BuiltinHandler queuedTasks,
-      BuiltinHandler killTask,
-      BuiltinHandler read,
-      BuiltinHandler threadPool,
-      BuiltinHandler threads,
-      BuiltinHandler connectionOptions,
-      BuiltinHandler dbDiskSize,
-      BuiltinHandler flushInput,
-      BuiltinHandler outputDelimiters,
-      BuiltinHandler queueInfo,
-      BuiltinHandler taskStack,
-      BuiltinHandler resumeTask,
-      ServerLog serverLog) {
-    this.valueSemantics = Objects.requireNonNull(valueSemantics, "valueSemantics");
-    this.queuedTasks = Objects.requireNonNull(queuedTasks, "queuedTasks");
-    this.taskStack = Objects.requireNonNull(taskStack, "taskStack");
-    this.resumeTask = Objects.requireNonNull(resumeTask, "resumeTask");
-    this.killTask = Objects.requireNonNull(killTask, "killTask");
-    this.read = Objects.requireNonNull(read, "read");
-    this.threadPool = Objects.requireNonNull(threadPool, "threadPool");
-    this.threads = Objects.requireNonNull(threads, "threads");
-    this.connectionOptions = Objects.requireNonNull(connectionOptions, "connectionOptions");
-    this.dbDiskSize = Objects.requireNonNull(dbDiskSize, "dbDiskSize");
-    this.flushInput = Objects.requireNonNull(flushInput, "flushInput");
-    this.outputDelimiters = Objects.requireNonNull(outputDelimiters, "outputDelimiters");
-    this.queueInfo = Objects.requireNonNull(queueInfo, "queueInfo");
-    this.serverLog = Objects.requireNonNull(serverLog, "serverLog");
+  /** Creates a catalog from one complete standalone host composition. */
+  public BuiltinCatalog(BuiltinHosts hosts) {
+    this.hosts = Objects.requireNonNull(hosts, "hosts");
+    listenerControl = Optional.empty();
     ConfinedFileRoot files = new ConfinedFileRoot(Path.of("files"));
     fileIo = new FileIoService(files);
     sqlite = new SqliteService(files);
-    listenerControl = Optional.empty();
     random = new Random();
     floatingRandom = new Random();
     manifest = buildManifest();
     specs = indexManifest(manifest);
   }
 
-  /** Creates the production catalog with the concrete server listener owner. */
-  public BuiltinCatalog(ListenerControl listenerControl) {
-    this(
-        listenerControl,
-        (a, w, p, t, id, rt, rs, r, cp, c) -> emptyQueuedTasks(a),
-        (a, w, p, t, id, rt, rs, r, cp, c) -> BuiltinResult.error(ErrorValue.E_INVARG),
-        (a, w, p, t, id, rt, rs, r, cp, c) -> BuiltinResult.error(ErrorValue.E_INVARG),
-        (a, w, p, t, id, rt, rs, r, cp, c) -> BuiltinResult.error(ErrorValue.E_INVARG),
-        (a, w, p, t, id, rt, rs, r, cp, c) -> BuiltinResult.value(new ListValue(List.of())));
-  }
-
-  /** Creates the production catalog with concrete listener and task owners. */
-  public BuiltinCatalog(ListenerControl listenerControl, BuiltinHandler queuedTasks) {
-    this(
-        listenerControl,
-        queuedTasks,
-        (a, w, p, t, id, rt, rs, r, cp, c) -> BuiltinResult.error(ErrorValue.E_INVARG),
-        (a, w, p, t, id, rt, rs, r, cp, c) -> BuiltinResult.error(ErrorValue.E_INVARG),
-        (a, w, p, t, id, rt, rs, r, cp, c) -> BuiltinResult.error(ErrorValue.E_INVARG),
-        (a, w, p, t, id, rt, rs, r, cp, c) -> BuiltinResult.value(new ListValue(List.of())));
-  }
-
-  /** Creates the production catalog with concrete listener, task, and input owners. */
-  public BuiltinCatalog(
-      ListenerControl listenerControl,
-      BuiltinHandler queuedTasks,
-      BuiltinHandler killTask,
-      BuiltinHandler read,
-      BuiltinHandler threadPool,
-      BuiltinHandler threads) {
-    this(
-        listenerControl,
-        queuedTasks,
-        killTask,
-        read,
-        threadPool,
-        threads,
-        (a, w, p, t, id, rt, rs, r, cp, c) -> BuiltinResult.error(ErrorValue.E_INVARG));
-  }
-
-  /** Creates the production catalog with concrete connection, listener, and task owners. */
-  public BuiltinCatalog(
-      ListenerControl listenerControl,
-      BuiltinHandler queuedTasks,
-      BuiltinHandler killTask,
-      BuiltinHandler read,
-      BuiltinHandler threadPool,
-      BuiltinHandler threads,
-      BuiltinHandler connectionOptions) {
-    this(
-        listenerControl,
-        queuedTasks,
-        killTask,
-        read,
-        threadPool,
-        threads,
-        connectionOptions,
-        (a, w, p, t, id, rt, rs, r, cp, c) -> BuiltinResult.value(new IntegerValue(0)));
-  }
-
-  /** Creates the production catalog with every transient host reader. */
-  public BuiltinCatalog(
-      ListenerControl listenerControl,
-      BuiltinHandler queuedTasks,
-      BuiltinHandler killTask,
-      BuiltinHandler read,
-      BuiltinHandler threadPool,
-      BuiltinHandler threads,
-      BuiltinHandler connectionOptions,
-      BuiltinHandler dbDiskSize) {
-    this(
-        listenerControl,
-        queuedTasks,
-        killTask,
-        read,
-        threadPool,
-        threads,
-        connectionOptions,
-        dbDiskSize,
-        (a, w, p, t, id, rt, rs, r, cp, c) -> BuiltinResult.value(new IntegerValue(0)));
-  }
-
-  /** Creates the production catalog with every transient host operation. */
-  public BuiltinCatalog(
-      ListenerControl listenerControl,
-      BuiltinHandler queuedTasks,
-      BuiltinHandler killTask,
-      BuiltinHandler read,
-      BuiltinHandler threadPool,
-      BuiltinHandler threads,
-      BuiltinHandler connectionOptions,
-      BuiltinHandler dbDiskSize,
-      BuiltinHandler flushInput) {
-    this(
-        listenerControl,
-        queuedTasks,
-        killTask,
-        read,
-        threadPool,
-        threads,
-        connectionOptions,
-        dbDiskSize,
-        flushInput,
-        (a, w, p, t, id, rt, rs, r, cp, c) -> BuiltinResult.error(ErrorValue.E_INVARG));
-  }
-
-  /** Creates the production catalog with every transient host operation and reader. */
-  public BuiltinCatalog(
-      ListenerControl listenerControl,
-      BuiltinHandler queuedTasks,
-      BuiltinHandler killTask,
-      BuiltinHandler read,
-      BuiltinHandler threadPool,
-      BuiltinHandler threads,
-      BuiltinHandler connectionOptions,
-      BuiltinHandler dbDiskSize,
-      BuiltinHandler flushInput,
-      BuiltinHandler outputDelimiters) {
-    this(
-        listenerControl,
-        queuedTasks,
-        killTask,
-        read,
-        threadPool,
-        threads,
-        connectionOptions,
-        dbDiskSize,
-        flushInput,
-        outputDelimiters,
-        (a, w, p, t, id, rt, rs, r, cp, c) -> BuiltinResult.value(new ListValue(List.of())));
-  }
-
-  /** Creates the production catalog with every transient host operation and reader. */
-  public BuiltinCatalog(
-      ListenerControl listenerControl,
-      BuiltinHandler queuedTasks,
-      BuiltinHandler killTask,
-      BuiltinHandler read,
-      BuiltinHandler threadPool,
-      BuiltinHandler threads,
-      BuiltinHandler connectionOptions,
-      BuiltinHandler dbDiskSize,
-      BuiltinHandler flushInput,
-      BuiltinHandler outputDelimiters,
-      BuiltinHandler queueInfo) {
-    this(
-        listenerControl,
-        queuedTasks,
-        killTask,
-        read,
-        threadPool,
-        threads,
-        connectionOptions,
-        dbDiskSize,
-        flushInput,
-        outputDelimiters,
-        queueInfo,
-        (a, w, p, t, id, rt, rs, r, cp, c) -> BuiltinResult.error(ErrorValue.E_INVARG));
-  }
-
-  /** Creates the production catalog with every transient owner and task stack reader. */
-  public BuiltinCatalog(
-      ListenerControl listenerControl,
-      BuiltinHandler queuedTasks,
-      BuiltinHandler killTask,
-      BuiltinHandler read,
-      BuiltinHandler threadPool,
-      BuiltinHandler threads,
-      BuiltinHandler connectionOptions,
-      BuiltinHandler dbDiskSize,
-      BuiltinHandler flushInput,
-      BuiltinHandler outputDelimiters,
-      BuiltinHandler queueInfo,
-      BuiltinHandler taskStack) {
-    this(
-        listenerControl,
-        queuedTasks,
-        killTask,
-        read,
-        threadPool,
-        threads,
-        connectionOptions,
-        dbDiskSize,
-        flushInput,
-        outputDelimiters,
-        queueInfo,
-        taskStack,
-        (a, w, p, t, id, rt, rs, r, cp, c) -> BuiltinResult.error(ErrorValue.E_INVARG));
-  }
-
-  /** Creates the production catalog with every transient owner and task-control operation. */
-  public BuiltinCatalog(
-      ListenerControl listenerControl,
-      BuiltinHandler queuedTasks,
-      BuiltinHandler killTask,
-      BuiltinHandler read,
-      BuiltinHandler threadPool,
-      BuiltinHandler threads,
-      BuiltinHandler connectionOptions,
-      BuiltinHandler dbDiskSize,
-      BuiltinHandler flushInput,
-      BuiltinHandler outputDelimiters,
-      BuiltinHandler queueInfo,
-      BuiltinHandler taskStack,
-      BuiltinHandler resumeTask) {
-    this(
-        ValueSemantics.STANDARD,
-        listenerControl,
-        queuedTasks,
-        killTask,
-        read,
-        threadPool,
-        threads,
-        connectionOptions,
-        dbDiskSize,
-        flushInput,
-        outputDelimiters,
-        queueInfo,
-        taskStack,
-        resumeTask,
-        ServerLog.stderr(System.Logger.Level.INFO));
-  }
-
-  /** Creates the production catalog with every transient owner and the shared server log. */
-  public BuiltinCatalog(
-      ListenerControl listenerControl,
-      BuiltinHandler queuedTasks,
-      BuiltinHandler killTask,
-      BuiltinHandler read,
-      BuiltinHandler threadPool,
-      BuiltinHandler threads,
-      BuiltinHandler connectionOptions,
-      BuiltinHandler dbDiskSize,
-      BuiltinHandler flushInput,
-      BuiltinHandler outputDelimiters,
-      BuiltinHandler queueInfo,
-      BuiltinHandler taskStack,
-      BuiltinHandler resumeTask,
-      ServerLog serverLog) {
-    this(
-        ValueSemantics.STANDARD,
-        listenerControl,
-        queuedTasks,
-        killTask,
-        read,
-        threadPool,
-        threads,
-        connectionOptions,
-        dbDiskSize,
-        flushInput,
-        outputDelimiters,
-        queueInfo,
-        taskStack,
-        resumeTask,
-        serverLog);
-  }
-
-  /** Creates the production catalog with listener, task, and value configuration owners. */
-  public BuiltinCatalog(
-      ValueSemantics valueSemantics,
-      ListenerControl listenerControl,
-      BuiltinHandler queuedTasks,
-      BuiltinHandler killTask,
-      BuiltinHandler read,
-      BuiltinHandler threadPool,
-      BuiltinHandler threads,
-      BuiltinHandler connectionOptions,
-      BuiltinHandler dbDiskSize,
-      BuiltinHandler flushInput,
-      BuiltinHandler outputDelimiters,
-      BuiltinHandler queueInfo,
-      BuiltinHandler taskStack,
-      BuiltinHandler resumeTask) {
-    this(
-        valueSemantics,
-        listenerControl,
-        queuedTasks,
-        killTask,
-        read,
-        threadPool,
-        threads,
-        connectionOptions,
-        dbDiskSize,
-        flushInput,
-        outputDelimiters,
-        queueInfo,
-        taskStack,
-        resumeTask,
-        ServerLog.stderr(System.Logger.Level.INFO));
-  }
-
-  /** Creates the production catalog with listener, value configuration, and shared log. */
-  public BuiltinCatalog(
-      ValueSemantics valueSemantics,
-      ListenerControl listenerControl,
-      BuiltinHandler queuedTasks,
-      BuiltinHandler killTask,
-      BuiltinHandler read,
-      BuiltinHandler threadPool,
-      BuiltinHandler threads,
-      BuiltinHandler connectionOptions,
-      BuiltinHandler dbDiskSize,
-      BuiltinHandler flushInput,
-      BuiltinHandler outputDelimiters,
-      BuiltinHandler queueInfo,
-      BuiltinHandler taskStack,
-      BuiltinHandler resumeTask,
-      ServerLog serverLog) {
-    this.valueSemantics = Objects.requireNonNull(valueSemantics, "valueSemantics");
+  /** Creates a catalog from listener ownership and one complete host composition. */
+  public BuiltinCatalog(ListenerControl listenerControl, BuiltinHosts hosts) {
+    this.hosts = Objects.requireNonNull(hosts, "hosts");
     this.listenerControl = Optional.of(Objects.requireNonNull(listenerControl, "listenerControl"));
-    this.queuedTasks = Objects.requireNonNull(queuedTasks, "queuedTasks");
-    this.taskStack = Objects.requireNonNull(taskStack, "taskStack");
-    this.resumeTask = Objects.requireNonNull(resumeTask, "resumeTask");
-    this.killTask = Objects.requireNonNull(killTask, "killTask");
-    this.read = Objects.requireNonNull(read, "read");
-    this.threadPool = Objects.requireNonNull(threadPool, "threadPool");
-    this.threads = Objects.requireNonNull(threads, "threads");
-    this.connectionOptions = Objects.requireNonNull(connectionOptions, "connectionOptions");
-    this.dbDiskSize = Objects.requireNonNull(dbDiskSize, "dbDiskSize");
-    this.flushInput = Objects.requireNonNull(flushInput, "flushInput");
-    this.outputDelimiters = Objects.requireNonNull(outputDelimiters, "outputDelimiters");
-    this.queueInfo = Objects.requireNonNull(queueInfo, "queueInfo");
-    this.serverLog = Objects.requireNonNull(serverLog, "serverLog");
     ConfinedFileRoot files = new ConfinedFileRoot(Path.of("files"));
     fileIo = new FileIoService(files);
     sqlite = new SqliteService(files);
@@ -759,163 +118,33 @@ public final class BuiltinCatalog {
   private List<BuiltinSpec> buildManifest() {
     List<BuiltinSpec> entries = new ArrayList<>();
     Set<ArgType> floatMath =
-        valueSemantics.promoteNumbers() ? NUMBER : Set.of(ArgType.FLOAT);
+        hosts.valueSemantics().promoteNumbers() ? NUMBER : Set.of(ArgType.FLOAT);
     BuiltinHandler setThreadMode =
-        new BuiltinHandler() {
-          @Override
-          public BuiltinResult invoke(
-              List<MooValue> arguments,
-              WorldTxn world,
-              long programmer,
-              MooValue taskLocal,
-              long taskId,
-              long remainingTicks,
-              long remainingSeconds,
-              MooValue receiver,
-              long callerProgrammer,
-              ListValue callers) {
-            return setThreadMode(arguments, true);
-          }
-
-          @Override
-          public BuiltinResult invoke(
-              List<MooValue> arguments,
-              WorldTxn world,
-              long programmer,
-              MooValue taskLocal,
-              long taskId,
-              long remainingTicks,
-              long remainingSeconds,
-              MooValue receiver,
-              long callerProgrammer,
-              ListValue callers,
-              boolean threadMode) {
-            return setThreadMode(arguments, threadMode);
-          }
-        };
+        call -> setThreadMode(call.arguments(), call.threadMode());
     BuiltinHandler allMembers =
-        new BuiltinHandler() {
-          @Override
-          public BuiltinResult invoke(
-              List<MooValue> arguments,
-              WorldTxn world,
-              long programmer,
-              MooValue taskLocal,
-              long taskId,
-              long remainingTicks,
-              long remainingSeconds,
-              MooValue receiver,
-              long callerProgrammer,
-              ListValue callers) {
-            return allMembers(arguments);
-          }
-
-          @Override
-          public BuiltinResult invoke(
-              List<MooValue> arguments,
-              WorldTxn world,
-              long programmer,
-              MooValue taskLocal,
-              long taskId,
-              long remainingTicks,
-              long remainingSeconds,
-              MooValue receiver,
-              long callerProgrammer,
-              ListValue callers,
-              boolean threadMode) {
-            return threadMode ? BuiltinResult.hostWork(() -> allMembers(arguments)) : allMembers(arguments);
-          }
-        };
+        call ->
+            call.threadMode()
+                ? BuiltinResult.hostWork(() -> allMembers(call.arguments()))
+                : allMembers(call.arguments());
     BuiltinHandler sort =
-        new BuiltinHandler() {
-          @Override
-          public BuiltinResult invoke(
-              List<MooValue> arguments,
-              WorldTxn world,
-              long programmer,
-              MooValue taskLocal,
-              long taskId,
-              long remainingTicks,
-              long remainingSeconds,
-              MooValue receiver,
-              long callerProgrammer,
-              ListValue callers) {
-            return sortValues(arguments);
-          }
-
-          @Override
-          public BuiltinResult invoke(
-              List<MooValue> arguments,
-              WorldTxn world,
-              long programmer,
-              MooValue taskLocal,
-              long taskId,
-              long remainingTicks,
-              long remainingSeconds,
-              MooValue receiver,
-              long callerProgrammer,
-              ListValue callers,
-              boolean threadMode) {
-            return threadMode
-                ? BuiltinResult.hostWork(() -> sortValues(arguments))
-                : sortValues(arguments);
-          }
-        };
+        call ->
+            call.threadMode()
+                ? BuiltinResult.hostWork(() -> sortValues(call.arguments()))
+                : sortValues(call.arguments());
     BuiltinHandler callFunction =
-        new BuiltinHandler() {
-          @Override
-          public BuiltinResult invoke(
-              List<MooValue> arguments,
-              WorldTxn world,
-              long programmer,
-              MooValue taskLocal,
-              long taskId,
-              long remainingTicks,
-              long remainingSeconds,
-              MooValue receiver,
-              long callerProgrammer,
-              ListValue callers) {
-            return callFunction(
-                arguments,
-                world,
-                programmer,
-                taskLocal,
-                taskId,
-                remainingTicks,
-                remainingSeconds,
-                receiver,
-                callerProgrammer,
-                callers,
-                true);
-          }
-
-          @Override
-          public BuiltinResult invoke(
-              List<MooValue> arguments,
-              WorldTxn world,
-              long programmer,
-              MooValue taskLocal,
-              long taskId,
-              long remainingTicks,
-              long remainingSeconds,
-              MooValue receiver,
-              long callerProgrammer,
-              ListValue callers,
-              boolean threadMode) {
-            return callFunction(
-                arguments,
-                world,
-                programmer,
-                taskLocal,
-                taskId,
-                remainingTicks,
-                remainingSeconds,
-                receiver,
-                callerProgrammer,
-                callers,
-                threadMode);
-          }
-        };
+        call ->
+            callFunction(
+                call.arguments(),
+                call.world(),
+                call.programmer(),
+                call.taskLocal(),
+                call.taskId(),
+                call.remainingTicks(),
+                call.remainingSeconds(),
+                call.receiver(),
+                call.callerProgrammer(),
+                call.callers(),
+                call.threadMode());
     entries.add(
         new BuiltinSpec(
             "value_bytes",
@@ -924,8 +153,8 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.TRANSACTION_READ,
             BuiltinOwner.WORLD,
-            (a, w, p, t, id, rt, rs, r, cp, c) ->
-                BuiltinResult.value(new IntegerValue(valueBytes(a.getFirst(), w)))));
+            call ->
+                BuiltinResult.value(new IntegerValue(valueBytes(call.arguments().getFirst(), call.world())))));
     entries.add(
         new BuiltinSpec(
             "length",
@@ -938,7 +167,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.PURE,
             BuiltinOwner.VM,
-            (a, w, p, t, id, rt, rs, r, cp, c) -> length(a)));
+            call -> length(call.arguments())));
     entries.add(
         new BuiltinSpec(
             "min",
@@ -947,7 +176,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.PURE,
             BuiltinOwner.VM,
-            (a, w, p, t, id, rt, rs, r, cp, c) -> minimum(a)));
+            call -> minimum(call.arguments())));
     entries.add(
         new BuiltinSpec(
             "max",
@@ -956,7 +185,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.PURE,
             BuiltinOwner.VM,
-            (a, w, p, t, id, rt, rs, r, cp, c) -> maximum(a)));
+            call -> maximum(call.arguments())));
     entries.add(
         new BuiltinSpec(
             "abs",
@@ -965,7 +194,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.PURE,
             BuiltinOwner.VM,
-            (a, w, p, t, id, rt, rs, r, cp, c) -> absoluteValue(a)));
+            call -> absoluteValue(call.arguments())));
     entries.add(
         new BuiltinSpec(
             "acos",
@@ -1014,7 +243,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.PURE,
             BuiltinOwner.VM,
-            (a, w, p, t, id, rt, rs, r, cp, c) -> atan(a)));
+            call -> atan(call.arguments())));
     entries.add(
         new BuiltinSpec(
             "atan2",
@@ -1027,7 +256,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.PURE,
             BuiltinOwner.VM,
-            (a, w, p, t, id, rt, rs, r, cp, c) -> atan2(a)));
+            call -> atan2(call.arguments())));
     entries.add(
         new BuiltinSpec(
             "atanh",
@@ -1085,7 +314,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.PURE,
             BuiltinOwner.VM,
-            (a, w, p, t, id, rt, rs, r, cp, c) -> distance(a)));
+            call -> distance(call.arguments())));
     entries.add(
         new BuiltinSpec(
             "exp",
@@ -1107,7 +336,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.PURE,
             BuiltinOwner.VM,
-            (a, w, p, t, id, rt, rs, r, cp, c) -> floatstr(a)));
+            call -> floatstr(call.arguments())));
     entries.add(
         new BuiltinSpec(
             "floor",
@@ -1147,7 +376,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.PURE,
             BuiltinOwner.VM,
-            (a, w, p, t, id, rt, rs, r, cp, c) -> relativeHeading(a)));
+            call -> relativeHeading(call.arguments())));
     entries.add(
         new BuiltinSpec(
             "round",
@@ -1156,7 +385,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.PURE,
             BuiltinOwner.VM,
-            (a, w, p, t, id, rt, rs, r, cp, c) -> round(a)));
+            call -> round(call.arguments())));
     entries.add(
         new BuiltinSpec(
             "sin",
@@ -1210,7 +439,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.PURE,
             BuiltinOwner.VM,
-            (a, w, p, t, id, rt, rs, r, cp, c) -> trunc(a)));
+            call -> trunc(call.arguments())));
     entries.add(
         new BuiltinSpec(
             "random",
@@ -1219,7 +448,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.IRREVOCABLE,
             BuiltinOwner.VM,
-            (a, w, p, t, id, rt, rs, r, cp, c) -> randomInteger(a)));
+            call -> randomInteger(call.arguments())));
     entries.add(
         new BuiltinSpec(
             "reseed_random",
@@ -1228,7 +457,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.IRREVOCABLE,
             BuiltinOwner.VM,
-            (a, w, p, t, id, rt, rs, r, cp, c) -> {
+            call -> {
               random.setSeed(SECURE_RANDOM.nextLong());
               return BuiltinResult.value(new IntegerValue(0));
             }));
@@ -1244,7 +473,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.IRREVOCABLE,
             BuiltinOwner.VM,
-            (a, w, p, t, id, rt, rs, r, cp, c) -> floatingRandom(a)));
+            call -> floatingRandom(call.arguments())));
     entries.add(
         new BuiltinSpec(
             "random_bytes",
@@ -1253,7 +482,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.IRREVOCABLE,
             BuiltinOwner.VM,
-            (a, w, p, t, id, rt, rs, r, cp, c) -> randomBytes(a, w)));
+            call -> randomBytes(call.arguments(), call.world())));
     entries.add(
         new BuiltinSpec(
             "time",
@@ -1262,7 +491,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.IRREVOCABLE,
             BuiltinOwner.VM,
-            (a, w, p, t, id, rt, rs, r, cp, c) ->
+            call ->
                 BuiltinResult.value(new IntegerValue(Instant.now().getEpochSecond()))));
     entries.add(
         new BuiltinSpec(
@@ -1272,7 +501,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.IRREVOCABLE,
             BuiltinOwner.VM,
-            (a, w, p, t, id, rt, rs, r, cp, c) -> ctime(a)));
+            call -> ctime(call.arguments())));
     entries.add(
         new BuiltinSpec(
             "ftime",
@@ -1281,7 +510,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.IRREVOCABLE,
             BuiltinOwner.VM,
-            (a, w, p, t, id, rt, rs, r, cp, c) -> ftime(a)));
+            call -> ftime(call.arguments())));
     entries.add(
         new BuiltinSpec(
             "raise",
@@ -1290,7 +519,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.PURE,
             BuiltinOwner.VM,
-            (a, w, p, t, id, rt, rs, r, cp, c) -> raise(a)));
+            call -> raise(call.arguments())));
     entries.add(
         new BuiltinSpec(
             "listappend",
@@ -1303,7 +532,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.TRANSACTION_READ,
             BuiltinOwner.WORLD,
-            (a, w, p, t, id, rt, rs, r, cp, c) -> listInsert(a, true, w)));
+            call -> listInsert(call.arguments(), true, call.world())));
     entries.add(
         new BuiltinSpec(
             "listinsert",
@@ -1316,7 +545,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.TRANSACTION_READ,
             BuiltinOwner.WORLD,
-            (a, w, p, t, id, rt, rs, r, cp, c) -> listInsert(a, false, w)));
+            call -> listInsert(call.arguments(), false, call.world())));
     entries.add(
         new BuiltinSpec(
             "listdelete",
@@ -1327,7 +556,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.TRANSACTION_READ,
             BuiltinOwner.WORLD,
-            (a, w, p, t, id, rt, rs, r, cp, c) -> listDelete(a, w)));
+            call -> listDelete(call.arguments(), call.world())));
     entries.add(
         new BuiltinSpec(
             "listset",
@@ -1340,7 +569,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.TRANSACTION_READ,
             BuiltinOwner.WORLD,
-            (a, w, p, t, id, rt, rs, r, cp, c) -> listSet(a, w)));
+            call -> listSet(call.arguments(), call.world())));
     entries.add(
         new BuiltinSpec(
             "mapdelete",
@@ -1349,7 +578,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.PURE,
             BuiltinOwner.VM,
-            (a, w, p, t, id, rt, rs, r, cp, c) -> mapDelete(a)));
+            call -> mapDelete(call.arguments())));
     entries.add(
         new BuiltinSpec(
             "mapkeys",
@@ -1360,7 +589,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.PURE,
             BuiltinOwner.VM,
-            (a, w, p, t, id, rt, rs, r, cp, c) -> mapKeys(a)));
+            call -> mapKeys(call.arguments())));
     entries.add(
         new BuiltinSpec(
             "mapvalues",
@@ -1371,7 +600,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.PURE,
             BuiltinOwner.VM,
-            (a, w, p, t, id, rt, rs, r, cp, c) -> mapValues(a)));
+            call -> mapValues(call.arguments())));
     entries.add(
         new BuiltinSpec(
             "maphaskey",
@@ -1382,7 +611,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.PURE,
             BuiltinOwner.VM,
-            (a, w, p, t, id, rt, rs, r, cp, c) -> mapHasKey(a)));
+            call -> mapHasKey(call.arguments())));
     entries.add(
         new BuiltinSpec(
             "generate_json",
@@ -1391,7 +620,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.PURE,
             BuiltinOwner.VM,
-            (a, w, p, t, id, rt, rs, r, cp, c) -> generateJson(a)));
+            call -> generateJson(call.arguments())));
     entries.add(
         new BuiltinSpec(
             "parse_json",
@@ -1400,7 +629,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.PURE,
             BuiltinOwner.VM,
-            (a, w, p, t, id, rt, rs, r, cp, c) -> parseJson(a)));
+            call -> parseJson(call.arguments())));
     entries.add(
         new BuiltinSpec(
             "setadd",
@@ -1409,7 +638,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.TRANSACTION_READ,
             BuiltinOwner.WORLD,
-            (a, w, p, t, id, rt, rs, r, cp, c) -> setAdd(a, w)));
+            call -> setAdd(call.arguments(), call.world())));
     entries.add(
         new BuiltinSpec(
             "setremove",
@@ -1418,7 +647,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.TRANSACTION_READ,
             BuiltinOwner.WORLD,
-            (a, w, p, t, id, rt, rs, r, cp, c) -> setRemove(a, w)));
+            call -> setRemove(call.arguments(), call.world())));
     entries.add(
         new BuiltinSpec(
             "all_members",
@@ -1454,7 +683,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.PURE,
             BuiltinOwner.VM,
-            (a, w, p, t, id, rt, rs, r, cp, c) -> explode(a)));
+            call -> explode(call.arguments())));
     entries.add(
         new BuiltinSpec(
             "reverse",
@@ -1463,7 +692,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.PURE,
             BuiltinOwner.VM,
-            (a, w, p, t, id, rt, rs, r, cp, c) -> reverse(a)));
+            call -> reverse(call.arguments())));
     entries.add(
         new BuiltinSpec(
             "strsub",
@@ -1472,7 +701,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.PURE,
             BuiltinOwner.VM,
-            (a, w, p, t, id, rt, rs, r, cp, c) -> stringSubstitute(a)));
+            call -> stringSubstitute(call.arguments())));
     entries.add(
         new BuiltinSpec(
             "strtr",
@@ -1481,7 +710,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.PURE,
             BuiltinOwner.VM,
-            (a, w, p, t, id, rt, rs, r, cp, c) -> stringTranslate(a)));
+            call -> stringTranslate(call.arguments())));
     entries.add(
         new BuiltinSpec(
             "parse_ansi",
@@ -1490,7 +719,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.IRREVOCABLE,
             BuiltinOwner.VM,
-            (a, w, p, t, id, rt, rs, r, cp, c) -> parseAnsi(a)));
+            call -> parseAnsi(call.arguments())));
     entries.add(
         new BuiltinSpec(
             "remove_ansi",
@@ -1499,7 +728,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.PURE,
             BuiltinOwner.VM,
-            (a, w, p, t, id, rt, rs, r, cp, c) -> removeAnsi(a)));
+            call -> removeAnsi(call.arguments())));
     entries.add(
         new BuiltinSpec(
             "simplex_noise",
@@ -1508,7 +737,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.PURE,
             BuiltinOwner.VM,
-            (a, w, p, t, id, rt, rs, r, cp, c) -> simplexNoise(a)));
+            call -> simplexNoise(call.arguments())));
     entries.add(
         new BuiltinSpec(
             "index",
@@ -1517,7 +746,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.PURE,
             BuiltinOwner.VM,
-            (a, w, p, t, id, rt, rs, r, cp, c) -> stringIndex(a, false)));
+            call -> stringIndex(call.arguments(), false)));
     entries.add(
         new BuiltinSpec(
             "rindex",
@@ -1526,7 +755,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.PURE,
             BuiltinOwner.VM,
-            (a, w, p, t, id, rt, rs, r, cp, c) -> stringIndex(a, true)));
+            call -> stringIndex(call.arguments(), true)));
     entries.add(
         new BuiltinSpec(
             "strcmp",
@@ -1535,7 +764,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.PURE,
             BuiltinOwner.VM,
-            (a, w, p, t, id, rt, rs, r, cp, c) -> stringCompare(a)));
+            call -> stringCompare(call.arguments())));
     entries.add(
         new BuiltinSpec(
             "crypt",
@@ -1544,7 +773,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.IRREVOCABLE,
             BuiltinOwner.VM,
-            (a, w, p, t, id, rt, rs, r, cp, c) -> crypt(a, w, p)));
+            call -> crypt(call.arguments(), call.world(), call.programmer())));
     entries.add(
         new BuiltinSpec(
             "argon2",
@@ -1557,7 +786,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.PURE,
             BuiltinOwner.VM,
-            (a, w, p, t, id, rt, rs, r, cp, c) -> argon2(a)));
+            call -> argon2(call.arguments())));
     entries.add(
         new BuiltinSpec(
             "argon2_verify",
@@ -1566,8 +795,9 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.PURE,
             BuiltinOwner.VM,
-            (a, w, p, t, id, rt, rs, r, cp, c) ->
-                argon2Verify(a, serverLog, BuiltinCatalog::argon2Hash)));
+            call ->
+                argon2Verify(
+                    call.arguments(), hosts.serverLog(), BuiltinCatalog::argon2Hash)));
     entries.add(
         new BuiltinSpec(
             "decode_binary",
@@ -1576,7 +806,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.PURE,
             BuiltinOwner.VM,
-            (a, w, p, t, id, rt, rs, r, cp, c) -> decodeBinary(a)));
+            call -> decodeBinary(call.arguments())));
     entries.add(
         new BuiltinSpec(
             "disassemble",
@@ -1585,7 +815,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.TRANSACTION_READ,
             BuiltinOwner.WORLD,
-            (a, w, p, t, id, rt, rs, r, cp, c) -> disassemble(a, w, p)));
+            call -> disassemble(call.arguments(), call.world(), call.programmer())));
     entries.add(
         new BuiltinSpec(
             "encode_binary",
@@ -1594,7 +824,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.PURE,
             BuiltinOwner.VM,
-            (a, w, p, t, id, rt, rs, r, cp, c) -> encodeBinary(a)));
+            call -> encodeBinary(call.arguments())));
     entries.add(
         new BuiltinSpec(
             "chr",
@@ -1603,7 +833,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.PURE,
             BuiltinOwner.VM,
-            (a, w, p, t, id, rt, rs, r, cp, c) -> chr(a, w, p)));
+            call -> chr(call.arguments(), call.world(), call.programmer())));
     entries.add(
         new BuiltinSpec(
             "add_property",
@@ -1616,7 +846,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.TRANSACTION_WRITE,
             BuiltinOwner.WORLD,
-            (a, w, p, t, id, rt, rs, r, cp, c) -> addProperty(a, w, p)));
+            call -> addProperty(call.arguments(), call.world(), call.programmer())));
     entries.add(
         new BuiltinSpec(
             "properties",
@@ -1625,7 +855,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.TRANSACTION_READ,
             BuiltinOwner.WORLD,
-            (a, w, p, t, id, rt, rs, r, cp, c) -> properties(a, w, p)));
+            call -> properties(call.arguments(), call.world(), call.programmer())));
     entries.add(
         new BuiltinSpec(
             "property_info",
@@ -1634,7 +864,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.TRANSACTION_READ,
             BuiltinOwner.WORLD,
-            (a, w, p, t, id, rt, rs, r, cp, c) -> propertyInfo(a, w, p)));
+            call -> propertyInfo(call.arguments(), call.world(), call.programmer())));
     entries.add(
         new BuiltinSpec(
             "is_clear_property",
@@ -1643,7 +873,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.TRANSACTION_READ,
             BuiltinOwner.WORLD,
-            (a, w, p, t, id, rt, rs, r, cp, c) -> isClearProperty(a, w, p)));
+            call -> isClearProperty(call.arguments(), call.world(), call.programmer())));
     entries.add(
         new BuiltinSpec(
             "clear_property",
@@ -1652,7 +882,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.TRANSACTION_WRITE,
             BuiltinOwner.WORLD,
-            (a, w, p, t, id, rt, rs, r, cp, c) -> clearProperty(a, w, p)));
+            call -> clearProperty(call.arguments(), call.world(), call.programmer())));
     entries.add(
         new BuiltinSpec(
             "delete_property",
@@ -1661,7 +891,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.TRANSACTION_WRITE,
             BuiltinOwner.WORLD,
-            (a, w, p, t, id, rt, rs, r, cp, c) -> deleteProperty(a, w, p)));
+            call -> deleteProperty(call.arguments(), call.world(), call.programmer())));
     entries.add(
         new BuiltinSpec(
             "delete_verb",
@@ -1670,7 +900,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.TRANSACTION_WRITE,
             BuiltinOwner.WORLD,
-            (a, w, p, t, id, rt, rs, r, cp, c) -> deleteVerb(a, w, p)));
+            call -> deleteVerb(call.arguments(), call.world(), call.programmer())));
     entries.add(
         new BuiltinSpec(
             "add_verb",
@@ -1683,7 +913,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.TRANSACTION_WRITE,
             BuiltinOwner.WORLD,
-            (a, w, p, t, id, rt, rs, r, cp, c) -> addVerb(a, w, p)));
+            call -> addVerb(call.arguments(), call.world(), call.programmer())));
     entries.add(
         new BuiltinSpec(
             "create",
@@ -1696,7 +926,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.TRANSACTION_WRITE,
             BuiltinOwner.WORLD,
-            (a, w, p, t, id, rt, rs, r, cp, c) -> create(a, w, p)));
+            call -> create(call.arguments(), call.world(), call.programmer())));
     entries.add(
         new BuiltinSpec(
             "recreate",
@@ -1705,7 +935,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.TRANSACTION_WRITE,
             BuiltinOwner.WORLD,
-            (a, w, p, t, id, rt, rs, r, cp, c) -> recreate(a, w, p)));
+            call -> recreate(call.arguments(), call.world(), call.programmer())));
     entries.add(
         new BuiltinSpec(
             "parent",
@@ -1714,7 +944,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.TRANSACTION_READ,
             BuiltinOwner.WORLD,
-            (a, w, p, t, id, rt, rs, r, cp, c) -> parent(a, w)));
+            call -> parent(call.arguments(), call.world())));
     entries.add(
         new BuiltinSpec(
             "parents",
@@ -1723,7 +953,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.TRANSACTION_READ,
             BuiltinOwner.WORLD,
-            (a, w, p, t, id, rt, rs, r, cp, c) -> parents(a, w)));
+            call -> parents(call.arguments(), call.world())));
     entries.add(
         new BuiltinSpec(
             "ancestors",
@@ -1732,7 +962,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.TRANSACTION_READ,
             BuiltinOwner.WORLD,
-            (a, w, p, t, id, rt, rs, r, cp, c) -> ancestors(a, w)));
+            call -> ancestors(call.arguments(), call.world())));
     entries.add(
         new BuiltinSpec(
             "children",
@@ -1741,7 +971,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.TRANSACTION_READ,
             BuiltinOwner.WORLD,
-            (a, w, p, t, id, rt, rs, r, cp, c) -> children(a, w)));
+            call -> children(call.arguments(), call.world())));
     entries.add(
         new BuiltinSpec(
             "chparent",
@@ -1750,7 +980,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.TRANSACTION_WRITE,
             BuiltinOwner.WORLD,
-            (a, w, p, t, id, rt, rs, r, cp, c) -> changeParents(a, w, p)));
+            call -> changeParents(call.arguments(), call.world(), call.programmer())));
     entries.add(
         new BuiltinSpec(
             "chparents",
@@ -1759,7 +989,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.TRANSACTION_WRITE,
             BuiltinOwner.WORLD,
-            (a, w, p, t, id, rt, rs, r, cp, c) -> changeParents(a, w, p)));
+            call -> changeParents(call.arguments(), call.world(), call.programmer())));
     entries.add(
         new BuiltinSpec(
             "is_player",
@@ -1768,7 +998,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.TRANSACTION_READ,
             BuiltinOwner.WORLD,
-            (a, w, p, t, id, rt, rs, r, cp, c) -> isPlayer(a, w)));
+            call -> isPlayer(call.arguments(), call.world())));
     entries.add(
         new BuiltinSpec(
             "valid",
@@ -1777,7 +1007,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.TRANSACTION_READ,
             BuiltinOwner.WORLD,
-            (a, w, p, t, id, rt, rs, r, cp, c) -> valid(a, w)));
+            call -> valid(call.arguments(), call.world())));
     entries.add(
         new BuiltinSpec(
             "max_object",
@@ -1786,8 +1016,8 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.TRANSACTION_READ,
             BuiltinOwner.WORLD,
-            (a, w, p, t, id, rt, rs, r, cp, c) ->
-                BuiltinResult.value(new ObjectValue(w.maximumObjectId()))));
+            call ->
+                BuiltinResult.value(new ObjectValue(call.world().maximumObjectId()))));
     entries.add(
         new BuiltinSpec(
             "locate_by_name",
@@ -1796,7 +1026,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.TRANSACTION_READ,
             BuiltinOwner.WORLD,
-            (a, w, p, t, id, rt, rs, r, cp, c) -> locateByName(a, w)));
+            call -> locateByName(call.arguments(), call.world())));
     entries.add(
         new BuiltinSpec(
             "locations",
@@ -1805,7 +1035,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.TRANSACTION_READ,
             BuiltinOwner.WORLD,
-            (a, w, p, t, id, rt, rs, r, cp, c) -> locations(a, w)));
+            call -> locations(call.arguments(), call.world())));
     entries.add(
         new BuiltinSpec(
             "recycled_objects",
@@ -1814,7 +1044,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.TRANSACTION_READ,
             BuiltinOwner.WORLD,
-            (a, w, p, t, id, rt, rs, r, cp, c) -> recycledObjects(w)));
+            call -> recycledObjects(call.world())));
     entries.add(
         new BuiltinSpec(
             "next_recycled_object",
@@ -1823,7 +1053,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.TRANSACTION_READ,
             BuiltinOwner.WORLD,
-            (a, w, p, t, id, rt, rs, r, cp, c) -> nextRecycledObject(a, w)));
+            call -> nextRecycledObject(call.arguments(), call.world())));
     entries.add(
         new BuiltinSpec(
             "owned_objects",
@@ -1832,7 +1062,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.TRANSACTION_READ,
             BuiltinOwner.WORLD,
-            (a, w, p, t, id, rt, rs, r, cp, c) -> ownedObjects(a, w)));
+            call -> ownedObjects(call.arguments(), call.world())));
     entries.add(
         new BuiltinSpec(
             "set_player_flag",
@@ -1841,7 +1071,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.TRANSACTION_WRITE,
             BuiltinOwner.WORLD,
-            (a, w, p, t, id, rt, rs, r, cp, c) -> setPlayerFlag(a, w)));
+            call -> setPlayerFlag(call.arguments(), call.world())));
     entries.add(
         new BuiltinSpec(
             "set_verb_code",
@@ -1854,7 +1084,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.TRANSACTION_WRITE,
             BuiltinOwner.WORLD,
-            (a, w, p, t, id, rt, rs, r, cp, c) -> setVerbCode(a, w, p)));
+            call -> setVerbCode(call.arguments(), call.world(), call.programmer())));
     entries.add(
         new BuiltinSpec(
             "set_verb_args",
@@ -1867,7 +1097,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.TRANSACTION_WRITE,
             BuiltinOwner.WORLD,
-            (a, w, p, t, id, rt, rs, r, cp, c) -> setVerbArgs(a, w, p)));
+            call -> setVerbArgs(call.arguments(), call.world(), call.programmer())));
     entries.add(
         new BuiltinSpec(
             "set_verb_info",
@@ -1880,7 +1110,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.TRANSACTION_WRITE,
             BuiltinOwner.WORLD,
-            (a, w, p, t, id, rt, rs, r, cp, c) -> setVerbInfo(a, w, p)));
+            call -> setVerbInfo(call.arguments(), call.world(), call.programmer())));
     entries.add(
         new BuiltinSpec(
             "verbs",
@@ -1889,7 +1119,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.TRANSACTION_READ,
             BuiltinOwner.WORLD,
-            (a, w, p, t, id, rt, rs, r, cp, c) -> verbs(a, w, p)));
+            call -> verbs(call.arguments(), call.world(), call.programmer())));
     entries.add(
         new BuiltinSpec(
             "verb_args",
@@ -1898,7 +1128,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.TRANSACTION_READ,
             BuiltinOwner.WORLD,
-            (a, w, p, t, id, rt, rs, r, cp, c) -> verbArgs(a, w, p)));
+            call -> verbArgs(call.arguments(), call.world(), call.programmer())));
     entries.add(
         new BuiltinSpec(
             "verb_code",
@@ -1907,7 +1137,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.TRANSACTION_READ,
             BuiltinOwner.WORLD,
-            (a, w, p, t, id, rt, rs, r, cp, c) -> verbCode(a, w, p)));
+            call -> verbCode(call.arguments(), call.world(), call.programmer())));
     entries.add(
         new BuiltinSpec(
             "verb_info",
@@ -1916,7 +1146,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.TRANSACTION_READ,
             BuiltinOwner.WORLD,
-            (a, w, p, t, id, rt, rs, r, cp, c) -> verbInfo(a, w, p)));
+            call -> verbInfo(call.arguments(), call.world(), call.programmer())));
     entries.add(
         new BuiltinSpec(
             "move",
@@ -1925,7 +1155,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.TRANSACTION_WRITE,
             BuiltinOwner.WORLD,
-            (a, w, p, t, id, rt, rs, r, cp, c) -> move(a, w, p)));
+            call -> move(call.arguments(), call.world(), call.programmer())));
     entries.add(
         new BuiltinSpec(
             "recycle",
@@ -1934,7 +1164,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.TRANSACTION_WRITE,
             BuiltinOwner.WORLD,
-            (a, w, p, t, id, rt, rs, r, cp, c) -> recycle(a, w, p)));
+            call -> recycle(call.arguments(), call.world(), call.programmer())));
     entries.add(
         new BuiltinSpec(
             "new_waif",
@@ -1943,16 +1173,16 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.TRANSACTION_WRITE,
             BuiltinOwner.WORLD,
-            (a, w, p, t, id, rt, rs, r, cp, c) -> {
-              if (r instanceof AnonymousObjectValue anonymous
-                  && w.anonymousObject(anonymous).isPresent()) {
+            call -> {
+              if (call.receiver() instanceof AnonymousObjectValue anonymous
+                  && call.world().anonymousObject(anonymous).isPresent()) {
                 return BuiltinResult.error(ErrorValue.E_INVARG);
               }
-              if (!(r instanceof ObjectValue classObject)
-                  || w.object(classObject.value()).isEmpty()) {
+              if (!(call.receiver() instanceof ObjectValue classObject)
+                  || call.world().object(classObject.value()).isEmpty()) {
                 return BuiltinResult.error(ErrorValue.E_INVIND);
               }
-              return BuiltinResult.value(w.createWaif(classObject.value(), p));
+              return BuiltinResult.value(call.world().createWaif(classObject.value(), call.programmer()));
             }));
     entries.add(
         new BuiltinSpec(
@@ -1962,7 +1192,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.TRANSACTION_READ,
             BuiltinOwner.WORLD,
-            (a, w, p, t, id, rt, rs, r, cp, c) -> waifStats(w)));
+            call -> waifStats(call.world())));
     entries.add(
         new BuiltinSpec(
             "switch_player",
@@ -1971,7 +1201,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.DEFERRED_COMMIT,
             BuiltinOwner.CONNECTION,
-            (a, w, p, t, id, rt, rs, r, cp, c) -> switchPlayer(a, w)));
+            call -> switchPlayer(call.arguments(), call.world())));
     entries.add(
         new BuiltinSpec(
             "caller_perms",
@@ -1980,8 +1210,8 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.PURE,
             BuiltinOwner.VM,
-            (a, w, p, t, id, rt, rs, r, cp, c) ->
-                BuiltinResult.value(new ObjectValue(c.size() == 0 ? -1 : cp))));
+            call ->
+                BuiltinResult.value(new ObjectValue(call.callers().size() == 0 ? -1 : call.callerProgrammer()))));
     entries.add(
         new BuiltinSpec(
             "callers",
@@ -1990,7 +1220,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.PURE,
             BuiltinOwner.VM,
-            (a, w, p, t, id, rt, rs, r, cp, c) -> callers(c, w, p)));
+            call -> callers(call.callers(), call.world(), call.programmer())));
     entries.add(
         new BuiltinSpec(
             "call_function",
@@ -2008,7 +1238,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.EXTERNAL_READ,
             BuiltinOwner.TASK,
-            queueInfo));
+            hosts.queueInfo()));
     entries.add(
         new BuiltinSpec(
             "queued_tasks",
@@ -2017,7 +1247,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.IRREVOCABLE,
             BuiltinOwner.TASK,
-            queuedTasks));
+            hosts.queuedTasks()));
     entries.add(
         new BuiltinSpec(
             "task_stack",
@@ -2026,7 +1256,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.IRREVOCABLE,
             BuiltinOwner.TASK,
-            taskStack));
+            hosts.taskStack()));
     entries.add(
         new BuiltinSpec(
             "kill_task",
@@ -2035,7 +1265,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.IRREVOCABLE,
             BuiltinOwner.TASK,
-            killTask));
+            hosts.killTask()));
     entries.add(
         new BuiltinSpec(
             "thread_pool",
@@ -2046,8 +1276,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.IRREVOCABLE,
             BuiltinOwner.TASK,
-            (a, w, p, t, id, rt, rs, r, cp, c) ->
-                configureThreadPool(a, w, p, t, id, rt, rs, r, cp, c)));
+            this::configureThreadPool));
     entries.add(
         new BuiltinSpec(
             "threads",
@@ -2056,7 +1285,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.IRREVOCABLE,
             BuiltinOwner.TASK,
-            threads));
+            hosts.threads()));
     entries.add(
         new BuiltinSpec(
             "read",
@@ -2065,17 +1294,17 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.SUSPENDING_HOST,
             BuiltinOwner.CONNECTION,
-            (a, w, p, t, id, rt, rs, r, cp, c) -> {
-              if (a.isEmpty() && !BuiltinPermissionRule.WIZARD_ONLY.allows(w, p)) {
+            call -> {
+              if (call.arguments().isEmpty() && !BuiltinPermissionRule.WIZARD_ONLY.allows(call.world(), call.programmer())) {
                 return BuiltinResult.error(ErrorValue.E_PERM);
               }
-              if (!a.isEmpty() && !BuiltinPermissionRule.WIZARD_ONLY.allows(w, p)) {
-                WorldObject target = w.object(((ObjectValue) a.getFirst()).value()).orElse(null);
-                if (target == null || target.owner() != p) {
+              if (!call.arguments().isEmpty() && !BuiltinPermissionRule.WIZARD_ONLY.allows(call.world(), call.programmer())) {
+                WorldObject target = call.world().object(((ObjectValue) call.arguments().getFirst()).value()).orElse(null);
+                if (target == null || target.owner() != call.programmer()) {
                   return BuiltinResult.error(ErrorValue.E_PERM);
                 }
               }
-              return read.invoke(a, w, p, t, id, rt, rs, r, cp, c);
+              return hosts.read().invoke(call);
             }));
     entries.add(
         new BuiltinSpec(
@@ -2085,10 +1314,10 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.EXTERNAL_READ,
             BuiltinOwner.CONNECTION,
-            (a, w, p, t, id, rt, rs, r, cp, c) ->
+            call ->
                 BuiltinResult.value(
                     new ListValue(
-                        w.connectedPlayers(!a.isEmpty() && a.getFirst().isTruthy()).stream()
+                        call.world().connectedPlayers(!call.arguments().isEmpty() && call.arguments().getFirst().isTruthy()).stream()
                             .map(ObjectValue::new)
                             .map(MooValue.class::cast)
                             .toList()))));
@@ -2100,7 +1329,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.EXTERNAL_READ,
             BuiltinOwner.CONNECTION,
-            (a, w, p, t, id, rt, rs, r, cp, c) -> bufferedOutputLength(a, w, p)));
+            call -> bufferedOutputLength(call.arguments(), call.world(), call.programmer())));
     entries.add(
         new BuiltinSpec(
             "boot_player",
@@ -2109,7 +1338,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.DEFERRED_COMMIT,
             BuiltinOwner.CONNECTION,
-            (a, w, p, t, id, rt, rs, r, cp, c) -> bootPlayer(a, w, p)));
+            call -> bootPlayer(call.arguments(), call.world(), call.programmer())));
     entries.add(
         new BuiltinSpec(
             "connection_info",
@@ -2118,7 +1347,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.EXTERNAL_READ,
             BuiltinOwner.CONNECTION,
-            (a, w, p, t, id, rt, rs, r, cp, c) -> connectionInfo(a, w, p)));
+            call -> connectionInfo(call.arguments(), call.world(), call.programmer())));
     entries.add(
         new BuiltinSpec(
             "connection_name",
@@ -2127,7 +1356,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.EXTERNAL_READ,
             BuiltinOwner.CONNECTION,
-            (a, w, p, t, id, rt, rs, r, cp, c) -> connectionName(a, w, p)));
+            call -> connectionName(call.arguments(), call.world(), call.programmer())));
     entries.add(
         new BuiltinSpec(
             "connection_options",
@@ -2136,7 +1365,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.EXTERNAL_READ,
             BuiltinOwner.CONNECTION,
-            connectionOptions));
+            hosts.connectionOptions()));
     entries.add(
         new BuiltinSpec(
             "output_delimiters",
@@ -2145,7 +1374,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.EXTERNAL_READ,
             BuiltinOwner.CONNECTION,
-            outputDelimiters));
+            hosts.outputDelimiters()));
     entries.add(
         new BuiltinSpec(
             "set_connection_option",
@@ -2154,7 +1383,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.DEFERRED_COMMIT,
             BuiltinOwner.CONNECTION,
-            (a, w, p, t, id, rt, rs, r, cp, c) -> setConnectionOption(a, w, p)));
+            call -> setConnectionOption(call.arguments(), call.world(), call.programmer())));
     entries.add(
         new BuiltinSpec(
             "flush_input",
@@ -2163,7 +1392,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.DEFERRED_COMMIT,
             BuiltinOwner.CONNECTION,
-            flushInput));
+            hosts.flushInput()));
     entries.add(
         new BuiltinSpec(
             "force_input",
@@ -2172,7 +1401,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.DEFERRED_COMMIT,
             BuiltinOwner.CONNECTION,
-            (a, w, p, t, id, rt, rs, r, cp, c) -> forceInput(a, w, p)));
+            call -> forceInput(call.arguments(), call.world(), call.programmer())));
     entries.add(
         new BuiltinSpec(
             "listen",
@@ -2183,7 +1412,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.IRREVOCABLE,
             BuiltinOwner.SERVER,
-            (a, w, p, t, id, rt, rs, r, cp, c) -> listen(a, w)));
+            call -> listen(call.arguments(), call.world())));
     entries.add(
         new BuiltinSpec(
             "listeners",
@@ -2192,7 +1421,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.EXTERNAL_READ,
             BuiltinOwner.SERVER,
-            (a, w, p, t, id, rt, rs, r, cp, c) -> listeners(a)));
+            call -> listeners(call.arguments())));
     entries.add(
         new BuiltinSpec(
             "unlisten",
@@ -2201,7 +1430,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.IRREVOCABLE,
             BuiltinOwner.SERVER,
-            (a, w, p, t, id, rt, rs, r, cp, c) -> unlisten(a)));
+            call -> unlisten(call.arguments())));
     entries.add(
         new BuiltinSpec(
             "open_network_connection",
@@ -2214,7 +1443,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.IRREVOCABLE,
             BuiltinOwner.CONNECTION,
-            (a, w, p, t, id, rt, rs, r, cp, c) -> openNetworkConnection(a)));
+            call -> openNetworkConnection(call.arguments())));
     entries.add(
         new BuiltinSpec(
             "task_perms",
@@ -2223,7 +1452,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.PURE,
             BuiltinOwner.VM,
-            (a, w, p, t, id, rt, rs, r, cp, c) -> BuiltinResult.value(new ObjectValue(p))));
+            call -> BuiltinResult.value(new ObjectValue(call.programmer()))));
     entries.add(
         new BuiltinSpec(
             "task_id",
@@ -2232,7 +1461,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.PURE,
             BuiltinOwner.VM,
-            (a, w, p, t, id, rt, rs, r, cp, c) -> BuiltinResult.value(new IntegerValue(id))));
+            call -> BuiltinResult.value(new IntegerValue(call.taskId()))));
     entries.add(
         new BuiltinSpec(
             "ticks_left",
@@ -2241,7 +1470,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.PURE,
             BuiltinOwner.VM,
-            (a, w, p, t, id, rt, rs, r, cp, c) -> BuiltinResult.value(new IntegerValue(rt))));
+            call -> BuiltinResult.value(new IntegerValue(call.remainingTicks()))));
     entries.add(
         new BuiltinSpec(
             "seconds_left",
@@ -2250,7 +1479,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.PURE,
             BuiltinOwner.VM,
-            (a, w, p, t, id, rt, rs, r, cp, c) -> BuiltinResult.value(new IntegerValue(rs))));
+            call -> BuiltinResult.value(new IntegerValue(call.remainingSeconds()))));
     entries.add(
         new BuiltinSpec(
             "set_task_perms",
@@ -2259,7 +1488,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.DEFERRED_COMMIT,
             BuiltinOwner.VM,
-            (a, w, p, t, id, rt, rs, r, cp, c) -> setTaskPerms(a, w, p)));
+            call -> setTaskPerms(call.arguments(), call.world(), call.programmer())));
     entries.add(
         new BuiltinSpec(
             "set_thread_mode",
@@ -2277,7 +1506,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.DEFERRED_COMMIT,
             BuiltinOwner.CONNECTION,
-            (a, w, p, t, id, rt, rs, r, cp, c) -> notifyLine(a)));
+            call -> notifyLine(call.arguments())));
     entries.add(
         new BuiltinSpec(
             "tostr",
@@ -2286,7 +1515,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.PURE,
             BuiltinOwner.VM,
-            (a, w, p, t, id, rt, rs, r, cp, c) -> toStringValue(a)));
+            call -> toStringValue(call.arguments())));
     entries.add(
         new BuiltinSpec(
             "tofloat",
@@ -2295,7 +1524,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.PURE,
             BuiltinOwner.VM,
-            (a, w, p, t, id, rt, rs, r, cp, c) -> toFloat(a)));
+            call -> toFloat(call.arguments())));
     entries.add(
         new BuiltinSpec(
             "toint",
@@ -2304,7 +1533,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.PURE,
             BuiltinOwner.VM,
-            (a, w, p, t, id, rt, rs, r, cp, c) -> toInteger(a)));
+            call -> toInteger(call.arguments())));
     entries.add(
         new BuiltinSpec(
             "toliteral",
@@ -2313,7 +1542,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.PURE,
             BuiltinOwner.VM,
-            (a, w, p, t, id, rt, rs, r, cp, c) -> toLiteral(a)));
+            call -> toLiteral(call.arguments())));
     entries.add(
         new BuiltinSpec(
             "toobj",
@@ -2322,7 +1551,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.PURE,
             BuiltinOwner.VM,
-            (a, w, p, t, id, rt, rs, r, cp, c) -> toObject(a)));
+            call -> toObject(call.arguments())));
     entries.add(
         new BuiltinSpec(
             "equal",
@@ -2331,7 +1560,8 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.PURE,
             BuiltinOwner.VM,
-            (a, w, p, t, id, rt, rs, r, cp, c) -> equalValues(a, valueSemantics)));
+            call ->
+                equalValues(call.arguments(), hosts.valueSemantics())));
     entries.add(
         new BuiltinSpec(
             "eval",
@@ -2340,7 +1570,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.PURE,
             BuiltinOwner.VM,
-            (a, w, p, t, id, rt, rs, r, cp, c) -> dynamicEval(a)));
+            call -> dynamicEval(call.arguments())));
     entries.add(
         new BuiltinSpec(
             "typeof",
@@ -2349,7 +1579,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.PURE,
             BuiltinOwner.VM,
-            (a, w, p, t, id, rt, rs, r, cp, c) -> typeOf(a)));
+            call -> typeOf(call.arguments())));
     entries.add(
         new BuiltinSpec(
             "server_version",
@@ -2358,7 +1588,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.PURE,
             BuiltinOwner.SERVER,
-            (a, w, p, t, id, rt, rs, r, cp, c) -> serverVersion(a)));
+            call -> serverVersion(call.arguments())));
     entries.add(
         new BuiltinSpec(
             "function_info",
@@ -2367,7 +1597,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.PURE,
             BuiltinOwner.VM,
-            (a, w, p, t, id, rt, rs, r, cp, c) -> functionInfo(a)));
+            call -> functionInfo(call.arguments())));
     addFileIoManifest(entries);
     entries.add(
         new BuiltinSpec(
@@ -2379,7 +1609,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.IRREVOCABLE,
             BuiltinOwner.SERVER,
-            (a, w, p, t, id, rt, rs, r, cp, c) -> pcre.match(a)));
+            call -> pcre.match(call.arguments())));
     entries.add(
         new BuiltinSpec(
             "pcre_replace",
@@ -2388,7 +1618,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.PURE,
             BuiltinOwner.VM,
-            (a, w, p, t, id, rt, rs, r, cp, c) -> pcre.replace(a)));
+            call -> pcre.replace(call.arguments())));
     entries.add(
         new BuiltinSpec(
             "pcre_cache_stats",
@@ -2397,7 +1627,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.EXTERNAL_READ,
             BuiltinOwner.SERVER,
-            (a, w, p, t, id, rt, rs, r, cp, c) -> pcre.cacheStats()));
+            call -> pcre.cacheStats()));
     addSqliteManifest(entries);
     entries.add(
         new BuiltinSpec(
@@ -2407,7 +1637,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.IRREVOCABLE,
             BuiltinOwner.SERVER,
-            (a, w, p, t, id, rt, rs, r, cp, c) -> serverLog(a)));
+            call -> serverLog(call.arguments())));
     entries.add(
         new BuiltinSpec(
             "log_cache_stats",
@@ -2416,7 +1646,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.IRREVOCABLE,
             BuiltinOwner.SERVER,
-            (a, w, p, t, id, rt, rs, r, cp, c) -> logCacheStats(w)));
+            call -> logCacheStats(call.world())));
     entries.add(
         new BuiltinSpec(
             "verb_cache_stats",
@@ -2425,7 +1655,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.EXTERNAL_READ,
             BuiltinOwner.SERVER,
-            (a, w, p, t, id, rt, rs, r, cp, c) -> verbCacheStats(w)));
+            call -> verbCacheStats(call.world())));
     entries.add(
         new BuiltinSpec(
             "usage",
@@ -2434,7 +1664,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.EXTERNAL_READ,
             BuiltinOwner.SERVER,
-            (a, w, p, t, id, rt, rs, r, cp, c) -> usage()));
+            call -> usage()));
     entries.add(
         new BuiltinSpec(
             "memory_usage",
@@ -2443,7 +1673,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.EXTERNAL_READ,
             BuiltinOwner.SERVER,
-            (a, w, p, t, id, rt, rs, r, cp, c) -> memoryUsage()));
+            call -> memoryUsage()));
     entries.add(
         new BuiltinSpec(
             "load_server_options",
@@ -2452,7 +1682,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.PURE,
             BuiltinOwner.SERVER,
-            (a, w, p, t, id, rt, rs, r, cp, c) -> BuiltinResult.value(new IntegerValue(0))));
+            call -> BuiltinResult.value(new IntegerValue(0))));
     entries.add(
         new BuiltinSpec(
             "run_gc",
@@ -2461,7 +1691,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.PURE,
             BuiltinOwner.VM,
-            (a, w, p, t, id, rt, rs, r, cp, c) -> BuiltinResult.value(new IntegerValue(0))));
+            call -> BuiltinResult.value(new IntegerValue(0))));
     entries.add(
         new BuiltinSpec(
             "gc_stats",
@@ -2470,7 +1700,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.PURE,
             BuiltinOwner.VM,
-            (a, w, p, t, id, rt, rs, r, cp, c) -> gcStats()));
+            call -> gcStats()));
     entries.add(
         new BuiltinSpec(
             "reset_max_object",
@@ -2479,8 +1709,8 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.TRANSACTION_WRITE,
             BuiltinOwner.WORLD,
-            (a, w, p, t, id, rt, rs, r, cp, c) -> {
-              w.resetLastUsedObjectId();
+            call -> {
+              call.world().resetLastUsedObjectId();
               return BuiltinResult.value(new IntegerValue(0));
             }));
     entries.add(
@@ -2491,7 +1721,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.PURE,
             BuiltinOwner.VM,
-            (a, w, p, t, id, rt, rs, r, cp, c) -> suspend(a)));
+            call -> suspend(call.arguments())));
     entries.add(
         new BuiltinSpec(
             "resume",
@@ -2500,7 +1730,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.IRREVOCABLE,
             BuiltinOwner.TASK,
-            resumeTask));
+            hosts.resumeTask()));
     entries.add(
         new BuiltinSpec(
             "yin",
@@ -2511,7 +1741,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.PURE,
             BuiltinOwner.VM,
-            (a, w, p, t, id, rt, rs, r, cp, c) -> yin(a, w, rt, rs)));
+            call -> yin(call.arguments(), call.world(), call.remainingTicks(), call.remainingSeconds())));
     entries.add(
         new BuiltinSpec(
             "shutdown",
@@ -2520,7 +1750,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.DEFERRED_COMMIT,
             BuiltinOwner.SERVER,
-            (a, w, p, t, id, rt, rs, r, cp, c) -> shutdown(a)));
+            call -> shutdown(call.arguments())));
     entries.add(
         new BuiltinSpec(
             "db_disk_size",
@@ -2529,7 +1759,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.EXTERNAL_READ,
             BuiltinOwner.SERVER,
-            dbDiskSize));
+            hosts.dbDiskSize()));
     entries.add(
         new BuiltinSpec(
             "dump_database",
@@ -2583,9 +1813,8 @@ public final class BuiltinCatalog {
         BuiltinCostRule.fixed(0),
         EffectClass.IRREVOCABLE,
         BuiltinOwner.SERVER,
-        (arguments, world, programmer, taskLocal, taskId, remainingTicks, remainingSeconds,
-                receiver, callerProgrammer, callers) ->
-            handler.apply(arguments));
+        call ->
+            handler.apply(call.arguments()));
   }
 
   private void addSqliteManifest(List<BuiltinSpec> entries) {
@@ -2660,33 +1889,15 @@ public final class BuiltinCatalog {
         BuiltinCostRule.fixed(0),
         effect,
         BuiltinOwner.SERVER,
-        (arguments, world, programmer, taskLocal, taskId, remainingTicks, remainingSeconds,
-                receiver, callerProgrammer, callers) ->
-            handler.apply(arguments));
+        call ->
+            handler.apply(call.arguments()));
   }
 
-  private static BuiltinResult emptyQueuedTasks(List<MooValue> arguments) {
-    return BuiltinResult.value(
-        arguments.size() == 2 && arguments.get(1).isTruthy()
-            ? new IntegerValue(0)
-            : new ListValue(List.of()));
-  }
-
-  private BuiltinResult configureThreadPool(
-      List<MooValue> arguments,
-      WorldTxn world,
-      long programmer,
-      MooValue taskLocal,
-      long taskId,
-      long remainingTicks,
-      long remainingSeconds,
-      MooValue receiver,
-      long callerProgrammer,
-      ListValue callers) {
-    StringValue function = (StringValue) arguments.get(0);
-    StringValue pool = (StringValue) arguments.get(1);
+  private BuiltinResult configureThreadPool(BuiltinCall call) {
+    StringValue function = (StringValue) call.arguments().get(0);
+    StringValue pool = (StringValue) call.arguments().get(1);
     long requested =
-        arguments.size() == 3 ? ((IntegerValue) arguments.get(2)).value() : 0;
+        call.arguments().size() == 3 ? ((IntegerValue) call.arguments().get(2)).value() : 0;
     if (!pool.text().equals("MAIN")) {
       return BuiltinResult.raised(ErrorValue.E_INVARG, StringValue.of("Invalid thread pool"), pool);
     }
@@ -2699,17 +1910,7 @@ public final class BuiltinCatalog {
           StringValue.of("Invalid number of threads"),
           new IntegerValue(requested));
     }
-    return threadPool.invoke(
-        arguments,
-        world,
-        programmer,
-        taskLocal,
-        taskId,
-        remainingTicks,
-        remainingSeconds,
-        receiver,
-        callerProgrammer,
-        callers);
+    return hosts.threadPool().invoke(call);
   }
 
   private static BuiltinResult connectionInfo(
@@ -3122,17 +2323,18 @@ public final class BuiltinCatalog {
     }
     return spec.implementation()
         .invoke(
-            arguments,
-            world,
-            programmer,
-            taskLocal,
-            taskId,
-            remainingTicks,
-            remainingSeconds,
-            receiver,
-            callerProgrammer,
-            callers,
-            threadMode);
+            new BuiltinCall(
+                arguments,
+                world,
+                programmer,
+                taskLocal,
+                taskId,
+                remainingTicks,
+                remainingSeconds,
+                receiver,
+                callerProgrammer,
+                callers,
+                threadMode));
   }
 
   private BuiltinResult functionInfo(List<MooValue> arguments) {
@@ -3289,41 +2491,31 @@ public final class BuiltinCatalog {
     };
   }
 
-  private static BuiltinResult dumpDatabase(
-      List<MooValue> arguments,
-      WorldTxn world,
-      long programmer,
-      MooValue taskLocal,
-      long taskId,
-      long remainingTicks,
-      long remainingSeconds,
-      MooValue receiver,
-      long callerProgrammer,
-      ListValue callers) {
+  private static BuiltinResult dumpDatabase(BuiltinCall call) {
     return new BuiltinResult.Checkpoint();
   }
 
   private BuiltinResult serverLog(List<MooValue> arguments) {
     String message = ((StringValue) arguments.getFirst()).text();
-    serverLog.info("> " + message);
+    hosts.serverLog().info("> " + message);
     return BuiltinResult.value(new IntegerValue(0));
   }
 
   private BuiltinResult logCacheStats(WorldTxn world) {
     WorldTxn.VerbCacheStats stats = world.verbCacheStats();
-    serverLog.info(
+    hosts.serverLog().info(
         String.format(
             Locale.ROOT,
             "Verb cache stat summary: %d hits, %d misses, %d generations",
             stats.hits(),
             stats.misses(),
             stats.generation()));
-    serverLog.info("Depth   Count");
+    hosts.serverLog().info("Depth   Count");
     for (int depth = 0; depth < stats.histogram().size(); depth++) {
-      serverLog.info(
+      hosts.serverLog().info(
           String.format(Locale.ROOT, "%-5d   %-5d", depth, stats.histogram().get(depth)));
     }
-    serverLog.info("---");
+    hosts.serverLog().info("---");
     return BuiltinResult.value(new IntegerValue(0));
   }
 
@@ -3594,19 +2786,10 @@ public final class BuiltinCatalog {
 
   private static BuiltinHandler unaryFloatBuiltin(DoubleUnaryOperator operator) {
     DoubleUnaryOperator operation = Objects.requireNonNull(operator, "operator");
-    return (arguments,
-            world,
-            programmer,
-            taskLocal,
-            taskId,
-            remainingTicks,
-            remainingSeconds,
-            receiver,
-            callerProgrammer,
-            callers) -> {
+    return call -> {
       final double result;
       try {
-        result = operation.applyAsDouble(numericDouble(arguments.getFirst()));
+        result = operation.applyAsDouble(numericDouble(call.arguments().getFirst()));
       } catch (IllegalArgumentException _) {
         return BuiltinResult.error(ErrorValue.E_INVARG);
       }

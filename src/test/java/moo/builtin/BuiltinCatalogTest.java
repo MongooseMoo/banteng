@@ -289,7 +289,7 @@ final class BuiltinCatalogTest {
 
   @Test
   void registersEveryReachableBuiltinExactlyOnceWithCompleteContracts() {
-    BuiltinCatalog catalog = new BuiltinCatalog();
+    BuiltinCatalog catalog = new BuiltinCatalog(BuiltinHosts.builder().build());
     List<BuiltinSpec> manifest = catalog.manifest();
 
     assertEquals(REACHABLE_NAMES.size(), manifest.size());
@@ -308,7 +308,7 @@ final class BuiltinCatalogTest {
 
   @Test
   void valueBytesUsesTheExactStock64BitLayoutWithoutMutatingCommittedWorld() {
-    BuiltinCatalog catalog = new BuiltinCatalog();
+    BuiltinCatalog catalog = new BuiltinCatalog(BuiltinHosts.builder().build());
     BuiltinSpec spec = catalog.spec("value_bytes").orElseThrow();
 
     assertEquals(
@@ -394,7 +394,7 @@ final class BuiltinCatalogTest {
   @Test
   void reseedRandomUsesEntropyToMutateTheSharedWizardOnlyGenerator()
       throws ReflectiveOperationException {
-    BuiltinCatalog catalog = new BuiltinCatalog();
+    BuiltinCatalog catalog = new BuiltinCatalog(BuiltinHosts.builder().build());
     BuiltinSpec spec = catalog.spec("reseed_random").orElseThrow();
 
     assertEquals(
@@ -434,7 +434,7 @@ final class BuiltinCatalogTest {
 
   @Test
   void explodePreservesToastByteDelimiterEmptyFieldAndErrorSemantics() {
-    BuiltinCatalog catalog = new BuiltinCatalog();
+    BuiltinCatalog catalog = new BuiltinCatalog(BuiltinHosts.builder().build());
     BuiltinSpec spec = catalog.spec("explode").orElseThrow();
 
     assertEquals(
@@ -555,7 +555,7 @@ final class BuiltinCatalogTest {
 
   @Test
   void reversePreservesToastBytewiseShallowAndUnsupportedValueSemantics() {
-    BuiltinCatalog catalog = new BuiltinCatalog();
+    BuiltinCatalog catalog = new BuiltinCatalog(BuiltinHosts.builder().build());
     BuiltinSpec spec = catalog.spec("reverse").orElseThrow();
     WorldTxn root = world();
     var committedBefore = root.snapshot();
@@ -678,7 +678,10 @@ final class BuiltinCatalogTest {
                         new IntegerValue(1234),
                         new IntegerValue(0)))));
     BuiltinCatalog catalog =
-        new BuiltinCatalog((a, w, p, t, id, rt, rs, r, cp, c) -> BuiltinResult.value(tasks));
+        new BuiltinCatalog(
+            BuiltinHosts.builder()
+                .queuedTasks(call -> BuiltinResult.value(tasks))
+                .build());
     BuiltinSpec spec = catalog.spec("queued_tasks").orElseThrow();
 
     assertEquals(
@@ -710,7 +713,7 @@ final class BuiltinCatalogTest {
 
   @Test
   void timeReturnsCurrentEpochSecondsThroughTheIrrevocableVmOwner() {
-    BuiltinCatalog catalog = new BuiltinCatalog();
+    BuiltinCatalog catalog = new BuiltinCatalog(BuiltinHosts.builder().build());
     BuiltinSpec spec = catalog.spec("time").orElseThrow();
     long before = Instant.now().getEpochSecond();
 
@@ -730,7 +733,7 @@ final class BuiltinCatalogTest {
 
   @Test
   void switchPlayerAcceptsAnOptionalIntegerSilentFlagAndRejectsOtherTypes() {
-    BuiltinCatalog catalog = new BuiltinCatalog();
+    BuiltinCatalog catalog = new BuiltinCatalog(BuiltinHosts.builder().build());
     BuiltinSpec spec = catalog.spec("switch_player").orElseThrow();
 
     assertEquals(
@@ -811,12 +814,13 @@ final class BuiltinCatalogTest {
   void killTaskUsesTheRegisteredTaskOwnerWithOneIntegerArgument() {
     BuiltinCatalog catalog =
         new BuiltinCatalog(
-            (a, w, p, t, id, rt, rs, r, cp, c) -> BuiltinResult.value(new ListValue(List.of())),
-            (a, w, p, t, id, rt, rs, r, cp, c) -> BuiltinResult.value(new IntegerValue(23)),
-            (a, w, p, t, id, rt, rs, r, cp, c) -> BuiltinResult.error(ErrorValue.E_INVARG),
-            (a, w, p, t, id, rt, rs, r, cp, c) -> BuiltinResult.error(ErrorValue.E_INVARG),
-            (a, w, p, t, id, rt, rs, r, cp, c) ->
-                BuiltinResult.value(new ListValue(List.of())));
+            BuiltinHosts.builder()
+                .queuedTasks(call -> BuiltinResult.value(new ListValue(List.of())))
+                .killTask(call -> BuiltinResult.value(new IntegerValue(23)))
+                .read(call -> BuiltinResult.error(ErrorValue.E_INVARG))
+                .threadPool(call -> BuiltinResult.error(ErrorValue.E_INVARG))
+                .threads(call -> BuiltinResult.value(new ListValue(List.of())))
+                .build());
     BuiltinSpec spec = catalog.spec("kill_task").orElseThrow();
 
     assertEquals(
@@ -842,12 +846,13 @@ final class BuiltinCatalogTest {
   void readDeclaresSuspendingConnectionContractAndDeniesAnUnrelatedProgrammer() {
     BuiltinCatalog catalog =
         new BuiltinCatalog(
-            (a, w, p, t, id, rt, rs, r, cp, c) -> BuiltinResult.value(new ListValue(List.of())),
-            (a, w, p, t, id, rt, rs, r, cp, c) -> BuiltinResult.error(ErrorValue.E_INVARG),
-            (a, w, p, t, id, rt, rs, r, cp, c) -> BuiltinResult.value(new IntegerValue(0)),
-            (a, w, p, t, id, rt, rs, r, cp, c) -> BuiltinResult.error(ErrorValue.E_INVARG),
-            (a, w, p, t, id, rt, rs, r, cp, c) ->
-                BuiltinResult.value(new ListValue(List.of())));
+            BuiltinHosts.builder()
+                .queuedTasks(call -> BuiltinResult.value(new ListValue(List.of())))
+                .killTask(call -> BuiltinResult.error(ErrorValue.E_INVARG))
+                .read(call -> BuiltinResult.value(new IntegerValue(0)))
+                .threadPool(call -> BuiltinResult.error(ErrorValue.E_INVARG))
+                .threads(call -> BuiltinResult.value(new ListValue(List.of())))
+                .build());
     BuiltinSpec spec = catalog.spec("read").orElseThrow();
 
     assertEquals(
@@ -903,7 +908,7 @@ final class BuiltinCatalogTest {
 
   @Test
   void connectionInfoReadsTheLiveConnectionWithToastPermissions() {
-    BuiltinCatalog catalog = new BuiltinCatalog();
+    BuiltinCatalog catalog = new BuiltinCatalog(BuiltinHosts.builder().build());
     BuiltinSpec spec = catalog.spec("connection_info").orElseThrow();
     MapValue info =
         new MapValue(
@@ -945,7 +950,7 @@ final class BuiltinCatalogTest {
 
   @Test
   void connectionNameUsesSavedRemoteAddressAndToastLegacyFormatting() {
-    BuiltinCatalog catalog = new BuiltinCatalog();
+    BuiltinCatalog catalog = new BuiltinCatalog(BuiltinHosts.builder().build());
     BuiltinSpec spec = catalog.spec("connection_name").orElseThrow();
     MapValue info =
         new MapValue(
@@ -1008,7 +1013,7 @@ final class BuiltinCatalogTest {
 
   @Test
   void connectedPlayersReturnsNewestConnectionsWithOptionalNegativePlayers() {
-    BuiltinCatalog catalog = new BuiltinCatalog();
+    BuiltinCatalog catalog = new BuiltinCatalog(BuiltinHosts.builder().build());
     BuiltinSpec spec = catalog.spec("connected_players").orElseThrow();
 
     assertEquals(
@@ -1046,7 +1051,8 @@ final class BuiltinCatalogTest {
   void bufferedOutputLengthUsesToastSignaturePermissionsAndLiveConnectionOwner() {
     RecordingListener listener = new RecordingListener();
     listener.bufferedOutputLength = 37;
-    BuiltinCatalog catalog = new BuiltinCatalog(listener);
+    BuiltinCatalog catalog =
+        new BuiltinCatalog(listener, BuiltinHosts.builder().build());
     BuiltinSpec spec = catalog.spec("buffered_output_length").orElseThrow();
 
     assertEquals(
@@ -1091,7 +1097,7 @@ final class BuiltinCatalogTest {
 
   @Test
   void callFunctionRecursesThroughTheOneManifestWithoutAddingAFrame() {
-    BuiltinCatalog catalog = new BuiltinCatalog();
+    BuiltinCatalog catalog = new BuiltinCatalog(BuiltinHosts.builder().build());
     BuiltinSpec spec = catalog.spec("call_function").orElseThrow();
     ListValue callers = new ListValue(List.of(new ListValue(List.of(new ObjectValue(7)))));
 
@@ -1146,7 +1152,7 @@ final class BuiltinCatalogTest {
 
   @Test
   void setConnectionOptionStagesOneAuthorizedDeferredConnectionMutation() {
-    BuiltinCatalog catalog = new BuiltinCatalog();
+    BuiltinCatalog catalog = new BuiltinCatalog(BuiltinHosts.builder().build());
     BuiltinSpec spec = catalog.spec("set_connection_option").orElseThrow();
     MapValue info = new MapValue(Map.of(string("destination_ip"), string("127.0.0.1")));
 
@@ -1222,7 +1228,7 @@ final class BuiltinCatalogTest {
 
   @Test
   void forceInputStagesToastCompatibleConnectionInputWithoutTargetValidation() {
-    BuiltinCatalog catalog = new BuiltinCatalog();
+    BuiltinCatalog catalog = new BuiltinCatalog(BuiltinHosts.builder().build());
     BuiltinSpec spec = catalog.spec("force_input").orElseThrow();
 
     assertEquals(
@@ -1280,7 +1286,7 @@ final class BuiltinCatalogTest {
 
   @Test
   void exposesCurrentTaskIdentityAndBudgetsAndAcknowledgesLiveServerOptions() {
-    BuiltinCatalog catalog = new BuiltinCatalog();
+    BuiltinCatalog catalog = new BuiltinCatalog(BuiltinHosts.builder().build());
     BuiltinSpec load = catalog.spec("load_server_options").orElseThrow();
     BuiltinSpec taskId = catalog.spec("task_id").orElseThrow();
     BuiltinSpec ticks = catalog.spec("ticks_left").orElseThrow();
@@ -1372,7 +1378,7 @@ final class BuiltinCatalogTest {
 
   @Test
   void yinUsesToastThresholdsAndSuspensionContract() {
-    BuiltinCatalog catalog = new BuiltinCatalog();
+    BuiltinCatalog catalog = new BuiltinCatalog(BuiltinHosts.builder().build());
     BuiltinSpec spec = catalog.spec("yin").orElseThrow();
 
     assertEquals(
@@ -1467,7 +1473,7 @@ final class BuiltinCatalogTest {
 
   @Test
   void bootPlayerStagesOneAuthorizedConnectionClosureWithoutTargetValidation() {
-    BuiltinCatalog catalog = new BuiltinCatalog();
+    BuiltinCatalog catalog = new BuiltinCatalog(BuiltinHosts.builder().build());
     BuiltinSpec spec = catalog.spec("boot_player").orElseThrow();
 
     assertEquals(
@@ -1495,7 +1501,7 @@ final class BuiltinCatalogTest {
 
   @Test
   void setPlayerFlagAcceptsAnyValueAfterValidatingTheObject() {
-    BuiltinCatalog catalog = new BuiltinCatalog();
+    BuiltinCatalog catalog = new BuiltinCatalog(BuiltinHosts.builder().build());
     BuiltinSpec spec = catalog.spec("set_player_flag").orElseThrow();
 
     assertEquals(
@@ -1542,7 +1548,8 @@ final class BuiltinCatalogTest {
   @Test
   void listenBindsTheWizardSelectedHandlerPortAndPrintOption() {
     RecordingListener listener = new RecordingListener();
-    BuiltinCatalog catalog = new BuiltinCatalog(listener);
+    BuiltinCatalog catalog =
+        new BuiltinCatalog(listener, BuiltinHosts.builder().build());
     BuiltinSpec spec = catalog.spec("listen").orElseThrow();
 
     assertEquals(
@@ -1603,7 +1610,8 @@ final class BuiltinCatalogTest {
 
   @Test
   void listenerAdmissionBuiltinsExposeTheToastCallShapes() {
-    BuiltinCatalog catalog = new BuiltinCatalog(new RecordingListener());
+    BuiltinCatalog catalog =
+        new BuiltinCatalog(new RecordingListener(), BuiltinHosts.builder().build());
 
     BuiltinSpec listeners = catalog.spec("listeners").orElseThrow();
     assertEquals(
@@ -1637,7 +1645,7 @@ final class BuiltinCatalogTest {
 
   @Test
   void setVerbInfoReplacesOwnerFlagsAndNamesWithToastPermissions() {
-    BuiltinCatalog catalog = new BuiltinCatalog();
+    BuiltinCatalog catalog = new BuiltinCatalog(BuiltinHosts.builder().build());
     BuiltinSpec spec = catalog.spec("set_verb_info").orElseThrow();
 
     assertEquals(
@@ -1759,7 +1767,7 @@ final class BuiltinCatalogTest {
 
   @Test
   void setVerbArgsReplacesOnlyArgumentSpecificationsWithToastValidationOrder() {
-    BuiltinCatalog catalog = new BuiltinCatalog();
+    BuiltinCatalog catalog = new BuiltinCatalog(BuiltinHosts.builder().build());
     BuiltinSpec spec = catalog.spec("set_verb_args").orElseThrow();
 
     assertEquals(
@@ -1888,7 +1896,7 @@ final class BuiltinCatalogTest {
 
   @Test
   void verbsReturnsLocalNamesInDefinitionOrderWithToastReadAuthority() {
-    BuiltinCatalog catalog = new BuiltinCatalog();
+    BuiltinCatalog catalog = new BuiltinCatalog(BuiltinHosts.builder().build());
     BuiltinSpec spec = catalog.spec("verbs").orElseThrow();
     WorldVerb first = new WorldVerb("first alias", 2, 4, -1, "return 1;");
     WorldVerb second = new WorldVerb("second", 2, 4, -1, "return 2;");
@@ -1925,7 +1933,7 @@ final class BuiltinCatalogTest {
 
   @Test
   void verbInfoAndVerbArgsReturnCanonicalLocalMetadataWithToastReadAuthority() {
-    BuiltinCatalog catalog = new BuiltinCatalog();
+    BuiltinCatalog catalog = new BuiltinCatalog(BuiltinHosts.builder().build());
     BuiltinSpec infoSpec = catalog.spec("verb_info").orElseThrow();
     BuiltinSpec argsSpec = catalog.spec("verb_args").orElseThrow();
 
@@ -2024,7 +2032,7 @@ final class BuiltinCatalogTest {
 
   @Test
   void deleteVerbRequiresObjectWriteAuthorityAndRemovesOneLocalDefinition() {
-    BuiltinCatalog catalog = new BuiltinCatalog();
+    BuiltinCatalog catalog = new BuiltinCatalog(BuiltinHosts.builder().build());
     BuiltinSpec spec = catalog.spec("delete_verb").orElseThrow();
 
     assertEquals(
@@ -2112,7 +2120,7 @@ final class BuiltinCatalogTest {
 
   @Test
   void addVerbValidatesAndStagesOneCompleteWorldVerb() {
-    BuiltinCatalog catalog = new BuiltinCatalog();
+    BuiltinCatalog catalog = new BuiltinCatalog(BuiltinHosts.builder().build());
     BuiltinSpec spec = catalog.spec("add_verb").orElseThrow();
 
     assertEquals(
@@ -2151,7 +2159,7 @@ final class BuiltinCatalogTest {
 
   @Test
   void addPropertyValidatesAndStagesOneCompleteWorldProperty() {
-    BuiltinCatalog catalog = new BuiltinCatalog();
+    BuiltinCatalog catalog = new BuiltinCatalog(BuiltinHosts.builder().build());
     BuiltinSpec spec = catalog.spec("add_property").orElseThrow();
 
     assertEquals(
@@ -2196,7 +2204,7 @@ final class BuiltinCatalogTest {
 
   @Test
   void propertyBuiltinsExposeDefinitionsAndClearInheritedSlots() {
-    BuiltinCatalog catalog = new BuiltinCatalog();
+    BuiltinCatalog catalog = new BuiltinCatalog(BuiltinHosts.builder().build());
     assertEquals(EffectClass.TRANSACTION_READ, catalog.spec("properties").orElseThrow().effect());
     assertEquals(
         EffectClass.TRANSACTION_READ,
@@ -2299,7 +2307,7 @@ final class BuiltinCatalogTest {
 
   @Test
   void objectPropertyIntrospectionTreatsWaifsAsInvalidObjects() {
-    BuiltinCatalog catalog = new BuiltinCatalog();
+    BuiltinCatalog catalog = new BuiltinCatalog(BuiltinHosts.builder().build());
     WaifValue waif = new WaifValue(new ObjectValue(2), new ObjectValue(1));
     WorldObject wizard =
         new WorldObject(1, "Wizard", 4, 1, -1, -1, List.of(), List.of(), List.of(), List.of());
@@ -2346,7 +2354,7 @@ final class BuiltinCatalogTest {
 
   @Test
   void propertyInfoResolvesCaseInsensitivelyAndReturnsCanonicalMetadata() {
-    BuiltinCatalog catalog = new BuiltinCatalog();
+    BuiltinCatalog catalog = new BuiltinCatalog(BuiltinHosts.builder().build());
     BuiltinSpec spec = catalog.spec("property_info").orElseThrow();
     assertEquals(
         List.of(
@@ -2407,7 +2415,7 @@ final class BuiltinCatalogTest {
 
   @Test
   void mapBuiltinsPreserveToastLookupDeletionAndErrorDetails() {
-    BuiltinCatalog catalog = new BuiltinCatalog();
+    BuiltinCatalog catalog = new BuiltinCatalog(BuiltinHosts.builder().build());
     BuiltinSpec hasKey = catalog.spec("maphaskey").orElseThrow();
     BuiltinSpec values = catalog.spec("mapvalues").orElseThrow();
     BuiltinSpec delete = catalog.spec("mapdelete").orElseThrow();
@@ -2463,7 +2471,7 @@ final class BuiltinCatalogTest {
 
   @Test
   void mapKeysReturnsToastCanonicalScalarOrderWithoutCollapsingAdjacentFloats() {
-    BuiltinCatalog catalog = new BuiltinCatalog();
+    BuiltinCatalog catalog = new BuiltinCatalog(BuiltinHosts.builder().build());
     BuiltinSpec spec = catalog.spec("mapkeys").orElseThrow();
     assertPureVmContract(
         catalog,
@@ -2497,7 +2505,7 @@ final class BuiltinCatalogTest {
 
   @Test
   void mapHasKeyUsesToastTreeNavigationForMixedBooleanAndIntegerKeys() {
-    BuiltinCatalog catalog = new BuiltinCatalog();
+    BuiltinCatalog catalog = new BuiltinCatalog(BuiltinHosts.builder().build());
     BuiltinSpec hasKey = catalog.spec("maphaskey").orElseThrow();
     MapValue map =
         new MapValue(Map.of())
@@ -2524,7 +2532,7 @@ final class BuiltinCatalogTest {
 
   @Test
   void setVerbCodeCompilesAndStagesSourceOnOneDefinedVerb() {
-    BuiltinCatalog catalog = new BuiltinCatalog();
+    BuiltinCatalog catalog = new BuiltinCatalog(BuiltinHosts.builder().build());
     BuiltinSpec spec = catalog.spec("set_verb_code").orElseThrow();
 
     assertEquals(
@@ -2572,7 +2580,7 @@ final class BuiltinCatalogTest {
 
   @Test
   void setVerbCodeStoresTheToastCanonicalCompiledProgramRendering() {
-    BuiltinCatalog catalog = new BuiltinCatalog();
+    BuiltinCatalog catalog = new BuiltinCatalog(BuiltinHosts.builder().build());
     BuiltinSpec spec = catalog.spec("set_verb_code").orElseThrow();
     WorldObject wizard =
         new WorldObject(1, "Wizard", 4, 1, -1, -1, List.of(), List.of(), List.of(), List.of());
@@ -2623,7 +2631,7 @@ final class BuiltinCatalogTest {
 
   @Test
   void verbCodeReadsOneLocalVerbAsCanonicalSourceLines() {
-    BuiltinCatalog catalog = new BuiltinCatalog();
+    BuiltinCatalog catalog = new BuiltinCatalog(BuiltinHosts.builder().build());
     BuiltinSpec spec = catalog.spec("verb_code").orElseThrow();
 
     assertEquals(
@@ -2675,7 +2683,7 @@ final class BuiltinCatalogTest {
 
   @Test
   void recycleAuthorizesOneObjectForTheExistingVmOutcome() {
-    BuiltinCatalog catalog = new BuiltinCatalog();
+    BuiltinCatalog catalog = new BuiltinCatalog(BuiltinHosts.builder().build());
     BuiltinSpec spec = catalog.spec("recycle").orElseThrow();
 
     assertEquals(
@@ -2709,7 +2717,7 @@ final class BuiltinCatalogTest {
 
   @Test
   void objectQueriesReadTheExistingTransactionalWorldState() {
-    BuiltinCatalog catalog = new BuiltinCatalog();
+    BuiltinCatalog catalog = new BuiltinCatalog(BuiltinHosts.builder().build());
     BuiltinSpec parent = catalog.spec("parent").orElseThrow();
     BuiltinSpec isPlayer = catalog.spec("is_player").orElseThrow();
     BuiltinSpec valid = catalog.spec("valid").orElseThrow();
@@ -2784,7 +2792,7 @@ final class BuiltinCatalogTest {
 
   @Test
   void locateByNameSearchesPermanentNamesInObjectOrderWithToastCaseRules() {
-    BuiltinCatalog catalog = new BuiltinCatalog();
+    BuiltinCatalog catalog = new BuiltinCatalog(BuiltinHosts.builder().build());
     BuiltinSpec spec = catalog.spec("locate_by_name").orElseThrow();
     assertEquals(
         List.of(
@@ -2823,7 +2831,7 @@ final class BuiltinCatalogTest {
 
   @Test
   void locationsWalksTheContainmentChainAndStopsBeforeTheSelectedBase() {
-    BuiltinCatalog catalog = new BuiltinCatalog();
+    BuiltinCatalog catalog = new BuiltinCatalog(BuiltinHosts.builder().build());
     BuiltinSpec spec = catalog.spec("locations").orElseThrow();
     WorldObject base =
         new WorldObject(1, "base", 4, 1, -1, -1, List.of(2L), List.of(), List.of(), List.of());
@@ -2865,7 +2873,7 @@ final class BuiltinCatalogTest {
 
   @Test
   void multipleInheritanceBuiltinsPreserveOrderedParentAndChildForms() {
-    BuiltinCatalog catalog = new BuiltinCatalog();
+    BuiltinCatalog catalog = new BuiltinCatalog(BuiltinHosts.builder().build());
     BuiltinSpec parent = catalog.spec("parent").orElseThrow();
     BuiltinSpec parents = catalog.spec("parents").orElseThrow();
     BuiltinSpec ancestors = catalog.spec("ancestors").orElseThrow();
@@ -2965,7 +2973,7 @@ final class BuiltinCatalogTest {
 
   @Test
   void parentMutationDistinguishesPermissionRecursionAndInvalidArguments() {
-    BuiltinCatalog catalog = new BuiltinCatalog();
+    BuiltinCatalog catalog = new BuiltinCatalog(BuiltinHosts.builder().build());
     BuiltinSpec chparents = catalog.spec("chparents").orElseThrow();
     WorldObject programmer =
         new WorldObject(1, "programmer", 0, 1, -1, -1, List.of(), List.of(), List.of(), List.of());
@@ -3042,7 +3050,7 @@ final class BuiltinCatalogTest {
 
   @Test
   void gcStatsReportsTheCompletedCollectorStateToWizardsOnly() {
-    BuiltinCatalog catalog = new BuiltinCatalog();
+    BuiltinCatalog catalog = new BuiltinCatalog(BuiltinHosts.builder().build());
     BuiltinSpec gcStats = catalog.spec("gc_stats").orElseThrow();
     assertEquals(
         List.of(new CallShape(List.of(), List.of(), Optional.empty())), gcStats.callShapes());
@@ -3067,7 +3075,7 @@ final class BuiltinCatalogTest {
 
   @Test
   void evalRequiresProgrammerAndPreservesEverySourceArgument() {
-    BuiltinCatalog catalog = new BuiltinCatalog();
+    BuiltinCatalog catalog = new BuiltinCatalog(BuiltinHosts.builder().build());
     BuiltinSpec eval = catalog.spec("eval").orElseThrow();
     assertEquals(
         List.of(new CallShape(List.of(Set.of(ArgType.STRING)), List.of(), Optional.of(Set.of(ArgType.STRING)))),
@@ -3102,7 +3110,7 @@ final class BuiltinCatalogTest {
 
   @Test
   void createValidatesOptionalArgumentTypesBeforeParentValidity() {
-    BuiltinCatalog catalog = new BuiltinCatalog();
+    BuiltinCatalog catalog = new BuiltinCatalog(BuiltinHosts.builder().build());
     BuiltinSpec create = catalog.spec("create").orElseThrow();
     WorldObject wizard =
         new WorldObject(1, "wizard", 4, 1, -1, -1, List.of(), List.of(), List.of(), List.of());
@@ -3135,7 +3143,7 @@ final class BuiltinCatalogTest {
 
   @Test
   void createParsesOwnerAnonymousAndInitializerInEveryAuthorizedPosition() {
-    BuiltinCatalog catalog = new BuiltinCatalog();
+    BuiltinCatalog catalog = new BuiltinCatalog(BuiltinHosts.builder().build());
     BuiltinSpec create = catalog.spec("create").orElseThrow();
     WorldVerb initialize = new WorldVerb("initialize", 1, 4, -1, "return 0;");
     WorldObject programmer =
@@ -3262,7 +3270,7 @@ final class BuiltinCatalogTest {
 
   @Test
   void createDecrementsEveryValidOwnersQuotaAndExhaustionAllocatesNothing() {
-    BuiltinCatalog catalog = new BuiltinCatalog();
+    BuiltinCatalog catalog = new BuiltinCatalog(BuiltinHosts.builder().build());
     BuiltinSpec create = catalog.spec("create").orElseThrow();
     WorldProperty programmerQuota =
         new WorldProperty("ownership_quota", new IntegerValue(2), 1, 0, false, true);
@@ -3386,7 +3394,7 @@ final class BuiltinCatalogTest {
 
   @Test
   void raiseProducesTheExistingStructuredErrorOutcome() {
-    BuiltinCatalog catalog = new BuiltinCatalog();
+    BuiltinCatalog catalog = new BuiltinCatalog(BuiltinHosts.builder().build());
     BuiltinSpec spec = catalog.spec("raise").orElseThrow();
 
     assertEquals(
@@ -3429,7 +3437,7 @@ final class BuiltinCatalogTest {
 
   @Test
   void numbersFamilyMatchesPinnedContractsAndSemantics() {
-    BuiltinCatalog catalog = new BuiltinCatalog();
+    BuiltinCatalog catalog = new BuiltinCatalog(BuiltinHosts.builder().build());
     CallShape unaryFloat =
         new CallShape(List.of(Set.of(ArgType.FLOAT)), List.of(), Optional.empty());
     for (String name :
@@ -3743,7 +3751,9 @@ final class BuiltinCatalogTest {
 
   @Test
   void promotesIntegersForMongooseMathBuiltinsWhenConfigured() {
-    BuiltinCatalog catalog = new BuiltinCatalog(new ValueSemantics(true));
+    BuiltinCatalog catalog =
+        new BuiltinCatalog(
+            BuiltinHosts.builder().valueSemantics(new ValueSemantics(true)).build());
     CallShape unaryNumber =
         new CallShape(List.of(Set.of(ArgType.NUMBER)), List.of(), Optional.empty());
     for (String name :
@@ -3825,7 +3835,7 @@ final class BuiltinCatalogTest {
 
   @Test
   void numericRandomAndConstructionLimitsMatchPinnedToast() throws ReflectiveOperationException {
-    BuiltinCatalog catalog = new BuiltinCatalog();
+    BuiltinCatalog catalog = new BuiltinCatalog(BuiltinHosts.builder().build());
     Field floatingRandomField = BuiltinCatalog.class.getDeclaredField("floatingRandom");
     floatingRandomField.setAccessible(true);
     floatingRandomField.set(catalog, new UpperEndpointRandom());
@@ -3909,7 +3919,7 @@ final class BuiltinCatalogTest {
 
   @Test
   void minUsesTheCanonicalPureVmContractAndSelectsTheSmallestHomogeneousNumber() {
-    BuiltinCatalog catalog = new BuiltinCatalog();
+    BuiltinCatalog catalog = new BuiltinCatalog(BuiltinHosts.builder().build());
     CallShape shape =
         new CallShape(
             List.of(Set.of(ArgType.NUMBER)),
@@ -3957,7 +3967,7 @@ final class BuiltinCatalogTest {
 
   @Test
   void maxSelectsTheLargestHomogeneousNumericArgumentWithoutPromotion() {
-    BuiltinCatalog catalog = new BuiltinCatalog();
+    BuiltinCatalog catalog = new BuiltinCatalog(BuiltinHosts.builder().build());
     try (WorldTxn transaction = world().begin()) {
       BuiltinSpec spec = catalog.spec("max").orElseThrow();
 
@@ -3993,7 +4003,7 @@ final class BuiltinCatalogTest {
 
   @Test
   void absPreservesTheNumericTypeAndReturnsItsMagnitude() {
-    BuiltinCatalog catalog = new BuiltinCatalog();
+    BuiltinCatalog catalog = new BuiltinCatalog(BuiltinHosts.builder().build());
     assertPureVmContract(
         catalog,
         "abs",
@@ -4012,7 +4022,7 @@ final class BuiltinCatalogTest {
 
   @Test
   void randomUsesTheIrrevocableVmContractAndInclusiveIntegerBounds() {
-    BuiltinCatalog catalog = new BuiltinCatalog();
+    BuiltinCatalog catalog = new BuiltinCatalog(BuiltinHosts.builder().build());
     BuiltinSpec spec = catalog.spec("random").orElseThrow();
 
     assertEquals(
@@ -4064,7 +4074,7 @@ final class BuiltinCatalogTest {
 
   @Test
   void disassembleReadsOneDefinedVerbAndReturnsDeterministicBytecodeLines() {
-    BuiltinCatalog catalog = new BuiltinCatalog();
+    BuiltinCatalog catalog = new BuiltinCatalog(BuiltinHosts.builder().build());
     BuiltinSpec spec = catalog.spec("disassemble").orElseThrow();
 
     assertEquals(
@@ -4171,7 +4181,7 @@ final class BuiltinCatalogTest {
 
   @Test
   void exposesTheExactDeferredDumpDatabaseContract() {
-    BuiltinSpec spec = new BuiltinCatalog().spec("dump_database").orElseThrow();
+    BuiltinSpec spec = new BuiltinCatalog(BuiltinHosts.builder().build()).spec("dump_database").orElseThrow();
 
     assertEquals(
         List.of(new CallShape(List.of(), List.of(), Optional.empty())), spec.callShapes());
@@ -4183,7 +4193,7 @@ final class BuiltinCatalogTest {
 
   @Test
   void dbDiskSizeExposesTheUnrestrictedExternalServerReadContract() {
-    BuiltinCatalog catalog = new BuiltinCatalog();
+    BuiltinCatalog catalog = new BuiltinCatalog(BuiltinHosts.builder().build());
     BuiltinSpec spec = catalog.spec("db_disk_size").orElseThrow();
 
     assertEquals(
@@ -4205,7 +4215,7 @@ final class BuiltinCatalogTest {
 
   @Test
   void outputDelimitersExposesTheExactConnectionReadContract() {
-    BuiltinCatalog catalog = new BuiltinCatalog();
+    BuiltinCatalog catalog = new BuiltinCatalog(BuiltinHosts.builder().build());
     BuiltinSpec spec = catalog.spec("output_delimiters").orElseThrow();
 
     assertEquals(
@@ -4228,7 +4238,7 @@ final class BuiltinCatalogTest {
 
   @Test
   void memoryUsageExposesToastStatmShapeToEveryProgrammer() {
-    BuiltinCatalog catalog = new BuiltinCatalog();
+    BuiltinCatalog catalog = new BuiltinCatalog(BuiltinHosts.builder().build());
     BuiltinSpec spec = catalog.spec("memory_usage").orElseThrow();
 
     assertEquals(
@@ -4251,7 +4261,7 @@ final class BuiltinCatalogTest {
 
   @Test
   void usageExposesToastResourceShapeToWizardsOnly() {
-    BuiltinCatalog catalog = new BuiltinCatalog();
+    BuiltinCatalog catalog = new BuiltinCatalog(BuiltinHosts.builder().build());
     BuiltinSpec spec = catalog.spec("usage").orElseThrow();
     assertEquals(
         List.of(new CallShape(List.of(), List.of(), Optional.empty())), spec.callShapes());
@@ -4276,7 +4286,7 @@ final class BuiltinCatalogTest {
 
   @Test
   void verbCacheStatsAndLogExposeTheLiveToastCountersAndHistogram() {
-    BuiltinCatalog catalog = new BuiltinCatalog();
+    BuiltinCatalog catalog = new BuiltinCatalog(BuiltinHosts.builder().build());
     BuiltinSpec spec = catalog.spec("verb_cache_stats").orElseThrow();
     assertEquals(
         List.of(new CallShape(List.of(), List.of(), Optional.empty())), spec.callShapes());
@@ -4341,7 +4351,7 @@ final class BuiltinCatalogTest {
 
   @Test
   void logCacheStatsPrintsEveryToastDepthFromTheLiveCache() {
-    BuiltinCatalog catalog = new BuiltinCatalog();
+    BuiltinCatalog catalog = new BuiltinCatalog(BuiltinHosts.builder().build());
     BuiltinSpec logSpec = catalog.spec("log_cache_stats").orElseThrow();
     WorldVerb look = new WorldVerb("look", 1, 4, -1, "return 1;");
     WorldObject wizard =
@@ -4392,7 +4402,7 @@ final class BuiltinCatalogTest {
 
   @Test
   void waifStatsCountsLiveWaifsByClassWithoutWizardRestriction() {
-    BuiltinCatalog catalog = new BuiltinCatalog();
+    BuiltinCatalog catalog = new BuiltinCatalog(BuiltinHosts.builder().build());
     BuiltinSpec spec = catalog.spec("waif_stats").orElseThrow();
     assertEquals(
         List.of(new CallShape(List.of(), List.of(), Optional.empty())), spec.callShapes());
@@ -4418,7 +4428,7 @@ final class BuiltinCatalogTest {
 
   @Test
   void nextRecycledObjectScansInclusivelyBelowToastLastObjectBoundary() {
-    BuiltinCatalog catalog = new BuiltinCatalog();
+    BuiltinCatalog catalog = new BuiltinCatalog(BuiltinHosts.builder().build());
     BuiltinSpec spec = catalog.spec("next_recycled_object").orElseThrow();
     assertEquals(
         List.of(new CallShape(List.of(), List.of(Set.of(ArgType.OBJECT)), Optional.empty())),
@@ -4466,7 +4476,7 @@ final class BuiltinCatalogTest {
 
   @Test
   void recycledObjectsReturnsEveryHoleThroughToastLastObjectBoundary() {
-    BuiltinCatalog catalog = new BuiltinCatalog();
+    BuiltinCatalog catalog = new BuiltinCatalog(BuiltinHosts.builder().build());
     BuiltinSpec spec = catalog.spec("recycled_objects").orElseThrow();
     assertEquals(
         List.of(new CallShape(List.of(), List.of(), Optional.empty())), spec.callShapes());
@@ -4498,7 +4508,7 @@ final class BuiltinCatalogTest {
 
   @Test
   void resetMaxObjectDropsTrailingRecycledSlotsForWizardsOnly() {
-    BuiltinCatalog catalog = new BuiltinCatalog();
+    BuiltinCatalog catalog = new BuiltinCatalog(BuiltinHosts.builder().build());
     BuiltinSpec spec = catalog.spec("reset_max_object").orElseThrow();
     assertEquals(
         List.of(new CallShape(List.of(), List.of(), Optional.empty())), spec.callShapes());
@@ -4526,7 +4536,7 @@ final class BuiltinCatalogTest {
 
   @Test
   void ownedObjectsScansLiveObjectsInNumericOrderAndRejectsInvalidOwners() {
-    BuiltinCatalog catalog = new BuiltinCatalog();
+    BuiltinCatalog catalog = new BuiltinCatalog(BuiltinHosts.builder().build());
     BuiltinSpec spec = catalog.spec("owned_objects").orElseThrow();
     assertEquals(
         List.of(new CallShape(List.of(Set.of(ArgType.OBJECT)), List.of(), Optional.empty())),
@@ -4561,7 +4571,7 @@ final class BuiltinCatalogTest {
 
   @Test
   void exposesTheExactPureValueConversionContracts() {
-    BuiltinCatalog catalog = new BuiltinCatalog();
+    BuiltinCatalog catalog = new BuiltinCatalog(BuiltinHosts.builder().build());
 
     assertPureVmContract(
         catalog,
@@ -4584,7 +4594,7 @@ final class BuiltinCatalogTest {
 
   @Test
   void toobjSaturatesDecimalOverflowAndKeepsMalformedStringsAtZero() {
-    BuiltinCatalog catalog = new BuiltinCatalog();
+    BuiltinCatalog catalog = new BuiltinCatalog(BuiltinHosts.builder().build());
     BuiltinSpec spec = catalog.spec("toobj").orElseThrow();
     try (WorldTxn transaction = world().begin()) {
       assertEquals(
@@ -4612,7 +4622,7 @@ final class BuiltinCatalogTest {
 
   @Test
   void exposesTheExactPureStringContracts() {
-    BuiltinCatalog catalog = new BuiltinCatalog();
+    BuiltinCatalog catalog = new BuiltinCatalog(BuiltinHosts.builder().build());
     Set<ArgType> any = Set.of(ArgType.ANY);
     Set<ArgType> integer = Set.of(ArgType.INTEGER);
     Set<ArgType> string = Set.of(ArgType.STRING);
@@ -4647,7 +4657,7 @@ final class BuiltinCatalogTest {
 
   @Test
   void parseAnsiPreservesToastTagTableCaseAndUnknownText() {
-    BuiltinCatalog catalog = new BuiltinCatalog();
+    BuiltinCatalog catalog = new BuiltinCatalog(BuiltinHosts.builder().build());
     BuiltinSpec spec = catalog.spec("parse_ansi").orElseThrow();
     assertEquals(
         List.of(new CallShape(List.of(Set.of(ArgType.STRING)), List.of(), Optional.empty())),
@@ -4681,7 +4691,7 @@ final class BuiltinCatalogTest {
 
   @Test
   void removeAnsiStripsOnlyToastTagsCaseInsensitively() {
-    BuiltinCatalog catalog = new BuiltinCatalog();
+    BuiltinCatalog catalog = new BuiltinCatalog(BuiltinHosts.builder().build());
     BuiltinSpec spec = catalog.spec("remove_ansi").orElseThrow();
     assertEquals(
         List.of(new CallShape(List.of(Set.of(ArgType.STRING)), List.of(), Optional.empty())),
@@ -4715,7 +4725,7 @@ final class BuiltinCatalogTest {
 
   @Test
   void simplexNoiseUsesToastFloatOnlyDimensionsAndDeterministicValues() {
-    BuiltinCatalog catalog = new BuiltinCatalog();
+    BuiltinCatalog catalog = new BuiltinCatalog(BuiltinHosts.builder().build());
     BuiltinSpec spec = catalog.spec("simplex_noise").orElseThrow();
     assertEquals(
         List.of(new CallShape(List.of(Set.of(ArgType.LIST)), List.of(), Optional.empty())),
@@ -4777,7 +4787,7 @@ final class BuiltinCatalogTest {
 
   @Test
   void stringBuiltinsPreserveToastSearchSubstitutionAndComparisonSemantics() {
-    BuiltinCatalog catalog = new BuiltinCatalog();
+    BuiltinCatalog catalog = new BuiltinCatalog(BuiltinHosts.builder().build());
     try (WorldTxn transaction = world().begin()) {
       assertString(
           "bazBarbaz",
@@ -4902,7 +4912,7 @@ final class BuiltinCatalogTest {
 
   @Test
   void cryptPreservesTheStockUnixVectorAndUnsupportedPrefixMarker() {
-    BuiltinCatalog catalog = new BuiltinCatalog();
+    BuiltinCatalog catalog = new BuiltinCatalog(BuiltinHosts.builder().build());
     BuiltinSpec spec = catalog.spec("crypt").orElseThrow();
     assertEquals(EffectClass.IRREVOCABLE, spec.effect());
     try (WorldTxn transaction = world().begin()) {
@@ -4940,7 +4950,7 @@ final class BuiltinCatalogTest {
 
   @Test
   void argon2PreservesTheStockVectorVerificationAndWizardBoundary() {
-    BuiltinCatalog catalog = new BuiltinCatalog();
+    BuiltinCatalog catalog = new BuiltinCatalog(BuiltinHosts.builder().build());
     BuiltinSpec hash = catalog.spec("argon2").orElseThrow();
     BuiltinSpec verify = catalog.spec("argon2_verify").orElseThrow();
     String expected =
@@ -4981,7 +4991,7 @@ final class BuiltinCatalogTest {
 
   @Test
   void binaryBuiltinsPreserveToastByteGroupingEscapesAndErrors() {
-    BuiltinCatalog catalog = new BuiltinCatalog();
+    BuiltinCatalog catalog = new BuiltinCatalog(BuiltinHosts.builder().build());
     try (WorldTxn transaction = world().begin()) {
       BuiltinResult decoded =
           invoke(
@@ -5053,7 +5063,7 @@ final class BuiltinCatalogTest {
 
   @Test
   void chrPreservesToastVariadicRecursiveAndProgrammerRangeSemantics() {
-    BuiltinCatalog catalog = new BuiltinCatalog();
+    BuiltinCatalog catalog = new BuiltinCatalog(BuiltinHosts.builder().build());
     BuiltinSpec spec = catalog.spec("chr").orElseThrow();
     assertEquals(
         List.of(new CallShape(List.of(), List.of(), Optional.of(Set.of(ArgType.ANY)))),
@@ -5086,7 +5096,7 @@ final class BuiltinCatalogTest {
 
   @Test
   void exposesTheExactListContracts() {
-    BuiltinCatalog catalog = new BuiltinCatalog();
+    BuiltinCatalog catalog = new BuiltinCatalog(BuiltinHosts.builder().build());
     Set<ArgType> any = Set.of(ArgType.ANY);
     Set<ArgType> integer = Set.of(ArgType.INTEGER);
     Set<ArgType> list = Set.of(ArgType.LIST);
@@ -5119,7 +5129,7 @@ final class BuiltinCatalogTest {
 
   @Test
   void listBuiltinsPreserveToastInsertionMutationSetAndRangeSemantics() {
-    BuiltinCatalog catalog = new BuiltinCatalog();
+    BuiltinCatalog catalog = new BuiltinCatalog(BuiltinHosts.builder().build());
     ListValue oneTwo = new ListValue(List.of(new IntegerValue(1), new IntegerValue(2)));
     try (WorldTxn transaction = world().begin()) {
       assertEquals(
@@ -5230,7 +5240,7 @@ final class BuiltinCatalogTest {
 
   @Test
   void setaddEnforcesTheConfiguredListValueByteLimit() {
-    BuiltinCatalog catalog = new BuiltinCatalog();
+    BuiltinCatalog catalog = new BuiltinCatalog(BuiltinHosts.builder().build());
     WorldObject system =
         new WorldObject(
             0,
@@ -5294,7 +5304,7 @@ final class BuiltinCatalogTest {
 
   @Test
   void setRemoveUsesRecursiveCaseInsensitiveMooEqualityAndRemovesOnlyTheFirstMatch() {
-    BuiltinCatalog catalog = new BuiltinCatalog();
+    BuiltinCatalog catalog = new BuiltinCatalog(BuiltinHosts.builder().build());
     BuiltinSpec spec = catalog.spec("setremove").orElseThrow();
     MapValue first =
         new MapValue(
@@ -5349,7 +5359,7 @@ final class BuiltinCatalogTest {
 
   @Test
   void equalUsesToastBooleanIntegerRelationRecursivelyAndCaseSensitiveStrings() {
-    BuiltinCatalog catalog = new BuiltinCatalog();
+    BuiltinCatalog catalog = new BuiltinCatalog(BuiltinHosts.builder().build());
     BuiltinSpec spec = catalog.spec("equal").orElseThrow();
     try (WorldTxn transaction = world().begin()) {
       assertEquals(
@@ -5399,7 +5409,7 @@ final class BuiltinCatalogTest {
 
   @Test
   void setThreadModeAndAllMembersExposeCanonicalContractsAndExecutionModes() throws Exception {
-    BuiltinCatalog catalog = new BuiltinCatalog();
+    BuiltinCatalog catalog = new BuiltinCatalog(BuiltinHosts.builder().build());
     BuiltinSpec setThreadMode = catalog.spec("set_thread_mode").orElseThrow();
     BuiltinSpec allMembers = catalog.spec("all_members").orElseThrow();
     ListValue source =
@@ -5457,7 +5467,7 @@ final class BuiltinCatalogTest {
 
   @Test
   void sortExposesPinnedHostContractAndToastOrdering() throws Exception {
-    BuiltinCatalog catalog = new BuiltinCatalog();
+    BuiltinCatalog catalog = new BuiltinCatalog(BuiltinHosts.builder().build());
     BuiltinSpec sort = catalog.spec("sort").orElseThrow();
     ListValue integers =
         new ListValue(List.of(new IntegerValue(3), new IntegerValue(1), new IntegerValue(2)));
@@ -5563,7 +5573,7 @@ final class BuiltinCatalogTest {
 
   @Test
   void threadPoolAndThreadsExposePinnedTaskContractsAndValidation() {
-    BuiltinCatalog catalog = new BuiltinCatalog();
+    BuiltinCatalog catalog = new BuiltinCatalog(BuiltinHosts.builder().build());
     BuiltinSpec threadPool = catalog.spec("thread_pool").orElseThrow();
     BuiltinSpec threads = catalog.spec("threads").orElseThrow();
 
@@ -5630,7 +5640,7 @@ final class BuiltinCatalogTest {
 
   @Test
   void functionInfoDescribesDumpDatabaseFromTheManifest() {
-    BuiltinCatalog catalog = new BuiltinCatalog();
+    BuiltinCatalog catalog = new BuiltinCatalog(BuiltinHosts.builder().build());
     try (WorldTxn transaction = world().begin()) {
       BuiltinResult result =
           invoke(
@@ -5654,7 +5664,7 @@ final class BuiltinCatalogTest {
 
   @Test
   void setTaskPermsAllowsOnlySelfOrWizardSelectedProgrammers() {
-    BuiltinCatalog catalog = new BuiltinCatalog();
+    BuiltinCatalog catalog = new BuiltinCatalog(BuiltinHosts.builder().build());
     BuiltinSpec spec = catalog.spec("set_task_perms").orElseThrow();
     try (WorldTxn transaction = world().begin()) {
       assertEquals(
@@ -5671,7 +5681,7 @@ final class BuiltinCatalogTest {
 
   @Test
   void serverVersionExposesToastCompatibleVersionMetadataWithoutExtraFeatures() {
-    BuiltinCatalog catalog = new BuiltinCatalog();
+    BuiltinCatalog catalog = new BuiltinCatalog(BuiltinHosts.builder().build());
     BuiltinSpec spec = catalog.spec("server_version").orElseThrow();
     try (WorldTxn transaction = world().begin()) {
       assertEquals(
@@ -5719,7 +5729,7 @@ final class BuiltinCatalogTest {
 
   @Test
   void dumpDatabaseReturnsZeroAndAValueOnlyCheckpointRequestForWizards() {
-    BuiltinCatalog catalog = new BuiltinCatalog();
+    BuiltinCatalog catalog = new BuiltinCatalog(BuiltinHosts.builder().build());
     try (WorldTxn transaction = world().begin()) {
       BuiltinResult result =
           invoke(
@@ -5735,7 +5745,7 @@ final class BuiltinCatalogTest {
 
   @Test
   void dumpDatabaseRejectsArgumentsAndNonWizardProgrammersBeforeRequestingCheckpoint() {
-    BuiltinCatalog catalog = new BuiltinCatalog();
+    BuiltinCatalog catalog = new BuiltinCatalog(BuiltinHosts.builder().build());
     BuiltinSpec spec = catalog.spec("dump_database").orElseThrow();
     try (WorldTxn transaction = world().begin()) {
       BuiltinResult arguments = invoke(catalog, spec, List.of(new IntegerValue(1)), transaction, 1);
@@ -5750,7 +5760,7 @@ final class BuiltinCatalogTest {
 
   @Test
   void shutdownTruthFlagSelectsPanicDumpWhileFalseRemainsClean() {
-    BuiltinCatalog catalog = new BuiltinCatalog();
+    BuiltinCatalog catalog = new BuiltinCatalog(BuiltinHosts.builder().build());
     BuiltinSpec spec = catalog.spec("shutdown").orElseThrow();
     try (WorldTxn transaction = world().begin()) {
       BuiltinResult panic =

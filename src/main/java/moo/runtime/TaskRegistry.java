@@ -12,6 +12,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.TreeMap;
 import java.util.concurrent.FutureTask;
+import moo.builtin.BuiltinCall;
 import moo.builtin.BuiltinResult;
 import moo.value.MooValue;
 import moo.value.MooValue.ErrorValue;
@@ -241,17 +242,7 @@ final class TaskRegistry {
         : TaskControlDecision.DENIED;
   }
 
-  synchronized BuiltinResult threads(
-      List<MooValue> arguments,
-      WorldTxn world,
-      long programmer,
-      MooValue taskLocal,
-      long currentTaskId,
-      long remainingTicks,
-      long remainingSeconds,
-      MooValue receiver,
-      long callerProgrammer,
-      ListValue callers) {
+  synchronized BuiltinResult threads(BuiltinCall call) {
     return BuiltinResult.value(
         new ListValue(
             tasks.values().stream()
@@ -265,19 +256,9 @@ final class TaskRegistry {
     return canceled.remove(taskId);
   }
 
-  BuiltinResult killTask(
-      List<MooValue> arguments,
-      WorldTxn world,
-      long programmer,
-      MooValue taskLocal,
-      long currentTaskId,
-      long remainingTicks,
-      long remainingSeconds,
-      MooValue receiver,
-      long callerProgrammer,
-      ListValue callers) {
-    long taskId = ((IntegerValue) arguments.getFirst()).value();
-    WorldObject actor = world.object(programmer).orElse(null);
+  BuiltinResult killTask(BuiltinCall call) {
+    long taskId = ((IntegerValue) call.arguments().getFirst()).value();
+    WorldObject actor = call.world().object(call.programmer()).orElse(null);
     boolean wizard = actor != null && ObjectFlags.isWizard(actor.flags());
     FutureTask<BuiltinResult> submitted;
     Runnable cancellation;
@@ -286,7 +267,7 @@ final class TaskRegistry {
       if (task == null) {
         return BuiltinResult.error(ErrorValue.E_INVARG);
       }
-      if (!wizard && task.programmer() != programmer) {
+      if (!wizard && task.programmer() != call.programmer()) {
         return BuiltinResult.error(ErrorValue.E_PERM);
       }
       tasks.remove(taskId);
@@ -306,65 +287,46 @@ final class TaskRegistry {
     return BuiltinResult.value(new IntegerValue(0));
   }
 
-  BuiltinResult queuedTasks(
-      List<MooValue> arguments,
-      WorldTxn world,
-      long programmer,
-      MooValue taskLocal,
-      long currentTaskId,
-      long remainingTicks,
-      long remainingSeconds,
-      MooValue receiver,
-      long callerProgrammer,
-      ListValue callers) {
+  BuiltinResult queuedTasks(BuiltinCall call) {
     boolean includeVariables =
-        arguments.size() == 1 && ((IntegerValue) arguments.getFirst()).isTruthy();
+        call.arguments().size() == 1
+            && ((IntegerValue) call.arguments().getFirst()).isTruthy();
     boolean returnCount =
-        arguments.size() == 2 && ((IntegerValue) arguments.get(1)).isTruthy();
-    WorldObject actor = world.object(programmer).orElse(null);
+        call.arguments().size() == 2 && ((IntegerValue) call.arguments().get(1)).isTruthy();
+    WorldObject actor = call.world().object(call.programmer()).orElse(null);
     boolean wizard = actor != null && ObjectFlags.isWizard(actor.flags());
-    List<TaskInfo> visible = visibleTo(programmer, wizard);
+    List<TaskInfo> visible = visibleTo(call.programmer(), wizard);
     if (returnCount) {
       return BuiltinResult.value(new IntegerValue(visible.size()));
     }
     return BuiltinResult.value(
         new ListValue(
             visible.stream()
-                .map(task -> task.row(includeVariables, world, programmer))
+                .map(task -> task.row(includeVariables, call.world(), call.programmer()))
                 .toList()));
   }
 
-  BuiltinResult taskStack(
-      List<MooValue> arguments,
-      WorldTxn world,
-      long programmer,
-      MooValue taskLocal,
-      long currentTaskId,
-      long remainingTicks,
-      long remainingSeconds,
-      MooValue receiver,
-      long callerProgrammer,
-      ListValue callers) {
-    long taskId = ((IntegerValue) arguments.getFirst()).value();
+  BuiltinResult taskStack(BuiltinCall call) {
+    long taskId = ((IntegerValue) call.arguments().getFirst()).value();
     TaskInfo task;
     synchronized (this) {
       task = tasks.get(taskId);
     }
-    if (task == null || taskId == currentTaskId || task.snapshot().isEmpty()) {
+    if (task == null || taskId == call.taskId() || task.snapshot().isEmpty()) {
       return BuiltinResult.error(ErrorValue.E_INVARG);
     }
-    WorldObject actor = world.object(programmer).orElse(null);
+    WorldObject actor = call.world().object(call.programmer()).orElse(null);
     boolean wizard = actor != null && ObjectFlags.isWizard(actor.flags());
-    if (!wizard && task.programmer() != programmer) {
+    if (!wizard && task.programmer() != call.programmer()) {
       return BuiltinResult.error(ErrorValue.E_PERM);
     }
-    boolean includeLines = arguments.size() >= 2 && arguments.get(1).isTruthy();
-    boolean includeVariables = arguments.size() >= 3 && arguments.get(2).isTruthy();
+    boolean includeLines = call.arguments().size() >= 2 && call.arguments().get(1).isTruthy();
+    boolean includeVariables = call.arguments().size() >= 3 && call.arguments().get(2).isTruthy();
     return BuiltinResult.value(
         new ListValue(
             task.snapshot().orElseThrow().frames().stream()
                 .map(frame -> stackFrame(frame, includeLines, includeVariables))
-                .map(frame -> projectStackFrame(frame, world, programmer))
+                .map(frame -> projectStackFrame(frame, call.world(), call.programmer()))
                 .toList()));
   }
 
