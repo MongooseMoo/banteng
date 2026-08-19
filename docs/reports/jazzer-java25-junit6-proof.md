@@ -16,7 +16,7 @@ the Banteng runs below are the compatibility proof for this pinned build.
 
 Ordinary `test` forces `JAZZER_FUZZ=0`, so every `@FuzzTest` runs its checked-in
 inputs as deterministic regressions. The explicit `fuzzTest` task selects only
-`moo.syntax.MooParserFuzzTest.parsesArbitraryLatin1`, forces `JAZZER_FUZZ=1`,
+`world.mongoose.banteng.syntax.MooParserFuzzTest.parsesArbitraryLatin1`, forces `JAZZER_FUZZ=1`,
 uses one fork, and is
 never considered up to date. It is not attached to the ordinary `check`
 lifecycle.
@@ -37,7 +37,7 @@ Both commands ran through the Gradle wrapper under WSL Java 25 with dependency
 locking and checksum verification enabled:
 
 ```text
-./gradlew test --tests moo.syntax.MooParserFuzzTest
+./gradlew test --tests world.mongoose.banteng.syntax.MooParserFuzzTest
 ./gradlew fuzzTest
 ```
 

@@ -1,312 +1,323 @@
 ---
 type: specs.openrewrite.org/v1beta/recipe
-name: moo.vm.DecomposeMooVmOpcodeFamilies
+name: world.mongoose.banteng.vm.DecomposeMooVmOpcodeFamilies
 displayName: Decompose MooVm opcode families
 description: Moves MooVm's static opcode-family methods into dedicated helper files.
 recipeList:
-  - moo.rewrite.MoveMooVmOpcodeFamilies
+  - world.mongoose.banteng.rewrite.MoveMooVmOpcodeFamilies
 ---
 type: specs.openrewrite.org/v1beta/recipe
-name: moo.builtin.ExtractBuiltinResult
+name: world.mongoose.banteng.builtin.ExtractBuiltinResult
 displayName: Extract BuiltinResult type
 description: Migrates the nested BuiltinCatalog.Result protocol to top-level BuiltinResult.
 recipeList:
   - org.openrewrite.java.ChangeType:
-      oldFullyQualifiedTypeName: moo.builtin.BuiltinCatalog.Result
-      newFullyQualifiedTypeName: moo.builtin.BuiltinResult
+      oldFullyQualifiedTypeName: world.mongoose.banteng.builtin.BuiltinCatalog.Result
+      newFullyQualifiedTypeName: world.mongoose.banteng.builtin.BuiltinResult
 ---
 type: specs.openrewrite.org/v1beta/recipe
-name: moo.builtin.UseBuiltinCall
+name: world.mongoose.banteng.builtin.UseBuiltinCall
 displayName: Collapse builtin handler arguments into BuiltinCall
 description: Rewrites legacy ten-parameter builtin lambdas to the BuiltinCall protocol.
 recipeList:
-  - moo.rewrite.UseBuiltinCall
+  - world.mongoose.banteng.rewrite.UseBuiltinCall
 ---
 type: specs.openrewrite.org/v1beta/recipe
-name: moo.value.UseStringValueFactories
+name: world.mongoose.banteng.value.UseStringValueFactories
 displayName: Move Latin-1 encoding helpers to StringValue
 description: Retargets private Java-string encoders to the StringValue factory before deleting them.
 causesAnotherCycle: true
 recipeList:
-  - moo.rewrite.UseStringValueInlineEncoding
+  - world.mongoose.banteng.rewrite.UseStringValueInlineEncoding
   - org.openrewrite.java.ChangeMethodTargetToStatic:
-      methodPattern: moo.builtin.BuiltinCatalog encode(java.lang.String)
-      fullyQualifiedTargetTypeName: moo.value.MooValue.StringValue
+      methodPattern: world.mongoose.banteng.builtin.BuiltinCatalog encode(java.lang.String)
+      fullyQualifiedTargetTypeName: world.mongoose.banteng.value.MooValue.StringValue
   - org.openrewrite.java.ChangeMethodTargetToStatic:
-      methodPattern: moo.runtime.MooRuntime encode(java.lang.String)
-      fullyQualifiedTargetTypeName: moo.value.MooValue.StringValue
+      methodPattern: world.mongoose.banteng.runtime.MooRuntime encode(java.lang.String)
+      fullyQualifiedTargetTypeName: world.mongoose.banteng.value.MooValue.StringValue
   - org.openrewrite.java.ChangeMethodTargetToStatic:
-      methodPattern: moo.server.MooServer encode(java.lang.String)
-      fullyQualifiedTargetTypeName: moo.value.MooValue.StringValue
+      methodPattern: world.mongoose.banteng.server.MooServer encode(java.lang.String)
+      fullyQualifiedTargetTypeName: world.mongoose.banteng.value.MooValue.StringValue
   - org.openrewrite.java.ChangeMethodTargetToStatic:
-      methodPattern: moo.vm.MooVm encode(java.lang.String)
-      fullyQualifiedTargetTypeName: moo.value.MooValue.StringValue
+      methodPattern: world.mongoose.banteng.vm.MooVm encode(java.lang.String)
+      fullyQualifiedTargetTypeName: world.mongoose.banteng.value.MooValue.StringValue
   - org.openrewrite.java.ChangeMethodTargetToStatic:
-      methodPattern: moo.runtime.TaskRegistry string(java.lang.String)
-      fullyQualifiedTargetTypeName: moo.value.MooValue.StringValue
+      methodPattern: world.mongoose.banteng.runtime.TaskRegistry string(java.lang.String)
+      fullyQualifiedTargetTypeName: world.mongoose.banteng.value.MooValue.StringValue
   - org.openrewrite.java.ChangeMethodTargetToStatic:
-      methodPattern: moo.builtin.FileIoService mooString(java.lang.String)
-      fullyQualifiedTargetTypeName: moo.value.MooValue.StringValue
+      methodPattern: world.mongoose.banteng.builtin.FileIoService mooString(java.lang.String)
+      fullyQualifiedTargetTypeName: world.mongoose.banteng.value.MooValue.StringValue
   - org.openrewrite.java.ChangeMethodTargetToStatic:
-      methodPattern: moo.builtin.PcreService string(java.lang.String)
-      fullyQualifiedTargetTypeName: moo.value.MooValue.StringValue
+      methodPattern: world.mongoose.banteng.builtin.PcreService string(java.lang.String)
+      fullyQualifiedTargetTypeName: world.mongoose.banteng.value.MooValue.StringValue
   - org.openrewrite.java.ChangeMethodTargetToStatic:
-      methodPattern: moo.builtin.SqliteService string(java.lang.String)
-      fullyQualifiedTargetTypeName: moo.value.MooValue.StringValue
+      methodPattern: world.mongoose.banteng.builtin.SqliteService string(java.lang.String)
+      fullyQualifiedTargetTypeName: world.mongoose.banteng.value.MooValue.StringValue
   - org.openrewrite.java.ChangeMethodName:
-      methodPattern: moo.value.MooValue.StringValue encode(java.lang.String)
+      methodPattern: world.mongoose.banteng.value.MooValue.StringValue encode(java.lang.String)
       newMethodName: of
   - org.openrewrite.java.ChangeMethodName:
-      methodPattern: moo.value.MooValue.StringValue string(java.lang.String)
+      methodPattern: world.mongoose.banteng.value.MooValue.StringValue string(java.lang.String)
       newMethodName: of
   - org.openrewrite.java.ChangeMethodName:
-      methodPattern: moo.value.MooValue.StringValue mooString(java.lang.String)
+      methodPattern: world.mongoose.banteng.value.MooValue.StringValue mooString(java.lang.String)
       newMethodName: of
 ---
 type: specs.openrewrite.org/v1beta/recipe
-name: moo.persistence.ShareDbReaderInfrastructure
+name: world.mongoose.banteng.persistence.ShareDbReaderInfrastructure
 displayName: Share LambdaMOO database reader infrastructure
 description: Retargets duplicated scanner, value, and record references to their shared owners.
 causesAnotherCycle: true
 recipeList:
   - org.openrewrite.java.ChangeType:
-      oldFullyQualifiedTypeName: moo.persistence.LambdaMooV4Reader$ProgramSlot
-      newFullyQualifiedTypeName: moo.persistence.ProgramSlot
+      oldFullyQualifiedTypeName: world.mongoose.banteng.persistence.LambdaMooV4Reader$ProgramSlot
+      newFullyQualifiedTypeName: world.mongoose.banteng.persistence.ProgramSlot
   - org.openrewrite.java.ChangeType:
-      oldFullyQualifiedTypeName: moo.persistence.LambdaMooV5Reader$ProgramSlot
-      newFullyQualifiedTypeName: moo.persistence.ProgramSlot
+      oldFullyQualifiedTypeName: world.mongoose.banteng.persistence.LambdaMooV5Reader$ProgramSlot
+      newFullyQualifiedTypeName: world.mongoose.banteng.persistence.ProgramSlot
   - org.openrewrite.java.ChangeType:
-      oldFullyQualifiedTypeName: moo.persistence.LambdaMooV17Codec$ProgramSlot
-      newFullyQualifiedTypeName: moo.persistence.ProgramSlot
+      oldFullyQualifiedTypeName: world.mongoose.banteng.persistence.LambdaMooV17Codec$ProgramSlot
+      newFullyQualifiedTypeName: world.mongoose.banteng.persistence.ProgramSlot
   - org.openrewrite.java.ChangeType:
-      oldFullyQualifiedTypeName: moo.persistence.LambdaMooV4Reader$RawVerb
-      newFullyQualifiedTypeName: moo.persistence.RawVerb
+      oldFullyQualifiedTypeName: world.mongoose.banteng.persistence.LambdaMooV4Reader$RawVerb
+      newFullyQualifiedTypeName: world.mongoose.banteng.persistence.RawVerb
   - org.openrewrite.java.ChangeType:
-      oldFullyQualifiedTypeName: moo.persistence.LambdaMooV5Reader$RawVerb
-      newFullyQualifiedTypeName: moo.persistence.RawVerb
+      oldFullyQualifiedTypeName: world.mongoose.banteng.persistence.LambdaMooV5Reader$RawVerb
+      newFullyQualifiedTypeName: world.mongoose.banteng.persistence.RawVerb
   - org.openrewrite.java.ChangeType:
-      oldFullyQualifiedTypeName: moo.persistence.LambdaMooV17Codec$RawVerb
-      newFullyQualifiedTypeName: moo.persistence.RawVerb
+      oldFullyQualifiedTypeName: world.mongoose.banteng.persistence.LambdaMooV17Codec$RawVerb
+      newFullyQualifiedTypeName: world.mongoose.banteng.persistence.RawVerb
   - org.openrewrite.java.ChangeMethodName:
-      methodPattern: moo.persistence.LambdaMooV5Reader readInt(java.lang.String, java.lang.String)
+      methodPattern: world.mongoose.banteng.persistence.LambdaMooV5Reader readInt(java.lang.String, java.lang.String)
       newMethodName: parseInt
   - org.openrewrite.java.ChangeMethodName:
-      methodPattern: moo.persistence.LambdaMooV17Codec readParsedInt(java.lang.String, java.lang.String)
+      methodPattern: world.mongoose.banteng.persistence.LambdaMooV17Codec readParsedInt(java.lang.String, java.lang.String)
       newMethodName: parseInt
   - org.openrewrite.java.ChangeMethodName:
-      methodPattern: moo.persistence.LambdaMooV5Reader readValue(java.io.BufferedReader)
+      methodPattern: world.mongoose.banteng.persistence.LambdaMooV5Reader readValue(java.io.BufferedReader)
       newMethodName: readV5
   - org.openrewrite.java.ChangeMethodName:
-      methodPattern: moo.persistence.LambdaMooV5Reader readValue(java.io.BufferedReader, int)
+      methodPattern: world.mongoose.banteng.persistence.LambdaMooV5Reader readValue(java.io.BufferedReader, int)
       newMethodName: readV5
   - org.openrewrite.java.ChangeMethodTargetToStatic:
-      methodPattern: moo.persistence.LambdaMooV5Reader readV5(java.io.BufferedReader)
-      fullyQualifiedTargetTypeName: moo.persistence.ValueTagDecoder
+      methodPattern: world.mongoose.banteng.persistence.LambdaMooV5Reader readV5(java.io.BufferedReader)
+      fullyQualifiedTargetTypeName: world.mongoose.banteng.persistence.ValueTagDecoder
   - org.openrewrite.java.ChangeMethodTargetToStatic:
-      methodPattern: moo.persistence.LambdaMooV5Reader readV5(java.io.BufferedReader, int)
-      fullyQualifiedTargetTypeName: moo.persistence.ValueTagDecoder
+      methodPattern: world.mongoose.banteng.persistence.LambdaMooV5Reader readV5(java.io.BufferedReader, int)
+      fullyQualifiedTargetTypeName: world.mongoose.banteng.persistence.ValueTagDecoder
   - org.openrewrite.java.ChangeMethodTargetToStatic:
-      methodPattern: moo.persistence.LambdaMooV4Reader readCount(java.io.BufferedReader, java.lang.String)
-      fullyQualifiedTargetTypeName: moo.persistence.DbScanner
+      methodPattern: world.mongoose.banteng.persistence.LambdaMooV4Reader readCount(java.io.BufferedReader, java.lang.String)
+      fullyQualifiedTargetTypeName: world.mongoose.banteng.persistence.DbScanner
   - org.openrewrite.java.ChangeMethodTargetToStatic:
-      methodPattern: moo.persistence.LambdaMooV4Reader parseCount(java.lang.String, java.lang.String)
-      fullyQualifiedTargetTypeName: moo.persistence.DbScanner
+      methodPattern: world.mongoose.banteng.persistence.LambdaMooV4Reader parseCount(java.lang.String, java.lang.String)
+      fullyQualifiedTargetTypeName: world.mongoose.banteng.persistence.DbScanner
   - org.openrewrite.java.ChangeMethodTargetToStatic:
-      methodPattern: moo.persistence.LambdaMooV4Reader readInt(java.io.BufferedReader, java.lang.String)
-      fullyQualifiedTargetTypeName: moo.persistence.DbScanner
+      methodPattern: world.mongoose.banteng.persistence.LambdaMooV4Reader readInt(java.io.BufferedReader, java.lang.String)
+      fullyQualifiedTargetTypeName: world.mongoose.banteng.persistence.DbScanner
   - org.openrewrite.java.ChangeMethodTargetToStatic:
-      methodPattern: moo.persistence.LambdaMooV4Reader parseInt(java.lang.String, java.lang.String)
-      fullyQualifiedTargetTypeName: moo.persistence.DbScanner
+      methodPattern: world.mongoose.banteng.persistence.LambdaMooV4Reader parseInt(java.lang.String, java.lang.String)
+      fullyQualifiedTargetTypeName: world.mongoose.banteng.persistence.DbScanner
   - org.openrewrite.java.ChangeMethodTargetToStatic:
-      methodPattern: moo.persistence.LambdaMooV4Reader readLong(java.io.BufferedReader, java.lang.String)
-      fullyQualifiedTargetTypeName: moo.persistence.DbScanner
+      methodPattern: world.mongoose.banteng.persistence.LambdaMooV4Reader readLong(java.io.BufferedReader, java.lang.String)
+      fullyQualifiedTargetTypeName: world.mongoose.banteng.persistence.DbScanner
   - org.openrewrite.java.ChangeMethodTargetToStatic:
-      methodPattern: moo.persistence.LambdaMooV4Reader parseLong(java.lang.String, java.lang.String)
-      fullyQualifiedTargetTypeName: moo.persistence.DbScanner
+      methodPattern: world.mongoose.banteng.persistence.LambdaMooV4Reader parseLong(java.lang.String, java.lang.String)
+      fullyQualifiedTargetTypeName: world.mongoose.banteng.persistence.DbScanner
   - org.openrewrite.java.ChangeMethodTargetToStatic:
-      methodPattern: moo.persistence.LambdaMooV4Reader requireExact(java.io.BufferedReader, java.lang.String, java.lang.String)
-      fullyQualifiedTargetTypeName: moo.persistence.DbScanner
+      methodPattern: world.mongoose.banteng.persistence.LambdaMooV4Reader requireExact(java.io.BufferedReader, java.lang.String, java.lang.String)
+      fullyQualifiedTargetTypeName: world.mongoose.banteng.persistence.DbScanner
   - org.openrewrite.java.ChangeMethodTargetToStatic:
-      methodPattern: moo.persistence.LambdaMooV4Reader requiredLine(java.io.BufferedReader, java.lang.String)
-      fullyQualifiedTargetTypeName: moo.persistence.DbScanner
+      methodPattern: world.mongoose.banteng.persistence.LambdaMooV4Reader requiredLine(java.io.BufferedReader, java.lang.String)
+      fullyQualifiedTargetTypeName: world.mongoose.banteng.persistence.DbScanner
   - org.openrewrite.java.ChangeMethodTargetToStatic:
-      methodPattern: moo.persistence.LambdaMooV4Reader malformed(java.lang.String)
-      fullyQualifiedTargetTypeName: moo.persistence.DbScanner
+      methodPattern: world.mongoose.banteng.persistence.LambdaMooV4Reader malformed(java.lang.String)
+      fullyQualifiedTargetTypeName: world.mongoose.banteng.persistence.DbScanner
   - org.openrewrite.java.ChangeMethodTargetToStatic:
-      methodPattern: moo.persistence.LambdaMooV4Reader malformed(java.lang.String, java.lang.Throwable)
-      fullyQualifiedTargetTypeName: moo.persistence.DbScanner
+      methodPattern: world.mongoose.banteng.persistence.LambdaMooV4Reader malformed(java.lang.String, java.lang.Throwable)
+      fullyQualifiedTargetTypeName: world.mongoose.banteng.persistence.DbScanner
   - org.openrewrite.java.ChangeMethodTargetToStatic:
-      methodPattern: moo.persistence.LambdaMooV5Reader readCount(java.io.BufferedReader, java.lang.String)
-      fullyQualifiedTargetTypeName: moo.persistence.DbScanner
+      methodPattern: world.mongoose.banteng.persistence.LambdaMooV5Reader readCount(java.io.BufferedReader, java.lang.String)
+      fullyQualifiedTargetTypeName: world.mongoose.banteng.persistence.DbScanner
   - org.openrewrite.java.ChangeMethodTargetToStatic:
-      methodPattern: moo.persistence.LambdaMooV5Reader parseCount(java.lang.String, java.lang.String)
-      fullyQualifiedTargetTypeName: moo.persistence.DbScanner
+      methodPattern: world.mongoose.banteng.persistence.LambdaMooV5Reader parseCount(java.lang.String, java.lang.String)
+      fullyQualifiedTargetTypeName: world.mongoose.banteng.persistence.DbScanner
   - org.openrewrite.java.ChangeMethodTargetToStatic:
-      methodPattern: moo.persistence.LambdaMooV5Reader readInt(java.io.BufferedReader, java.lang.String)
-      fullyQualifiedTargetTypeName: moo.persistence.DbScanner
+      methodPattern: world.mongoose.banteng.persistence.LambdaMooV5Reader readInt(java.io.BufferedReader, java.lang.String)
+      fullyQualifiedTargetTypeName: world.mongoose.banteng.persistence.DbScanner
   - org.openrewrite.java.ChangeMethodTargetToStatic:
-      methodPattern: moo.persistence.LambdaMooV5Reader parseInt(java.lang.String, java.lang.String)
-      fullyQualifiedTargetTypeName: moo.persistence.DbScanner
+      methodPattern: world.mongoose.banteng.persistence.LambdaMooV5Reader parseInt(java.lang.String, java.lang.String)
+      fullyQualifiedTargetTypeName: world.mongoose.banteng.persistence.DbScanner
   - org.openrewrite.java.ChangeMethodTargetToStatic:
-      methodPattern: moo.persistence.LambdaMooV5Reader readLong(java.io.BufferedReader, java.lang.String)
-      fullyQualifiedTargetTypeName: moo.persistence.DbScanner
+      methodPattern: world.mongoose.banteng.persistence.LambdaMooV5Reader readLong(java.io.BufferedReader, java.lang.String)
+      fullyQualifiedTargetTypeName: world.mongoose.banteng.persistence.DbScanner
   - org.openrewrite.java.ChangeMethodTargetToStatic:
-      methodPattern: moo.persistence.LambdaMooV5Reader parseLong(java.lang.String, java.lang.String)
-      fullyQualifiedTargetTypeName: moo.persistence.DbScanner
+      methodPattern: world.mongoose.banteng.persistence.LambdaMooV5Reader parseLong(java.lang.String, java.lang.String)
+      fullyQualifiedTargetTypeName: world.mongoose.banteng.persistence.DbScanner
   - org.openrewrite.java.ChangeMethodTargetToStatic:
-      methodPattern: moo.persistence.LambdaMooV5Reader readDouble(java.io.BufferedReader, java.lang.String)
-      fullyQualifiedTargetTypeName: moo.persistence.DbScanner
+      methodPattern: world.mongoose.banteng.persistence.LambdaMooV5Reader readDouble(java.io.BufferedReader, java.lang.String)
+      fullyQualifiedTargetTypeName: world.mongoose.banteng.persistence.DbScanner
   - org.openrewrite.java.ChangeMethodTargetToStatic:
-      methodPattern: moo.persistence.LambdaMooV5Reader requireExact(java.io.BufferedReader, java.lang.String, java.lang.String)
-      fullyQualifiedTargetTypeName: moo.persistence.DbScanner
+      methodPattern: world.mongoose.banteng.persistence.LambdaMooV5Reader requireExact(java.io.BufferedReader, java.lang.String, java.lang.String)
+      fullyQualifiedTargetTypeName: world.mongoose.banteng.persistence.DbScanner
   - org.openrewrite.java.ChangeMethodTargetToStatic:
-      methodPattern: moo.persistence.LambdaMooV5Reader requiredLine(java.io.BufferedReader, java.lang.String)
-      fullyQualifiedTargetTypeName: moo.persistence.DbScanner
+      methodPattern: world.mongoose.banteng.persistence.LambdaMooV5Reader requiredLine(java.io.BufferedReader, java.lang.String)
+      fullyQualifiedTargetTypeName: world.mongoose.banteng.persistence.DbScanner
   - org.openrewrite.java.ChangeMethodTargetToStatic:
-      methodPattern: moo.persistence.LambdaMooV5Reader malformed(java.lang.String)
-      fullyQualifiedTargetTypeName: moo.persistence.DbScanner
+      methodPattern: world.mongoose.banteng.persistence.LambdaMooV5Reader malformed(java.lang.String)
+      fullyQualifiedTargetTypeName: world.mongoose.banteng.persistence.DbScanner
   - org.openrewrite.java.ChangeMethodTargetToStatic:
-      methodPattern: moo.persistence.LambdaMooV5Reader malformed(java.lang.String, java.lang.Throwable)
-      fullyQualifiedTargetTypeName: moo.persistence.DbScanner
+      methodPattern: world.mongoose.banteng.persistence.LambdaMooV5Reader malformed(java.lang.String, java.lang.Throwable)
+      fullyQualifiedTargetTypeName: world.mongoose.banteng.persistence.DbScanner
   - org.openrewrite.java.ChangeMethodTargetToStatic:
-      methodPattern: moo.persistence.LambdaMooV17Codec readCount(java.io.BufferedReader, java.lang.String)
-      fullyQualifiedTargetTypeName: moo.persistence.DbScanner
+      methodPattern: world.mongoose.banteng.persistence.LambdaMooV17Codec readCount(java.io.BufferedReader, java.lang.String)
+      fullyQualifiedTargetTypeName: world.mongoose.banteng.persistence.DbScanner
   - org.openrewrite.java.ChangeMethodTargetToStatic:
-      methodPattern: moo.persistence.LambdaMooV17Codec parseCount(java.lang.String, java.lang.String)
-      fullyQualifiedTargetTypeName: moo.persistence.DbScanner
+      methodPattern: world.mongoose.banteng.persistence.LambdaMooV17Codec parseCount(java.lang.String, java.lang.String)
+      fullyQualifiedTargetTypeName: world.mongoose.banteng.persistence.DbScanner
   - org.openrewrite.java.ChangeMethodTargetToStatic:
-      methodPattern: moo.persistence.LambdaMooV17Codec readInt(java.io.BufferedReader, java.lang.String)
-      fullyQualifiedTargetTypeName: moo.persistence.DbScanner
+      methodPattern: world.mongoose.banteng.persistence.LambdaMooV17Codec readInt(java.io.BufferedReader, java.lang.String)
+      fullyQualifiedTargetTypeName: world.mongoose.banteng.persistence.DbScanner
   - org.openrewrite.java.ChangeMethodTargetToStatic:
-      methodPattern: moo.persistence.LambdaMooV17Codec parseInt(java.lang.String, java.lang.String)
-      fullyQualifiedTargetTypeName: moo.persistence.DbScanner
+      methodPattern: world.mongoose.banteng.persistence.LambdaMooV17Codec parseInt(java.lang.String, java.lang.String)
+      fullyQualifiedTargetTypeName: world.mongoose.banteng.persistence.DbScanner
   - org.openrewrite.java.ChangeMethodTargetToStatic:
-      methodPattern: moo.persistence.LambdaMooV17Codec readLong(java.io.BufferedReader, java.lang.String)
-      fullyQualifiedTargetTypeName: moo.persistence.DbScanner
+      methodPattern: world.mongoose.banteng.persistence.LambdaMooV17Codec readLong(java.io.BufferedReader, java.lang.String)
+      fullyQualifiedTargetTypeName: world.mongoose.banteng.persistence.DbScanner
   - org.openrewrite.java.ChangeMethodTargetToStatic:
-      methodPattern: moo.persistence.LambdaMooV17Codec parseLong(java.lang.String, java.lang.String)
-      fullyQualifiedTargetTypeName: moo.persistence.DbScanner
+      methodPattern: world.mongoose.banteng.persistence.LambdaMooV17Codec parseLong(java.lang.String, java.lang.String)
+      fullyQualifiedTargetTypeName: world.mongoose.banteng.persistence.DbScanner
   - org.openrewrite.java.ChangeMethodTargetToStatic:
-      methodPattern: moo.persistence.LambdaMooV17Codec readDouble(java.io.BufferedReader, java.lang.String)
-      fullyQualifiedTargetTypeName: moo.persistence.DbScanner
+      methodPattern: world.mongoose.banteng.persistence.LambdaMooV17Codec readDouble(java.io.BufferedReader, java.lang.String)
+      fullyQualifiedTargetTypeName: world.mongoose.banteng.persistence.DbScanner
   - org.openrewrite.java.ChangeMethodTargetToStatic:
-      methodPattern: moo.persistence.LambdaMooV17Codec requireExact(java.io.BufferedReader, java.lang.String, java.lang.String)
-      fullyQualifiedTargetTypeName: moo.persistence.DbScanner
+      methodPattern: world.mongoose.banteng.persistence.LambdaMooV17Codec requireExact(java.io.BufferedReader, java.lang.String, java.lang.String)
+      fullyQualifiedTargetTypeName: world.mongoose.banteng.persistence.DbScanner
   - org.openrewrite.java.ChangeMethodTargetToStatic:
-      methodPattern: moo.persistence.LambdaMooV17Codec requiredLine(java.io.BufferedReader, java.lang.String)
-      fullyQualifiedTargetTypeName: moo.persistence.DbScanner
+      methodPattern: world.mongoose.banteng.persistence.LambdaMooV17Codec requiredLine(java.io.BufferedReader, java.lang.String)
+      fullyQualifiedTargetTypeName: world.mongoose.banteng.persistence.DbScanner
   - org.openrewrite.java.ChangeMethodTargetToStatic:
-      methodPattern: moo.persistence.LambdaMooV17Codec malformed(java.lang.String)
-      fullyQualifiedTargetTypeName: moo.persistence.DbScanner
+      methodPattern: world.mongoose.banteng.persistence.LambdaMooV17Codec malformed(java.lang.String)
+      fullyQualifiedTargetTypeName: world.mongoose.banteng.persistence.DbScanner
   - org.openrewrite.java.ChangeMethodTargetToStatic:
-      methodPattern: moo.persistence.LambdaMooV17Codec malformed(java.lang.String, java.lang.Throwable)
-      fullyQualifiedTargetTypeName: moo.persistence.DbScanner
+      methodPattern: world.mongoose.banteng.persistence.LambdaMooV17Codec malformed(java.lang.String, java.lang.Throwable)
+      fullyQualifiedTargetTypeName: world.mongoose.banteng.persistence.DbScanner
 ---
 type: specs.openrewrite.org/v1beta/recipe
-name: moo.builtin.ConsolidateUnaryFloatHandlers
+name: world.mongoose.banteng.builtin.ConsolidateUnaryFloatHandlers
 displayName: Consolidate unary-float builtin handlers
 description: Replaces the uniform manifest lambdas with the shared unary-float handler factory.
 recipeList:
-  - moo.rewrite.ConsolidateUnaryFloatHandlers
+  - world.mongoose.banteng.rewrite.ConsolidateUnaryFloatHandlers
 ---
 type: specs.openrewrite.org/v1beta/recipe
-name: moo.persistence.DecomposeToastV17ProgramLayout
+name: world.mongoose.banteng.persistence.DecomposeToastV17ProgramLayout
 displayName: Decompose Toast v17 program layout types
 description: Retargets the layout facade's public nested model to its bytecode-owned data model.
 recipeList:
-  - moo.rewrite.PromoteToastV17LayoutCompilers
+  - world.mongoose.banteng.rewrite.PromoteToastV17LayoutCompilers
   - org.openrewrite.java.ChangeType:
-      oldFullyQualifiedTypeName: moo.persistence.ToastV17ProgramLayout$LayoutCompiler
-      newFullyQualifiedTypeName: moo.bytecode.LayoutCompiler
+      oldFullyQualifiedTypeName: world.mongoose.banteng.persistence.ToastV17ProgramLayout$LayoutCompiler
+      newFullyQualifiedTypeName: world.mongoose.banteng.bytecode.LayoutCompiler
   - org.openrewrite.java.ChangeType:
-      oldFullyQualifiedTypeName: moo.persistence.ToastV17ProgramLayout$VectorBuilder
-      newFullyQualifiedTypeName: moo.bytecode.VectorBuilder
+      oldFullyQualifiedTypeName: world.mongoose.banteng.persistence.ToastV17ProgramLayout$VectorBuilder
+      newFullyQualifiedTypeName: world.mongoose.banteng.bytecode.VectorBuilder
   - org.openrewrite.java.ChangeType:
-      oldFullyQualifiedTypeName: moo.persistence.ToastV17ProgramLayout$CallKind
-      newFullyQualifiedTypeName: moo.bytecode.ToastV17ProgramModel$CallKind
+      oldFullyQualifiedTypeName: world.mongoose.banteng.persistence.ToastV17ProgramLayout$CallKind
+      newFullyQualifiedTypeName: world.mongoose.banteng.bytecode.ToastV17ProgramModel$CallKind
   - org.openrewrite.java.ChangeType:
-      oldFullyQualifiedTypeName: moo.persistence.ToastV17ProgramLayout$CallBoundary
-      newFullyQualifiedTypeName: moo.bytecode.ToastV17ProgramModel$CallBoundary
+      oldFullyQualifiedTypeName: world.mongoose.banteng.persistence.ToastV17ProgramLayout$CallBoundary
+      newFullyQualifiedTypeName: world.mongoose.banteng.bytecode.ToastV17ProgramModel$CallBoundary
   - org.openrewrite.java.ChangeType:
-      oldFullyQualifiedTypeName: moo.persistence.ToastV17ProgramLayout$BantengCallSite
-      newFullyQualifiedTypeName: moo.bytecode.ToastV17ProgramModel$BantengCallSite
+      oldFullyQualifiedTypeName: world.mongoose.banteng.persistence.ToastV17ProgramLayout$BantengCallSite
+      newFullyQualifiedTypeName: world.mongoose.banteng.bytecode.ToastV17ProgramModel$BantengCallSite
   - org.openrewrite.java.ChangeType:
-      oldFullyQualifiedTypeName: moo.persistence.ToastV17ProgramLayout$HandlerPhase
-      newFullyQualifiedTypeName: moo.bytecode.ToastV17ProgramModel$HandlerPhase
+      oldFullyQualifiedTypeName: world.mongoose.banteng.persistence.ToastV17ProgramLayout$HandlerPhase
+      newFullyQualifiedTypeName: world.mongoose.banteng.bytecode.ToastV17ProgramModel$HandlerPhase
   - org.openrewrite.java.ChangeType:
-      oldFullyQualifiedTypeName: moo.persistence.ToastV17ProgramLayout$EnclosingHandler
-      newFullyQualifiedTypeName: moo.bytecode.ToastV17ProgramModel$EnclosingHandler
+      oldFullyQualifiedTypeName: world.mongoose.banteng.persistence.ToastV17ProgramLayout$EnclosingHandler
+      newFullyQualifiedTypeName: world.mongoose.banteng.bytecode.ToastV17ProgramModel$EnclosingHandler
   - org.openrewrite.java.ChangeType:
-      oldFullyQualifiedTypeName: moo.persistence.ToastV17ProgramLayout$EnclosingIterate
-      newFullyQualifiedTypeName: moo.bytecode.ToastV17ProgramModel$EnclosingIterate
+      oldFullyQualifiedTypeName: world.mongoose.banteng.persistence.ToastV17ProgramLayout$EnclosingIterate
+      newFullyQualifiedTypeName: world.mongoose.banteng.bytecode.ToastV17ProgramModel$EnclosingIterate
   - org.openrewrite.java.ChangeType:
-      oldFullyQualifiedTypeName: moo.persistence.ToastV17ProgramLayout$ContinuationSite
-      newFullyQualifiedTypeName: moo.bytecode.ToastV17ProgramModel$ContinuationSite
+      oldFullyQualifiedTypeName: world.mongoose.banteng.persistence.ToastV17ProgramLayout$ContinuationSite
+      newFullyQualifiedTypeName: world.mongoose.banteng.bytecode.ToastV17ProgramModel$ContinuationSite
   - org.openrewrite.java.ChangeType:
-      oldFullyQualifiedTypeName: moo.persistence.ToastV17ProgramLayout$ToastErrorSelector
-      newFullyQualifiedTypeName: moo.bytecode.ToastV17ProgramModel$ToastErrorSelector
+      oldFullyQualifiedTypeName: world.mongoose.banteng.persistence.ToastV17ProgramLayout$ToastErrorSelector
+      newFullyQualifiedTypeName: world.mongoose.banteng.bytecode.ToastV17ProgramModel$ToastErrorSelector
   - org.openrewrite.java.ChangeType:
-      oldFullyQualifiedTypeName: moo.persistence.ToastV17ProgramLayout$ToastHandlerClause
-      newFullyQualifiedTypeName: moo.bytecode.ToastV17ProgramModel$ToastHandlerClause
+      oldFullyQualifiedTypeName: world.mongoose.banteng.persistence.ToastV17ProgramLayout$ToastHandlerClause
+      newFullyQualifiedTypeName: world.mongoose.banteng.bytecode.ToastV17ProgramModel$ToastHandlerClause
   - org.openrewrite.java.ChangeType:
-      oldFullyQualifiedTypeName: moo.persistence.ToastV17ProgramLayout$ToastHandlerGroup
-      newFullyQualifiedTypeName: moo.bytecode.ToastV17ProgramModel$ToastHandlerGroup
+      oldFullyQualifiedTypeName: world.mongoose.banteng.persistence.ToastV17ProgramLayout$ToastHandlerGroup
+      newFullyQualifiedTypeName: world.mongoose.banteng.bytecode.ToastV17ProgramModel$ToastHandlerGroup
   - org.openrewrite.java.ChangeType:
-      oldFullyQualifiedTypeName: moo.persistence.ToastV17ProgramLayout$ToastFinallyLabel
-      newFullyQualifiedTypeName: moo.bytecode.ToastV17ProgramModel$ToastFinallyLabel
+      oldFullyQualifiedTypeName: world.mongoose.banteng.persistence.ToastV17ProgramLayout$ToastFinallyLabel
+      newFullyQualifiedTypeName: world.mongoose.banteng.bytecode.ToastV17ProgramModel$ToastFinallyLabel
   - org.openrewrite.java.ChangeType:
-      oldFullyQualifiedTypeName: moo.persistence.ToastV17ProgramLayout$ToastControlLabels
-      newFullyQualifiedTypeName: moo.bytecode.ToastV17ProgramModel$ToastControlLabels
+      oldFullyQualifiedTypeName: world.mongoose.banteng.persistence.ToastV17ProgramLayout$ToastControlLabels
+      newFullyQualifiedTypeName: world.mongoose.banteng.bytecode.ToastV17ProgramModel$ToastControlLabels
   - org.openrewrite.java.ChangeType:
-      oldFullyQualifiedTypeName: moo.persistence.ToastV17ProgramLayout$StructuralPhase
-      newFullyQualifiedTypeName: moo.bytecode.ToastV17ProgramModel$StructuralPhase
+      oldFullyQualifiedTypeName: world.mongoose.banteng.persistence.ToastV17ProgramLayout$StructuralPhase
+      newFullyQualifiedTypeName: world.mongoose.banteng.bytecode.ToastV17ProgramModel$StructuralPhase
   - org.openrewrite.java.ChangeType:
-      oldFullyQualifiedTypeName: moo.persistence.ToastV17ProgramLayout$CollectionKind
-      newFullyQualifiedTypeName: moo.bytecode.ToastV17ProgramModel$CollectionKind
+      oldFullyQualifiedTypeName: world.mongoose.banteng.persistence.ToastV17ProgramLayout$CollectionKind
+      newFullyQualifiedTypeName: world.mongoose.banteng.bytecode.ToastV17ProgramModel$CollectionKind
   - org.openrewrite.java.ChangeType:
-      oldFullyQualifiedTypeName: moo.persistence.ToastV17ProgramLayout$RangeKind
-      newFullyQualifiedTypeName: moo.bytecode.ToastV17ProgramModel$RangeKind
+      oldFullyQualifiedTypeName: world.mongoose.banteng.persistence.ToastV17ProgramLayout$RangeKind
+      newFullyQualifiedTypeName: world.mongoose.banteng.bytecode.ToastV17ProgramModel$RangeKind
   - org.openrewrite.java.ChangeType:
-      oldFullyQualifiedTypeName: moo.persistence.ToastV17ProgramLayout$ExitAction
-      newFullyQualifiedTypeName: moo.bytecode.ToastV17ProgramModel$ExitAction
+      oldFullyQualifiedTypeName: world.mongoose.banteng.persistence.ToastV17ProgramLayout$ExitAction
+      newFullyQualifiedTypeName: world.mongoose.banteng.bytecode.ToastV17ProgramModel$ExitAction
   - org.openrewrite.java.ChangeType:
-      oldFullyQualifiedTypeName: moo.persistence.ToastV17ProgramLayout$BantengExitControl
-      newFullyQualifiedTypeName: moo.bytecode.ToastV17ProgramModel$BantengExitControl
+      oldFullyQualifiedTypeName: world.mongoose.banteng.persistence.ToastV17ProgramLayout$BantengExitControl
+      newFullyQualifiedTypeName: world.mongoose.banteng.bytecode.ToastV17ProgramModel$BantengExitControl
   - org.openrewrite.java.ChangeType:
-      oldFullyQualifiedTypeName: moo.persistence.ToastV17ProgramLayout$ToastExitTarget
-      newFullyQualifiedTypeName: moo.bytecode.ToastV17ProgramModel$ToastExitTarget
+      oldFullyQualifiedTypeName: world.mongoose.banteng.persistence.ToastV17ProgramLayout$ToastExitTarget
+      newFullyQualifiedTypeName: world.mongoose.banteng.bytecode.ToastV17ProgramModel$ToastExitTarget
   - org.openrewrite.java.ChangeType:
-      oldFullyQualifiedTypeName: moo.persistence.ToastV17ProgramLayout$BantengHandlerControl
-      newFullyQualifiedTypeName: moo.bytecode.ToastV17ProgramModel$BantengHandlerControl
+      oldFullyQualifiedTypeName: world.mongoose.banteng.persistence.ToastV17ProgramLayout$BantengHandlerControl
+      newFullyQualifiedTypeName: world.mongoose.banteng.bytecode.ToastV17ProgramModel$BantengHandlerControl
   - org.openrewrite.java.ChangeType:
-      oldFullyQualifiedTypeName: moo.persistence.ToastV17ProgramLayout$StructuralStackEntry
-      newFullyQualifiedTypeName: moo.bytecode.ToastV17ProgramModel$StructuralStackEntry
+      oldFullyQualifiedTypeName: world.mongoose.banteng.persistence.ToastV17ProgramLayout$StructuralStackEntry
+      newFullyQualifiedTypeName: world.mongoose.banteng.bytecode.ToastV17ProgramModel$StructuralStackEntry
   - org.openrewrite.java.ChangeType:
-      oldFullyQualifiedTypeName: moo.persistence.ToastV17ProgramLayout$CatchGroup
-      newFullyQualifiedTypeName: moo.bytecode.ToastV17ProgramModel$CatchGroup
+      oldFullyQualifiedTypeName: world.mongoose.banteng.persistence.ToastV17ProgramLayout$CatchGroup
+      newFullyQualifiedTypeName: world.mongoose.banteng.bytecode.ToastV17ProgramModel$CatchGroup
   - org.openrewrite.java.ChangeType:
-      oldFullyQualifiedTypeName: moo.persistence.ToastV17ProgramLayout$ProtectedFinally
-      newFullyQualifiedTypeName: moo.bytecode.ToastV17ProgramModel$ProtectedFinally
+      oldFullyQualifiedTypeName: world.mongoose.banteng.persistence.ToastV17ProgramLayout$ProtectedFinally
+      newFullyQualifiedTypeName: world.mongoose.banteng.bytecode.ToastV17ProgramModel$ProtectedFinally
   - org.openrewrite.java.ChangeType:
-      oldFullyQualifiedTypeName: moo.persistence.ToastV17ProgramLayout$FinallyContinuation
-      newFullyQualifiedTypeName: moo.bytecode.ToastV17ProgramModel$FinallyContinuation
+      oldFullyQualifiedTypeName: world.mongoose.banteng.persistence.ToastV17ProgramLayout$FinallyContinuation
+      newFullyQualifiedTypeName: world.mongoose.banteng.bytecode.ToastV17ProgramModel$FinallyContinuation
   - org.openrewrite.java.ChangeType:
-      oldFullyQualifiedTypeName: moo.persistence.ToastV17ProgramLayout$CollectionLoop
-      newFullyQualifiedTypeName: moo.bytecode.ToastV17ProgramModel$CollectionLoop
+      oldFullyQualifiedTypeName: world.mongoose.banteng.persistence.ToastV17ProgramLayout$CollectionLoop
+      newFullyQualifiedTypeName: world.mongoose.banteng.bytecode.ToastV17ProgramModel$CollectionLoop
   - org.openrewrite.java.ChangeType:
-      oldFullyQualifiedTypeName: moo.persistence.ToastV17ProgramLayout$RangeLoop
-      newFullyQualifiedTypeName: moo.bytecode.ToastV17ProgramModel$RangeLoop
+      oldFullyQualifiedTypeName: world.mongoose.banteng.persistence.ToastV17ProgramLayout$RangeLoop
+      newFullyQualifiedTypeName: world.mongoose.banteng.bytecode.ToastV17ProgramModel$RangeLoop
   - org.openrewrite.java.ChangeType:
-      oldFullyQualifiedTypeName: moo.persistence.ToastV17ProgramLayout$StructuralStackShape
-      newFullyQualifiedTypeName: moo.bytecode.ToastV17ProgramModel$StructuralStackShape
-  - moo.rewrite.AddToastV17ProgramModelImport
+      oldFullyQualifiedTypeName: world.mongoose.banteng.persistence.ToastV17ProgramLayout$StructuralStackShape
+      newFullyQualifiedTypeName: world.mongoose.banteng.bytecode.ToastV17ProgramModel$StructuralStackShape
+  - world.mongoose.banteng.rewrite.AddToastV17ProgramModelImport
   - org.openrewrite.java.RemoveUnusedImports
   - org.openrewrite.java.OrderImports
   - org.openrewrite.java.ShortenFullyQualifiedTypeReferences
 ---
 type: specs.openrewrite.org/v1beta/recipe
-name: moo.world.DecomposeWorldTxn
+name: world.mongoose.banteng.world.DecomposeWorldTxn
 displayName: Decompose WorldTxn
 description: Deletes dead methods and moves static property-layout algorithms to their owner.
 recipeList:
-  - moo.rewrite.DecomposeWorldTxn
+  - world.mongoose.banteng.rewrite.DecomposeWorldTxn
+---
+type: specs.openrewrite.org/v1beta/recipe
+name: world.mongoose.banteng.ChangePackage
+displayName: Move Banteng to its owned Java namespace
+description: Moves Banteng packages from moo to world.mongoose.banteng recursively.
+recipeList:
+  - org.openrewrite.java.ChangePackage:
+      oldPackageName: moo
+      newPackageName: world.mongoose.banteng
+      recursive: true
+  - world.mongoose.banteng.rewrite.RetargetSingleSegmentPackageReferences

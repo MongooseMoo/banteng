@@ -123,16 +123,16 @@ Make immutable committed records and transaction-only runtime access foundationa
 
 Suggested packages in a single project:
 
-- `moo.value`: values, equality, ordering, hashing, literal formatting.
-- `moo.syntax`: lexer, recursive-descent/Pratt parser, immutable AST, diagnostics.
-- `moo.bytecode`: compiler, immutable program, disassembler.
-- `moo.world`: committed records, transaction, validation, version retention.
-- `moo.vm`: explicit frames/stacks, opcode loop, outcomes, tick/time limits.
-- `moo.runtime`: task registry, ticket scheduler, effect publication, retries.
-- `moo.builtin`: explicit grouped builtin catalog; no reflection-based discovery.
-- `moo.persistence`: v4/v17 streaming reader/writer and checkpoint snapshots.
-- `moo.server`: listener, Telnet/session lifecycle, login/command dispatch.
-- `moo.app`: CLI and composition root.
+- `world.mongoose.banteng.value`: values, equality, ordering, hashing, literal formatting.
+- `world.mongoose.banteng.syntax`: lexer, recursive-descent/Pratt parser, immutable AST, diagnostics.
+- `world.mongoose.banteng.bytecode`: compiler, immutable program, disassembler.
+- `world.mongoose.banteng.world`: committed records, transaction, validation, version retention.
+- `world.mongoose.banteng.vm`: explicit frames/stacks, opcode loop, outcomes, tick/time limits.
+- `world.mongoose.banteng.runtime`: task registry, ticket scheduler, effect publication, retries.
+- `world.mongoose.banteng.builtin`: explicit grouped builtin catalog; no reflection-based discovery.
+- `world.mongoose.banteng.persistence`: v4/v17 streaming reader/writer and checkpoint snapshots.
+- `world.mongoose.banteng.server`: listener, Telnet/session lifecycle, login/command dispatch.
+- `world.mongoose.banteng.app`: CLI and composition root.
 
 The dependency direction should point inward toward values/world/VM. Network and persistence must not become alternate owners of world mutation.
 

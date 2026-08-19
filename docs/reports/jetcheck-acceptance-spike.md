@@ -9,7 +9,7 @@ test engine or a Banteng-owned property framework.
 
 ## Nested-value minimization and replay
 
-The temporary red form of `moo.JetCheckAcceptanceTest` generated a recursive
+The temporary red form of `world.mongoose.banteng.JetCheckAcceptanceTest` generated a recursive
 scalar/list/map `MooValue` payload inside a depth-two list and rejected values
 with nesting depth two or greater. The committed `JetCheckAcceptanceTest` is
 the sole authority for the exact minimized value and serialized replay token.
@@ -31,7 +31,7 @@ framework was added.
 Run through the wrapper under Java 25:
 
 ```text
-./gradlew test --tests moo.JetCheckAcceptanceTest
+./gradlew test --tests world.mongoose.banteng.JetCheckAcceptanceTest
 ```
 
 The acceptance run passes with dependency locking and checksum verification

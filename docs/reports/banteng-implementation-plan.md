@@ -84,21 +84,21 @@ socket reader -> deterministic ready queue -> publication ticket
 
 | Package | Owns |
 | --- | --- |
-| `moo.value` | tagged values, equality, ordering, hashing, literals |
-| `moo.syntax` | Latin-1 lexer, spans, parser, immutable AST |
-| `moo.bytecode` | compiler, program format, deterministic disassembly |
-| `moo.vm` | explicit frames, opcodes, errors, limits, segment outcomes |
-| `moo.world` | immutable records, indices, `WorldTxn`, revisions |
-| `moo.runtime` | tasks, tickets, retries, publication, effect journal |
-| `moo.persistence` | streaming v4 permanent-object bootstrap input, streaming v17 input including anonymous objects, and deterministic v17 output |
-| `moo.builtin` | builtin manifest, contracts, implementations |
-| `moo.server` | sockets, Telnet bytes, sessions, login, command ingress |
-| `moo.app` | picocli options and concrete composition root |
+| `world.mongoose.banteng.value` | tagged values, equality, ordering, hashing, literals |
+| `world.mongoose.banteng.syntax` | Latin-1 lexer, spans, parser, immutable AST |
+| `world.mongoose.banteng.bytecode` | compiler, program format, deterministic disassembly |
+| `world.mongoose.banteng.vm` | explicit frames, opcodes, errors, limits, segment outcomes |
+| `world.mongoose.banteng.world` | immutable records, indices, `WorldTxn`, revisions |
+| `world.mongoose.banteng.runtime` | tasks, tickets, retries, publication, effect journal |
+| `world.mongoose.banteng.persistence` | streaming v4 permanent-object bootstrap input, streaming v17 input including anonymous objects, and deterministic v17 output |
+| `world.mongoose.banteng.builtin` | builtin manifest, contracts, implementations |
+| `world.mongoose.banteng.server` | sockets, Telnet bytes, sessions, login, command ingress |
+| `world.mongoose.banteng.app` | picocli options and concrete composition root |
 
 `ArchitectureTest` rejects package cycles. Phase 2 makes the committed `World`
 and revision implementations package-private and adds
 `WorldAccessArchitectureTest`, which rejects production dependencies on those
-implementations from outside `moo.world`; the public immutable snapshot used by
+implementations from outside `world.mongoose.banteng.world`; the public immutable snapshot used by
 the v17 writer exposes no mutation operation.
 
 ## Builtin contract
@@ -345,9 +345,9 @@ Additional gates:
 
 ```bash
 cd /mnt/c/Users/Q/code/banteng
-JAVA_HOME=/opt/java/25 ./gradlew test --tests moo.persistence.V17RoundTripTest
-JAVA_HOME=/opt/java/25 ./gradlew test --tests moo.world.WorldTxnTest --tests moo.world.WorldTxnPropertyTest
-JAVA_HOME=/opt/java/25 ./gradlew test --tests moo.runtime.PublicationSchedulerTest --tests moo.ArchitectureTest --tests moo.world.WorldAccessArchitectureTest --tests moo.runtime.DurableTaskStateArchitectureTest
+JAVA_HOME=/opt/java/25 ./gradlew test --tests world.mongoose.banteng.persistence.V17RoundTripTest
+JAVA_HOME=/opt/java/25 ./gradlew test --tests world.mongoose.banteng.world.WorldTxnTest --tests world.mongoose.banteng.world.WorldTxnPropertyTest
+JAVA_HOME=/opt/java/25 ./gradlew test --tests world.mongoose.banteng.runtime.PublicationSchedulerTest --tests world.mongoose.banteng.ArchitectureTest --tests world.mongoose.banteng.world.WorldAccessArchitectureTest --tests world.mongoose.banteng.runtime.DurableTaskStateArchitectureTest
 JAVA_HOME=/opt/java/25 ./gradlew jcstress
 JAVA_HOME=/opt/java/25 ./gradlew check
 git diff --check
@@ -414,7 +414,7 @@ Gates:
 
 ```bash
 cd /mnt/c/Users/Q/code/banteng
-JAVA_HOME=/opt/java/25 ./gradlew test --tests moo.value.MooValuePropertiesTest --tests moo.bytecode.MooCompilerPropertiesTest --tests moo.vm.VmSnapshotTest --tests moo.persistence.AnonymousObjectPersistenceTest --tests moo.world.WorldIndexPropertyTest
+JAVA_HOME=/opt/java/25 ./gradlew test --tests world.mongoose.banteng.value.MooValuePropertiesTest --tests world.mongoose.banteng.bytecode.MooCompilerPropertiesTest --tests world.mongoose.banteng.vm.VmSnapshotTest --tests world.mongoose.banteng.persistence.AnonymousObjectPersistenceTest --tests world.mongoose.banteng.world.WorldIndexPropertyTest
 JAVA_HOME=/opt/java/25 ./gradlew check
 git diff --check
 ```
@@ -614,13 +614,13 @@ scripts/run_managed_wsl.sh banteng stock \
   src/moo_conformance/_tests/builtins/all_members_call_shapes.yaml \
   src/moo_conformance/_tests/generated_builtins/all_members.yaml
 JAVA_HOME=/opt/java/25 ./gradlew test \
-  --tests moo.bytecode.MooCompilerTest \
-  --tests moo.vm.VmSnapshotTest \
-  --tests moo.vm.MooVmTest \
-  --tests moo.runtime.TaskRegistryTest \
-  --tests moo.runtime.PublicationSchedulerTest \
-  --tests moo.persistence.QueuedTaskV17CodecTest \
-  --tests moo.builtin.BuiltinCatalogTest
+  --tests world.mongoose.banteng.bytecode.MooCompilerTest \
+  --tests world.mongoose.banteng.vm.VmSnapshotTest \
+  --tests world.mongoose.banteng.vm.MooVmTest \
+  --tests world.mongoose.banteng.runtime.TaskRegistryTest \
+  --tests world.mongoose.banteng.runtime.PublicationSchedulerTest \
+  --tests world.mongoose.banteng.persistence.QueuedTaskV17CodecTest \
+  --tests world.mongoose.banteng.builtin.BuiltinCatalogTest
 JAVA_HOME=/opt/java/25 ./gradlew check
 git diff --check
 ```
@@ -637,7 +637,7 @@ Add `scripts/extract_toast_builtin_names_wsl.sh MANIFEST OUTPUT`. It verifies th
 manifest first, preprocesses only that manifest's pinned Toast source with its
 pinned source-option and generated-configuration headers and exact target compile
 flags, and writes the sorted canonical registered-name set. Commit the exact
-stock name fixture under `src/test/resources/moo/builtin/`.
+stock name fixture under `src/test/resources/world/mongoose/banteng/builtin/`.
 `BuiltinCatalogTest` compares the production manifest with that fixture without
 accessing an external checkout. The separate extraction gate below regenerates
 temporary files from the pinned sources and compares them byte-for-byte with the
@@ -653,9 +653,9 @@ Gates:
 ```bash
 cd /mnt/c/Users/Q/code/banteng
 scripts/extract_toast_builtin_names_wsl.sh profiles/toast/stock-wsl-testdb.json /tmp/banteng-builtins-stock.txt
-cmp src/test/resources/moo/builtin/toast-builtins-stock.txt /tmp/banteng-builtins-stock.txt
+cmp src/test/resources/world/mongoose/banteng/builtin/toast-builtins-stock.txt /tmp/banteng-builtins-stock.txt
 rm /tmp/banteng-builtins-stock.txt
-JAVA_HOME=/opt/java/25 ./gradlew test --tests moo.builtin.BuiltinCatalogTest
+JAVA_HOME=/opt/java/25 ./gradlew test --tests world.mongoose.banteng.builtin.BuiltinCatalogTest
 scripts/run_managed_wsl.sh toast stock src/moo_conformance/_tests/builtins src/moo_conformance/_tests/generated_builtins
 scripts/run_managed_wsl.sh banteng stock src/moo_conformance/_tests/builtins src/moo_conformance/_tests/generated_builtins
 JAVA_HOME=/opt/java/25 ./gradlew check
@@ -674,16 +674,16 @@ Barn benchmark dependency.
 
 Add these exact proof artifacts:
 
-- `moo.runtime.ConcurrentExecutionTest`: independent CPU segments overlap on
+- `world.mongoose.banteng.runtime.ConcurrentExecutionTest`: independent CPU segments overlap on
   distinct production executor threads;
-- `moo.runtime.ConcurrentSchedulerPropertyTest`: generated completion orders,
+- `world.mongoose.banteng.runtime.ConcurrentSchedulerPropertyTest`: generated completion orders,
   conflicts, retries, task IDs, and effects preserve invariants frozen by the
   exact Phase 4 managed rows; concurrent PRNG consumption must equal execution
   of the same generated task list in ready order with the same seed, using the
   Toast-proven `random` and `reseed_random` rows from Phase 5;
-- `moo.runtime.ConcurrentSchedulerStressTest`: bounded-queue saturation,
+- `world.mongoose.banteng.runtime.ConcurrentSchedulerStressTest`: bounded-queue saturation,
   repeated conflicts, retry bounds, and eventual progress;
-- `moo.jcstress.WorldPublicationTest`: readers observe only complete committed
+- `world.mongoose.banteng.jcstress.WorldPublicationTest`: readers observe only complete committed
   revisions.
 
 Add Gradle task `schedulerStress` that runs only the named stress class. Extend
@@ -693,7 +693,7 @@ Gates:
 
 ```bash
 cd /mnt/c/Users/Q/code/banteng
-JAVA_HOME=/opt/java/25 ./gradlew test --tests moo.runtime.ConcurrentExecutionTest --tests moo.runtime.ConcurrentSchedulerPropertyTest
+JAVA_HOME=/opt/java/25 ./gradlew test --tests world.mongoose.banteng.runtime.ConcurrentExecutionTest --tests world.mongoose.banteng.runtime.ConcurrentSchedulerPropertyTest
 JAVA_HOME=/opt/java/25 ./gradlew schedulerStress
 JAVA_HOME=/opt/java/25 ./gradlew jcstress
 scripts/run_managed_wsl.sh toast stock \
@@ -734,13 +734,13 @@ Add:
   `queued_task_runs_once_after_restart`,
   `suspended_task_resumes_once_after_restart`, and
   `checkpoint_during_active_task_exposes_only_committed_state`;
-- `moo.persistence.ActiveCheckpointTest`;
-- `moo.persistence.AtomicCheckpointFailureTest`;
-- `moo.persistence.RepeatedRestartTest`;
-- `moo.world.CheckpointRetentionTest`;
-- `moo.runtime.GracefulShutdownTest`;
-- `moo.runtime.JfrTemplateTest`;
-- `moo.app.OperationsCommandTest`;
+- `world.mongoose.banteng.persistence.ActiveCheckpointTest`;
+- `world.mongoose.banteng.persistence.AtomicCheckpointFailureTest`;
+- `world.mongoose.banteng.persistence.RepeatedRestartTest`;
+- `world.mongoose.banteng.world.CheckpointRetentionTest`;
+- `world.mongoose.banteng.runtime.GracefulShutdownTest`;
+- `world.mongoose.banteng.runtime.JfrTemplateTest`;
+- `world.mongoose.banteng.app.OperationsCommandTest`;
 - `src/main/resources/jfr/banteng-production.jfc`; and
 - `docs/operations.md` containing only executable launch, checkpoint, JFR, and
   recovery commands.
@@ -768,7 +768,7 @@ Gates:
 cd /mnt/c/Users/Q/code/banteng
 scripts/run_managed_wsl.sh toast stock src/moo_conformance/_tests/server/checkpoint_operational.yaml
 scripts/run_managed_wsl.sh banteng stock src/moo_conformance/_tests/server/checkpoint_operational.yaml
-JAVA_HOME=/opt/java/25 ./gradlew test --tests moo.persistence.ActiveCheckpointTest --tests moo.persistence.AtomicCheckpointFailureTest --tests moo.persistence.RepeatedRestartTest --tests moo.world.CheckpointRetentionTest --tests moo.runtime.GracefulShutdownTest --tests moo.runtime.JfrTemplateTest --tests moo.app.OperationsCommandTest
+JAVA_HOME=/opt/java/25 ./gradlew test --tests world.mongoose.banteng.persistence.ActiveCheckpointTest --tests world.mongoose.banteng.persistence.AtomicCheckpointFailureTest --tests world.mongoose.banteng.persistence.RepeatedRestartTest --tests world.mongoose.banteng.world.CheckpointRetentionTest --tests world.mongoose.banteng.runtime.GracefulShutdownTest --tests world.mongoose.banteng.runtime.JfrTemplateTest --tests world.mongoose.banteng.app.OperationsCommandTest
 JAVA_HOME=/opt/java/25 ./gradlew schedulerStress
 JAVA_HOME=/opt/java/25 ./gradlew check
 git diff --check

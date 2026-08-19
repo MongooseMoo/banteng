@@ -6,11 +6,11 @@ tmp="$(mktemp -d)"
 trap 'rm -rf -- "$tmp"' EXIT
 
 repo="$tmp/banteng"
-mkdir -p "$repo/scripts" "$repo/build/install/banteng/lib" "$tmp/java/moo/app" "$tmp/classes"
+mkdir -p "$repo/scripts" "$repo/build/install/banteng/lib" "$tmp/java/world/mongoose/banteng/app" "$tmp/classes"
 cp "$script_dir/run_banteng_wsl.sh" "$script_dir/run_toast_wsl.sh" "$repo/scripts/"
 
-cat > "$tmp/java/moo/app/Banteng.java" <<'JAVA'
-package moo.app;
+cat > "$tmp/java/world/mongoose/banteng/app/Banteng.java" <<'JAVA'
+package world.mongoose.banteng.app;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -24,7 +24,7 @@ public final class Banteng {
 }
 JAVA
 
-/opt/java/25/bin/javac -d "$tmp/classes" "$tmp/java/moo/app/Banteng.java"
+/opt/java/25/bin/javac -d "$tmp/classes" "$tmp/java/world/mongoose/banteng/app/Banteng.java"
 /opt/java/25/bin/jar --create --file "$repo/build/install/banteng/lib/capture.jar" -C "$tmp/classes" .
 jq -n '{features: {"option.PROMOTE_NUMBERS": true}}' > "$tmp/promote.json"
 jq -n '{features: {"option.PROMOTE_NUMBERS": false}}' > "$tmp/no-promote.json"

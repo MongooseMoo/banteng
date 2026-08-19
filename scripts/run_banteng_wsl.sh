@@ -35,7 +35,7 @@ exec /opt/java/25/bin/java \
   -XX:TieredStopAtLevel=1 \
   --enable-native-access=ALL-UNNAMED \
   -classpath "$distribution_lib/*" \
-  moo.app.Banteng \
+  world.mongoose.banteng.app.Banteng \
   --database "$database" \
   --checkpoint "${database}.new" \
   --listen-address 127.0.0.1 \
