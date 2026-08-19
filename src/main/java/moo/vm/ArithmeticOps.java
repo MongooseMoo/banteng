@@ -1,6 +1,7 @@
 package moo.vm;
 
 import java.util.Map;
+import java.util.Optional;
 import moo.bytecode.BytecodeProgram.Instruction;
 import moo.value.MooValue;
 import moo.value.MooValue.BooleanValue;
@@ -69,6 +70,13 @@ final class ArithmeticOps {
     LESS_THAN_OR_EQUAL,
     GREATER_THAN,
     GREATER_THAN_OR_EQUAL
+  }
+
+  private enum Ordering {
+    LESS,
+    EQUAL,
+    GREATER,
+    UNORDERED
   }
 
   private ArithmeticOps() {}
@@ -474,52 +482,65 @@ final class ArithmeticOps {
       leftValue = promoteInteger(leftValue);
       rightValue = promoteInteger(rightValue);
     }
-    Integer comparison = compare(leftValue, rightValue);
-    if (comparison == null) {
+    Optional<Ordering> optionalComparison = compare(leftValue, rightValue);
+    if (optionalComparison.isEmpty()) {
       ErrorOps.raise(state, ErrorValue.E_TYPE, world);
       return;
     }
+    Ordering comparison = optionalComparison.orElseThrow();
     boolean result = comparisonResult(operation, comparison);
     frame.operandStack.push(new IntegerValue(result ? 1 : 0));
     frame.instructionPointer++;
   }
 
-  private static Integer compare(MooValue leftValue, MooValue rightValue) {
+  private static Optional<Ordering> compare(MooValue leftValue, MooValue rightValue) {
     if ((leftValue instanceof BooleanValue && rightValue instanceof BooleanValue)
         || (leftValue instanceof WaifValue && rightValue instanceof WaifValue)) {
-      return 0;
+      return Optional.of(Ordering.EQUAL);
     }
     if (leftValue instanceof IntegerValue left && rightValue instanceof IntegerValue right) {
-      return Long.compare(left.value(), right.value());
+      return Optional.of(ordering(Long.compare(left.value(), right.value())));
     }
     if (leftValue instanceof ObjectValue left && rightValue instanceof ObjectValue right) {
-      return Long.compare(left.value(), right.value());
+      return Optional.of(ordering(Long.compare(left.value(), right.value())));
     }
     if (leftValue instanceof FloatValue left && rightValue instanceof FloatValue right) {
-      return primitiveDoubleCompare(left.value(), right.value());
+      return Optional.of(primitiveDoubleOrdering(left.value(), right.value()));
     }
     if (leftValue instanceof ErrorValue left && rightValue instanceof ErrorValue right) {
-      return Integer.compare(left.code(), right.code());
+      return Optional.of(ordering(Integer.compare(left.code(), right.code())));
     }
     if (leftValue instanceof StringValue left && rightValue instanceof StringValue right) {
-      return left.compareIgnoringCase(right);
+      return Optional.of(ordering(left.compareIgnoringCase(right)));
     }
-    return null;
+    return Optional.empty();
   }
 
-  private static int primitiveDoubleCompare(double left, double right) {
+  private static Ordering primitiveDoubleOrdering(double left, double right) {
+    if (Double.isNaN(left) || Double.isNaN(right)) {
+      return Ordering.UNORDERED;
+    }
     if (left < right) {
-      return -1;
+      return Ordering.LESS;
     }
-    return left > right ? 1 : 0;
+    return left > right ? Ordering.GREATER : Ordering.EQUAL;
   }
 
-  private static boolean comparisonResult(ComparisonOperation operation, int comparison) {
+  private static Ordering ordering(int comparison) {
+    if (comparison < 0) {
+      return Ordering.LESS;
+    }
+    return comparison > 0 ? Ordering.GREATER : Ordering.EQUAL;
+  }
+
+  private static boolean comparisonResult(ComparisonOperation operation, Ordering comparison) {
     return switch (operation) {
-      case LESS_THAN -> comparison < 0;
-      case LESS_THAN_OR_EQUAL -> comparison <= 0;
-      case GREATER_THAN -> comparison > 0;
-      case GREATER_THAN_OR_EQUAL -> comparison >= 0;
+      case LESS_THAN -> comparison == Ordering.LESS;
+      case LESS_THAN_OR_EQUAL ->
+          comparison == Ordering.LESS || comparison == Ordering.EQUAL;
+      case GREATER_THAN -> comparison == Ordering.GREATER;
+      case GREATER_THAN_OR_EQUAL ->
+          comparison == Ordering.GREATER || comparison == Ordering.EQUAL;
     };
   }
 
