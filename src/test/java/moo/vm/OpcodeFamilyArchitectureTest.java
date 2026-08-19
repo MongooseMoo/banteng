@@ -74,6 +74,13 @@ final class OpcodeFamilyArchitectureTest {
     assertEquals(1, occurrences(arithmetic, "left.compareIgnoringCase(right)"));
   }
 
+  @Test
+  void arithmeticHandlerValidatesItsRequiredInstruction() throws IOException {
+    String arithmetic = source("ArithmeticOps");
+
+    assertTrue(arithmetic.contains("Objects.requireNonNull(instruction, \"instruction\");"));
+  }
+
   private String sourceUnchecked(String name) {
     try {
       return source(name);

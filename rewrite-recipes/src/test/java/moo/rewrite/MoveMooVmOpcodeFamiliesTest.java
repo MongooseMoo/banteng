@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -71,10 +72,8 @@ final class MoveMooVmOpcodeFamiliesTest {
   }
 
   @Test
-  void leavesNonMooVmSourcesAndExistingFamilyFilesUntouched() {
+  void completeCandidateWithAnExistingFamilyTargetMakesNoChanges() {
     String unrelated = "package sample; final class MooVm { private static void index() {} }";
-    String candidate =
-        "package moo.vm; final class MooVm { private static void buildList() {} }";
     String collision = "package moo.vm; final class ListOps {}";
     InMemoryExecutionContext context =
         new InMemoryExecutionContext(
@@ -84,7 +83,7 @@ final class MoveMooVmOpcodeFamiliesTest {
     List<SourceFile> sources =
         JavaParser.fromJavaVersion()
             .build()
-            .parse(context, unrelated, candidate, collision)
+            .parse(context, unrelated, completeMooVmSource(), collision)
             .toList();
 
     List<Result> results =
@@ -97,6 +96,14 @@ final class MoveMooVmOpcodeFamiliesTest {
   }
 
   @Test
+  void secondApplicationIsIdempotent() {
+    Map<String, String> first = rewrite(completeMooVmSource());
+
+    assertFalse(first.isEmpty());
+    assertTrue(rewrite(first.values()).isEmpty());
+  }
+
+  @Test
   void declarativeRecipeActivatesTheExecutableMove() throws Exception {
     String yaml = Files.readString(Path.of("..", "rewrite.yml"));
     assertTrue(yaml.contains("name: moo.vm.DecomposeMooVmOpcodeFamilies"));
@@ -104,12 +111,17 @@ final class MoveMooVmOpcodeFamiliesTest {
   }
 
   private static Map<String, String> rewrite(String before) {
+    return rewrite(List.of(before));
+  }
+
+  private static Map<String, String> rewrite(Collection<String> before) {
     InMemoryExecutionContext context =
         new InMemoryExecutionContext(
             failure -> {
               throw new AssertionError(failure);
             });
-    List<SourceFile> sources = JavaParser.fromJavaVersion().build().parse(context, before).toList();
+    List<SourceFile> sources =
+        JavaParser.fromJavaVersion().build().parse(context, before.toArray(String[]::new)).toList();
     List<Result> results =
         new MoveMooVmOpcodeFamilies()
             .run(new InMemoryLargeSourceSet(sources), context)
