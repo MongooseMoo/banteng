@@ -12,6 +12,7 @@ import java.util.concurrent.CompletableFuture;
 import moo.builtin.BuiltinCatalog.ListenerControl;
 import moo.builtin.BuiltinCatalog.ListenerDescription;
 import moo.persistence.LambdaMooV4Reader;
+import moo.server.ConnectionRegistry;
 import moo.value.MooValue.IntegerValue;
 import moo.value.MooValue.MapValue;
 import moo.value.MooValue.ObjectValue;
@@ -29,7 +30,8 @@ final class SchedulerTestHarness implements AutoCloseable {
 
   static SchedulerTestHarness open(int workers, long... connectionIds) throws IOException {
     WorldTxn root = new LambdaMooV4Reader().read(FIXTURE);
-    MooRuntime runtime = new MooRuntime(root, new NoOpListener(), workers);
+    MooRuntime runtime =
+        new MooRuntime(root, new NoOpListener(), workers, new ConnectionRegistry());
     PublicationScheduler scheduler = field(runtime, "scheduler", PublicationScheduler.class);
     SchedulerTestHarness harness = new SchedulerTestHarness(root, runtime, scheduler);
     for (long connectionId : connectionIds) {
