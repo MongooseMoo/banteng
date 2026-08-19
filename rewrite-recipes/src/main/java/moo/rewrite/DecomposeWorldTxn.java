@@ -74,8 +74,7 @@ public final class DecomposeWorldTxn extends ScanningRecipe<DecomposeWorldTxn.Ac
           J.ClassDeclaration classDeclaration, ExecutionContext context) {
         if (classDeclaration.getSimpleName().equals("WorldTxn")) {
           for (Statement statement : classDeclaration.getBody().getStatements()) {
-            if (statement instanceof J.MethodDeclaration method
-                && MOVED_METHODS.contains(method.getSimpleName())) {
+            if (statement instanceof J.MethodDeclaration method && isMovedDeclaration(method)) {
               accumulator.moved.putIfAbsent(method.getSimpleName(), method);
             } else if (statement instanceof J.ClassDeclaration nested
                 && nested.getSimpleName().equals("PropertyDefinition")) {
@@ -99,7 +98,7 @@ public final class DecomposeWorldTxn extends ScanningRecipe<DecomposeWorldTxn.Ac
         if (owner == null
             || !owner.getSimpleName().equals("WorldTxn")
             || candidate.getSelect() != null
-            || !MOVED_METHODS.contains(candidate.getSimpleName())) {
+            || !shouldRetargetInvocation(candidate)) {
           return candidate;
         }
         return JavaTemplate.builder("PropertyLayoutEngine." + candidate.printTrimmed(getCursor()))
@@ -117,7 +116,7 @@ public final class DecomposeWorldTxn extends ScanningRecipe<DecomposeWorldTxn.Ac
           for (Statement statement : candidate.getBody().getStatements()) {
             if (statement instanceof J.MethodDeclaration method
                 && (DEAD_METHODS.contains(method.getSimpleName())
-                    || MOVED_METHODS.contains(method.getSimpleName()))) {
+                    || isMovedDeclaration(method))) {
               continue;
             }
             if (statement instanceof J.ClassDeclaration nested
@@ -151,6 +150,17 @@ public final class DecomposeWorldTxn extends ScanningRecipe<DecomposeWorldTxn.Ac
         return candidate;
       }
     };
+  }
+
+  private static boolean isMovedDeclaration(J.MethodDeclaration method) {
+    return MOVED_METHODS.contains(method.getSimpleName())
+        && method.getModifiers().stream()
+            .anyMatch(modifier -> modifier.getType() == J.Modifier.Type.Static);
+  }
+
+  private static boolean shouldRetargetInvocation(J.MethodInvocation invocation) {
+    return MOVED_METHODS.contains(invocation.getSimpleName())
+        && !invocation.getSimpleName().equals("collectAncestry");
   }
 
   static final class Accumulator {
