@@ -1738,7 +1738,7 @@ public final class WorldTxn implements AutoCloseable {
               object.children(),
               verbs,
               properties);
-      case WorldAnonymousObject _ ->
+      default ->
           new WorldAnonymousObject(
               name, holder.flags(), owner, holder.parents(), verbs, properties);
     };
