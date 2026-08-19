@@ -73,41 +73,100 @@ final class ArithmeticOps {
 
   private ArithmeticOps() {}
 
-  static void execute(
+  static boolean execute(
       Operation operation,
       VmState state,
       Instruction instruction,
       Frame frame,
       WorldTxn world,
       ValueSemantics valueSemantics) {
-    switch (operation) {
-      case NEGATE -> unaryNegate(frame, state, world);
-      case NOT -> logicalNot(frame);
-      case COMPLEMENT -> bitwiseComplement(frame, state, world);
-      case ADD -> arithmetic(NumericOperation.ADD, frame, state, world, valueSemantics);
-      case SUBTRACT -> arithmetic(NumericOperation.SUBTRACT, frame, state, world, valueSemantics);
-      case MULTIPLY -> arithmetic(NumericOperation.MULTIPLY, frame, state, world, valueSemantics);
-      case DIVIDE -> arithmetic(NumericOperation.DIVIDE, frame, state, world, valueSemantics);
-      case REMAINDER -> arithmetic(NumericOperation.REMAINDER, frame, state, world, valueSemantics);
-      case POWER -> arithmetic(NumericOperation.POWER, frame, state, world, valueSemantics);
-      case BITOR -> bitwise(BitwiseOperation.OR, frame, state, world);
-      case BITAND -> bitwise(BitwiseOperation.AND, frame, state, world);
-      case BITXOR -> bitwise(BitwiseOperation.XOR, frame, state, world);
-      case BITSHL -> bitwise(BitwiseOperation.SHIFT_LEFT, frame, state, world);
-      case BITSHR -> bitwise(BitwiseOperation.SHIFT_RIGHT, frame, state, world);
-      case EQUAL -> equality(EqualityOperation.EQUAL, frame, valueSemantics);
-      case NOT_EQUAL -> equality(EqualityOperation.NOT_EQUAL, frame, valueSemantics);
-      case LESS_THAN ->
-          comparison(ComparisonOperation.LESS_THAN, frame, state, world, valueSemantics);
-      case LESS_THAN_OR_EQUAL ->
-          comparison(ComparisonOperation.LESS_THAN_OR_EQUAL, frame, state, world, valueSemantics);
-      case GREATER_THAN ->
-          comparison(ComparisonOperation.GREATER_THAN, frame, state, world, valueSemantics);
-      case GREATER_THAN_OR_EQUAL ->
-          comparison(
-              ComparisonOperation.GREATER_THAN_OR_EQUAL, frame, state, world, valueSemantics);
-      case IN -> membership(frame, state, world, valueSemantics);
-    }
+    return switch (operation) {
+      case NEGATE -> {
+        unaryNegate(frame, state, world);
+        yield true;
+      }
+      case NOT -> {
+        logicalNot(frame);
+        yield true;
+      }
+      case COMPLEMENT -> {
+        bitwiseComplement(frame, state, world);
+        yield true;
+      }
+      case ADD -> {
+        arithmetic(NumericOperation.ADD, frame, state, world, valueSemantics);
+        yield true;
+      }
+      case SUBTRACT -> {
+        arithmetic(NumericOperation.SUBTRACT, frame, state, world, valueSemantics);
+        yield true;
+      }
+      case MULTIPLY -> {
+        arithmetic(NumericOperation.MULTIPLY, frame, state, world, valueSemantics);
+        yield true;
+      }
+      case DIVIDE -> {
+        arithmetic(NumericOperation.DIVIDE, frame, state, world, valueSemantics);
+        yield true;
+      }
+      case REMAINDER -> {
+        arithmetic(NumericOperation.REMAINDER, frame, state, world, valueSemantics);
+        yield true;
+      }
+      case POWER -> {
+        arithmetic(NumericOperation.POWER, frame, state, world, valueSemantics);
+        yield true;
+      }
+      case BITOR -> {
+        bitwise(BitwiseOperation.OR, frame, state, world);
+        yield true;
+      }
+      case BITAND -> {
+        bitwise(BitwiseOperation.AND, frame, state, world);
+        yield true;
+      }
+      case BITXOR -> {
+        bitwise(BitwiseOperation.XOR, frame, state, world);
+        yield true;
+      }
+      case BITSHL -> {
+        bitwise(BitwiseOperation.SHIFT_LEFT, frame, state, world);
+        yield true;
+      }
+      case BITSHR -> {
+        bitwise(BitwiseOperation.SHIFT_RIGHT, frame, state, world);
+        yield true;
+      }
+      case EQUAL -> {
+        equality(EqualityOperation.EQUAL, frame, valueSemantics);
+        yield true;
+      }
+      case NOT_EQUAL -> {
+        equality(EqualityOperation.NOT_EQUAL, frame, valueSemantics);
+        yield true;
+      }
+      case LESS_THAN -> {
+        comparison(ComparisonOperation.LESS_THAN, frame, state, world, valueSemantics);
+        yield true;
+      }
+      case LESS_THAN_OR_EQUAL -> {
+        comparison(ComparisonOperation.LESS_THAN_OR_EQUAL, frame, state, world, valueSemantics);
+        yield true;
+      }
+      case GREATER_THAN -> {
+        comparison(ComparisonOperation.GREATER_THAN, frame, state, world, valueSemantics);
+        yield true;
+      }
+      case GREATER_THAN_OR_EQUAL -> {
+        comparison(
+            ComparisonOperation.GREATER_THAN_OR_EQUAL, frame, state, world, valueSemantics);
+        yield true;
+      }
+      case IN -> {
+        membership(frame, state, world, valueSemantics);
+        yield true;
+      }
+    };
   }
 
   private static void logicalNot(Frame frame) {

@@ -41,33 +41,63 @@ final class LoopOps {
 
   private LoopOps() {}
 
-  static void execute(
+  static boolean execute(
       Operation operation, VmState state, Instruction instruction, Frame frame, WorldTxn world) {
-    switch (operation) {
-      case FORK -> fork(instruction, frame, state, world);
-      case JUMP -> frame.instructionPointer = target(instruction);
-      case JUMP_IF_FALSE -> conditionalJump(instruction, frame, false);
-      case JUMP_IF_TRUE -> conditionalJump(instruction, frame, true);
+    return switch (operation) {
+      case FORK -> {
+        fork(instruction, frame, state, world);
+        yield true;
+      }
+      case JUMP -> {
+        frame.instructionPointer = target(instruction);
+        yield true;
+      }
+      case JUMP_IF_FALSE -> {
+        conditionalJump(instruction, frame, false);
+        yield true;
+      }
+      case JUMP_IF_TRUE -> {
+        conditionalJump(instruction, frame, true);
+        yield true;
+      }
       case ENTER_HANDLER -> {
         frame.handlers.push(
             new ActiveHandler(instruction.handler().orElseThrow(), frame.operandStack.size()));
         frame.instructionPointer++;
+        yield true;
       }
-      case LEAVE_HANDLER -> leaveHandler(frame);
-      case END_FINALLY -> endFinally(state, world);
-      case ITERATE -> iterate(instruction, frame, state, world);
-      case ITERATE_RANGE -> iterateRange(instruction, frame, state, world);
+      case LEAVE_HANDLER -> {
+        leaveHandler(frame);
+        yield true;
+      }
+      case END_FINALLY -> {
+        endFinally(state, world);
+        yield true;
+      }
+      case ITERATE -> {
+        iterate(instruction, frame, state, world);
+        yield true;
+      }
+      case ITERATE_RANGE -> {
+        iterateRange(instruction, frame, state, world);
+        yield true;
+      }
       case LEAVE_LOOP -> {
         frame.loops.remove(Math.toIntExact(instruction.operand().orElseThrow()));
         frame.instructionPointer++;
+        yield true;
       }
-      case SCATTER -> scatter(instruction, frame, state, world);
+      case SCATTER -> {
+        scatter(instruction, frame, state, world);
+        yield true;
+      }
       case RETURN -> {
         MooValue value = frame.operandStack.pop();
         frame.instructionPointer++;
         routeReturn(state, value, world);
+        yield true;
       }
-    }
+    };
   }
 
   static void routeReturn(VmState state, MooValue value, WorldTxn world) {

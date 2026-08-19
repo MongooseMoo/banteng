@@ -24,15 +24,26 @@ final class ListOps {
 
   private ListOps() {}
 
-  static void execute(
+  static boolean execute(
       Operation operation, VmState state, Instruction instruction, Frame frame, WorldTxn world) {
-    switch (operation) {
-      case BUILD_LIST -> buildList(frame, Math.toIntExact(instruction.operand().orElseThrow()));
-      case LIST_APPEND -> appendList(frame, state, world);
-      case LIST_EXTEND -> extendList(frame, state, world);
-      case BUILD_MAP ->
-          buildMap(frame, state, world, Math.toIntExact(instruction.operand().orElseThrow()));
-    }
+    return switch (operation) {
+      case BUILD_LIST -> {
+        buildList(frame, Math.toIntExact(instruction.operand().orElseThrow()));
+        yield true;
+      }
+      case LIST_APPEND -> {
+        appendList(frame, state, world);
+        yield true;
+      }
+      case LIST_EXTEND -> {
+        extendList(frame, state, world);
+        yield true;
+      }
+      case BUILD_MAP -> {
+        buildMap(frame, state, world, Math.toIntExact(instruction.operand().orElseThrow()));
+        yield true;
+      }
+    };
   }
 
   private static void buildList(Frame frame, int count) {

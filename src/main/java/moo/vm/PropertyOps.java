@@ -52,13 +52,22 @@ final class PropertyOps {
 
   private PropertyOps() {}
 
-  static void execute(
+  static boolean execute(
       Operation operation, VmState state, Instruction instruction, Frame frame, WorldTxn world) {
-    switch (operation) {
-      case LOAD_LOCAL -> loadLocal(frame, instruction.text().orElseThrow(), state, world);
-      case GET_PROPERTY -> getProperty(frame, state, world);
-      case SET_PROPERTY -> setProperty(frame, state, world);
-    }
+    return switch (operation) {
+      case LOAD_LOCAL -> {
+        loadLocal(frame, instruction.text().orElseThrow(), state, world);
+        yield true;
+      }
+      case GET_PROPERTY -> {
+        getProperty(frame, state, world);
+        yield true;
+      }
+      case SET_PROPERTY -> {
+        setProperty(frame, state, world);
+        yield true;
+      }
+    };
   }
 
   private static void loadLocal(Frame frame, String name, VmState state, WorldTxn world) {

@@ -40,36 +40,55 @@ final class IndexOps {
 
   private IndexOps() {}
 
-  static void execute(
+  static boolean execute(
       Operation operation, VmState state, Instruction instruction, Frame frame, WorldTxn world) {
-    switch (operation) {
+    return switch (operation) {
       case ENTER_INDEX -> {
         frame.indexCollections.push(
             new IndexContext(
                 frame.operandStack.getFirst(), Optional.empty(), frame.operandStack.size()));
         frame.instructionPointer++;
+        yield true;
       }
-      case INDEX ->
-          index(frame, state, world, Math.toIntExact(instruction.operand().orElse(0)));
-      case RANGE -> range(frame, state, world);
-      case FIRST -> boundaryIndex(frame, state, world, false);
-      case LAST -> boundaryIndex(frame, state, world, true);
-      case SET_INDEX_LOCAL ->
-          setIndexedLocal(
-              frame,
-              state,
-              world,
-              instruction.text().orElseThrow(),
-              Math.toIntExact(instruction.operand().orElse(0)));
-      case SET_INDEX_PROPERTY -> setIndexedProperty(frame, state, world);
-      case SET_RANGE_LOCAL ->
-          setRangeLocal(
-              frame,
-              state,
-              world,
-              instruction.text().orElseThrow(),
-              Math.toIntExact(instruction.operand().orElse(0)));
-    }
+      case INDEX -> {
+        index(frame, state, world, Math.toIntExact(instruction.operand().orElse(0)));
+        yield true;
+      }
+      case RANGE -> {
+        range(frame, state, world);
+        yield true;
+      }
+      case FIRST -> {
+        boundaryIndex(frame, state, world, false);
+        yield true;
+      }
+      case LAST -> {
+        boundaryIndex(frame, state, world, true);
+        yield true;
+      }
+      case SET_INDEX_LOCAL -> {
+        setIndexedLocal(
+            frame,
+            state,
+            world,
+            instruction.text().orElseThrow(),
+            Math.toIntExact(instruction.operand().orElse(0)));
+        yield true;
+      }
+      case SET_INDEX_PROPERTY -> {
+        setIndexedProperty(frame, state, world);
+        yield true;
+      }
+      case SET_RANGE_LOCAL -> {
+        setRangeLocal(
+            frame,
+            state,
+            world,
+            instruction.text().orElseThrow(),
+            Math.toIntExact(instruction.operand().orElse(0)));
+        yield true;
+      }
+    };
   }
 
   private static void index(Frame frame, VmState state, WorldTxn world, int parentDepth) {
