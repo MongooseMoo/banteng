@@ -4,6 +4,8 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.nio.file.Path;
+import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
 import moo.persistence.LambdaMooV4Reader;
@@ -34,6 +36,19 @@ final class MooRuntimeTest {
 
     assertEquals(8, connections.connectionPlayer(connectionId).orElseThrow());
     assertTrue(connections.connectionInfo(connectionId).isPresent());
+  }
+
+  @Test
+  void runtimeTransportStateDoesNotMirrorServerRegistryFields() {
+    List<String> fieldNames =
+        Arrays.stream(MooRuntime.ConnectionState.class.getDeclaredFields())
+            .map(field -> field.getName())
+            .toList();
+
+    assertTrue(
+        Collections.disjoint(
+            fieldNames, List.of("connectionInfo", "player", "intrinsicCommands")),
+        fieldNames.toString());
   }
 
   @Test
