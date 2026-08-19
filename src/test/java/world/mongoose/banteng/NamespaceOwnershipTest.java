@@ -320,7 +320,8 @@ final class NamespaceOwnershipTest {
     return OLD_NAMESPACE_SHAPE.matcher(line).find()
         || isExternalMooTerm(line)
         || line.contains("CMakeFiles/moo.dir")
-        || line.contains("`moo`");
+        || line.contains("`moo`")
+        || line.contains("mvcc-concurrent-moo:");
   }
 
   private static boolean isExternalMooTerm(String line) {
