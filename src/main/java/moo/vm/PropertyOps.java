@@ -307,7 +307,7 @@ final class PropertyOps {
     frame.instructionPointer++;
   }
 
-  private static void setProperty(Frame frame, VmState state, WorldTxn world) {
+  static void setProperty(Frame frame, VmState state, WorldTxn world) {
     MooValue value = frame.operandStack.pop();
     MooValue name = frame.operandStack.pop();
     MooValue receiver = frame.operandStack.pop();

@@ -433,7 +433,7 @@ final class IndexOps {
     }
     frame.operandStack.push(updatedCollection);
     int instructionPointer = frame.instructionPointer;
-    setProperty(frame, state, world);
+    PropertyOps.setProperty(frame, state, world);
     if (frame.instructionPointer == instructionPointer + 1) {
       frame.operandStack.pop();
       frame.operandStack.push(value);

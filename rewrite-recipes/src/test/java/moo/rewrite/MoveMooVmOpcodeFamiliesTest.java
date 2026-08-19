@@ -49,7 +49,9 @@ final class MoveMooVmOpcodeFamiliesTest {
     assertTrue(arithmetic.contains("static long integerPower("));
     assertTrue(arithmetic.contains("ErrorOps.raiseError(state, ErrorValue.E_TYPE, world)"));
     assertTrue(arithmetic.contains("static boolean mooEquals("));
-    assertTrue(arithmetic.contains("mooEquals(left, right, valueSemantics)"));
+    assertTrue(
+        arithmetic.contains(
+            "ArithmeticOps.mooEquals(frame.left, frame.right, valueSemantics)"));
     assertTrue(rewritten.get("LoopOps.java").contains("record CollectionElement("));
   }
 
