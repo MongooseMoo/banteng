@@ -19,10 +19,12 @@ import org.openrewrite.TreeVisitor;
 import org.openrewrite.java.JavaIsoVisitor;
 import org.openrewrite.java.RandomizeIdVisitor;
 import org.openrewrite.java.format.AutoFormatVisitor;
+import org.openrewrite.java.tree.Expression;
 import org.openrewrite.java.tree.J;
+import org.openrewrite.java.tree.Space;
 import org.openrewrite.java.tree.Statement;
 
-/** Moves MooVm's static opcode-family methods into their dedicated package owners. */
+/** Moves MooVm opcode-family methods and their dependencies into dedicated package owners. */
 public final class MoveMooVmOpcodeFamilies
     extends ScanningRecipe<MoveMooVmOpcodeFamilies.Accumulator> {
   private static final String SOURCE_TYPE = "moo.vm.MooVm";
@@ -37,7 +39,8 @@ public final class MoveMooVmOpcodeFamilies
               "containsAnonymousOrWaifReference",
               "isFinalStraightLineLocalRead",
               "getProperty",
-              "setProperty"),
+              "setProperty",
+              "normalize"),
           "IndexOps",
           Set.of(
               "index",
@@ -86,6 +89,9 @@ public final class MoveMooVmOpcodeFamilies
               "tracebackFrame",
               "tracebackReference",
               "catches"));
+  private static final Set<String> INSTANCE_METHODS =
+      Set.of("membership", "arithmetic", "equality", "mooEquals", "comparison");
+  private static final String NESTED_LOOP_DEPENDENCY = "CollectionElement";
 
   @Override
   public String getDisplayName() {
@@ -94,7 +100,8 @@ public final class MoveMooVmOpcodeFamilies
 
   @Override
   public String getDescription() {
-    return "Moves the existing static MooVm method bodies into six dedicated opcode-family files.";
+    return "Moves a complete MooVm method closure, promotes instance arithmetic semantics, and "
+        + "retargets callers.";
   }
 
   @Override
@@ -126,7 +133,7 @@ public final class MoveMooVmOpcodeFamilies
           accumulator.source = compilationUnit;
           accumulator.sourceClassId = candidate.getId();
           accumulator.sourceClass = candidate;
-          captureStaticMethods(candidate, accumulator);
+          captureMembers(candidate, accumulator);
         }
         return compilationUnit;
       }
@@ -150,7 +157,16 @@ public final class MoveMooVmOpcodeFamilies
     if (!accumulator.ready()) {
       return TreeVisitor.noop();
     }
-    return new JavaIsoVisitor<ExecutionContext>() {
+    return new InvocationRetargetingVisitor(accumulator) {
+      @Override
+      public J.CompilationUnit visitCompilationUnit(
+          J.CompilationUnit compilationUnit, ExecutionContext context) {
+        if (!compilationUnit.getId().equals(accumulator.source.getId())) {
+          return compilationUnit;
+        }
+        return super.visitCompilationUnit(compilationUnit, context);
+      }
+
       @Override
       public J.ClassDeclaration visitClassDeclaration(
           J.ClassDeclaration classDeclaration, ExecutionContext context) {
@@ -167,19 +183,51 @@ public final class MoveMooVmOpcodeFamilies
     };
   }
 
-  private static void captureStaticMethods(
-      J.ClassDeclaration source, Accumulator accumulator) {
+  private static void captureMembers(J.ClassDeclaration source, Accumulator accumulator) {
     for (Statement statement : source.getBody().getStatements()) {
-      if (!(statement instanceof J.MethodDeclaration method)
-          || !method.hasModifier(J.Modifier.Type.Static)) {
+      if (statement instanceof J.ClassDeclaration nested
+          && NESTED_LOOP_DEPENDENCY.equals(nested.getSimpleName())) {
+        if (accumulator.loopDependency != null) {
+          accumulator.invalid = true;
+        }
+        accumulator.loopDependency = nested;
+        accumulator.movedIds.add(nested.getId());
         continue;
       }
+      if (!(statement instanceof J.MethodDeclaration method)) {
+        continue;
+      }
+      captureValueSemanticsParameter(method, accumulator);
       String family = familyFor(method.getSimpleName());
       if (family == null) {
         continue;
       }
       accumulator.methods.get(family).add(method);
       accumulator.movedIds.add(method.getId());
+      method.getModifiers().stream()
+          .filter(modifier -> modifier.getType() == J.Modifier.Type.Static)
+          .findFirst()
+          .ifPresent(modifier -> accumulator.staticModifier = modifier);
+    }
+  }
+
+  private static void captureValueSemanticsParameter(
+      J.MethodDeclaration method, Accumulator accumulator) {
+    if (!method.isConstructor()) {
+      return;
+    }
+    for (Statement parameter : method.getParameters()) {
+      if (!(parameter instanceof J.VariableDeclarations variables)
+          || variables.getVariables().size() != 1
+          || !"valueSemantics".equals(variables.getVariables().getFirst().getSimpleName())
+          || !(variables.getTypeExpression() instanceof J.Identifier type)
+          || !"ValueSemantics".equals(type.getSimpleName())) {
+        continue;
+      }
+      if (accumulator.valueSemanticsParameter != null) {
+        accumulator.invalid = true;
+      }
+      accumulator.valueSemanticsParameter = variables;
     }
   }
 
@@ -195,6 +243,13 @@ public final class MoveMooVmOpcodeFamilies
   private static SourceFile generatedFamily(
       Accumulator accumulator, String family, ExecutionContext context) {
     J.ClassDeclaration sourceClass = accumulator.sourceClass;
+    List<Statement> members = new ArrayList<>();
+    for (J.MethodDeclaration method : accumulator.methods.get(family)) {
+      members.add(promotedMethod(method, accumulator, context));
+    }
+    if (family.equals("LoopOps")) {
+      members.add(accumulator.loopDependency);
+    }
     J.ClassDeclaration helper =
         sourceClass
             .withId(randomId())
@@ -207,7 +262,7 @@ public final class MoveMooVmOpcodeFamilies
             .withBody(
                 sourceClass
                     .getBody()
-                    .withStatements(new ArrayList<>(accumulator.methods.get(family))));
+                    .withStatements(members));
     Path target = accumulator.source.getSourcePath().resolveSibling(family + ".java");
     J.CompilationUnit generated =
         accumulator.source.withId(randomId()).withSourcePath(target).withClasses(List.of(helper));
@@ -218,6 +273,70 @@ public final class MoveMooVmOpcodeFamilies
         new AutoFormatVisitor<ExecutionContext>(null).visitNonNull(generated, context);
   }
 
+  private static J.MethodDeclaration promotedMethod(
+      J.MethodDeclaration method, Accumulator accumulator, ExecutionContext context) {
+    List<J.Modifier> modifiers =
+        new ArrayList<>(
+            method.getModifiers().stream()
+                .filter(modifier -> modifier.getType() != J.Modifier.Type.Private)
+                .toList());
+    List<Statement> parameters = new ArrayList<>(method.getParameters());
+    if (INSTANCE_METHODS.contains(method.getSimpleName())) {
+      modifiers.add(accumulator.staticModifier.withId(randomId()));
+      parameters.add(
+          (J.VariableDeclarations)
+              new RandomizeIdVisitor<ExecutionContext>()
+                  .visitNonNull(accumulator.valueSemanticsParameter, context));
+    }
+    J.MethodDeclaration promoted =
+        method.withModifiers(modifiers).withParameters(parameters).withMethodType(null);
+    return (J.MethodDeclaration)
+        new InvocationRetargetingVisitor(accumulator).visitNonNull(promoted, context);
+  }
+
+  private static class InvocationRetargetingVisitor extends JavaIsoVisitor<ExecutionContext> {
+    private final Accumulator accumulator;
+
+    private InvocationRetargetingVisitor(Accumulator accumulator) {
+      this.accumulator = accumulator;
+    }
+
+    @Override
+    public J.MethodInvocation visitMethodInvocation(
+        J.MethodInvocation method, ExecutionContext context) {
+      J.MethodInvocation visited = super.visitMethodInvocation(method, context);
+      String family = familyFor(visited.getSimpleName());
+      if (family == null || visited.getSelect() != null) {
+        return visited;
+      }
+      J.Identifier owner =
+          accumulator
+              .sourceClass
+              .getName()
+              .withId(randomId())
+              .withSimpleName(family)
+              .withPrefix(Space.EMPTY)
+              .withType(null);
+      List<Expression> arguments = new ArrayList<>(visited.getArguments());
+      if (INSTANCE_METHODS.contains(visited.getSimpleName())) {
+        arguments.add(
+            accumulator
+                .valueSemanticsParameter
+                .getVariables()
+                .getFirst()
+                .getName()
+                .withId(randomId())
+                .withPrefix(Space.SINGLE_SPACE)
+                .withType(null));
+      }
+      return visited
+          .withSelect(owner)
+          .withArguments(arguments)
+          .withName(visited.getName().withType(null))
+          .withMethodType(null);
+    }
+  }
+
   static final class Accumulator {
     private J.CompilationUnit source;
     private J.ClassDeclaration sourceClass;
@@ -225,6 +344,9 @@ public final class MoveMooVmOpcodeFamilies
     private final Map<String, List<J.MethodDeclaration>> methods = new LinkedHashMap<>();
     private final Set<UUID> movedIds = new LinkedHashSet<>();
     private final Set<String> collisions = new LinkedHashSet<>();
+    private J.VariableDeclarations valueSemanticsParameter;
+    private J.Modifier staticModifier;
+    private J.ClassDeclaration loopDependency;
     private boolean invalid;
 
     private Accumulator() {
@@ -238,8 +360,32 @@ public final class MoveMooVmOpcodeFamilies
           && source != null
           && sourceClass != null
           && sourceClassId != null
+          && valueSemanticsParameter != null
+          && staticModifier != null
+          && loopDependency != null
           && collisions.isEmpty()
-          && methods.values().stream().noneMatch(List::isEmpty);
+          && hasExactMethodClosure();
+    }
+
+    private boolean hasExactMethodClosure() {
+      for (Map.Entry<String, Set<String>> family : METHODS_BY_FAMILY.entrySet()) {
+        Map<String, Long> actual =
+            methods.get(family.getKey()).stream()
+                .collect(
+                    java.util.stream.Collectors.groupingBy(
+                        J.MethodDeclaration::getSimpleName,
+                        java.util.stream.Collectors.counting()));
+        for (String method : family.getValue()) {
+          long expected = method.equals("raiseError") ? 4 : 1;
+          if (actual.getOrDefault(method, 0L) != expected) {
+            return false;
+          }
+        }
+        if (!actual.keySet().equals(family.getValue())) {
+          return false;
+        }
+      }
+      return true;
     }
   }
 }
