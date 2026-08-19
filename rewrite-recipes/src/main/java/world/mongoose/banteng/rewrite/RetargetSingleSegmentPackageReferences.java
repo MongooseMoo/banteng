@@ -23,7 +23,7 @@ public final class RetargetSingleSegmentPackageReferences extends Recipe {
   @Override
   public String getDescription() {
     return "Retargets imports and typed fully-qualified references after ChangePackage moves the "
-        + "single-segment moo package root.";
+        + "legacy single-segment package root.";
   }
 
   @Override
