@@ -7,6 +7,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.List;
 import java.util.Map;
+import moo.builtin.ConnectionRegistryAccess;
 import moo.value.MooValue.ListValue;
 import moo.value.MooValue.MapValue;
 import moo.value.MooValue.StringValue;
@@ -49,13 +50,17 @@ final class ConnectionRegistryTest {
 
   @Test
   void copyIsIndependentAttemptLocalState() {
-    ConnectionRegistry original = new ConnectionRegistry();
+    ConnectionRegistryAccess original = new ConnectionRegistry();
     original.openConnection(-2);
-    ConnectionRegistry copy = original.copy();
+    ConnectionRegistryAccess copy = original.copy();
 
     assertTrue(copy.switchConnectionPlayer(-2, 4));
 
     assertEquals(-2, original.connectionPlayer(-2).orElseThrow());
     assertEquals(4, copy.connectionPlayer(-2).orElseThrow());
+
+    original.replaceWith(copy);
+
+    assertEquals(4, original.connectionPlayer(-2).orElseThrow());
   }
 }
