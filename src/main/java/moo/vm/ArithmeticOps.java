@@ -1,6 +1,7 @@
 package moo.vm;
 
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import moo.bytecode.BytecodeProgram.Instruction;
 import moo.value.MooValue;
@@ -88,6 +89,7 @@ final class ArithmeticOps {
       Frame frame,
       WorldTxn world,
       ValueSemantics valueSemantics) {
+    Objects.requireNonNull(instruction, "instruction");
     return switch (operation) {
       case NEGATE -> {
         unaryNegate(frame, state, world);
