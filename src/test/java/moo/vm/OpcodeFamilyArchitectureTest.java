@@ -40,7 +40,7 @@ final class OpcodeFamilyArchitectureTest {
     for (String family : FAMILIES.subList(0, FAMILIES.size() - 1)) {
       String source = source(family);
       assertTrue(source.contains("enum Operation"), family);
-      assertTrue(source.contains("switch (operation)"), family);
+      assertTrue(source.contains("return switch (operation)"), family);
       assertFalse(source.contains("default ->"), family);
       assertFalse(source.contains("execute(\n      BytecodeProgram.Opcode"), family);
     }
