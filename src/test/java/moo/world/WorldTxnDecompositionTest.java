@@ -7,6 +7,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Set;
@@ -14,6 +16,16 @@ import java.util.stream.Collectors;
 import org.junit.jupiter.api.Test;
 
 final class WorldTxnDecompositionTest {
+  @Test
+  void anonymousPropertyHolderBranchDoesNotBindAnUnreadPatternVariable() throws Exception {
+    String source =
+        Files.readString(Path.of("src", "main", "java", "moo", "world", "WorldTxn.java"))
+            .replace("\r\n", "\n");
+
+    assertFalse(source.contains("case WorldAnonymousObject _ ->"), source);
+    assertTrue(source.contains("default ->\n          new WorldAnonymousObject("), source);
+  }
+
   @Test
   void worldTransactionOwnsNeitherConnectionStateNorDeadMethods() {
     Set<String> fields =
