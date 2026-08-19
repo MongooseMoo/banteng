@@ -255,6 +255,15 @@ final class NamespaceOwnershipTest {
     if (isHistoricalEvidence(path, line)) {
       return true;
     }
+    if (path.equals(
+        "rewrite-recipes/src/test/java/world/mongoose/banteng/rewrite/ChangePackageTest.java")) {
+      return true;
+    }
+    if (path.equals(".github/workflows/ci.yml")
+        && (line.contains("namespace_rewrite_proof")
+            || line.contains("package moo.namespace_rewrite_proof"))) {
+      return true;
+    }
     if (OLD_NAMESPACE_SHAPE.matcher(line).find()) {
       return isAllowedNamespaceShape(path, line);
     }
@@ -262,20 +271,13 @@ final class NamespaceOwnershipTest {
       return line.contains("from moo to world.mongoose.banteng")
           || line.strip().equals("oldPackageName: moo");
     }
-    if (path.equals(
-        "rewrite-recipes/src/test/java/world/mongoose/banteng/rewrite/ChangePackageTest.java")) {
-      return true;
-    }
     if (path.startsWith("docs/") || path.startsWith("profiles/")) {
       return isExternalMooTerm(line);
     }
     if (path.equals(".github/workflows/ci.yml")
         || path.equals("scripts/run_managed_wsl.sh")
         || path.equals("scripts/test_managed_runners_wsl.sh")) {
-      return isExternalMooTerm(line)
-          || (path.equals(".github/workflows/ci.yml")
-              && (line.contains("namespace_rewrite_proof")
-                  || line.contains("package moo.namespace_rewrite_proof")));
+      return isExternalMooTerm(line);
     }
     if (path.equals("scripts/test_verify_toast_profile_wsl.sh")) {
       return true;
