@@ -318,7 +318,7 @@ final class ArithmeticOps {
       rightValue = promoteInteger(rightValue);
     }
     if (leftValue instanceof IntegerValue left && rightValue instanceof IntegerValue right) {
-      if (dividesByZero(operation, right.value())) {
+      if (dividesByZero(operation, (double) right.value())) {
         ErrorOps.raise(state, ErrorValue.E_DIV, world);
         return;
       }
