@@ -2,6 +2,7 @@ package world.mongoose.banteng.persistence;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -101,6 +102,29 @@ final class QueuedTaskV17CodecTest {
         second, restored.world().snapshot(), restored.tasks(), restored.activeConnections());
 
     assertArrayEquals(Files.readAllBytes(first), Files.readAllBytes(second));
+  }
+
+  @Test
+  void preservesUninitializedQueuedTaskLocals(@TempDir Path temporaryDirectory)
+      throws IOException {
+    String fixture =
+        expectedDatabase()
+            .replace(
+                "4 variables\nthis\n1\n7\nplayer\n1\n9\nverb\n2\ntick\nmarker\n",
+                "5 variables\nthis\n1\n7\nplayer\n1\n9\nverb\n2\ntick\nunset\n6\nmarker\n");
+    Path input = temporaryDirectory.resolve("toast.db");
+    Path output = temporaryDirectory.resolve("banteng.db");
+    Files.writeString(input, fixture, StringValue.charset());
+
+    LambdaMooV17Codec codec = new LambdaMooV17Codec();
+    LambdaMooV17Codec.Checkpoint restored = codec.read(input);
+    QueuedTask task = assertInstanceOf(QueuedTask.class, restored.tasks().getFirst());
+    assertEquals(Optional.empty(), task.environment().slots().get("unset"));
+    assertFalse(task.initialLocals().containsKey("unset"));
+    codec.writeAtomic(
+        output, restored.world().snapshot(), restored.tasks(), restored.activeConnections());
+
+    assertArrayEquals(Files.readAllBytes(input), Files.readAllBytes(output));
   }
 
   @Test
