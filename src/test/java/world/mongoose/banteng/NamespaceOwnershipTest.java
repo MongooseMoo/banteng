@@ -35,7 +35,7 @@ final class NamespaceOwnershipTest {
           Path.of("rewrite-recipes", "src", "test", "java"));
   private static final Map<Path, Integer> JAVA_SOURCE_COUNTS =
       Map.of(
-          Path.of("src", "main", "java"), 91,
+          Path.of("src", "main", "java"), 92,
           Path.of("src", "test", "java"), 59,
           Path.of("src", "jmh", "java"), 1,
           Path.of("src", "jcstress", "java"), 2,
