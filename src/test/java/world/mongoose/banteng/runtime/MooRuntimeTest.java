@@ -3,14 +3,21 @@ package world.mongoose.banteng.runtime;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.net.InetAddress;
 import java.nio.file.Path;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import world.mongoose.banteng.persistence.LambdaMooV4Reader;
 import world.mongoose.banteng.server.ConnectionRegistry;
 import world.mongoose.banteng.value.MooValue.IntegerValue;
+import world.mongoose.banteng.value.MooValue.MapValue;
+import world.mongoose.banteng.value.MooValue.StringValue;
 import world.mongoose.banteng.world.ObjectFlags;
 import world.mongoose.banteng.world.WorldObject;
 import world.mongoose.banteng.world.WorldTxn;
@@ -36,6 +43,105 @@ final class MooRuntimeTest {
 
     assertEquals(8, connections.connectionPlayer(connectionId).orElseThrow());
     assertTrue(connections.connectionInfo(connectionId).isPresent());
+  }
+
+  @Test
+  void connectionNameLookupRunsAsHostWorkAndOptionallyRewritesThePublishedName()
+      throws Exception {
+    WorldTxn world = new LambdaMooV4Reader().read(FIXTURE);
+    ConnectionRegistry connections = new ConnectionRegistry();
+    MooRuntime runtime = new MooRuntime(world, connections);
+    long connectionId = -47;
+    MapValue info =
+        new MapValue(
+            Map.of(
+                StringValue.of("source_address"), StringValue.of("127.0.0.1"),
+                StringValue.of("source_ip"), StringValue.of("127.0.0.1"),
+                StringValue.of("source_port"), new IntegerValue(7777),
+                StringValue.of("destination_address"), StringValue.of("127.0.0.1"),
+                StringValue.of("destination_ip"), StringValue.of("127.0.0.1"),
+                StringValue.of("destination_port"), new IntegerValue(4242),
+                StringValue.of("outbound"), new IntegerValue(0)));
+    String resolved = InetAddress.getAllByName("127.0.0.1")[0].getCanonicalHostName();
+
+    assertEquals(List.of(), runtime.openConnection(connectionId, 0, true, info));
+    assertEquals(
+        List.of("*** Connected ***"), runtime.executeLine(connectionId, "connect Wizard"));
+    assertEquals(
+        List.of(
+            CONNECTION_PREFIX,
+            "{1, {\""
+                + resolved
+                + "\", \"127.0.0.1\", \""
+                + resolved
+                + "\", \""
+                + resolved
+                + "\", \"127.0.0.1\"}}",
+            CONNECTION_SUFFIX),
+        runtime.executeLine(
+            connectionId,
+            "; return {connection_name_lookup(player), connection_name(player), "
+                + "connection_name_lookup(player, 1), connection_name(player), "
+                + "connection_name(player, 1)};"));
+  }
+
+  @Test
+  void connectionNameLookupRejectsARewriteAfterTheConnectionCloses() throws Exception {
+    WorldTxn world = new LambdaMooV4Reader().read(FIXTURE);
+    ConnectionRegistry connections = new ConnectionRegistry();
+    CountDownLatch lookupStarted = new CountDownLatch(1);
+    CountDownLatch allowLookup = new CountDownLatch(1);
+    MooRuntime runtime =
+        new MooRuntime(
+            world,
+            connections,
+            address -> {
+              lookupStarted.countDown();
+              try {
+                if (!allowLookup.await(5, TimeUnit.SECONDS)) {
+                  throw new java.net.UnknownHostException(address);
+                }
+              } catch (InterruptedException interrupted) {
+                Thread.currentThread().interrupt();
+                java.net.UnknownHostException failure =
+                    new java.net.UnknownHostException(address);
+                failure.initCause(interrupted);
+                throw failure;
+              }
+              return "late.example";
+            });
+    long connectionId = -47;
+    MapValue info =
+        new MapValue(
+            Map.of(
+                StringValue.of("destination_address"), StringValue.of("127.0.0.1"),
+                StringValue.of("destination_ip"), StringValue.of("127.0.0.1")));
+
+    assertEquals(List.of(), runtime.openConnection(connectionId, 0, true, info));
+    assertEquals(
+        List.of("*** Connected ***"), runtime.executeLine(connectionId, "connect Wizard"));
+    CompletableFuture<List<String>> completion =
+        CompletableFuture.supplyAsync(
+            () ->
+                runtime.executeLine(
+                    connectionId,
+                    "; return `connection_name_lookup(player, 1) ! E_INVARG => E_INVARG';"));
+    assertTrue(lookupStarted.await(5, TimeUnit.SECONDS));
+
+    runtime.closeConnection(connectionId);
+    assertTrue(connections.connectionInfo(connectionId).isEmpty());
+    MapValue replacement =
+        new MapValue(
+            Map.of(
+                StringValue.of("destination_address"), StringValue.of("203.0.113.8"),
+                StringValue.of("destination_ip"), StringValue.of("203.0.113.8")));
+    assertEquals(List.of(), runtime.openConnection(connectionId, 0, true, replacement));
+    allowLookup.countDown();
+
+    assertEquals(
+        List.of(CONNECTION_PREFIX, "{1, E_INVARG}", CONNECTION_SUFFIX),
+        completion.get(5, TimeUnit.SECONDS));
+    assertEquals(replacement, connections.connectionInfo(connectionId).orElseThrow());
   }
 
   @Test

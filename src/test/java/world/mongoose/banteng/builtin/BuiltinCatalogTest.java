@@ -80,6 +80,7 @@ final class BuiltinCatalogTest {
           "chr",
           "connection_info",
           "connection_name",
+          "connection_name_lookup",
           "connection_options",
           "connected_players",
           "cos",
@@ -1015,6 +1016,78 @@ final class BuiltinCatalogTest {
       assertEquals(
           Optional.of(ErrorValue.E_TYPE),
           error(invoke(catalog, spec, List.of(new ObjectValue(2), string("0")), transaction, 2)));
+    }
+  }
+
+  @Test
+  void connectionNameLookupUsesToastSignaturePermissionsAndHostWork() throws Exception {
+    ConnectionRegistry connections = new ConnectionRegistry();
+    BuiltinCatalog catalog =
+        new BuiltinCatalog(
+            BuiltinHosts.builder()
+                .connections(() -> connections)
+                .connectionNameLookup(
+                    call -> BuiltinResult.hostWork(() -> BuiltinResult.value(string("resolved.example"))))
+                .build());
+    BuiltinSpec spec = catalog.spec("connection_name_lookup").orElseThrow();
+    MapValue info =
+        new MapValue(
+            Map.of(
+                string("destination_address"), string("198.51.100.25"),
+                string("destination_ip"), string("198.51.100.25")));
+
+    assertEquals(
+        List.of(
+            new CallShape(
+                List.of(Set.of(ArgType.OBJECT)),
+                List.of(Set.of(ArgType.ANY)),
+                Optional.empty())),
+        spec.callShapes());
+    assertSame(BuiltinPermissionRule.ANY, spec.permission());
+    assertEquals(EffectClass.SUSPENDING_HOST, spec.effect());
+    assertEquals(BuiltinOwner.CONNECTION, spec.owner());
+    try (WorldTxn transaction = world().begin()) {
+      connections.openConnection(-2, info);
+      connections.switchConnectionPlayer(-2, 2);
+      connections.openConnection(-3, info);
+      connections.switchConnectionPlayer(-3, 1);
+
+      BuiltinResult self =
+          invoke(catalog, spec, List.of(new ObjectValue(2)), transaction, 2);
+      assertEquals(
+          Optional.of(string("resolved.example")),
+          value(hostWork(self).orElseThrow().call()));
+      BuiltinResult wizard =
+          invoke(
+              catalog,
+              spec,
+              List.of(new ObjectValue(2), new IntegerValue(1)),
+              transaction,
+              1);
+      assertEquals(
+          Optional.of(string("resolved.example")),
+          value(hostWork(wizard).orElseThrow().call()));
+      assertEquals(
+          Optional.of(ErrorValue.E_PERM),
+          error(invoke(catalog, spec, List.of(new ObjectValue(1)), transaction, 2)));
+      assertEquals(
+          Optional.of(ErrorValue.E_INVARG),
+          error(invoke(catalog, spec, List.of(new ObjectValue(99)), transaction, 1)));
+      assertEquals(
+          Optional.of(ErrorValue.E_TYPE),
+          error(invoke(catalog, spec, List.of(new IntegerValue(2)), transaction, 1)));
+      assertEquals(
+          Optional.of(ErrorValue.E_ARGS),
+          error(invoke(catalog, spec, List.of(), transaction, 1)));
+      assertEquals(
+          Optional.of(ErrorValue.E_ARGS),
+          error(invoke(
+                  catalog,
+                  spec,
+                  List.of(new ObjectValue(2), new IntegerValue(1), new IntegerValue(1)),
+                  transaction,
+                  1)
+              ));
     }
   }
 
