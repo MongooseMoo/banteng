@@ -79,6 +79,8 @@ final class BuiltinCompositionTest {
         () -> assertNotNull(hosts.threadPool()),
         () -> assertNotNull(hosts.threads()),
         () -> assertNotNull(hosts.connectionOptions()),
+        () -> assertNotNull(hosts.idleSeconds()),
+        () -> assertNotNull(hosts.connectedSeconds()),
         () -> assertNotNull(hosts.dbDiskSize()),
         () -> assertNotNull(hosts.flushInput()),
         () -> assertNotNull(hosts.outputDelimiters()),

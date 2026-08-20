@@ -1410,6 +1410,24 @@ public final class BuiltinCatalog {
                             .toList()))));
     entries.add(
         new BuiltinSpec(
+            "idle_seconds",
+            List.of(new CallShape(List.of(OBJECT), List.of(), Optional.empty())),
+            BuiltinPermissionRule.ANY,
+            BuiltinCostRule.fixed(0),
+            EffectClass.EXTERNAL_READ,
+            BuiltinOwner.CONNECTION,
+            hosts.idleSeconds()));
+    entries.add(
+        new BuiltinSpec(
+            "connected_seconds",
+            List.of(new CallShape(List.of(OBJECT), List.of(), Optional.empty())),
+            BuiltinPermissionRule.ANY,
+            BuiltinCostRule.fixed(0),
+            EffectClass.EXTERNAL_READ,
+            BuiltinOwner.CONNECTION,
+            hosts.connectedSeconds()));
+    entries.add(
+        new BuiltinSpec(
             "buffered_output_length",
             List.of(new CallShape(List.of(), List.of(OBJECT), Optional.empty())),
             BuiltinPermissionRule.ANY,

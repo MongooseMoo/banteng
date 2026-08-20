@@ -20,6 +20,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.LongSupplier;
 import java.util.stream.Stream;
 import world.mongoose.banteng.builtin.BuiltinCall;
 import world.mongoose.banteng.builtin.BuiltinCatalog;
@@ -76,6 +77,7 @@ public final class MooRuntime implements AutoCloseable {
   @GuardedBy("this")
   private final ConnectionRegistryAccess publishedConnectionRegistry;
   private final LambdaMooV17Codec checkpointCodec = new LambdaMooV17Codec();
+  private final LongSupplier nanoTime;
   private final MooVm vm;
   private final PublicationScheduler scheduler;
   private final List<ActiveConnection> checkpointedConnections;
@@ -100,8 +102,21 @@ public final class MooRuntime implements AutoCloseable {
       WorldTxn world,
       ValueSemantics valueSemantics,
       ConnectionRegistryAccess connections) {
+    this(world, valueSemantics, connections, System::nanoTime);
+  }
+
+  MooRuntime(WorldTxn world, ConnectionRegistryAccess connections, LongSupplier nanoTime) {
+    this(world, ValueSemantics.STANDARD, connections, nanoTime);
+  }
+
+  private MooRuntime(
+      WorldTxn world,
+      ValueSemantics valueSemantics,
+      ConnectionRegistryAccess connections,
+      LongSupplier nanoTime) {
     committedWorld = Objects.requireNonNull(world, "world");
     publishedConnectionRegistry = Objects.requireNonNull(connections, "connections");
+    this.nanoTime = Objects.requireNonNull(nanoTime, "nanoTime");
     ValueSemantics configuredSemantics =
         Objects.requireNonNull(valueSemantics, "valueSemantics");
     vm = new MooVm(configuredSemantics);
@@ -342,6 +357,7 @@ public final class MooRuntime implements AutoCloseable {
       ConnectionRegistryAccess connections) {
     committedWorld = Objects.requireNonNull(world, "world");
     publishedConnectionRegistry = Objects.requireNonNull(connections, "connections");
+    nanoTime = System::nanoTime;
     ValueSemantics configuredSemantics =
         Objects.requireNonNull(valueSemantics, "valueSemantics");
     vm = new MooVm(configuredSemantics);
@@ -373,6 +389,8 @@ public final class MooRuntime implements AutoCloseable {
         .threads(taskRegistry::threads)
         .connectionOptions(
             call -> connectionOptions(call.arguments(), call.world(), call.programmer()))
+        .idleSeconds(call -> connectionSeconds(call, false))
+        .connectedSeconds(call -> connectionSeconds(call, true))
         .dbDiskSize(call -> dbDiskSize())
         .flushInput(call -> flushInput(call.arguments(), call.world(), call.programmer()))
         .outputDelimiters(
@@ -527,7 +545,10 @@ public final class MooRuntime implements AutoCloseable {
     connectionRegistry().openConnection(connectionId, connectionInfo);
     ConnectionState connection =
         new ConnectionState(
-            listenerHandler, printMessages, connectionGenerations.incrementAndGet());
+            listenerHandler,
+            printMessages,
+            connectionGenerations.incrementAndGet(),
+            nanoTime.getAsLong());
     connections().put(connectionId, connection);
     try {
       effects().add(RuntimeEffect.startTimeout(connectionId, connection.generation));
@@ -544,7 +565,8 @@ public final class MooRuntime implements AutoCloseable {
       long connectionId, long listenerHandler, MapValue connectionInfo) {
     connectionRegistry().openConnection(connectionId, connectionInfo);
     ConnectionState connection =
-        new ConnectionState(listenerHandler, false, connectionGenerations.incrementAndGet());
+        new ConnectionState(
+            listenerHandler, false, connectionGenerations.incrementAndGet(), nanoTime.getAsLong());
     if (connections().putIfAbsent(connectionId, connection) != null) {
       connectionRegistry().closeConnection(connectionId);
       throw new IllegalArgumentException("duplicate connection #" + connectionId);
@@ -604,13 +626,13 @@ public final class MooRuntime implements AutoCloseable {
       long connectionId, String line, Optional<VmState> completedDoCommand) {
     Objects.requireNonNull(line, "line");
     ConnectionState connection = requireConnection(connectionId);
+    connection.lastActivityNanos = nanoTime.getAsLong();
     if (hasPendingRead(connectionId)) {
       effects().add(RuntimeEffect.input(connectionId, line));
       return RuntimeStep.returned(List.of());
     }
     long player = connectionRegistry().connectionPlayer(connectionId).orElseThrow();
     if (player < 0) {
-      connection.lastActivityNanos = System.nanoTime();
       return executeLogin(connectionId, line);
     }
 
@@ -1289,7 +1311,7 @@ public final class MooRuntime implements AutoCloseable {
   private RuntimeStep executeTransportOutOfBandNow(long connectionId, String command) {
     Objects.requireNonNull(command, "command");
     ConnectionState connection = requireConnection(connectionId);
-    connection.lastActivityNanos = System.nanoTime();
+    connection.lastActivityNanos = nanoTime.getAsLong();
     long player = connectionRegistry().connectionPlayer(connectionId).orElseThrow();
     Optional<WorldVerb> outOfBand =
         world().verb(connection.listenerHandler, "do_out_of_band_command");
@@ -1844,7 +1866,7 @@ public final class MooRuntime implements AutoCloseable {
       return RuntimeStep.returned(List.of("pending"));
     }
     long idleSeconds =
-        TimeUnit.NANOSECONDS.toSeconds(System.nanoTime() - connection.lastActivityNanos);
+        elapsedSeconds(connection.lastActivityNanos);
     if (idleSeconds <= timeoutSeconds) {
       return RuntimeStep.returned(List.of("pending"));
     }
@@ -2706,6 +2728,26 @@ public final class MooRuntime implements AutoCloseable {
     return BuiltinResult.value(new ListValue(options));
   }
 
+  private BuiltinResult connectionSeconds(BuiltinCall call, boolean connected) {
+    long target = ((ObjectValue) call.arguments().getFirst()).value();
+    OptionalLong connectionId = connectionRegistry().connectionId(target);
+    if (connectionId.isEmpty()) {
+      return BuiltinResult.error(ErrorValue.E_INVARG);
+    }
+    ConnectionState connection = connections().get(connectionId.orElseThrow());
+    if (connection == null || (connected && connection.connectedNanos.isEmpty())) {
+      return BuiltinResult.error(ErrorValue.E_INVARG);
+    }
+    long since =
+        connected ? connection.connectedNanos.orElseThrow() : connection.lastActivityNanos;
+    return BuiltinResult.value(new IntegerValue(elapsedSeconds(since)));
+  }
+
+  private long elapsedSeconds(long sinceNanos) {
+    long elapsedNanos = nanoTime.getAsLong() - sinceNanos;
+    return TimeUnit.NANOSECONDS.toSeconds(Math.max(0L, elapsedNanos));
+  }
+
   private BuiltinResult outputDelimiters(
       List<MooValue> arguments, WorldTxn world, long programmer) {
     long target = ((ObjectValue) arguments.getFirst()).value();
@@ -3251,6 +3293,12 @@ public final class MooRuntime implements AutoCloseable {
         context.sessions.forEach((id, state) -> publishedConnections.put(id, state.copy()));
         publishedConnectionRegistry.replaceWith(context.connections);
         sessionRevision = Math.incrementExact(sessionRevision);
+      } else {
+        context.sessions.forEach(
+            (id, state) ->
+                Objects.requireNonNull(
+                        publishedConnections.get(id), "published connection")
+                    .mergeLastActivity(state));
       }
       context.baseSessionRevision = sessionRevision;
       readRegistrations = List.copyOf(context.readRegistrations);
@@ -3383,8 +3431,12 @@ public final class MooRuntime implements AutoCloseable {
   }
 
   private boolean switchConnectionPlayer(long connectionId, long playerId) {
-    return world().object(playerId).isPresent()
-        && connectionRegistry().switchConnectionPlayer(connectionId, playerId);
+    if (world().object(playerId).isEmpty()
+        || !connectionRegistry().switchConnectionPlayer(connectionId, playerId)) {
+      return false;
+    }
+    requireConnection(connectionId).connectedNanos = OptionalLong.of(nanoTime.getAsLong());
+    return true;
   }
 
   private Map<Long, ConnectionState> connections() {
@@ -3670,7 +3722,8 @@ public final class MooRuntime implements AutoCloseable {
     private final long listenerHandler;
     private final boolean printMessages;
     private final long generation;
-    private long lastActivityNanos = System.nanoTime();
+    private long lastActivityNanos;
+    private OptionalLong connectedNanos = OptionalLong.empty();
     private boolean holdInput;
     private boolean disableOob;
     private boolean binary;
@@ -3682,15 +3735,19 @@ public final class MooRuntime implements AutoCloseable {
     private String programmingVerbName = "";
     private final StringBuilder programmingSource = new StringBuilder();
 
-    private ConnectionState(long listenerHandler, boolean printMessages, long generation) {
+    private ConnectionState(
+        long listenerHandler, boolean printMessages, long generation, long openedNanos) {
       this.listenerHandler = listenerHandler;
       this.printMessages = printMessages;
       this.generation = generation;
+      lastActivityNanos = openedNanos;
     }
 
     private ConnectionState copy() {
-      ConnectionState copy = new ConnectionState(listenerHandler, printMessages, generation);
+      ConnectionState copy =
+          new ConnectionState(listenerHandler, printMessages, generation, lastActivityNanos);
       copy.lastActivityNanos = lastActivityNanos;
+      copy.connectedNanos = connectedNanos;
       copy.holdInput = holdInput;
       copy.disableOob = disableOob;
       copy.binary = binary;
@@ -3708,7 +3765,7 @@ public final class MooRuntime implements AutoCloseable {
       return listenerHandler == other.listenerHandler
           && printMessages == other.printMessages
           && generation == other.generation
-          && lastActivityNanos == other.lastActivityNanos
+          && connectedNanos.equals(other.connectedNanos)
           && holdInput == other.holdInput
           && disableOob == other.disableOob
           && binary == other.binary
@@ -3719,6 +3776,10 @@ public final class MooRuntime implements AutoCloseable {
           && programmingObject == other.programmingObject
           && programmingVerbName.equals(other.programmingVerbName)
           && programmingSource.toString().contentEquals(other.programmingSource);
+    }
+
+    private void mergeLastActivity(ConnectionState source) {
+      lastActivityNanos = Math.max(lastActivityNanos, source.lastActivityNanos);
     }
   }
 

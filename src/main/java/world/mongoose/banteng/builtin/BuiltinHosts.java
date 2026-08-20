@@ -18,6 +18,8 @@ public record BuiltinHosts(
     BuiltinHandler threadPool,
     BuiltinHandler threads,
     BuiltinHandler connectionOptions,
+    BuiltinHandler idleSeconds,
+    BuiltinHandler connectedSeconds,
     BuiltinHandler dbDiskSize,
     BuiltinHandler flushInput,
     BuiltinHandler outputDelimiters,
@@ -35,6 +37,8 @@ public record BuiltinHosts(
     Objects.requireNonNull(threadPool, "threadPool");
     Objects.requireNonNull(threads, "threads");
     Objects.requireNonNull(connectionOptions, "connectionOptions");
+    Objects.requireNonNull(idleSeconds, "idleSeconds");
+    Objects.requireNonNull(connectedSeconds, "connectedSeconds");
     Objects.requireNonNull(dbDiskSize, "dbDiskSize");
     Objects.requireNonNull(flushInput, "flushInput");
     Objects.requireNonNull(outputDelimiters, "outputDelimiters");
@@ -65,6 +69,8 @@ public record BuiltinHosts(
     private BuiltinHandler threads =
         call -> BuiltinResult.value(new ListValue(List.of()));
     private BuiltinHandler connectionOptions = Builder::invalidArgument;
+    private BuiltinHandler idleSeconds = Builder::invalidArgument;
+    private BuiltinHandler connectedSeconds = Builder::invalidArgument;
     private BuiltinHandler dbDiskSize =
         call -> BuiltinResult.value(new IntegerValue(0));
     private BuiltinHandler flushInput =
@@ -112,6 +118,16 @@ public record BuiltinHosts(
 
     public Builder connectionOptions(BuiltinHandler value) {
       connectionOptions = value;
+      return this;
+    }
+
+    public Builder idleSeconds(BuiltinHandler value) {
+      idleSeconds = value;
+      return this;
+    }
+
+    public Builder connectedSeconds(BuiltinHandler value) {
+      connectedSeconds = value;
       return this;
     }
 
@@ -164,6 +180,8 @@ public record BuiltinHosts(
           threadPool,
           threads,
           connectionOptions,
+          idleSeconds,
+          connectedSeconds,
           dbDiskSize,
           flushInput,
           outputDelimiters,

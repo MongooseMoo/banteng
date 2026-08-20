@@ -81,6 +81,7 @@ final class BuiltinCatalogTest {
           "connection_info",
           "connection_name",
           "connection_options",
+          "connected_seconds",
           "connected_players",
           "cos",
           "cosh",
@@ -139,6 +140,7 @@ final class BuiltinCatalogTest {
           "generate_json",
           "gc_stats",
           "index",
+          "idle_seconds",
           "is_player",
           "is_clear_property",
           "length",
@@ -1015,6 +1017,41 @@ final class BuiltinCatalogTest {
       assertEquals(
           Optional.of(ErrorValue.E_TYPE),
           error(invoke(catalog, spec, List.of(new ObjectValue(2), string("0")), transaction, 2)));
+    }
+  }
+
+  @Test
+  void connectionTimersUseToastSignaturesAndRuntimeOwnedState() {
+    BuiltinCatalog catalog =
+        new BuiltinCatalog(
+            BuiltinHosts.builder()
+                .idleSeconds(call -> BuiltinResult.value(new IntegerValue(12)))
+                .connectedSeconds(call -> BuiltinResult.value(new IntegerValue(34)))
+                .build());
+    BuiltinSpec idle = catalog.spec("idle_seconds").orElseThrow();
+    BuiltinSpec connected = catalog.spec("connected_seconds").orElseThrow();
+    CallShape shape =
+        new CallShape(List.of(Set.of(ArgType.OBJECT)), List.of(), Optional.empty());
+
+    for (BuiltinSpec spec : List.of(idle, connected)) {
+      assertEquals(List.of(shape), spec.callShapes());
+      assertSame(BuiltinPermissionRule.ANY, spec.permission());
+      assertEquals(EffectClass.EXTERNAL_READ, spec.effect());
+      assertEquals(BuiltinOwner.CONNECTION, spec.owner());
+    }
+    try (WorldTxn transaction = world().begin()) {
+      assertEquals(
+          Optional.of(new IntegerValue(12)),
+          value(invoke(catalog, idle, List.of(new ObjectValue(-2)), transaction, 2)));
+      assertEquals(
+          Optional.of(new IntegerValue(34)),
+          value(invoke(catalog, connected, List.of(new ObjectValue(2)), transaction, 2)));
+      assertEquals(
+          Optional.of(ErrorValue.E_TYPE),
+          error(invoke(catalog, idle, List.of(new IntegerValue(2)), transaction, 2)));
+      assertEquals(
+          Optional.of(ErrorValue.E_ARGS),
+          error(invoke(catalog, connected, List.of(), transaction, 2)));
     }
   }
 
