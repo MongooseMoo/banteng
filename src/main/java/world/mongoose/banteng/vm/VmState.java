@@ -19,7 +19,6 @@ import java.util.concurrent.TimeUnit;
 import world.mongoose.banteng.builtin.BuiltinResult;
 import world.mongoose.banteng.builtin.BuiltinCatalog.ConnectionOptionRequest;
 import world.mongoose.banteng.builtin.BuiltinCatalog.ForcedInputRequest;
-import world.mongoose.banteng.builtin.BuiltinCatalog.NotificationRequest;
 import world.mongoose.banteng.builtin.CheckpointRequest;
 import world.mongoose.banteng.bytecode.BytecodeProgram;
 import world.mongoose.banteng.bytecode.BytecodeProgram.HandlerSpec;
@@ -51,7 +50,6 @@ public final class VmState {
   private final List<ConnectionOptionRequest> connectionOptionRequests = new ArrayList<>();
   private final List<Long> bootPlayerTargets = new ArrayList<>();
   private final List<ForcedInputRequest> forcedInputRequests = new ArrayList<>();
-  private final List<NotificationRequest> notificationRequests = new ArrayList<>();
   private final List<CheckpointRequest> checkpointRequests = new ArrayList<>();
   private final List<AnonymousObjectValue> anonymousCollectionDeferrals = new ArrayList<>();
   private Outcome outcome = Outcome.RUNNING;
@@ -740,11 +738,6 @@ public final class VmState {
     output.add(line);
   }
 
-  /** Retains output when the runtime is exercised without an attached transport. */
-  public void stageRuntimeOutput(String line) {
-    stageOutput(line);
-  }
-
   void stageConnectionOptionRequest(ConnectionOptionRequest request) {
     connectionOptionRequests.add(request);
   }
@@ -776,35 +769,6 @@ public final class VmState {
     List<ForcedInputRequest> requests = List.copyOf(forcedInputRequests);
     forcedInputRequests.clear();
     return requests;
-  }
-
-  void stageNotificationRequest(NotificationRequest request) {
-    notificationRequests.add(request);
-  }
-
-  /** Removes and returns connection notifications in their task execution order. */
-  public List<NotificationRequest> drainNotificationRequests() {
-    List<NotificationRequest> requests = List.copyOf(notificationRequests);
-    notificationRequests.clear();
-    return requests;
-  }
-
-  /** Projects this attempt's staged notification sequence over live queued bytes. */
-  public long stagedBufferedOutputLength(long connectionId, long liveQueuedBytes) {
-    long queuedBytes = liveQueuedBytes;
-    for (NotificationRequest request : notificationRequests) {
-      if (request.connectionId() != connectionId) {
-        continue;
-      }
-      queuedBytes =
-          Math.addExact(
-              queuedBytes,
-              request.line().length() + (request.noNewline() ? 0L : 2L));
-      if (!request.noFlush()) {
-        queuedBytes = 0L;
-      }
-    }
-    return queuedBytes;
   }
 
   void stageCheckpointRequest(CheckpointRequest request) {
@@ -953,7 +917,6 @@ public final class VmState {
         connectionOptionRequests,
         bootPlayerTargets,
         forcedInputRequests,
-        notificationRequests,
         checkpointRequests,
         anonymousCollectionDeferrals,
         outcome,
@@ -1017,7 +980,6 @@ public final class VmState {
     state.connectionOptionRequests.addAll(snapshot.connectionOptionRequests());
     state.bootPlayerTargets.addAll(snapshot.bootPlayerTargets());
     state.forcedInputRequests.addAll(snapshot.forcedInputRequests());
-    state.notificationRequests.addAll(snapshot.notificationRequests());
     state.checkpointRequests.addAll(snapshot.checkpointRequests());
     state.anonymousCollectionDeferrals.addAll(snapshot.anonymousCollectionDeferrals());
     state.outcome = snapshot.outcome();

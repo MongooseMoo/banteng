@@ -1107,58 +1107,6 @@ final class BuiltinCatalogTest {
   }
 
   @Test
-  void notifyPreservesToastTargetPermissionAndFlushFlags() {
-    ConnectionRegistry connections = new ConnectionRegistry();
-    BuiltinCatalog catalog =
-        new BuiltinCatalog(BuiltinHosts.builder().connections(() -> connections).build());
-    BuiltinSpec spec = catalog.spec("notify").orElseThrow();
-
-    try (WorldTxn transaction = world().begin()) {
-      connections.openConnection(-2);
-      connections.switchConnectionPlayer(-2, 2);
-      connections.openConnection(-3);
-      connections.switchConnectionPlayer(-3, 1);
-
-      BuiltinResult.Notify notification =
-          assertInstanceOf(
-              BuiltinResult.Notify.class,
-              invoke(
-                  catalog,
-                  spec,
-                  List.of(
-                      new ObjectValue(2),
-                      string("queued"),
-                      new IntegerValue(1),
-                      new IntegerValue(1)),
-                  transaction,
-                  2));
-      assertEquals(-2, notification.connectionId());
-      assertEquals("queued", notification.line());
-      assertTrue(notification.noFlush());
-      assertTrue(notification.noNewline());
-
-      assertEquals(
-          Optional.of(ErrorValue.E_PERM),
-          error(
-              invoke(
-                  catalog,
-                  spec,
-                  List.of(new ObjectValue(1), string("forbidden")),
-                  transaction,
-                  2)));
-      assertEquals(
-          Optional.of(new IntegerValue(1)),
-          value(
-              invoke(
-                  catalog,
-                  spec,
-                  List.of(new ObjectValue(99), string("offline")),
-                  transaction,
-                  99)));
-    }
-  }
-
-  @Test
   void callFunctionRecursesThroughTheOneManifestWithoutAddingAFrame() {
     BuiltinCatalog catalog = new BuiltinCatalog(BuiltinHosts.builder().build());
     BuiltinSpec spec = catalog.spec("call_function").orElseThrow();
@@ -6059,10 +6007,6 @@ final class BuiltinCatalogTest {
 
     @Override
     public void writeConnection(long connectionId, List<String> output) {}
-
-    @Override
-    public void notifyConnection(
-        long connectionId, String line, boolean noFlush, boolean noNewline) {}
 
     @Override
     public void bootConnection(long connectionId, List<String> output) {}

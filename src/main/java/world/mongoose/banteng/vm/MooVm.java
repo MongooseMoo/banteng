@@ -12,7 +12,6 @@ import java.util.Set;
 import world.mongoose.banteng.builtin.BuiltinCatalog;
 import world.mongoose.banteng.builtin.BuiltinCatalog.ConnectionOptionRequest;
 import world.mongoose.banteng.builtin.BuiltinCatalog.ForcedInputRequest;
-import world.mongoose.banteng.builtin.BuiltinCatalog.NotificationRequest;
 import world.mongoose.banteng.builtin.BuiltinHosts;
 import world.mongoose.banteng.builtin.BuiltinResult;
 import world.mongoose.banteng.builtin.BuiltinSpec;
@@ -574,8 +573,7 @@ public final class MooVm {
             frame.receiver,
             state.callerProgrammer(),
             callerFrames,
-            state.threadMode(),
-            state::stagedBufferedOutputLength);
+            state.threadMode());
     applyBuiltinResult(result, frame, state, world);
   }
 
@@ -619,8 +617,7 @@ public final class MooVm {
             request.receiver(),
             request.callerProgrammer(),
             request.callers(),
-            state.threadMode(),
-            state::stagedBufferedOutputLength);
+            state.threadMode());
     applyBuiltinResult(result, state.currentFrame(), state, world);
   }
 
@@ -659,12 +656,6 @@ public final class MooVm {
           applyDynamicEval(dynamicEval.source(), frame, state, world);
       case BuiltinResult.Output output -> {
         state.stageOutput(output.line());
-        frame.operandStack.push(new IntegerValue(1));
-      }
-      case BuiltinResult.Notify notify -> {
-        state.stageNotificationRequest(
-            new NotificationRequest(
-                notify.connectionId(), notify.line(), notify.noFlush(), notify.noNewline()));
         frame.operandStack.push(new IntegerValue(1));
       }
       case BuiltinResult.SwitchPlayer switchPlayer -> {

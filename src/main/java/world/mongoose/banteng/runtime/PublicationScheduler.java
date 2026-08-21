@@ -292,7 +292,6 @@ final class PublicationScheduler implements AutoCloseable {
             List.of(),
             List.of(),
             List.of(),
-            List.of(),
             VmState.Outcome.SUSPENDED,
             Optional.empty(),
             Optional.empty(),

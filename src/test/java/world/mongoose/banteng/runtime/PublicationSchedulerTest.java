@@ -1881,10 +1881,6 @@ final class PublicationSchedulerTest {
     public void writeConnection(long connectionId, List<String> output) {}
 
     @Override
-    public void notifyConnection(
-        long connectionId, String line, boolean noFlush, boolean noNewline) {}
-
-    @Override
     public void bootConnection(long connectionId, List<String> output) {}
 
     @Override

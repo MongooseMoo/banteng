@@ -26,7 +26,6 @@ import world.mongoose.banteng.builtin.BuiltinCatalog;
 import world.mongoose.banteng.builtin.BuiltinCatalog.ConnectionOption;
 import world.mongoose.banteng.builtin.BuiltinCatalog.ConnectionOptionRequest;
 import world.mongoose.banteng.builtin.BuiltinCatalog.ForcedInputRequest;
-import world.mongoose.banteng.builtin.BuiltinCatalog.NotificationRequest;
 import world.mongoose.banteng.builtin.BuiltinCatalog.ListenerControl;
 import world.mongoose.banteng.builtin.BuiltinHosts;
 import world.mongoose.banteng.builtin.BuiltinResult;
@@ -2028,7 +2027,6 @@ public final class MooRuntime implements AutoCloseable {
       List<VmSnapshot> otherTaskRoots) {
     applyConnectionOptionRequests(task);
     applyForcedInputRequests(task);
-    applyNotificationRequests(task, taskPlayer);
     applyBootPlayerTargets(task, taskPlayer);
     closeRecycledPlayerConnections();
     var checkpointRequests = task.drainCheckpointRequests();
@@ -2870,28 +2868,6 @@ public final class MooRuntime implements AutoCloseable {
     }
   }
 
-  private void applyNotificationRequests(VmState task, long taskPlayer) {
-    for (NotificationRequest request : task.drainNotificationRequests()) {
-      long notificationPlayer =
-          connectionRegistry()
-              .connectionPlayer(request.connectionId())
-              .orElse(request.connectionId());
-      boolean ordinaryCurrentPlayerOutput =
-          notificationPlayer == taskPlayer && !request.noFlush() && !request.noNewline();
-      if (ordinaryCurrentPlayerOutput || listenerControl.isEmpty()) {
-        task.stageRuntimeOutput(request.line());
-      } else {
-        effects()
-            .add(
-                RuntimeEffect.notify(
-                    request.connectionId(),
-                    request.line(),
-                    request.noFlush(),
-                    request.noNewline()));
-      }
-    }
-  }
-
   private void applyBootPlayerTargets(VmState task, long taskPlayer) {
     for (long target : task.drainBootPlayerTargets()) {
       long connectionId = target;
@@ -3319,11 +3295,6 @@ public final class MooRuntime implements AutoCloseable {
       case WRITE ->
           listenerControl.ifPresent(
               control -> control.writeConnection(effect.connectionId, effect.lines));
-      case NOTIFY ->
-          listenerControl.ifPresent(
-              control ->
-                  control.notifyConnection(
-                      effect.connectionId, effect.text, effect.noFlush, effect.noNewline));
       case BOOT ->
           listenerControl.ifPresent(
               control -> control.bootConnection(effect.connectionId, effect.lines));
@@ -3866,7 +3837,6 @@ public final class MooRuntime implements AutoCloseable {
   enum RuntimeEffectKind {
     START_TIMEOUT,
     WRITE,
-    NOTIFY,
     BOOT,
     BINARY,
     INPUT,
@@ -3880,72 +3850,43 @@ public final class MooRuntime implements AutoCloseable {
       long connectionId,
       List<String> lines,
       boolean binary,
-      boolean noFlush,
       long generation,
-      String text,
-      boolean noNewline) {
+      String text) {
     RuntimeEffect {
       lines = List.copyOf(lines);
     }
 
     static RuntimeEffect startTimeout(long connectionId, long generation) {
       return new RuntimeEffect(
-          RuntimeEffectKind.START_TIMEOUT,
-          connectionId,
-          List.of(),
-          false,
-          false,
-          generation,
-          "",
-          false);
+          RuntimeEffectKind.START_TIMEOUT, connectionId, List.of(), false, generation, "");
     }
 
     static RuntimeEffect write(long connectionId, List<String> lines) {
-      return new RuntimeEffect(
-          RuntimeEffectKind.WRITE, connectionId, lines, false, false, 0, "", false);
-    }
-
-    static RuntimeEffect notify(
-        long connectionId, String line, boolean noFlush, boolean noNewline) {
-      return new RuntimeEffect(
-          RuntimeEffectKind.NOTIFY,
-          connectionId,
-          List.of(),
-          false,
-          noFlush,
-          0,
-          line,
-          noNewline);
+      return new RuntimeEffect(RuntimeEffectKind.WRITE, connectionId, lines, false, 0, "");
     }
 
     static RuntimeEffect boot(long connectionId, List<String> lines) {
-      return new RuntimeEffect(
-          RuntimeEffectKind.BOOT, connectionId, lines, false, false, 0, "", false);
+      return new RuntimeEffect(RuntimeEffectKind.BOOT, connectionId, lines, false, 0, "");
     }
 
     static RuntimeEffect binary(long connectionId, boolean binary) {
-      return new RuntimeEffect(
-          RuntimeEffectKind.BINARY, connectionId, List.of(), binary, false, 0, "", false);
+      return new RuntimeEffect(RuntimeEffectKind.BINARY, connectionId, List.of(), binary, 0, "");
     }
 
     static RuntimeEffect input(long connectionId, String line) {
-      return new RuntimeEffect(
-          RuntimeEffectKind.INPUT, connectionId, List.of(), false, false, 0, line, false);
+      return new RuntimeEffect(RuntimeEffectKind.INPUT, connectionId, List.of(), false, 0, line);
     }
 
     static RuntimeEffect checkpoint(boolean shutdown) {
-      return new RuntimeEffect(
-          RuntimeEffectKind.CHECKPOINT, 0, List.of(), shutdown, false, 0, "", false);
+      return new RuntimeEffect(RuntimeEffectKind.CHECKPOINT, 0, List.of(), shutdown, 0, "");
     }
 
     static RuntimeEffect panic(String message) {
-      return new RuntimeEffect(
-          RuntimeEffectKind.PANIC, 0, List.of(), false, false, 0, message, false);
+      return new RuntimeEffect(RuntimeEffectKind.PANIC, 0, List.of(), false, 0, message);
     }
 
     static RuntimeEffect shutdown() {
-      return new RuntimeEffect(
-          RuntimeEffectKind.SHUTDOWN, 0, List.of(), false, false, 0, "", false);
+      return new RuntimeEffect(RuntimeEffectKind.SHUTDOWN, 0, List.of(), false, 0, "");
     }
   }
 }

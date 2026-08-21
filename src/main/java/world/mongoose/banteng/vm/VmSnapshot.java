@@ -11,7 +11,6 @@ import java.util.OptionalDouble;
 import java.util.OptionalLong;
 import world.mongoose.banteng.builtin.BuiltinCatalog.ConnectionOptionRequest;
 import world.mongoose.banteng.builtin.BuiltinCatalog.ForcedInputRequest;
-import world.mongoose.banteng.builtin.BuiltinCatalog.NotificationRequest;
 import world.mongoose.banteng.builtin.CheckpointRequest;
 import world.mongoose.banteng.bytecode.BytecodeProgram;
 import world.mongoose.banteng.bytecode.BytecodeProgram.HandlerSpec;
@@ -39,7 +38,6 @@ public record VmSnapshot(
     List<ConnectionOptionRequest> connectionOptionRequests,
     List<Long> bootPlayerTargets,
     List<ForcedInputRequest> forcedInputRequests,
-    List<NotificationRequest> notificationRequests,
     List<CheckpointRequest> checkpointRequests,
     List<AnonymousObjectValue> anonymousCollectionDeferrals,
     VmState.Outcome outcome,
@@ -66,7 +64,6 @@ public record VmSnapshot(
     connectionOptionRequests = List.copyOf(connectionOptionRequests);
     bootPlayerTargets = List.copyOf(bootPlayerTargets);
     forcedInputRequests = List.copyOf(forcedInputRequests);
-    notificationRequests = List.copyOf(notificationRequests);
     checkpointRequests = List.copyOf(checkpointRequests);
     anonymousCollectionDeferrals = List.copyOf(anonymousCollectionDeferrals);
     if (elapsedCpuNanos < 0
@@ -124,12 +121,6 @@ public record VmSnapshot(
     for (ForcedInputRequest request : forcedInputRequests) {
       size = add(size, Long.BYTES);
       size = add(size, textSize(request.line()));
-    }
-    size = add(size, Integer.BYTES);
-    for (NotificationRequest request : notificationRequests) {
-      size = add(size, Long.BYTES);
-      size = add(size, textSize(request.line()));
-      size = add(size, multiply(2, Byte.BYTES));
     }
     size = add(size, Integer.BYTES);
     size = add(size, multiply(checkpointRequests.size(), Byte.BYTES));

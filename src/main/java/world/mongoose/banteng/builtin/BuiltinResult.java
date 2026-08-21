@@ -85,14 +85,6 @@ public sealed interface BuiltinResult {
     }
   }
 
-  /** Stages one connection-targeted notification and returns one. */
-  record Notify(long connectionId, String line, boolean noFlush, boolean noNewline)
-      implements BuiltinResult {
-    public Notify {
-      Objects.requireNonNull(line, "line");
-    }
-  }
-
   /** Switches the current player and returns zero. */
   record SwitchPlayer(long player) implements BuiltinResult {}
 

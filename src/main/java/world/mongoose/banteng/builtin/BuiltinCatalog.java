@@ -32,7 +32,6 @@ import java.util.StringTokenizer;
 import java.util.concurrent.CancellationException;
 import java.util.function.DoubleUnaryOperator;
 import java.util.function.Function;
-import java.util.function.LongBinaryOperator;
 import java.util.function.Supplier;
 import world.mongoose.banteng.bytecode.MooCompiler;
 import world.mongoose.banteng.host.NativeCalls;
@@ -1417,12 +1416,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.EXTERNAL_READ,
             BuiltinOwner.CONNECTION,
-            call ->
-                bufferedOutputLength(
-                    call.arguments(),
-                    call.world(),
-                    call.programmer(),
-                    call.stagedBufferedOutputLength())));
+            call -> bufferedOutputLength(call.arguments(), call.world(), call.programmer())));
     entries.add(
         new BuiltinSpec(
             "boot_player",
@@ -1599,7 +1593,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.DEFERRED_COMMIT,
             BuiltinOwner.CONNECTION,
-            call -> notifyLine(call.arguments(), call.world(), call.programmer())));
+            call -> notifyLine(call.arguments())));
     entries.add(
         new BuiltinSpec(
             "tostr",
@@ -2020,10 +2014,7 @@ public final class BuiltinCatalog {
   }
 
   private BuiltinResult bufferedOutputLength(
-      List<MooValue> arguments,
-      WorldTxn world,
-      long programmer,
-      LongBinaryOperator stagedBufferedOutputLength) {
+      List<MooValue> arguments, WorldTxn world, long programmer) {
     if (arguments.isEmpty()) {
       return BuiltinResult.value(new IntegerValue(DEFAULT_MAX_QUEUED_OUTPUT));
     }
@@ -2039,10 +2030,7 @@ public final class BuiltinCatalog {
         listenerControl
             .map(control -> control.bufferedOutputLength(connectionId.orElseThrow()))
             .orElse(0L);
-    return BuiltinResult.value(
-        new IntegerValue(
-            stagedBufferedOutputLength.applyAsLong(
-                connectionId.orElseThrow(), queuedBytes)));
+    return BuiltinResult.value(new IntegerValue(queuedBytes));
   }
 
   private BuiltinResult connectionName(
@@ -2411,37 +2399,6 @@ public final class BuiltinCatalog {
       long callerProgrammer,
       ListValue callers,
       boolean threadMode) {
-    return invoke(
-        spec,
-        arguments,
-        world,
-        programmer,
-        taskLocal,
-        taskId,
-        remainingTicks,
-        remainingSeconds,
-        receiver,
-        callerProgrammer,
-        callers,
-        threadMode,
-        (_connectionId, queuedBytes) -> queuedBytes);
-  }
-
-  /** Validates and invokes one exact manifest entry with attempt-local output projection. */
-  public BuiltinResult invoke(
-      BuiltinSpec spec,
-      List<MooValue> arguments,
-      WorldTxn world,
-      long programmer,
-      MooValue taskLocal,
-      long taskId,
-      long remainingTicks,
-      long remainingSeconds,
-      MooValue receiver,
-      long callerProgrammer,
-      ListValue callers,
-      boolean threadMode,
-      LongBinaryOperator stagedBufferedOutputLength) {
     if (spec.callShapes().stream().noneMatch(shape -> shape.acceptsArity(arguments.size()))) {
       return BuiltinResult.error(ErrorValue.E_ARGS);
     }
@@ -2464,8 +2421,7 @@ public final class BuiltinCatalog {
                 receiver,
                 callerProgrammer,
                 callers,
-                threadMode,
-                stagedBufferedOutputLength));
+                threadMode));
   }
 
   private BuiltinResult functionInfo(List<MooValue> arguments) {
@@ -6009,24 +5965,9 @@ public final class BuiltinCatalog {
     return new BuiltinResult.Programmer(requested.value());
   }
 
-  private BuiltinResult notifyLine(
-      List<MooValue> arguments, WorldTxn world, long programmer) {
-    long target = ((ObjectValue) arguments.getFirst()).value();
-    if (target != programmer && !isWizard(world, programmer)) {
-      return BuiltinResult.error(ErrorValue.E_PERM);
-    }
+  private static BuiltinResult notifyLine(List<MooValue> arguments) {
     StringValue line = (StringValue) arguments.get(1);
-    OptionalLong connectionId = connections().connectionId(target);
-    if (connectionId.isEmpty()) {
-      return BuiltinResult.value(new IntegerValue(1));
-    }
-    boolean noFlush = arguments.size() > 2 && arguments.get(2).isTruthy();
-    boolean noNewline = arguments.size() > 3 && arguments.get(3).isTruthy();
-    if (target == programmer && !noFlush && !noNewline) {
-      return new BuiltinResult.Output(line.text());
-    }
-    return new BuiltinResult.Notify(
-        connectionId.orElseThrow(), line.text(), noFlush, noNewline);
+    return new BuiltinResult.Output(line.text());
   }
 
   private static BuiltinResult toStringValue(List<MooValue> arguments) {
@@ -6292,10 +6233,6 @@ public final class BuiltinCatalog {
     /** Writes ordered lines to one accepted connection selected by runtime ID. */
     void writeConnection(long connectionId, List<String> lines);
 
-    /** Writes or queues one notification for a live connection. */
-    void notifyConnection(
-        long connectionId, String line, boolean noFlush, boolean noNewline);
-
     /** Writes final lines and closes one accepted connection selected by runtime ID. */
     void bootConnection(long connectionId, List<String> lines);
 
@@ -6330,10 +6267,6 @@ public final class BuiltinCatalog {
 
   /** One validated line to inject into a live connection's input stream. */
   public record ForcedInputRequest(long target, String line) {}
-
-  /** One authorized notification captured for commit-time transport publication. */
-  public record NotificationRequest(
-      long connectionId, String line, boolean noFlush, boolean noNewline) {}
 
   /** The connection options authorized by the held-input slice. */
   public enum ConnectionOption {

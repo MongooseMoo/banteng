@@ -51,7 +51,7 @@ public final class MooServer implements AutoCloseable, ListenerControl {
   private final int primaryPort;
   private final Map<Integer, Listener> listeners = new ConcurrentHashMap<>();
   private final Map<Long, Socket> connections = new ConcurrentHashMap<>();
-  private final Map<Long, ConnectionOutput> outputs = new ConcurrentHashMap<>();
+  private final Map<Long, BufferedWriter> outputs = new ConcurrentHashMap<>();
   private final Map<Long, Boolean> binaryConnections = new ConcurrentHashMap<>();
   private final AtomicBoolean serving = new AtomicBoolean();
   private final AtomicBoolean closed = new AtomicBoolean();
@@ -289,13 +289,12 @@ public final class MooServer implements AutoCloseable, ListenerControl {
         BufferedWriter output =
             new BufferedWriter(
                 new OutputStreamWriter(socket.getOutputStream(), StringValue.charset()))) {
-      ConnectionOutput connectionOutput = new ConnectionOutput(output);
-      outputs.put(connectionId, connectionOutput);
+      outputs.put(connectionId, output);
       List<String> initialOutput =
           runtime.openConnection(
               connectionId, listener.handler, listener.printMessages, connectionInfo(socket, false));
       opened = true;
-      connectionOutput.writeLines(initialOutput);
+      writeLines(output, initialOutput);
       ByteArrayOutputStream line = new ByteArrayOutputStream();
       boolean afterCarriageReturn = false;
       boolean afterIac = false;
@@ -306,7 +305,8 @@ public final class MooServer implements AutoCloseable, ListenerControl {
       int inputCount;
       while ((inputCount = input.read(inputBuffer)) != -1) {
         if (binaryConnections.containsKey(connectionId)) {
-          connectionOutput.writeLines(
+          writeLines(
+              output,
               runtime.executeLine(
                   connectionId,
                   new String(inputBuffer, 0, inputCount, StringValue.charset())));
@@ -330,7 +330,8 @@ public final class MooServer implements AutoCloseable, ListenerControl {
                   }
                 }
                 subnegotiation = null;
-                connectionOutput.writeLines(
+                writeLines(
+                    output,
                     runtime.executeTransportOutOfBand(connectionId, encodedCommand.toString()));
               }
             } else if (inputByte == 0xFF) {
@@ -341,7 +342,8 @@ public final class MooServer implements AutoCloseable, ListenerControl {
           if (negotiationCommand >= 0) {
             int completedCommand = negotiationCommand;
             negotiationCommand = -1;
-            connectionOutput.writeLines(
+            writeLines(
+                output,
                 runtime.executeTransportOutOfBand(
                     connectionId, "~FF~%02X~%02X".formatted(completedCommand, inputByte)));
             continue;
@@ -355,8 +357,7 @@ public final class MooServer implements AutoCloseable, ListenerControl {
               subnegotiation.write(0xFF);
               subnegotiation.write(0xFA);
             } else if (inputByte == 0xF1) {
-              connectionOutput.writeLines(
-                  runtime.executeTransportOutOfBand(connectionId, "~FF~F1"));
+              writeLines(output, runtime.executeTransportOutOfBand(connectionId, "~FF~F1"));
             }
             continue;
           }
@@ -365,7 +366,8 @@ public final class MooServer implements AutoCloseable, ListenerControl {
             continue;
           }
           if (inputByte == '\r') {
-            connectionOutput.writeLines(
+            writeLines(
+                output,
                 runtime.executeLine(connectionId, line.toString(StringValue.charset())));
             line.reset();
             afterCarriageReturn = true;
@@ -376,7 +378,8 @@ public final class MooServer implements AutoCloseable, ListenerControl {
               afterCarriageReturn = false;
               continue;
             }
-            connectionOutput.writeLines(
+            writeLines(
+                output,
                 runtime.executeLine(connectionId, line.toString(StringValue.charset())));
             line.reset();
             continue;
@@ -386,8 +389,8 @@ public final class MooServer implements AutoCloseable, ListenerControl {
         }
       }
       if (line.size() > 0) {
-        connectionOutput.writeLines(
-            runtime.executeLine(connectionId, line.toString(StringValue.charset())));
+        writeLines(
+            output, runtime.executeLine(connectionId, line.toString(StringValue.charset())));
       }
     } catch (IOException error) {
       if (!closed.get() && !socket.isClosed()) {
@@ -400,6 +403,16 @@ public final class MooServer implements AutoCloseable, ListenerControl {
       outputs.remove(connectionId);
       binaryConnections.remove(connectionId);
       connections.remove(connectionId, socket);
+    }
+  }
+
+  private static void writeLines(BufferedWriter output, List<String> lines) throws IOException {
+    synchronized (output) {
+      for (String line : lines) {
+        output.write(line);
+        output.write("\r\n");
+      }
+      output.flush();
     }
   }
 
@@ -539,7 +552,7 @@ public final class MooServer implements AutoCloseable, ListenerControl {
           new BufferedWriter(
               new OutputStreamWriter(socket.getOutputStream(), StringValue.charset()));
       connections.put(connectionId, socket);
-      outputs.put(connectionId, new ConnectionOutput(output));
+      outputs.put(connectionId, output);
       runtime.registerOutboundConnection(
           connectionId, listenerHandler, connectionInfo(socket, true));
       return connectionId;
@@ -554,27 +567,12 @@ public final class MooServer implements AutoCloseable, ListenerControl {
   /** Writes ordered lines to one accepted socket without closing it. */
   @Override
   public void writeConnection(long connectionId, List<String> lines) {
-    ConnectionOutput output = outputs.get(connectionId);
+    BufferedWriter output = outputs.get(connectionId);
     if (output == null) {
       return;
     }
     try {
-      output.writeLines(lines);
-    } catch (IOException ignored) {
-      // The connection reader owns physical cleanup after a failed write.
-    }
-  }
-
-  /** Publishes one notify call with Toast's flush and newline controls. */
-  @Override
-  public void notifyConnection(
-      long connectionId, String line, boolean noFlush, boolean noNewline) {
-    ConnectionOutput output = outputs.get(connectionId);
-    if (output == null) {
-      return;
-    }
-    try {
-      output.notify(line, noFlush, noNewline, binaryConnections.containsKey(connectionId));
+      writeLines(output, lines);
     } catch (IOException ignored) {
       // The connection reader owns physical cleanup after a failed write.
     }
@@ -584,13 +582,13 @@ public final class MooServer implements AutoCloseable, ListenerControl {
   @Override
   public void bootConnection(long connectionId, List<String> lines) {
     Socket socket = connections.get(connectionId);
-    ConnectionOutput output = outputs.get(connectionId);
+    BufferedWriter output = outputs.get(connectionId);
     if (socket == null) {
       return;
     }
     try {
       if (output != null) {
-        output.writeLines(lines);
+        writeLines(output, lines);
       }
     } catch (IOException ignored) {
       // The logical connection is already gone; closing the socket completes the boot.
@@ -609,11 +607,10 @@ public final class MooServer implements AutoCloseable, ListenerControl {
     }
   }
 
-  /** Returns the exact Latin-1 bytes retained by no-flush notifications. */
+  /** Output is flushed synchronously, so no bytes remain queued between writes. */
   @Override
   public long bufferedOutputLength(long connectionId) {
-    ConnectionOutput output = outputs.get(connectionId);
-    return output == null ? 0L : output.bufferedLength();
+    return 0L;
   }
 
   /** Closes the production server after a committed shutdown checkpoint. */
@@ -755,45 +752,6 @@ public final class MooServer implements AutoCloseable, ListenerControl {
       socket.close();
     } catch (IOException ignored) {
       // The server is already closing; there is no remaining socket state to preserve.
-    }
-  }
-
-  private static final class ConnectionOutput {
-    private final BufferedWriter output;
-    private final StringBuilder queued = new StringBuilder();
-
-    ConnectionOutput(BufferedWriter output) {
-      this.output = Objects.requireNonNull(output, "output");
-    }
-
-    synchronized void writeLines(List<String> lines) throws IOException {
-      for (String line : lines) {
-        queued.append(line).append("\r\n");
-      }
-      flush();
-    }
-
-    synchronized void notify(
-        String line, boolean noFlush, boolean noNewline, boolean binary) throws IOException {
-      queued.append(line);
-      if (!binary && !noNewline) {
-        queued.append("\r\n");
-      }
-      if (!noFlush) {
-        flush();
-      }
-    }
-
-    synchronized long bufferedLength() {
-      return queued.length();
-    }
-
-    private void flush() throws IOException {
-      if (!queued.isEmpty()) {
-        output.write(queued.toString());
-        queued.setLength(0);
-      }
-      output.flush();
     }
   }
 
