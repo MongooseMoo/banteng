@@ -28,6 +28,7 @@ import world.mongoose.banteng.builtin.BuiltinCatalog;
 import world.mongoose.banteng.builtin.BuiltinCatalog.ConnectionOption;
 import world.mongoose.banteng.builtin.BuiltinCatalog.ConnectionOptionRequest;
 import world.mongoose.banteng.builtin.BuiltinCatalog.ForcedInputRequest;
+import world.mongoose.banteng.builtin.BuiltinCatalog.KeepAliveOptions;
 import world.mongoose.banteng.builtin.BuiltinCatalog.NotificationRequest;
 import world.mongoose.banteng.builtin.BuiltinCatalog.ListenerControl;
 import world.mongoose.banteng.builtin.BuiltinHosts;
@@ -395,6 +396,7 @@ public final class MooRuntime implements AutoCloseable {
         .threads(taskRegistry::threads)
         .connectionOptions(
             call -> connectionOptions(call.arguments(), call.world(), call.programmer()))
+        .setConnectionOption(this::applyConnectionOption)
         .connectionNameLookup(this::connectionNameLookup)
         .dbDiskSize(call -> dbDiskSize())
         .flushInput(call -> flushInput(call.arguments(), call.world(), call.programmer()))
@@ -2634,48 +2636,55 @@ public final class MooRuntime implements AutoCloseable {
 
   private void applyConnectionOptionRequests(VmState task) {
     for (ConnectionOptionRequest request : task.drainConnectionOptionRequests()) {
-      long connectionId = request.target();
-      ConnectionState connection = connections().get(request.target());
-      if (connection == null) {
-        for (Map.Entry<Long, ConnectionState> entry : connections().entrySet()) {
-          if (connectionRegistry().connectionPlayer(entry.getKey()).orElse(Long.MIN_VALUE)
-              == request.target()) {
-            connectionId = entry.getKey();
-            connection = entry.getValue();
-            break;
-          }
+      applyConnectionOption(request.target(), request.option(), request.value());
+    }
+  }
+
+  private BuiltinResult applyConnectionOption(
+      long target, ConnectionOption option, MooValue value) {
+    long connectionId = target;
+    ConnectionState connection = connections().get(target);
+    if (connection == null) {
+      for (Map.Entry<Long, ConnectionState> entry : connections().entrySet()) {
+        if (connectionRegistry().connectionPlayer(entry.getKey()).orElse(Long.MIN_VALUE) == target) {
+          connectionId = entry.getKey();
+          connection = entry.getValue();
+          break;
         }
-      }
-      if (connection == null) {
-        continue;
-      }
-      if (request.option() == ConnectionOption.HOLD_INPUT) {
-        boolean release = connection.holdInput && !request.value().isTruthy();
-        connection.holdInput = request.value().isTruthy();
-        if (release) {
-          List<String> pendingInput = List.copyOf(connection.pendingInput);
-          connection.pendingInput.clear();
-          for (String line : pendingInput) {
-            effects().add(RuntimeEffect.input(connectionId, line));
-          }
-        }
-      } else if (request.option() == ConnectionOption.DISABLE_OOB) {
-        connection.disableOob = request.value().isTruthy();
-      } else if (request.option() == ConnectionOption.BINARY) {
-        connection.binary = request.value().isTruthy();
-        long binaryConnectionId = connectionId;
-        if (listenerControl.isPresent()) {
-          effects().add(RuntimeEffect.binary(binaryConnectionId, connection.binary));
-        }
-      } else if (request.option() == ConnectionOption.INTRINSIC_COMMANDS) {
-        connectionRegistry().setIntrinsicCommands(connectionId, (ListValue) request.value());
-      } else if (request.value() instanceof StringValue command && command.length() > 0) {
-        connection.flushCommand =
-            Optional.of(command.text());
-      } else {
-        connection.flushCommand = Optional.empty();
       }
     }
+    if (connection == null) {
+      return BuiltinResult.error(ErrorValue.E_INVARG);
+    }
+    if (option == ConnectionOption.HOLD_INPUT) {
+      boolean release = connection.holdInput && !value.isTruthy();
+      connection.holdInput = value.isTruthy();
+      if (release) {
+        List<String> pendingInput = List.copyOf(connection.pendingInput);
+        connection.pendingInput.clear();
+        for (String line : pendingInput) {
+          effects().add(RuntimeEffect.input(connectionId, line));
+        }
+      }
+    } else if (option == ConnectionOption.DISABLE_OOB) {
+      connection.disableOob = value.isTruthy();
+    } else if (option == ConnectionOption.BINARY) {
+      connection.binary = value.isTruthy();
+      long binaryConnectionId = connectionId;
+      if (listenerControl.isPresent()) {
+        effects().add(RuntimeEffect.binary(binaryConnectionId, connection.binary));
+      }
+    } else if (option == ConnectionOption.KEEP_ALIVE) {
+      connection.keepAlive = connection.keepAlive.with(value);
+      effects().add(RuntimeEffect.keepAlive(connectionId, connection.keepAlive));
+    } else if (option == ConnectionOption.INTRINSIC_COMMANDS) {
+      connectionRegistry().setIntrinsicCommands(connectionId, (ListValue) value);
+    } else if (value instanceof StringValue command && command.length() > 0) {
+      connection.flushCommand = Optional.of(command.text());
+    } else {
+      connection.flushCommand = Optional.empty();
+    }
+    return BuiltinResult.value(new IntegerValue(0));
   }
 
   private BuiltinResult connectionOptions(
@@ -2704,6 +2713,7 @@ public final class MooRuntime implements AutoCloseable {
             case "flush-command" -> StringValue.of(connection.flushCommand.orElse(""));
             case "hold-input" -> new IntegerValue(connection.holdInput ? 1 : 0);
             case "disable-oob" -> new IntegerValue(connection.disableOob ? 1 : 0);
+            case "keep-alive" -> connection.keepAlive.toValue();
             case "intrinsic-commands" ->
                 connectionRegistry()
                     .intrinsicCommands(target)
@@ -2721,6 +2731,7 @@ public final class MooRuntime implements AutoCloseable {
             "flush-command", StringValue.of(connection.flushCommand.orElse(""))));
     options.add(connectionOptionPair("hold-input", new IntegerValue(connection.holdInput ? 1 : 0)));
     options.add(connectionOptionPair("disable-oob", new IntegerValue(connection.disableOob ? 1 : 0)));
+    options.add(connectionOptionPair("keep-alive", connection.keepAlive.toValue()));
     options.add(
         connectionOptionPair(
             "intrinsic-commands",
@@ -3427,6 +3438,9 @@ public final class MooRuntime implements AutoCloseable {
       case BINARY ->
           listenerControl.ifPresent(
               control -> control.setConnectionBinary(effect.connectionId, effect.binary));
+      case KEEP_ALIVE ->
+          listenerControl.ifPresent(
+              control -> control.setConnectionKeepAlive(effect.connectionId, effect.keepAlive));
       case INPUT -> {
         if (!deliverPendingRead(effect.connectionId, effect.text)) {
           scheduler.enqueueDetached(RuntimeRequest.line(effect.connectionId, effect.text));
@@ -3811,6 +3825,7 @@ public final class MooRuntime implements AutoCloseable {
     private boolean holdInput;
     private boolean disableOob;
     private boolean binary;
+    private KeepAliveOptions keepAlive = KeepAliveOptions.defaults();
     private Optional<String> flushCommand = Optional.empty();
     private final List<String> pendingInput = new ArrayList<>();
     private Optional<String> prefix = Optional.empty();
@@ -3831,6 +3846,7 @@ public final class MooRuntime implements AutoCloseable {
       copy.holdInput = holdInput;
       copy.disableOob = disableOob;
       copy.binary = binary;
+      copy.keepAlive = keepAlive;
       copy.flushCommand = flushCommand;
       copy.pendingInput.addAll(pendingInput);
       copy.prefix = prefix;
@@ -3849,6 +3865,7 @@ public final class MooRuntime implements AutoCloseable {
           && holdInput == other.holdInput
           && disableOob == other.disableOob
           && binary == other.binary
+          && keepAlive.equals(other.keepAlive)
           && flushCommand.equals(other.flushCommand)
           && pendingInput.equals(other.pendingInput)
           && prefix.equals(other.prefix)
@@ -3977,6 +3994,7 @@ public final class MooRuntime implements AutoCloseable {
     NOTIFY,
     BOOT,
     BINARY,
+    KEEP_ALIVE,
     INPUT,
     CHECKPOINT,
     PANIC,
@@ -3991,9 +4009,32 @@ public final class MooRuntime implements AutoCloseable {
       boolean noFlush,
       long generation,
       String text,
-      boolean noNewline) {
+      boolean noNewline,
+      KeepAliveOptions keepAlive) {
     RuntimeEffect {
       lines = List.copyOf(lines);
+      Objects.requireNonNull(keepAlive, "keepAlive");
+    }
+
+    RuntimeEffect(
+        RuntimeEffectKind kind,
+        long connectionId,
+        List<String> lines,
+        boolean binary,
+        boolean noFlush,
+        long generation,
+        String text,
+        boolean noNewline) {
+      this(
+          kind,
+          connectionId,
+          lines,
+          binary,
+          noFlush,
+          generation,
+          text,
+          noNewline,
+          KeepAliveOptions.defaults());
     }
 
     static RuntimeEffect startTimeout(long connectionId, long generation) {
@@ -4034,6 +4075,19 @@ public final class MooRuntime implements AutoCloseable {
     static RuntimeEffect binary(long connectionId, boolean binary) {
       return new RuntimeEffect(
           RuntimeEffectKind.BINARY, connectionId, List.of(), binary, false, 0, "", false);
+    }
+
+    static RuntimeEffect keepAlive(long connectionId, KeepAliveOptions options) {
+      return new RuntimeEffect(
+          RuntimeEffectKind.KEEP_ALIVE,
+          connectionId,
+          List.of(),
+          false,
+          false,
+          0,
+          "",
+          false,
+          options);
     }
 
     static RuntimeEffect input(long connectionId, String line) {
