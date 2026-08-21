@@ -177,6 +177,55 @@ final class MooRuntimeTest {
   }
 
   @Test
+  void connectionOptionsReadTheirOwnFlushCommandWrite() throws Exception {
+    WorldTxn world = new LambdaMooV4Reader().read(FIXTURE);
+    MooRuntime runtime = runtimeFor(world);
+    long connectionId = -47;
+    assertEquals(List.of(), runtime.openConnection(connectionId));
+    assertEquals(List.of("*** Connected ***"), runtime.executeLine(connectionId, "connect Wizard"));
+
+    assertEquals(
+        List.of(CONNECTION_PREFIX, "{1, \".myroundtrip\"}", CONNECTION_SUFFIX),
+        runtime.executeLine(
+            connectionId,
+            "; set_connection_option(player, \"flush-command\", \".myroundtrip\"); "
+                + "return connection_options(player, \"flush-command\");"));
+  }
+
+  @Test
+  void keepAliveConnectionOptionAcceptsToastIntegerAndMapForms() throws Exception {
+    WorldTxn world = new LambdaMooV4Reader().read(FIXTURE);
+    MooRuntime runtime = runtimeFor(world);
+    long connectionId = -47;
+    assertEquals(List.of(), runtime.openConnection(connectionId));
+    assertEquals(List.of("*** Connected ***"), runtime.executeLine(connectionId, "connect Wizard"));
+
+    assertEquals(
+        List.of(CONNECTION_PREFIX, "{1, 1}", CONNECTION_SUFFIX),
+        runtime.executeLine(
+            connectionId,
+            "; set_connection_option(player, \"keep-alive\", 1); "
+                + "set_connection_option(player, \"keep-alive\", "
+                + "[\"enabled\" -> 1, \"idle\" -> 1, \"interval\" -> 2, \"count\" -> 3]); "
+                + "o = connection_options(player, \"keep-alive\"); "
+                + "return o[\"enabled\"] == 1 && o[\"idle\"] == 1 "
+                + "&& o[\"interval\"] == 2 && o[\"count\"] == 3;"));
+    assertEquals(
+        List.of(CONNECTION_PREFIX, "{1, 1}", CONNECTION_SUFFIX),
+        runtime.executeLine(
+            connectionId,
+            "; o = connection_options(player, \"keep-alive\"); "
+                + "return o[\"enabled\"] == 1 && o[\"idle\"] == 1 "
+                + "&& o[\"interval\"] == 2 && o[\"count\"] == 3;"));
+    assertEquals(
+        List.of(CONNECTION_PREFIX, "{1, E_INVARG}", CONNECTION_SUFFIX),
+        runtime.executeLine(
+            connectionId,
+            "; return `set_connection_option(player, \"keep-alive\", \"yes\") "
+                + "! E_INVARG => E_INVARG';"));
+  }
+
+  @Test
   void noArgumentReadFromForkIsNotTheLastInputTask() throws Exception {
     WorldTxn world = new LambdaMooV4Reader().read(FIXTURE);
     MooRuntime runtime = runtimeFor(world);
