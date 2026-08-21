@@ -180,11 +180,7 @@ final class IndexOps {
       ErrorOps.raise(state, ErrorValue.E_TYPE, world);
       return;
     }
-    if (size == 0) {
-      ErrorOps.raise(state, ErrorValue.E_RANGE, world);
-      return;
-    }
-    frame.operandStack.push(new IntegerValue(last ? size : 1));
+    frame.operandStack.push(new IntegerValue(last || size == 0 ? size : 1));
     frame.instructionPointer++;
   }
 

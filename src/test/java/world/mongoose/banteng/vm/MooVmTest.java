@@ -1608,6 +1608,42 @@ final class MooVmTest {
   }
 
   @Test
+  void emptySequenceBoundariesProduceZeroBeforeRangeAndIndexValidation() {
+    Map<String, MooValue> ranges =
+        Map.of(
+            "return {}[1..$];", new ListValue(List.of()),
+            "return {}[^..-1];", new ListValue(List.of()),
+            "return \"\"[1..$];", StringValue.of(""),
+            "return \"\"[^..-1];", StringValue.of(""),
+            "return {7}[^..$];", new ListValue(List.of(new IntegerValue(7))),
+            "return \"x\"[^..$];", StringValue.of("x"));
+    for (Map.Entry<String, MooValue> test : ranges.entrySet()) {
+      VmState state = new VmState();
+
+      new MooVm().execute(new MooCompiler().compile(parse(test.getKey())), state);
+
+      assertEquals(VmState.Outcome.RETURNED, state.outcome(), test.getKey());
+      assertEquals(test.getValue(), state.returnValue().orElseThrow(), test.getKey());
+    }
+
+    for (String source :
+        List.of(
+            "return {}[^];",
+            "return {}[$];",
+            "return \"\"[^];",
+            "return \"\"[$];",
+            "return [][^];",
+            "return [][$];")) {
+      VmState state = new VmState();
+
+      new MooVm().execute(new MooCompiler().compile(parse(source)), state);
+
+      assertEquals(VmState.Outcome.ERRORED, state.outcome(), source);
+      assertEquals(ErrorValue.E_RANGE, state.uncaughtError().orElseThrow(), source);
+    }
+  }
+
+  @Test
   void replacesAListRangeThroughTheCompleteCollectionPipeline() {
     byte[] source =
         StringValue.of("l = {1, 2, 3}; l[2..3] = {6, 7, 8, 9}; return l;").bytes();
