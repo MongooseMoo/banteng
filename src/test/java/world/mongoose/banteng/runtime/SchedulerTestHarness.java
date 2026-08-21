@@ -148,6 +148,10 @@ final class SchedulerTestHarness implements AutoCloseable {
     public void writeConnection(long connectionId, List<String> lines) {}
 
     @Override
+    public void notifyConnection(
+        long connectionId, String line, boolean noFlush, boolean noNewline) {}
+
+    @Override
     public void bootConnection(long connectionId, List<String> lines) {}
 
     @Override

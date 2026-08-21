@@ -63,4 +63,44 @@ final class ConnectionRegistryTest {
 
     assertEquals(4, original.connectionPlayer(-2).orElseThrow());
   }
+
+  @Test
+  void rewritesOnlyTheSameLiveConnectionsRemoteName() {
+    ConnectionRegistry registry = new ConnectionRegistry();
+    MapValue info =
+        new MapValue(
+            Map.of(
+                StringValue.of("destination_address"), StringValue.of("198.51.100.25"),
+                StringValue.of("destination_ip"), StringValue.of("198.51.100.25"),
+                StringValue.of("protocol"), StringValue.of("IPv4")));
+    registry.openConnection(-2, info);
+
+    assertFalse(registry.rewriteConnectionName(-2, "203.0.113.8", "wrong.example"));
+    assertEquals(info, registry.connectionInfo(-2).orElseThrow());
+    assertTrue(registry.rewriteConnectionName(-2, "198.51.100.25", "client.example"));
+    assertEquals(
+        StringValue.of("client.example"),
+        registry
+            .connectionInfo(-2)
+            .orElseThrow()
+            .get(StringValue.of("destination_address"))
+            .orElseThrow());
+    assertEquals(
+        StringValue.of("198.51.100.25"),
+        registry
+            .connectionInfo(-2)
+            .orElseThrow()
+            .get(StringValue.of("destination_ip"))
+            .orElseThrow());
+    assertEquals(
+        StringValue.of("IPv4"),
+        registry
+            .connectionInfo(-2)
+            .orElseThrow()
+            .get(StringValue.of("protocol"))
+            .orElseThrow());
+
+    registry.closeConnection(-2);
+    assertFalse(registry.rewriteConnectionName(-2, "198.51.100.25", "late.example"));
+  }
 }

@@ -18,6 +18,7 @@ import world.mongoose.banteng.builtin.BuiltinResult;
 import world.mongoose.banteng.builtin.BuiltinCatalog.ConnectionOption;
 import world.mongoose.banteng.builtin.BuiltinCatalog.ConnectionOptionRequest;
 import world.mongoose.banteng.builtin.BuiltinCatalog.ForcedInputRequest;
+import world.mongoose.banteng.builtin.BuiltinCatalog.NotificationRequest;
 import world.mongoose.banteng.bytecode.BytecodeProgram;
 import world.mongoose.banteng.bytecode.BytecodeProgram.HandlerSpec;
 import world.mongoose.banteng.bytecode.BytecodeProgram.Instruction;
@@ -77,6 +78,7 @@ final class VmSnapshotTest {
         new ConnectionOptionRequest(41, ConnectionOption.HOLD_INPUT, new IntegerValue(1)));
     state.stageBootPlayerTarget(43);
     state.stageForcedInputRequest(new ForcedInputRequest(47, "look"));
+    state.stageNotificationRequest(new NotificationRequest(-7, "abc", true, true));
     AnonymousObjectValue deferred = new AnonymousObjectValue();
     state.deferAnonymousCollection(List.of(deferred));
     state.switchPlayer(53);
@@ -91,6 +93,10 @@ final class VmSnapshotTest {
     assertEquals(250, snapshot.elapsedCpuNanos());
     assertEquals(TimeUnit.SECONDS.toNanos(10) - 250, snapshot.remainingCpuNanos());
     assertEquals(snapshot, restored.snapshot(9_000));
+    assertEquals(3, restored.stagedBufferedOutputLength(-7, 0));
+    assertEquals(
+        List.of(new NotificationRequest(-7, "abc", true, true)),
+        restored.drainNotificationRequests());
     assertEquals(List.of(deferred), restored.anonymousCollectionDeferrals());
     assertSame(program, restored.currentFrame().program);
     assertSame(forkProgram, restored.forkRequest().orElseThrow().program());

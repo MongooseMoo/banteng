@@ -18,6 +18,7 @@ public record BuiltinHosts(
     BuiltinHandler threadPool,
     BuiltinHandler threads,
     BuiltinHandler connectionOptions,
+    BuiltinHandler connectionNameLookup,
     BuiltinHandler dbDiskSize,
     BuiltinHandler flushInput,
     BuiltinHandler outputDelimiters,
@@ -35,6 +36,7 @@ public record BuiltinHosts(
     Objects.requireNonNull(threadPool, "threadPool");
     Objects.requireNonNull(threads, "threads");
     Objects.requireNonNull(connectionOptions, "connectionOptions");
+    Objects.requireNonNull(connectionNameLookup, "connectionNameLookup");
     Objects.requireNonNull(dbDiskSize, "dbDiskSize");
     Objects.requireNonNull(flushInput, "flushInput");
     Objects.requireNonNull(outputDelimiters, "outputDelimiters");
@@ -65,6 +67,7 @@ public record BuiltinHosts(
     private BuiltinHandler threads =
         call -> BuiltinResult.value(new ListValue(List.of()));
     private BuiltinHandler connectionOptions = Builder::invalidArgument;
+    private BuiltinHandler connectionNameLookup = Builder::invalidArgument;
     private BuiltinHandler dbDiskSize =
         call -> BuiltinResult.value(new IntegerValue(0));
     private BuiltinHandler flushInput =
@@ -112,6 +115,11 @@ public record BuiltinHosts(
 
     public Builder connectionOptions(BuiltinHandler value) {
       connectionOptions = value;
+      return this;
+    }
+
+    public Builder connectionNameLookup(BuiltinHandler value) {
+      connectionNameLookup = value;
       return this;
     }
 
@@ -164,6 +172,7 @@ public record BuiltinHosts(
           threadPool,
           threads,
           connectionOptions,
+          connectionNameLookup,
           dbDiskSize,
           flushInput,
           outputDelimiters,

@@ -8,6 +8,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.OptionalLong;
 import world.mongoose.banteng.builtin.ConnectionRegistryAccess;
+import world.mongoose.banteng.value.MooValue;
 import world.mongoose.banteng.value.MooValue.ListValue;
 import world.mongoose.banteng.value.MooValue.MapValue;
 import world.mongoose.banteng.value.MooValue.StringValue;
@@ -147,6 +148,26 @@ public final class ConnectionRegistry implements ConnectionRegistryAccess {
     return connectionId.isEmpty()
         ? Optional.empty()
         : Optional.ofNullable(connectionInfo.get(connectionId.orElseThrow()));
+  }
+
+  /** Replaces one live connection's remote name if its numeric address is unchanged. */
+  @Override
+  public boolean rewriteConnectionName(
+      long connectionId, String expectedIp, String resolvedName) {
+    Objects.requireNonNull(expectedIp, "expectedIp");
+    Objects.requireNonNull(resolvedName, "resolvedName");
+    MapValue current = connectionInfo.get(connectionId);
+    if (current == null) {
+      return false;
+    }
+    MooValue destinationIp = current.get(StringValue.of("destination_ip")).orElse(null);
+    if (!(destinationIp instanceof StringValue ip) || !ip.text().equals(expectedIp)) {
+      return false;
+    }
+    Map<MooValue, MooValue> replacement = new LinkedHashMap<>(current.entries());
+    replacement.put(StringValue.of("destination_address"), StringValue.of(resolvedName));
+    connectionInfo.put(connectionId, new MapValue(replacement));
+    return true;
   }
 
   /** Resolves a live connection object or its attached player to the connection ID. */
