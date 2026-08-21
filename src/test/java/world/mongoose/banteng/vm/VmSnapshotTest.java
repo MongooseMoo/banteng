@@ -103,6 +103,14 @@ final class VmSnapshotTest {
   }
 
   @Test
+  void ordinaryNotificationsRemainVisibleInAttemptLocalBufferedOutput() {
+    VmState state = new VmState();
+    state.stageNotificationRequest(new NotificationRequest(-7, "abc", false, false));
+
+    assertEquals(12, state.stagedBufferedOutputLength(-7, 7));
+  }
+
+  @Test
   void restoredInstructionBoundaryContinuesThroughTheSameProgram() {
     BytecodeProgram program =
         new BytecodeProgram(
