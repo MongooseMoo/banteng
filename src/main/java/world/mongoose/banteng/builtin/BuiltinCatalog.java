@@ -32,6 +32,7 @@ import java.util.StringTokenizer;
 import java.util.concurrent.CancellationException;
 import java.util.function.DoubleUnaryOperator;
 import java.util.function.Function;
+import java.util.function.LongBinaryOperator;
 import java.util.function.Supplier;
 import world.mongoose.banteng.bytecode.MooCompiler;
 import world.mongoose.banteng.host.NativeCalls;
@@ -87,6 +88,7 @@ public final class BuiltinCatalog {
   private final Optional<ListenerControl> listenerControl;
   private final Random random;
   private final SqliteService sqlite;
+  private final ToastRegexService toastRegex = new ToastRegexService();
   private final Random floatingRandom;
   private final Map<String, BuiltinSpec> specs;
 
@@ -175,6 +177,12 @@ public final class BuiltinCatalog {
     @Override
     public Optional<MapValue> connectionInfo(long objectId) {
       return Optional.empty();
+    }
+
+    @Override
+    public boolean rewriteConnectionName(
+        long connectionId, String expectedIp, String resolvedName) {
+      return false;
     }
 
     @Override
@@ -1048,6 +1056,15 @@ public final class BuiltinCatalog {
             call -> ancestors(call.arguments(), call.world())));
     entries.add(
         new BuiltinSpec(
+            "isa",
+            List.of(new CallShape(List.of(ANY, ANY), List.of(INTEGER), Optional.empty())),
+            BuiltinPermissionRule.ANY,
+            BuiltinCostRule.fixed(0),
+            EffectClass.TRANSACTION_READ,
+            BuiltinOwner.WORLD,
+            call -> isa(call.arguments(), call.world())));
+    entries.add(
+        new BuiltinSpec(
             "children",
             List.of(new CallShape(List.of(ANY), List.of(), Optional.empty())),
             BuiltinPermissionRule.ANY,
@@ -1410,13 +1427,36 @@ public final class BuiltinCatalog {
                             .toList()))));
     entries.add(
         new BuiltinSpec(
+            "idle_seconds",
+            List.of(new CallShape(List.of(OBJECT), List.of(), Optional.empty())),
+            BuiltinPermissionRule.ANY,
+            BuiltinCostRule.fixed(0),
+            EffectClass.EXTERNAL_READ,
+            BuiltinOwner.CONNECTION,
+            hosts.idleSeconds()));
+    entries.add(
+        new BuiltinSpec(
+            "connected_seconds",
+            List.of(new CallShape(List.of(OBJECT), List.of(), Optional.empty())),
+            BuiltinPermissionRule.ANY,
+            BuiltinCostRule.fixed(0),
+            EffectClass.EXTERNAL_READ,
+            BuiltinOwner.CONNECTION,
+            hosts.connectedSeconds()));
+    entries.add(
+        new BuiltinSpec(
             "buffered_output_length",
             List.of(new CallShape(List.of(), List.of(OBJECT), Optional.empty())),
             BuiltinPermissionRule.ANY,
             BuiltinCostRule.fixed(0),
             EffectClass.EXTERNAL_READ,
             BuiltinOwner.CONNECTION,
-            call -> bufferedOutputLength(call.arguments(), call.world(), call.programmer())));
+            call ->
+                bufferedOutputLength(
+                    call.arguments(),
+                    call.world(),
+                    call.programmer(),
+                    call.stagedBufferedOutputLength())));
     entries.add(
         new BuiltinSpec(
             "boot_player",
@@ -1444,6 +1484,33 @@ public final class BuiltinCatalog {
             EffectClass.EXTERNAL_READ,
             BuiltinOwner.CONNECTION,
             call -> connectionName(call.arguments(), call.world(), call.programmer())));
+    entries.add(
+        new BuiltinSpec(
+            "match",
+            List.of(new CallShape(List.of(STRING, STRING), List.of(ANY), Optional.empty())),
+            BuiltinPermissionRule.ANY,
+            BuiltinCostRule.fixed(0),
+            EffectClass.PURE,
+            BuiltinOwner.VM,
+            call -> toastMatch(call.arguments(), false)));
+    entries.add(
+        new BuiltinSpec(
+            "rmatch",
+            List.of(new CallShape(List.of(STRING, STRING), List.of(ANY), Optional.empty())),
+            BuiltinPermissionRule.ANY,
+            BuiltinCostRule.fixed(0),
+            EffectClass.PURE,
+            BuiltinOwner.VM,
+            call -> toastMatch(call.arguments(), true)));
+    entries.add(
+        new BuiltinSpec(
+            "connection_name_lookup",
+            List.of(new CallShape(List.of(OBJECT), List.of(ANY), Optional.empty())),
+            BuiltinPermissionRule.ANY,
+            BuiltinCostRule.fixed(0),
+            EffectClass.SUSPENDING_HOST,
+            BuiltinOwner.CONNECTION,
+            this::connectionNameLookup));
     entries.add(
         new BuiltinSpec(
             "connection_options",
@@ -1593,7 +1660,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.DEFERRED_COMMIT,
             BuiltinOwner.CONNECTION,
-            call -> notifyLine(call.arguments())));
+            call -> notifyLine(call.arguments(), call.world(), call.programmer())));
     entries.add(
         new BuiltinSpec(
             "tostr",
@@ -2014,7 +2081,10 @@ public final class BuiltinCatalog {
   }
 
   private BuiltinResult bufferedOutputLength(
-      List<MooValue> arguments, WorldTxn world, long programmer) {
+      List<MooValue> arguments,
+      WorldTxn world,
+      long programmer,
+      LongBinaryOperator stagedBufferedOutputLength) {
     if (arguments.isEmpty()) {
       return BuiltinResult.value(new IntegerValue(DEFAULT_MAX_QUEUED_OUTPUT));
     }
@@ -2030,7 +2100,10 @@ public final class BuiltinCatalog {
         listenerControl
             .map(control -> control.bufferedOutputLength(connectionId.orElseThrow()))
             .orElse(0L);
-    return BuiltinResult.value(new IntegerValue(queuedBytes));
+    return BuiltinResult.value(
+        new IntegerValue(
+            stagedBufferedOutputLength.applyAsLong(
+                connectionId.orElseThrow(), queuedBytes)));
   }
 
   private BuiltinResult connectionName(
@@ -2074,6 +2147,26 @@ public final class BuiltinCatalog {
                     destination.value())));
   }
 
+  private BuiltinResult toastMatch(List<MooValue> arguments, boolean reverse) {
+    return toastRegex.match(
+        (StringValue) arguments.get(0),
+        (StringValue) arguments.get(1),
+        arguments.size() == 3 && arguments.get(2).isTruthy(),
+        reverse);
+  }
+
+  private BuiltinResult connectionNameLookup(BuiltinCall call) {
+    long target = ((ObjectValue) call.arguments().getFirst()).value();
+    if (target != call.programmer()
+        && !BuiltinPermissionRule.WIZARD_ONLY.allows(call.world(), call.programmer())) {
+      return BuiltinResult.error(ErrorValue.E_PERM);
+    }
+    if (connections().connectionInfo(target).isEmpty()) {
+      return BuiltinResult.error(ErrorValue.E_INVARG);
+    }
+    return hosts.connectionNameLookup().invoke(call);
+  }
+
   private static BuiltinResult bootPlayer(
       List<MooValue> arguments, WorldTxn world, long programmer) {
     long target = ((ObjectValue) arguments.getFirst()).value();
@@ -2098,6 +2191,7 @@ public final class BuiltinCatalog {
           case "flush-command" -> ConnectionOption.FLUSH_COMMAND;
           case "disable-oob" -> ConnectionOption.DISABLE_OOB;
           case "binary" -> ConnectionOption.BINARY;
+          case "keep-alive" -> ConnectionOption.KEEP_ALIVE;
           case "intrinsic-commands" -> ConnectionOption.INTRINSIC_COMMANDS;
           default -> null;
         };
@@ -2105,6 +2199,10 @@ public final class BuiltinCatalog {
       return BuiltinResult.error(ErrorValue.E_INVARG);
     }
     MooValue value = arguments.get(2);
+    if (option == ConnectionOption.KEEP_ALIVE
+        && !(value instanceof IntegerValue || value instanceof MapValue)) {
+      return BuiltinResult.error(ErrorValue.E_INVARG);
+    }
     if (option == ConnectionOption.INTRINSIC_COMMANDS) {
       Optional<ListValue> normalized = normalizeIntrinsicCommands(value);
       if (normalized.isEmpty()) {
@@ -2113,7 +2211,7 @@ public final class BuiltinCatalog {
       value = normalized.orElseThrow();
       connections().setIntrinsicCommands(target, (ListValue) value);
     }
-    return new BuiltinResult.SetConnectionOption(target, option, value);
+    return hosts.setConnectionOption().set(target, option, value);
   }
 
   private static Optional<ListValue> normalizeIntrinsicCommands(MooValue value) {
@@ -2399,6 +2497,37 @@ public final class BuiltinCatalog {
       long callerProgrammer,
       ListValue callers,
       boolean threadMode) {
+    return invoke(
+        spec,
+        arguments,
+        world,
+        programmer,
+        taskLocal,
+        taskId,
+        remainingTicks,
+        remainingSeconds,
+        receiver,
+        callerProgrammer,
+        callers,
+        threadMode,
+        (_connectionId, queuedBytes) -> queuedBytes);
+  }
+
+  /** Validates and invokes one exact manifest entry with attempt-local output projection. */
+  public BuiltinResult invoke(
+      BuiltinSpec spec,
+      List<MooValue> arguments,
+      WorldTxn world,
+      long programmer,
+      MooValue taskLocal,
+      long taskId,
+      long remainingTicks,
+      long remainingSeconds,
+      MooValue receiver,
+      long callerProgrammer,
+      ListValue callers,
+      boolean threadMode,
+      LongBinaryOperator stagedBufferedOutputLength) {
     if (spec.callShapes().stream().noneMatch(shape -> shape.acceptsArity(arguments.size()))) {
       return BuiltinResult.error(ErrorValue.E_ARGS);
     }
@@ -2421,7 +2550,8 @@ public final class BuiltinCatalog {
                 receiver,
                 callerProgrammer,
                 callers,
-                threadMode));
+                threadMode,
+                stagedBufferedOutputLength));
   }
 
   private BuiltinResult functionInfo(List<MooValue> arguments) {
@@ -4702,6 +4832,58 @@ public final class BuiltinCatalog {
     return BuiltinResult.error(ErrorValue.E_TYPE);
   }
 
+  private static BuiltinResult isa(List<MooValue> arguments, WorldTxn world) {
+    MooValue subject = arguments.get(0);
+    if (subject instanceof WaifValue waif) {
+      subject = waif.classObject();
+    }
+    if (!(subject instanceof ObjectValue || subject instanceof AnonymousObjectValue)) {
+      return BuiltinResult.error(ErrorValue.E_TYPE);
+    }
+    MooValue requested = arguments.get(1);
+    List<MooValue> candidates;
+    if (requested instanceof ObjectValue || requested instanceof AnonymousObjectValue) {
+      candidates = List.of(requested);
+    } else if (requested instanceof ListValue list) {
+      if (list.elements().stream().anyMatch(candidate -> !(candidate instanceof ObjectValue))) {
+        return BuiltinResult.error(ErrorValue.E_TYPE);
+      }
+      candidates = list.elements();
+    } else {
+      return BuiltinResult.error(ErrorValue.E_TYPE);
+    }
+    MooValue matched = null;
+    for (MooValue candidate : candidates) {
+      if (isA(subject, candidate, world)) {
+        matched = candidate;
+        break;
+      }
+    }
+    boolean returnParent = arguments.size() == 3 && arguments.get(2).isTruthy();
+    return BuiltinResult.value(
+        returnParent
+            ? matched == null ? new ObjectValue(-1) : matched
+            : new IntegerValue(matched == null ? 0 : 1));
+  }
+
+  private static boolean isA(MooValue subject, MooValue candidate, WorldTxn world) {
+    if (subject instanceof ObjectValue object) {
+      return candidate instanceof ObjectValue parent
+          && world.ancestry(object.value()).contains(parent.value());
+    }
+    AnonymousObjectValue anonymous = (AnonymousObjectValue) subject;
+    WorldAnonymousObject target = world.anonymousObject(anonymous).orElse(null);
+    if (target == null) {
+      return false;
+    }
+    if (candidate instanceof AnonymousObjectValue parent) {
+      return anonymous == parent;
+    }
+    long parentId = ((ObjectValue) candidate).value();
+    return target.parents().stream()
+        .anyMatch(parent -> world.ancestry(parent).contains(parentId));
+  }
+
   private static BuiltinResult children(List<MooValue> arguments, WorldTxn world) {
     MooValue value = arguments.getFirst();
     if (value instanceof AnonymousObjectValue anonymous) {
@@ -5965,9 +6147,24 @@ public final class BuiltinCatalog {
     return new BuiltinResult.Programmer(requested.value());
   }
 
-  private static BuiltinResult notifyLine(List<MooValue> arguments) {
+  private BuiltinResult notifyLine(
+      List<MooValue> arguments, WorldTxn world, long programmer) {
+    long target = ((ObjectValue) arguments.getFirst()).value();
+    if (target != programmer && !isWizard(world, programmer)) {
+      return BuiltinResult.error(ErrorValue.E_PERM);
+    }
     StringValue line = (StringValue) arguments.get(1);
-    return new BuiltinResult.Output(line.text());
+    boolean noFlush = arguments.size() > 2 && arguments.get(2).isTruthy();
+    boolean noNewline = arguments.size() > 3 && arguments.get(3).isTruthy();
+    if (target == programmer && !noFlush && !noNewline) {
+      return new BuiltinResult.Output(line.text());
+    }
+    OptionalLong connectionId = connections().connectionId(target);
+    if (connectionId.isEmpty()) {
+      return BuiltinResult.value(new IntegerValue(1));
+    }
+    return new BuiltinResult.Notify(
+        connectionId.orElseThrow(), line.text(), noFlush, noNewline);
   }
 
   private static BuiltinResult toStringValue(List<MooValue> arguments) {
@@ -6233,11 +6430,18 @@ public final class BuiltinCatalog {
     /** Writes ordered lines to one accepted connection selected by runtime ID. */
     void writeConnection(long connectionId, List<String> lines);
 
+    /** Writes or queues one notification for a live connection. */
+    void notifyConnection(
+        long connectionId, String line, boolean noFlush, boolean noNewline);
+
     /** Writes final lines and closes one accepted connection selected by runtime ID. */
     void bootConnection(long connectionId, List<String> lines);
 
     /** Selects delimiter-free binary reads for one accepted connection. */
     void setConnectionBinary(long connectionId, boolean binary);
+
+    /** Applies TCP keep-alive state after the owning runtime attempt commits. */
+    default void setConnectionKeepAlive(long connectionId, KeepAliveOptions options) {}
 
     /** Returns the number of bytes currently queued for one live connection. */
     long bufferedOutputLength(long connectionId);
@@ -6268,13 +6472,58 @@ public final class BuiltinCatalog {
   /** One validated line to inject into a live connection's input stream. */
   public record ForcedInputRequest(long target, String line) {}
 
+  /** One authorized notification captured for commit-time transport publication. */
+  public record NotificationRequest(
+      long connectionId, String line, boolean noFlush, boolean noNewline) {}
+
   /** The connection options authorized by the held-input slice. */
   public enum ConnectionOption {
     HOLD_INPUT,
     FLUSH_COMMAND,
     DISABLE_OOB,
     BINARY,
+    KEEP_ALIVE,
     INTRINSIC_COMMANDS
+  }
+
+  /** Toast's observable TCP keep-alive state for one live connection. */
+  public record KeepAliveOptions(boolean enabled, long idle, long interval, long count) {
+    private static final KeepAliveOptions DEFAULT = new KeepAliveOptions(false, 300, 120, 5);
+
+    /** Returns Toast's default socket keep-alive settings. */
+    public static KeepAliveOptions defaults() {
+      return DEFAULT;
+    }
+
+    /** Applies Toast's integer-or-map update contract over the current settings. */
+    public KeepAliveOptions with(MooValue value) {
+      if (value instanceof IntegerValue integer) {
+        return new KeepAliveOptions(integer.isTruthy(), idle, interval, count);
+      }
+      MapValue map = (MapValue) value;
+      return new KeepAliveOptions(
+          !map.entries().isEmpty(),
+          positiveOption(map, "idle", idle),
+          positiveOption(map, "interval", interval),
+          positiveOption(map, "count", count));
+    }
+
+    /** Returns the public connection-options map in Toast field order. */
+    public MapValue toValue() {
+      Map<MooValue, MooValue> values = new LinkedHashMap<>();
+      values.put(StringValue.of("enabled"), new IntegerValue(enabled ? 1 : 0));
+      values.put(StringValue.of("idle"), new IntegerValue(idle));
+      values.put(StringValue.of("interval"), new IntegerValue(interval));
+      values.put(StringValue.of("count"), new IntegerValue(count));
+      return new MapValue(values);
+    }
+
+    private static long positiveOption(MapValue map, String name, long fallback) {
+      MooValue value = map.get(StringValue.of(name)).orElse(null);
+      return value instanceof IntegerValue integer && integer.value() > 0
+          ? integer.value()
+          : fallback;
+    }
   }
 
 }

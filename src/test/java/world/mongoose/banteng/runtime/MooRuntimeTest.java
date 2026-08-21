@@ -3,14 +3,22 @@ package world.mongoose.banteng.runtime;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.net.InetAddress;
 import java.nio.file.Path;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicLong;
 import world.mongoose.banteng.persistence.LambdaMooV4Reader;
 import world.mongoose.banteng.server.ConnectionRegistry;
 import world.mongoose.banteng.value.MooValue.IntegerValue;
+import world.mongoose.banteng.value.MooValue.MapValue;
+import world.mongoose.banteng.value.MooValue.StringValue;
 import world.mongoose.banteng.world.ObjectFlags;
 import world.mongoose.banteng.world.WorldObject;
 import world.mongoose.banteng.world.WorldTxn;
@@ -36,6 +44,144 @@ final class MooRuntimeTest {
 
     assertEquals(8, connections.connectionPlayer(connectionId).orElseThrow());
     assertTrue(connections.connectionInfo(connectionId).isPresent());
+  }
+
+  @Test
+  void connectionTimersUseMonotonicOpenLoginAndLastInputTimes() throws Exception {
+    WorldTxn world = new LambdaMooV4Reader().read(FIXTURE);
+    ConnectionRegistry connections = new ConnectionRegistry();
+    AtomicLong now = new AtomicLong();
+    MooRuntime runtime = new MooRuntime(world, connections, now::get);
+    long wizardConnection = -47;
+    long pendingConnection = -48;
+    long programmerConnection = -49;
+
+    assertEquals(List.of(), runtime.openConnection(wizardConnection));
+    assertEquals(
+        List.of("*** Connected ***"), runtime.executeLine(wizardConnection, "connect Wizard"));
+    now.set(TimeUnit.SECONDS.toNanos(5));
+    assertEquals(List.of(), runtime.openConnection(pendingConnection));
+    now.set(TimeUnit.SECONDS.toNanos(8));
+    assertEquals(
+        List.of(CONNECTION_PREFIX, "{1, {0, 8, 3, E_INVARG}}", CONNECTION_SUFFIX),
+        runtime.executeLine(
+            wizardConnection,
+            "; return {idle_seconds(player), connected_seconds(player), "
+                + "idle_seconds(#-48), "
+                + "`connected_seconds(#-48) ! E_INVARG => E_INVARG'};"));
+
+    now.set(TimeUnit.SECONDS.toNanos(9));
+    runtime.executeTransportOutOfBand(wizardConnection, "~test");
+    now.set(TimeUnit.SECONDS.toNanos(13));
+    assertEquals(List.of(), runtime.openConnection(programmerConnection));
+    assertEquals(
+        List.of("*** Connected ***"),
+        runtime.executeLine(programmerConnection, "connect Programmer"));
+    assertEquals(
+        List.of(CONNECTION_PREFIX, "{1, {4, 13, E_INVARG}}", CONNECTION_SUFFIX),
+        runtime.executeLine(
+            programmerConnection,
+            "; return {idle_seconds(#8), connected_seconds(#8), "
+                + "`idle_seconds(#999999) ! E_INVARG => E_INVARG'};"));
+  }
+
+  @Test
+  void connectionNameLookupRunsAsHostWorkAndOptionallyRewritesThePublishedName()
+      throws Exception {
+    WorldTxn world = new LambdaMooV4Reader().read(FIXTURE);
+    ConnectionRegistry connections = new ConnectionRegistry();
+    MooRuntime runtime = new MooRuntime(world, connections);
+    long connectionId = -47;
+    MapValue info =
+        new MapValue(
+            Map.of(
+                StringValue.of("source_address"), StringValue.of("127.0.0.1"),
+                StringValue.of("source_ip"), StringValue.of("127.0.0.1"),
+                StringValue.of("source_port"), new IntegerValue(7777),
+                StringValue.of("destination_address"), StringValue.of("127.0.0.1"),
+                StringValue.of("destination_ip"), StringValue.of("127.0.0.1"),
+                StringValue.of("destination_port"), new IntegerValue(4242),
+                StringValue.of("outbound"), new IntegerValue(0)));
+    String resolved = InetAddress.getAllByName("127.0.0.1")[0].getCanonicalHostName();
+
+    assertEquals(List.of(), runtime.openConnection(connectionId, 0, true, info));
+    assertEquals(
+        List.of("*** Connected ***"), runtime.executeLine(connectionId, "connect Wizard"));
+    assertEquals(
+        List.of(
+            CONNECTION_PREFIX,
+            "{1, {\""
+                + resolved
+                + "\", \"127.0.0.1\", \""
+                + resolved
+                + "\", \""
+                + resolved
+                + "\", \"127.0.0.1\"}}",
+            CONNECTION_SUFFIX),
+        runtime.executeLine(
+            connectionId,
+            "; return {connection_name_lookup(player), connection_name(player), "
+                + "connection_name_lookup(player, 1), connection_name(player), "
+                + "connection_name(player, 1)};"));
+  }
+
+  @Test
+  void connectionNameLookupRejectsARewriteAfterTheConnectionCloses() throws Exception {
+    WorldTxn world = new LambdaMooV4Reader().read(FIXTURE);
+    ConnectionRegistry connections = new ConnectionRegistry();
+    CountDownLatch lookupStarted = new CountDownLatch(1);
+    CountDownLatch allowLookup = new CountDownLatch(1);
+    MooRuntime runtime =
+        new MooRuntime(
+            world,
+            connections,
+            address -> {
+              lookupStarted.countDown();
+              try {
+                if (!allowLookup.await(5, TimeUnit.SECONDS)) {
+                  throw new java.net.UnknownHostException(address);
+                }
+              } catch (InterruptedException interrupted) {
+                Thread.currentThread().interrupt();
+                java.net.UnknownHostException failure =
+                    new java.net.UnknownHostException(address);
+                failure.initCause(interrupted);
+                throw failure;
+              }
+              return "late.example";
+            });
+    long connectionId = -47;
+    MapValue info =
+        new MapValue(
+            Map.of(
+                StringValue.of("destination_address"), StringValue.of("127.0.0.1"),
+                StringValue.of("destination_ip"), StringValue.of("127.0.0.1")));
+
+    assertEquals(List.of(), runtime.openConnection(connectionId, 0, true, info));
+    assertEquals(
+        List.of("*** Connected ***"), runtime.executeLine(connectionId, "connect Wizard"));
+    CompletableFuture<List<String>> completion =
+        CompletableFuture.supplyAsync(
+            () ->
+                runtime.executeLine(
+                    connectionId,
+                    "; return `connection_name_lookup(player, 1) ! E_INVARG => E_INVARG';"));
+    assertTrue(lookupStarted.await(5, TimeUnit.SECONDS));
+
+    runtime.closeConnection(connectionId);
+    assertTrue(connections.connectionInfo(connectionId).isEmpty());
+    MapValue replacement =
+        new MapValue(
+            Map.of(
+                StringValue.of("destination_address"), StringValue.of("203.0.113.8"),
+                StringValue.of("destination_ip"), StringValue.of("203.0.113.8")));
+    assertEquals(List.of(), runtime.openConnection(connectionId, 0, true, replacement));
+    allowLookup.countDown();
+
+    assertEquals(
+        List.of(CONNECTION_PREFIX, "{1, E_INVARG}", CONNECTION_SUFFIX),
+        completion.get(5, TimeUnit.SECONDS));
+    assertEquals(replacement, connections.connectionInfo(connectionId).orElseThrow());
   }
 
   @Test
@@ -68,6 +214,55 @@ final class MooRuntimeTest {
     assertEquals(
         List.of(CONNECTION_PREFIX, "{1, 42}", CONNECTION_SUFFIX),
         runtime.executeLine(connectionId, "; return 6 * 7;"));
+  }
+
+  @Test
+  void connectionOptionsReadTheirOwnFlushCommandWrite() throws Exception {
+    WorldTxn world = new LambdaMooV4Reader().read(FIXTURE);
+    MooRuntime runtime = runtimeFor(world);
+    long connectionId = -47;
+    assertEquals(List.of(), runtime.openConnection(connectionId));
+    assertEquals(List.of("*** Connected ***"), runtime.executeLine(connectionId, "connect Wizard"));
+
+    assertEquals(
+        List.of(CONNECTION_PREFIX, "{1, \".myroundtrip\"}", CONNECTION_SUFFIX),
+        runtime.executeLine(
+            connectionId,
+            "; set_connection_option(player, \"flush-command\", \".myroundtrip\"); "
+                + "return connection_options(player, \"flush-command\");"));
+  }
+
+  @Test
+  void keepAliveConnectionOptionAcceptsToastIntegerAndMapForms() throws Exception {
+    WorldTxn world = new LambdaMooV4Reader().read(FIXTURE);
+    MooRuntime runtime = runtimeFor(world);
+    long connectionId = -47;
+    assertEquals(List.of(), runtime.openConnection(connectionId));
+    assertEquals(List.of("*** Connected ***"), runtime.executeLine(connectionId, "connect Wizard"));
+
+    assertEquals(
+        List.of(CONNECTION_PREFIX, "{1, 1}", CONNECTION_SUFFIX),
+        runtime.executeLine(
+            connectionId,
+            "; set_connection_option(player, \"keep-alive\", 1); "
+                + "set_connection_option(player, \"keep-alive\", "
+                + "[\"enabled\" -> 1, \"idle\" -> 1, \"interval\" -> 2, \"count\" -> 3]); "
+                + "o = connection_options(player, \"keep-alive\"); "
+                + "return o[\"enabled\"] == 1 && o[\"idle\"] == 1 "
+                + "&& o[\"interval\"] == 2 && o[\"count\"] == 3;"));
+    assertEquals(
+        List.of(CONNECTION_PREFIX, "{1, 1}", CONNECTION_SUFFIX),
+        runtime.executeLine(
+            connectionId,
+            "; o = connection_options(player, \"keep-alive\"); "
+                + "return o[\"enabled\"] == 1 && o[\"idle\"] == 1 "
+                + "&& o[\"interval\"] == 2 && o[\"count\"] == 3;"));
+    assertEquals(
+        List.of(CONNECTION_PREFIX, "{1, E_INVARG}", CONNECTION_SUFFIX),
+        runtime.executeLine(
+            connectionId,
+            "; return `set_connection_option(player, \"keep-alive\", \"yes\") "
+                + "! E_INVARG => E_INVARG';"));
   }
 
   @Test

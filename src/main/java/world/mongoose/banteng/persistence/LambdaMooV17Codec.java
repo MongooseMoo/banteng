@@ -92,6 +92,33 @@ public final class LambdaMooV17Codec {
     }
   }
 
+  /** Ordered queued-task runtime slots, including Toast's uninitialized variables. */
+  public record QueuedEnvironment(Map<String, Optional<MooValue>> slots) {
+    /** Takes an immutable ordered copy of the saved runtime environment. */
+    public QueuedEnvironment {
+      Objects.requireNonNull(slots, "slots");
+      slots.forEach(
+          (name, value) -> {
+            Objects.requireNonNull(name, "queued-task variable name");
+            Objects.requireNonNull(value, "queued-task variable slot");
+          });
+      slots = Collections.unmodifiableMap(new LinkedHashMap<>(slots));
+    }
+
+    private static QueuedEnvironment assigned(Map<String, MooValue> locals) {
+      Objects.requireNonNull(locals, "initialLocals");
+      Map<String, Optional<MooValue>> slots = new LinkedHashMap<>();
+      locals.forEach((name, value) -> slots.put(name, Optional.of(value)));
+      return new QueuedEnvironment(slots);
+    }
+
+    private Map<String, MooValue> initializedLocals() {
+      Map<String, MooValue> initialized = new LinkedHashMap<>();
+      slots.forEach((name, value) -> value.ifPresent(local -> initialized.put(name, local)));
+      return Collections.unmodifiableMap(initialized);
+    }
+  }
+
   /** The durable state needed to restart one delayed fork. */
   public record QueuedTask(
       long taskId,
@@ -100,12 +127,40 @@ public final class LambdaMooV17Codec {
       String calledVerb,
       String fullVerbName,
       String programSource,
-      Map<String, MooValue> initialLocals,
+      QueuedEnvironment environment,
       long programmer,
       MooValue verbLocation,
       long taskPlayer,
       boolean debug,
       boolean threadMode) implements DurableTask {
+    public QueuedTask(
+        long taskId,
+        long scheduledEpochSecond,
+        int firstSourceLine,
+        String calledVerb,
+        String fullVerbName,
+        String programSource,
+        Map<String, MooValue> initialLocals,
+        long programmer,
+        MooValue verbLocation,
+        long taskPlayer,
+        boolean debug,
+        boolean threadMode) {
+      this(
+          taskId,
+          scheduledEpochSecond,
+          firstSourceLine,
+          calledVerb,
+          fullVerbName,
+          programSource,
+          QueuedEnvironment.assigned(initialLocals),
+          programmer,
+          verbLocation,
+          taskPlayer,
+          debug,
+          threadMode);
+    }
+
     public QueuedTask(
         long taskId,
         long scheduledEpochSecond,
@@ -141,10 +196,13 @@ public final class LambdaMooV17Codec {
       Objects.requireNonNull(calledVerb, "calledVerb");
       Objects.requireNonNull(fullVerbName, "fullVerbName");
       Objects.requireNonNull(programSource, "programSource");
-      Objects.requireNonNull(initialLocals, "initialLocals");
+      Objects.requireNonNull(environment, "environment");
       Objects.requireNonNull(verbLocation, "verbLocation");
-      initialLocals =
-          Collections.unmodifiableMap(new LinkedHashMap<>(initialLocals));
+    }
+
+    /** Returns only initialized variables for VM restoration and queued_tasks(). */
+    public Map<String, MooValue> initialLocals() {
+      return environment.initializedLocals();
     }
   }
 
@@ -602,12 +660,21 @@ public final class LambdaMooV17Codec {
     line(output, "Infos");
     lineString(output, task.calledVerb(), "queued-task verb");
     lineString(output, task.fullVerbName(), "queued-task verb names");
-    line(output, task.initialLocals().size() + " variables");
-    for (Map.Entry<String, MooValue> local : task.initialLocals().entrySet()) {
+    line(output, task.environment().slots().size() + " variables");
+    for (Map.Entry<String, Optional<MooValue>> local : task.environment().slots().entrySet()) {
       lineString(output, local.getKey(), "queued-task variable name");
-      writeValue(output, local.getValue(), context);
+      writeRuntimeVariable(output, local.getValue(), context);
     }
     writeProgramSource(output, task.programSource(), "queued-task program");
+  }
+
+  private static void writeRuntimeVariable(
+      BufferedWriter output, Optional<MooValue> variable, WriteContext context) throws IOException {
+    if (variable.isPresent()) {
+      writeValue(output, variable.orElseThrow(), context);
+    } else {
+      line(output, 6);
+    }
   }
 
   private static void writeSuspendedTask(
@@ -640,11 +707,7 @@ public final class LambdaMooV17Codec {
     line(output, activation.locals().size() + " variables");
     for (Map.Entry<String, Optional<MooValue>> local : activation.locals().entrySet()) {
       lineString(output, local.getKey(), "suspended activation variable name");
-      if (local.getValue().isPresent()) {
-        writeValue(output, local.getValue().orElseThrow(), context);
-      } else {
-        line(output, 6);
-      }
+      writeRuntimeVariable(output, local.getValue(), context);
     }
     line(output, activation.operandStack().size() + " rt_stack slots in use");
     for (int index = activation.operandStack().size() - 1; index >= 0; index--) {
@@ -756,17 +819,17 @@ public final class LambdaMooV17Codec {
     String verbNames = requiredLine(input, "queued-task verb names");
 
     int variableCount = readSectionCount(input, " variables", "queued-task variable count");
-    Map<String, MooValue> locals = new LinkedHashMap<>();
+    Map<String, Optional<MooValue>> locals = new LinkedHashMap<>();
     for (int index = 0; index < variableCount; index++) {
       String name = requiredLine(input, "queued-task variable name");
-      if (locals.putIfAbsent(
-              name,
-              readValue(input, context, "queued task #" + taskId + " variable " + name))
-          != null) {
+      Optional<MooValue> value =
+          readRuntimeVariable(
+              input, context, "queued task #" + taskId + " variable " + name);
+      if (locals.putIfAbsent(name, value) != null) {
         throw malformed("duplicate queued-task variable: " + name);
       }
     }
-    MooValue localReceiver = locals.get("this");
+    MooValue localReceiver = locals.getOrDefault("this", Optional.empty()).orElse(null);
     if (receiver instanceof ObjectValue object
         && object.value() != receiverObject) {
       throw malformed("queued-task receiver encodings disagree");
@@ -781,7 +844,7 @@ public final class LambdaMooV17Codec {
         verb,
         verbNames,
         readProgramSource(input, "queued-task program"),
-        locals,
+        new QueuedEnvironment(locals),
         programmer,
         typedVerbLocation,
         taskPlayer,
@@ -915,21 +978,16 @@ public final class LambdaMooV17Codec {
     Map<String, Optional<MooValue>> locals = new LinkedHashMap<>();
     for (int index = 0; index < variableCount; index++) {
       String name = requiredLine(input, "suspended activation variable name");
-      int localTag = readInt(input, "suspended activation variable tag");
       Optional<MooValue> value =
-          localTag == 6
-              ? Optional.empty()
-              : Optional.of(
-                  readValue(
-                      input,
-                      localTag,
-                      context,
-                      "suspended task #"
-                          + taskId
-                          + " activation "
-                          + activationIndex
-                          + " variable "
-                          + name));
+          readRuntimeVariable(
+              input,
+              context,
+              "suspended task #"
+                  + taskId
+                  + " activation "
+                  + activationIndex
+                  + " variable "
+                  + name);
       if (locals.putIfAbsent(name, value) != null) {
         throw malformed("duplicate suspended activation variable: " + name);
       }
@@ -1082,6 +1140,14 @@ public final class LambdaMooV17Codec {
         programCounter,
         builtinFunctionCounter,
         errorCounter);
+  }
+
+  private static Optional<MooValue> readRuntimeVariable(
+      BufferedReader input, ReadContext context, String location) throws IOException {
+    int tag = readInt(input, location + " tag");
+    return tag == 6
+        ? Optional.empty()
+        : Optional.of(readValue(input, tag, context, location));
   }
 
   private static void writeProgramSource(
