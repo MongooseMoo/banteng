@@ -160,6 +160,7 @@ final class BuiltinCatalogTest {
           "maphaskey",
           "mapkeys",
           "mapvalues",
+          "match",
           "max",
           "max_object",
           "memory_usage",
@@ -196,6 +197,7 @@ final class BuiltinCatalogTest {
           "reset_max_object",
           "resume",
           "rindex",
+          "rmatch",
           "round",
           "run_gc",
           "seconds_left",
@@ -1016,6 +1018,135 @@ final class BuiltinCatalogTest {
       assertEquals(
           Optional.of(ErrorValue.E_TYPE),
           error(invoke(catalog, spec, List.of(new ObjectValue(2), string("0")), transaction, 2)));
+    }
+  }
+
+  @Test
+  void matchAndRmatchPreserveToastRegexDialectResultsAndErrors() {
+    BuiltinCatalog catalog = new BuiltinCatalog(BuiltinHosts.builder().build());
+    BuiltinSpec match = catalog.spec("match").orElseThrow();
+    BuiltinSpec rmatch = catalog.spec("rmatch").orElseThrow();
+    CallShape shape =
+        new CallShape(
+            List.of(Set.of(ArgType.STRING), Set.of(ArgType.STRING)),
+            List.of(Set.of(ArgType.ANY)),
+            Optional.empty());
+
+    for (BuiltinSpec spec : List.of(match, rmatch)) {
+      assertEquals(List.of(shape), spec.callShapes());
+      assertSame(BuiltinPermissionRule.ANY, spec.permission());
+      assertEquals(EffectClass.PURE, spec.effect());
+      assertEquals(BuiltinOwner.VM, spec.owner());
+    }
+    try (WorldTxn transaction = world().begin()) {
+      assertEquals(
+          Optional.of(matchResult("foo", 1, 2)),
+          value(invoke(catalog, match, List.of(string("foo"), string("f*o")), transaction, 2)));
+      assertEquals(
+          Optional.of(matchResult("foo", 1, 3)),
+          value(invoke(catalog, match, List.of(string("foo"), string("fo*")), transaction, 2)));
+      assertEquals(
+          Optional.of(matchResult("foobar", 2, 4)),
+          value(invoke(catalog, match, List.of(string("foobar"), string("o*b")), transaction, 2)));
+      assertEquals(
+          Optional.of(matchResult("foobar", 4, 4)),
+          value(invoke(catalog, rmatch, List.of(string("foobar"), string("o*b")), transaction, 2)));
+      assertEquals(
+          Optional.of(matchResult("foobar", 1, 4, 2, 3)),
+          value(invoke(
+                  catalog,
+                  match,
+                  List.of(string("foobar"), string("f%(o*%)b")),
+                  transaction,
+                  2)
+              ));
+      assertEquals(
+          Optional.of(matchResult("FOO", 1, 3)),
+          value(invoke(catalog, match, List.of(string("FOO"), string("foo")), transaction, 2)));
+      assertEquals(
+          Optional.of(new ListValue(List.of())),
+          value(invoke(
+                  catalog,
+                  match,
+                  List.of(string("FOO"), string("foo"), new IntegerValue(1)),
+                  transaction,
+                  2)
+              ));
+      assertEquals(
+          Optional.of(new ListValue(List.of())),
+          value(invoke(catalog, match, List.of(string("foo"), string("bar")), transaction, 2)));
+      assertEquals(
+          Optional.of(matchResult("ball balls", 1, 4)),
+          value(invoke(
+                  catalog,
+                  match,
+                  List.of(string("ball balls"), string("%bball%b")),
+                  transaction,
+                  2)
+              ));
+      assertEquals(
+          Optional.of(matchResult("abab", 1, 4, 1, 2)),
+          value(invoke(
+                  catalog,
+                  match,
+                  List.of(string("abab"), string("%([ab]+%)%1")),
+                  transaction,
+                  2)
+              ));
+      assertEquals(
+          Optional.of(matchResult("(foo)|bar", 1, 9)),
+          value(invoke(
+                  catalog,
+                  match,
+                  List.of(string("(foo)|bar"), string("(foo)|bar")),
+                  transaction,
+                  2)
+              ));
+      assertEquals(
+          Optional.of(matchResult("a%.", 1, 3)),
+          value(invoke(
+                  catalog,
+                  match,
+                  List.of(string("a%."), string("^[a-z$%.]+$")),
+                  transaction,
+                  2)
+              ));
+      assertEquals(
+          Optional.of(ErrorValue.E_INVARG),
+          error(invoke(catalog, match, List.of(string("foo"), string("[")), transaction, 2)));
+      assertEquals(
+          Optional.of(ErrorValue.E_INVARG),
+          error(invoke(catalog, match, List.of(string("foo"), string("foo%")), transaction, 2)));
+      assertEquals(
+          Optional.of(ErrorValue.E_TYPE),
+          error(invoke(
+                  catalog,
+                  match,
+                  List.of(string("foo"), new IntegerValue(1)),
+                  transaction,
+                  2)
+              ));
+      assertEquals(
+          Optional.of(ErrorValue.E_ARGS),
+          error(invoke(catalog, match, List.of(string("foo")), transaction, 2)));
+    }
+  }
+
+  @Test
+  void matchBoundsPathologicalBacktrackingAsQuota() {
+    BuiltinCatalog catalog = new BuiltinCatalog(BuiltinHosts.builder().build());
+    BuiltinSpec match = catalog.spec("match").orElseThrow();
+
+    try (WorldTxn transaction = world().begin()) {
+      assertEquals(
+          Optional.of(ErrorValue.E_QUOTA),
+          error(invoke(
+                  catalog,
+                  match,
+                  List.of(string("a".repeat(5_000)), string("^%(a+%)+b$")),
+                  transaction,
+                  2)
+              ));
     }
   }
 
@@ -5954,6 +6085,25 @@ final class BuiltinCatalogTest {
     return result instanceof BuiltinResult.Value value
         ? Optional.of(value.value())
         : Optional.empty();
+  }
+
+  private static ListValue matchResult(
+      String subject, long start, long end, long... capturedBounds) {
+    List<MooValue> captures = new ArrayList<>(9);
+    for (int index = 0; index < 9; index++) {
+      int offset = index * 2;
+      long capturedStart = offset < capturedBounds.length ? capturedBounds[offset] : 0;
+      long capturedEnd = offset + 1 < capturedBounds.length ? capturedBounds[offset + 1] : -1;
+      captures.add(
+          new ListValue(
+              List.of(new IntegerValue(capturedStart), new IntegerValue(capturedEnd))));
+    }
+    return new ListValue(
+        List.of(
+            new IntegerValue(start),
+            new IntegerValue(end),
+            new ListValue(captures),
+            string(subject)));
   }
 
   private static Optional<ErrorValue> error(BuiltinResult result) {

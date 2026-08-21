@@ -88,6 +88,7 @@ public final class BuiltinCatalog {
   private final Optional<ListenerControl> listenerControl;
   private final Random random;
   private final SqliteService sqlite;
+  private final ToastRegexService toastRegex = new ToastRegexService();
   private final Random floatingRandom;
   private final Map<String, BuiltinSpec> specs;
 
@@ -1458,6 +1459,24 @@ public final class BuiltinCatalog {
             call -> connectionName(call.arguments(), call.world(), call.programmer())));
     entries.add(
         new BuiltinSpec(
+            "match",
+            List.of(new CallShape(List.of(STRING, STRING), List.of(ANY), Optional.empty())),
+            BuiltinPermissionRule.ANY,
+            BuiltinCostRule.fixed(0),
+            EffectClass.PURE,
+            BuiltinOwner.VM,
+            call -> toastMatch(call.arguments(), false)));
+    entries.add(
+        new BuiltinSpec(
+            "rmatch",
+            List.of(new CallShape(List.of(STRING, STRING), List.of(ANY), Optional.empty())),
+            BuiltinPermissionRule.ANY,
+            BuiltinCostRule.fixed(0),
+            EffectClass.PURE,
+            BuiltinOwner.VM,
+            call -> toastMatch(call.arguments(), true)));
+    entries.add(
+        new BuiltinSpec(
             "connection_name_lookup",
             List.of(new CallShape(List.of(OBJECT), List.of(ANY), Optional.empty())),
             BuiltinPermissionRule.ANY,
@@ -2099,6 +2118,14 @@ public final class BuiltinCatalog {
                     address.text(),
                     ip.text(),
                     destination.value())));
+  }
+
+  private BuiltinResult toastMatch(List<MooValue> arguments, boolean reverse) {
+    return toastRegex.match(
+        (StringValue) arguments.get(0),
+        (StringValue) arguments.get(1),
+        arguments.size() == 3 && arguments.get(2).isTruthy(),
+        reverse);
   }
 
   private BuiltinResult connectionNameLookup(BuiltinCall call) {
