@@ -3,7 +3,9 @@ package world.mongoose.banteng.builtin;
 import java.util.List;
 import java.util.Objects;
 import java.util.function.Supplier;
+import world.mongoose.banteng.builtin.BuiltinCatalog.ConnectionOption;
 import world.mongoose.banteng.logging.ServerLog;
+import world.mongoose.banteng.value.MooValue;
 import world.mongoose.banteng.value.MooValue.ErrorValue;
 import world.mongoose.banteng.value.MooValue.IntegerValue;
 import world.mongoose.banteng.value.MooValue.ListValue;
@@ -18,6 +20,7 @@ public record BuiltinHosts(
     BuiltinHandler threadPool,
     BuiltinHandler threads,
     BuiltinHandler connectionOptions,
+    ConnectionOptionSetter setConnectionOption,
     BuiltinHandler connectionNameLookup,
     BuiltinHandler dbDiskSize,
     BuiltinHandler flushInput,
@@ -36,6 +39,7 @@ public record BuiltinHosts(
     Objects.requireNonNull(threadPool, "threadPool");
     Objects.requireNonNull(threads, "threads");
     Objects.requireNonNull(connectionOptions, "connectionOptions");
+    Objects.requireNonNull(setConnectionOption, "setConnectionOption");
     Objects.requireNonNull(connectionNameLookup, "connectionNameLookup");
     Objects.requireNonNull(dbDiskSize, "dbDiskSize");
     Objects.requireNonNull(flushInput, "flushInput");
@@ -67,6 +71,7 @@ public record BuiltinHosts(
     private BuiltinHandler threads =
         call -> BuiltinResult.value(new ListValue(List.of()));
     private BuiltinHandler connectionOptions = Builder::invalidArgument;
+    private ConnectionOptionSetter setConnectionOption = BuiltinResult.SetConnectionOption::new;
     private BuiltinHandler connectionNameLookup = Builder::invalidArgument;
     private BuiltinHandler dbDiskSize =
         call -> BuiltinResult.value(new IntegerValue(0));
@@ -115,6 +120,11 @@ public record BuiltinHosts(
 
     public Builder connectionOptions(BuiltinHandler value) {
       connectionOptions = value;
+      return this;
+    }
+
+    public Builder setConnectionOption(ConnectionOptionSetter value) {
+      setConnectionOption = value;
       return this;
     }
 
@@ -172,6 +182,7 @@ public record BuiltinHosts(
           threadPool,
           threads,
           connectionOptions,
+          setConnectionOption,
           connectionNameLookup,
           dbDiskSize,
           flushInput,
@@ -186,5 +197,11 @@ public record BuiltinHosts(
     private static BuiltinResult invalidArgument(BuiltinCall call) {
       return BuiltinResult.error(ErrorValue.E_INVARG);
     }
+  }
+
+  /** Applies one validated connection option inside the current isolated runtime attempt. */
+  @FunctionalInterface
+  public interface ConnectionOptionSetter {
+    BuiltinResult set(long target, ConnectionOption option, MooValue value);
   }
 }
