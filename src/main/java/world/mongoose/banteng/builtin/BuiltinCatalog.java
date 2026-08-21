@@ -2182,6 +2182,7 @@ public final class BuiltinCatalog {
           case "flush-command" -> ConnectionOption.FLUSH_COMMAND;
           case "disable-oob" -> ConnectionOption.DISABLE_OOB;
           case "binary" -> ConnectionOption.BINARY;
+          case "keep-alive" -> ConnectionOption.KEEP_ALIVE;
           case "intrinsic-commands" -> ConnectionOption.INTRINSIC_COMMANDS;
           default -> null;
         };
@@ -2189,6 +2190,10 @@ public final class BuiltinCatalog {
       return BuiltinResult.error(ErrorValue.E_INVARG);
     }
     MooValue value = arguments.get(2);
+    if (option == ConnectionOption.KEEP_ALIVE
+        && !(value instanceof IntegerValue || value instanceof MapValue)) {
+      return BuiltinResult.error(ErrorValue.E_INVARG);
+    }
     if (option == ConnectionOption.INTRINSIC_COMMANDS) {
       Optional<ListValue> normalized = normalizeIntrinsicCommands(value);
       if (normalized.isEmpty()) {
@@ -2197,7 +2202,7 @@ public final class BuiltinCatalog {
       value = normalized.orElseThrow();
       connections().setIntrinsicCommands(target, (ListValue) value);
     }
-    return new BuiltinResult.SetConnectionOption(target, option, value);
+    return hosts.setConnectionOption().set(target, option, value);
   }
 
   private static Optional<ListValue> normalizeIntrinsicCommands(MooValue value) {
@@ -6374,6 +6379,9 @@ public final class BuiltinCatalog {
     /** Selects delimiter-free binary reads for one accepted connection. */
     void setConnectionBinary(long connectionId, boolean binary);
 
+    /** Applies TCP keep-alive state after the owning runtime attempt commits. */
+    default void setConnectionKeepAlive(long connectionId, KeepAliveOptions options) {}
+
     /** Returns the number of bytes currently queued for one live connection. */
     long bufferedOutputLength(long connectionId);
 
@@ -6413,7 +6421,48 @@ public final class BuiltinCatalog {
     FLUSH_COMMAND,
     DISABLE_OOB,
     BINARY,
+    KEEP_ALIVE,
     INTRINSIC_COMMANDS
+  }
+
+  /** Toast's observable TCP keep-alive state for one live connection. */
+  public record KeepAliveOptions(boolean enabled, long idle, long interval, long count) {
+    private static final KeepAliveOptions DEFAULT = new KeepAliveOptions(false, 300, 120, 5);
+
+    /** Returns Toast's default socket keep-alive settings. */
+    public static KeepAliveOptions defaults() {
+      return DEFAULT;
+    }
+
+    /** Applies Toast's integer-or-map update contract over the current settings. */
+    public KeepAliveOptions with(MooValue value) {
+      if (value instanceof IntegerValue integer) {
+        return new KeepAliveOptions(integer.isTruthy(), idle, interval, count);
+      }
+      MapValue map = (MapValue) value;
+      return new KeepAliveOptions(
+          !map.entries().isEmpty(),
+          positiveOption(map, "idle", idle),
+          positiveOption(map, "interval", interval),
+          positiveOption(map, "count", count));
+    }
+
+    /** Returns the public connection-options map in Toast field order. */
+    public MapValue toValue() {
+      Map<MooValue, MooValue> values = new LinkedHashMap<>();
+      values.put(StringValue.of("enabled"), new IntegerValue(enabled ? 1 : 0));
+      values.put(StringValue.of("idle"), new IntegerValue(idle));
+      values.put(StringValue.of("interval"), new IntegerValue(interval));
+      values.put(StringValue.of("count"), new IntegerValue(count));
+      return new MapValue(values);
+    }
+
+    private static long positiveOption(MapValue map, String name, long fallback) {
+      MooValue value = map.get(StringValue.of(name)).orElse(null);
+      return value instanceof IntegerValue integer && integer.value() > 0
+          ? integer.value()
+          : fallback;
+    }
   }
 
 }

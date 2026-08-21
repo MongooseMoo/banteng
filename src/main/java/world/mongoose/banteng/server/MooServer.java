@@ -31,6 +31,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import world.mongoose.banteng.builtin.BuiltinCatalog.ListenerDescription;
 import world.mongoose.banteng.builtin.BuiltinCatalog.ListenerControl;
+import world.mongoose.banteng.builtin.BuiltinCatalog.KeepAliveOptions;
 import world.mongoose.banteng.logging.ServerLog;
 import world.mongoose.banteng.persistence.LambdaMooV17Codec;
 import world.mongoose.banteng.runtime.MooRuntime;
@@ -606,6 +607,20 @@ public final class MooServer implements AutoCloseable, ListenerControl {
       binaryConnections.put(connectionId, Boolean.TRUE);
     } else {
       binaryConnections.remove(connectionId);
+    }
+  }
+
+  /** Applies the portable TCP keep-alive switch for one accepted socket. */
+  @Override
+  public void setConnectionKeepAlive(long connectionId, KeepAliveOptions options) {
+    Socket socket = connections.get(connectionId);
+    if (socket == null) {
+      return;
+    }
+    try {
+      socket.setKeepAlive(options.enabled());
+    } catch (SocketException ignored) {
+      // The connection reader owns physical cleanup after a failed socket update.
     }
   }
 
