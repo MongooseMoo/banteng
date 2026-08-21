@@ -3,6 +3,8 @@ package world.mongoose.banteng.runtime;
 import com.google.errorprone.annotations.concurrent.GuardedBy;
 import java.io.IOException;
 import java.io.UncheckedIOException;
+import java.net.InetAddress;
+import java.net.UnknownHostException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -77,6 +79,7 @@ public final class MooRuntime implements AutoCloseable {
   @GuardedBy("this")
   private final ConnectionRegistryAccess publishedConnectionRegistry;
   private final LambdaMooV17Codec checkpointCodec = new LambdaMooV17Codec();
+  private final ConnectionNameResolver connectionNameResolver;
   private final MooVm vm;
   private final PublicationScheduler scheduler;
   private final List<ActiveConnection> checkpointedConnections;
@@ -101,8 +104,25 @@ public final class MooRuntime implements AutoCloseable {
       WorldTxn world,
       ValueSemantics valueSemantics,
       ConnectionRegistryAccess connections) {
+    this(world, valueSemantics, connections, MooRuntime::resolveCanonicalConnectionName);
+  }
+
+  MooRuntime(
+      WorldTxn world,
+      ConnectionRegistryAccess connections,
+      ConnectionNameResolver connectionNameResolver) {
+    this(world, ValueSemantics.STANDARD, connections, connectionNameResolver);
+  }
+
+  private MooRuntime(
+      WorldTxn world,
+      ValueSemantics valueSemantics,
+      ConnectionRegistryAccess connections,
+      ConnectionNameResolver connectionNameResolver) {
     committedWorld = Objects.requireNonNull(world, "world");
     publishedConnectionRegistry = Objects.requireNonNull(connections, "connections");
+    this.connectionNameResolver =
+        Objects.requireNonNull(connectionNameResolver, "connectionNameResolver");
     ValueSemantics configuredSemantics =
         Objects.requireNonNull(valueSemantics, "valueSemantics");
     vm = new MooVm(configuredSemantics);
@@ -343,6 +363,7 @@ public final class MooRuntime implements AutoCloseable {
       ConnectionRegistryAccess connections) {
     committedWorld = Objects.requireNonNull(world, "world");
     publishedConnectionRegistry = Objects.requireNonNull(connections, "connections");
+    connectionNameResolver = MooRuntime::resolveCanonicalConnectionName;
     ValueSemantics configuredSemantics =
         Objects.requireNonNull(valueSemantics, "valueSemantics");
     vm = new MooVm(configuredSemantics);
@@ -374,6 +395,7 @@ public final class MooRuntime implements AutoCloseable {
         .threads(taskRegistry::threads)
         .connectionOptions(
             call -> connectionOptions(call.arguments(), call.world(), call.programmer()))
+        .connectionNameLookup(this::connectionNameLookup)
         .dbDiskSize(call -> dbDiskSize())
         .flushInput(call -> flushInput(call.arguments(), call.world(), call.programmer()))
         .outputDelimiters(
@@ -3251,6 +3273,81 @@ public final class MooRuntime implements AutoCloseable {
     return publishedConnectionRegistry.connectionInfo(objectId);
   }
 
+  private BuiltinResult connectionNameLookup(BuiltinCall call) {
+    long target = ((ObjectValue) call.arguments().getFirst()).value();
+    OptionalLong connectionId = connectionRegistry().connectionId(target);
+    MapValue info = connectionRegistry().connectionInfo(target).orElse(null);
+    if (connectionId.isEmpty() || info == null) {
+      return BuiltinResult.error(ErrorValue.E_INVARG);
+    }
+    MooValue destinationIp = info.get(StringValue.of("destination_ip")).orElse(null);
+    MooValue destinationAddress = info.get(StringValue.of("destination_address")).orElse(null);
+    if (!(destinationIp instanceof StringValue ip)
+        || !(destinationAddress instanceof StringValue address)) {
+      return BuiltinResult.error(ErrorValue.E_INVARG);
+    }
+    long capturedConnectionId = connectionId.orElseThrow();
+    String capturedIp = ip.text();
+    String fallbackName = address.text();
+    boolean rewrite = call.arguments().size() > 1 && call.arguments().get(1).isTruthy();
+    return BuiltinResult.hostWork(
+        () -> {
+          if (!publishedConnectionMatches(capturedConnectionId, capturedIp)) {
+            return BuiltinResult.raised(
+                ErrorValue.E_INVARG,
+                StringValue.of("Invalid connection"),
+                new ObjectValue(target));
+          }
+          ConnectionNameResolution resolution = resolveConnectionName(capturedIp, fallbackName);
+          if (rewrite
+              && resolution.resolved()
+              && !rewritePublishedConnectionName(
+                  capturedConnectionId, capturedIp, resolution.name())) {
+            return BuiltinResult.raised(
+                ErrorValue.E_INVARG,
+                StringValue.of("Failed to rewrite connection name."),
+                new ObjectValue(target));
+          }
+          return BuiltinResult.value(StringValue.of(resolution.name()));
+        });
+  }
+
+  private synchronized boolean publishedConnectionMatches(long connectionId, String expectedIp) {
+    MapValue info = publishedConnectionRegistry.connectionInfo(connectionId).orElse(null);
+    if (info == null) {
+      return false;
+    }
+    MooValue destinationIp = info.get(StringValue.of("destination_ip")).orElse(null);
+    return destinationIp instanceof StringValue ip && ip.text().equals(expectedIp);
+  }
+
+  private synchronized boolean rewritePublishedConnectionName(
+      long connectionId, String expectedIp, String resolvedName) {
+    if (!publishedConnectionRegistry.rewriteConnectionName(
+        connectionId, expectedIp, resolvedName)) {
+      return false;
+    }
+    sessionRevision = Math.incrementExact(sessionRevision);
+    return true;
+  }
+
+  private ConnectionNameResolution resolveConnectionName(String address, String fallbackName) {
+    try {
+      return new ConnectionNameResolution(connectionNameResolver.resolve(address), true);
+    } catch (UnknownHostException ignored) {
+      return new ConnectionNameResolution(fallbackName, false);
+    }
+  }
+
+  private static String resolveCanonicalConnectionName(String address)
+      throws UnknownHostException {
+    InetAddress[] candidates = InetAddress.getAllByName(address);
+    if (candidates.length == 0) {
+      throw new UnknownHostException(address);
+    }
+    return candidates[0].getCanonicalHostName();
+  }
+
   void publishAttempt(AttemptContext context, WorldSnapshot committedWorld) {
     List<RuntimeEffect> publishedEffects;
     List<ReadRegistration> readRegistrations;
@@ -3442,6 +3539,17 @@ public final class MooRuntime implements AutoCloseable {
       throw new IllegalArgumentException("unknown connection #" + connectionId);
     }
     return connection;
+  }
+
+  @FunctionalInterface
+  interface ConnectionNameResolver {
+    String resolve(String address) throws UnknownHostException;
+  }
+
+  private record ConnectionNameResolution(String name, boolean resolved) {
+    private ConnectionNameResolution {
+      Objects.requireNonNull(name, "name");
+    }
   }
 
   enum RuntimeTransition {

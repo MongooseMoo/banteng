@@ -179,6 +179,12 @@ public final class BuiltinCatalog {
     }
 
     @Override
+    public boolean rewriteConnectionName(
+        long connectionId, String expectedIp, String resolvedName) {
+      return false;
+    }
+
+    @Override
     public OptionalLong connectionId(long objectId) {
       return OptionalLong.empty();
     }
@@ -1452,6 +1458,15 @@ public final class BuiltinCatalog {
             call -> connectionName(call.arguments(), call.world(), call.programmer())));
     entries.add(
         new BuiltinSpec(
+            "connection_name_lookup",
+            List.of(new CallShape(List.of(OBJECT), List.of(ANY), Optional.empty())),
+            BuiltinPermissionRule.ANY,
+            BuiltinCostRule.fixed(0),
+            EffectClass.SUSPENDING_HOST,
+            BuiltinOwner.CONNECTION,
+            this::connectionNameLookup));
+    entries.add(
+        new BuiltinSpec(
             "connection_options",
             List.of(new CallShape(List.of(OBJECT), List.of(STRING), Optional.empty())),
             BuiltinPermissionRule.ANY,
@@ -2084,6 +2099,18 @@ public final class BuiltinCatalog {
                     address.text(),
                     ip.text(),
                     destination.value())));
+  }
+
+  private BuiltinResult connectionNameLookup(BuiltinCall call) {
+    long target = ((ObjectValue) call.arguments().getFirst()).value();
+    if (target != call.programmer()
+        && !BuiltinPermissionRule.WIZARD_ONLY.allows(call.world(), call.programmer())) {
+      return BuiltinResult.error(ErrorValue.E_PERM);
+    }
+    if (connections().connectionInfo(target).isEmpty()) {
+      return BuiltinResult.error(ErrorValue.E_INVARG);
+    }
+    return hosts.connectionNameLookup().invoke(call);
   }
 
   private static BuiltinResult bootPlayer(
