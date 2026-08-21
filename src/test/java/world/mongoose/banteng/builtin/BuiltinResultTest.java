@@ -27,6 +27,7 @@ final class BuiltinResultTest {
             "HostWork",
             "Initialize",
             "Move",
+            "Notify",
             "Output",
             "Panic",
             "Programmer",
@@ -54,6 +55,8 @@ final class BuiltinResultTest {
             Map.entry("HostWork", List.of("work")),
             Map.entry("Initialize", List.of("created", "arguments")),
             Map.entry("Move", List.of("object", "destination", "position")),
+            Map.entry(
+                "Notify", List.of("connectionId", "line", "noFlush", "noNewline")),
             Map.entry("Output", List.of("line")),
             Map.entry("Panic", List.of("message")),
             Map.entry("Programmer", List.of("programmer")),

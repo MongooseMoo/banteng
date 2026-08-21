@@ -80,7 +80,9 @@ final class BuiltinCatalogTest {
           "chr",
           "connection_info",
           "connection_name",
+          "connection_name_lookup",
           "connection_options",
+          "connected_seconds",
           "connected_players",
           "cos",
           "cosh",
@@ -138,6 +140,7 @@ final class BuiltinCatalogTest {
           "function_info",
           "generate_json",
           "gc_stats",
+          "idle_seconds",
           "index",
           "isa",
           "is_player",
@@ -160,6 +163,7 @@ final class BuiltinCatalogTest {
           "maphaskey",
           "mapkeys",
           "mapvalues",
+          "match",
           "max",
           "max_object",
           "memory_usage",
@@ -196,6 +200,7 @@ final class BuiltinCatalogTest {
           "reset_max_object",
           "resume",
           "rindex",
+          "rmatch",
           "round",
           "run_gc",
           "seconds_left",
@@ -1020,6 +1025,242 @@ final class BuiltinCatalogTest {
   }
 
   @Test
+  void connectionTimersUseToastSignaturesAndRuntimeOwnedState() {
+    BuiltinCatalog catalog =
+        new BuiltinCatalog(
+            BuiltinHosts.builder()
+                .idleSeconds(call -> BuiltinResult.value(new IntegerValue(12)))
+                .connectedSeconds(call -> BuiltinResult.value(new IntegerValue(34)))
+                .build());
+    BuiltinSpec idle = catalog.spec("idle_seconds").orElseThrow();
+    BuiltinSpec connected = catalog.spec("connected_seconds").orElseThrow();
+    CallShape shape =
+        new CallShape(List.of(Set.of(ArgType.OBJECT)), List.of(), Optional.empty());
+
+    for (BuiltinSpec spec : List.of(idle, connected)) {
+      assertEquals(List.of(shape), spec.callShapes());
+      assertSame(BuiltinPermissionRule.ANY, spec.permission());
+      assertEquals(EffectClass.EXTERNAL_READ, spec.effect());
+      assertEquals(BuiltinOwner.CONNECTION, spec.owner());
+    }
+    try (WorldTxn transaction = world().begin()) {
+      assertEquals(
+          Optional.of(new IntegerValue(12)),
+          value(invoke(catalog, idle, List.of(new ObjectValue(-2)), transaction, 2)));
+      assertEquals(
+          Optional.of(new IntegerValue(34)),
+          value(invoke(catalog, connected, List.of(new ObjectValue(2)), transaction, 2)));
+      assertEquals(
+          Optional.of(ErrorValue.E_TYPE),
+          error(invoke(catalog, idle, List.of(new IntegerValue(2)), transaction, 2)));
+      assertEquals(
+          Optional.of(ErrorValue.E_ARGS),
+          error(invoke(catalog, connected, List.of(), transaction, 2)));
+    }
+  }
+
+  @Test
+  void matchAndRmatchPreserveToastRegexDialectResultsAndErrors() {
+    BuiltinCatalog catalog = new BuiltinCatalog(BuiltinHosts.builder().build());
+    BuiltinSpec match = catalog.spec("match").orElseThrow();
+    BuiltinSpec rmatch = catalog.spec("rmatch").orElseThrow();
+    CallShape shape =
+        new CallShape(
+            List.of(Set.of(ArgType.STRING), Set.of(ArgType.STRING)),
+            List.of(Set.of(ArgType.ANY)),
+            Optional.empty());
+
+    for (BuiltinSpec spec : List.of(match, rmatch)) {
+      assertEquals(List.of(shape), spec.callShapes());
+      assertSame(BuiltinPermissionRule.ANY, spec.permission());
+      assertEquals(EffectClass.PURE, spec.effect());
+      assertEquals(BuiltinOwner.VM, spec.owner());
+    }
+    try (WorldTxn transaction = world().begin()) {
+      assertEquals(
+          Optional.of(matchResult("foo", 1, 2)),
+          value(invoke(catalog, match, List.of(string("foo"), string("f*o")), transaction, 2)));
+      assertEquals(
+          Optional.of(matchResult("foo", 1, 3)),
+          value(invoke(catalog, match, List.of(string("foo"), string("fo*")), transaction, 2)));
+      assertEquals(
+          Optional.of(matchResult("foobar", 2, 4)),
+          value(invoke(catalog, match, List.of(string("foobar"), string("o*b")), transaction, 2)));
+      assertEquals(
+          Optional.of(matchResult("foobar", 4, 4)),
+          value(invoke(catalog, rmatch, List.of(string("foobar"), string("o*b")), transaction, 2)));
+      assertEquals(
+          Optional.of(matchResult("foobar", 1, 4, 2, 3)),
+          value(invoke(
+                  catalog,
+                  match,
+                  List.of(string("foobar"), string("f%(o*%)b")),
+                  transaction,
+                  2)
+              ));
+      assertEquals(
+          Optional.of(matchResult("FOO", 1, 3)),
+          value(invoke(catalog, match, List.of(string("FOO"), string("foo")), transaction, 2)));
+      assertEquals(
+          Optional.of(new ListValue(List.of())),
+          value(invoke(
+                  catalog,
+                  match,
+                  List.of(string("FOO"), string("foo"), new IntegerValue(1)),
+                  transaction,
+                  2)
+              ));
+      assertEquals(
+          Optional.of(new ListValue(List.of())),
+          value(invoke(catalog, match, List.of(string("foo"), string("bar")), transaction, 2)));
+      assertEquals(
+          Optional.of(matchResult("ball balls", 1, 4)),
+          value(invoke(
+                  catalog,
+                  match,
+                  List.of(string("ball balls"), string("%bball%b")),
+                  transaction,
+                  2)
+              ));
+      assertEquals(
+          Optional.of(matchResult("abab", 1, 4, 1, 2)),
+          value(invoke(
+                  catalog,
+                  match,
+                  List.of(string("abab"), string("%([ab]+%)%1")),
+                  transaction,
+                  2)
+              ));
+      assertEquals(
+          Optional.of(matchResult("(foo)|bar", 1, 9)),
+          value(invoke(
+                  catalog,
+                  match,
+                  List.of(string("(foo)|bar"), string("(foo)|bar")),
+                  transaction,
+                  2)
+              ));
+      assertEquals(
+          Optional.of(matchResult("a%.", 1, 3)),
+          value(invoke(
+                  catalog,
+                  match,
+                  List.of(string("a%."), string("^[a-z$%.]+$")),
+                  transaction,
+                  2)
+              ));
+      assertEquals(
+          Optional.of(ErrorValue.E_INVARG),
+          error(invoke(catalog, match, List.of(string("foo"), string("[")), transaction, 2)));
+      assertEquals(
+          Optional.of(ErrorValue.E_INVARG),
+          error(invoke(catalog, match, List.of(string("foo"), string("foo%")), transaction, 2)));
+      assertEquals(
+          Optional.of(ErrorValue.E_TYPE),
+          error(invoke(
+                  catalog,
+                  match,
+                  List.of(string("foo"), new IntegerValue(1)),
+                  transaction,
+                  2)
+              ));
+      assertEquals(
+          Optional.of(ErrorValue.E_ARGS),
+          error(invoke(catalog, match, List.of(string("foo")), transaction, 2)));
+    }
+  }
+
+  @Test
+  void matchBoundsPathologicalBacktrackingAsQuota() {
+    BuiltinCatalog catalog = new BuiltinCatalog(BuiltinHosts.builder().build());
+    BuiltinSpec match = catalog.spec("match").orElseThrow();
+
+    try (WorldTxn transaction = world().begin()) {
+      assertEquals(
+          Optional.of(ErrorValue.E_QUOTA),
+          error(invoke(
+                  catalog,
+                  match,
+                  List.of(string("a".repeat(5_000)), string("^%(a+%)+b$")),
+                  transaction,
+                  2)
+              ));
+    }
+  }
+
+  @Test
+  void connectionNameLookupUsesToastSignaturePermissionsAndHostWork() throws Exception {
+    ConnectionRegistry connections = new ConnectionRegistry();
+    BuiltinCatalog catalog =
+        new BuiltinCatalog(
+            BuiltinHosts.builder()
+                .connections(() -> connections)
+                .connectionNameLookup(
+                    call -> BuiltinResult.hostWork(() -> BuiltinResult.value(string("resolved.example"))))
+                .build());
+    BuiltinSpec spec = catalog.spec("connection_name_lookup").orElseThrow();
+    MapValue info =
+        new MapValue(
+            Map.of(
+                string("destination_address"), string("198.51.100.25"),
+                string("destination_ip"), string("198.51.100.25")));
+
+    assertEquals(
+        List.of(
+            new CallShape(
+                List.of(Set.of(ArgType.OBJECT)),
+                List.of(Set.of(ArgType.ANY)),
+                Optional.empty())),
+        spec.callShapes());
+    assertSame(BuiltinPermissionRule.ANY, spec.permission());
+    assertEquals(EffectClass.SUSPENDING_HOST, spec.effect());
+    assertEquals(BuiltinOwner.CONNECTION, spec.owner());
+    try (WorldTxn transaction = world().begin()) {
+      connections.openConnection(-2, info);
+      connections.switchConnectionPlayer(-2, 2);
+      connections.openConnection(-3, info);
+      connections.switchConnectionPlayer(-3, 1);
+
+      BuiltinResult self =
+          invoke(catalog, spec, List.of(new ObjectValue(2)), transaction, 2);
+      assertEquals(
+          Optional.of(string("resolved.example")),
+          value(hostWork(self).orElseThrow().call()));
+      BuiltinResult wizard =
+          invoke(
+              catalog,
+              spec,
+              List.of(new ObjectValue(2), new IntegerValue(1)),
+              transaction,
+              1);
+      assertEquals(
+          Optional.of(string("resolved.example")),
+          value(hostWork(wizard).orElseThrow().call()));
+      assertEquals(
+          Optional.of(ErrorValue.E_PERM),
+          error(invoke(catalog, spec, List.of(new ObjectValue(1)), transaction, 2)));
+      assertEquals(
+          Optional.of(ErrorValue.E_INVARG),
+          error(invoke(catalog, spec, List.of(new ObjectValue(99)), transaction, 1)));
+      assertEquals(
+          Optional.of(ErrorValue.E_TYPE),
+          error(invoke(catalog, spec, List.of(new IntegerValue(2)), transaction, 1)));
+      assertEquals(
+          Optional.of(ErrorValue.E_ARGS),
+          error(invoke(catalog, spec, List.of(), transaction, 1)));
+      assertEquals(
+          Optional.of(ErrorValue.E_ARGS),
+          error(invoke(
+                  catalog,
+                  spec,
+                  List.of(new ObjectValue(2), new IntegerValue(1), new IntegerValue(1)),
+                  transaction,
+                  1)
+              ));
+    }
+  }
+
+  @Test
   void connectedPlayersReturnsNewestConnectionsWithOptionalNegativePlayers() {
     ConnectionRegistry connections = new ConnectionRegistry();
     BuiltinCatalog catalog =
@@ -1104,6 +1345,85 @@ final class BuiltinCatalogTest {
                   transaction,
                   1)
               ));
+    }
+  }
+
+  @Test
+  void notifyPreservesToastTargetPermissionAndFlushFlags() {
+    ConnectionRegistry connections = new ConnectionRegistry();
+    BuiltinCatalog catalog =
+        new BuiltinCatalog(BuiltinHosts.builder().connections(() -> connections).build());
+    BuiltinSpec spec = catalog.spec("notify").orElseThrow();
+
+    try (WorldTxn transaction = world().begin()) {
+      connections.openConnection(-2);
+      connections.switchConnectionPlayer(-2, 2);
+      connections.openConnection(-3);
+      connections.switchConnectionPlayer(-3, 1);
+
+      BuiltinResult.Notify notification =
+          assertInstanceOf(
+              BuiltinResult.Notify.class,
+              invoke(
+                  catalog,
+                  spec,
+                  List.of(
+                      new ObjectValue(2),
+                      string("queued"),
+                      new IntegerValue(1),
+                      new IntegerValue(1)),
+                  transaction,
+                  2));
+      assertEquals(-2, notification.connectionId());
+      assertEquals("queued", notification.line());
+      assertTrue(notification.noFlush());
+      assertTrue(notification.noNewline());
+
+      assertEquals(
+          Optional.of(ErrorValue.E_PERM),
+          error(
+              invoke(
+                  catalog,
+                  spec,
+                  List.of(new ObjectValue(1), string("forbidden")),
+                  transaction,
+                  2)));
+      assertEquals(
+          Optional.of(new IntegerValue(1)),
+          value(
+              invoke(
+                  catalog,
+                  spec,
+                  List.of(new ObjectValue(99), string("offline")),
+                  transaction,
+                  1)));
+    }
+  }
+
+  @Test
+  void notifyPreservesOrdinaryCurrentPlayerOutputAfterConnectionCloses() {
+    ConnectionRegistry connections = new ConnectionRegistry();
+    BuiltinCatalog catalog =
+        new BuiltinCatalog(BuiltinHosts.builder().connections(() -> connections).build());
+    BuiltinSpec spec = catalog.spec("notify").orElseThrow();
+
+    try (WorldTxn transaction = world().begin()) {
+      connections.openConnection(-2);
+      connections.switchConnectionPlayer(-2, 2);
+      connections.closeConnection(-2);
+      assertTrue(connections.connectionId(2).isEmpty());
+
+      BuiltinResult.Output output =
+          assertInstanceOf(
+              BuiltinResult.Output.class,
+              invoke(
+                  catalog,
+                  spec,
+                  List.of(new ObjectValue(2), string("completed")),
+                  transaction,
+                  2));
+
+      assertEquals("completed", output.line());
     }
   }
 
@@ -5933,6 +6253,25 @@ final class BuiltinCatalogTest {
         : Optional.empty();
   }
 
+  private static ListValue matchResult(
+      String subject, long start, long end, long... capturedBounds) {
+    List<MooValue> captures = new ArrayList<>(9);
+    for (int index = 0; index < 9; index++) {
+      int offset = index * 2;
+      long capturedStart = offset < capturedBounds.length ? capturedBounds[offset] : 0;
+      long capturedEnd = offset + 1 < capturedBounds.length ? capturedBounds[offset + 1] : -1;
+      captures.add(
+          new ListValue(
+              List.of(new IntegerValue(capturedStart), new IntegerValue(capturedEnd))));
+    }
+    return new ListValue(
+        List.of(
+            new IntegerValue(start),
+            new IntegerValue(end),
+            new ListValue(captures),
+            string(subject)));
+  }
+
   private static Optional<ErrorValue> error(BuiltinResult result) {
     return switch (result) {
       case BuiltinResult.ErrorResult error -> Optional.of(error.error());
@@ -6136,6 +6475,10 @@ final class BuiltinCatalogTest {
 
     @Override
     public void writeConnection(long connectionId, List<String> output) {}
+
+    @Override
+    public void notifyConnection(
+        long connectionId, String line, boolean noFlush, boolean noNewline) {}
 
     @Override
     public void bootConnection(long connectionId, List<String> output) {}
