@@ -20,6 +20,8 @@ public record BuiltinHosts(
     BuiltinHandler threadPool,
     BuiltinHandler threads,
     BuiltinHandler connectionOptions,
+    BuiltinHandler idleSeconds,
+    BuiltinHandler connectedSeconds,
     ConnectionOptionSetter setConnectionOption,
     BuiltinHandler connectionNameLookup,
     BuiltinHandler dbDiskSize,
@@ -39,6 +41,8 @@ public record BuiltinHosts(
     Objects.requireNonNull(threadPool, "threadPool");
     Objects.requireNonNull(threads, "threads");
     Objects.requireNonNull(connectionOptions, "connectionOptions");
+    Objects.requireNonNull(idleSeconds, "idleSeconds");
+    Objects.requireNonNull(connectedSeconds, "connectedSeconds");
     Objects.requireNonNull(setConnectionOption, "setConnectionOption");
     Objects.requireNonNull(connectionNameLookup, "connectionNameLookup");
     Objects.requireNonNull(dbDiskSize, "dbDiskSize");
@@ -71,6 +75,8 @@ public record BuiltinHosts(
     private BuiltinHandler threads =
         call -> BuiltinResult.value(new ListValue(List.of()));
     private BuiltinHandler connectionOptions = Builder::invalidArgument;
+    private BuiltinHandler idleSeconds = Builder::invalidArgument;
+    private BuiltinHandler connectedSeconds = Builder::invalidArgument;
     private ConnectionOptionSetter setConnectionOption = BuiltinResult.SetConnectionOption::new;
     private BuiltinHandler connectionNameLookup = Builder::invalidArgument;
     private BuiltinHandler dbDiskSize =
@@ -120,6 +126,16 @@ public record BuiltinHosts(
 
     public Builder connectionOptions(BuiltinHandler value) {
       connectionOptions = value;
+      return this;
+    }
+
+    public Builder idleSeconds(BuiltinHandler value) {
+      idleSeconds = value;
+      return this;
+    }
+
+    public Builder connectedSeconds(BuiltinHandler value) {
+      connectedSeconds = value;
       return this;
     }
 
@@ -182,6 +198,8 @@ public record BuiltinHosts(
           threadPool,
           threads,
           connectionOptions,
+          idleSeconds,
+          connectedSeconds,
           setConnectionOption,
           connectionNameLookup,
           dbDiskSize,

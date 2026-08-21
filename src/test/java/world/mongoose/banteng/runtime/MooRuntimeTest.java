@@ -13,6 +13,7 @@ import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicLong;
 import world.mongoose.banteng.persistence.LambdaMooV4Reader;
 import world.mongoose.banteng.server.ConnectionRegistry;
 import world.mongoose.banteng.value.MooValue.IntegerValue;
@@ -43,6 +44,45 @@ final class MooRuntimeTest {
 
     assertEquals(8, connections.connectionPlayer(connectionId).orElseThrow());
     assertTrue(connections.connectionInfo(connectionId).isPresent());
+  }
+
+  @Test
+  void connectionTimersUseMonotonicOpenLoginAndLastInputTimes() throws Exception {
+    WorldTxn world = new LambdaMooV4Reader().read(FIXTURE);
+    ConnectionRegistry connections = new ConnectionRegistry();
+    AtomicLong now = new AtomicLong();
+    MooRuntime runtime = new MooRuntime(world, connections, now::get);
+    long wizardConnection = -47;
+    long pendingConnection = -48;
+    long programmerConnection = -49;
+
+    assertEquals(List.of(), runtime.openConnection(wizardConnection));
+    assertEquals(
+        List.of("*** Connected ***"), runtime.executeLine(wizardConnection, "connect Wizard"));
+    now.set(TimeUnit.SECONDS.toNanos(5));
+    assertEquals(List.of(), runtime.openConnection(pendingConnection));
+    now.set(TimeUnit.SECONDS.toNanos(8));
+    assertEquals(
+        List.of(CONNECTION_PREFIX, "{1, {0, 8, 3, E_INVARG}}", CONNECTION_SUFFIX),
+        runtime.executeLine(
+            wizardConnection,
+            "; return {idle_seconds(player), connected_seconds(player), "
+                + "idle_seconds(#-48), "
+                + "`connected_seconds(#-48) ! E_INVARG => E_INVARG'};"));
+
+    now.set(TimeUnit.SECONDS.toNanos(9));
+    runtime.executeTransportOutOfBand(wizardConnection, "~test");
+    now.set(TimeUnit.SECONDS.toNanos(13));
+    assertEquals(List.of(), runtime.openConnection(programmerConnection));
+    assertEquals(
+        List.of("*** Connected ***"),
+        runtime.executeLine(programmerConnection, "connect Programmer"));
+    assertEquals(
+        List.of(CONNECTION_PREFIX, "{1, {4, 13, E_INVARG}}", CONNECTION_SUFFIX),
+        runtime.executeLine(
+            programmerConnection,
+            "; return {idle_seconds(#8), connected_seconds(#8), "
+                + "`idle_seconds(#999999) ! E_INVARG => E_INVARG'};"));
   }
 
   @Test
