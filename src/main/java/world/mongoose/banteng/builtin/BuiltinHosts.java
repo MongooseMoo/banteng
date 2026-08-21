@@ -20,6 +20,7 @@ public record BuiltinHosts(
     BuiltinHandler connectionOptions,
     BuiltinHandler idleSeconds,
     BuiltinHandler connectedSeconds,
+    BuiltinHandler connectionNameLookup,
     BuiltinHandler dbDiskSize,
     BuiltinHandler flushInput,
     BuiltinHandler outputDelimiters,
@@ -39,6 +40,7 @@ public record BuiltinHosts(
     Objects.requireNonNull(connectionOptions, "connectionOptions");
     Objects.requireNonNull(idleSeconds, "idleSeconds");
     Objects.requireNonNull(connectedSeconds, "connectedSeconds");
+    Objects.requireNonNull(connectionNameLookup, "connectionNameLookup");
     Objects.requireNonNull(dbDiskSize, "dbDiskSize");
     Objects.requireNonNull(flushInput, "flushInput");
     Objects.requireNonNull(outputDelimiters, "outputDelimiters");
@@ -71,6 +73,7 @@ public record BuiltinHosts(
     private BuiltinHandler connectionOptions = Builder::invalidArgument;
     private BuiltinHandler idleSeconds = Builder::invalidArgument;
     private BuiltinHandler connectedSeconds = Builder::invalidArgument;
+    private BuiltinHandler connectionNameLookup = Builder::invalidArgument;
     private BuiltinHandler dbDiskSize =
         call -> BuiltinResult.value(new IntegerValue(0));
     private BuiltinHandler flushInput =
@@ -131,6 +134,11 @@ public record BuiltinHosts(
       return this;
     }
 
+    public Builder connectionNameLookup(BuiltinHandler value) {
+      connectionNameLookup = value;
+      return this;
+    }
+
     public Builder dbDiskSize(BuiltinHandler value) {
       dbDiskSize = value;
       return this;
@@ -182,6 +190,7 @@ public record BuiltinHosts(
           connectionOptions,
           idleSeconds,
           connectedSeconds,
+          connectionNameLookup,
           dbDiskSize,
           flushInput,
           outputDelimiters,

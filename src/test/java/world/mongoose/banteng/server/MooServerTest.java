@@ -121,6 +121,44 @@ final class MooServerTest {
     }
   }
 
+  @Test
+  void noFlushNotifyQueuesExactBytesUntilTheNextFlushingWrite(@TempDir Path temporaryDirectory)
+      throws Exception {
+    MooServer server =
+        new MooServer(
+            "127.0.0.1",
+            0,
+            new LambdaMooV4Reader().read(TEST_DATABASE),
+            temporaryDirectory.resolve("Test.db.new"));
+    Thread serving = Thread.startVirtualThread(server::serve);
+    try (Socket socket = new Socket(InetAddress.getLoopbackAddress(), server.port());
+        BufferedReader input =
+            new BufferedReader(
+                new InputStreamReader(socket.getInputStream(), StringValue.charset()));
+        BufferedWriter output =
+            new BufferedWriter(
+                new OutputStreamWriter(socket.getOutputStream(), StringValue.charset()))) {
+      socket.setSoTimeout((int) Duration.ofSeconds(5).toMillis());
+      writeLine(output, "connect Wizard");
+      assertEquals("*** Connected ***", input.readLine());
+
+      writeLine(
+          output,
+          "; before = buffered_output_length(player); notify(player, \"queued\", 1, 1); after = buffered_output_length(player); return {before, after};");
+      assertEquals(
+          List.of("queued" + CONNECTION_PREFIX, "{1, {0, 6}}", CONNECTION_SUFFIX),
+          readLines(input, 3));
+
+      writeLine(output, "; return buffered_output_length(player);");
+      assertEquals(
+          List.of(CONNECTION_PREFIX, "{1, 0}", CONNECTION_SUFFIX), readLines(input, 3));
+    } finally {
+      server.close();
+      serving.join(Duration.ofSeconds(5));
+      assertFalse(serving.isAlive());
+    }
+  }
+
   private static void writeLine(BufferedWriter output, String line) throws Exception {
     output.write(line);
     output.write("\r\n");

@@ -38,6 +38,9 @@ public interface ConnectionRegistryAccess {
   /** Returns network metadata for a connection object or its attached player. */
   Optional<MapValue> connectionInfo(long objectId);
 
+  /** Replaces one live connection's remote name if its numeric address is unchanged. */
+  boolean rewriteConnectionName(long connectionId, String expectedIp, String resolvedName);
+
   /** Resolves a live connection object or its attached player to the connection ID. */
   OptionalLong connectionId(long objectId);
 

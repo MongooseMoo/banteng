@@ -42,6 +42,7 @@ import world.mongoose.banteng.bytecode.MooCompiler;
 import world.mongoose.banteng.bytecode.ToastV17ProgramModel;
 import world.mongoose.banteng.persistence.LambdaMooV17Codec;
 import world.mongoose.banteng.persistence.LambdaMooV17Codec.ActiveConnection;
+import world.mongoose.banteng.persistence.LambdaMooV17Codec.QueuedEnvironment;
 import world.mongoose.banteng.persistence.LambdaMooV17Codec.QueuedTask;
 import world.mongoose.banteng.persistence.LambdaMooV17Codec.SuspendedActivation;
 import world.mongoose.banteng.persistence.LambdaMooV17Codec.SuspendedStackSlot;
@@ -103,11 +104,12 @@ final class PublicationSchedulerTest {
   void restoresQueuedTaskSourceAndDispatchMetadataIntoItsActivation() throws Exception {
     try (Harness harness = Harness.open(1, new RecordingListener())) {
       TaskRegistry registry = field(harness.scheduler, "taskRegistry", TaskRegistry.class);
-      Map<String, MooValue> locals =
+      Map<String, Optional<MooValue>> environment =
           Map.of(
-              "this", new ObjectValue(7),
-              "player", new ObjectValue(0),
-              "verb", string("tick"));
+              "this", Optional.of(new ObjectValue(7)),
+              "player", Optional.of(new ObjectValue(0)),
+              "verb", Optional.of(string("tick")),
+              "unset", Optional.empty());
       QueuedTask task =
           new QueuedTask(
               900_000_004L,
@@ -116,17 +118,19 @@ final class PublicationSchedulerTest {
               "tick",
               "tick pulse",
               "return 0;\n",
-              locals,
+              new QueuedEnvironment(environment),
               0,
               new ObjectValue(8),
               0,
+              true,
               true);
 
       harness.scheduler.restoreTasks(List.of(task));
 
       try (WorldTxn transaction = harness.root.begin()) {
         BuiltinResult queuedResult =
-            registry.queuedTasks(builtinCall(List.of(), transaction, -1));
+            registry.queuedTasks(
+                builtinCall(List.of(new IntegerValue(1)), transaction, -1));
         ListValue rows =
             assertInstanceOf(
                 ListValue.class,
@@ -134,6 +138,9 @@ final class PublicationSchedulerTest {
         ListValue row = assertInstanceOf(ListValue.class, rows.elements().getFirst());
         assertEquals(string("tick pulse"), row.elements().get(6));
         assertEquals(new IntegerValue(37), row.elements().get(7));
+        MapValue variables = assertInstanceOf(MapValue.class, row.elements().get(10));
+        assertEquals(3, variables.size());
+        assertEquals(Optional.empty(), variables.get(string("unset")));
 
         BuiltinResult stackResult =
             registry.taskStack(
@@ -150,6 +157,54 @@ final class PublicationSchedulerTest {
         assertEquals(string("tick"), activation.elements().get(1));
         assertEquals(new IntegerValue(37), activation.elements().get(5));
       }
+    }
+  }
+
+  @Test
+  void restoresUninitializedQueuedLocalAsEvarnfUntilAssignment() throws Exception {
+    try (Harness harness = Harness.open(1, new RecordingListener())) {
+      harness.resetCounter();
+      TaskRegistry registry = field(harness.scheduler, "taskRegistry", TaskRegistry.class);
+      Map<String, Optional<MooValue>> environment =
+          Map.of(
+              "this", Optional.of(new ObjectValue(0)),
+              "player", Optional.of(new ObjectValue(0)),
+              "verb", Optional.of(string("restored_uninitialized")),
+              "unset", Optional.empty());
+      String source =
+          """
+          try
+            ignored = unset;
+          except error (E_VARNF)
+            #0.scheduler_counter = 59;
+          endtry
+          return 0;
+          """;
+      QueuedTask task =
+          new QueuedTask(
+              900_000_005L,
+              0,
+              1,
+              "restored_uninitialized",
+              "restored_uninitialized",
+              source,
+              new QueuedEnvironment(environment),
+              0,
+              new ObjectValue(0),
+              0,
+              true,
+              true);
+
+      harness.scheduler.restoreTasks(List.of(task));
+      harness.scheduler.activateRestoredTasks();
+      long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(3);
+      while ((harness.counter() != 59 || registry.size() != 0)
+          && System.nanoTime() < deadline) {
+        Thread.onSpinWait();
+      }
+
+      assertEquals(59, harness.counter());
+      assertEquals(0, registry.size());
     }
   }
 
@@ -1824,6 +1879,10 @@ final class PublicationSchedulerTest {
 
     @Override
     public void writeConnection(long connectionId, List<String> output) {}
+
+    @Override
+    public void notifyConnection(
+        long connectionId, String line, boolean noFlush, boolean noNewline) {}
 
     @Override
     public void bootConnection(long connectionId, List<String> output) {}

@@ -32,6 +32,7 @@ import java.util.StringTokenizer;
 import java.util.concurrent.CancellationException;
 import java.util.function.DoubleUnaryOperator;
 import java.util.function.Function;
+import java.util.function.LongBinaryOperator;
 import java.util.function.Supplier;
 import world.mongoose.banteng.bytecode.MooCompiler;
 import world.mongoose.banteng.host.NativeCalls;
@@ -87,6 +88,7 @@ public final class BuiltinCatalog {
   private final Optional<ListenerControl> listenerControl;
   private final Random random;
   private final SqliteService sqlite;
+  private final ToastRegexService toastRegex = new ToastRegexService();
   private final Random floatingRandom;
   private final Map<String, BuiltinSpec> specs;
 
@@ -175,6 +177,12 @@ public final class BuiltinCatalog {
     @Override
     public Optional<MapValue> connectionInfo(long objectId) {
       return Optional.empty();
+    }
+
+    @Override
+    public boolean rewriteConnectionName(
+        long connectionId, String expectedIp, String resolvedName) {
+      return false;
     }
 
     @Override
@@ -1434,7 +1442,12 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.EXTERNAL_READ,
             BuiltinOwner.CONNECTION,
-            call -> bufferedOutputLength(call.arguments(), call.world(), call.programmer())));
+            call ->
+                bufferedOutputLength(
+                    call.arguments(),
+                    call.world(),
+                    call.programmer(),
+                    call.stagedBufferedOutputLength())));
     entries.add(
         new BuiltinSpec(
             "boot_player",
@@ -1462,6 +1475,33 @@ public final class BuiltinCatalog {
             EffectClass.EXTERNAL_READ,
             BuiltinOwner.CONNECTION,
             call -> connectionName(call.arguments(), call.world(), call.programmer())));
+    entries.add(
+        new BuiltinSpec(
+            "match",
+            List.of(new CallShape(List.of(STRING, STRING), List.of(ANY), Optional.empty())),
+            BuiltinPermissionRule.ANY,
+            BuiltinCostRule.fixed(0),
+            EffectClass.PURE,
+            BuiltinOwner.VM,
+            call -> toastMatch(call.arguments(), false)));
+    entries.add(
+        new BuiltinSpec(
+            "rmatch",
+            List.of(new CallShape(List.of(STRING, STRING), List.of(ANY), Optional.empty())),
+            BuiltinPermissionRule.ANY,
+            BuiltinCostRule.fixed(0),
+            EffectClass.PURE,
+            BuiltinOwner.VM,
+            call -> toastMatch(call.arguments(), true)));
+    entries.add(
+        new BuiltinSpec(
+            "connection_name_lookup",
+            List.of(new CallShape(List.of(OBJECT), List.of(ANY), Optional.empty())),
+            BuiltinPermissionRule.ANY,
+            BuiltinCostRule.fixed(0),
+            EffectClass.SUSPENDING_HOST,
+            BuiltinOwner.CONNECTION,
+            this::connectionNameLookup));
     entries.add(
         new BuiltinSpec(
             "connection_options",
@@ -1611,7 +1651,7 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.DEFERRED_COMMIT,
             BuiltinOwner.CONNECTION,
-            call -> notifyLine(call.arguments())));
+            call -> notifyLine(call.arguments(), call.world(), call.programmer())));
     entries.add(
         new BuiltinSpec(
             "tostr",
@@ -2032,7 +2072,10 @@ public final class BuiltinCatalog {
   }
 
   private BuiltinResult bufferedOutputLength(
-      List<MooValue> arguments, WorldTxn world, long programmer) {
+      List<MooValue> arguments,
+      WorldTxn world,
+      long programmer,
+      LongBinaryOperator stagedBufferedOutputLength) {
     if (arguments.isEmpty()) {
       return BuiltinResult.value(new IntegerValue(DEFAULT_MAX_QUEUED_OUTPUT));
     }
@@ -2048,7 +2091,10 @@ public final class BuiltinCatalog {
         listenerControl
             .map(control -> control.bufferedOutputLength(connectionId.orElseThrow()))
             .orElse(0L);
-    return BuiltinResult.value(new IntegerValue(queuedBytes));
+    return BuiltinResult.value(
+        new IntegerValue(
+            stagedBufferedOutputLength.applyAsLong(
+                connectionId.orElseThrow(), queuedBytes)));
   }
 
   private BuiltinResult connectionName(
@@ -2090,6 +2136,26 @@ public final class BuiltinCatalog {
                     address.text(),
                     ip.text(),
                     destination.value())));
+  }
+
+  private BuiltinResult toastMatch(List<MooValue> arguments, boolean reverse) {
+    return toastRegex.match(
+        (StringValue) arguments.get(0),
+        (StringValue) arguments.get(1),
+        arguments.size() == 3 && arguments.get(2).isTruthy(),
+        reverse);
+  }
+
+  private BuiltinResult connectionNameLookup(BuiltinCall call) {
+    long target = ((ObjectValue) call.arguments().getFirst()).value();
+    if (target != call.programmer()
+        && !BuiltinPermissionRule.WIZARD_ONLY.allows(call.world(), call.programmer())) {
+      return BuiltinResult.error(ErrorValue.E_PERM);
+    }
+    if (connections().connectionInfo(target).isEmpty()) {
+      return BuiltinResult.error(ErrorValue.E_INVARG);
+    }
+    return hosts.connectionNameLookup().invoke(call);
   }
 
   private static BuiltinResult bootPlayer(
@@ -2417,6 +2483,37 @@ public final class BuiltinCatalog {
       long callerProgrammer,
       ListValue callers,
       boolean threadMode) {
+    return invoke(
+        spec,
+        arguments,
+        world,
+        programmer,
+        taskLocal,
+        taskId,
+        remainingTicks,
+        remainingSeconds,
+        receiver,
+        callerProgrammer,
+        callers,
+        threadMode,
+        (_connectionId, queuedBytes) -> queuedBytes);
+  }
+
+  /** Validates and invokes one exact manifest entry with attempt-local output projection. */
+  public BuiltinResult invoke(
+      BuiltinSpec spec,
+      List<MooValue> arguments,
+      WorldTxn world,
+      long programmer,
+      MooValue taskLocal,
+      long taskId,
+      long remainingTicks,
+      long remainingSeconds,
+      MooValue receiver,
+      long callerProgrammer,
+      ListValue callers,
+      boolean threadMode,
+      LongBinaryOperator stagedBufferedOutputLength) {
     if (spec.callShapes().stream().noneMatch(shape -> shape.acceptsArity(arguments.size()))) {
       return BuiltinResult.error(ErrorValue.E_ARGS);
     }
@@ -2439,7 +2536,8 @@ public final class BuiltinCatalog {
                 receiver,
                 callerProgrammer,
                 callers,
-                threadMode));
+                threadMode,
+                stagedBufferedOutputLength));
   }
 
   private BuiltinResult functionInfo(List<MooValue> arguments) {
@@ -5983,9 +6081,24 @@ public final class BuiltinCatalog {
     return new BuiltinResult.Programmer(requested.value());
   }
 
-  private static BuiltinResult notifyLine(List<MooValue> arguments) {
+  private BuiltinResult notifyLine(
+      List<MooValue> arguments, WorldTxn world, long programmer) {
+    long target = ((ObjectValue) arguments.getFirst()).value();
+    if (target != programmer && !isWizard(world, programmer)) {
+      return BuiltinResult.error(ErrorValue.E_PERM);
+    }
     StringValue line = (StringValue) arguments.get(1);
-    return new BuiltinResult.Output(line.text());
+    boolean noFlush = arguments.size() > 2 && arguments.get(2).isTruthy();
+    boolean noNewline = arguments.size() > 3 && arguments.get(3).isTruthy();
+    if (target == programmer && !noFlush && !noNewline) {
+      return new BuiltinResult.Output(line.text());
+    }
+    OptionalLong connectionId = connections().connectionId(target);
+    if (connectionId.isEmpty()) {
+      return BuiltinResult.value(new IntegerValue(1));
+    }
+    return new BuiltinResult.Notify(
+        connectionId.orElseThrow(), line.text(), noFlush, noNewline);
   }
 
   private static BuiltinResult toStringValue(List<MooValue> arguments) {
@@ -6251,6 +6364,10 @@ public final class BuiltinCatalog {
     /** Writes ordered lines to one accepted connection selected by runtime ID. */
     void writeConnection(long connectionId, List<String> lines);
 
+    /** Writes or queues one notification for a live connection. */
+    void notifyConnection(
+        long connectionId, String line, boolean noFlush, boolean noNewline);
+
     /** Writes final lines and closes one accepted connection selected by runtime ID. */
     void bootConnection(long connectionId, List<String> lines);
 
@@ -6285,6 +6402,10 @@ public final class BuiltinCatalog {
 
   /** One validated line to inject into a live connection's input stream. */
   public record ForcedInputRequest(long target, String line) {}
+
+  /** One authorized notification captured for commit-time transport publication. */
+  public record NotificationRequest(
+      long connectionId, String line, boolean noFlush, boolean noNewline) {}
 
   /** The connection options authorized by the held-input slice. */
   public enum ConnectionOption {
