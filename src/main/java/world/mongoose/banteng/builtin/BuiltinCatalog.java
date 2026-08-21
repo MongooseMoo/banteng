@@ -6043,14 +6043,14 @@ public final class BuiltinCatalog {
       return BuiltinResult.error(ErrorValue.E_PERM);
     }
     StringValue line = (StringValue) arguments.get(1);
-    OptionalLong connectionId = connections().connectionId(target);
-    if (connectionId.isEmpty()) {
-      return BuiltinResult.value(new IntegerValue(1));
-    }
     boolean noFlush = arguments.size() > 2 && arguments.get(2).isTruthy();
     boolean noNewline = arguments.size() > 3 && arguments.get(3).isTruthy();
     if (target == programmer && !noFlush && !noNewline) {
       return new BuiltinResult.Output(line.text());
+    }
+    OptionalLong connectionId = connections().connectionId(target);
+    if (connectionId.isEmpty()) {
+      return BuiltinResult.value(new IntegerValue(1));
     }
     return new BuiltinResult.Notify(
         connectionId.orElseThrow(), line.text(), noFlush, noNewline);

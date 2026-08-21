@@ -1227,7 +1227,34 @@ final class BuiltinCatalogTest {
                   spec,
                   List.of(new ObjectValue(99), string("offline")),
                   transaction,
-                  99)));
+                  1)));
+    }
+  }
+
+  @Test
+  void notifyPreservesOrdinaryCurrentPlayerOutputAfterConnectionCloses() {
+    ConnectionRegistry connections = new ConnectionRegistry();
+    BuiltinCatalog catalog =
+        new BuiltinCatalog(BuiltinHosts.builder().connections(() -> connections).build());
+    BuiltinSpec spec = catalog.spec("notify").orElseThrow();
+
+    try (WorldTxn transaction = world().begin()) {
+      connections.openConnection(-2);
+      connections.switchConnectionPlayer(-2, 2);
+      connections.closeConnection(-2);
+      assertTrue(connections.connectionId(2).isEmpty());
+
+      BuiltinResult.Output output =
+          assertInstanceOf(
+              BuiltinResult.Output.class,
+              invoke(
+                  catalog,
+                  spec,
+                  List.of(new ObjectValue(2), string("completed")),
+                  transaction,
+                  2));
+
+      assertEquals("completed", output.line());
     }
   }
 
