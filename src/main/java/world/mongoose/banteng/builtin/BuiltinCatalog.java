@@ -1056,6 +1056,15 @@ public final class BuiltinCatalog {
             call -> ancestors(call.arguments(), call.world())));
     entries.add(
         new BuiltinSpec(
+            "isa",
+            List.of(new CallShape(List.of(ANY, ANY), List.of(INTEGER), Optional.empty())),
+            BuiltinPermissionRule.ANY,
+            BuiltinCostRule.fixed(0),
+            EffectClass.TRANSACTION_READ,
+            BuiltinOwner.WORLD,
+            call -> isa(call.arguments(), call.world())));
+    entries.add(
+        new BuiltinSpec(
             "children",
             List.of(new CallShape(List.of(ANY), List.of(), Optional.empty())),
             BuiltinPermissionRule.ANY,
@@ -4821,6 +4830,58 @@ public final class BuiltinCatalog {
       return BuiltinResult.value(new ListValue(result));
     }
     return BuiltinResult.error(ErrorValue.E_TYPE);
+  }
+
+  private static BuiltinResult isa(List<MooValue> arguments, WorldTxn world) {
+    MooValue subject = arguments.get(0);
+    if (subject instanceof WaifValue waif) {
+      subject = waif.classObject();
+    }
+    if (!(subject instanceof ObjectValue || subject instanceof AnonymousObjectValue)) {
+      return BuiltinResult.error(ErrorValue.E_TYPE);
+    }
+    MooValue requested = arguments.get(1);
+    List<MooValue> candidates;
+    if (requested instanceof ObjectValue || requested instanceof AnonymousObjectValue) {
+      candidates = List.of(requested);
+    } else if (requested instanceof ListValue list) {
+      if (list.elements().stream().anyMatch(candidate -> !(candidate instanceof ObjectValue))) {
+        return BuiltinResult.error(ErrorValue.E_TYPE);
+      }
+      candidates = list.elements();
+    } else {
+      return BuiltinResult.error(ErrorValue.E_TYPE);
+    }
+    MooValue matched = null;
+    for (MooValue candidate : candidates) {
+      if (isA(subject, candidate, world)) {
+        matched = candidate;
+        break;
+      }
+    }
+    boolean returnParent = arguments.size() == 3 && arguments.get(2).isTruthy();
+    return BuiltinResult.value(
+        returnParent
+            ? matched == null ? new ObjectValue(-1) : matched
+            : new IntegerValue(matched == null ? 0 : 1));
+  }
+
+  private static boolean isA(MooValue subject, MooValue candidate, WorldTxn world) {
+    if (subject instanceof ObjectValue object) {
+      return candidate instanceof ObjectValue parent
+          && world.ancestry(object.value()).contains(parent.value());
+    }
+    AnonymousObjectValue anonymous = (AnonymousObjectValue) subject;
+    WorldAnonymousObject target = world.anonymousObject(anonymous).orElse(null);
+    if (target == null) {
+      return false;
+    }
+    if (candidate instanceof AnonymousObjectValue parent) {
+      return anonymous == parent;
+    }
+    long parentId = ((ObjectValue) candidate).value();
+    return target.parents().stream()
+        .anyMatch(parent -> world.ancestry(parent).contains(parentId));
   }
 
   private static BuiltinResult children(List<MooValue> arguments, WorldTxn world) {

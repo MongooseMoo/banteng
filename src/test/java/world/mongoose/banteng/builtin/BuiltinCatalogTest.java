@@ -140,8 +140,9 @@ final class BuiltinCatalogTest {
           "function_info",
           "generate_json",
           "gc_stats",
-          "index",
           "idle_seconds",
+          "index",
+          "isa",
           "is_player",
           "is_clear_property",
           "length",
@@ -3298,6 +3299,134 @@ final class BuiltinCatalogTest {
                   List.of(
                       new ObjectValue(4),
                       new ListValue(List.of(new ObjectValue(2), new ObjectValue(2)))),
+                  transaction,
+                  1)
+              ));
+    }
+  }
+
+  @Test
+  void isaPreservesToastObjectLikeListOrderingAndReturnParentModes() {
+    BuiltinCatalog catalog = new BuiltinCatalog(BuiltinHosts.builder().build());
+    BuiltinSpec spec = catalog.spec("isa").orElseThrow();
+    WorldObject first =
+        new WorldObject(
+            1, "first", 4, 1, -1, List.of(), List.of(), List.of(3L), List.of(), List.of());
+    WorldObject second =
+        new WorldObject(
+            2, "second", 0, 1, -1, List.of(), List.of(), List.of(3L), List.of(), List.of());
+    WorldObject child =
+        new WorldObject(
+            3,
+            "child",
+            0,
+            1,
+            -1,
+            List.of(1L, 2L),
+            List.of(),
+            List.of(),
+            List.of(),
+            List.of());
+
+    assertEquals(
+        List.of(
+            new CallShape(
+                List.of(Set.of(ArgType.ANY), Set.of(ArgType.ANY)),
+                List.of(Set.of(ArgType.INTEGER)),
+                Optional.empty())),
+        spec.callShapes());
+    assertSame(BuiltinPermissionRule.ANY, spec.permission());
+    assertEquals(EffectClass.TRANSACTION_READ, spec.effect());
+    assertEquals(BuiltinOwner.WORLD, spec.owner());
+    try (WorldTxn transaction = new WorldTxn(List.of(), List.of(first, second, child)).begin()) {
+      assertEquals(
+          Optional.of(new IntegerValue(1)),
+          value(invoke(
+                  catalog,
+                  spec,
+                  List.of(new ObjectValue(3), new ObjectValue(3)),
+                  transaction,
+                  1)
+              ));
+      assertEquals(
+          Optional.of(new IntegerValue(1)),
+          value(invoke(
+                  catalog,
+                  spec,
+                  List.of(new ObjectValue(3), new ObjectValue(1)),
+                  transaction,
+                  1)
+              ));
+      ListValue candidates =
+          new ListValue(List.of(new ObjectValue(2), new ObjectValue(1)));
+      assertEquals(
+          Optional.of(new ObjectValue(2)),
+          value(invoke(
+                  catalog,
+                  spec,
+                  List.of(new ObjectValue(3), candidates, new IntegerValue(1)),
+                  transaction,
+                  1)
+              ));
+      assertEquals(
+          Optional.of(new IntegerValue(0)),
+          value(invoke(
+                  catalog,
+                  spec,
+                  List.of(new ObjectValue(3), new ObjectValue(99)),
+                  transaction,
+                  1)
+              ));
+      assertEquals(
+          Optional.of(new ObjectValue(-1)),
+          value(invoke(
+                  catalog,
+                  spec,
+                  List.of(new ObjectValue(99), new ObjectValue(1), new IntegerValue(1)),
+                  transaction,
+                  1)
+              ));
+      WaifValue waif = new WaifValue(new ObjectValue(3), new ObjectValue(1));
+      assertEquals(
+          Optional.of(new IntegerValue(1)),
+          value(invoke(catalog, spec, List.of(waif, new ObjectValue(1)), transaction, 1)));
+      AnonymousObjectValue anonymous = transaction.createAnonymousObject(List.of(1L), 1);
+      assertEquals(
+          Optional.of(new IntegerValue(1)),
+          value(invoke(catalog, spec, List.of(anonymous, new ObjectValue(1)), transaction, 1)));
+      assertEquals(
+          Optional.of(anonymous),
+          value(invoke(
+                  catalog,
+                  spec,
+                  List.of(anonymous, anonymous, new IntegerValue(1)),
+                  transaction,
+                  1)
+              ));
+      assertEquals(
+          Optional.of(ErrorValue.E_TYPE),
+          error(invoke(
+                  catalog,
+                  spec,
+                  List.of(new IntegerValue(3), new ObjectValue(1)),
+                  transaction,
+                  1)
+              ));
+      assertEquals(
+          Optional.of(ErrorValue.E_TYPE),
+          error(invoke(
+                  catalog,
+                  spec,
+                  List.of(new ObjectValue(3), new ListValue(List.of(new IntegerValue(1)))),
+                  transaction,
+                  1)
+              ));
+      assertEquals(
+          Optional.of(ErrorValue.E_TYPE),
+          error(invoke(
+                  catalog,
+                  spec,
+                  List.of(new ObjectValue(3), new ObjectValue(1), string("yes")),
                   transaction,
                   1)
               ));
