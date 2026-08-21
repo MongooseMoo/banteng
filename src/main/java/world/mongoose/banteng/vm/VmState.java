@@ -800,9 +800,6 @@ public final class VmState {
           Math.addExact(
               queuedBytes,
               request.line().length() + (request.noNewline() ? 0L : 2L));
-      if (!request.noFlush()) {
-        queuedBytes = 0L;
-      }
     }
     return queuedBytes;
   }
