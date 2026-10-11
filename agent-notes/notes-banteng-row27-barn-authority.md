@@ -1,0 +1,21 @@
+# Row 27 Barn authority subtask
+
+- Task: read-only trace for `audit_telnet_subnegotiation_delivered_across_reads`.
+- Scope: exact durable conformance row, normative Barn spec, current Barn TCP/Telnet/OOB implementation.
+- Observed: durable row is `moo-conformance-tests/src/moo_conformance/_tests/audit/gap_followups_toast_oracle.yaml:412-488`. It installs `#0:do_out_of_band_command`, opens an unlogged connection, sends four fragments (`FF`; `FA 1F 00 50 00 18`; `FF`; `F0`) with no waits between sends, waits 500 ms, and expects both `args` and `argstr` to contain the complete escaped command `~FF~FA~1F~00P~00~18~FF~F0`.
+- Observed: normative Barn spec has only the broad TCP/TLS `Telnet-style line input` statement at `spec/server.md:189-204`; no spec occurrence defines subnegotiation framing, binary escaping, or Telnet OOB hook semantics.
+- Observed: `server/transport.go:24-33,51-70` stores `tState`, `tCommand`, and line state on one `TCPTransport`. `ReadInput` at 85-188 persists that state across blocking `ReadByte` calls, accumulates IAC SB through IAC SE, and emits only at SE.
+- Observed: accepted TCP/TLS sockets get one `TCPTransport` and one connection handler at `server/connection_manager.go:274-329`.
+- Observed: `server/input_processor.go:65-160` reads `InputTransport.ReadInput`, retains the negative pre-login player, queues `IsOutOfBand`, and waits for processing. `processInput` at 196-230 routes transport OOB before held input/read/login/normal command. `processOutOfBand` at 232-257 invokes the accepting listener object's `do_out_of_band_command` with tokenized args and raw argstr.
+- Observed: `scheduler/call_verb.go:25-134` makes this a server-initiated synchronous task with `this` set to the listener object, `player` and `caller` both the passed negative pre-login player, `args` as the list, and exact `argstr`.
+- Tried: exact `rg` and numbered source reads over the conformance row, Barn spec, transport, connection manager, input processor, and scheduler hook setup.
+- Worked: the end-to-end source path is established; the prior Barn convergence plan also records the exact row passing Toast and Barn and identifies conformance commit `7190a7e`, but it is not normative authority.
+- Did not work: one broad `rg` encountered a locked unrelated `pyghidra_mcp_projects` lock file and produced excessive output; subsequent searches excluded irrelevant paths and used exact files.
+- Current blocker: none.
+- Observed: `command/command.go:114-165` tokenizes the raw byte string by whitespace; the NAWS command contains no whitespace, so `args` is one raw string. `types/str.go:21-24,64-69` stores/materializes the bytes unchanged. `types/str.go:97-125` is where MOO literal rendering encodes non-printable bytes as uppercase `~XX` while printable `P` remains `P`.
+- Observed: `connection_manager.go:63-75,390-402` starts connection IDs at 2, registers the unlogged connection under its negative ID, and the input loop independently sets the pre-login player to `-conn.ID`. `getConnectionByConnID` at 420-424 recovers the accepting connection for listener dispatch.
+- Observed: the four conformance `send_bytes` actions are distinct writes, but there are no waits between them. They establish intended fragmentation at the harness API level, not guaranteed distinct TCP packets or guaranteed separate `ReadInput()` invocations. Barn correctness does not depend on packet/read boundaries: one `ReadInput` loops on blocking `bufio.Reader.ReadByte`, and `tState`/`tCommand` live on `TCPTransport` if a call ever ends between protocol units.
+- Observed: the 500 ms wait occurs only after complete `IAC SE` and before the wizard reads the recorder property; it affects observation scheduling, not parser semantics. Before SE, Barn emits no OOB event. At SE it returns exactly once with the complete accumulated bytes.
+- Observed: a Barn unit test at `server/transport_test.go:185-199` covers contiguous NAWS stripping through the legacy `ReadLine` wrapper, but does not itself prove fragmented writes or OOB delivery. The durable managed conformance row is the cross-write end-to-end evidence.
+- Current blocker: none.
+- Next step: send the exact authority report to the parent agent. No further inspection is needed.

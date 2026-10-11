@@ -1,0 +1,11 @@
+# Issue 25 v4 authority research checkpoint
+
+- Scope: read-only pinned-authority research; no build, test, commit, push, publication, or implementation.
+- Authority: `profiles/toast/stock-wsl-testdb.json` pins `/root/src/toaststunt` at `aecc51e9449c6e7c95272f0f044b5ba38948459e`; current WSL HEAD matches.
+- Fixture provenance: pinned Toast contains one committed v4 canned fixture, `test/tests/Suspended.db`; the Anon fixtures are v17 and Broken fixtures are v5. `Suspended.db` is not currently named by `test/tests/test_canned_dbs.rb`.
+- Fixture checkpoint: four live objects, players `[3]`, three compiled programs, no clocks/queued tasks, one suspended task, and one active connection `(player 3, listener 0)`.
+- Suspended task: id `1900608168`, scheduled epoch `2147483647`, integer resume value `0`, pre-v6 synthesized empty-map task local, root activation vector `-1`, function id `0`, max stack depth `50`, and two v4 activations.
+- Activation checkpoint: first frame counters `(pc 10, builtin 0, error 8)`; second `(pc 3, builtin 2, error 1)` resumes builtin `eval` with no extra hook payload. Both have empty operand stacks, TYPE_NONE temporaries, and version-default thread mode `true`.
+- Tail rules: v4 reads tasks after objects/programs. Suspended-task header may be absent only at EOF after queued tasks. Active-connections header may be absent at EOF; when present it accepts player-only rows (listener defaults to #0) or `with listeners` player/listener pairs. Pinned `read_db_file()` does not enforce EOF after connections.
+- Blocker/gap: Banteng v4 returns only `WorldTxn`, rejects all nonzero task tails and any connection tail, and the app synthesizes empty checkpoint task/connection lists. The current v17 `SuspendedActivation` stores a builtin counter but not the builtin name or hook state, so it cannot represent the fixture's resumable `eval` continuation. Its v17-only wire parser also requires fields absent from v4 and restricts debug to 0/1 although the fixture stores legacy debug bit `8`.
+- Next action: finish exact object/property/value grammar, full fixture-to-runtime checkpoint mapping, EOF analysis, and identify the version-neutral runtime DTO fields required by issue #19.

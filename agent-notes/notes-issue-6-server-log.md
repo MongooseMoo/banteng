@@ -1,0 +1,23 @@
+# Issue #6 server-log delivery checkpoint
+
+- Worktree: `C:\Users\Q\code\banteng-agent-issue-6`
+- Branch: `agent/issue-6-server-log`
+- Base: `4880f025b2e396548bce7cbeb93a670a46b4f2e6` (`origin/master` when created)
+- Live issue requires timestamped `ServerLog`, stderr default, append-only `--log-file`, `--log-level` filtering, and routing of V5 validation, runtime checkpoint/panic/uncaught diagnostics, `server_log()`, and cache-stat logging without changing payloads.
+- Tests-first commit: `312a7ccad01cf5125fccd91bfe3978d3b426e270 test: specify shared server logging`.
+- Tests were intentionally not run locally, per task instruction. The red boundary was absent `moo.logging.ServerLog`, absent `--log-file`, logger ownership missing from four diagnostic owners, and raw `System.err` outside the logger.
+- Production commit: `b07b4b1a81c7cc519daca34dcea8b924bc8e0d44 feat: route server diagnostics through ServerLog`.
+- PR: `#43` (`https://github.com/MongooseMoo/banteng/pull/43`), open and non-draft. Exact title/body matched the approved packet.
+- Current pushed head: `0602bee20e5bd2788355b2b14760ef3a703a4754`.
+- CI fix commits so far:
+  - `b7d7c93f37c5a22a4c2a9a6b40c15b8820148c19`: restored the four-argument `MooServer` delegation after both test and conformance jobs reported the same constructor compile error.
+  - `e771a707172ee01ad359e2f624ad5101d6ae8f08`: removed the unused forwarding field from `MooServer` and checked its public logger constructor instead.
+  - `ab3cf0abc54b251d562d7cdf423989b9b4ccaad2`: added `moo.logging` null marking and explicit system-zone clock construction.
+  - `0602bee20e5bd2788355b2b14760ef3a703a4754`: changed the logger expectation to the text block required by Error Prone.
+- Exact-head workflow run `32178592867`, attempt 2, completed `success`. All five jobs reported `success`: Static analysis & tests, Workflow static analysis, CodeQL, Dependency review, and MOO conformance suite.
+- One flaky retry was used. Attempt 1 passed clean check, fuzzing, and all other jobs but timed out in unrelated `ConcurrentSchedulerStressTest.java:67`; the watcher-authorized rerun passed.
+- Current observation: `rg -n 'System\\.err' src/main/java` finds only the new logger implementation.
+- Blocker: none. Awaiting watcher confirmation of the final PR snapshot/review state; no merge is authorized.
+- Proposed title: `Route server diagnostics through ServerLog`
+- Proposed body: `Routes server diagnostics through a timestamped, level-filtered log with stderr and append-only file destinations.\n\nCI will verify.\n\nCloses #6`
+- Next action: consume the live watcher snapshot, report exact-head CI/review/mergeability, and leave PR #43 open without merging.

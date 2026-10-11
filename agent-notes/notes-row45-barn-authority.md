@@ -1,0 +1,40 @@
+# Row 45 Barn authority notes
+
+## Scope
+
+- Read-only target: `task_scheduling_toast_oracle::audit_server_options_max_stack_depth_runtime`.
+- Trace the normative Barn specification and current Barn implementation from the entry point through the max-stack semantic owner.
+- Check option cache, type, default, minimum, sampling, and recursion-error behavior.
+- Do not edit source, stage, commit, or run Toast.
+
+## Current findings and observations
+
+- Durable row: `C:/Users/Q/code/moo-conformance-tests/src/moo_conformance/_tests/audit/task_scheduling_toast_oracle.yaml:192`, `audit_server_options_max_stack_depth_runtime`. It creates a recursive `audit_depth` verb, adds or assigns `$server_options.max_stack_depth = 8`, calls `load_server_options()`, then invokes the verb in a distinct following conformance step. Expected result is `E_MAXREC` (the remainder of the row still needs exact line capture).
+- Durable checklist: `C:/Users/Q/code/moo-conformance-tests/reports/barn-toast-deviation-conformance-checklist.md`, TSK-007, marks `$server_options.max_stack_depth` runtime behavior as established.
+- Barn normative spec: `C:/Users/Q/code/barn/spec/server.md:141-153` and duplicate `spec/objects.md:569-587` define `#0.server_options` / `$server_options`, `max_stack_depth` type INT, default 50, description "Maximum call stack depth". `spec/errors.md:289-307` defines `E_MAXREC` for call stack limit exceeded, including direct/mutual recursion, with a server-configurable typical limit.
+- Barn cache owner: `C:/Users/Q/code/barn/builtins/limits.go`. `serverOptionsCache.maxStackDepth` defaults to 50. `LoadServerOptionsFromStore` resets every cache load to defaults, resolves `#0.server_options` as an object and a defined/inherited `max_stack_depth` property, and accepts it only when TYPE_INT and value > 0. Invalid/missing values leave the default 50. `GetMaxStackDepth` exposes the cached value.
+- Barn reload entry: `C:/Users/Q/code/barn/builtins/system.go`, `builtinLoadServerOptions`, requires zero args and wizard permissions, invokes `LoadServerOptionsFromStore`, refreshes protected builtins, and returns the number of loaded options.
+- Barn task sampling: `C:/Users/Q/code/barn/scheduler/task_factory.go`, `configureVMStackLimit`, assigns `machine.MaxStackDepth = builtins.GetMaxStackDepth()`. Exact call sites still need inspection. This indicates sampling is onto each VM/task rather than dynamic per recursive call.
+- Barn semantic enforcement owner: `C:/Users/Q/code/barn/vm/vm.go`, `VM.MaxStackDepth`, default 50; `checkFrameLimit` returns `vm.MooError{Code: types.E_MAXREC}` when `len(vm.Frames) >= vm.MaxStackDepth` before another frame is pushed. `vm/op_verb.go` invokes it before recursive verb-call and `pass()` frame pushes.
+- Current Banteng restart notes report the row expected `E_MAXREC` but Banteng returned `E_TYPE`; that observation is not being independently rerun in this read-only assignment.
+- Exact durable row expectation is `error: E_MAXREC` at YAML lines 208-211. Cleanup recycles the test object, deletes `max_stack_depth`, and calls `load_server_options()` again at lines 212-217.
+- Barn conformance entry path for this row is `C:/Users/Q/code/barn/scheduler/eval.go`, `Scheduler.EvalCommandOutput`: it creates a real foreground task, constructs a `vm.VM`, and calls `configureVMStackLimit` before `PrepareVerbFrame` / `ExecuteLoop`. Because setup and recursion are separate conformance steps, the second eval samples the cache after the setup step's `load_server_options()`.
+- Normal Barn tasks sample in `scheduler/task_runtime.go:145-149` when their VM is first constructed; already-suspended tasks retain the same VM and `MaxStackDepth` across in-process `Resume()` (`task_runtime.go:96-115`, `vm/vm.go:219-224`). Forked children sample when their child VM is constructed in `scheduler/task_factory.go:219-241`.
+- Barn also samples restored queued tasks afresh in `scheduler/task_load.go:73-81`; no `MaxStackDepth` field exists in task/database serialization. This diverges from the Toast/LambdaMOO durable rule that a task's maximum is fixed when originally created and remains fixed even after save/restore.
+- Barn recursion error path: `vm/op_verb.go:266-269` calls `checkFrameLimit` before pushing the next verb frame. `vm/vm.go:96-100` returns typed `MooError{E_MAXREC}` when current frame count is already at the sampled limit. `vm.executeLoop` propagates this as an uncaught `FlowException/E_MAXREC` for a debug verb, or pushes `E_MAXREC` as a value for a non-debug verb. The audit creates the recursive verb with `"xd"`, so its limit error propagates as the expected exception.
+- No targeted Barn unit test was found for `LoadServerOptionsFromStore` / `GetMaxStackDepth` / `VM.MaxStackDepth`; the implementation trace, not a focused unit test, is the available Barn evidence here.
+- Read-only Toast source evidence (no Toast execution): `/root/src/toaststunt/src/include/options.h:102-125` says only a value larger than `DEFAULT_MAX_STACK_DEPTH` overrides the default and defines the default as 50. `/root/src/toaststunt/src/execute.cc:3210-3218`, `current_max_stack_size`, reads `server_int_option("max_stack_depth", 50)` and clamps anything below 50 back to 50. The LambdaMOO change log explicitly says the limit is sampled at task creation, is unchanged for suspended/restored tasks, and may only increase the compiled default.
+- Therefore the durable row is weaker than its description: assigning 8 and observing eventual `E_MAXREC` proves recursive calls raise `E_MAXREC`, but cannot prove that runtime value 8 was honored because Toast clamps 8 to 50. Barn accepts 8, so both implementations satisfy this row while disagreeing about the effective limit and minimum.
+- Barn primes its global options cache during `Server.Start` before loading queued tasks (`server/server.go:164-171`) and reloads it only through `load_server_options()`. Toast's max-stack path does not use `_server_int_option_cache`; `current_max_stack_size()` directly reads the integer property whenever a new task begins. Thus Barn requires an explicit reload for later property changes while Toast does not. The current audit calls reload, masking this divergence.
+- Type/default agreement: Toast `server_int_option` returns the property only for TYPE_INT and otherwise returns default 50; Barn likewise accepts only TYPE_INT and otherwise retains/reset-to-default 50. Both use 50 for absent/wrong-type/nonpositive values, but only Toast clamps positive 1..49 to 50.
+- Barn's relevant source/spec files have no local diff on current `master` at `2e57e90`; the Barn worktree is broadly dirty with unrelated tracked/untracked artifacts, which were not modified or used as substitutes.
+
+## Authority judgment
+
+- For the literal durable row's observable (`recursive debug verb eventually raises E_MAXREC after the setup calls load_server_options()`), current Barn is authoritative and agrees with the likely/actual Toast path.
+- Current Barn is **not** authoritative for the complete Toast max-stack contract. Its positive-value minimum (accepts 1..49), reload/cache requirement, and post-restart queued-task resampling diverge from Toast. The Barn spec is also incomplete and structurally misleading: it calls `#0.server_options` a MAP while Barn code and the durable row treat `$server_options` as an object with properties; it omits the minimum/floor and lifetime sampling rules.
+- Consequently Banteng should implement enough to make this row return `E_MAXREC`, but should not infer from this row that a value of 8 must become the effective stack limit. Full Toast convergence requires a floor of 50 and per-original-task persistence of the sampled maximum; whether Banteng deliberately follows Barn's explicit-reload cache is a separate authority decision because Toast itself reads this option directly at new-task start.
+
+## Current blocker
+
+- None. Read-only Barn authority trace is complete. No Toast executable was run and no source/spec/test file was edited, staged, or committed.

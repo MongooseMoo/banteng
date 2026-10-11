@@ -1,0 +1,15 @@
+# PR #56 read-only adversarial audit checkpoint
+
+- Task: audit live PR #56 / issue #13 at replacement exact head `b09adf34e0220742af3e8d9c23c8817b1ef495f7`; no edits, builds, tests, reruns, push, or merge.
+- Live master and PR base: `b27ee872add4f551bc27f9e71dcc3fc850827b8f`. `git merge-base --is-ancestor` exited 0; branch is nine commits ahead and zero behind.
+- Worktree `C:\Users\Q\code\banteng-agent-issue-13` is clean and matches local/remote head `b09adf34...`.
+- PR body contains literal `Closes #13`; PR is open, non-draft, mergeable, and currently UNSTABLE while replacement-head CI runs.
+- Changed scope is 13 files: custom recipe/test/YAML; six package-private opcode-family owners; MooVm; three focused tests. Diff check was clean at prior exact head and the replacement adds only one cast in ArithmeticOps.
+- Architecture observed: MooVm reads current `instruction.opcode()` once at line 147 and switches once at line 155; helper handlers accept their own narrowed `Operation` enums and use exhaustive no-default switches. PropertyOps reads future instruction opcodes for straight-line liveness, not redispatch of the current instruction.
+- Error routing/traceback implementation is wholly in ErrorOps; MooVm has call sites only.
+- Float ordering returns UNORDERED for either NaN, mapping every relational comparison false. FloatValue equality uses primitive `==`, so NaN equality is false and inequality true; focused test covers both operand orders and NaN/NaN for all six operators.
+- Recipe is a ScanningRecipe: it captures AST bodies from the attributed MooVm input, exact named method sets per family, four raiseError overloads, the constructor ValueSemantics parameter, and nested CollectionElement; generates six sibling files; retargets unqualified intra/source calls; removes captured members. `ready()` fails closed on duplicate source, filename collisions, missing/extra closure, missing static modifier/value semantics/loop dependency.
+- Test proof uses a synthetic but body-bearing complete MooVm input and asserts generated files, removal, selected caller retargets, ValueSemantics propagation, nested dependency, missing dependency/extra overload no-op, and YAML activation. Collision test is not isolated from an already-incomplete candidate, and there is no explicit second-run/idempotence assertion; assess whether that is a merge blocker under the requested complete fail-closed contract.
+- TDD history: initial tests commit precedes initial production; additional exhaustive/NaN tests precede their production fixes; closed-recipe test precedes closure production. Two later CI-fix commits mix narrow test/production repair, then one cast-only repair.
+- Old head `2ea117a` CI failed both static and conformance build at the same LongDoubleConversion warning. Replacement `b09adf34` adds explicit `(double)` cast; exact-head CI was still in progress at last refresh, so no merge conclusion yet.
+- Next: finish recipe edge-case/source-closure audit, inspect reviews/comments and exact replacement-head terminal CI, refresh clean status/diff/ancestry, then issue strict MERGE or NO-MERGE with raw evidence.
