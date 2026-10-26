@@ -3,6 +3,7 @@ package world.mongoose.banteng.builtin;
 import java.util.List;
 import java.util.Objects;
 import java.util.function.Supplier;
+import world.mongoose.banteng.host.Crypt;
 import world.mongoose.banteng.builtin.BuiltinCatalog.ConnectionOption;
 import world.mongoose.banteng.logging.ServerLog;
 import world.mongoose.banteng.value.MooValue;
@@ -31,7 +32,8 @@ public record BuiltinHosts(
     BuiltinHandler taskStack,
     BuiltinHandler resumeTask,
     ServerLog serverLog,
-    Supplier<ConnectionRegistryAccess> connections) {
+    Supplier<ConnectionRegistryAccess> connections,
+    Crypt crypt) {
   /** Rejects incomplete host composition. */
   public BuiltinHosts {
     Objects.requireNonNull(valueSemantics, "valueSemantics");
@@ -53,6 +55,7 @@ public record BuiltinHosts(
     Objects.requireNonNull(resumeTask, "resumeTask");
     Objects.requireNonNull(serverLog, "serverLog");
     Objects.requireNonNull(connections, "connections");
+    Objects.requireNonNull(crypt, "crypt");
   }
 
   /** Starts one host composition with behavior-preserving standalone defaults. */
@@ -91,6 +94,7 @@ public record BuiltinHosts(
     private ServerLog serverLog = ServerLog.stderr(System.Logger.Level.INFO);
     private Supplier<ConnectionRegistryAccess> connections =
         BuiltinCatalog.standaloneConnections();
+    private Crypt crypt = Crypt.system();
 
     private Builder() {}
 
@@ -189,6 +193,11 @@ public record BuiltinHosts(
       return this;
     }
 
+    public Builder crypt(Crypt value) {
+      crypt = value;
+      return this;
+    }
+
     public BuiltinHosts build() {
       return new BuiltinHosts(
           valueSemantics,
@@ -209,7 +218,8 @@ public record BuiltinHosts(
           taskStack,
           resumeTask,
           serverLog,
-          connections);
+          connections,
+          crypt);
     }
 
     private static BuiltinResult invalidArgument(BuiltinCall call) {

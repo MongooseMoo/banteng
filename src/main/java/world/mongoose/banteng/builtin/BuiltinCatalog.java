@@ -2,13 +2,8 @@ package world.mongoose.banteng.builtin;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
-import java.lang.foreign.Arena;
-import java.lang.foreign.MemorySegment;
-import java.lang.foreign.ValueLayout;
 import java.math.BigInteger;
 import java.math.RoundingMode;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.MessageDigest;
 import java.security.SecureRandom;
@@ -28,17 +23,16 @@ import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.Random;
 import java.util.Set;
-import java.util.StringTokenizer;
 import java.util.concurrent.CancellationException;
 import java.util.function.DoubleUnaryOperator;
 import java.util.function.Function;
 import java.util.function.LongBinaryOperator;
 import java.util.function.Supplier;
 import world.mongoose.banteng.bytecode.MooCompiler;
-import world.mongoose.banteng.host.NativeCalls;
+import world.mongoose.banteng.host.Libc;
 import world.mongoose.banteng.host.Aspell;
 import world.mongoose.banteng.host.NativeCurl;
-import world.mongoose.banteng.host.NativeCalls.NativeCallException;
+import world.mongoose.banteng.host.NativeCallException;
 import world.mongoose.banteng.logging.ServerLog;
 import world.mongoose.banteng.syntax.Ast;
 import world.mongoose.banteng.syntax.MooParser;
@@ -2724,7 +2718,7 @@ public final class BuiltinCatalog {
             versionPair("release", new IntegerValue(0)),
             versionPair("ext", StringValue.of("-SNAPSHOT")),
             versionPair("string", StringValue.of(SERVER_VERSION)),
-            versionPair("os", StringValue.of("Linux")),
+            versionPair("os", StringValue.of(System.getProperty("os.name"))),
             versionPair("features", new ListValue(List.of())),
             versionPair(
                 "options",
@@ -2883,62 +2877,26 @@ public final class BuiltinCatalog {
   }
 
   private static BuiltinResult memoryUsage() {
-    final String statm;
+    final double[] fields;
     try {
-      statm = Files.readString(Path.of("/proc/self/statm"), StandardCharsets.US_ASCII);
+      fields = Libc.memoryUsage();
     } catch (IOException exception) {
       return BuiltinResult.error(ErrorValue.E_FILE);
-    }
-    StringTokenizer fields = new StringTokenizer(statm);
-    if (fields.countTokens() != 7) {
+    } catch (IllegalArgumentException exception) {
       return BuiltinResult.error(ErrorValue.E_NACC);
     }
     List<MooValue> result = new ArrayList<>(5);
-    for (int index = 0; index < 7; index++) {
-      String field = fields.nextToken();
-      if (index == 4 || index == 6) {
-        continue;
-      }
-      try {
-        result.add(new FloatValue(Double.parseDouble(field)));
-      } catch (NumberFormatException exception) {
-        return BuiltinResult.error(ErrorValue.E_NACC);
-      }
-    }
+    for (double field : fields) result.add(new FloatValue(field));
     return BuiltinResult.value(new ListValue(result));
   }
 
   private static BuiltinResult usage() {
     List<MooValue> loads = new ArrayList<>(3);
-    try {
-      StringTokenizer fields =
-          new StringTokenizer(
-              Files.readString(Path.of("/proc/loadavg"), StandardCharsets.US_ASCII));
-      for (int index = 0; index < 3; index++) {
-        loads.add(new IntegerValue((long) (Double.parseDouble(fields.nextToken()) * 65_536.0)));
-      }
-    } catch (IOException | NumberFormatException | java.util.NoSuchElementException exception) {
-      loads.clear();
-      loads.addAll(List.of(new IntegerValue(0), new IntegerValue(0), new IntegerValue(0)));
-    }
+    for (long load : Libc.loadAverages()) loads.add(new IntegerValue(load));
 
     long[] resource = new long[11];
-    try (Arena arena = Arena.ofConfined()) {
-      MemorySegment value = arena.allocate(144, 8);
-      int result = NativeCalls.getrusage(0, value);
-      if (result == 0) {
-        resource[0] = value.get(ValueLayout.JAVA_LONG, 0);
-        resource[1] = value.get(ValueLayout.JAVA_LONG, 8);
-        resource[2] = value.get(ValueLayout.JAVA_LONG, 16);
-        resource[3] = value.get(ValueLayout.JAVA_LONG, 24);
-        resource[4] = value.get(ValueLayout.JAVA_LONG, 40);
-        resource[5] = value.get(ValueLayout.JAVA_LONG, 48);
-        resource[6] = value.get(ValueLayout.JAVA_LONG, 64);
-        resource[7] = value.get(ValueLayout.JAVA_LONG, 72);
-        resource[8] = value.get(ValueLayout.JAVA_LONG, 104);
-        resource[9] = value.get(ValueLayout.JAVA_LONG, 112);
-        resource[10] = value.get(ValueLayout.JAVA_LONG, 96);
-      }
+    try {
+      resource = Libc.resourceUsage();
     } catch (NativeCallException failure) {
       Arrays.fill(resource, 0);
     }
@@ -3524,26 +3482,12 @@ public final class BuiltinCatalog {
         arguments.isEmpty()
             ? Instant.now().getEpochSecond()
             : Math.min(((IntegerValue) arguments.getFirst()).value(), CTIME_MAX_SECONDS);
-    try (Arena arena = Arena.ofConfined()) {
-      MemorySegment time = arena.allocate(ValueLayout.JAVA_LONG);
-      time.set(ValueLayout.JAVA_LONG, 0, epochSecond);
-      MemorySegment localTime = arena.allocate(64, Long.BYTES);
-      MemorySegment converted = NativeCalls.localtimeR(time, localTime);
-      if (converted.address() == 0) {
-        return BuiltinResult.error(ErrorValue.E_INVARG);
-      }
-      MemorySegment format = arena.allocate(32);
-      format.setString(0, "%a %b %d %H:%M:%S %Y %Z");
-      MemorySegment buffer = arena.allocate(128);
-      long length = NativeCalls.strftime(buffer, 128L, format, localTime);
-      if (length == 0) {
-        return BuiltinResult.error(ErrorValue.E_INVARG);
-      }
-      String text = buffer.getString(0);
-      if (text.charAt(8) == '0') {
-        text = text.substring(0, 8) + ' ' + text.substring(9);
-      }
-      return BuiltinResult.value(StringValue.of(text));
+    try {
+      return Libc.ctime(epochSecond)
+          .map(text -> BuiltinResult.value(StringValue.of(text)))
+          .orElseGet(() -> BuiltinResult.error(ErrorValue.E_INVARG));
+    } catch (NativeCallException failure) {
+      return BuiltinResult.error(ErrorValue.E_INVARG);
     }
   }
 
@@ -3555,16 +3499,10 @@ public final class BuiltinCatalog {
               ? CLOCK_MONOTONIC_RAW
               : CLOCK_MONOTONIC;
     }
-    try (Arena arena = Arena.ofConfined()) {
-      MemorySegment timespec = arena.allocate(16, Long.BYTES);
-      int status = NativeCalls.clockGettime(clockId, timespec);
-      if (status != 0) {
-        return BuiltinResult.error(ErrorValue.E_FLOAT);
-      }
-      long seconds = timespec.get(ValueLayout.JAVA_LONG, 0);
-      long nanoseconds = timespec.get(ValueLayout.JAVA_LONG, Long.BYTES);
-      return BuiltinResult.value(
-          new FloatValue(seconds + nanoseconds / 1_000_000_000.0));
+    try {
+      return BuiltinResult.value(new FloatValue(Libc.clockTime(clockId)));
+    } catch (NativeCallException failure) {
+      return BuiltinResult.error(ErrorValue.E_FLOAT);
     }
   }
 
@@ -4453,7 +4391,7 @@ public final class BuiltinCatalog {
     return BuiltinResult.value(new IntegerValue(Integer.compare(left.length, right.length)));
   }
 
-  private static BuiltinResult crypt(List<MooValue> arguments, WorldTxn world, long programmer) {
+  private BuiltinResult crypt(List<MooValue> arguments, WorldTxn world, long programmer) {
     byte[] password = ((StringValue) arguments.getFirst()).bytes();
     String salt;
     if (arguments.size() == 1 || ((StringValue) arguments.get(1)).bytes().length < 2) {
@@ -4579,24 +4517,12 @@ public final class BuiltinCatalog {
     return salt.startsWith("$2a$") || salt.startsWith("$2x$") || salt.startsWith("$2y$");
   }
 
-  @SuppressWarnings("restricted")
-  private static String nativeCrypt(byte[] password, byte[] salt) {
-    try (Arena arena = Arena.ofConfined()) {
-      MemorySegment passwordString = nullTerminated(arena, password);
-      MemorySegment saltString = nullTerminated(arena, salt);
-      MemorySegment result = NativeCalls.crypt(passwordString, saltString);
-      if (result.equals(MemorySegment.NULL)) {
-        return "*0";
-      }
-      return result.reinterpret(128).getString(0, StringValue.charset());
+  private String nativeCrypt(byte[] password, byte[] salt) {
+    try {
+      return hosts.crypt().hash(password, salt);
+    } catch (NativeCallException failure) {
+      return "*0";
     }
-  }
-
-  private static MemorySegment nullTerminated(Arena arena, byte[] bytes) {
-    MemorySegment terminated = arena.allocate(Math.addExact(bytes.length, 1));
-    terminated.asSlice(0, bytes.length).copyFrom(MemorySegment.ofArray(bytes));
-    terminated.set(ValueLayout.JAVA_BYTE, bytes.length, (byte) 0);
-    return terminated;
   }
 
   private static BuiltinResult argon2(List<MooValue> arguments) {
