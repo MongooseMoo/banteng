@@ -160,7 +160,9 @@ public final class MooRuntime implements AutoCloseable {
             committedWorld, this, taskRegistry);
     checkpointedConnections = List.of();
     builtins = new BuiltinCatalog(builtinHosts(configuredSemantics, taskRegistry));
-    builtins.reloadProtectedFunctions(committedWorld);
+    try (WorldTxn initialOptions = committedWorld.begin()) {
+      builtins.reloadProtectedFunctions(initialOptions);
+    }
   }
 
   /** Creates the production runtime with its concrete listener and checkpoint owners. */
@@ -408,7 +410,9 @@ public final class MooRuntime implements AutoCloseable {
     builtins =
         new BuiltinCatalog(
             listenerControl, builtinHosts(configuredSemantics, taskRegistry));
-    builtins.reloadProtectedFunctions(committedWorld);
+    try (WorldTxn initialOptions = committedWorld.begin()) {
+      builtins.reloadProtectedFunctions(initialOptions);
+    }
     scheduler.restoreTasks(Objects.requireNonNull(restoredTasks, "restoredTasks"));
   }
 

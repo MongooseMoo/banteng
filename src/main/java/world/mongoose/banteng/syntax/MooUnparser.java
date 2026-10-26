@@ -207,143 +207,164 @@ public final class MooUnparser {
     private String expression(Ast.Expression expression, int minimumPrecedence) {
       int precedence = precedence(expression);
       String rendered;
-      if (expression instanceof Ast.Identifier identifier) {
-        rendered = canonicalVariableName(identifier.name());
-      } else if (expression instanceof Ast.IntegerLiteral integer) {
-        rendered = Long.toString(integer.value());
-      } else if (expression instanceof Ast.FloatLiteral floating) {
-        if (!Double.isFinite(floating.value())) {
-          throw new IllegalArgumentException("non-finite float literal");
+      switch (expression) {
+        case Ast.Identifier identifier -> {
+          rendered = canonicalVariableName(identifier.name());
         }
-        rendered = Double.toString(floating.value());
-        double magnitude = Math.abs(floating.value());
-        if (rendered.indexOf('E') >= 0 && magnitude >= 0.0001 && magnitude < 1.0e15) {
-          rendered = BigDecimal.valueOf(floating.value()).toPlainString();
-          if (rendered.indexOf('.') < 0) {
-            rendered += ".0";
+        case Ast.IntegerLiteral integer -> {
+          rendered = Long.toString(integer.value());
+        }
+        case Ast.FloatLiteral floating -> {
+          if (!Double.isFinite(floating.value())) {
+            throw new IllegalArgumentException("non-finite float literal");
           }
-        }
-      } else if (expression instanceof Ast.StringLiteral string) {
-        rendered = quote(string.value());
-      } else if (expression instanceof Ast.ObjectLiteral object) {
-        rendered = "#" + object.value();
-      } else if (expression instanceof Ast.ErrorLiteral error) {
-        rendered = error.name();
-      } else if (expression instanceof Ast.ListLiteral list) {
-        rendered = "{" + joinExpressions(list.elements()) + "}";
-      } else if (expression instanceof Ast.MapLiteral map) {
-        StringBuilder entries = new StringBuilder();
-        for (Ast.MapEntry entry : map.entries()) {
-          if (!entries.isEmpty()) {
-            entries.append(", ");
-          }
-          entries
-              .append(expression(entry.key(), ASSIGNMENT_PRECEDENCE))
-              .append(" -> ")
-              .append(expression(entry.value(), ASSIGNMENT_PRECEDENCE));
-        }
-        rendered = "[" + entries + "]";
-      } else if (expression instanceof Ast.Splice splice) {
-        rendered = "@" + expression(splice.value(), UNARY_PRECEDENCE);
-      } else if (expression instanceof Ast.ScatterElement element) {
-        rendered =
-            (element.rest() ? "@" : element.optional() ? "?" : "")
-                + canonicalVariableName(element.name())
-                + element
-                    .defaultValue()
-                    .map(value -> " = " + expression(value, ASSIGNMENT_PRECEDENCE))
-                    .orElse("");
-      } else if (expression instanceof Ast.Call call) {
-        rendered = call.name() + "(" + joinExpressions(call.arguments()) + ")";
-      } else if (expression instanceof Ast.VerbCall verbCall) {
-        Optional<String> name = staticName(verbCall.name());
-        Optional<String> systemName = systemName(verbCall.object(), verbCall.name());
-        rendered =
-            systemName.map(value -> "$" + value).orElseGet(
-                    () ->
-                        expression(verbCall.object(), POSTFIX_PRECEDENCE)
-                            + ":"
-                            + (name.isEmpty()
-                                ? "("
-                                    + expression(verbCall.name(), ASSIGNMENT_PRECEDENCE)
-                                    + ")"
-                                : name.orElseThrow()))
-                + "("
-                + joinExpressions(verbCall.arguments())
-                + ")";
-      } else if (expression instanceof Ast.Assignment assignment) {
-        rendered =
-            assignmentTarget(assignment.target())
-                + " = "
-                + expression(assignment.value(), ASSIGNMENT_PRECEDENCE);
-      } else if (expression instanceof Ast.PropertyAccess property) {
-        Optional<String> name = staticName(property.property());
-        Optional<String> systemName = systemName(property.object(), property.property());
-        rendered =
-            systemName.map(value -> "$" + value).orElseGet(
-                () ->
-                    expression(property.object(), POSTFIX_PRECEDENCE)
-                        + "."
-                        + (name.isEmpty()
-                            ? "("
-                                + expression(property.property(), ASSIGNMENT_PRECEDENCE)
-                                + ")"
-                            : name.orElseThrow()));
-      } else if (expression instanceof Ast.IndexAccess index) {
-        rendered =
-            expression(index.collection(), POSTFIX_PRECEDENCE)
-                + "["
-                + expression(index.index(), ASSIGNMENT_PRECEDENCE)
-                + "]";
-      } else if (expression instanceof Ast.RangeAccess range) {
-        rendered =
-            expression(range.collection(), POSTFIX_PRECEDENCE)
-                + "["
-                + expression(range.start(), ASSIGNMENT_PRECEDENCE)
-                + ".."
-                + expression(range.end(), ASSIGNMENT_PRECEDENCE)
-                + "]";
-      } else if (expression instanceof Ast.FirstIndex) {
-        rendered = "^";
-      } else if (expression instanceof Ast.LastIndex) {
-        rendered = "$";
-      } else if (expression instanceof Ast.Unary unary) {
-        rendered =
-            switch (unary.operator()) {
-              case NEGATE -> "-";
-              case NOT -> "!";
-              case COMPLEMENT -> "~";
+          rendered = Double.toString(floating.value());
+          double magnitude = Math.abs(floating.value());
+          if (rendered.indexOf('E') >= 0 && magnitude >= 0.0001 && magnitude < 1.0e15) {
+            rendered = BigDecimal.valueOf(floating.value()).toPlainString();
+            if (rendered.indexOf('.') < 0) {
+              rendered += ".0";
             }
-                + expression(unary.operand(), UNARY_PRECEDENCE);
-      } else if (expression instanceof Ast.Binary binary) {
-        int operatorPrecedence = binaryPrecedence(binary.operator());
-        boolean rightAssociative = binary.operator() == Ast.BinaryOperator.POWER;
-        rendered =
-            expression(binary.left(), operatorPrecedence + (rightAssociative ? 1 : 0))
-                + " "
-                + binaryOperator(binary.operator())
-                + " "
-                + expression(binary.right(), operatorPrecedence + (rightAssociative ? 0 : 1));
-      } else if (expression instanceof Ast.Ternary ternary) {
-        rendered =
-            expression(ternary.condition(), TERNARY_PRECEDENCE + 1)
-                + " ? "
-                + expression(ternary.trueExpression(), ASSIGNMENT_PRECEDENCE)
-                + " | "
-                + expression(ternary.falseExpression(), ASSIGNMENT_PRECEDENCE);
-      } else if (expression instanceof Ast.Catch catchExpression) {
-        rendered =
-            "`"
-                + expression(catchExpression.guarded(), ASSIGNMENT_PRECEDENCE)
-                + " ! "
-                + errors(catchExpression.errors())
-                + catchExpression
-                    .fallback()
-                    .map(value -> " => " + expression(value, ASSIGNMENT_PRECEDENCE))
-                    .orElse("")
-                + "'";
-      } else {
-        throw new IllegalArgumentException("unsupported expression: " + expression);
+          }
+        }
+        case Ast.StringLiteral string -> {
+          rendered = quote(string.value());
+        }
+        case Ast.ObjectLiteral object -> {
+          rendered = "#" + object.value();
+        }
+        case Ast.ErrorLiteral error -> {
+          rendered = error.name();
+        }
+        case Ast.ListLiteral list -> {
+          rendered = "{" + joinExpressions(list.elements()) + "}";
+        }
+        case Ast.MapLiteral map -> {
+          StringBuilder entries = new StringBuilder();
+          for (Ast.MapEntry entry : map.entries()) {
+            if (!entries.isEmpty()) {
+              entries.append(", ");
+            }
+            entries
+                .append(expression(entry.key(), ASSIGNMENT_PRECEDENCE))
+                .append(" -> ")
+                .append(expression(entry.value(), ASSIGNMENT_PRECEDENCE));
+          }
+          rendered = "[" + entries + "]";
+        }
+        case Ast.Splice splice -> {
+          rendered = "@" + expression(splice.value(), UNARY_PRECEDENCE);
+        }
+        case Ast.ScatterElement element -> {
+          rendered =
+              (element.rest() ? "@" : element.optional() ? "?" : "")
+                  + canonicalVariableName(element.name())
+                  + element
+                      .defaultValue()
+                      .map(value -> " = " + expression(value, ASSIGNMENT_PRECEDENCE))
+                      .orElse("");
+        }
+        case Ast.Call call -> {
+          rendered = call.name() + "(" + joinExpressions(call.arguments()) + ")";
+        }
+        case Ast.VerbCall verbCall -> {
+          Optional<String> name = staticName(verbCall.name());
+          Optional<String> systemName = systemName(verbCall.object(), verbCall.name());
+          rendered =
+              systemName.map(value -> "$" + value).orElseGet(
+                      () ->
+                          expression(verbCall.object(), POSTFIX_PRECEDENCE)
+                              + ":"
+                              + (name.isEmpty()
+                                  ? "("
+                                      + expression(verbCall.name(), ASSIGNMENT_PRECEDENCE)
+                                      + ")"
+                                  : name.orElseThrow()))
+                  + "("
+                  + joinExpressions(verbCall.arguments())
+                  + ")";
+        }
+        case Ast.Assignment assignment -> {
+          rendered =
+              assignmentTarget(assignment.target())
+                  + " = "
+                  + expression(assignment.value(), ASSIGNMENT_PRECEDENCE);
+        }
+        case Ast.PropertyAccess property -> {
+          Optional<String> name = staticName(property.property());
+          Optional<String> systemName = systemName(property.object(), property.property());
+          rendered =
+              systemName.map(value -> "$" + value).orElseGet(
+                  () ->
+                      expression(property.object(), POSTFIX_PRECEDENCE)
+                          + "."
+                          + (name.isEmpty()
+                              ? "("
+                                  + expression(property.property(), ASSIGNMENT_PRECEDENCE)
+                                  + ")"
+                              : name.orElseThrow()));
+        }
+        case Ast.IndexAccess index -> {
+          rendered =
+              expression(index.collection(), POSTFIX_PRECEDENCE)
+                  + "["
+                  + expression(index.index(), ASSIGNMENT_PRECEDENCE)
+                  + "]";
+        }
+        case Ast.RangeAccess range -> {
+          rendered =
+              expression(range.collection(), POSTFIX_PRECEDENCE)
+                  + "["
+                  + expression(range.start(), ASSIGNMENT_PRECEDENCE)
+                  + ".."
+                  + expression(range.end(), ASSIGNMENT_PRECEDENCE)
+                  + "]";
+        }
+        case Ast.FirstIndex() -> {
+          rendered = "^";
+        }
+        case Ast.LastIndex() -> {
+          rendered = "$";
+        }
+        case Ast.Unary unary -> {
+          rendered =
+              switch (unary.operator()) {
+                case NEGATE -> "-";
+                case NOT -> "!";
+                case COMPLEMENT -> "~";
+              }
+                  + expression(unary.operand(), UNARY_PRECEDENCE);
+        }
+        case Ast.Binary binary -> {
+          int operatorPrecedence = binaryPrecedence(binary.operator());
+          boolean rightAssociative = binary.operator() == Ast.BinaryOperator.POWER;
+          rendered =
+              expression(binary.left(), operatorPrecedence + (rightAssociative ? 1 : 0))
+                  + " "
+                  + binaryOperator(binary.operator())
+                  + " "
+                  + expression(binary.right(), operatorPrecedence + (rightAssociative ? 0 : 1));
+        }
+        case Ast.Ternary ternary -> {
+          rendered =
+              expression(ternary.condition(), TERNARY_PRECEDENCE + 1)
+                  + " ? "
+                  + expression(ternary.trueExpression(), ASSIGNMENT_PRECEDENCE)
+                  + " | "
+                  + expression(ternary.falseExpression(), ASSIGNMENT_PRECEDENCE);
+        }
+        case Ast.Catch catchExpression -> {
+          rendered =
+              "`"
+                  + expression(catchExpression.guarded(), ASSIGNMENT_PRECEDENCE)
+                  + " ! "
+                  + errors(catchExpression.errors())
+                  + catchExpression
+                      .fallback()
+                      .map(value -> " => " + expression(value, ASSIGNMENT_PRECEDENCE))
+                      .orElse("")
+                  + "'";
+        }
       }
       return precedence < minimumPrecedence
               || (parenthesize && minimumPrecedence > ASSIGNMENT_PRECEDENCE

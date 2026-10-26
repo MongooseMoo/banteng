@@ -266,6 +266,10 @@ final class BuiltinCatalogTest {
           "usage",
           "valid",
           "value_bytes",
+          "object_bytes",
+          "url_encode",
+          "url_decode",
+          "spellcheck",
           "verbs",
           "waif_stats",
           "verb_args",
@@ -1640,7 +1644,7 @@ final class BuiltinCatalogTest {
 
     assertEquals(List.of(noArguments), load.callShapes());
     assertSame(BuiltinPermissionRule.WIZARD_ONLY, load.permission());
-    assertEquals(EffectClass.PURE, load.effect());
+    assertEquals(EffectClass.IRREVOCABLE, load.effect());
     assertEquals(BuiltinOwner.SERVER, load.owner());
     assertEquals(List.of(noArguments), taskId.callShapes());
     assertSame(BuiltinPermissionRule.ANY, taskId.permission());

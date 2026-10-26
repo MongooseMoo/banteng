@@ -390,3 +390,14 @@ or the object itself to #-1, running exitfunc before continuing; then remove it.
 Toast objects.cc:759-775,850-875 restarts this scan after every hook. Reaching
 the hook recursion limit falls through into removal, rather than E_MAXREC
 (objects.cc:843). Outer continuations then see the missing object and E_INVARG.
+
+Q requested PR82 comment repairs. Current inline comments are CodeQL169 on
+MooUnparser's 22-type chain and CodeQL168 on KillAbort's unnamed binding.
+Smallest repair: convert only that chain into an exhaustive sealed-type switch
+(~50 changed structural lines, same rendering bodies), and use KillAbort()'s
+empty record pattern (~1 line). No visitor abstraction or behavior change.
+
+db268ff CI40285958878 admission failed before listening: constructor reload read
+the committed WorldTxn root, which forbids direct reads. Open/close an initial
+read transaction for that reload. Existing Java manifest/result shape assertions
+also need their new builtin names, ProtectedCall record, and load-options effect.
