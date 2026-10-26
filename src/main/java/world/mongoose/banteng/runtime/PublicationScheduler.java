@@ -1515,6 +1515,8 @@ final class PublicationScheduler implements AutoCloseable {
               finalizationControl);
         }
         if (state.outcome() == VmState.Outcome.SUSPENDED) {
+          continuation = continuation.filter(
+              value -> value.transition().orElseThrow() != MooRuntime.RuntimeTransition.SIGNAL_RETURN);
           return SegmentResult.boundary(
               program.orElseThrow(),
               completed,

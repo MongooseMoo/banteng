@@ -110,3 +110,17 @@ Use these existing AST paths (~30 lines), with no new parsing layer.
 Next: push parser group, inspect CI, then implement process signal delivery via
 the existing runtime request/continuation machinery. Signal behavior remains
 unimplemented beyond TERM and blocks evidence for the later suite cases.
+
+Signal implementation first slice (~110 lines): register USR1/USR2 with the
+existing Java signal adapter, deliver them as runtime requests, run handle_signal
+with server-origin locals, and use an explicit return continuation for fallback.
+Drop that continuation at suspension (the hook itself still resumes). Reopen the
+existing ServerLog file owner for USR1; reuse checkpoint_started/finished for USR2.
+Toast server.cc:381-400 is the contract. Other reserved JVM signals need separate
+source investigation; do not install unsafe Java callbacks as native handlers.
+
+Parser CI 40273937477 failed compilation because OperatorPrecedence requires
+explicit parentheses in the new scatter operand condition; corrected it.
+Also register INT with TERM's existing shutdown coordinator. Toast server.cc:929
+and 2354-2362 plus signals_shutdown.yaml require a shutdown notification and final
+dump without checkpoint hooks. Correct that existing shutdown path (~15 lines).

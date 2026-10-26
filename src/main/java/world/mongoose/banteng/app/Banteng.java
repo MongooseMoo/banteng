@@ -102,6 +102,8 @@ public final class Banteng implements Callable<Integer> {
       GracefulShutdownCoordinator shutdown = new GracefulShutdownCoordinator();
       try (SignalRegistration signalRegistration =
               SignalRegistration.install("TERM", shutdown::request);
+          SignalRegistration interruptRegistration =
+              SignalRegistration.install("INT", shutdown::request);
           MooServer server =
               new MooServer(
                   listenAddress,
@@ -114,8 +116,16 @@ public final class Banteng implements Callable<Integer> {
                   serverLog,
                   valueSemantics())) {
         signalRegistration.keepAlive();
-        if (!shutdown.attach(server)) {
-          server.serve();
+        interruptRegistration.keepAlive();
+        try (SignalRegistration usr1 =
+                SignalRegistration.install("USR1", () -> server.handleSignal("SIGUSR1"));
+            SignalRegistration usr2 =
+                SignalRegistration.install("USR2", () -> server.handleSignal("SIGUSR2"))) {
+          usr1.keepAlive();
+          usr2.keepAlive();
+          if (!shutdown.attach(server)) {
+            server.serve();
+          }
         }
       }
     }
@@ -156,7 +166,7 @@ public final class Banteng implements Callable<Integer> {
               new Class<?>[] {handlerType},
               (proxy, method, arguments) -> {
                 if (method.getName().equals("handle")) {
-                  Thread.ofPlatform().name("banteng-sigterm").start(action);
+                  Thread.ofPlatform().name("banteng-signal-" + name).start(action);
                 }
                 return null;
               });

@@ -20,7 +20,8 @@ public final class ServerLog implements AutoCloseable {
   private static final DateTimeFormatter TIMESTAMP =
       DateTimeFormatter.ofPattern("MMM dd HH:mm:ss", Locale.ENGLISH);
 
-  private final Writer output;
+  private Writer output;
+  private Optional<Path> file = Optional.empty();
   private final System.Logger.Level threshold;
   private final Clock clock;
   private final boolean closesOutput;
@@ -72,7 +73,25 @@ public final class ServerLog implements AutoCloseable {
             StandardCharsets.UTF_8,
             StandardOpenOption.CREATE,
             StandardOpenOption.APPEND);
-    return new ServerLog(output, threshold, Clock.system(ZoneId.systemDefault()), true);
+    ServerLog log = new ServerLog(output, threshold, Clock.system(ZoneId.systemDefault()), true);
+    log.file = file;
+    return log;
+  }
+
+  /** Reopens the configured pathname after external log rotation. */
+  public synchronized void reopen() {
+    if (file.isEmpty()) {
+      return;
+    }
+    try {
+      Writer replacement = Files.newBufferedWriter(
+          file.orElseThrow(), StandardCharsets.UTF_8,
+          StandardOpenOption.CREATE, StandardOpenOption.APPEND);
+      output.close();
+      output = replacement;
+    } catch (IOException failure) {
+      throw new UncheckedIOException("failed to reopen server log", failure);
+    }
   }
 
   /** Writes one normal server message when INFO is enabled. */

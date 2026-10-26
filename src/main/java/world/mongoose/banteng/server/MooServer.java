@@ -641,6 +641,11 @@ public final class MooServer implements AutoCloseable, ListenerControl {
             });
   }
 
+  /** Dispatches a user signal through the runtime's server-task machinery. */
+  public void handleSignal(String signal) {
+    runtime.handleSignal(signal);
+  }
+
   /** Requests a final checkpoint, then waits for listener and executor termination. */
   public void gracefulShutdown() {
     boolean requested = false;

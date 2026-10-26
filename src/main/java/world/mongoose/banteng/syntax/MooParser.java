@@ -385,8 +385,8 @@ public final class MooParser {
         }
         if (current.kind() == TokenKind.EQUAL
             && (ASSIGNMENT_PRECEDENCE >= minimumPrecedence
-                || left instanceof Ast.ListLiteral list
-                    && list.elements().stream().anyMatch(Ast.ScatterElement.class::isInstance))) {
+                || (left instanceof Ast.ListLiteral list
+                    && list.elements().stream().anyMatch(Ast.ScatterElement.class::isInstance)))) {
           advance();
           Ast.Expression value = parseExpression(ASSIGNMENT_PRECEDENCE);
           left =
