@@ -134,15 +134,17 @@ public final class MooCompiler {
             loopScopes,
             diagnostics);
       } else if (statement instanceof Ast.While whileStatement) {
-        loopScopes.add(whileStatement.loopVariable().map(List::of).orElseGet(List::of));
+        loopScopes.add(
+            LoopNames.normalize(whileStatement.loopVariable().map(List::of).orElseGet(List::of)));
         collectControlFlowDiagnostics(whileStatement.body(), loopScopes, diagnostics);
         loopScopes.removeLast();
       } else if (statement instanceof Ast.For forStatement) {
         loopScopes.add(
-            forStatement
-                .indexVariable()
-                .map(index -> List.of(forStatement.variable(), index))
-                .orElseGet(() -> List.of(forStatement.variable())));
+            LoopNames.normalize(
+                forStatement
+                    .indexVariable()
+                    .map(index -> List.of(forStatement.variable(), index))
+                    .orElseGet(() -> List.of(forStatement.variable()))));
         collectControlFlowDiagnostics(forStatement.body(), loopScopes, diagnostics);
         loopScopes.removeLast();
       } else if (statement instanceof Ast.If ifStatement) {
@@ -172,14 +174,7 @@ public final class MooCompiler {
       Optional<Ast.SourceSpan> span,
       List<List<String>> loopScopes,
       List<PositionedDiagnostic> diagnostics) {
-    boolean valid =
-        requestedLoop
-            .map(
-                requested ->
-                    loopScopes.stream()
-                        .flatMap(List::stream)
-                        .anyMatch(loop -> loop.equalsIgnoreCase(requested)))
-            .orElse(!loopScopes.isEmpty());
+    boolean valid = LoopNames.find(loopScopes, names -> names, requestedLoop) >= 0;
     if (valid) {
       return;
     }
@@ -478,7 +473,7 @@ public final class MooCompiler {
       int exitJump = addJump(Opcode.JUMP_IF_FALSE, instructions);
       List<Integer> breakJumps = new ArrayList<>();
       activeLoopVariables.add(
-          whileStatement.loopVariable().map(List::of).orElseGet(List::of));
+          LoopNames.normalize(whileStatement.loopVariable().map(List::of).orElseGet(List::of)));
       activeLoopStarts.add(conditionTarget);
       activeLoopBreaks.add(breakJumps);
       compileStatements(whileStatement.body(), instructions, forkVectors);
@@ -510,10 +505,11 @@ public final class MooCompiler {
               controlPath(forStatement)));
       List<Integer> breakJumps = new ArrayList<>();
       activeLoopVariables.add(
-          forStatement
-              .indexVariable()
-              .map(index -> List.of(forStatement.variable(), index))
-              .orElseGet(() -> List.of(forStatement.variable())));
+          LoopNames.normalize(
+              forStatement
+                  .indexVariable()
+                  .map(index -> List.of(forStatement.variable(), index))
+                  .orElseGet(() -> List.of(forStatement.variable()))));
       activeLoopStarts.add(iterate);
       activeLoopBreaks.add(breakJumps);
       compileStatements(forStatement.body(), instructions, forkVectors);
@@ -530,17 +526,8 @@ public final class MooCompiler {
       return;
     }
     if (statement instanceof Ast.Break breakStatement) {
-      int loopIndex = activeLoopVariables.size() - 1;
-      if (breakStatement.loopVariable().isPresent()) {
-        String loopVariable = breakStatement.loopVariable().orElseThrow();
-        loopIndex = -1;
-        for (int index = activeLoopVariables.size() - 1; index >= 0; index--) {
-          if (activeLoopVariables.get(index).contains(loopVariable)) {
-            loopIndex = index;
-            break;
-          }
-        }
-      }
+      int loopIndex =
+          LoopNames.find(activeLoopVariables, names -> names, breakStatement.loopVariable());
       if (loopIndex < 0) {
         throw new IllegalArgumentException(
             "unknown loop variable: " + breakStatement.loopVariable().orElse("<unnamed>"));
@@ -550,17 +537,8 @@ public final class MooCompiler {
       return;
     }
     if (statement instanceof Ast.Continue continueStatement) {
-      int loopIndex = activeLoopVariables.size() - 1;
-      if (continueStatement.loopVariable().isPresent()) {
-        String loopVariable = continueStatement.loopVariable().orElseThrow();
-        loopIndex = -1;
-        for (int index = activeLoopVariables.size() - 1; index >= 0; index--) {
-          if (activeLoopVariables.get(index).contains(loopVariable)) {
-            loopIndex = index;
-            break;
-          }
-        }
-      }
+      int loopIndex =
+          LoopNames.find(activeLoopVariables, names -> names, continueStatement.loopVariable());
       if (loopIndex < 0) {
         throw new IllegalArgumentException(
             "Invalid loop name: " + continueStatement.loopVariable().orElse("<unnamed>"));
