@@ -13,7 +13,7 @@ Smallest approved change: about 250 added / 300 deleted lines plus focused tests
 Long integer/object key comparison is already fixed. Toast's runtime type rank includes TYPE_COMPLEX_FLAG and differs from persisted Type.code ordering. Its map equality and map-value membership traverse tree order. Java representation methods deliberately retain existing behavior and are not used for MOO-level equality.
 
 ## Next step
-The first two focused runs stopped at compileJava on Error Prone ReferenceEquality warnings for required collection identity shortcuts; no tests executed. The identity query is now expressed by package-private ListValue/MapValue methods using the same this-reference relation already present in their Java equals methods. No check suppression or flag relaxation. Next integrate current master as parent instructed, then run the authored focused test through root :test with source held stable. Parent owns publication and full PR CI.
+Three focused runs stopped at compileJava on Error Prone ReferenceEquality warnings for required collection identity shortcuts; no tests executed. The latest run rejects the package-private ListValue/MapValue sameReference methods at MooValue.java:592,752 (`return this == other;`), then `error: warnings found and -Werror specified`; BUILD FAILED in 34s. No suppression, casts, identity storage, or flag relaxation was added. Parent is verifying the source conflict and owns the required choice before any suppression. Current master is integrated cleanly as 8d8ade7; implementation is 87abfdc. Independent caller verification continues. Parent owns publication and full PR CI.
 
 ## Source and implementation
 ValueSemantics now owns Toast equality and compare (utils.cc:408-492). Its type ordering accounts for the complex flag (include/structures.h:84,100-118). String comparison uses C-string byte/ASCII rules; equality retains the memo-length comparison enabled by include/options.h:343. Collection equality follows list.cc:359-373 and map.cc:766-790, including same-collection identity shortcuts.
@@ -22,7 +22,7 @@ Deleted ArithmeticOps.mooEquals, Catalog.exactlyEqual, setRemoveValue's private 
 
 MapValue.orderedEntries walks its existing RB tree, with no new storage. Map keys/values, map equality, map-value membership, ranges, boundaries, and loops use that traversal. Parent explicitly included LoopOps after inspecting its cursor consumers. Toast starts/advances map loops through new_iter/mapseek/iterget/iternext (execute.cc:2676-2697), with new_iter selecting rbtfirst (map.cc:946-956). Existing cursor key representation/storage is unchanged.
 
-Natural string sort remains its own documented option (list.cc:947-1010). Boolean sort equivalence and NaN policies remain at the sorting/relational callers; ordinary scalar ordering delegates to ValueSemantics. Existing architecture assertion now expects the shared comparison call rather than the deleted private string comparator.
+Natural string sort remains its own documented option (list.cc:947-1010). Boolean sort equivalence and NaN policies remain at the sorting/relational callers; ordinary scalar ordering delegates to ValueSemantics. Integrated current origin/master without conflicts after the failed authored run exited. Master includes issue 93's compiled architecture graph; the obsolete source-shape test was removed by that merge, and no source-shape assertion is restored.
 
 ## Draft PR
 Title: Share MOO equality and comparison across values and callers

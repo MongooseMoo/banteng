@@ -46,6 +46,10 @@ final class ValueSemanticsTest {
     assertTrue(standard.compare(text("A"), BooleanValue.TRUE, false) > 0);
     assertEquals(1, standard.compare(new FloatValue(Double.NaN), new FloatValue(1), false));
     assertFalse(standard.equal(new FloatValue(Double.NaN), new FloatValue(Double.NaN), false));
+    FloatValue nan = new FloatValue(Double.NaN);
+    ListValue shared = new ListValue(List.of(nan));
+    assertTrue(standard.equal(shared, shared, false));
+    assertFalse(standard.equal(shared, new ListValue(List.of(nan)), false));
   }
 
   @Test
