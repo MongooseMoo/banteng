@@ -272,3 +272,23 @@ stored verbs never compile; implement the hash family (~45 lines sharing HMAC's
 input/hex conversion) before changing scheduler behavior further. Toast
 crypto.cc:395-516 defines the algorithms and binary flag. Fix bcrypt prefix
 minimum length (parse_prefix requires >=7 when a cost separator is present).
+
+05f55a6 Java CI has one failure: MooUnparser's new dependency on FloatValue
+violates the existing independent syntax/value package rule. Remove that import;
+render source floats with Java numeric formatting directly, expanding exponents
+in the ordinary fixed-format range while preserving source roundtrip precision.
+
+Connection repair (~100 lines): finish socket input at its first suspension,
+drop the server's login/command completion callback, and keep the suspended MOO
+activation as an ordinary task. Return prefix/output/suffix at that boundary;
+later task output goes through existing listener writes. This lets the same
+socket reader consume read()'s next line. Toast tasks.cc:838-860,914-919 ignores
+completion values after suspension and writes command suffix immediately.
+Route OOB before login/read, strip #$" quoting once, mark initial login and
+in-band tasks as last-input tasks, and use caller #-1. New players get only
+user_created (tasks.cc:956 player_connected classification), not user_connected.
+
+05f55a6 CI40280281199 conformance completed:39 failures; decompiler/CR roundtrip,
+anonymous slot owners, self-kill startup checkpoints, hash-dependent fork and
+expired-resume fixtures now pass. Java's only failure is the syntax dependency
+already corrected locally. Input lifecycle changes are ready for CI.

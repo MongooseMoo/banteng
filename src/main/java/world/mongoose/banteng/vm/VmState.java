@@ -238,6 +238,11 @@ public final class VmState {
     return List.copyOf(output);
   }
 
+  /** Clears output already delivered when the foreground input task suspended. */
+  public void clearOutput() {
+    output.clear();
+  }
+
   /** Returns a connection player switch staged by this execution. */
   public OptionalLong switchedPlayer() {
     return switchedPlayer;

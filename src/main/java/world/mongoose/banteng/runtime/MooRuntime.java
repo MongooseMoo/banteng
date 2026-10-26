@@ -696,6 +696,45 @@ public final class MooRuntime implements AutoCloseable {
     return scheduler.submit(RuntimeRequest.line(connectionId, line));
   }
 
+  synchronized boolean startsInputTask(long connectionId, String line) {
+    ConnectionState connection = publishedConnections.get(connectionId);
+    return !pendingReads.containsKey(connectionId)
+        && (connection == null || connection.disableOob || !line.startsWith("#$#"));
+  }
+
+  Optional<List<String>> suspendedInputOutput(RuntimeContinuation continuation, VmState state) {
+    RuntimeTransition transition = continuation.transition().orElseThrow();
+    boolean command = transition == RuntimeTransition.LINE_DO_COMMAND_GATE_THEN_DISPATCH
+        || transition == RuntimeTransition.LINE_SELECTED_COMMAND_APPEND_OUTPUT;
+    if (!command && transition != RuntimeTransition.LOGIN_AUTHENTICATE_AND_ASSOCIATE
+        && transition != RuntimeTransition.LOGIN_BLANK_TRUTH_GATE
+        && transition != RuntimeTransition.TRANSPORT_OOB_RETURN_OUTPUT
+        && transition != RuntimeTransition.LINE_OOB_RETURN_OUTPUT) {
+      return Optional.empty();
+    }
+    List<String> output = new ArrayList<>(continuation.output());
+    ConnectionState connection = connections().get(continuation.connectionId());
+    if (connection != null && transition == RuntimeTransition.LINE_DO_COMMAND_GATE_THEN_DISPATCH) {
+      connection.prefix.ifPresent(output::add);
+    }
+    output.addAll(state.output());
+    state.clearOutput();
+    if (connection != null && command) {
+      connection.suffix.ifPresent(output::add);
+    }
+    return Optional.of(List.copyOf(output));
+  }
+
+  void writeDetachedOutput(long player, List<String> output) {
+    OptionalLong connection;
+    synchronized (this) {
+      connection = publishedConnectionRegistry.connectionId(player);
+    }
+    if (connection.isPresent()) {
+      listenerControl.ifPresent(control -> control.writeConnection(connection.orElseThrow(), output));
+    }
+  }
+
   private RuntimeStep executeLineNow(long connectionId, String line) {
     return executeLineNow(connectionId, line, Optional.empty());
   }
@@ -705,6 +744,12 @@ public final class MooRuntime implements AutoCloseable {
     Objects.requireNonNull(line, "line");
     ConnectionState connection = requireConnection(connectionId);
     connection.lastActivityNanos = nanoTime.getAsLong();
+    if (!connection.disableOob && line.startsWith("#$#")) {
+      return executeTransportOutOfBandNow(connectionId, line);
+    }
+    if (!connection.disableOob && line.startsWith("#$\"")) {
+      line = line.substring(3);
+    }
     if (hasPendingRead(connectionId)) {
       effects().add(RuntimeEffect.input(connectionId, line));
       return RuntimeStep.returned(List.of());
@@ -829,6 +874,14 @@ public final class MooRuntime implements AutoCloseable {
                   + ".  Use \".\" to end."));
     }
 
+    if (line.regionMatches(true, 0, "OUTPUTPREFIX ", 0, "OUTPUTPREFIX ".length())) {
+      connection.prefix = Optional.of(line.substring("OUTPUTPREFIX ".length()));
+      return RuntimeStep.returned(List.of());
+    }
+    if (line.regionMatches(true, 0, "OUTPUTSUFFIX ", 0, "OUTPUTSUFFIX ".length())) {
+      connection.suffix = Optional.of(line.substring("OUTPUTSUFFIX ".length()));
+      return RuntimeStep.returned(List.of());
+    }
     if (line.regionMatches(true, 0, "PREFIX ", 0, "PREFIX ".length())) {
       connection.prefix = Optional.of(line.substring("PREFIX ".length()));
       return RuntimeStep.returned(List.of());
@@ -877,30 +930,6 @@ public final class MooRuntime implements AutoCloseable {
     List<MooValue> commandWords = new ArrayList<>();
     for (String word : words) {
       commandWords.add(StringValue.of(word));
-    }
-    if (line.startsWith("#$#") && !connection.disableOob) {
-      Optional<WorldVerb> outOfBand =
-          world().verb(connection.listenerHandler, "do_out_of_band_command");
-      if (outOfBand.isEmpty()) {
-        return RuntimeStep.returned(List.of());
-      }
-      return startStored(
-          outOfBand.orElseThrow(),
-          verbLocals(
-              connection.listenerHandler,
-              player,
-              -1,
-              "do_out_of_band_command",
-              new ListValue(commandWords),
-              line),
-          RuntimeContinuation.after(
-              RuntimeTransition.LINE_OOB_RETURN_OUTPUT,
-              connectionId,
-              line,
-              List.of(),
-              0,
-              0,
-              false));
     }
     List<String> doCommandOutput = List.of();
     boolean handled = false;
@@ -1609,9 +1638,9 @@ public final class MooRuntime implements AutoCloseable {
           blank.orElseThrow(),
           verbLocals(
               connection.listenerHandler,
-              connectionId,
-              connectionId,
-              "do_blank_command",
+            connectionId,
+            -1,
+            "do_blank_command",
               new ListValue(List.of()),
               line),
           RuntimeContinuation.after(
@@ -1686,7 +1715,7 @@ public final class MooRuntime implements AutoCloseable {
         verbLocals(
             connection.listenerHandler,
             connectionId,
-            connectionId,
+            -1,
             "do_login_command",
             new ListValue(arguments),
             loginLine);
@@ -1872,12 +1901,7 @@ public final class MooRuntime implements AutoCloseable {
   }
 
   private RuntimeStep continueCreatedLogin(RuntimeContinuation continuation) {
-    return startConnectedHook(
-        continuation.connectionId(),
-        continuation.first(),
-        continuation.output(),
-        RuntimeTransition.LOGIN_EXISTING_USER_CONNECTED_THEN_RETURN,
-        false);
+    return RuntimeStep.returned(continuation.output());
   }
 
   private RuntimeStep startConnectedHook(

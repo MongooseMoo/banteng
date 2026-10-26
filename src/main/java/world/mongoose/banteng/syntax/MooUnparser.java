@@ -5,7 +5,7 @@ import java.util.Locale;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
-import world.mongoose.banteng.value.MooValue.FloatValue;
+import java.math.BigDecimal;
 
 /** Canonically renders the complete MOO syntax tree accepted by {@link MooParser}. */
 public final class MooUnparser {
@@ -215,7 +215,14 @@ public final class MooUnparser {
         if (!Double.isFinite(floating.value())) {
           throw new IllegalArgumentException("non-finite float literal");
         }
-        rendered = new FloatValue(floating.value()).toLiteral();
+        rendered = Double.toString(floating.value());
+        double magnitude = Math.abs(floating.value());
+        if (rendered.indexOf('E') >= 0 && magnitude >= 0.0001 && magnitude < 1.0e15) {
+          rendered = BigDecimal.valueOf(floating.value()).toPlainString();
+          if (rendered.indexOf('.') < 0) {
+            rendered += ".0";
+          }
+        }
       } else if (expression instanceof Ast.StringLiteral string) {
         rendered = quote(string.value());
       } else if (expression instanceof Ast.ObjectLiteral object) {

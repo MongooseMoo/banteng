@@ -1246,11 +1246,11 @@ final class PublicationScheduler implements AutoCloseable {
       ensureOpen();
       long taskId = nextTaskId++;
       long ticket = nextTicket++;
-      if (request.operation() == MooRuntime.Operation.LINE) {
+      if (request.operation() == MooRuntime.Operation.OPEN
+          || (request.operation() == MooRuntime.Operation.LINE
+              && runtime.startsInputTask(request.connectionId(), request.text()))) {
         long player = runtime.connectionPlayer(request.connectionId()).orElse(-1);
-        if (player >= 0) {
-          lastInputTasks.put(player, taskId);
-        }
+        lastInputTasks.put(player >= 0 ? player : request.connectionId(), taskId);
       }
       ingress.put(taskId, published);
       ready.add(Entry.runtime(ticket, taskId, MooRuntime.RuntimeContinuation.ingress(request)));
@@ -1273,11 +1273,10 @@ final class PublicationScheduler implements AutoCloseable {
   synchronized void enqueueDetached(MooRuntime.RuntimeRequest request) {
     ensureOpen();
     long taskId = nextTaskId++;
-    if (request.operation() == MooRuntime.Operation.LINE) {
+    if (request.operation() == MooRuntime.Operation.LINE
+        && runtime.startsInputTask(request.connectionId(), request.text())) {
       long player = runtime.connectionPlayer(request.connectionId()).orElse(-1);
-      if (player >= 0) {
-        lastInputTasks.put(player, taskId);
-      }
+      lastInputTasks.put(player >= 0 ? player : request.connectionId(), taskId);
     }
     ready.add(
         Entry.runtime(
@@ -1542,6 +1541,16 @@ final class PublicationScheduler implements AutoCloseable {
               finalizationControl);
         }
         if (state.outcome() == VmState.Outcome.SUSPENDED) {
+          Optional<List<String>> inputOutput = continuation.flatMap(
+              value -> runtime.suspendedInputOutput(value, state));
+          if (inputOutput.isEmpty() && continuation.isEmpty() && !state.output().isEmpty()) {
+            inputOutput = Optional.of(state.output());
+            state.clearOutput();
+          }
+          if (inputOutput.isPresent()) {
+            continuation = Optional.empty();
+            completed = state.snapshot();
+          }
           continuation = continuation.filter(
               value -> value.transition().orElseThrow() != MooRuntime.RuntimeTransition.SIGNAL_RETURN);
           return SegmentResult.boundary(
@@ -1551,7 +1560,8 @@ final class PublicationScheduler implements AutoCloseable {
               continuation,
               finalizationControl,
               state.hostWork(),
-              pendingForks);
+              pendingForks,
+              inputOutput);
         }
         throw new IllegalStateException("VM segment ended without an observable boundary");
       }
@@ -1651,13 +1661,24 @@ final class PublicationScheduler implements AutoCloseable {
     }
     if (result.output().isPresent()) {
       RootCompletion completion;
+      boolean detached;
       synchronized (this) {
+        detached = !ingress.containsKey(start.taskId());
         registerActiveFinalization(start.taskId(), result.finalizationControl());
         completion =
             finishSuccess(start, result.finalizationControl(), result.output().orElseThrow());
       }
       completion.complete();
+      if (detached) {
+        runtime.writeDetachedOutput(result.taskPlayer(), result.output().orElseThrow());
+      }
       return;
+    }
+    CompletableFuture<List<String>> foreground = null;
+    if (result.inputOutput().isPresent()) {
+      synchronized (this) {
+        foreground = ingress.remove(start.taskId());
+      }
     }
     synchronized (this) {
       registerActiveFinalization(start.taskId(), result.finalizationControl());
@@ -1676,6 +1697,13 @@ final class PublicationScheduler implements AutoCloseable {
         boundary,
         result.snapshot().orElseThrow(),
         result.hostWork());
+    if (result.inputOutput().isPresent()) {
+      if (foreground != null) {
+        foreground.complete(result.inputOutput().orElseThrow());
+      } else {
+        runtime.writeDetachedOutput(result.taskPlayer(), result.inputOutput().orElseThrow());
+      }
+    }
   }
 
   private PublishedAttempt publishAttempt(Attempt attempt) {
@@ -2300,7 +2328,8 @@ final class PublicationScheduler implements AutoCloseable {
       boolean aborted,
       Optional<VmSnapshot> timeoutSnapshot,
       boolean needsIrrevocable,
-      List<PendingFork> pendingForks) {
+      List<PendingFork> pendingForks,
+      Optional<List<String>> inputOutput) {
     SegmentResult {
       output = output.map(List::copyOf);
       Objects.requireNonNull(finalizationControl, "finalizationControl");
@@ -2342,7 +2371,8 @@ final class PublicationScheduler implements AutoCloseable {
           aborted,
           timeoutSnapshot,
           false,
-          pendingForks);
+          pendingForks,
+          Optional.empty());
     }
 
     static SegmentResult boundary(
@@ -2352,7 +2382,8 @@ final class PublicationScheduler implements AutoCloseable {
         Optional<MooRuntime.RuntimeContinuation> continuation,
         Optional<MooRuntime.FinalizationControl> finalizationControl,
         Optional<Callable<BuiltinResult>> hostWork,
-        List<PendingFork> pendingForks) {
+        List<PendingFork> pendingForks,
+        Optional<List<String>> inputOutput) {
       return new SegmentResult(
           Optional.empty(),
           Optional.of(program),
@@ -2364,7 +2395,8 @@ final class PublicationScheduler implements AutoCloseable {
           false,
           Optional.empty(),
           false,
-          pendingForks);
+          pendingForks,
+          inputOutput);
     }
 
     static SegmentResult irrevocable(
@@ -2381,7 +2413,8 @@ final class PublicationScheduler implements AutoCloseable {
           false,
           Optional.empty(),
           true,
-          pendingForks);
+          pendingForks,
+          Optional.empty());
     }
   }
 
