@@ -342,3 +342,29 @@ disassemble identifies its main code vector (disassemble.cc:226), source/vcs
 identifies this Git-backed source tree, and queue_info reads the existing last
 input task registry. Unknown native commands clear that ID at publication as
 tasks.cc:859 does, through an existing runtime effect delivery path.
+
+Next slice: object_bytes (~40 lines) validates object type, existence, then
+wizard permission in Toast objects.cc:1037-1060 order. Account for the object
+record, verb names/source and defined/inherited property slots using the existing
+value_bytes layout. Verb source is Banteng's owned program representation;
+this is logical accounting, not a measurement of resident JVM allocations.
+Update the existing seconds-exhaustion assertion to its explicit terminal kind.
+
+URL codec slice (~50 lines): implement byte-oriented percent escaping and
+unescaping directly, preserving literal plus, malformed escapes and C-string
+NUL truncation (curl.cc:772-828). Reuse StringValue's byte representation;
+neither Java form encoding nor Unicode URL conversion matches this contract.
+
+Spellcheck slice (~110 lines): bind the same Aspell en_US API as Toast
+spellcheck.cc, with one synchronized process-lifetime speller and confined
+per-call word/enumeration storage. Native library failures return E_INVARG.
+Install the library and English dictionary in the two existing CI environments
+that execute the server. No substitute dictionary or signature-only builtin.
+
+e2badd2 CI40284242157: conformance finished with 13 failures. Tick control,
+seconds timeout, range replacement, empty verb/header/source metadata and
+queue_info fixes pass. Java only failed the old seconds terminal-kind assertion,
+updated here. Remaining: curl registration/implementation, three recycle hook
+cases, three protected valid redirects, portable failed-dump fixture mismatch,
+and a task_stack waif-owner timeout whose cause is not yet established.
+Current object_bytes/URL/Aspell changes are ready for PR CI, not yet verified.

@@ -484,7 +484,7 @@ final class MooVmTest {
         new WorldTxn(List.of(), List.of(system, options)),
         new BuiltinCatalog(BuiltinHosts.builder().build()));
 
-    assertEquals(VmState.Outcome.ABORTED, state.outcome());
+    assertEquals(VmState.Outcome.SECONDS_EXHAUSTED, state.outcome());
     assertTrue(state.returnValue().isEmpty());
     assertEquals(List.of("Task ran out of seconds"), state.output());
   }

@@ -36,6 +36,7 @@ import java.util.function.LongBinaryOperator;
 import java.util.function.Supplier;
 import world.mongoose.banteng.bytecode.MooCompiler;
 import world.mongoose.banteng.host.NativeCalls;
+import world.mongoose.banteng.host.Aspell;
 import world.mongoose.banteng.host.NativeCalls.NativeCallException;
 import world.mongoose.banteng.logging.ServerLog;
 import world.mongoose.banteng.syntax.Ast;
@@ -54,6 +55,7 @@ import world.mongoose.banteng.value.MooValue.StringValue;
 import world.mongoose.banteng.value.MooValue.WaifValue;
 import world.mongoose.banteng.value.ValueSemantics;
 import world.mongoose.banteng.world.ObjectFlags;
+import world.mongoose.banteng.world.PropertyHolder;
 import world.mongoose.banteng.world.WorldAnonymousObject;
 import world.mongoose.banteng.world.WorldObject;
 import world.mongoose.banteng.world.WorldProperty;
@@ -276,6 +278,15 @@ public final class BuiltinCatalog {
             BuiltinOwner.WORLD,
             call ->
                 BuiltinResult.value(new IntegerValue(valueBytes(call.arguments().getFirst(), call.world())))));
+    entries.add(
+        new BuiltinSpec(
+            "object_bytes",
+            List.of(new CallShape(List.of(ANY), List.of(), Optional.empty())),
+            BuiltinPermissionRule.ANY,
+            BuiltinCostRule.fixed(0),
+            EffectClass.TRANSACTION_READ,
+            BuiltinOwner.WORLD,
+            call -> objectBytes(call.arguments().getFirst(), call.world(), call.programmer())));
     entries.add(
         new BuiltinSpec(
             "length",
@@ -956,6 +967,33 @@ public final class BuiltinCatalog {
             EffectClass.TRANSACTION_READ,
             BuiltinOwner.WORLD,
             call -> disassemble(call.arguments(), call.world(), call.programmer())));
+    entries.add(
+        new BuiltinSpec(
+            "spellcheck",
+            List.of(new CallShape(List.of(STRING), List.of(), Optional.empty())),
+            BuiltinPermissionRule.ANY,
+            BuiltinCostRule.fixed(0),
+            EffectClass.EXTERNAL_READ,
+            BuiltinOwner.SERVER,
+            call -> spellcheck((StringValue) call.arguments().getFirst())));
+    entries.add(
+        new BuiltinSpec(
+            "url_encode",
+            List.of(new CallShape(List.of(STRING), List.of(), Optional.empty())),
+            BuiltinPermissionRule.ANY,
+            BuiltinCostRule.fixed(0),
+            EffectClass.PURE,
+            BuiltinOwner.VM,
+            call -> urlEncode((StringValue) call.arguments().getFirst())));
+    entries.add(
+        new BuiltinSpec(
+            "url_decode",
+            List.of(new CallShape(List.of(STRING), List.of(), Optional.empty())),
+            BuiltinPermissionRule.ANY,
+            BuiltinCostRule.fixed(0),
+            EffectClass.PURE,
+            BuiltinOwner.VM,
+            call -> urlDecode((StringValue) call.arguments().getFirst())));
     entries.add(
         new BuiltinSpec(
             "encode_binary",
@@ -2955,6 +2993,77 @@ public final class BuiltinCatalog {
       return BuiltinResult.value(new IntegerValue(map.size()));
     }
     return BuiltinResult.error(ErrorValue.E_TYPE);
+  }
+
+  private static BuiltinResult spellcheck(StringValue value) {
+    try {
+      Aspell.Result result = Aspell.check(value.bytes());
+      return BuiltinResult.value(result.correct() != 0
+          ? new IntegerValue(result.correct())
+          : new ListValue(result.suggestions().stream().map(StringValue::of).map(MooValue.class::cast).toList()));
+    } catch (IllegalStateException | LinkageError failure) {
+      return BuiltinResult.error(ErrorValue.E_INVARG);
+    }
+  }
+
+  private static BuiltinResult urlEncode(StringValue value) {
+    StringBuilder encoded = new StringBuilder();
+    String digits = "0123456789ABCDEF";
+    for (byte raw : value.bytes()) {
+      int b = Byte.toUnsignedInt(raw);
+      if (b == 0) break;
+      if ((b >= 'a' && b <= 'z') || (b >= 'A' && b <= 'Z')
+          || (b >= '0' && b <= '9') || b == '-' || b == '_' || b == '.' || b == '~') {
+        encoded.append((char) b);
+      } else {
+        encoded.append('%').append(digits.charAt(b >>> 4)).append(digits.charAt(b & 15));
+      }
+    }
+    return BuiltinResult.value(StringValue.of(encoded.toString()));
+  }
+
+  private static BuiltinResult urlDecode(StringValue value) {
+    byte[] input = value.bytes();
+    ByteArrayOutputStream decoded = new ByteArrayOutputStream(input.length);
+    for (int i = 0; i < input.length; i++) {
+      int b = Byte.toUnsignedInt(input[i]);
+      if (b == '%' && i + 2 < input.length) {
+        int high = Character.digit((char) Byte.toUnsignedInt(input[i + 1]), 16);
+        int low = Character.digit((char) Byte.toUnsignedInt(input[i + 2]), 16);
+        if (high >= 0 && low >= 0) {
+          b = high * 16 + low;
+          i += 2;
+        }
+      }
+      if (b == 0) break;
+      decoded.write(b);
+    }
+    return BuiltinResult.value(StringValue.of(decoded.toByteArray()));
+  }
+
+  private static BuiltinResult objectBytes(MooValue target, WorldTxn world, long programmer) {
+    PropertyHolder object;
+    if (target instanceof ObjectValue permanent) {
+      object = world.object(permanent.value()).orElse(null);
+    } else if (target instanceof AnonymousObjectValue anonymous) {
+      object = world.anonymousObject(anonymous).orElse(null);
+    } else {
+      return BuiltinResult.error(ErrorValue.E_TYPE);
+    }
+    if (object == null) return BuiltinResult.error(ErrorValue.E_INVIND);
+    if (!isWizard(world, programmer)) return BuiltinResult.error(ErrorValue.E_PERM);
+
+    // Logical 64-bit object layout, consistent with value_bytes. Banteng owns
+    // source text rather than Toast's Program allocation for each stored verb.
+    long bytes = 176L + object.name().length() + 1;
+    for (WorldVerb verb : object.verbs()) {
+      bytes += 40L + verb.names().length() + 1 + verb.programSource().length() + 1;
+    }
+    for (WorldProperty property : object.properties()) {
+      if (property.defined()) bytes += 16L + property.name().length() + 1;
+      bytes += 16L + (property.clear() ? 16 : valueBytes(property.value(), world));
+    }
+    return BuiltinResult.value(new IntegerValue(bytes));
   }
 
   private static long valueBytes(MooValue value, WorldTxn world) {
