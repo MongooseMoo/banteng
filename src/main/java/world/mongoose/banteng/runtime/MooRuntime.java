@@ -3563,7 +3563,7 @@ public final class MooRuntime implements AutoCloseable {
         serverLog.info("CHECKPOINTING " + (effect.text.isEmpty() ? "to " + target : effect.text));
         try (WorldTxn.RetainedSnapshot retained = committedWorld.retainSnapshot()) {
           checkpointCodec.writeAtomic(
-              target, retained.snapshot(), scheduler.durableTasks(), activeConnections());
+              target, retained.snapshot(), scheduler.durableTasksExcluding(currentTaskId), activeConnections());
           checkpointPublished = true;
           if (effect.binary) {
             listenerControl.ifPresent(ListenerControl::shutdown);

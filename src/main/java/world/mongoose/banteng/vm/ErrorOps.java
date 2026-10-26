@@ -24,6 +24,17 @@ final class ErrorOps {
     raise(state, error, world, true);
   }
 
+  static void typeMismatch(VmState state, String expected, MooValue actual, WorldTxn world) {
+    String type = switch (actual.type()) {
+      case ANONYMOUS -> "anonymous object";
+      case BOOLEAN -> "bool";
+      default -> actual.type().name().toLowerCase(java.util.Locale.ROOT);
+    };
+    raise(state, ErrorValue.E_TYPE,
+        new ListValue(List.of(StringValue.of("Type mismatch (expected " + expected
+            + "; got " + type + ")"), new IntegerValue(0))), world);
+  }
+
   static boolean propagateWorldFailure(WorldResult<?> result, VmState state, WorldTxn world) {
     if (result instanceof WorldResult.Failed<?> failed) {
       raise(state, failed.reason().value(), world);

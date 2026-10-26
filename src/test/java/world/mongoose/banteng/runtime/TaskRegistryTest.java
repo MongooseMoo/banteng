@@ -255,7 +255,8 @@ final class TaskRegistryTest {
     }
     VmSnapshot snapshot = state.snapshot();
     registry.updateSuspended(99, 1234, snapshot);
-    assertEquals(0, registry.size());
+    assertEquals(1, registry.size());
+    registry.remove(99);
     registry.registerSuspended(17, 1234, snapshot);
 
     try (WorldTxn transaction = world().begin()) {

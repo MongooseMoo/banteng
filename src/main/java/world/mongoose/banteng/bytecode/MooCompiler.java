@@ -3,7 +3,9 @@ package world.mongoose.banteng.bytecode;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.IdentityHashMap;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.OptionalInt;
@@ -15,10 +17,12 @@ import world.mongoose.banteng.bytecode.BytecodeProgram.Opcode;
 import world.mongoose.banteng.syntax.Ast;
 import world.mongoose.banteng.syntax.MooParser;
 import world.mongoose.banteng.syntax.MooUnparser;
+import world.mongoose.banteng.value.MooValue.FloatValue;
 
 /** Lowers parsed MOO syntax directly into executable bytecode. */
 public final class MooCompiler {
   private int catchSequence;
+  private final Map<FloatValue, FloatValue> floatLiterals = new HashMap<>();
   private final List<List<String>> activeLoopVariables = new ArrayList<>();
   private final List<Integer> activeLoopStarts = new ArrayList<>();
   private final List<List<Integer>> activeLoopBreaks = new ArrayList<>();
@@ -225,6 +229,7 @@ public final class MooCompiler {
     List<Instruction> instructions = new ArrayList<>();
     List<BytecodeProgram> forkVectors = new ArrayList<>();
     catchSequence = 0;
+    floatLiterals.clear();
     activeLoopVariables.clear();
     activeLoopStarts.clear();
     activeLoopBreaks.clear();
@@ -717,8 +722,10 @@ public final class MooCompiler {
       return;
     }
     if (expression instanceof Ast.FloatLiteral floating) {
+      FloatValue literal = new FloatValue(floating.value());
+      FloatValue interned = floatLiterals.computeIfAbsent(literal, value -> value);
       instructions.add(
-          new Instruction(Opcode.PUSH_FLOAT, Double.doubleToRawLongBits(floating.value())));
+          new Instruction(Opcode.PUSH_FLOAT, Double.doubleToRawLongBits(interned.value())));
       return;
     }
     if (expression instanceof Ast.StringLiteral string) {

@@ -62,9 +62,11 @@ final class SqliteService {
         return BuiltinResult.error(ErrorValue.E_INVARG);
       }
       key = path.toString();
-      for (Database database : databases.values()) {
-        if (database.key.equals(key)) {
-          return BuiltinResult.error(ErrorValue.E_INVARG);
+      for (Map.Entry<Long, Database> entry : databases.entrySet()) {
+        if (entry.getValue().key.equals(key)) {
+          return BuiltinResult.raised(ErrorValue.E_INVARG,
+              StringValue.of("Database already open with handle: " + entry.getKey()),
+              new IntegerValue(entry.getKey()));
         }
       }
       url = "jdbc:sqlite:" + path;

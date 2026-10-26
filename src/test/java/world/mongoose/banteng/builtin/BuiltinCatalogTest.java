@@ -54,6 +54,14 @@ final class BuiltinCatalogTest {
   private static final Set<String> REACHABLE_NAMES =
       Set.of(
           "abs",
+          "getenv",
+          "respond_to",
+          "task_local",
+          "set_task_local",
+          "salt",
+          "string_hmac",
+          "binary_hmac",
+          "value_hmac",
           "acos",
           "acosh",
           "add_property",
@@ -3877,7 +3885,7 @@ final class BuiltinCatalogTest {
       assertEquals(
           Optional.of(
               new ListValue(
-                  List.of(string("E_INVARG"), new IntegerValue(0), new ListValue(List.of())))),
+                  List.of(string("Invalid argument"), new IntegerValue(0), new ListValue(List.of())))),
           errorDetails(basic));
 
       ListValue customValue = new ListValue(List.of(new IntegerValue(1), new IntegerValue(2)));

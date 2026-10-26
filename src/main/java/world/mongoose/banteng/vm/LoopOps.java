@@ -324,7 +324,7 @@ final class LoopOps {
     }
     MooValue source = frame.operandStack.pop();
     if (!(source instanceof ListValue list)) {
-      ErrorOps.raise(state, ErrorValue.E_TYPE, world);
+      ErrorOps.typeMismatch(state, "list", source, world);
       return;
     }
     int requiredValues = 0;

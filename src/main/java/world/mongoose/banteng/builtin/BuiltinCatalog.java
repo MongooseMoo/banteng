@@ -61,7 +61,11 @@ import world.mongoose.banteng.world.WorldResult;
 import world.mongoose.banteng.world.WorldTxn;
 import world.mongoose.banteng.world.WorldVerb;
 import org.bouncycastle.crypto.generators.Argon2BytesGenerator;
+import org.bouncycastle.crypto.digests.SHA1Digest;
+import org.bouncycastle.crypto.digests.SHA256Digest;
+import org.bouncycastle.crypto.macs.HMac;
 import org.bouncycastle.crypto.params.Argon2Parameters;
+import org.bouncycastle.crypto.params.KeyParameter;
 
 /** The explicit builtin catalog required by the first managed runtime path. */
 public final class BuiltinCatalog {
@@ -888,6 +892,17 @@ public final class BuiltinCatalog {
             EffectClass.IRREVOCABLE,
             BuiltinOwner.VM,
             call -> crypt(call.arguments(), call.world(), call.programmer())));
+    entries.add(new BuiltinSpec("salt",
+        List.of(new CallShape(List.of(STRING, STRING), List.of(), Optional.empty())),
+        BuiltinPermissionRule.ANY, BuiltinCostRule.fixed(0), EffectClass.PURE,
+        BuiltinOwner.VM, call -> salt(call.arguments())));
+    for (String input : List.of("string", "binary", "value")) {
+      entries.add(new BuiltinSpec(input + "_hmac",
+          List.of(new CallShape(List.of(input.equals("value") ? ANY : STRING, STRING),
+              List.of(STRING, ANY), Optional.empty())),
+          BuiltinPermissionRule.ANY, BuiltinCostRule.fixed(0), EffectClass.PURE,
+          BuiltinOwner.VM, call -> hmac(input, call.arguments())));
+    }
     entries.add(
         new BuiltinSpec(
             "argon2",
@@ -3276,6 +3291,12 @@ public final class BuiltinCatalog {
         encoded.write(Character.toUpperCase(Character.forDigit(value & 0x0f, 16)));
       }
     }
+    Optional<BuiltinResult> error = stringLengthError(encoded.size(), world);
+    return error.orElseGet(() -> BuiltinResult.value(StringValue.of(encoded.toByteArray())));
+  }
+
+  /** Checks the configured string limit before the VM allocates a concatenation. */
+  public static Optional<BuiltinResult> stringLengthError(long length, WorldTxn world) {
     long maximumLength = 64_537_861L;
     boolean catchable = false;
     MooValue serverOptions = world.readObjectProperty(0, "server_options").orElse(null);
@@ -3292,12 +3313,12 @@ public final class BuiltinCatalog {
               .map(MooValue::isTruthy)
               .orElse(false);
     }
-    if (encoded.size() > maximumLength) {
-      return catchable
+    if (length > maximumLength) {
+      return Optional.of(catchable
           ? BuiltinResult.error(ErrorValue.E_QUOTA)
-          : new BuiltinResult.SecondsAbort();
+          : new BuiltinResult.SecondsAbort());
     }
-    return BuiltinResult.value(StringValue.of(encoded.toByteArray()));
+    return Optional.empty();
   }
 
   private static BuiltinResult ctime(List<MooValue> arguments) {
@@ -4264,6 +4285,60 @@ public final class BuiltinCatalog {
     return BuiltinResult.value(StringValue.of(result));
   }
 
+  private static BuiltinResult salt(List<MooValue> arguments) {
+    String prefix = ((StringValue) arguments.getFirst()).text();
+    String alphabet = "./0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
+    boolean md5 = prefix.startsWith("$1$");
+    boolean sha = prefix.startsWith("$5$") || prefix.startsWith("$6$");
+    boolean bcrypt = isRecognizedBcrypt(prefix);
+    OptionalLong strength = cryptStrength(prefix);
+    if (strength.isEmpty() || (!md5 && !sha && !bcrypt && !prefix.isEmpty()
+        && (prefix.length() < 2 || alphabet.indexOf(prefix.charAt(0)) < 0
+            || alphabet.indexOf(prefix.charAt(1)) < 0))) {
+      return BuiltinResult.raised(ErrorValue.E_INVARG, StringValue.of("Invalid prefix"),
+          arguments.getFirst());
+    }
+    Optional<byte[]> decoded = binaryBytes((StringValue) arguments.get(1));
+    if (decoded.isEmpty()) {
+      return BuiltinResult.raised(ErrorValue.E_INVARG, StringValue.of("Invalid binary input"),
+          arguments.get(1));
+    }
+    byte[] bytes = decoded.orElseThrow();
+    if (bytes.length < (bcrypt ? 16 : md5 || sha ? 3 : 2) || prefix.startsWith("$2x$")) {
+      return BuiltinResult.error(ErrorValue.E_INVARG);
+    }
+    if (bcrypt) {
+      long cost = strength.orElseThrow() == 0 ? 5 : strength.orElseThrow();
+      String encoded = Base64.getEncoder().withoutPadding().encodeToString(Arrays.copyOf(bytes, 16));
+      String base64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+      String bcryptAlphabet = "./ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+      StringBuilder output = new StringBuilder(prefix.substring(0, 4));
+      output.append(cost < 10 ? "0" : "").append(cost).append('$');
+      for (int index = 0; index < encoded.length(); index++) {
+        output.append(bcryptAlphabet.charAt(base64.indexOf(encoded.charAt(index))));
+      }
+      return BuiltinResult.value(StringValue.of(output.toString()));
+    }
+    if (!md5 && !sha) {
+      return BuiltinResult.value(StringValue.of("" + alphabet.charAt(bytes[0] & 63)
+          + alphabet.charAt(bytes[1] & 63)));
+    }
+    StringBuilder output = new StringBuilder(prefix.substring(0, 3));
+    if (sha && strength.orElseThrow() != 0) {
+      output.append("rounds=").append(strength.orElseThrow()).append('$');
+    }
+    int length = Math.min(bytes.length / 3 * 3, md5 ? 6 : 12);
+    for (int index = 0; index < length; index += 3) {
+      int word = Byte.toUnsignedInt(bytes[index])
+          | (Byte.toUnsignedInt(bytes[index + 1]) << 8)
+          | (Byte.toUnsignedInt(bytes[index + 2]) << 16);
+      for (int shift = 0; shift < 24; shift += 6) {
+        output.append(alphabet.charAt((word >>> shift) & 63));
+      }
+    }
+    return BuiltinResult.value(StringValue.of(output.toString()));
+  }
+
   private static OptionalLong cryptStrength(String salt) {
     if (isRecognizedBcrypt(salt)) {
       int separator = salt.indexOf('$', 4);
@@ -4487,8 +4562,8 @@ public final class BuiltinCatalog {
     return Arrays.copyOf(bytes, length);
   }
 
-  private static BuiltinResult decodeBinary(List<MooValue> arguments) {
-    byte[] binary = ((StringValue) arguments.getFirst()).bytes();
+  private static Optional<byte[]> binaryBytes(StringValue encoded) {
+    byte[] binary = encoded.bytes();
     ByteArrayOutputStream raw = new ByteArrayOutputStream(binary.length);
     for (int index = 0; index < binary.length; index++) {
       int value = Byte.toUnsignedInt(binary[index]);
@@ -4497,17 +4572,60 @@ public final class BuiltinCatalog {
         continue;
       }
       if (index + 2 >= binary.length) {
-        return BuiltinResult.error(ErrorValue.E_INVARG);
+        return Optional.empty();
       }
       int high = Character.digit((char) Byte.toUnsignedInt(binary[++index]), 16);
       int low = Character.digit((char) Byte.toUnsignedInt(binary[++index]), 16);
       if (high < 0 || low < 0) {
-        return BuiltinResult.error(ErrorValue.E_INVARG);
+        return Optional.empty();
       }
       raw.write((high << 4) | low);
     }
 
-    byte[] decoded = raw.toByteArray();
+    return Optional.of(raw.toByteArray());
+  }
+
+  private static BuiltinResult hmac(String input, List<MooValue> arguments) {
+    String algorithm = arguments.size() > 2
+        ? ((StringValue) arguments.get(2)).text().toLowerCase(Locale.ROOT) : "sha256";
+    HMac mac = switch (algorithm) {
+      case "sha1" -> new HMac(new SHA1Digest());
+      case "sha256" -> new HMac(new SHA256Digest());
+      default -> null;
+    };
+    Optional<byte[]> key = binaryBytes((StringValue) arguments.get(1));
+    Optional<byte[]> message = switch (input) {
+      case "binary" -> binaryBytes((StringValue) arguments.getFirst());
+      case "value" -> Optional.of(StringValue.of(arguments.getFirst().toLiteral()).bytes());
+      default -> Optional.of(((StringValue) arguments.getFirst()).bytes());
+    };
+    if (mac == null || key.isEmpty() || message.isEmpty()) {
+      return BuiltinResult.error(ErrorValue.E_INVARG);
+    }
+    mac.init(new KeyParameter(key.orElseThrow()));
+    byte[] bytes = message.orElseThrow();
+    mac.update(bytes, 0, bytes.length);
+    byte[] digest = new byte[mac.getMacSize()];
+    mac.doFinal(digest, 0);
+    boolean binary = arguments.size() > 3 && arguments.get(3).isTruthy();
+    StringBuilder result = new StringBuilder(digest.length * (binary ? 3 : 2));
+    for (byte current : digest) {
+      int value = Byte.toUnsignedInt(current);
+      if (binary) {
+        result.append('~');
+      }
+      result.append("0123456789ABCDEF".charAt(value >>> 4));
+      result.append("0123456789ABCDEF".charAt(value & 15));
+    }
+    return BuiltinResult.value(StringValue.of(result.toString()));
+  }
+
+  private static BuiltinResult decodeBinary(List<MooValue> arguments) {
+    Optional<byte[]> bytes = binaryBytes((StringValue) arguments.getFirst());
+    if (bytes.isEmpty()) {
+      return BuiltinResult.error(ErrorValue.E_INVARG);
+    }
+    byte[] decoded = bytes.orElseThrow();
     if (arguments.size() == 2 && arguments.get(1).isTruthy()) {
       return BuiltinResult.value(
           new ListValue(

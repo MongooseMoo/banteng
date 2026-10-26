@@ -214,3 +214,39 @@ the exact server exception is not available in the current CI artifact.
 CI 40277890765 reached compilation and rejected VmState.continueAfterFork's local
 type: forkRequest holds ForkRequest, not VmSnapshot.Fork. Corrected that local
 declaration; the returned immutable snapshot still carries the copied environment.
+
+Utility slice (~65 lines): implement string/binary/value HMAC with the existing
+Bouncy Castle dependency and shared binary decoder, SHA1/SHA256 only, uppercase
+hex or all-byte ~XX output (Toast crypto.cc:207-230,520-699). Preserve empty keys.
+SQLite duplicate open must carry the existing handle and exact message, per
+sqlite.cc:247-255; use the existing raised-error result (~6 lines).
+
+Salt (~65 lines) uses existing prefix validation and binary decoder, with the
+documented crypt alphabets and byte grouping from Toast's dependencies/crypt/
+crypt_gensalt.c and crypt_blowfish.c:881-904. No new native dependency.
+String concatenation must use the existing random_bytes quota rule before
+allocation (execute.cc:1482); extract that rule for reuse (~25 changed lines).
+
+e3e0d7f Java artifact12631200561 gives the checkpoint cause: the newly registered
+foreground suspension remains visible while its resumed task is executing. It
+appears in its own queued_tasks() (fixtures kill it), and its stale suspension
+enters its own checkpoint. Exclude the executing caller from queued_tasks and
+checkpoint durable tasks, reusing durableTasksExcluding already used by panic.
+Keep single opcode decoding by passing the decoded opcode into tick accounting.
+Updated existing bytecode snapshots and changed-semantics expectations only.
+
+Float literals (~10 lines): Toast code_gen.cc:245 interns equal typed constants
+across a program and its fork vectors. Preserve the first equal float's payload
+in compiler state using existing FloatValue equality; this accounts for signed
+zero reuse without changing standalone negative-zero rendering.
+
+Error text (~25 lines): use existing structured ErrorOps.raise for missing
+property names and scatter/string-add type mismatches, matching execute.cc:918
+and 1510 and unparse.cc:193 type names. No new exception representation.
+
+CI 40278071766 conformance completed (90 failures,11226 passes,1963 skips).
+Earlier tick literal/list/index cases now pass; remaining tick failures cover
+break/continue, named fork, exception/scatter charges and extended-op exhaustion.
+Fork ID binding and error-valued resume now pass. Zero-fork observation and expired
+resume still fail. Waif queued_tasks self-kill causes a new connection-loss cascade;
+startup checkpoint failures match the Java evidence addressed above.

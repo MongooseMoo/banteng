@@ -292,7 +292,8 @@ final class TaskRegistry {
         call.arguments().size() == 2 && ((IntegerValue) call.arguments().get(1)).isTruthy();
     WorldObject actor = call.world().object(call.programmer()).orElse(null);
     boolean wizard = actor != null && ObjectFlags.isWizard(actor.flags());
-    List<TaskInfo> visible = visibleTo(call.programmer(), wizard);
+    List<TaskInfo> visible = visibleTo(call.programmer(), wizard).stream()
+        .filter(task -> task.taskId() != call.taskId()).toList();
     if (returnCount) {
       return BuiltinResult.value(new IntegerValue(visible.size()));
     }

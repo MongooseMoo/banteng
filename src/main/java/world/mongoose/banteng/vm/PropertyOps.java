@@ -301,7 +301,9 @@ final class PropertyOps {
     }
     MooValue value = world.readObjectProperty(object.value(), nameText).orElse(null);
     if (value == null) {
-      ErrorOps.raise(state, ErrorValue.E_PROPNF, world);
+      ErrorOps.raise(state, ErrorValue.E_PROPNF,
+          new ListValue(List.of(StringValue.of("Property not found: " + receiver.toLiteral()
+              + "." + nameText), new IntegerValue(0))), world);
       return;
     }
     frame.operandStack.push(value);

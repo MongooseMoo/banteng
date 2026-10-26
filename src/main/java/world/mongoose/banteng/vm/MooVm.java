@@ -145,7 +145,7 @@ public final class MooVm {
       long taskId) {
     Frame frame = state.currentFrame();
     BytecodeProgram.Opcode opcode = instruction.opcode();
-    for (int tick = 0; tick < instructionTicks(instruction); tick++) {
+    for (int tick = 0; tick < instructionTicks(opcode, instruction); tick++) {
       state.decrementRemainingTicks();
       if (state.remainingTicks() == 0) {
         state.abortTickExhaustion();
@@ -500,11 +500,11 @@ public final class MooVm {
     }
   }
 
-  private static int instructionTicks(Instruction instruction) {
-    return switch (instruction.opcode()) {
+  private static int instructionTicks(BytecodeProgram.Opcode opcode, Instruction instruction) {
+    return switch (opcode) {
       case LIST_APPEND, LIST_EXTEND -> Math.toIntExact(instruction.operand().orElse(1));
       case SET_INDEX_LOCAL, SET_INDEX_PROPERTY -> 2;
-      default -> COUNTED_OPCODES.contains(instruction.opcode()) ? 1 : 0;
+      default -> COUNTED_OPCODES.contains(opcode) ? 1 : 0;
     };
   }
 
