@@ -31,7 +31,9 @@ final class BuiltinCompositionTest {
     ListValue callers = new ListValue(List.of(new IntegerValue(4)));
 
     BuiltinCall call =
-        new BuiltinCall(arguments, world, 5, taskLocal, 6, 7, 8, receiver, 9, callers, true);
+        new BuiltinCall(
+            arguments, world, 5, taskLocal, 6, 7, 8, receiver, 9, callers, true,
+            (_connectionId, queuedBytes) -> queuedBytes);
 
     assertAll(
         () -> assertEquals(arguments, call.arguments()),
@@ -123,6 +125,7 @@ final class BuiltinCompositionTest {
         new IntegerValue(0),
         0,
         new ListValue(List.of()),
-        threadMode);
+        threadMode,
+        (_connectionId, queuedBytes) -> queuedBytes);
   }
 }
