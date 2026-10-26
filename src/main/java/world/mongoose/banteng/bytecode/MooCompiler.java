@@ -738,16 +738,7 @@ public final class MooCompiler {
       return;
     }
     if (expression instanceof Ast.ListLiteral list) {
-      instructions.add(new Instruction(Opcode.BUILD_LIST, 0));
-      for (Ast.Expression element : list.elements()) {
-        if (element instanceof Ast.Splice splice) {
-          compileExpression(splice.value(), instructions);
-          instructions.add(new Instruction(Opcode.LIST_EXTEND));
-        } else {
-          compileExpression(element, instructions);
-          instructions.add(new Instruction(Opcode.LIST_APPEND));
-        }
-      }
+      compileArguments(list.elements(), instructions);
       return;
     }
     if (expression instanceof Ast.MapLiteral map) {
@@ -759,32 +750,14 @@ public final class MooCompiler {
       return;
     }
     if (expression instanceof Ast.Call call) {
-      instructions.add(new Instruction(Opcode.BUILD_LIST, 0));
-      for (Ast.Expression argument : call.arguments()) {
-        if (argument instanceof Ast.Splice splice) {
-          compileExpression(splice.value(), instructions);
-          instructions.add(new Instruction(Opcode.LIST_EXTEND));
-        } else {
-          compileExpression(argument, instructions);
-          instructions.add(new Instruction(Opcode.LIST_APPEND));
-        }
-      }
+      compileArguments(call.arguments(), instructions);
       instructions.add(new Instruction(Opcode.CALL, call.name(), callPath(call)));
       return;
     }
     if (expression instanceof Ast.VerbCall call) {
       compileExpression(call.object(), instructions);
       compileExpression(call.name(), instructions);
-      instructions.add(new Instruction(Opcode.BUILD_LIST, 0));
-      for (Ast.Expression argument : call.arguments()) {
-        if (argument instanceof Ast.Splice splice) {
-          compileExpression(splice.value(), instructions);
-          instructions.add(new Instruction(Opcode.LIST_EXTEND));
-        } else {
-          compileExpression(argument, instructions);
-          instructions.add(new Instruction(Opcode.LIST_APPEND));
-        }
-      }
+      compileArguments(call.arguments(), instructions);
       instructions.add(new Instruction(Opcode.CALL_VERB, callPath(call)));
       return;
     }
@@ -853,6 +826,20 @@ public final class MooCompiler {
     throw new AssertionError("unreachable MOO expression variant: " + expression);
   }
 
+  private void compileArguments(List<Ast.Expression> arguments, List<Instruction> instructions) {
+    instructions.add(new Instruction(Opcode.BUILD_LIST, 0));
+    for (int index = 0; index < arguments.size(); index++) {
+      Ast.Expression argument = arguments.get(index);
+      if (argument instanceof Ast.Splice splice) {
+        compileExpression(splice.value(), instructions);
+        instructions.add(new Instruction(Opcode.LIST_EXTEND, index == 0 ? 1 : 0));
+      } else {
+        compileExpression(argument, instructions);
+        instructions.add(new Instruction(Opcode.LIST_APPEND, index == 0 ? 1 : 0));
+      }
+    }
+  }
+
   private void compileAssignment(Ast.Assignment assignment, List<Instruction> instructions) {
     if (assignment.target() instanceof Ast.VariableTarget variable) {
       compileExpression(assignment.value(), instructions);
@@ -904,6 +891,18 @@ public final class MooCompiler {
       throw new IllegalArgumentException("indexed assignment requires a local owner");
     }
     if (assignment.target() instanceof Ast.RangeTarget range) {
+      if (range.collection() instanceof Ast.PropertyAccess property) {
+        compileExpression(property.object(), instructions);
+        compileExpression(property.property(), instructions);
+        instructions.add(new Instruction(Opcode.DUP_PAIR));
+        instructions.add(new Instruction(Opcode.GET_PROPERTY));
+        instructions.add(new Instruction(Opcode.ENTER_INDEX));
+        compileExpression(range.start(), instructions);
+        compileExpression(range.end(), instructions);
+        compileExpression(assignment.value(), instructions);
+        instructions.add(new Instruction(Opcode.SET_RANGE_PROPERTY));
+        return;
+      }
       if (range.collection() instanceof Ast.Identifier owner) {
         instructions.add(new Instruction(Opcode.LOAD_LOCAL, owner.name()));
         instructions.add(new Instruction(Opcode.ENTER_INDEX));

@@ -49,11 +49,10 @@ public final class MooVm {
           BytecodeProgram.Opcode.SET_PROPERTY,
           BytecodeProgram.Opcode.INDEX,
           BytecodeProgram.Opcode.RANGE,
-          BytecodeProgram.Opcode.FIRST,
-          BytecodeProgram.Opcode.LAST,
           BytecodeProgram.Opcode.SET_INDEX_LOCAL,
           BytecodeProgram.Opcode.SET_INDEX_PROPERTY,
           BytecodeProgram.Opcode.SET_RANGE_LOCAL,
+          BytecodeProgram.Opcode.SET_RANGE_PROPERTY,
           BytecodeProgram.Opcode.CALL,
           BytecodeProgram.Opcode.CALL_VERB,
           BytecodeProgram.Opcode.NEGATE,
@@ -146,7 +145,7 @@ public final class MooVm {
       long taskId) {
     Frame frame = state.currentFrame();
     BytecodeProgram.Opcode opcode = instruction.opcode();
-    if (isCountedInstruction(opcode, frame)) {
+    for (int tick = 0; tick < instructionTicks(instruction); tick++) {
       state.decrementRemainingTicks();
       if (state.remainingTicks() == 0) {
         state.abortTickExhaustion();
@@ -225,6 +224,8 @@ public final class MooVm {
           IndexOps.execute(IndexOps.Operation.SET_INDEX_PROPERTY, state, instruction, frame, world);
       case SET_RANGE_LOCAL ->
           IndexOps.execute(IndexOps.Operation.SET_RANGE_LOCAL, state, instruction, frame, world);
+      case SET_RANGE_PROPERTY ->
+          IndexOps.execute(IndexOps.Operation.SET_RANGE_PROPERTY, state, instruction, frame, world);
       case CALL -> {
         String callName = instruction.text().orElseThrow();
         if (!callName.equalsIgnoreCase("pass")) {
@@ -499,18 +500,12 @@ public final class MooVm {
     }
   }
 
-  private static boolean isCountedInstruction(
-      BytecodeProgram.Opcode opcode, Frame frame) {
-    if (opcode != BytecodeProgram.Opcode.LIST_APPEND) {
-      return COUNTED_OPCODES.contains(opcode);
-    }
-    var operands = frame.operandStack.iterator();
-    if (operands.hasNext()) {
-      operands.next();
-    }
-    return operands.hasNext()
-        && operands.next() instanceof ListValue list
-        && list.elements().isEmpty();
+  private static int instructionTicks(Instruction instruction) {
+    return switch (instruction.opcode()) {
+      case LIST_APPEND, LIST_EXTEND -> Math.toIntExact(instruction.operand().orElse(1));
+      case SET_INDEX_LOCAL, SET_INDEX_PROPERTY -> 2;
+      default -> COUNTED_OPCODES.contains(instruction.opcode()) ? 1 : 0;
+    };
   }
 
   private static void invokeBuiltin(

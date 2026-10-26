@@ -354,35 +354,35 @@ final class MooCompilerTest {
         2 POP
         3 BUILD_LIST 0
         4 PUSH_INTEGER 1
-        5 LIST_APPEND
+        5 LIST_APPEND 1
         6 BUILD_LIST 0
         7 PUSH_INTEGER 2
-        8 LIST_APPEND
-        9 LIST_APPEND
+        8 LIST_APPEND 1
+        9 LIST_APPEND 0
         10 BUILD_LIST 0
         11 BUILD_LIST 0
         12 PUSH_INTEGER 0
-        13 LIST_APPEND
-        14 LIST_APPEND
+        13 LIST_APPEND 1
+        14 LIST_APPEND 1
         15 BUILD_LIST 0
         16 PUSH_INTEGER 1
-        17 LIST_APPEND
+        17 LIST_APPEND 1
         18 BUILD_LIST 0
         19 PUSH_INTEGER 2
-        20 LIST_APPEND
-        21 LIST_APPEND
-        22 LIST_APPEND
+        20 LIST_APPEND 1
+        21 LIST_APPEND 0
+        22 LIST_APPEND 0
         23 IN
         24 RETURN
         fork 0:
           0 BUILD_LIST 0
           1 PUSH_INTEGER 1
-          2 LIST_APPEND
+          2 LIST_APPEND 1
           3 CALL suspend
           4 POP
           5 BUILD_LIST 0
           6 LOAD_LOCAL h
-          7 LIST_APPEND
+          7 LIST_APPEND 1
           8 CALL sqlite_interrupt
           9 POP
           10 PUSH_INTEGER 0
@@ -476,7 +476,7 @@ final class MooCompilerTest {
         2 ENTER_HANDLER catch=11:first:E_TYPE,binding=STRUCTURED,finally=-1,end=9
         3 BUILD_LIST 0
         4 PUSH_ERROR E_ARGS
-        5 LIST_APPEND
+        5 LIST_APPEND 1
         6 CALL raise
         7 POP
         8 LEAVE_HANDLER
@@ -510,7 +510,7 @@ final class MooCompilerTest {
         """
         0 BUILD_LIST 0
         1 PUSH_INTEGER 1
-        2 LIST_APPEND
+        2 LIST_APPEND 1
         3 DUP
         4 STORE_LOCAL items
         5 POP
@@ -528,12 +528,12 @@ final class MooCompilerTest {
         17 POP
         18 BUILD_LIST 0
         19 LOAD_LOCAL items
-        20 LIST_EXTEND
+        20 LIST_EXTEND 1
         21 LOAD_LOCAL m
         22 ENTER_INDEX
         23 PUSH_INTEGER 1
         24 INDEX
-        25 LIST_APPEND
+        25 LIST_APPEND 0
         26 RETURN""",
         program.disassemble());
   }
@@ -547,17 +547,17 @@ final class MooCompilerTest {
         """
         0 BUILD_LIST 0
         1 PUSH_INTEGER 1
-        2 LIST_APPEND
+        2 LIST_APPEND 1
         3 PUSH_INTEGER 2
-        4 LIST_APPEND
+        4 LIST_APPEND 0
         5 PUSH_INTEGER 3
-        6 LIST_APPEND
+        6 LIST_APPEND 0
         7 DUP
         8 STORE_LOCAL args
         9 POP
         10 BUILD_LIST 0
         11 LOAD_LOCAL args
-        12 LIST_EXTEND
+        12 LIST_EXTEND 1
         13 CALL max
         14 RETURN""",
         program.disassemble());
@@ -609,7 +609,7 @@ final class MooCompilerTest {
         7 PUSH_STRING missing
         8 DUP
         9 STORE_LOCAL name
-        10 LIST_APPEND
+        10 LIST_APPEND 1
         11 CALL_VERB
         12 RETURN""",
         computed.disassemble());
@@ -623,9 +623,9 @@ final class MooCompilerTest {
         1 PUSH_STRING test
         2 BUILD_LIST 0
         3 PUSH_INTEGER 1
-        4 LIST_APPEND
+        4 LIST_APPEND 1
         5 LOAD_LOCAL args
-        6 LIST_EXTEND
+        6 LIST_EXTEND 0
         7 CALL_VERB
         8 RETURN""",
         staticCall.disassemble());

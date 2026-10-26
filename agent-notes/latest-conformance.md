@@ -198,3 +198,15 @@ CI 40276121013 conformance completed: 93 failed, 11223 passed, 1958 skipped.
 Java compileTest needs its TaskRegistryTest error helper to assert ErrorValue
 after RaisedError was widened; fixed. Native signal startup failures are not
 yet reverified by the Java suite because that compilation failure stopped it.
+
+83043f5 pushed the scheduler slice. CI 40277110685 stopped before compilation:
+Maven Central returned HTTP 429 fetching rewrite-bom 8.89.0. No scheduler result.
+
+Next smallest compiler/VM repair (~90 lines): charge list construction by its
+syntactic first element, not the runtime list length; fold negative literals as
+Toast parser.y:597-615 does; make FIRST/LAST free and count both index update and
+owner assignment (opcode.h:49-129). Property range assignment currently throws
+IllegalArgumentException in MooCompiler; add its missing operation, sharing the
+existing range replacement implementation and PropertyOps write permission path.
+This explains the lost connection beginning at tick_property_write_and_indexed_writes;
+the exact server exception is not available in the current CI artifact.

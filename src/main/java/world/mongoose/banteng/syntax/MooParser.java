@@ -559,7 +559,12 @@ public final class MooParser {
       }
       case MINUS -> {
         advance();
-        yield new Ast.Unary(Ast.UnaryOperator.NEGATE, parseExpression(UNARY_PRECEDENCE));
+        Ast.Expression operand = parseExpression(UNARY_PRECEDENCE);
+        yield switch (operand) {
+          case Ast.IntegerLiteral integer -> new Ast.IntegerLiteral(-integer.value(), integer.span());
+          case Ast.FloatLiteral floating -> new Ast.FloatLiteral(-floating.value(), floating.span());
+          default -> new Ast.Unary(Ast.UnaryOperator.NEGATE, operand);
+        };
       }
       case BANG -> {
         advance();

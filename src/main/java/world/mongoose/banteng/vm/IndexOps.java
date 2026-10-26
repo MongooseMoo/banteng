@@ -35,7 +35,8 @@ final class IndexOps {
     LAST,
     SET_INDEX_LOCAL,
     SET_INDEX_PROPERTY,
-    SET_RANGE_LOCAL
+    SET_RANGE_LOCAL,
+    SET_RANGE_PROPERTY
   }
 
   private IndexOps() {}
@@ -80,12 +81,16 @@ final class IndexOps {
         yield true;
       }
       case SET_RANGE_LOCAL -> {
-        setRangeLocal(
+        setRange(
             frame,
             state,
             world,
-            instruction.text().orElseThrow(),
+            instruction.text(),
             Math.toIntExact(instruction.operand().orElse(0)));
+        yield true;
+      }
+      case SET_RANGE_PROPERTY -> {
+        setRange(frame, state, world, Optional.empty(), 0);
         yield true;
       }
     };
@@ -436,8 +441,8 @@ final class IndexOps {
     }
   }
 
-  private static void setRangeLocal(
-      Frame frame, VmState state, WorldTxn world, String owner, int parentDepth) {
+  private static void setRange(
+      Frame frame, VmState state, WorldTxn world, Optional<String> owner, int parentDepth) {
     frame.indexCollections.pop();
     MooValue value = frame.operandStack.pop();
     MooValue end = frame.operandStack.pop();
@@ -580,8 +585,18 @@ final class IndexOps {
       ErrorOps.raise(state, ErrorValue.E_TYPE, world);
       return;
     }
+    if (owner.isEmpty()) {
+      frame.operandStack.push(updatedCollection);
+      int instructionPointer = frame.instructionPointer;
+      PropertyOps.setProperty(frame, state, world);
+      if (frame.instructionPointer == instructionPointer + 1) {
+        frame.operandStack.pop();
+        frame.operandStack.push(value);
+      }
+      return;
+    }
     if (parentDepth == 0) {
-      frame.locals.put(PropertyOps.normalize(owner), updatedCollection);
+      frame.locals.put(PropertyOps.normalize(owner.orElseThrow()), updatedCollection);
     } else {
       IndexContext parentContext = frame.indexCollections.pop();
       MooValue parentKey = parentContext.key().orElseThrow();
@@ -596,7 +611,7 @@ final class IndexOps {
       }
       List<MooValue> replaced = new ArrayList<>(list.elements());
       replaced.set(Math.toIntExact(index.value() - 1), updatedCollection);
-      frame.locals.put(PropertyOps.normalize(owner), new ListValue(replaced));
+      frame.locals.put(PropertyOps.normalize(owner.orElseThrow()), new ListValue(replaced));
     }
     frame.operandStack.push(value);
     frame.instructionPointer++;
