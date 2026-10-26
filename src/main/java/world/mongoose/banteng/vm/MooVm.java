@@ -13,7 +13,6 @@ import world.mongoose.banteng.builtin.BuiltinCatalog;
 import world.mongoose.banteng.builtin.BuiltinCatalog.ConnectionOptionRequest;
 import world.mongoose.banteng.builtin.BuiltinCatalog.ForcedInputRequest;
 import world.mongoose.banteng.builtin.BuiltinCatalog.NotificationRequest;
-import world.mongoose.banteng.builtin.BuiltinHosts;
 import world.mongoose.banteng.builtin.BuiltinResult;
 import world.mongoose.banteng.builtin.BuiltinSpec;
 import world.mongoose.banteng.builtin.CheckpointRequest;
@@ -94,23 +93,6 @@ public final class MooVm {
   /** Creates a VM with the selected value semantics. */
   public MooVm(ValueSemantics valueSemantics) {
     this.valueSemantics = Objects.requireNonNull(valueSemantics, "valueSemantics");
-  }
-
-  /** Executes a pure program for package-level VM tests without publishing world state or effects. */
-  void execute(BytecodeProgram program, VmState state) {
-    WorldTxn root = new WorldTxn(List.of(), List.of());
-    try (WorldTxn transaction = root.begin()) {
-      execute(
-          program,
-          state,
-          transaction,
-          new BuiltinCatalog(
-              BuiltinHosts.builder().valueSemantics(valueSemantics).build()),
-          0L);
-      if (state.outcome() == VmState.Outcome.PENDING_BUILTIN) {
-        throw new IllegalStateException("pure VM execution reached an irrevocable builtin");
-      }
-    }
   }
 
   /** Executes with the one concrete world transaction, builtin catalog, and scheduler task ID. */

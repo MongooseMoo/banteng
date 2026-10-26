@@ -72,6 +72,7 @@ public final class MooRuntime implements AutoCloseable {
   static final long DEFAULT_BACKGROUND_TICKS = 30_000;
   static final long DEFAULT_BACKGROUND_SECONDS = 3;
   static final long DEFAULT_MAX_STACK_DEPTH = 50;
+  static final long DEFAULT_CONNECT_TIMEOUT_SECONDS = 300;
   private final Map<String, BytecodeProgram> compiledPrograms = new ConcurrentHashMap<>();
   private final BuiltinCatalog builtins;
   private final ServerLog serverLog;
@@ -988,13 +989,6 @@ public final class MooRuntime implements AutoCloseable {
         huhReceiver = player;
       }
       Optional<WorldVerb> huhVerb = world().verb(huhReceiver, "huh");
-      if (roomCommandVerb.isEmpty() && words.getFirst().equalsIgnoreCase("eval")) {
-        Optional<WorldVerb> fixtureEval = world().verb(room, 0);
-        if (fixtureEval.isPresent()
-            && fixtureEval.orElseThrow().names().equalsIgnoreCase(words.getFirst())) {
-          roomCommandVerb = fixtureEval;
-        }
-      }
       {
         List<MooValue> arguments = new ArrayList<>();
         for (int index = 1; index < words.size(); index++) {
@@ -1528,18 +1522,31 @@ public final class MooRuntime implements AutoCloseable {
         Thread.currentThread().interrupt();
         return;
       }
-      if (scheduler.submit(RuntimeRequest.timeout(connectionId, openedConnection.generation)).isEmpty()) {
-        return;
+      switch (scheduler.submitLoginTimeout(
+          RuntimeRequest.timeout(connectionId, openedConnection.generation))) {
+        case LoginTimeoutResult.KeepWatching ignored -> { }
+        case LoginTimeoutResult.Done ignored -> { return; }
+        case LoginTimeoutResult.TimedOut ignored -> { return; }
       }
     }
   }
 
-  private RuntimeStep checkLoginTimeoutNow(long connectionId, long generation) {
+  sealed interface LoginTimeoutResult {
+    record KeepWatching() implements LoginTimeoutResult {}
+    record Done() implements LoginTimeoutResult {}
+    record TimedOut(List<String> lines) implements LoginTimeoutResult {
+      public TimedOut {
+        lines = List.copyOf(lines);
+      }
+    }
+  }
+
+  private LoginTimeoutResult checkLoginTimeoutNow(long connectionId, long generation) {
     ConnectionState connection = connections().get(connectionId);
     if (connection == null
         || connection.generation != generation
         || connectionRegistry().connectionPlayer(connectionId).orElse(0) >= 0) {
-      return RuntimeStep.returned(List.of());
+      return new LoginTimeoutResult.Done();
     }
     MooValue serverOptions =
         world().readObjectProperty(connection.listenerHandler, "server_options").orElse(null);
@@ -1552,16 +1559,16 @@ public final class MooRuntime implements AutoCloseable {
             : null;
     long timeoutSeconds;
     if (configuredTimeout == null) {
-      timeoutSeconds = 300;
+      timeoutSeconds = DEFAULT_CONNECT_TIMEOUT_SECONDS;
     } else if (configuredTimeout instanceof IntegerValue timeout && timeout.value() > 0) {
       timeoutSeconds = timeout.value();
     } else {
-      return RuntimeStep.returned(List.of("pending"));
+      return new LoginTimeoutResult.KeepWatching();
     }
     long idleSeconds =
         elapsedSeconds(connection.lastActivityNanos);
     if (idleSeconds <= timeoutSeconds) {
-      return RuntimeStep.returned(List.of("pending"));
+      return new LoginTimeoutResult.KeepWatching();
     }
     List<String> lines = new ArrayList<>();
     if (connection.printMessages) {
@@ -1570,6 +1577,19 @@ public final class MooRuntime implements AutoCloseable {
               connection.listenerHandler,
               "timeout_msg",
               "*** Timed-out waiting for login. ***"));
+    }
+    return new LoginTimeoutResult.TimedOut(lines);
+  }
+
+  private RuntimeStep executeLoginTimeout(long connectionId, long generation) {
+    LoginTimeoutResult result = checkLoginTimeoutNow(connectionId, generation);
+    if (!(result instanceof LoginTimeoutResult.TimedOut timedOut)) {
+      return RuntimeStep.loginTimeout(result, List.of());
+    }
+    List<String> lines = timedOut.lines();
+    ConnectionState connection = connections().get(connectionId);
+    if (connection == null) {
+      throw new IllegalStateException("timed-out connection disappeared within attempt");
     }
     Optional<WorldVerb> disconnected =
         world().verb(connection.listenerHandler, "user_disconnected");
@@ -1601,7 +1621,7 @@ public final class MooRuntime implements AutoCloseable {
     }
     connections().remove(connectionId);
     connectionRegistry().closeConnection(connectionId);
-    return RuntimeStep.returned(List.of());
+    return RuntimeStep.loginTimeout(new LoginTimeoutResult.TimedOut(lines), List.of());
   }
 
   private RuntimeStep startTaskTimeout(RuntimeContinuation continuation) {
@@ -2770,7 +2790,7 @@ public final class MooRuntime implements AutoCloseable {
         case CLOSE -> closeConnectionNow(request.connectionId);
         case LINE -> executeLineNow(request.connectionId, request.text);
         case OUT_OF_BAND -> executeTransportOutOfBandNow(request.connectionId, request.text);
-        case TIMEOUT -> checkLoginTimeoutNow(request.connectionId, request.generation);
+        case TIMEOUT -> executeLoginTimeout(request.connectionId, request.generation);
         case CHECKPOINT_FINISHED -> checkpointFinishedNow(request.printMessages, request.generation != 0);
       };
     }
@@ -2796,6 +2816,10 @@ public final class MooRuntime implements AutoCloseable {
         if (connection != null) {
           connection.suffix.ifPresent(output::add);
         }
+      }
+      if (continuation.transition().orElseThrow()
+          == RuntimeTransition.LOGIN_TIMEOUT_USER_DISCONNECTED_THEN_BOOT) {
+        return RuntimeStep.loginTimeout(new LoginTimeoutResult.KeepWatching(), output);
       }
       return RuntimeStep.returned(output);
     }
@@ -3537,11 +3561,13 @@ public final class MooRuntime implements AutoCloseable {
       Optional<world.mongoose.banteng.vm.VmSnapshot> snapshot,
       long taskPlayer,
       Optional<RuntimeContinuation> continuation,
-      Optional<List<String>> output) {
+      Optional<List<String>> output,
+      Optional<LoginTimeoutResult> loginTimeout) {
     RuntimeStep {
       Objects.requireNonNull(program, "program");
       Objects.requireNonNull(snapshot, "snapshot");
       Objects.requireNonNull(continuation, "continuation");
+      Objects.requireNonNull(loginTimeout, "loginTimeout");
       output = output.map(List::copyOf);
       boolean vm = program.isPresent() && snapshot.isPresent() && continuation.isPresent();
       boolean returned = output.isPresent();
@@ -3560,12 +3586,19 @@ public final class MooRuntime implements AutoCloseable {
           Optional.of(snapshot),
           taskPlayer,
           Optional.of(continuation),
-          Optional.empty());
+          Optional.empty(), Optional.empty());
     }
 
     static RuntimeStep returned(List<String> output) {
       return new RuntimeStep(
-          Optional.empty(), Optional.empty(), Long.MIN_VALUE, Optional.empty(), Optional.of(output));
+          Optional.empty(), Optional.empty(), Long.MIN_VALUE, Optional.empty(), Optional.of(output),
+          Optional.empty());
+    }
+
+    static RuntimeStep loginTimeout(LoginTimeoutResult result, List<String> output) {
+      return new RuntimeStep(
+          Optional.empty(), Optional.empty(), Long.MIN_VALUE, Optional.empty(), Optional.of(output),
+          Optional.of(result));
     }
   }
 
