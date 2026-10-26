@@ -45,7 +45,7 @@ final class ArchitectureTest {
   }
 
   @Test
-  void publicationSchedulerDoesNotDependOnConcreteRuntime() {
+  void publicationSchedulerCallbacksDoNotDependOnConcreteRuntime() {
     noClasses()
         .that().haveFullyQualifiedName("world.mongoose.banteng.runtime.PublicationScheduler")
         .should().dependOnClassesThat()

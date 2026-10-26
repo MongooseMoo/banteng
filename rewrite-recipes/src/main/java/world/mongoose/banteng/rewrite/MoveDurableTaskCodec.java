@@ -95,7 +95,7 @@ public final class MoveDurableTaskCodec extends ScanningRecipe<MoveDurableTaskCo
         .visitNonNull(generated, context);
     generated = (J.CompilationUnit) new RemoveUnusedImports().getVisitor()
         .visitNonNull(generated, context);
-    // Import cleanup on the transplanted members loses this static-call owner.
+    // importActivation contains OptionalLong.empty() references in the generated class.
     generated = (J.CompilationUnit) new AddImport<ExecutionContext>(
         "java.util.OptionalLong", null, false).visitNonNull(generated, context);
     return List.of(generated);
