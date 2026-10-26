@@ -22,6 +22,37 @@ import org.junit.jupiter.api.Test;
 
 final class MooCompilerTest {
   @Test
+  void resolvesMixedCaseLoopExitsToTheSameTargets() {
+    for (String exit : List.of("break", "continue")) {
+      for (String source :
+          List.of(
+              "for X in ({1, 2}) EXIT X; endfor",
+              "for X in [1..2] EXIT X; endfor",
+              "for Value, X in ({1, 2}) EXIT X; endfor",
+              "while X (1) EXIT X; endwhile",
+              "for X in ({1}) while Y (1) EXIT X; endwhile endfor",
+              "while X (1) for Y in ({1}) EXIT X; endfor endwhile",
+              "while X (1) while x (1) EXIT X; endwhile endwhile")) {
+        String sameCase = source.replace("EXIT", exit);
+        String mixedCase = sameCase.replace(exit + " X;", exit + " x;");
+        MooCompiler.CompilationResult expected = new MooCompiler().compileResult(sameCase);
+        MooCompiler.CompilationResult actual = new MooCompiler().compileResult(mixedCase);
+
+        assertTrue(expected.diagnostics().isEmpty(), sameCase);
+        assertTrue(actual.diagnostics().isEmpty(), mixedCase);
+        assertEquals(
+            expected.program().orElseThrow().instructions(),
+            actual.program().orElseThrow().instructions(),
+            mixedCase);
+        assertEquals(
+            new LayoutCompiler(sameCase).callBoundaries(0),
+            new LayoutCompiler(mixedCase).callBoundaries(0),
+            mixedCase);
+      }
+    }
+  }
+
+  @Test
   void reportsContextOnlyExpressionNodesPrecisely() {
     MooCompiler compiler = new MooCompiler();
     Ast.Program spliceProgram =

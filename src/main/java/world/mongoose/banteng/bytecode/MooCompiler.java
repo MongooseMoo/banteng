@@ -478,7 +478,7 @@ public final class MooCompiler {
       int exitJump = addJump(Opcode.JUMP_IF_FALSE, instructions);
       List<Integer> breakJumps = new ArrayList<>();
       activeLoopVariables.add(
-          whileStatement.loopVariable().map(List::of).orElseGet(List::of));
+          LoopNames.normalize(whileStatement.loopVariable().map(List::of).orElseGet(List::of)));
       activeLoopStarts.add(conditionTarget);
       activeLoopBreaks.add(breakJumps);
       compileStatements(whileStatement.body(), instructions, forkVectors);
@@ -510,10 +510,11 @@ public final class MooCompiler {
               controlPath(forStatement)));
       List<Integer> breakJumps = new ArrayList<>();
       activeLoopVariables.add(
-          forStatement
-              .indexVariable()
-              .map(index -> List.of(forStatement.variable(), index))
-              .orElseGet(() -> List.of(forStatement.variable())));
+          LoopNames.normalize(
+              forStatement
+                  .indexVariable()
+                  .map(index -> List.of(forStatement.variable(), index))
+                  .orElseGet(() -> List.of(forStatement.variable()))));
       activeLoopStarts.add(iterate);
       activeLoopBreaks.add(breakJumps);
       compileStatements(forStatement.body(), instructions, forkVectors);
@@ -530,17 +531,8 @@ public final class MooCompiler {
       return;
     }
     if (statement instanceof Ast.Break breakStatement) {
-      int loopIndex = activeLoopVariables.size() - 1;
-      if (breakStatement.loopVariable().isPresent()) {
-        String loopVariable = breakStatement.loopVariable().orElseThrow();
-        loopIndex = -1;
-        for (int index = activeLoopVariables.size() - 1; index >= 0; index--) {
-          if (activeLoopVariables.get(index).contains(loopVariable)) {
-            loopIndex = index;
-            break;
-          }
-        }
-      }
+      int loopIndex =
+          LoopNames.find(activeLoopVariables, names -> names, breakStatement.loopVariable());
       if (loopIndex < 0) {
         throw new IllegalArgumentException(
             "unknown loop variable: " + breakStatement.loopVariable().orElse("<unnamed>"));
@@ -550,17 +542,8 @@ public final class MooCompiler {
       return;
     }
     if (statement instanceof Ast.Continue continueStatement) {
-      int loopIndex = activeLoopVariables.size() - 1;
-      if (continueStatement.loopVariable().isPresent()) {
-        String loopVariable = continueStatement.loopVariable().orElseThrow();
-        loopIndex = -1;
-        for (int index = activeLoopVariables.size() - 1; index >= 0; index--) {
-          if (activeLoopVariables.get(index).contains(loopVariable)) {
-            loopIndex = index;
-            break;
-          }
-        }
-      }
+      int loopIndex =
+          LoopNames.find(activeLoopVariables, names -> names, continueStatement.loopVariable());
       if (loopIndex < 0) {
         throw new IllegalArgumentException(
             "Invalid loop name: " + continueStatement.loopVariable().orElse("<unnamed>"));
