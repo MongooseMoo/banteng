@@ -30,9 +30,10 @@ public final class Aspell {
       MemorySegment elements = (MemorySegment) Api.ELEMENTS.invokeExact(suggestions);
       List<String> result = new ArrayList<>();
       try {
-        MemorySegment next;
-        while (!(next = (MemorySegment) Api.NEXT.invokeExact(elements)).equals(MemorySegment.NULL)) {
+        MemorySegment next = (MemorySegment) Api.NEXT.invokeExact(elements);
+        while (!next.equals(MemorySegment.NULL)) {
           result.add(next.reinterpret(Long.MAX_VALUE).getString(0));
+          next = (MemorySegment) Api.NEXT.invokeExact(elements);
         }
       } finally {
         Api.DELETE.invokeExact(elements);

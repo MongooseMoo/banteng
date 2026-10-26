@@ -372,3 +372,21 @@ Current object_bytes/URL/Aspell changes are ready for PR CI, not yet verified.
 bff08d4 CI40285380542 stopped at compilation: Aspell.check's native string
 reinterpretation lacked the restricted-FFM annotation used by other host calls.
 Add it at that method boundary; no behavioral verification ran for this slice.
+
+Protected dispatch (~75 lines): reload the existing protect_<name> options at
+runtime initialization and load_server_options. That reload mutates host flags,
+so use the existing IRREVOCABLE publication boundary. Before argument validation,
+shared catalog dispatch returns a wrapper-verb call when this != #0 and the
+cached flag is set (functions.cc:219-239). The VM pushes an ordinary #0 verb
+frame; absent wrappers allow wizard fallback and otherwise E_PERM. This also
+covers call_function because it uses the same catalog dispatch.
+
+ea9e44f CI40285555364 compilation reached Error Prone, which rejected the
+assignment inside Aspell's while condition. Split the call from the condition.
+
+Recycle slice (~40 changed lines): retain existing recycleTarget continuation
+on every recycle/exit hook frame. On return, repeatedly detach the first content
+or the object itself to #-1, running exitfunc before continuing; then remove it.
+Toast objects.cc:759-775,850-875 restarts this scan after every hook. Reaching
+the hook recursion limit falls through into removal, rather than E_MAXREC
+(objects.cc:843). Outer continuations then see the missing object and E_INVARG.

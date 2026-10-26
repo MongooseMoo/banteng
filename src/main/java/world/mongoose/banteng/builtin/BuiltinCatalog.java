@@ -103,6 +103,7 @@ public final class BuiltinCatalog {
   private final ToastRegexService toastRegex = new ToastRegexService();
   private final Random floatingRandom;
   private final Map<String, BuiltinSpec> specs;
+  private volatile Set<String> protectedFunctions = Set.of();
 
   /** Creates a catalog from one complete standalone host composition. */
   public BuiltinCatalog(BuiltinHosts hosts) {
@@ -1921,9 +1922,12 @@ public final class BuiltinCatalog {
             List.of(new CallShape(List.of(), List.of(), Optional.empty())),
             BuiltinPermissionRule.WIZARD_ONLY,
             BuiltinCostRule.fixed(0),
-            EffectClass.PURE,
+            EffectClass.IRREVOCABLE,
             BuiltinOwner.SERVER,
-            call -> BuiltinResult.value(new IntegerValue(0))));
+            call -> {
+              reloadProtectedFunctions(call.world());
+              return BuiltinResult.value(new IntegerValue(0));
+            }));
     entries.add(
         new BuiltinSpec(
             "run_gc",
@@ -2614,6 +2618,14 @@ public final class BuiltinCatalog {
       ListValue callers,
       boolean threadMode,
       LongBinaryOperator stagedBufferedOutputLength) {
+    if (!(receiver instanceof ObjectValue object && object.value() == 0)
+        && protectedFunctions.contains(spec.name())) {
+      String wrapper = "bf_" + spec.name();
+      if (world.verb(0, wrapper, true).isPresent()) {
+        return new BuiltinResult.ProtectedCall(wrapper, new ListValue(arguments));
+      }
+      if (!isWizard(world, programmer)) return BuiltinResult.error(ErrorValue.E_PERM);
+    }
     if (spec.callShapes().stream().noneMatch(shape -> shape.acceptsArity(arguments.size()))) {
       int minimum = spec.callShapes().stream().mapToInt(shape -> shape.required().size()).min().orElseThrow();
       int maximum = spec.callShapes().stream().anyMatch(shape -> shape.variadic().isPresent()) ? -1
@@ -2644,6 +2656,20 @@ public final class BuiltinCatalog {
                 callers,
                 threadMode,
                 stagedBufferedOutputLength));
+  }
+
+  /** Loads the builtin protection flags from the published server options. */
+  public void reloadProtectedFunctions(WorldTxn world) {
+    Set<String> protectedNames = new LinkedHashSet<>();
+    if (world.readObjectProperty(0, "server_options").orElse(null) instanceof ObjectValue options) {
+      for (BuiltinSpec spec : manifest) {
+        if (world.readObjectProperty(options.value(), "protect_" + spec.name())
+            .map(MooValue::isTruthy).orElse(false)) {
+          protectedNames.add(spec.name());
+        }
+      }
+    }
+    protectedFunctions = Set.copyOf(protectedNames);
   }
 
   private BuiltinResult functionInfo(List<MooValue> arguments) {

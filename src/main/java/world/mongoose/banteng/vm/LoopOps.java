@@ -19,7 +19,6 @@ import world.mongoose.banteng.vm.VmState.CollectionCursor;
 import world.mongoose.banteng.vm.VmState.Frame;
 import world.mongoose.banteng.vm.VmState.LoopCursor;
 import world.mongoose.banteng.vm.VmState.RangeCursor;
-import world.mongoose.banteng.world.WorldResult;
 import world.mongoose.banteng.world.WorldTxn;
 
 /** Fork, branch, handler, loop, scatter, and return operations. */
@@ -400,12 +399,7 @@ final class LoopOps {
     if (frame.recycleTarget.isPresent()) {
       long recycleTarget = frame.recycleTarget.orElseThrow();
       state.unwindChildFrame();
-      WorldResult<Boolean> result = world.recycleObject(recycleTarget);
-      if (result instanceof WorldResult.Failed<?> failed) {
-        ErrorOps.raise(state, failed.reason().value(), world, false);
-        return;
-      }
-      state.currentFrame().operandStack.push(new IntegerValue(0));
+      MooVm.continueRecycle(recycleTarget, state, world);
       return;
     }
     if (frame.anonymousRecycleTarget.isPresent()) {

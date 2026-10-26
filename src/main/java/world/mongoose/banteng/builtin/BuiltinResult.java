@@ -20,6 +20,9 @@ public sealed interface BuiltinResult {
     }
   }
 
+  /** Invokes the system wrapper for a protected builtin before native validation. */
+  record ProtectedCall(String verb, ListValue arguments) implements BuiltinResult {}
+
   /** Invokes initialize after creating an object or anonymous object. */
   record Initialize(MooValue created, ListValue arguments) implements BuiltinResult {
     public Initialize {
