@@ -13,6 +13,7 @@ import world.mongoose.banteng.bytecode.BytecodeProgram;
 import world.mongoose.banteng.bytecode.BytecodeProgram.Instruction;
 import world.mongoose.banteng.bytecode.MooCompiler;
 import world.mongoose.banteng.value.MooValue;
+import world.mongoose.banteng.value.ValueSemantics;
 import world.mongoose.banteng.value.MooValue.ErrorValue;
 import world.mongoose.banteng.value.MooValue.IntegerValue;
 import world.mongoose.banteng.value.MooValue.ListValue;
@@ -159,11 +160,18 @@ final class IndexOps {
     ErrorOps.raise(state, ErrorValue.E_TYPE, world);
   }
 
+  private static int mapKeyPosition(List<MooValue> keys, MooValue requested) {
+    for (int index = 0; index < keys.size(); index++) {
+      if (ValueSemantics.STANDARD.compare(keys.get(index), requested, false) == 0) return index;
+    }
+    return -1;
+  }
+
   private static void boundaryIndex(
       Frame frame, VmState state, WorldTxn world, boolean last) {
     MooValue collection = frame.indexCollections.getFirst().collection();
     if (collection instanceof MapValue map) {
-      var keys = map.entries().keySet().iterator();
+      var keys = map.orderedEntries().stream().map(Map.Entry::getKey).iterator();
       if (!keys.hasNext()) {
         ErrorOps.raise(state, ErrorValue.E_RANGE, world);
         return;
@@ -231,9 +239,9 @@ final class IndexOps {
         frame.instructionPointer++;
         return;
       }
-      List<MooValue> keys = new ArrayList<>(map.entries().keySet());
-      int firstPosition = keys.indexOf(start);
-      int lastPosition = keys.indexOf(end);
+      List<MooValue> keys = map.orderedEntries().stream().map(Map.Entry::getKey).toList();
+      int firstPosition = mapKeyPosition(keys, start);
+      int lastPosition = mapKeyPosition(keys, end);
       if (firstPosition < 0 || lastPosition < 0) {
         ErrorOps.raise(state, ErrorValue.E_RANGE, world);
         return;
@@ -498,9 +506,9 @@ final class IndexOps {
         ErrorOps.raise(state, ErrorValue.E_TYPE, world);
         return;
       }
-      List<MooValue> keys = new ArrayList<>(map.entries().keySet());
-      int firstPosition = keys.indexOf(start);
-      int lastPosition = keys.indexOf(end);
+      List<MooValue> keys = map.orderedEntries().stream().map(Map.Entry::getKey).toList();
+      int firstPosition = mapKeyPosition(keys, start);
+      int lastPosition = mapKeyPosition(keys, end);
       if (firstPosition < 0 || lastPosition < 0) {
         ErrorOps.raise(state, ErrorValue.E_RANGE, world);
         return;

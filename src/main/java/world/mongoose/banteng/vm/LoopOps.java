@@ -7,6 +7,7 @@ import java.util.Optional;
 import world.mongoose.banteng.bytecode.BytecodeProgram;
 import world.mongoose.banteng.bytecode.BytecodeProgram.Instruction;
 import world.mongoose.banteng.value.MooValue;
+import world.mongoose.banteng.value.ValueSemantics;
 import world.mongoose.banteng.value.MooValue.ErrorValue;
 import world.mongoose.banteng.value.MooValue.FloatValue;
 import world.mongoose.banteng.value.MooValue.IntegerValue;
@@ -190,7 +191,7 @@ final class LoopOps {
             new CollectionCursor(
                 VmSnapshot.CollectionKind.MAP,
                 map,
-                map.entries().keySet().stream().findFirst());
+                map.orderedEntries().stream().map(Map.Entry::getKey).findFirst());
       } else {
         ErrorOps.raise(state, ErrorValue.E_TYPE, world);
         return;
@@ -225,10 +226,10 @@ final class LoopOps {
       }
       MapValue map = (MapValue) cursor.base;
       MooValue requestedKey = cursor.next.orElseThrow();
-      List<Map.Entry<MooValue, MooValue>> entries = new ArrayList<>(map.entries().entrySet());
+      List<Map.Entry<MooValue, MooValue>> entries = map.orderedEntries();
       for (int index = 0; index < entries.size(); index++) {
         Map.Entry<MooValue, MooValue> entry = entries.get(index);
-        if (entry.getKey().equals(requestedKey)) {
+        if (ValueSemantics.STANDARD.compare(entry.getKey(), requestedKey, false) == 0) {
           cursor.next =
               index + 1 < entries.size()
                   ? Optional.of(entries.get(index + 1).getKey())
