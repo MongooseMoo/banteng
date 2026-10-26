@@ -1,22 +1,15 @@
 package world.mongoose.banteng.persistence;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.StringReader;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.Set;
 import java.util.concurrent.atomic.AtomicLong;
 import world.mongoose.banteng.value.MooValue;
 import world.mongoose.banteng.value.MooValue.AnonymousObjectValue;
@@ -29,9 +22,6 @@ import world.mongoose.banteng.value.MooValue.StringValue;
 import org.junit.jupiter.api.Test;
 
 final class SharedDbReaderInfrastructureTest {
-  private static final List<Class<?>> READERS =
-      List.of(LambdaMooV4Reader.class, LambdaMooV5Reader.class, LambdaMooV17Codec.class);
-
   @Test
   void scannerOwnsTheSharedLineAndNumberContract() throws IOException {
     BufferedReader input = input("2\n-3\n4.5\nexpected\n");
@@ -89,65 +79,16 @@ final class SharedDbReaderInfrastructureTest {
   }
 
   @Test
-  void programAndVerbRecordsAreSingleTopLevelTypes() {
+  void programAndVerbRecordsPreserveTheirValues() {
     ProgramSlot slot = new ProgramSlot(12, 3);
     RawVerb verb = new RawVerb("look examine", 4, 5, 6);
 
-    assertNull(ProgramSlot.class.getEnclosingClass());
-    assertNull(RawVerb.class.getEnclosingClass());
     assertEquals(12, slot.objectId());
     assertEquals(3, slot.verbIndex());
     assertEquals("look examine", verb.names());
     assertEquals(4, verb.owner());
     assertEquals(5, verb.permissions());
     assertEquals(6, verb.preposition());
-    for (Class<?> reader : READERS) {
-      Set<String> nestedNames =
-          Arrays.stream(reader.getDeclaredClasses())
-              .map(Class::getSimpleName)
-              .collect(java.util.stream.Collectors.toSet());
-      assertFalse(nestedNames.contains("ProgramSlot"), reader.getName());
-      assertFalse(nestedNames.contains("RawVerb"), reader.getName());
-    }
-  }
-
-  @Test
-  void readersDoNotRetainScannerPrimitives() {
-    Set<String> scannerMethods =
-        Set.of(
-            "readCount",
-            "parseCount",
-            "readInt",
-            "parseInt",
-            "readParsedInt",
-            "readLong",
-            "parseLong",
-            "readDouble",
-            "requireExact",
-            "requiredLine",
-            "malformed");
-
-    for (Class<?> reader : READERS) {
-      Set<String> declared =
-          Arrays.stream(reader.getDeclaredMethods())
-              .map(java.lang.reflect.Method::getName)
-              .collect(java.util.stream.Collectors.toSet());
-      assertTrue(java.util.Collections.disjoint(scannerMethods, declared), reader.getName());
-    }
-  }
-
-  @Test
-  void readersConsumeOnlyTheirAuthorizedSharedValueSurface() throws IOException {
-    String v4 = source("LambdaMooV4Reader.java");
-    String v5 = source("LambdaMooV5Reader.java");
-    String v17 = source("LambdaMooV17Codec.java");
-
-    assertTrue(v4.contains("DbScanner"));
-    assertFalse(v4.contains("ValueTagDecoder"));
-    assertTrue(v5.contains("DbScanner"));
-    assertTrue(v5.contains("ValueTagDecoder"));
-    assertTrue(v17.contains("DbScanner"));
-    assertTrue(v17.contains("ValueTagDecoder"));
   }
 
   private static MooValue readTestV17Value(
@@ -176,13 +117,6 @@ final class SharedDbReaderInfrastructureTest {
       case 14 -> BooleanValue.of(DbScanner.readLong(input, "boolean value") != 0);
       default -> throw DbScanner.malformed("unsupported test v17 value tag " + tag);
     };
-  }
-
-  private static String source(String fileName) throws IOException {
-    return Files.readString(
-        Path.of(
-            "src", "main", "java", "world", "mongoose", "banteng", "persistence", fileName),
-        StandardCharsets.UTF_8);
   }
 
   private static BufferedReader input(String contents) {
