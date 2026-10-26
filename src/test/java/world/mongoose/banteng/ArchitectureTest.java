@@ -10,6 +10,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import com.tngtech.archunit.core.domain.JavaClass;
 import com.tngtech.archunit.core.domain.JavaClasses;
 import com.tngtech.archunit.core.domain.JavaCodeUnit;
+import com.tngtech.archunit.core.domain.JavaModifier;
 import com.tngtech.archunit.core.importer.ClassFileImporter;
 import com.tngtech.archunit.core.importer.ImportOption;
 import com.tngtech.archunit.lang.ArchCondition;
@@ -38,6 +39,105 @@ final class ArchitectureTest {
           "value",
           "vm",
           "world");
+
+  @Test
+  void compiledClassesUseTheOwnedNamespace() {
+    classes()
+        .should()
+        .resideInAPackage("world.mongoose.banteng..")
+        .check(
+            new ClassFileImporter()
+                .withImportOption(ImportOption.Predefined.DO_NOT_INCLUDE_JARS)
+                .importClasspath());
+  }
+
+  @Test
+  void systemErrorIsOwnedOnlyByServerLog() {
+    noClasses()
+        .that()
+        .doNotHaveFullyQualifiedName("world.mongoose.banteng.logging.ServerLog")
+        .should()
+        .accessField(System.class, "err")
+        .check(productionClasses());
+  }
+
+  @Test
+  void readersConsumeOnlyTheirAuthorizedSharedValueSurface() {
+    JavaClasses productionClasses = productionClasses();
+    classes()
+        .that()
+        .haveNameMatching(".*\\.(LambdaMooV4Reader|LambdaMooV5Reader|LambdaMooV17Codec)")
+        .should()
+        .dependOnClassesThat()
+        .haveFullyQualifiedName("world.mongoose.banteng.persistence.DbScanner")
+        .check(productionClasses);
+    classes()
+        .that()
+        .haveNameMatching(".*\\.(LambdaMooV5Reader|LambdaMooV17Codec)")
+        .should()
+        .dependOnClassesThat()
+        .haveFullyQualifiedName("world.mongoose.banteng.persistence.ValueTagDecoder")
+        .check(productionClasses);
+    noClasses()
+        .that()
+        .haveFullyQualifiedName("world.mongoose.banteng.persistence.LambdaMooV4Reader")
+        .should()
+        .dependOnClassesThat()
+        .haveFullyQualifiedName("world.mongoose.banteng.persistence.ValueTagDecoder")
+        .check(productionClasses);
+  }
+
+  @Test
+  void monitorOwnedFieldsDeclareTheirGuard() {
+    JavaClasses productionClasses = productionClasses();
+    assertGuardedFields(
+        productionClasses,
+        "runtime.PublicationScheduler",
+        "ready",
+        "completed",
+        "ingress",
+        "lastInputTasks",
+        "timedWork",
+        "checkpointingWork",
+        "finalizationBlocked",
+        "activeFinalizations",
+        "nextTicket",
+        "nextTaskId",
+        "nextPublicationTicket",
+        "publicationDraining",
+        "restoredTasksActivated",
+        "closed");
+    assertGuardedFields(
+        productionClasses,
+        "runtime.TaskRegistry",
+        "tasks",
+        "hostWork",
+        "cancellationActions",
+        "canceled",
+        "nextHostHandle",
+        "nextQueueSequence");
+    assertGuardedFields(
+        productionClasses,
+        "world.WorldHistory",
+        "revisions", "activeTransactions", "verbCache", "current");
+    assertGuardedFields(
+        productionClasses,
+        "runtime.MooRuntime",
+        "publishedConnections", "pendingReads", "sessionRevision");
+  }
+
+  private static void assertGuardedFields(
+      JavaClasses productionClasses, String owner, String... fieldNames) {
+    JavaClass javaClass = productionClasses.get("world.mongoose.banteng." + owner);
+    for (String fieldName : fieldNames) {
+      var field = javaClass.getField(fieldName);
+      assertTrue(field.getModifiers().contains(JavaModifier.PRIVATE), owner + "." + fieldName);
+      var annotation =
+          field
+              .getAnnotationOfType("com.google.errorprone.annotations.concurrent.GuardedBy");
+      assertTrue(annotation.get("value").filter("this"::equals).isPresent(), owner + "." + fieldName);
+    }
+  }
 
   @Test
   void productionPackagesHaveNoCycles() {
@@ -72,7 +172,6 @@ final class ArchitectureTest {
         "persistence",
         "bytecode",
         "logging",
-        "syntax",
         "value",
         "vm",
         "world");

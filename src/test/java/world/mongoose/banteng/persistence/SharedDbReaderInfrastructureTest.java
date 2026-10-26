@@ -9,9 +9,6 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.StringReader;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
@@ -136,20 +133,6 @@ final class SharedDbReaderInfrastructureTest {
     }
   }
 
-  @Test
-  void readersConsumeOnlyTheirAuthorizedSharedValueSurface() throws IOException {
-    String v4 = source("LambdaMooV4Reader.java");
-    String v5 = source("LambdaMooV5Reader.java");
-    String v17 = source("LambdaMooV17Codec.java");
-
-    assertTrue(v4.contains("DbScanner"));
-    assertFalse(v4.contains("ValueTagDecoder"));
-    assertTrue(v5.contains("DbScanner"));
-    assertTrue(v5.contains("ValueTagDecoder"));
-    assertTrue(v17.contains("DbScanner"));
-    assertTrue(v17.contains("ValueTagDecoder"));
-  }
-
   private static MooValue readTestV17Value(
       BufferedReader input, AnonymousObjectValue anonymous, AtomicLong decodedObjectId)
       throws IOException {
@@ -176,13 +159,6 @@ final class SharedDbReaderInfrastructureTest {
       case 14 -> BooleanValue.of(DbScanner.readLong(input, "boolean value") != 0);
       default -> throw DbScanner.malformed("unsupported test v17 value tag " + tag);
     };
-  }
-
-  private static String source(String fileName) throws IOException {
-    return Files.readString(
-        Path.of(
-            "src", "main", "java", "world", "mongoose", "banteng", "persistence", fileName),
-        StandardCharsets.UTF_8);
   }
 
   private static BufferedReader input(String contents) {
