@@ -45,6 +45,15 @@ final class ArchitectureTest {
   }
 
   @Test
+  void publicationSchedulerDoesNotDependOnConcreteRuntime() {
+    noClasses()
+        .that().haveFullyQualifiedName("world.mongoose.banteng.runtime.PublicationScheduler")
+        .should().dependOnClassesThat()
+        .haveFullyQualifiedName("world.mongoose.banteng.runtime.MooRuntime")
+        .check(productionClasses());
+  }
+
+  @Test
   void productionPackagesRespectAllowedDependencies() {
     JavaClasses productionClasses = productionClasses();
 
