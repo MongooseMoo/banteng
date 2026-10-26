@@ -145,9 +145,20 @@ public final class MooVm {
       long taskId) {
     Frame frame = state.currentFrame();
     BytecodeProgram.Opcode opcode = instruction.opcode();
-    for (int tick = 0; tick < instructionTicks(opcode, instruction); tick++) {
+    if ((opcode == BytecodeProgram.Opcode.CALL || (state.remainingTicks() & 1023) == 0)
+        && state.secondsExhausted()) {
+      state.abortSecondsExhaustion();
+      return;
+    }
+    boolean extended = switch (opcode) {
+      case POWER, BITOR, BITAND, BITXOR, BITSHL, BITSHR, COMPLEMENT, SCATTER, ITERATE -> true;
+      case ENTER_HANDLER -> instruction.handler().orElseThrow().catchTarget() < 0;
+      case JUMP -> instruction.astPath().isPresent();
+      default -> false;
+    };
+    for (int tick = 0; tick < instructionTicks(opcode, instruction, frame); tick++) {
       state.decrementRemainingTicks();
-      if (state.remainingTicks() == 0) {
+      if (!extended && state.remainingTicks() <= 0) {
         state.abortTickExhaustion();
         return;
       }
@@ -500,9 +511,18 @@ public final class MooVm {
     }
   }
 
-  private static int instructionTicks(BytecodeProgram.Opcode opcode, Instruction instruction) {
+  private static int instructionTicks(BytecodeProgram.Opcode opcode, Instruction instruction, Frame frame) {
     return switch (opcode) {
       case LIST_APPEND, LIST_EXTEND -> Math.toIntExact(instruction.operand().orElse(1));
+      case LOAD_LOCAL -> Math.toIntExact(instruction.operand().orElse(0));
+      case STORE_LOCAL -> frame.instructionPointer > 0
+          && frame.program.instructions().get(frame.instructionPointer - 1).opcode()
+              == BytecodeProgram.Opcode.FORK ? 0 : 1;
+      case JUMP -> instruction.astPath().isPresent() ? 1 : 0;
+      case ENTER_HANDLER -> {
+        var handler = instruction.handler().orElseThrow();
+        yield handler.catchTarget() < 0 || !handler.catchesAny() ? 1 : 0;
+      }
       case SET_INDEX_LOCAL, SET_INDEX_PROPERTY -> 2;
       default -> COUNTED_OPCODES.contains(opcode) ? 1 : 0;
     };

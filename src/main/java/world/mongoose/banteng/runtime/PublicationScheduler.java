@@ -154,6 +154,9 @@ final class PublicationScheduler implements AutoCloseable {
   void activateRestoredTasks() {
     List<TimedWork> restored;
     synchronized (this) {
+      if (closed) {
+        return;
+      }
       if (restoredTasksActivated) {
         throw new IllegalStateException("restored tasks have already been activated");
       }
@@ -1247,6 +1250,10 @@ final class PublicationScheduler implements AutoCloseable {
   List<String> submit(MooRuntime.RuntimeRequest request, boolean socketInput) {
     CompletableFuture<List<String>> published = new CompletableFuture<>();
     synchronized (this) {
+      if (closed && (request.operation() == MooRuntime.Operation.STARTUP
+          || request.operation() == MooRuntime.Operation.TIMEOUT)) {
+        return List.of();
+      }
       ensureOpen();
       long taskId = nextTaskId++;
       long ticket = nextTicket++;
@@ -1290,6 +1297,14 @@ final class PublicationScheduler implements AutoCloseable {
 
   synchronized boolean isLastInputTask(long taskId) {
     return lastInputTasks.containsValue(taskId);
+  }
+
+  synchronized long lastInputTask(long player) {
+    return lastInputTasks.getOrDefault(player, 0L);
+  }
+
+  synchronized void clearLastInputTask(long player, long taskId) {
+    lastInputTasks.remove(player, taskId);
   }
 
   synchronized OptionalLong lastInputPlayer(long taskId) {
@@ -1493,7 +1508,8 @@ final class PublicationScheduler implements AutoCloseable {
         if (state.outcome() == VmState.Outcome.KILLED) {
           aborted = true;
         }
-        if (state.outcome() == VmState.Outcome.ABORTED) {
+        if (state.outcome() == VmState.Outcome.ABORTED
+            || state.outcome() == VmState.Outcome.SECONDS_EXHAUSTED) {
           aborted = true;
           boolean timeoutHandlerAborted =
               continuation
@@ -1507,6 +1523,7 @@ final class PublicationScheduler implements AutoCloseable {
         if ((state.outcome() == VmState.Outcome.RETURNED
                 || state.outcome() == VmState.Outcome.ERRORED
                 || state.outcome() == VmState.Outcome.ABORTED
+                || state.outcome() == VmState.Outcome.SECONDS_EXHAUSTED
                 || state.outcome() == VmState.Outcome.KILLED)
             && continuation.isPresent()) {
           completedVm = Optional.of(completed);
@@ -1535,6 +1552,7 @@ final class PublicationScheduler implements AutoCloseable {
         }
         if (state.outcome() == VmState.Outcome.RETURNED
             || state.outcome() == VmState.Outcome.ABORTED
+            || state.outcome() == VmState.Outcome.SECONDS_EXHAUSTED
             || state.outcome() == VmState.Outcome.KILLED) {
           return SegmentResult.returned(
               completed.output(),
@@ -1792,7 +1810,7 @@ final class PublicationScheduler implements AutoCloseable {
     }
     switch (snapshot.outcome()) {
       case SUSPENDED -> publishSuspension(entry, snapshot, hostWork);
-      case FORKED, PENDING_BUILTIN, RETURNED, ERRORED, ABORTED, KILLED, RUNNING ->
+      case FORKED, PENDING_BUILTIN, RETURNED, ERRORED, ABORTED, SECONDS_EXHAUSTED, KILLED, RUNNING ->
           throw new IllegalStateException(
               "worker returned a non-boundary VM outcome: " + snapshot.outcome());
     }

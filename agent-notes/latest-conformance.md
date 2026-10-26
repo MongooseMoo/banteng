@@ -313,3 +313,32 @@ and proxy read login now pass. Input completion reaches its queue_info assertion
 one hold/OOB option case times out. Java's changed embedding contract failures
 are addressed by the ingress completion choice above; stress timeout still needs
 its own cause diagnosis.
+
+Control-flow tick repair (~55 lines): source opcode.h distinguishes extended
+charges (decrement only) from ordinary charges (abort when remaining <=0).
+Break/continue JUMPs already carry AST paths, so count those as EOP_EXIT.
+FORK's following STORE_LOCAL is part of OP_FORK_WITH_ID and costs no extra tick.
+Exception owner costs one extended tick; each specific error-code list costs
+one ordinary tick, ANY costs zero. Catch-variable binding and catch-expression
+code extraction cost ordinary ticks (code_gen.cc:920-949,1080-1120). Scatter's
+used default assignment costs one ordinary tick. Preserve existing opcode owners.
+
+Range replacement cleanup (~40 lines replacing 120): Toast execute.cc:2354 and
+list.cc:302,551 accept from<=1 and to>=length, rejecting only from>length+1 or
+to<0. Build prefix + replacement + suffix directly, which also handles 0..0
+and inverted ranges without the current duplicated special cases.
+
+Seconds timeout cause: VmState tracks CPU budget but MooVm never checks it;
+startTaskTimeout always labels every abort as ticks. Poll the existing CPU
+budget at calls and each 1024 charged ticks, and distinguish the seconds terminal
+outcome (~30 lines). No additional timer/thread. Existing zero-second embedding
+states are unlimited (both elapsed and remaining CPU budget are zero).
+Shutdown race: a serve thread can submit startup after gracefulShutdown closed
+the scheduler. Late STARTUP/TIMEOUT work is obsolete; return no output when
+already closed, and skip restored timer activation after closure (~8 lines).
+
+Small introspection repairs (~25 lines): verb_code of an empty program is {},
+disassemble identifies its main code vector (disassemble.cc:226), source/vcs
+identifies this Git-backed source tree, and queue_info reads the existing last
+input task registry. Unknown native commands clear that ID at publication as
+tasks.cc:859 does, through an existing runtime effect delivery path.

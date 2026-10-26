@@ -994,7 +994,7 @@ public final class MooCompiler {
     if (expression.fallback().isPresent()) {
       compileExpression(expression.fallback().orElseThrow(), instructions);
     } else {
-      instructions.add(new Instruction(Opcode.LOAD_LOCAL, caughtLocal));
+      instructions.add(new Instruction(Opcode.LOAD_LOCAL, 1, caughtLocal));
     }
     instructions.add(new Instruction(Opcode.LEAVE_HANDLER));
     int endTarget = instructions.size();

@@ -7,6 +7,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalLong;
+import world.mongoose.banteng.builtin.BuiltinCatalog;
+import world.mongoose.banteng.builtin.BuiltinResult;
 import world.mongoose.banteng.bytecode.BytecodeProgram;
 import world.mongoose.banteng.bytecode.BytecodeProgram.Instruction;
 import world.mongoose.banteng.bytecode.MooCompiler;
@@ -449,105 +451,43 @@ final class IndexOps {
     MooValue start = frame.operandStack.pop();
     MooValue collection = frame.operandStack.pop();
     MooValue updatedCollection;
-    if (collection instanceof StringValue string && value instanceof StringValue replacement) {
+    if ((collection instanceof StringValue && value instanceof StringValue)
+        || (collection instanceof ListValue && value instanceof ListValue)) {
       if (!(start instanceof IntegerValue first) || !(end instanceof IntegerValue last)) {
         ErrorOps.raise(state, ErrorValue.E_TYPE, world);
         return;
       }
-      if (last.value() == first.value() - 1
-          && first.value() >= 1
-          && first.value() <= string.length() + 1L) {
-        byte[] original = string.bytes();
-        byte[] inserted = replacement.bytes();
-        int insertionPoint = Math.toIntExact(first.value() - 1);
-        byte[] replaced = new byte[original.length + inserted.length];
-        System.arraycopy(original, 0, replaced, 0, insertionPoint);
-        System.arraycopy(inserted, 0, replaced, insertionPoint, inserted.length);
-        System.arraycopy(
-            original,
-            insertionPoint,
-            replaced,
-            insertionPoint + inserted.length,
-            original.length - insertionPoint);
-        updatedCollection = StringValue.of(replaced);
-      } else if (last.value() < first.value()
-          && first.value() >= 1
-          && first.value() <= string.length()
-          && last.value() >= 1
-          && last.value() <= string.length()) {
-        byte[] original = string.bytes();
-        byte[] inserted = replacement.bytes();
-        int prefixLength = Math.toIntExact(first.value() - 1);
-        int suffixStart = Math.toIntExact(last.value());
-        byte[] replaced = new byte[prefixLength + inserted.length + original.length - suffixStart];
-        System.arraycopy(original, 0, replaced, 0, prefixLength);
-        System.arraycopy(inserted, 0, replaced, prefixLength, inserted.length);
-        System.arraycopy(
-            original,
-            suffixStart,
-            replaced,
-            prefixLength + inserted.length,
-            original.length - suffixStart);
-        updatedCollection = StringValue.of(replaced);
-      } else if (first.value() == string.length() + 1L && last.value() >= first.value()) {
-        byte[] original = string.bytes();
-        byte[] inserted = replacement.bytes();
-        byte[] appended = Arrays.copyOf(original, original.length + inserted.length);
-        System.arraycopy(inserted, 0, appended, original.length, inserted.length);
-        updatedCollection = StringValue.of(appended);
-      } else {
-        if (first.value() < 1 || last.value() < first.value() || last.value() > string.length()) {
-          ErrorOps.raise(state, ErrorValue.E_RANGE, world);
-          return;
-        }
-        byte[] original = string.bytes();
-        byte[] inserted = replacement.bytes();
-        int prefixLength = Math.toIntExact(first.value() - 1);
-        int suffixStart = Math.toIntExact(last.value());
-        byte[] replaced = new byte[prefixLength + inserted.length + original.length - suffixStart];
-        System.arraycopy(original, 0, replaced, 0, prefixLength);
-        System.arraycopy(inserted, 0, replaced, prefixLength, inserted.length);
-        System.arraycopy(
-            original,
-            suffixStart,
-            replaced,
-            prefixLength + inserted.length,
-            original.length - suffixStart);
-        updatedCollection = StringValue.of(replaced);
-      }
-    } else if (collection instanceof ListValue list && value instanceof ListValue replacement) {
-      if (!(start instanceof IntegerValue first) || !(end instanceof IntegerValue last)) {
-        ErrorOps.raise(state, ErrorValue.E_TYPE, world);
+      int length = collection instanceof StringValue string ? string.length() : ((ListValue) collection).size();
+      if (first.value() > length + 1L || last.value() < 0) {
+        ErrorOps.raise(state, ErrorValue.E_RANGE, world);
         return;
       }
-      if (last.value() == first.value() - 1
-          && first.value() >= 1
-          && first.value() <= list.size() + 1L) {
-        int insertionPoint = Math.toIntExact(first.value() - 1);
-        List<MooValue> inserted = new ArrayList<>();
-        inserted.addAll(list.elements().subList(0, insertionPoint));
-        inserted.addAll(replacement.elements());
-        inserted.addAll(list.elements().subList(insertionPoint, list.size()));
-        updatedCollection = new ListValue(inserted);
-      } else if (last.value() < first.value()
-          && first.value() >= 1
-          && first.value() <= list.size()
-          && last.value() >= 1
-          && last.value() <= list.size()) {
-        List<MooValue> replaced = new ArrayList<>();
-        replaced.addAll(list.elements().subList(0, Math.toIntExact(first.value() - 1)));
-        replaced.addAll(replacement.elements());
-        replaced.addAll(list.elements().subList(Math.toIntExact(last.value()), list.size()));
-        updatedCollection = new ListValue(replaced);
-      } else {
-        if (first.value() < 1 || last.value() < first.value() || last.value() > list.size()) {
-          ErrorOps.raise(state, ErrorValue.E_RANGE, world);
+      int prefix = first.value() <= 1 ? 0 : Math.toIntExact(first.value() - 1);
+      int suffix = Math.toIntExact(Math.min(length, last.value()));
+      if (collection instanceof StringValue string && value instanceof StringValue replacement) {
+        byte[] original = string.bytes();
+        byte[] inserted = replacement.bytes();
+        long size = (long) prefix + inserted.length + length - suffix;
+        Optional<BuiltinResult> error = BuiltinCatalog.stringLengthError(size, world);
+        if (error.isPresent()) {
+          if (error.orElseThrow() instanceof BuiltinResult.ErrorResult quota) {
+            ErrorOps.raise(state, quota.error(), world);
+          } else {
+            state.abortSecondsExhaustion();
+          }
           return;
         }
-        List<MooValue> replaced = new ArrayList<>();
-        replaced.addAll(list.elements().subList(0, Math.toIntExact(first.value() - 1)));
+        byte[] replaced = new byte[Math.toIntExact(size)];
+        System.arraycopy(original, 0, replaced, 0, prefix);
+        System.arraycopy(inserted, 0, replaced, prefix, inserted.length);
+        System.arraycopy(original, suffix, replaced, prefix + inserted.length, length - suffix);
+        updatedCollection = StringValue.of(replaced);
+      } else {
+        ListValue list = (ListValue) collection;
+        ListValue replacement = (ListValue) value;
+        List<MooValue> replaced = new ArrayList<>(list.elements().subList(0, prefix));
         replaced.addAll(replacement.elements());
-        replaced.addAll(list.elements().subList(Math.toIntExact(last.value()), list.size()));
+        replaced.addAll(list.elements().subList(suffix, length));
         updatedCollection = new ListValue(replaced);
       }
     } else if (collection instanceof MapValue map && value instanceof MapValue replacement) {

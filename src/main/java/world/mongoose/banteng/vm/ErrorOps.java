@@ -113,6 +113,14 @@ final class ErrorOps {
             catchValue = new ListValue(elements);
           }
           MooValue boundValue = catchValue;
+          if (handler.specification.structuredCatchBinding()
+              && handler.specification.catchVariable().isPresent()) {
+            state.decrementRemainingTicks();
+            if (state.remainingTicks() <= 0) {
+              state.abortTickExhaustion();
+              return;
+            }
+          }
           handler
               .specification
               .catchVariable()

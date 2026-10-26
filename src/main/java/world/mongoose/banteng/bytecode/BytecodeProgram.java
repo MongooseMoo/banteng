@@ -201,6 +201,7 @@ public record BytecodeProgram(
       boolean optionalParent =
           opcode == Opcode.LIST_APPEND
               || opcode == Opcode.LIST_EXTEND
+              || opcode == Opcode.LOAD_LOCAL
               || opcode == Opcode.INDEX
               || opcode == Opcode.SET_INDEX_LOCAL
               || opcode == Opcode.SET_RANGE_LOCAL;

@@ -1382,6 +1382,7 @@ public final class MooRuntime implements AutoCloseable {
           thisObject = huhReceiver;
         }
         if (selectedVerb == null) {
+          effects().add(RuntimeEffect.unmatchedInput(player));
           output.add("I couldn't understand that.");
           connection.suffix.ifPresent(output::add);
           return RuntimeStep.returned(output);
@@ -2027,6 +2028,7 @@ public final class MooRuntime implements AutoCloseable {
 
   private RuntimeStep startTaskTimeout(RuntimeContinuation continuation) {
     VmSnapshot timedOut = continuation.timeoutSnapshot().orElseThrow();
+    String resource = timedOut.outcome() == VmState.Outcome.SECONDS_EXHAUSTED ? "seconds" : "ticks";
     Optional<WorldVerb> handler = world().verb(0, "handle_task_timeout");
     if (handler.isEmpty()) {
       return RuntimeStep.returned(continuation.output());
@@ -2063,9 +2065,9 @@ public final class MooRuntime implements AutoCloseable {
     }
     ListValue traceback =
         new ListValue(
-            List.of(StringValue.of("Task ran out of ticks"), StringValue.of("(End of traceback)")));
+            List.of(StringValue.of("Task ran out of " + resource), StringValue.of("(End of traceback)")));
     ListValue arguments =
-        new ListValue(List.of(StringValue.of("ticks"), new ListValue(stack), traceback));
+        new ListValue(List.of(StringValue.of(resource), new ListValue(stack), traceback));
     return startStored(
         handler.orElseThrow(),
         verbLocals(0, continuation.first(), -1, "handle_task_timeout", arguments, ""),
@@ -2943,7 +2945,7 @@ public final class MooRuntime implements AutoCloseable {
         new ObjectValue(connection == null ? -1 : connection.listenerHandler));
     values.put(StringValue.of("connected"), BooleanValue.of(connection != null));
     values.put(StringValue.of("total_input_length"), new IntegerValue(inputLength));
-    values.put(StringValue.of("last_input_task_id"), new IntegerValue(0));
+    values.put(StringValue.of("last_input_task_id"), new IntegerValue(scheduler.lastInputTask(player)));
     values.put(
         StringValue.of("input_suspended"),
         BooleanValue.of(connection != null && connection.holdInput));
@@ -3589,6 +3591,7 @@ public final class MooRuntime implements AutoCloseable {
           scheduler.enqueueDetached(RuntimeRequest.line(effect.connectionId, effect.text));
         }
       }
+      case UNMATCHED_INPUT -> scheduler.clearLastInputTask(effect.connectionId, currentTaskId);
       case CHECKPOINT -> {
         Path target =
             checkpoint.orElseThrow(
@@ -4173,6 +4176,7 @@ public final class MooRuntime implements AutoCloseable {
     BINARY,
     KEEP_ALIVE,
     INPUT,
+    UNMATCHED_INPUT,
     CHECKPOINT,
     PANIC,
     SHUTDOWN
@@ -4270,6 +4274,11 @@ public final class MooRuntime implements AutoCloseable {
     static RuntimeEffect input(long connectionId, String line) {
       return new RuntimeEffect(
           RuntimeEffectKind.INPUT, connectionId, List.of(), false, false, 0, line, false);
+    }
+
+    static RuntimeEffect unmatchedInput(long player) {
+      return new RuntimeEffect(
+          RuntimeEffectKind.UNMATCHED_INPUT, player, List.of(), false, false, 0, "", false);
     }
 
     static RuntimeEffect checkpoint(boolean shutdown) {

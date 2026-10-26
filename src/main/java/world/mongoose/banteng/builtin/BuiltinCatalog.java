@@ -2658,7 +2658,7 @@ public final class BuiltinCatalog {
                     List.of(
                         versionPair("OUTBOUND_NETWORK", StringValue.of("ON")),
                         versionPair("PROMOTE_NUMBERS", StringValue.of("OFF"))))),
-            versionPair("source", new ListValue(List.of()))));
+            versionPair("source", new ListValue(List.of(versionPair("vcs", StringValue.of("git")))))));
   }
 
   private static ListValue versionPair(String name, MooValue value) {
@@ -4809,11 +4809,12 @@ public final class BuiltinCatalog {
     if (verb.owner() != programmer && !wizard && (verb.permissions() & 1) == 0) {
       return BuiltinResult.error(ErrorValue.E_PERM);
     }
-    List<MooValue> lines =
-        new MooCompiler().compile(verb.programSource()).disassemble().lines()
+    List<MooValue> lines = new ArrayList<>();
+    lines.add(StringValue.of("Main code vector:"));
+    new MooCompiler().compile(verb.programSource()).disassemble().lines()
             .map(StringValue::of)
             .map(MooValue.class::cast)
-            .toList();
+            .forEach(lines::add);
     return BuiltinResult.value(new ListValue(lines));
   }
 
@@ -6279,6 +6280,9 @@ public final class BuiltinCatalog {
     }
 
     boolean indent = arguments.size() < 4 || arguments.get(3).isTruthy();
+    if (verb.programSource().isEmpty()) {
+      return BuiltinResult.value(new ListValue(List.of()));
+    }
     List<MooValue> lines =
         Arrays.stream(MooUnparser.unparse(MooParser.parse(verb.programSource()),
             arguments.size() >= 3 && arguments.get(2).isTruthy()).split("\n", -1))

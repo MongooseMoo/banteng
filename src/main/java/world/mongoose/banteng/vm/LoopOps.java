@@ -365,6 +365,11 @@ final class LoopOps {
         if (list.size() - sourceIndex > requiredAfter) {
           frame.locals.put(name, list.elements().get(sourceIndex++));
         } else if (defaults[index] != null) {
+          state.decrementRemainingTicks();
+          if (state.remainingTicks() <= 0) {
+            state.abortTickExhaustion();
+            return;
+          }
           frame.locals.put(name, defaults[index]);
         }
       } else {

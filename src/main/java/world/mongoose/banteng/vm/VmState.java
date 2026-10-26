@@ -286,7 +286,12 @@ public final class VmState {
   void abortSecondsExhaustion() {
     pendingError = Optional.empty();
     output.add("Task ran out of seconds");
-    outcome = Outcome.ABORTED;
+    outcome = Outcome.SECONDS_EXHAUSTED;
+  }
+
+  boolean secondsExhausted() {
+    return (remainingCpuNanos != 0 || elapsedCpuNanos != 0)
+        && Math.max(0L, currentThreadCpuNanos() - segmentCpuAnchorNanos) >= remainingCpuNanos;
   }
 
   void abortKilled() {
@@ -1396,6 +1401,7 @@ public final class VmState {
     RETURNED,
     ERRORED,
     ABORTED,
+    SECONDS_EXHAUSTED,
     KILLED
   }
 }
