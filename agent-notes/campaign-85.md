@@ -40,3 +40,6 @@ Commands ran under WSL Debian with JAVA_HOME=/opt/java/25, using `bash ./gradlew
 - world.mongoose.banteng.builtin.BuiltinCompositionTest.builtinCallOwnsTheCompleteInvocationContext
 
 The separate final invocation selected world.mongoose.banteng.builtin.BuiltinCatalogTest.registersEveryReachableBuiltinExactlyOnceWithCompleteContracts. The only production edits after the behavior selections were import cleanup; that final invocation compiled those changes.
+
+## PR #107 closed-result inventory repair
+CI run 40421688327, job 121917416385 failed BuiltinResultTest.resultHierarchyIsClosedAndEachEffectCarriesOnlyItsOwnState at line 20. I added the requested BuiltinResult.Pass(ListValue arguments) but omitted Pass from this existing test's exact permitted-name and record-field inventories. Read both the production record and the full test; the smallest repair adds exactly Pass and its sole arguments field to those inventories. The sealed-class assertion and both complete equality checks remain unchanged, so unexpected result variants or state still fail. No production code changed; parent owns publication and PR CI verification.
