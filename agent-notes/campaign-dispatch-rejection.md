@@ -4,7 +4,7 @@ Preserve ready publication tickets when the executor rejects a dispatch during t
 
 # State
 
-Based on origin/master at 9a1bfd6. Coordinator published PR103. The first CI run failed the preexisting host-rejection test setup at line1002. Merge015262b incorporates PR101 headf9e24ad, which repairs that setup and inherits production executor configuration. Claude reviewed the integrated code without a code finding. Run40416177681 passed static analysis and tests. Live CI and queue state are recorded in GitHub and the central issue-campaign note.
+PR103 targets master; its current single merge base is fe2a4c1 after integrating master. The PR diff contains only this note and the production dispatch fix. PR101's test setup repair is already in master. The first historical CI run failed that old setup at line1002; run40416177681 later passed static analysis and tests. Live review, CI and queue state are recorded in GitHub and the central issue-campaign note.
 
 # Decisions and why
 
@@ -26,4 +26,4 @@ Validation: source inspection and diff review only; PR CI remains pending. Exist
 
 # Next step
 
-PR101 is already incorporated. Coordinator follows final-head Claude review and hosted CI through the normal merge queue. No local CI suite was run. Consult GitHub for current completion state rather than treating this historical validation record as live status.
+Coordinator follows final-head Claude review and hosted CI through the normal merge queue. No local CI suite was run. Consult GitHub for current completion state rather than treating this historical validation record as live status.
