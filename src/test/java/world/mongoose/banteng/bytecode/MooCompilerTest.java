@@ -1,5 +1,6 @@
 package world.mongoose.banteng.bytecode;
 
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -22,7 +23,7 @@ import org.junit.jupiter.api.Test;
 
 final class MooCompilerTest {
   @Test
-  void resolvesMixedCaseLoopExitsToTheSameTargets() {
+  void compilesMixedCaseLoopExitsInExecutableAndToastLayouts() {
     for (String exit : List.of("break", "continue")) {
       for (String source :
           List.of(
@@ -44,10 +45,23 @@ final class MooCompilerTest {
             expected.program().orElseThrow().instructions(),
             actual.program().orElseThrow().instructions(),
             mixedCase);
+        assertDoesNotThrow(() -> new LayoutCompiler(mixedCase).callBoundaries(-1), mixedCase);
+      }
+    }
+  }
+
+  @Test
+  void reportsLoopNamesThatDoNotMatchLocalVariableCaseFolding() {
+    for (String exit : List.of("break", "continue")) {
+      for (String source :
+          List.of("for I in ({1}) EXIT ı; endfor", "while I (1) EXIT ı; endwhile")) {
+        MooCompiler.CompilationResult result =
+            new MooCompiler().compileResult(source.replace("EXIT", exit));
+
+        assertTrue(result.program().isEmpty());
         assertEquals(
-            new LayoutCompiler(sameCase).callBoundaries(0),
-            new LayoutCompiler(mixedCase).callBoundaries(0),
-            mixedCase);
+            List.of(new MooCompiler.Diagnostic(1, "Invalid loop name in `" + exit + "' statement: ı")),
+            result.diagnostics());
       }
     }
   }

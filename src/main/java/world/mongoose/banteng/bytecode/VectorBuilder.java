@@ -173,7 +173,11 @@ final class VectorBuilder {
     if (activeLoops.isEmpty()) {
       throw new IllegalArgumentException("loop exit outside a loop");
     }
-    return activeLoops.get(LoopNames.find(activeLoops, ActiveLoopTarget::variableNames, variable));
+    int index = LoopNames.find(activeLoops, ActiveLoopTarget::variableNames, variable);
+    if (index < 0) {
+      throw new IllegalArgumentException("unknown loop variable: " + variable.orElseThrow());
+    }
+    return activeLoops.get(index);
   }
 
   void exitTarget(PendingToastExitTarget target) {

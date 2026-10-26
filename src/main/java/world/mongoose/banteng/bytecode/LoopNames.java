@@ -24,6 +24,6 @@ final class LoopNames {
         return index;
       }
     }
-    throw new IllegalArgumentException("unknown loop variable: " + requested.orElseThrow());
+    return -1;
   }
 }

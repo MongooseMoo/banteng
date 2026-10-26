@@ -134,15 +134,17 @@ public final class MooCompiler {
             loopScopes,
             diagnostics);
       } else if (statement instanceof Ast.While whileStatement) {
-        loopScopes.add(whileStatement.loopVariable().map(List::of).orElseGet(List::of));
+        loopScopes.add(
+            LoopNames.normalize(whileStatement.loopVariable().map(List::of).orElseGet(List::of)));
         collectControlFlowDiagnostics(whileStatement.body(), loopScopes, diagnostics);
         loopScopes.removeLast();
       } else if (statement instanceof Ast.For forStatement) {
         loopScopes.add(
-            forStatement
-                .indexVariable()
-                .map(index -> List.of(forStatement.variable(), index))
-                .orElseGet(() -> List.of(forStatement.variable())));
+            LoopNames.normalize(
+                forStatement
+                    .indexVariable()
+                    .map(index -> List.of(forStatement.variable(), index))
+                    .orElseGet(() -> List.of(forStatement.variable()))));
         collectControlFlowDiagnostics(forStatement.body(), loopScopes, diagnostics);
         loopScopes.removeLast();
       } else if (statement instanceof Ast.If ifStatement) {
@@ -172,14 +174,7 @@ public final class MooCompiler {
       Optional<Ast.SourceSpan> span,
       List<List<String>> loopScopes,
       List<PositionedDiagnostic> diagnostics) {
-    boolean valid =
-        requestedLoop
-            .map(
-                requested ->
-                    loopScopes.stream()
-                        .flatMap(List::stream)
-                        .anyMatch(loop -> loop.equalsIgnoreCase(requested)))
-            .orElse(!loopScopes.isEmpty());
+    boolean valid = LoopNames.find(loopScopes, names -> names, requestedLoop) >= 0;
     if (valid) {
       return;
     }
