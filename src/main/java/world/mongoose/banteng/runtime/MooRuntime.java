@@ -714,10 +714,14 @@ public final class MooRuntime implements AutoCloseable {
     return scheduler.submit(RuntimeRequest.line(connectionId, Objects.requireNonNull(line, "line")), true);
   }
 
-  synchronized boolean startsInputTask(long connectionId, String line) {
+  synchronized OptionalLong inputTaskPlayer(long connectionId, String line) {
     ConnectionState connection = publishedConnections.get(connectionId);
-    return !pendingReads.containsKey(connectionId)
-        && (connection == null || connection.disableOob || !line.startsWith("#$#"));
+    if (pendingReads.containsKey(connectionId)
+        || (connection != null && !connection.disableOob && line.startsWith("#$#"))) {
+      return OptionalLong.empty();
+    }
+    long player = publishedConnectionRegistry.connectionPlayer(connectionId).orElse(-1);
+    return OptionalLong.of(player >= 0 ? player : connectionId);
   }
 
   Optional<List<String>> suspendedInputOutput(RuntimeContinuation continuation, VmState state) {
@@ -749,8 +753,12 @@ public final class MooRuntime implements AutoCloseable {
       connection = publishedConnectionRegistry.connectionId(player);
     }
     if (connection.isPresent()) {
-      listenerControl.ifPresent(control -> control.writeConnection(connection.orElseThrow(), output));
+      writeConnectionOutput(connection.orElseThrow(), output);
     }
+  }
+
+  void writeConnectionOutput(long connectionId, List<String> output) {
+    listenerControl.ifPresent(control -> control.writeConnection(connectionId, output));
   }
 
   private RuntimeStep executeLineNow(long connectionId, String line) {

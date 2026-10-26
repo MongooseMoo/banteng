@@ -3133,7 +3133,7 @@ public final class BuiltinCatalog {
 
     // Logical 64-bit object layout, consistent with value_bytes. Banteng owns
     // source text rather than Toast's Program allocation for each stored verb.
-    long bytes = 176L + object.name().length() + 1;
+    long bytes = 160L + object.name().length() + 1;
     for (WorldVerb verb : object.verbs()) {
       bytes += 40L + verb.names().length() + 1 + verb.programSource().length() + 1;
     }
@@ -6348,6 +6348,16 @@ public final class BuiltinCatalog {
       return BuiltinResult.error(ErrorValue.E_TYPE);
     }
     MooValue receiver = arguments.get(0);
+    if (!(receiver instanceof ObjectValue) && !(receiver instanceof AnonymousObjectValue)) {
+      return BuiltinResult.error(ErrorValue.E_TYPE);
+    }
+    MooValue descriptor = arguments.get(1);
+    if (!(descriptor instanceof StringValue) && !(descriptor instanceof IntegerValue)) {
+      return BuiltinResult.error(ErrorValue.E_TYPE);
+    }
+    if (descriptor instanceof IntegerValue integer && integer.value() <= 0) {
+      return BuiltinResult.error(ErrorValue.E_INVARG);
+    }
     List<WorldVerb> targetVerbs;
     if (receiver instanceof ObjectValue object) {
       WorldObject target = world.object(object.value()).orElse(null);
@@ -6363,13 +6373,6 @@ public final class BuiltinCatalog {
       targetVerbs = target.verbs();
     } else {
       return BuiltinResult.error(ErrorValue.E_TYPE);
-    }
-    MooValue descriptor = arguments.get(1);
-    if (!(descriptor instanceof StringValue) && !(descriptor instanceof IntegerValue)) {
-      return BuiltinResult.error(ErrorValue.E_TYPE);
-    }
-    if (descriptor instanceof IntegerValue integer && integer.value() <= 0) {
-      return BuiltinResult.error(ErrorValue.E_INVARG);
     }
     WorldVerb verb;
     int verbIndex;

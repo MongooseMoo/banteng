@@ -425,3 +425,36 @@ back to input if unavailable, returning -1 only if both stats fail. Replace
 checkpointPublished with checkpointAttempted and follow that selection order.
 This fixes real selection semantics but does not make the suite's Toast/Barn
 temporary filename blockers prevent Banteng's PID-named checkpoint from writing.
+
+3176fc0 CodeQL completed successfully; original PR comments168/169 are fixed
+and their threads are resolved by current GitHub state. New comments171-173:
+171's required unused C callback context is removed from the Java method and
+discarded by its existing method-handle binding. 172/173 misinterpret (_) as a
+readable variable: JLS25 14.30.1 states a match-all pattern declares no pattern
+variables. Reply with that source; keep the exhaustive switch, no alert dismissal.
+Correct object_bytes base count to160: Object152 plus pointer8 in the 64-bit
+db_private.h layout. Verb/source and property accounting remain unchanged.
+
+CodeQL170 points to a real pair of separately synchronized runtime reads:
+startsInputTask followed by connectionPlayer. A concurrent connection switch
+can separate the input classification from its owner. Replace startsInputTask
+with one synchronized OptionalLong-returning inputTaskPlayer and consume that
+snapshot in both scheduler ingress paths (~25 changed lines, no extra lock).
+Also move set_verb_code descriptor validation ahead of object existence, after
+code-line and receiver-type validation (verbs.cc:515-528, ~8 moved lines).
+
+3176fc0 conformance CI finished: two failures, failed-dump fixture and
+fork_timing:suspend_zero_read_only_parent_observes_ready_child timeout. Waif
+task_stack passed this time; no claim yet that its timeout is fixed.
+
+Output-order cause found in primary source: publishSegmentResultOutsideMonitor
+enqueues the zero-delay continuation before completing ingress.future; MooServer
+writes returned prefix/output/suffix only after receiveLine returns. Notifications
+to the task player are state.output (MooRuntime.applyNotificationRequests:3063),
+so a fast continuation can write result/suffix through writeDetachedOutput
+before the original prefix. Transport._receive:543 ignores data while looking
+for a prefix, then waits forever for a result already discarded.
+Smallest repair (~25 lines): keep the socket connection ID in existing Ingress,
+write socket output on publication before queuing children/wakes, and complete
+socket futures with no output. Embedding futures still accumulate their results.
+No extra queue, lock or gate; the publication owner also owns output order.

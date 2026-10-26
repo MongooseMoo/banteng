@@ -77,7 +77,7 @@ public final class NativeCurl {
     }
 
     @SuppressWarnings("unused") // Native curl_write_callback entry point.
-    private long write(MemorySegment data, long size, long count, MemorySegment ignored) {
+    private long write(MemorySegment data, long size, long count) {
       long available = maximum - bytes.size();
       if (size < 0 || count < 0 || (count > 0 && size > available / count)) {
         overflowed = true;
@@ -126,8 +126,10 @@ public final class NativeCurl {
 
     private static MethodHandle writer() {
       try {
-        return MethodHandles.lookup().findVirtual(Sink.class, "write", MethodType.methodType(
-            long.class, MemorySegment.class, long.class, long.class, MemorySegment.class));
+        MethodHandle writer = MethodHandles.lookup().findVirtual(Sink.class, "write", MethodType.methodType(
+            long.class, MemorySegment.class, long.class, long.class));
+        // libcurl supplies a context pointer; this bound receiver already owns it.
+        return MethodHandles.dropArguments(writer, 4, MemorySegment.class);
       } catch (NoSuchMethodException | IllegalAccessException failure) {
         throw new IllegalStateException("Cannot bind curl response writer", failure);
       }
