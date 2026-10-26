@@ -15,6 +15,8 @@ public record ValueSemantics(boolean promoteNumbers) {
   public static final ValueSemantics STANDARD = new ValueSemantics(false);
 
   /** Toast equality(), including recursive collections and the configured numeric extension. */
+  // Toast listequal (list.cc:359) and mapequal (map.cc:766) test collection identity first.
+  @SuppressWarnings("ReferenceEquality")
   public boolean equal(MooValue left, MooValue right, boolean caseMatters) {
     if (left.type() != right.type()) {
       if (left instanceof BooleanValue bool && right instanceof IntegerValue integer) {
@@ -34,7 +36,7 @@ public record ValueSemantics(boolean promoteNumbers) {
       case StringValue string -> string.length() == ((StringValue) right).length()
           && compareStrings(string, (StringValue) right, caseMatters) == 0;
       case ListValue list -> {
-        if (list.sameReference(right)) yield true;
+        if (list == right) yield true;
         ListValue other = (ListValue) right;
         boolean same = list.size() == other.size();
         for (int index = 0; same && index < list.size(); index++) {
@@ -43,7 +45,7 @@ public record ValueSemantics(boolean promoteNumbers) {
         yield same;
       }
       case MapValue map -> {
-        if (map.sameReference(right)) yield true;
+        if (map == right) yield true;
         MapValue other = (MapValue) right;
         boolean same = map.size() == other.size();
         if (same) {

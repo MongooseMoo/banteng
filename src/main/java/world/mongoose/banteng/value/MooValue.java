@@ -587,11 +587,6 @@ public sealed interface MooValue
       return literal.append('}').toString();
     }
 
-    /** Toast listequal checks collection identity before recursively comparing elements. */
-    boolean sameReference(MooValue other) {
-      return this == other;
-    }
-
     @Override
     public boolean equals(Object other) {
       return this == other || (other instanceof ListValue list && elements.equals(list.elements));
@@ -745,11 +740,6 @@ public sealed interface MooValue
             .append(entry.getValue().toLiteral());
       }
       return literal.append(']').toString();
-    }
-
-    /** Toast mapequal checks collection identity before traversing its entries. */
-    boolean sameReference(MooValue other) {
-      return this == other;
     }
 
     @Override
