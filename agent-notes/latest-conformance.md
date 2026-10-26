@@ -10,9 +10,9 @@ Necessary redesign/cleanup is in scope; weakening tests or skipping failures is 
 
 - Isolated branch `fix/latest-conformance` starts at Banteng master `2ccad0597d7a6889e1607174cd2e6513a2032542`.
 - PR: https://github.com/MongooseMoo/banteng/pull/82. Worktree: `C:/Users/Q/code/banteng-latest-conformance`.
-- Current pushed implementation head: `a8f2390`; CI40289133756 completed. No merge or release.
+- Current pushed implementation head: `0ae2c84`; CI40378241127 completed. No Banteng merge or release.
 - Suite main refreshed to `3d51b089017a1985b42ab5ee71159ebad3fff2b6` on October26. CI checks out main on every run.
-- Current behavioral evidence:a8f2390 / CI40289133756, tested merge1eca5fd against suite main3d51b08. Java/static/stress/benchmarks, CodeQL, workflow lint and dependency review passed. Conformance:1 failure,11558 passed,1771 declared skips. Only failed_dump_selects_existing_output remains (expected5, actual2356 after a successful checkpoint).
+- Current behavioral evidence:0ae2c84 / CI40378241127 against unchanged suite main3d51b08. Java/static/stress/benchmarks, CodeQL, workflow lint and dependency review passed. Conformance:1 failure,11558 passed,1771 declared skips. Only failed_dump_selects_existing_output remains (expected5, actual2356 after a successful checkpoint).
 - Fork/suspend and waif task_stack cases passed on the output-order repair. The source race is fixed; this single CI run does not prove every possible intermittent timeout is eliminated. No local CI/test/build runs.
 - Q additionally requested PR comments addressed. Original two are fixed. Callback cleanup is pushed; match-all-pattern false positives have JLS-backed replies. No review or alert was dismissed.
 - Q approved the upstream fixture correction ("yeax fix in conformance tests"). Controller PR157 adds confined chmod; dependent fixture is local until that controller is trusted on main. See the controller/data task notes in their isolated conformance worktrees.
@@ -34,10 +34,11 @@ investigation. It remains untouched.
 
 ## Next step
 
-Finish the ordinary checkpoint-failure repair below, read both repositories'
-PR CI, and land the approved upstream fixture correction through the controller
-then data dependency. No separate merge go-ahead has been received. Keep original
-checkouts untouched. Historical implementation slices and evidence follow below.
+Read conformance PR157's final candidate-profile/check reporting and the pending
+merge go-ahead question. Then publish its dependent fixture and validate Banteng
+against corrected suite main. The ordinary checkpoint-failure repair is pushed
+and Java CI passed; its actual failed-dump integration still awaits the fixture.
+Keep original checkouts untouched. Historical slices and evidence follow below.
 
 ## Implementation: verb-name whitespace
 
@@ -498,3 +499,27 @@ For an ordinary dump, log the failure and keep the existing checkpoint_finished
 false notification. Preserve shutdown's throwing path. Also correct dbDiskSize's
 unavailable-file result to structured E_QUOTA: the earlier change read the
 internal db_disk_size helper but missed its public builtin wrapper.
+
+0ae2c84 CI40378241127 completed: only the unchanged failed-dump fixture fails;
+other conformance and all non-conformance jobs pass. Conformance PR157 has all
+three authoritative Toast profiles and candidate64bit profiles passed; candidate
+32bit is still running after slow apt dependency installation. Reporter HTTP502
+retry passed. Q corrected the interpretation of the standing rule; clarified
+C:/Users/Q/.codex/AGENTS.md:93 before that retry. Transient failures within an
+already-authorized operation do not require fresh approval to retry.
+
+The merge question is now concrete: normal-merge controller PR157 when green,
+then publish/normal-merge fixture506e4a4 after its required CI. Await that merge
+go-ahead; the prior Make it so answered only the reporter retry question.
+
+PR157 is now fully green at38d9686, base3d51b08, mergeable/CLEAN. All six
+Toast profile jobs and required exact-head Full suite/harness checks passed.
+Dependent data branch is3d0bef8 (fixture code506e4a4 plus status-note update),
+clean and local only. Waiting solely on the normal-merge go-ahead question.
+
+Q answered Absolutely: normal controller and fixture merges after green CI are
+authorized. Suite main advanced to db38a71 with property rename/numbered-object
+tests. Controller branch now ba3bf93 includes that main, with normal auto-merge
+enabled pending exact-head CI. Push this note to exercise Banteng against those
+new tests independently while the corrected fixture delivery completes. The old
+failed-dump fixture remains expected to fail until the data PR lands.
