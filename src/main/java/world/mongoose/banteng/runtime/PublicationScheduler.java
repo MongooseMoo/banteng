@@ -1265,7 +1265,8 @@ final class PublicationScheduler implements AutoCloseable {
         if (inputPlayer.isPresent()) lastInputTasks.put(inputPlayer.orElseThrow(), taskId);
       }
       ingress.put(taskId, new Ingress(published,
-          socketInput ? OptionalLong.of(request.connectionId()) : OptionalLong.empty(), List.of()));
+          socketInput ? OptionalLong.of(request.connectionId()) : OptionalLong.empty(),
+          request.operation(), List.of()));
       ready.add(Entry.runtime(ticket, taskId, MooRuntime.RuntimeContinuation.ingress(request)));
       dispatch();
     }
@@ -2195,18 +2196,24 @@ final class PublicationScheduler implements AutoCloseable {
 
   @Override
   public void close() {
-    List<CompletableFuture<List<String>>> pending;
+    List<Ingress> pending;
     synchronized (this) {
       if (closed) {
         return;
       }
       closed = true;
-      pending = ingress.values().stream().map(Ingress::future).toList();
+      pending = List.copyOf(ingress.values());
       ingress.clear();
     }
     executor.shutdownNow();
     IllegalStateException failure = new IllegalStateException("publication scheduler is closed");
-    pending.forEach(future -> future.completeExceptionally(failure));
+    for (Ingress input : pending) {
+      if (input.operation() == MooRuntime.Operation.STARTUP) {
+        input.future().complete(input.output());
+      } else {
+        input.future().completeExceptionally(failure);
+      }
+    }
   }
 
   boolean awaitTermination(long timeout, TimeUnit unit) throws InterruptedException {
@@ -2359,11 +2366,12 @@ final class PublicationScheduler implements AutoCloseable {
       Optional<Throwable> failure) {}
 
   private record Ingress(
-      CompletableFuture<List<String>> future, OptionalLong socketConnection, List<String> output) {
+      CompletableFuture<List<String>> future, OptionalLong socketConnection,
+      MooRuntime.Operation operation, List<String> output) {
     Ingress append(List<String> lines) {
       List<String> combined = new ArrayList<>(output);
       combined.addAll(lines);
-      return new Ingress(future, socketConnection, List.copyOf(combined));
+      return new Ingress(future, socketConnection, operation, List.copyOf(combined));
     }
   }
 

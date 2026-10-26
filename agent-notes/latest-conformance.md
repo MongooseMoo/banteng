@@ -523,3 +523,11 @@ tests. Controller branch now ba3bf93 includes that main, with normal auto-merge
 enabled pending exact-head CI. Push this note to exercise Banteng against those
 new tests independently while the corrected fixture delivery completes. The old
 failed-dump fixture remains expected to fail until the data PR lands.
+
+971a66a CI40402021643 exposed an existing shutdown race: GracefulShutdownTest:52
+received publication scheduler is closed from the serving thread. submit already
+returns normally for STARTUP submitted after closure (PublicationScheduler:1253),
+but close fails every pending ingress, including STARTUP. Smallest repair (~15
+lines): retain the request operation on existing Ingress and complete pending
+STARTUP normally on close, retaining exceptional completion for other requests.
+No extra synchronization, test, or gate. Existing shutdown assertion stays intact.
