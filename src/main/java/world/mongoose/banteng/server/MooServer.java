@@ -246,11 +246,17 @@ public final class MooServer implements AutoCloseable, ListenerControl {
 
   /** Accepts connections until the server is closed. */
   public void serve() {
+    serve(() -> {});
+  }
+
+  /** Starts the runtime, enables process signal dispatch, then accepts connections. */
+  public void serve(Runnable ready) {
     if (!serving.compareAndSet(false, true)) {
       throw new IllegalStateException("server is already serving");
     }
     try {
       runtime.startServer();
+      ready.run();
       acceptConnections(primary);
     } finally {
       serving.set(false);

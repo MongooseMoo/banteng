@@ -633,6 +633,10 @@ public final class MooVm {
       case BuiltinResult.RaisedError raised ->
           ErrorOps.raise(state, raised.error(), raised.details(), world, false);
       case BuiltinResult.Value value -> frame.operandStack.push(value.value());
+      case BuiltinResult.TaskLocal local -> {
+        state.setTaskLocal(local.value());
+        frame.operandStack.push(new IntegerValue(0));
+      }
       case BuiltinResult.Initialize initialize ->
           applyInitialize(initialize, frame, state, world);
       case BuiltinResult.Checkpoint _ -> {

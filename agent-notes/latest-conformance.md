@@ -141,3 +141,36 @@ to "Line 1:  syntax error". Conformance still running while native work proceeds
 Native bridge additionally dispatches ALRM to timer checkpoint and panic signals
 to existing panic snapshot/abort, preserving inherited HUP ignore. Build uses a
 POSIX C compiler and packages the bridge in the application resources.
+
+CI 40274221191 finished on newer suite 000535ab: 83 failures, 10956 passes,
+2012 skips, stopped after default HUP shutdown (before native bridge commit).
+Local suite worktree advanced to 000535ab. Compiler validation incorrectly
+treated VM-owned pass() as an unknown catalog builtin; exempt that existing
+language operation, and order unknown-call diagnostics at closing parens so
+nested calls report inner first. Log reopening also needs Toast's existing
+"LOGFILE: Reopening due to remote request signal." message (server.cc:823).
+
+Next builtin slice (~90 lines): expose existing VmState task-local storage via
+task_local/set_task_local (Toast tasks.cc:2924-2956), getenv with binary encoding
+and wizard permission (system.cc:44-62), and respond_to using existing callable
+verb lookup/read permission (verbs.cc:553-589). Add no backing stores or services.
+Correct existing raise default text, unknown-local text, and builtin arity text
+from execute.cc:3500 and functions.cc:240-255 (~25 lines).
+
+Native CI 40274951455 built successfully. Java OperationsCommandTest exposed
+the listener-bind-before-signal-install race introduced by moving registration
+after MooServer construction. Install the native handler before construction;
+buffer signals in its existing pipe until serve finishes runtime startup, then
+start dispatch (~12 lines). The same CI reports a scheduler stress timeout,
+whose cause is not yet established; do not describe it as fixed or rerun around it.
+
+Raise payload repair (~40 changed lines): Toast execute.cc:3500 stores arbitrary
+Var code in BI_RAISE. Carry MooValue in the existing raised-result, pending-error,
+uncaught-error and snapshot fields, and through finally unwind. Named catches
+match ErrorValue codes; ANY catches all values. No parallel exception path.
+
+Anonymous property cases are blocked at builtin entry points, not layout rebuild:
+WorldTxn.refreshAnonymousPropertyLayouts already updates descendant slots.
+property_info rejects anonymous values with E_TYPE and is_clear_property with
+E_INVARG. Use their existing world.property overload and anonymous body metadata
+(~20 lines) per Toast property.cc:66-105,299-328.

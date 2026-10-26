@@ -152,15 +152,12 @@ final class LoopOps {
         List<MooValue> tuple = raise.exception().elements();
         ErrorOps.raise(
             state,
-            (ErrorValue) tuple.get(0),
+            tuple.get(0),
             new ListValue(tuple.subList(1, tuple.size())),
             world);
       }
       case VmSnapshot.Uncaught uncaught ->
-          state.failUncaught(
-              uncaught.value() instanceof ErrorValue error
-                  ? error
-                  : state.uncaughtError().orElse(ErrorValue.E_NONE));
+          state.failUncaught(uncaught.value());
       case VmSnapshot.Return returned -> routeReturnInternal(state, returned.value(), world);
       case VmSnapshot.Exit exit -> {
         while (frame.operandStack.size() > exit.operandDepth()) {

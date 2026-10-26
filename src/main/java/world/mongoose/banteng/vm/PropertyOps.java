@@ -134,7 +134,8 @@ final class PropertyOps {
         frame.instructionPointer++;
         return;
       }
-      ErrorOps.raise(state, ErrorValue.E_VARNF, world);
+      ErrorOps.raise(state, ErrorValue.E_VARNF,
+          new ListValue(List.of(StringValue.of("Variable not found: " + name), new IntegerValue(0))), world);
       return;
     }
     frame.operandStack.push(value);

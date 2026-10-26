@@ -56,8 +56,8 @@ public final class VmState {
   private final List<AnonymousObjectValue> anonymousCollectionDeferrals = new ArrayList<>();
   private Outcome outcome = Outcome.RUNNING;
   private Optional<MooValue> returnValue = Optional.empty();
-  private Optional<ErrorValue> pendingError = Optional.empty();
-  private Optional<ErrorValue> uncaughtError = Optional.empty();
+  private Optional<MooValue> pendingError = Optional.empty();
+  private Optional<MooValue> uncaughtError = Optional.empty();
   private OptionalLong switchedPlayer = OptionalLong.empty();
   private Optional<ForkRequest> forkRequest = Optional.empty();
   private OptionalDouble suspensionDelaySeconds = OptionalDouble.empty();
@@ -224,12 +224,12 @@ public final class VmState {
   }
 
   /** Returns the MOO error currently being routed through handlers. */
-  public Optional<ErrorValue> pendingError() {
+  public Optional<MooValue> pendingError() {
     return pendingError;
   }
 
   /** Returns an uncaught MOO error after execution terminates. */
-  public Optional<ErrorValue> uncaughtError() {
+  public Optional<MooValue> uncaughtError() {
     return uncaughtError;
   }
 
@@ -727,7 +727,7 @@ public final class VmState {
     return true;
   }
 
-  void beginError(ErrorValue error) {
+  void beginError(MooValue error) {
     pendingError = Optional.of(error);
   }
 
@@ -735,15 +735,15 @@ public final class VmState {
     pendingError = Optional.empty();
   }
 
-  void failUncaught(ErrorValue error) {
+  void failUncaught(MooValue error) {
     failUncaught(error, Optional.empty());
   }
 
-  void failUncaught(ErrorValue error, ListValue exception) {
+  void failUncaught(MooValue error, ListValue exception) {
     failUncaught(error, Optional.of(exception));
   }
 
-  private void failUncaught(ErrorValue error, Optional<ListValue> exception) {
+  private void failUncaught(MooValue error, Optional<ListValue> exception) {
     pendingError = Optional.empty();
     uncaughtError = Optional.of(error);
     returnValue = exception.map(value -> (MooValue) value);

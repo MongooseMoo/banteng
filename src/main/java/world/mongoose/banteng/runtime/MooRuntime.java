@@ -3260,8 +3260,9 @@ public final class MooRuntime implements AutoCloseable {
         || exception.size() != 4
         || !(exception.elements().get(1) instanceof StringValue message)
         || !(exception.elements().get(3) instanceof ListValue traceback)) {
+      MooValue code = state.uncaughtError().orElse(ErrorValue.E_NONE);
       return List.of(
-          state.uncaughtError().orElse(ErrorValue.E_NONE).description(),
+          code instanceof ErrorValue error ? error.description() : code.toLiteral(),
           "(End of traceback)");
     }
     List<String> lines = new ArrayList<>();
@@ -3574,7 +3575,11 @@ public final class MooRuntime implements AutoCloseable {
           throw new UncheckedIOException("checkpoint failed: " + target, error);
         }
       }
-      case REOPEN_LOG -> serverLog.reopen();
+      case REOPEN_LOG -> {
+        serverLog.info("LOGFILE: Closing due to remote request signal.");
+        serverLog.reopen();
+        serverLog.info("LOGFILE: Reopening due to remote request signal.");
+      }
       case PANIC -> {
         Path target =
             Path.of(

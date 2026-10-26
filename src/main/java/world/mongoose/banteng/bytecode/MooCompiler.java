@@ -54,10 +54,14 @@ public final class MooCompiler {
     controlPaths.clear();
     indexCallPaths(program);
     for (Ast.Expression expression : callPaths.keySet()) {
-      if (expression instanceof Ast.Call call && !knownBuiltin.test(call.name())) {
+      if (expression instanceof Ast.Call call
+          && !call.name().equalsIgnoreCase("pass") && !knownBuiltin.test(call.name())) {
         Ast.SourceSpan span = call.span().orElseThrow();
+        int end = span.endOffset() - 1;
+        int line = 1 + (int) source.substring(0, end).chars().filter(value -> value == '\n').count();
+        int column = end - source.lastIndexOf('\n', end);
         positionedDiagnostics.add(new PositionedDiagnostic(
-            new Diagnostic(span.line(), "Unknown built-in function: " + call.name()), span.column()));
+            new Diagnostic(line, "Unknown built-in function: " + call.name()), column));
       }
     }
     positionedDiagnostics.sort(

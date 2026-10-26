@@ -42,7 +42,7 @@ final class ErrorOps {
         advanceInstruction);
   }
 
-  private static ListValue exceptionTuple(ErrorValue error, ListValue details) {
+  private static ListValue exceptionTuple(MooValue error, ListValue details) {
     List<MooValue> normalized = new ArrayList<>(4);
     normalized.add(error);
     normalized.add(details.size() > 0 ? details.elements().get(0) : StringValue.of(""));
@@ -51,13 +51,13 @@ final class ErrorOps {
     return new ListValue(normalized);
   }
 
-  static void raise(VmState state, ErrorValue error, ListValue details, WorldTxn world) {
+  static void raise(VmState state, MooValue error, ListValue details, WorldTxn world) {
     raise(state, error, details, world, true);
   }
 
   static void raise(
       VmState state,
-      ErrorValue error,
+      MooValue error,
       ListValue details,
       WorldTxn world,
       boolean advanceInstruction) {
@@ -137,9 +137,10 @@ final class ErrorOps {
   }
 
   private static ListValue completeErrorDetails(
-      VmState state, ErrorValue error, ListValue details) {
+      VmState state, MooValue error, ListValue details) {
     MooValue message =
-        details.size() > 0 ? details.elements().get(0) : StringValue.of(error.description());
+        details.size() > 0 ? details.elements().get(0)
+            : StringValue.of(error instanceof ErrorValue code ? code.description() : error.toLiteral());
     MooValue value = details.size() > 1 ? details.elements().get(1) : new IntegerValue(0);
     ListValue traceback =
         details.size() > 2 && details.elements().get(2) instanceof ListValue existing
@@ -149,7 +150,7 @@ final class ErrorOps {
     return new ListValue(List.of(message, value, traceback));
   }
 
-  private static ListValue traceback(VmState state, ErrorValue error) {
+  private static ListValue traceback(VmState state, MooValue error) {
     List<MooValue> frames = new ArrayList<>();
     boolean origin = true;
     for (Frame frame : state.activeFrames()) {
@@ -194,8 +195,8 @@ final class ErrorOps {
     return value instanceof AnonymousObjectValue ? new AnonymousObjectValue() : value;
   }
 
-  private static boolean catches(ActiveHandler handler, ErrorValue error) {
+  private static boolean catches(ActiveHandler handler, MooValue error) {
     return handler.specification.catchesAny()
-        || handler.specification.caughtErrors().contains(error.name());
+        || (error instanceof ErrorValue code && handler.specification.caughtErrors().contains(code.name()));
   }
 }

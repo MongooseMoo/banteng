@@ -6275,7 +6275,7 @@ final class BuiltinCatalogTest {
   private static Optional<ErrorValue> error(BuiltinResult result) {
     return switch (result) {
       case BuiltinResult.ErrorResult error -> Optional.of(error.error());
-      case BuiltinResult.RaisedError raised -> Optional.of(raised.error());
+      case BuiltinResult.RaisedError raised -> Optional.of((ErrorValue) raised.error());
       default -> Optional.empty();
     };
   }

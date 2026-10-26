@@ -12,16 +12,17 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.function.IntConsumer;
 
 /** Transfers external POSIX signals to a Java thread without a native Java upcall. */
 final class ProcessSignals implements AutoCloseable {
   private final MethodHandle next;
   private final MethodHandle stop;
-  private final Thread dispatcher;
+  private Optional<Thread> dispatcher = Optional.empty();
 
   @SuppressWarnings("restricted")
-  ProcessSignals(IntConsumer action) throws IOException {
+  ProcessSignals() throws IOException {
     Path library = Files.createTempFile("banteng-signals-", ".so");
     SymbolLookup symbols;
     try {
@@ -43,14 +44,17 @@ final class ProcessSignals implements AutoCloseable {
     stop = linker.downcallHandle(symbols.findOrThrow("banteng_signals_stop"), signature);
     int result = invoke(install);
     if (result != 0) throw new IOException("cannot install process signals: errno " + -result);
-    dispatcher = Thread.ofPlatform().daemon().name("banteng-signals").start(() -> {
+  }
+
+  void dispatch(IntConsumer action) {
+    dispatcher = Optional.of(Thread.ofPlatform().daemon().name("banteng-signals").start(() -> {
       while (true) {
         int signal = invoke(next);
         if (signal == 0) return;
         if (signal < 0) throw new IllegalStateException("signal pipe read failed: errno " + -signal);
         action.accept(signal);
       }
-    });
+    }));
   }
 
   private static int invoke(MethodHandle operation) {
@@ -66,7 +70,7 @@ final class ProcessSignals implements AutoCloseable {
     int result = invoke(stop);
     if (result != 0) throw new IllegalStateException("cannot restore process signals: errno " + -result);
     try {
-      dispatcher.join();
+      if (dispatcher.isPresent()) dispatcher.orElseThrow().join();
     } catch (InterruptedException interrupted) {
       Thread.currentThread().interrupt();
       throw new IllegalStateException("signal dispatcher shutdown interrupted", interrupted);

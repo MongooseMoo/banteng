@@ -39,6 +39,7 @@ final class BuiltinResultTest {
             "Shutdown",
             "Suspend",
             "SwitchPlayer",
+            "TaskLocal",
             "ThreadMode",
             "Value"),
         Arrays.stream(BuiltinResult.class.getPermittedSubclasses())
@@ -68,6 +69,7 @@ final class BuiltinResultTest {
             Map.entry("Shutdown", List.of()),
             Map.entry("Suspend", List.of("seconds")),
             Map.entry("SwitchPlayer", List.of("player")),
+            Map.entry("TaskLocal", List.of("value")),
             Map.entry("ThreadMode", List.of("enabled")),
             Map.entry("Value", List.of("value"))),
         Arrays.stream(BuiltinResult.class.getPermittedSubclasses())

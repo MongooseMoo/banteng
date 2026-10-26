@@ -59,7 +59,6 @@ public final class Banteng implements Callable<Integer> {
 
   /** Loads the configured database and blocks while serving connections. */
   @Override
-  @SuppressWarnings("try")
   public Integer call() throws Exception {
     CommandSpec spec = Objects.requireNonNull(commandSpec, "picocli command spec");
     if (port < 1 || port > 65_535) {
@@ -95,7 +94,8 @@ public final class Banteng implements Callable<Integer> {
               default -> throw new IOException("unsupported database header: " + header);
             };
       }
-      try (MooServer server =
+      try (ProcessSignals signals = new ProcessSignals();
+          MooServer server =
               new MooServer(
                   listenAddress,
                   port,
@@ -106,9 +106,7 @@ public final class Banteng implements Callable<Integer> {
                   loaded.activeConnections(),
                   serverLog,
                   valueSemantics())) {
-        try (ProcessSignals signals = new ProcessSignals(server::handleSignal)) {
-          server.serve();
-        }
+        server.serve(() -> signals.dispatch(server::handleSignal));
       }
     }
     return CommandLine.ExitCode.OK;

@@ -208,6 +208,26 @@ public final class BuiltinCatalog {
 
   private List<BuiltinSpec> buildManifest() {
     List<BuiltinSpec> entries = new ArrayList<>();
+    entries.add(new BuiltinSpec(
+        "task_local", List.of(new CallShape(List.of(), List.of(), Optional.empty())),
+        BuiltinPermissionRule.WIZARD_ONLY, BuiltinCostRule.fixed(0), EffectClass.PURE,
+        BuiltinOwner.VM, call -> BuiltinResult.value(call.taskLocal())));
+    entries.add(new BuiltinSpec(
+        "set_task_local", List.of(new CallShape(List.of(ANY), List.of(), Optional.empty())),
+        BuiltinPermissionRule.WIZARD_ONLY, BuiltinCostRule.fixed(0), EffectClass.PURE,
+        BuiltinOwner.VM, call -> new BuiltinResult.TaskLocal(call.arguments().getFirst())));
+    entries.add(new BuiltinSpec(
+        "getenv", List.of(new CallShape(List.of(STRING), List.of(), Optional.empty())),
+        BuiltinPermissionRule.WIZARD_ONLY, BuiltinCostRule.fixed(0), EffectClass.EXTERNAL_READ,
+        BuiltinOwner.SERVER, call -> {
+          String value = System.getenv(((StringValue) call.arguments().getFirst()).text());
+          return value == null ? BuiltinResult.value(new IntegerValue(0))
+              : encodeBinary(List.of(StringValue.of(value)));
+        }));
+    entries.add(new BuiltinSpec(
+        "respond_to", List.of(new CallShape(List.of(ANY, STRING), List.of(), Optional.empty())),
+        BuiltinPermissionRule.ANY, BuiltinCostRule.fixed(0), EffectClass.TRANSACTION_READ,
+        BuiltinOwner.WORLD, call -> respondTo(call.arguments(), call.world(), call.programmer())));
     Set<ArgType> floatMath =
         hosts.valueSemantics().promoteNumbers() ? NUMBER : Set.of(ArgType.FLOAT);
     BuiltinHandler setThreadMode =
@@ -2531,7 +2551,13 @@ public final class BuiltinCatalog {
       boolean threadMode,
       LongBinaryOperator stagedBufferedOutputLength) {
     if (spec.callShapes().stream().noneMatch(shape -> shape.acceptsArity(arguments.size()))) {
-      return BuiltinResult.error(ErrorValue.E_ARGS);
+      int minimum = spec.callShapes().stream().mapToInt(shape -> shape.required().size()).min().orElseThrow();
+      int maximum = spec.callShapes().stream().anyMatch(shape -> shape.variadic().isPresent()) ? -1
+          : spec.callShapes().stream().mapToInt(shape -> shape.required().size() + shape.optional().size()).max().orElseThrow();
+      String expected = minimum == maximum ? Integer.toString(minimum) : minimum + "-" + maximum;
+      return BuiltinResult.raised(ErrorValue.E_ARGS,
+          StringValue.of("Incorrect number of arguments (expected " + expected + "; got " + arguments.size() + ")"),
+          new IntegerValue(0));
     }
     if (spec.callShapes().stream().noneMatch(shape -> shape.accepts(arguments))) {
       return BuiltinResult.error(ErrorValue.E_TYPE);
@@ -3354,11 +3380,42 @@ public final class BuiltinCatalog {
 
   private static BuiltinResult raise(List<MooValue> arguments) {
     MooValue code = arguments.getFirst();
-    ErrorValue error = code instanceof ErrorValue errorValue ? errorValue : ErrorValue.E_INVARG;
     StringValue message =
-        arguments.size() >= 2 ? (StringValue) arguments.get(1) : StringValue.of(code.toLiteral());
+        arguments.size() >= 2 ? (StringValue) arguments.get(1)
+            : (StringValue) ((BuiltinResult.Value) toStringValue(List.of(code))).value();
     MooValue value = arguments.size() >= 3 ? arguments.get(2) : new IntegerValue(0);
-    return BuiltinResult.raised(error, message, value);
+    return BuiltinResult.raised(code, message, value);
+  }
+
+  private static BuiltinResult respondTo(List<MooValue> arguments, WorldTxn world, long programmer) {
+    MooValue target = arguments.getFirst();
+    String name = ((StringValue) arguments.get(1)).text();
+    WorldVerb verb;
+    MooValue location;
+    long owner;
+    int flags;
+    if (target instanceof ObjectValue object) {
+      WorldObject body = world.object(object.value()).orElse(null);
+      if (body == null) return BuiltinResult.error(ErrorValue.E_INVARG);
+      verb = world.verb(object.value(), name).orElse(null);
+      if (verb == null) return BuiltinResult.value(new IntegerValue(0));
+      location = new ObjectValue(world.verbLocation(object.value(), name, true).orElseThrow());
+      owner = body.owner();
+      flags = body.flags();
+    } else if (target instanceof AnonymousObjectValue anonymous) {
+      WorldAnonymousObject body = world.anonymousObject(anonymous).orElse(null);
+      if (body == null) return BuiltinResult.error(ErrorValue.E_INVARG);
+      verb = world.verb(anonymous, name, true).orElse(null);
+      if (verb == null) return BuiltinResult.value(new IntegerValue(0));
+      location = world.verbLocation(anonymous, name, true).orElseThrow();
+      owner = body.owner();
+      flags = body.flags();
+    } else {
+      return BuiltinResult.error(ErrorValue.E_TYPE);
+    }
+    return owner == programmer || isWizard(world, programmer) || ObjectFlags.isReadable(flags)
+        ? BuiltinResult.value(new ListValue(List.of(location, StringValue.of(verb.names()))))
+        : BuiltinResult.value(new IntegerValue(1));
   }
 
   private static BuiltinResult listInsert(
@@ -5366,11 +5423,12 @@ public final class BuiltinCatalog {
 
   private static BuiltinResult isClearProperty(
       List<MooValue> arguments, WorldTxn world, long programmer) {
-    if (!(arguments.getFirst() instanceof ObjectValue object)) {
+    MooValue receiver = arguments.getFirst();
+    if (!(receiver instanceof ObjectValue || receiver instanceof AnonymousObjectValue)) {
       return BuiltinResult.error(ErrorValue.E_INVARG);
     }
-    WorldObject target = world.object(object.value()).orElse(null);
-    if (target == null) {
+    if (receiver instanceof ObjectValue object ? world.object(object.value()).isEmpty()
+        : world.anonymousObject((AnonymousObjectValue) receiver).isEmpty()) {
       return BuiltinResult.error(ErrorValue.E_INVARG);
     }
     String name = ((StringValue) arguments.get(1)).text();
@@ -5386,7 +5444,9 @@ public final class BuiltinCatalog {
         || normalized.equals("f")) {
       return BuiltinResult.value(new IntegerValue(0));
     }
-    WorldProperty property = world.property(object.value(), name).orElse(null);
+    WorldProperty property = receiver instanceof ObjectValue object
+        ? world.property(object.value(), name).orElse(null)
+        : world.property((AnonymousObjectValue) receiver, name).orElse(null);
     if (property == null) {
       return BuiltinResult.error(ErrorValue.E_PROPNF);
     }
@@ -5395,12 +5455,7 @@ public final class BuiltinCatalog {
     if (property.owner() != programmer && !wizard && (property.permissions() & 1) == 0) {
       return BuiltinResult.error(ErrorValue.E_PERM);
     }
-    WorldProperty local =
-        target.properties().stream()
-            .filter(candidate -> candidate.name().equalsIgnoreCase(name))
-            .findFirst()
-            .orElse(null);
-    return BuiltinResult.value(new IntegerValue(local != null && local.clear() ? 1 : 0));
+    return BuiltinResult.value(new IntegerValue(property.clear() ? 1 : 0));
   }
 
   private static BuiltinResult propertyInfo(
@@ -5408,10 +5463,12 @@ public final class BuiltinCatalog {
     if (arguments.getFirst() instanceof WaifValue) {
       return BuiltinResult.error(ErrorValue.E_INVARG);
     }
-    if (!(arguments.getFirst() instanceof ObjectValue object)) {
+    MooValue receiver = arguments.getFirst();
+    if (!(receiver instanceof ObjectValue || receiver instanceof AnonymousObjectValue)) {
       return BuiltinResult.error(ErrorValue.E_TYPE);
     }
-    if (world.object(object.value()).isEmpty()) {
+    if (receiver instanceof ObjectValue object ? world.object(object.value()).isEmpty()
+        : world.anonymousObject((AnonymousObjectValue) receiver).isEmpty()) {
       return BuiltinResult.error(ErrorValue.E_INVARG);
     }
     String name = ((StringValue) arguments.get(1)).text();
@@ -5427,7 +5484,9 @@ public final class BuiltinCatalog {
         || normalized.equals("f")) {
       return BuiltinResult.error(ErrorValue.E_PROPNF);
     }
-    WorldProperty property = world.property(object.value(), name).orElse(null);
+    WorldProperty property = receiver instanceof ObjectValue object
+        ? world.property(object.value(), name).orElse(null)
+        : world.property((AnonymousObjectValue) receiver, name).orElse(null);
     if (property == null) {
       return BuiltinResult.error(ErrorValue.E_PROPNF);
     }
