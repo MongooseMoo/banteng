@@ -5449,14 +5449,7 @@ public final class BuiltinCatalog {
           case "this" -> 2;
           default -> -1;
         };
-    int preposition =
-        switch (prepositionText.toLowerCase(Locale.ROOT)) {
-          case "none" -> -1;
-          case "any" -> -2;
-          case "at" -> 1;
-          case "in" -> 3;
-          default -> Integer.MIN_VALUE;
-        };
+    int preposition = parsePreposition(prepositionText);
     if (direct < 0 || indirect < 0 || preposition == Integer.MIN_VALUE) {
       return BuiltinResult.error(ErrorValue.E_INVARG);
     }
@@ -6082,12 +6075,47 @@ public final class BuiltinCatalog {
           case "this" -> 2;
           default -> -1;
         };
+    int preposition = parsePreposition(prepositionText);
+    if (direct < 0 || indirect < 0 || preposition == Integer.MIN_VALUE) {
+      return BuiltinResult.error(ErrorValue.E_INVARG);
+    }
+
+    List<WorldVerb> targetVerbs = target.verbs();
+    WorldVerb verb;
+    int verbIndex;
+    if (descriptor instanceof IntegerValue integer) {
+      long index = integer.value() - 1;
+      if (index >= targetVerbs.size()) {
+        return BuiltinResult.error(ErrorValue.E_VERBNF);
+      }
+      verbIndex = (int) index;
+      verb = targetVerbs.get(verbIndex);
+    } else {
+      WorldVerb candidate =
+          world.verb(object.value(), ((StringValue) descriptor).text(), false).orElse(null);
+      if (candidate == null || !targetVerbs.contains(candidate)) {
+        return BuiltinResult.error(ErrorValue.E_VERBNF);
+      }
+      verb = candidate;
+      verbIndex = targetVerbs.indexOf(verb);
+    }
+
+    boolean wizard = BuiltinPermissionRule.WIZARD_ONLY.allows(world, programmer);
+    if (verb.owner() != programmer && !wizard && (verb.permissions() & 2) == 0) {
+      return BuiltinResult.error(ErrorValue.E_PERM);
+    }
+    WorldResult<Boolean> updated =
+        world.setVerbArgs(object.value(), verbIndex, direct, preposition, indirect);
+    return mutationResult(updated, new IntegerValue(0));
+  }
+
+  private static int parsePreposition(String prepositionText) {
     String normalizedPreposition = prepositionText.toLowerCase(Locale.ROOT);
     int slash = normalizedPreposition.indexOf('/');
     if (slash >= 0) {
       normalizedPreposition = normalizedPreposition.substring(0, slash);
     }
-    int preposition =
+    return
         switch (normalizedPreposition) {
           case "none" -> -1;
           case "any" -> -2;
@@ -6123,37 +6151,6 @@ public final class BuiltinCatalog {
             }
           }
         };
-    if (direct < 0 || indirect < 0 || preposition == Integer.MIN_VALUE) {
-      return BuiltinResult.error(ErrorValue.E_INVARG);
-    }
-
-    List<WorldVerb> targetVerbs = target.verbs();
-    WorldVerb verb;
-    int verbIndex;
-    if (descriptor instanceof IntegerValue integer) {
-      long index = integer.value() - 1;
-      if (index >= targetVerbs.size()) {
-        return BuiltinResult.error(ErrorValue.E_VERBNF);
-      }
-      verbIndex = (int) index;
-      verb = targetVerbs.get(verbIndex);
-    } else {
-      WorldVerb candidate =
-          world.verb(object.value(), ((StringValue) descriptor).text(), false).orElse(null);
-      if (candidate == null || !targetVerbs.contains(candidate)) {
-        return BuiltinResult.error(ErrorValue.E_VERBNF);
-      }
-      verb = candidate;
-      verbIndex = targetVerbs.indexOf(verb);
-    }
-
-    boolean wizard = BuiltinPermissionRule.WIZARD_ONLY.allows(world, programmer);
-    if (verb.owner() != programmer && !wizard && (verb.permissions() & 2) == 0) {
-      return BuiltinResult.error(ErrorValue.E_PERM);
-    }
-    WorldResult<Boolean> updated =
-        world.setVerbArgs(object.value(), verbIndex, direct, preposition, indirect);
-    return mutationResult(updated, new IntegerValue(0));
   }
 
   private BuiltinResult setVerbCode(

@@ -292,3 +292,24 @@ user_created (tasks.cc:956 player_connected classification), not user_connected.
 anonymous slot owners, self-kill startup checkpoints, hash-dependent fork and
 expired-resume fixtures now pass. Java's only failure is the syntax dependency
 already corrected locally. Input lifecycle changes are ready for CI.
+
+Verb setup causes: WorldTxn.writePropertyFor omits intrinsic r although reads
+recognize it (Toast db_properties.cc:687 writes FLAG_READ), and add_verb accepts
+only at/in prepositions while set_verb_args already parses the full vocabulary.
+Add the missing flag case and reuse that existing parser (~8 changed lines plus
+moving its 40-line body into a shared method). These failures left captures as
+error tuples or failed to create the verb, causing later introspection errors.
+
+218c622 Java CI exposed the synchronous embedding contract: executeLine callers
+await a complete result, while MooServer's socket reader must be released at the
+first suspension. Keep that choice in the existing ingress entry (~45 lines):
+future, socket-completion flag, accumulated output. Server uses receiveLine and
+acceptConnection; ordinary executeLine/openConnection retain completion waiting.
+The suspended MOO task still loses its server callback, matching Toast semantics.
+
+218c622 CI40281328573 conformance completed:32 failures. Initial login caller,
+new-user hook selection, prelogin OOB/quote, read-driven commands, delayed login
+and proxy read login now pass. Input completion reaches its queue_info assertion;
+one hold/OOB option case times out. Java's changed embedding contract failures
+are addressed by the ingress completion choice above; stress timeout still needs
+its own cause diagnosis.

@@ -624,6 +624,7 @@ public final class WorldTxn implements AutoCloseable {
           switch (normalizedName) {
             case "programmer" -> ObjectFlags.FLAG_PROGRAMMER;
             case "wizard" -> ObjectFlags.FLAG_WIZARD;
+            case "r" -> ObjectFlags.FLAG_READ;
             case "w" -> ObjectFlags.FLAG_WRITE;
             case "f" -> ObjectFlags.FLAG_FERTILE;
             case "a" -> ObjectFlags.FLAG_ANONYMOUS;

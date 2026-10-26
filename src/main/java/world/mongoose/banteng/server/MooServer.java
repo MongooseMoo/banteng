@@ -299,7 +299,7 @@ public final class MooServer implements AutoCloseable, ListenerControl {
       ConnectionOutput connectionOutput = new ConnectionOutput(output);
       outputs.put(connectionId, connectionOutput);
       List<String> initialOutput =
-          runtime.openConnection(
+          runtime.acceptConnection(
               connectionId, listener.handler, listener.printMessages, connectionInfo(socket, false));
       opened = true;
       connectionOutput.writeLines(initialOutput);
@@ -314,7 +314,7 @@ public final class MooServer implements AutoCloseable, ListenerControl {
       while ((inputCount = input.read(inputBuffer)) != -1) {
         if (binaryConnections.containsKey(connectionId)) {
           connectionOutput.writeLines(
-              runtime.executeLine(
+              runtime.receiveLine(
                   connectionId,
                   new String(inputBuffer, 0, inputCount, StringValue.charset())));
           continue;
@@ -373,7 +373,7 @@ public final class MooServer implements AutoCloseable, ListenerControl {
           }
           if (inputByte == '\r') {
             connectionOutput.writeLines(
-                runtime.executeLine(connectionId, line.toString(StringValue.charset())));
+                runtime.receiveLine(connectionId, line.toString(StringValue.charset())));
             line.reset();
             afterCarriageReturn = true;
             continue;
@@ -384,7 +384,7 @@ public final class MooServer implements AutoCloseable, ListenerControl {
               continue;
             }
             connectionOutput.writeLines(
-                runtime.executeLine(connectionId, line.toString(StringValue.charset())));
+                runtime.receiveLine(connectionId, line.toString(StringValue.charset())));
             line.reset();
             continue;
           }
@@ -394,7 +394,7 @@ public final class MooServer implements AutoCloseable, ListenerControl {
       }
       if (line.size() > 0) {
         connectionOutput.writeLines(
-            runtime.executeLine(connectionId, line.toString(StringValue.charset())));
+            runtime.receiveLine(connectionId, line.toString(StringValue.charset())));
       }
     } catch (IOException error) {
       if (!closed.get() && !socket.isClosed()) {

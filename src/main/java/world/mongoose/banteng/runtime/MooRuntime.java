@@ -618,6 +618,13 @@ public final class MooRuntime implements AutoCloseable {
         RuntimeRequest.open(connectionId, listenerHandler, printMessages, connectionInfo));
   }
 
+  /** Accepts socket input through its first suspension so its reader can continue. */
+  public List<String> acceptConnection(
+      long connectionId, long listenerHandler, boolean printMessages, MapValue connectionInfo) {
+    return scheduler.submit(
+        RuntimeRequest.open(connectionId, listenerHandler, printMessages, connectionInfo), true);
+  }
+
   private RuntimeStep openConnectionNow(
       long connectionId, long listenerHandler, boolean printMessages, MapValue connectionInfo) {
     connectionRegistry().openConnection(connectionId, connectionInfo);
@@ -694,6 +701,11 @@ public final class MooRuntime implements AutoCloseable {
   public List<String> executeLine(long connectionId, String line) {
     Objects.requireNonNull(line, "line");
     return scheduler.submit(RuntimeRequest.line(connectionId, line));
+  }
+
+  /** Processes a socket line through its first suspension, then streams later task output. */
+  public List<String> receiveLine(long connectionId, String line) {
+    return scheduler.submit(RuntimeRequest.line(connectionId, Objects.requireNonNull(line, "line")), true);
   }
 
   synchronized boolean startsInputTask(long connectionId, String line) {

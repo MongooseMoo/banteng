@@ -64,7 +64,7 @@ final class PublicationScheduler implements AutoCloseable {
   @GuardedBy("this")
   private final Map<Long, Attempt> completed = new TreeMap<>();
   @GuardedBy("this")
-  private final Map<Long, CompletableFuture<List<String>>> ingress = new TreeMap<>();
+  private final Map<Long, Ingress> ingress = new TreeMap<>();
   @GuardedBy("this")
   private final Map<Long, Long> lastInputTasks = new TreeMap<>();
   @GuardedBy("this")
@@ -1241,6 +1241,10 @@ final class PublicationScheduler implements AutoCloseable {
   }
 
   List<String> submit(MooRuntime.RuntimeRequest request) {
+    return submit(request, false);
+  }
+
+  List<String> submit(MooRuntime.RuntimeRequest request, boolean socketInput) {
     CompletableFuture<List<String>> published = new CompletableFuture<>();
     synchronized (this) {
       ensureOpen();
@@ -1252,7 +1256,7 @@ final class PublicationScheduler implements AutoCloseable {
         long player = runtime.connectionPlayer(request.connectionId()).orElse(-1);
         lastInputTasks.put(player >= 0 ? player : request.connectionId(), taskId);
       }
-      ingress.put(taskId, published);
+      ingress.put(taskId, new Ingress(published, socketInput, List.of()));
       ready.add(Entry.runtime(ticket, taskId, MooRuntime.RuntimeContinuation.ingress(request)));
       dispatch();
     }
@@ -1675,9 +1679,16 @@ final class PublicationScheduler implements AutoCloseable {
       return;
     }
     CompletableFuture<List<String>> foreground = null;
+    boolean retainedIngress = false;
     if (result.inputOutput().isPresent()) {
       synchronized (this) {
-        foreground = ingress.remove(start.taskId());
+        Ingress input = ingress.get(start.taskId());
+        if (input != null && input.socketInput()) {
+          foreground = ingress.remove(start.taskId()).future();
+        } else if (input != null) {
+          ingress.put(start.taskId(), input.append(result.inputOutput().orElseThrow()));
+          retainedIngress = true;
+        }
       }
     }
     synchronized (this) {
@@ -1700,7 +1711,7 @@ final class PublicationScheduler implements AutoCloseable {
     if (result.inputOutput().isPresent()) {
       if (foreground != null) {
         foreground.complete(result.inputOutput().orElseThrow());
-      } else {
+      } else if (!retainedIngress) {
         runtime.writeDetachedOutput(result.taskPlayer(), result.inputOutput().orElseThrow());
       }
     }
@@ -2029,7 +2040,8 @@ final class PublicationScheduler implements AutoCloseable {
       if (!taskRegistry.discardIfCanceled(work.taskId())) {
         return;
       }
-      canceledIngress = ingress.remove(work.taskId());
+      Ingress input = ingress.remove(work.taskId());
+      canceledIngress = input == null ? null : input.future();
       dispatch();
     }
     if (canceledIngress != null) {
@@ -2113,8 +2125,9 @@ final class PublicationScheduler implements AutoCloseable {
     checkpointingWork.remove(entry.taskId());
     taskRegistry.remove(entry.taskId());
     finishActiveFinalization(entry.taskId(), finalizationControl);
-    CompletableFuture<List<String>> future = ingress.remove(entry.taskId());
-    return future == null ? RootCompletion.none() : RootCompletion.success(future, output);
+    Ingress input = ingress.remove(entry.taskId());
+    return input == null ? RootCompletion.none()
+        : RootCompletion.success(input.future(), input.append(output).output());
   }
 
   private synchronized RootCompletion finishFailure(Entry entry, Throwable failure) {
@@ -2122,10 +2135,10 @@ final class PublicationScheduler implements AutoCloseable {
     checkpointingWork.remove(entry.taskId());
     taskRegistry.remove(entry.taskId());
     finishActiveFinalization(entry.taskId(), entry.finalizationControl());
-    CompletableFuture<List<String>> future = ingress.remove(entry.taskId());
-    return future == null
+    Ingress input = ingress.remove(entry.taskId());
+    return input == null
         ? RootCompletion.none()
-        : RootCompletion.failure(future, failure);
+        : RootCompletion.failure(input.future(), failure);
   }
 
   synchronized long nextTicket() {
@@ -2158,7 +2171,7 @@ final class PublicationScheduler implements AutoCloseable {
         return;
       }
       closed = true;
-      pending = List.copyOf(ingress.values());
+      pending = ingress.values().stream().map(Ingress::future).toList();
       ingress.clear();
     }
     executor.shutdownNow();
@@ -2314,6 +2327,15 @@ final class PublicationScheduler implements AutoCloseable {
       Optional<MooRuntime.AttemptContext> context,
       Optional<SegmentResult> result,
       Optional<Throwable> failure) {}
+
+  private record Ingress(
+      CompletableFuture<List<String>> future, boolean socketInput, List<String> output) {
+    Ingress append(List<String> lines) {
+      List<String> combined = new ArrayList<>(output);
+      combined.addAll(lines);
+      return new Ingress(future, socketInput, List.copyOf(combined));
+    }
+  }
 
   private record PendingFork(TimedWork work) {}
 
