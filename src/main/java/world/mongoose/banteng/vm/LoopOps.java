@@ -414,15 +414,7 @@ final class LoopOps {
     if (frame.moveObject.isPresent()
         && frame.moveDestination.isPresent()
         && frame.movePosition.isPresent()) {
-      long moveObject = frame.moveObject.orElseThrow();
-      long moveDestination = frame.moveDestination.orElseThrow();
-      long movePosition = frame.movePosition.orElseThrow();
-      state.unwindChildFrame();
-      if (!ErrorOps.propagateWorldFailure(
-          world.move(moveObject, moveDestination, movePosition), state, world)) {
-        return;
-      }
-      state.currentFrame().operandStack.push(new IntegerValue(0));
+      MoveOps.returned(frame, value, state, world);
       return;
     }
     state.finishFrame(value);

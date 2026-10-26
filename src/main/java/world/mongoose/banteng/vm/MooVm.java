@@ -675,7 +675,7 @@ public final class MooVm {
         state.setProgrammer(programmer.programmer());
         frame.operandStack.push(new IntegerValue(0));
       }
-      case BuiltinResult.Move move -> applyMove(move, frame, state, world);
+      case BuiltinResult.Move move -> MoveOps.start(move, state, world);
       case BuiltinResult.Recycle recycle ->
           applyRecycle(recycle.object(), frame, state, world);
       case BuiltinResult.RecycleAnonymous recycle ->
@@ -715,49 +715,6 @@ public final class MooVm {
     }
     if (!state.pushEvalFrame(dynamicProgram)) {
       ErrorOps.raise(state, ErrorValue.E_MAXREC, world);
-    }
-  }
-
-  private static void applyMove(
-      BuiltinResult.Move move, Frame frame, VmState state, WorldTxn world) {
-    WorldVerb hook = world.verb(move.destination(), "accept").orElse(null);
-    if (hook == null) {
-      if (!ErrorOps.propagateWorldFailure(
-          world.move(move.object(), move.destination(), move.position()), state, world)) {
-        return;
-      }
-      frame.operandStack.push(new IntegerValue(0));
-      return;
-    }
-    BytecodeProgram hookProgram;
-    try {
-      hookProgram = new MooCompiler().compile(hook.programSource());
-    } catch (IllegalArgumentException error) {
-      ErrorOps.raise(state, ErrorValue.E_INVARG, world);
-      return;
-    }
-    Map<String, MooValue> locals = new LinkedHashMap<>();
-    ObjectValue destination = new ObjectValue(move.destination());
-    locals.put("this", destination);
-    locals.put("player", frame.locals.getOrDefault("player", new ObjectValue(-1)));
-    locals.put("caller", frame.receiver);
-    locals.put("verb", StringValue.of("accept"));
-    locals.put("args", new ListValue(List.of(new ObjectValue(move.object()))));
-    locals.put("argstr", StringValue.of(""));
-    if (!state.pushVerbFrame(
-        hookProgram,
-        locals,
-        hook.owner(),
-        destination,
-        destination,
-        OptionalLong.empty(),
-        OptionalLong.of(move.object()),
-        OptionalLong.of(move.destination()),
-        OptionalLong.of(move.position()),
-        "accept",
-        hook.names(),
-        (hook.permissions() & 8) != 0)) {
-      ErrorOps.raise(state, ErrorValue.E_MAXREC, world, false);
     }
   }
 

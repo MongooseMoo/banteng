@@ -69,3 +69,19 @@ Toast execute.cc initializes each activation to DEFAULT_THREAD_MODE. Reset new
 frames to true while retaining snapshot restoration (three lines). Correct
 chparent/chparents metadata argument types in their existing CallShapes (two
 lines); the new function_info cases require OBJECT and LIST respectively.
+
+Move lifecycle cause: BuiltinCatalog bypasses hooks for non-wizards; MooVm calls
+only accept; LoopOps ignores its result, moves, and returns without exitfunc or
+enterfunc. Toast objects.cc:117-210 defines accept -> relocation -> exitfunc ->
+conditional enterfunc, including suspension. Smallest complete repair: retain
+the existing move fields and frame/snapshot machinery, add explicit move return
+phases, and put that lifecycle in MoveOps (about 180 lines replacing the current
+accept-only implementation). Phases must be typed, never inferred from verb names.
+
+CI 40272399950: 96 failures (16 baseline cases fixed), still aborts at SIGUSR1.
+Java failures reflect stale map/thread-mode expectations and a test passing an
+object to chparents instead of chparent; update those existing tests to the
+source-confirmed contract. SQLite next: retain the existing service but obey
+activation thread mode and remove JDBC's documented exception prefix from the
+returned SQLite error text (~30 lines). Xerial DB.newSQLException builds
+`resultCode + " (" + errmsg + ")"`; Toast sqlite.cc returns sqlite3_errmsg alone.

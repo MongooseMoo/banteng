@@ -628,6 +628,21 @@ public final class VmState {
     return true;
   }
 
+  boolean pushMoveFrame(
+      BytecodeProgram program, Map<String, MooValue> locals,
+      world.mongoose.banteng.world.WorldVerb hook, long receiver, long location,
+      ReturnMode phase, BuiltinResult.Move move) {
+    if (frames.size() >= maxStackDepth) {
+      return false;
+    }
+    frames.push(new Frame(
+        program, locals, phase, hook.owner(), new ObjectValue(receiver), new ObjectValue(location),
+        calledVerb(locals), hook.names(), Optional.empty(), OptionalLong.empty(),
+        OptionalLong.of(move.object()), OptionalLong.of(move.destination()),
+        OptionalLong.of(move.position()), (hook.permissions() & 8) != 0, true));
+    return true;
+  }
+
   long callerProgrammer() {
     boolean current = true;
     for (Frame frame : frames) {
@@ -1340,7 +1355,10 @@ public final class VmState {
   enum ReturnMode {
     ROOT,
     EVAL,
-    VERB
+    VERB,
+    MOVE_ACCEPT,
+    MOVE_EXIT,
+    MOVE_ENTER
   }
 
   enum HandlerPhase {

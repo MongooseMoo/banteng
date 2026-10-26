@@ -1980,31 +1980,31 @@ public final class BuiltinCatalog {
             "sqlite_open",
             new CallShape(List.of(STRING), List.of(INTEGER), Optional.empty()),
             EffectClass.IRREVOCABLE,
-            sqlite::open));
+            call -> sqlite.open(call.arguments())));
     entries.add(
         sqliteSpec(
             "sqlite_close",
             new CallShape(List.of(INTEGER), List.of(), Optional.empty()),
             EffectClass.IRREVOCABLE,
-            sqlite::close));
+            call -> sqlite.close(call.arguments())));
     entries.add(
         sqliteSpec(
             "sqlite_handles",
             new CallShape(List.of(), List.of(), Optional.empty()),
             EffectClass.EXTERNAL_READ,
-            sqlite::handles));
+            call -> sqlite.handles(call.arguments())));
     entries.add(
         sqliteSpec(
             "sqlite_info",
             new CallShape(List.of(INTEGER), List.of(), Optional.empty()),
             EffectClass.EXTERNAL_READ,
-            sqlite::info));
+            call -> sqlite.info(call.arguments())));
     entries.add(
         sqliteSpec(
             "sqlite_query",
             new CallShape(List.of(INTEGER, STRING), List.of(ANY), Optional.empty()),
             EffectClass.SUSPENDING_HOST,
-            sqlite::query));
+            call -> sqlite.query(call.arguments(), call.threadMode())));
     entries.add(
         sqliteSpec(
             "sqlite_execute",
@@ -2013,32 +2013,32 @@ public final class BuiltinCatalog {
                 List.of(),
                 Optional.empty()),
             EffectClass.SUSPENDING_HOST,
-            sqlite::execute));
+            call -> sqlite.execute(call.arguments(), call.threadMode())));
     entries.add(
         sqliteSpec(
             "sqlite_last_insert_row_id",
             new CallShape(List.of(INTEGER), List.of(), Optional.empty()),
             EffectClass.EXTERNAL_READ,
-            sqlite::lastInsertRowId));
+            call -> sqlite.lastInsertRowId(call.arguments())));
     entries.add(
         sqliteSpec(
             "sqlite_limit",
             new CallShape(List.of(INTEGER, ANY, INTEGER), List.of(), Optional.empty()),
             EffectClass.IRREVOCABLE,
-            sqlite::limit));
+            call -> sqlite.limit(call.arguments())));
     entries.add(
         sqliteSpec(
             "sqlite_interrupt",
             new CallShape(List.of(INTEGER), List.of(), Optional.empty()),
             EffectClass.IRREVOCABLE,
-            sqlite::interrupt));
+            call -> sqlite.interrupt(call.arguments())));
   }
 
   private static BuiltinSpec sqliteSpec(
       String name,
       CallShape shape,
       EffectClass effect,
-      Function<List<MooValue>, BuiltinResult> handler) {
+      BuiltinHandler handler) {
     return new BuiltinSpec(
         name,
         List.of(shape),
@@ -2046,8 +2046,7 @@ public final class BuiltinCatalog {
         BuiltinCostRule.fixed(0),
         effect,
         BuiltinOwner.SERVER,
-        call ->
-            handler.apply(call.arguments()));
+        handler);
   }
 
   private BuiltinResult configureThreadPool(BuiltinCall call) {
@@ -6088,37 +6087,15 @@ public final class BuiltinCatalog {
         || (destination.value() != -1 && world.object(destination.value()).isEmpty())) {
       return BuiltinResult.error(ErrorValue.E_INVARG);
     }
-    if (recursiveMove(world, object.value(), destination.value())) {
-      return BuiltinResult.error(ErrorValue.E_RECMOVE);
+    boolean wizard = isWizard(world, programmer);
+    if (!wizard && moving.owner() != programmer) {
+      return BuiltinResult.error(ErrorValue.E_PERM);
     }
-    WorldObject programmerObject = world.object(programmer).orElse(null);
-    if (programmerObject != null && ObjectFlags.isWizard(programmerObject.flags())) {
-      if (destination.value() == moving.location()) {
-        return position == 0
-            ? BuiltinResult.value(new IntegerValue(0))
-            : mutationResult(
-                world.move(object.value(), destination.value(), position), new IntegerValue(0));
-      }
-      return new BuiltinResult.Move(object.value(), destination.value(), position);
+    if (position > 0 && destination.value() != -1 && destination.value() != moving.location()
+        && !wizard && world.object(destination.value()).orElseThrow().owner() != programmer) {
+      return BuiltinResult.error(ErrorValue.E_PERM);
     }
-    return mutationResult(
-        world.move(object.value(), destination.value(), position), new IntegerValue(0));
-  }
-
-  private static boolean recursiveMove(WorldTxn world, long object, long destination) {
-    Set<Long> visited = new LinkedHashSet<>();
-    long location = destination;
-    while (location != -1 && visited.add(location)) {
-      if (location == object) {
-        return true;
-      }
-      WorldObject container = world.object(location).orElse(null);
-      if (container == null) {
-        return false;
-      }
-      location = container.location();
-    }
-    return false;
+    return new BuiltinResult.Move(object.value(), destination.value(), position);
   }
 
   private static BuiltinResult recycle(

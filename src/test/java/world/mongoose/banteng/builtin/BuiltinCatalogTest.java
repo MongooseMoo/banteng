@@ -3436,7 +3436,7 @@ final class BuiltinCatalogTest {
   @Test
   void parentMutationDistinguishesPermissionRecursionAndInvalidArguments() {
     BuiltinCatalog catalog = new BuiltinCatalog(BuiltinHosts.builder().build());
-    BuiltinSpec chparents = catalog.spec("chparents").orElseThrow();
+    BuiltinSpec chparents = catalog.spec("chparent").orElseThrow();
     WorldObject programmer =
         new WorldObject(1, "programmer", 0, 1, -1, -1, List.of(), List.of(), List.of(), List.of());
     WorldObject fertile =

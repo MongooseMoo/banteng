@@ -633,7 +633,10 @@ public record VmSnapshot(
   public enum ReturnMode {
     ROOT,
     EVAL,
-    VERB
+    VERB,
+    MOVE_ACCEPT,
+    MOVE_EXIT,
+    MOVE_ENTER
   }
 
   /** Current phase of an active exception handler. */

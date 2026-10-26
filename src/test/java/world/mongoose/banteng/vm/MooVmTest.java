@@ -378,7 +378,7 @@ final class MooVmTest {
   }
 
   @Test
-  void ordersFullWidthObjectsSeparatelyFromTheNarrowedMapComparator() {
+  void ordersFullWidthObjectsInScalarAndMapComparisons() {
     BytecodeProgram program =
         new MooCompiler()
             .compile(
@@ -398,8 +398,8 @@ final class MooVmTest {
             List.of(
                 new IntegerValue(1),
                 new IntegerValue(1),
-                new IntegerValue(1),
-                large,
+                new IntegerValue(2),
+                StringValue.of("small"),
                 large)),
         state.returnValue().orElseThrow());
   }
@@ -623,8 +623,8 @@ final class MooVmTest {
     assertEquals(
         new ListValue(
             List.of(
-                new IntegerValue(1),
-                StringValue.of("large"),
+                new IntegerValue(2),
+                StringValue.of("small"),
                 StringValue.of("large"))),
         state.returnValue().orElseThrow());
   }
@@ -4420,7 +4420,7 @@ final class MooVmTest {
   }
 
   @Test
-  void nestedVerbAndEvalThreadModesInheritWithoutLeakingToCallers() {
+  void nestedVerbAndEvalThreadModesStartEnabledWithoutLeakingToCallers() {
     WorldVerb mode =
         new WorldVerb(
             "mode",
@@ -4455,13 +4455,13 @@ final class MooVmTest {
             List.of(
                 new ListValue(
                     List.of(
-                        new IntegerValue(0),
+                        new IntegerValue(1),
                         new ListValue(
                             List.of(
                                 new IntegerValue(1),
                                 new ListValue(
-                                    List.of(new IntegerValue(0), new IntegerValue(1))))),
-                        new IntegerValue(0),
+                                    List.of(new IntegerValue(1), new IntegerValue(1))))),
+                        new IntegerValue(1),
                         new IntegerValue(1))),
                 new IntegerValue(0))),
         state.returnValue().orElseThrow());
