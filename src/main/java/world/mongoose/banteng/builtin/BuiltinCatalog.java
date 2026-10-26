@@ -5427,8 +5427,12 @@ public final class BuiltinCatalog {
     if (!(receiver instanceof ObjectValue || receiver instanceof AnonymousObjectValue)) {
       return BuiltinResult.error(ErrorValue.E_INVARG);
     }
-    if (receiver instanceof ObjectValue object ? world.object(object.value()).isEmpty()
-        : world.anonymousObject((AnonymousObjectValue) receiver).isEmpty()) {
+    boolean invalid = switch (receiver) {
+      case ObjectValue object -> world.object(object.value()).isEmpty();
+      case AnonymousObjectValue anonymous -> world.anonymousObject(anonymous).isEmpty();
+      default -> true;
+    };
+    if (invalid) {
       return BuiltinResult.error(ErrorValue.E_INVARG);
     }
     String name = ((StringValue) arguments.get(1)).text();
@@ -5467,8 +5471,12 @@ public final class BuiltinCatalog {
     if (!(receiver instanceof ObjectValue || receiver instanceof AnonymousObjectValue)) {
       return BuiltinResult.error(ErrorValue.E_TYPE);
     }
-    if (receiver instanceof ObjectValue object ? world.object(object.value()).isEmpty()
-        : world.anonymousObject((AnonymousObjectValue) receiver).isEmpty()) {
+    boolean invalid = switch (receiver) {
+      case ObjectValue object -> world.object(object.value()).isEmpty();
+      case AnonymousObjectValue anonymous -> world.anonymousObject(anonymous).isEmpty();
+      default -> true;
+    };
+    if (invalid) {
       return BuiltinResult.error(ErrorValue.E_INVARG);
     }
     String name = ((StringValue) arguments.get(1)).text();

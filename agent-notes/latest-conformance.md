@@ -174,3 +174,6 @@ WorldTxn.refreshAnonymousPropertyLayouts already updates descendant slots.
 property_info rejects anonymous values with E_TYPE and is_clear_property with
 E_INVARG. Use their existing world.property overload and anonymous body metadata
 (~20 lines) per Toast property.cc:66-105,299-328.
+
+CI 40275811465 stopped at compilation: Error Prone rejects the anonymous cast
+inside the receiver-test ternaries. Replaced those with typed pattern switches.
