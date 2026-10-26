@@ -415,3 +415,13 @@ records carry Optional<SourceSpan>. Match the ignored component with (_) in
 both arms. The KillAbort record is empty and its pattern remains KillAbort().
 PR comment replies link 2952abd and explicitly state CI was still running;
 threads have not been resolved or any review dismissed.
+
+14ae742 CI40286554933 rejected NativeCurl.Result's byte[] component under
+ArrayRecordComponent. Store immutable Latin-1 String instead, preserving bytes.
+
+Disk-size repair (~15 lines): Toast db_file.cc:1128 increments dump_generation
+before attempting output; db_disk_size:1285-1294 then stats output and falls
+back to input if unavailable, returning -1 only if both stats fail. Replace
+checkpointPublished with checkpointAttempted and follow that selection order.
+This fixes real selection semantics but does not make the suite's Toast/Barn
+temporary filename blockers prevent Banteng's PID-named checkpoint from writing.

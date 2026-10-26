@@ -93,7 +93,7 @@ public final class MooRuntime implements AutoCloseable {
       new LinkedHashMap<>();
   private static final ThreadLocal<AttemptContext> ATTEMPT = new ThreadLocal<>();
   private final AtomicLong connectionGenerations = new AtomicLong();
-  private volatile boolean checkpointPublished;
+  private volatile boolean checkpointAttempted;
   @GuardedBy("this")
   private long sessionRevision;
 
@@ -2969,14 +2969,20 @@ public final class MooRuntime implements AutoCloseable {
   }
 
   private BuiltinResult dbDiskSize() {
-    Optional<Path> activeDatabase = checkpointPublished ? checkpoint : database;
-    if (activeDatabase.isEmpty()) {
+    if (checkpointAttempted && checkpoint.isPresent()) {
+      try {
+        return BuiltinResult.value(new IntegerValue(Files.size(checkpoint.orElseThrow())));
+      } catch (IOException ignored) {
+        // As in Toast db_disk_size(), stat the input when output is unavailable.
+      }
+    }
+    if (database.isEmpty()) {
       return BuiltinResult.value(new IntegerValue(0));
     }
     try {
-      return BuiltinResult.value(new IntegerValue(Files.size(activeDatabase.orElseThrow())));
+      return BuiltinResult.value(new IntegerValue(Files.size(database.orElseThrow())));
     } catch (IOException error) {
-      return BuiltinResult.error(ErrorValue.E_QUOTA);
+      return BuiltinResult.value(new IntegerValue(-1));
     }
   }
 
@@ -3606,10 +3612,10 @@ public final class MooRuntime implements AutoCloseable {
           serverLog.info("SHUTDOWN: shutdown signal received");
         }
         serverLog.info("CHECKPOINTING " + (effect.text.isEmpty() ? "to " + target : effect.text));
+        checkpointAttempted = true;
         try (WorldTxn.RetainedSnapshot retained = committedWorld.retainSnapshot()) {
           checkpointCodec.writeAtomic(
               target, retained.snapshot(), scheduler.durableTasksExcluding(currentTaskId), activeConnections());
-          checkpointPublished = true;
           if (effect.binary) {
             listenerControl.ifPresent(ListenerControl::shutdown);
           } else {

@@ -10,6 +10,7 @@ import java.lang.foreign.ValueLayout;
 import java.lang.invoke.MethodHandle;
 import java.lang.invoke.MethodHandles;
 import java.lang.invoke.MethodType;
+import java.nio.charset.StandardCharsets;
 
 /** Bounded legacy GET transfers through the host libcurl. */
 @SuppressWarnings("restricted")
@@ -17,14 +18,14 @@ public final class NativeCurl {
   private NativeCurl() {}
 
   /** Native status, response bytes, and whether the response hit its size limit. */
-  public record Result(int status, String message, byte[] body, boolean overflowed) {}
+  public record Result(int status, String message, String body, boolean overflowed) {}
 
   /** Performs a transfer with verified TLS and only HTTP, HTTPS and DICT protocols. */
   public static Result get(String url, boolean headers, long timeout, long maximumBytes) {
     try (Arena arena = Arena.ofConfined()) {
       MemorySegment handle = (MemorySegment) Api.INIT.invokeExact();
       if (handle.equals(MemorySegment.NULL)) {
-        return new Result(-1, "Could not initialize curl handle", new byte[0], false);
+        return new Result(-1, "Could not initialize curl handle", "", false);
       }
       try {
         Sink sink = new Sink(maximumBytes);
@@ -44,7 +45,7 @@ public final class NativeCurl {
         int status = (int) Api.PERFORM.invokeExact(handle);
         MemorySegment error = (MemorySegment) Api.ERROR.invokeExact(status);
         return new Result(status, error.reinterpret(Long.MAX_VALUE).getString(0),
-            sink.bytes.toByteArray(), sink.overflowed);
+            sink.bytes.toString(StandardCharsets.ISO_8859_1), sink.overflowed);
       } finally {
         Api.CLEANUP.invokeExact(handle);
       }
