@@ -2,7 +2,6 @@ package world.mongoose.banteng.world;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import org.junit.jupiter.api.Test;
@@ -21,15 +20,6 @@ final class ObjectFlagsTest {
     assertEquals(1 << 8, ObjectFlags.FLAG_ANONYMOUS);
     assertEquals(1 << 9, ObjectFlags.FLAG_INVALID);
     assertEquals(1 << 10, ObjectFlags.FLAG_RECYCLED);
-  }
-
-  @Test
-  void canonicalVocabularyKeepsToastUserNamingAndAnonymousPermissionMeaning() {
-    assertThrows(
-        NoSuchFieldException.class, () -> ObjectFlags.class.getDeclaredField("FLAG_PLAYER"));
-    assertThrows(
-        NoSuchMethodException.class,
-        () -> ObjectFlags.class.getDeclaredMethod("isAnonymous", int.class));
   }
 
   @Test

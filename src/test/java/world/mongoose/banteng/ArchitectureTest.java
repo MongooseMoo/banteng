@@ -21,6 +21,8 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Objects;
 import java.util.Set;
+import java.nio.file.Path;
+import java.util.stream.Collectors;
 import world.mongoose.banteng.builtin.ArchUnitThrowableCatchFixture;
 import org.junit.jupiter.api.Test;
 
@@ -47,8 +49,165 @@ final class ArchitectureTest {
         .resideInAPackage("world.mongoose.banteng..")
         .check(
             new ClassFileImporter()
-                .withImportOption(ImportOption.Predefined.DO_NOT_INCLUDE_JARS)
-                .importClasspath());
+                .importPaths(
+                    Path.of("build/classes/java"),
+                    Path.of("errorprone-checks/build/classes/java"),
+                    Path.of("rewrite-recipes/build/classes/java")));
+  }
+
+  @Test
+  void serverDiagnosticOwnersAcceptTheSharedLog() {
+    classes()
+        .that()
+        .haveNameMatching(".*\\.(LambdaMooV5Reader|BuiltinHosts|MooRuntime|MooServer)")
+        .should(
+            new ArchCondition<JavaClass>("accept the shared ServerLog") {
+              @Override
+              public void check(JavaClass owner, ConditionEvents events) {
+                boolean acceptsLog =
+                    owner.getSimpleName().equals("MooServer")
+                        ? owner.getConstructors().stream()
+                            .filter(constructor -> constructor.getModifiers().contains(JavaModifier.PUBLIC))
+                            .flatMap(constructor -> constructor.getRawParameterTypes().stream())
+                            .anyMatch(type -> type.getName().equals("world.mongoose.banteng.logging.ServerLog"))
+                        : owner.getFields().stream()
+                            .anyMatch(field -> field.getRawType().getName().equals("world.mongoose.banteng.logging.ServerLog"));
+                events.add(new SimpleConditionEvent(owner, acceptsLog, owner.getName() + " accepts ServerLog"));
+              }
+            })
+        .check(productionClasses());
+  }
+
+  @Test
+  void worldTransactionKeepsItsExistingOwnershipBoundaries() {
+    classes()
+        .that()
+        .haveFullyQualifiedName("world.mongoose.banteng.world.WorldTxn")
+        .should(
+            new ArchCondition<JavaClass>("keep transaction fields, methods and constructors in their existing owners") {
+              @Override
+              public void check(JavaClass owner, ConditionEvents events) {
+                Set<String> fields = owner.getFields().stream().map(field -> field.getName()).collect(Collectors.toSet());
+                Set<String> methods = owner.getMethods().stream().map(method -> method.getName()).collect(Collectors.toSet());
+                Set<String> privateMethods = owner.getMethods().stream()
+                    .filter(method -> method.getModifiers().contains(JavaModifier.PRIVATE))
+                    .map(method -> method.getName()).collect(Collectors.toSet());
+                Set<String> layoutMethods = Set.of(
+                    "validateNewParents", "ancestryFromParents", "inheritedProperties",
+                    "rebuildPropertyLayouts", "oldPropertySlots", "descendantsOf",
+                    "directParentProperty", "usesAffectedAncestor", "rebuiltAnonymousProperties");
+                boolean boundaries =
+                    java.util.Collections.disjoint(fields, Set.of("connections", "connectionInfo", "intrinsicCommands"))
+                        && java.util.Collections.disjoint(methods, Set.of(
+                            "openConnection", "closeConnection", "connectionPlayer", "connectedPlayers",
+                            "connectionInfo", "connectionId", "intrinsicCommands", "setIntrinsicCommands",
+                            "switchConnectionPlayer", "restoreIntrinsicCommands", "baseRevision", "changeParent"))
+                        && java.util.Collections.disjoint(methods, layoutMethods)
+                        && !privateMethods.contains("findProperty")
+                        && privateMethods.containsAll(Set.of(
+                            "replacePropertyHolder", "propertyHolder", "verbFor", "verbLocationFor",
+                            "propertyFor", "readPropertyFor", "writePropertyFor", "writePropertyForProgrammer",
+                            "changeParentsFor", "addPropertyFor", "addVerbFor", "setVerbCodeFor"))
+                        && owner.getConstructors().stream()
+                            .filter(constructor -> constructor.getModifiers().contains(JavaModifier.PUBLIC)).count() <= 2;
+                events.add(new SimpleConditionEvent(owner, boundaries, owner.getName() + " preserves transaction ownership"));
+              }
+            })
+        .check(productionClasses());
+  }
+
+  @Test
+  void propertyLayoutAlgorithmsHaveOneStaticOwner() {
+    classes()
+        .that()
+        .haveFullyQualifiedName("world.mongoose.banteng.world.PropertyLayoutEngine")
+        .should(
+            new ArchCondition<JavaClass>("own the static property layout algorithms") {
+              @Override
+              public void check(JavaClass owner, ConditionEvents events) {
+                Set<String> methods = owner.getMethods().stream()
+                    .filter(method -> method.getModifiers().contains(JavaModifier.STATIC))
+                    .map(method -> method.getName()).collect(Collectors.toSet());
+                boolean ownsAlgorithms = methods.containsAll(Set.of(
+                    "validateNewParents", "ancestryFromParents", "inheritedProperties",
+                    "rebuildPropertyLayouts", "oldPropertySlots", "descendantsOf",
+                    "directParentProperty", "usesAffectedAncestor", "rebuiltAnonymousProperties"));
+                events.add(new SimpleConditionEvent(owner, ownsAlgorithms, owner.getName() + " owns property layout"));
+              }
+            })
+        .check(productionClasses());
+  }
+
+  @Test
+  void permanentAndAnonymousObjectsShareTheSealedPropertyHolderContract() {
+    classes()
+        .that()
+        .haveFullyQualifiedName("world.mongoose.banteng.world.PropertyHolder")
+        .should(
+            new ArchCondition<JavaClass>("be the sealed property holder for permanent and anonymous objects") {
+              @Override
+              public void check(JavaClass owner, ConditionEvents events) {
+                // ArchUnit 1.4.2 does not expose PermittedSubclasses; reflection reads that class attribute.
+                Class<?> holder = owner.reflect();
+                boolean sealed = holder.isSealed()
+                    && java.util.Arrays.stream(holder.getPermittedSubclasses())
+                        .map(Class::getName).collect(Collectors.toSet())
+                        .equals(Set.of("world.mongoose.banteng.world.WorldObject", "world.mongoose.banteng.world.WorldAnonymousObject"));
+                boolean members = owner.getMethods().stream().map(method -> method.getName())
+                    .collect(Collectors.toSet()).containsAll(Set.of("name", "flags", "owner", "parents", "verbs", "properties"));
+                boolean implementations = owner.getAllSubclasses().stream().map(JavaClass::getName)
+                    .collect(Collectors.toSet()).containsAll(Set.of("world.mongoose.banteng.world.WorldObject", "world.mongoose.banteng.world.WorldAnonymousObject"));
+                events.add(new SimpleConditionEvent(owner, sealed && members && implementations, owner.getName() + " preserves the sealed property contract"));
+              }
+            })
+        .check(productionClasses());
+  }
+
+  @Test
+  void objectFlagsKeepTheirCanonicalApi() {
+    classes()
+        .that()
+        .haveFullyQualifiedName("world.mongoose.banteng.world.ObjectFlags")
+        .should(
+            new ArchCondition<JavaClass>("omit the obsolete flag APIs") {
+              @Override
+              public void check(JavaClass owner, ConditionEvents events) {
+                boolean canonical = owner.tryGetField("FLAG_PLAYER").isEmpty()
+                    && owner.tryGetMethod("isAnonymous", int.class).isEmpty();
+                events.add(new SimpleConditionEvent(owner, canonical, owner.getName() + " has canonical flag APIs"));
+              }
+            })
+        .check(productionClasses());
+  }
+
+  @Test
+  void readersKeepScannerAndRecordOwnership() {
+    JavaClasses productionClasses = productionClasses();
+    classes()
+        .that()
+        .haveNameMatching(".*\\.(LambdaMooV4Reader|LambdaMooV5Reader|LambdaMooV17Codec)")
+        .should(
+            new ArchCondition<JavaClass>("leave primitives and record types to their shared owners") {
+              @Override
+              public void check(JavaClass owner, ConditionEvents events) {
+                boolean sharedMethods = owner.getMethods().stream()
+                    .noneMatch(method -> Set.of(
+                        "readCount", "parseCount", "readInt", "parseInt", "readParsedInt",
+                        "readLong", "parseLong", "readDouble", "requireExact", "requiredLine", "malformed")
+                        .contains(method.getName()));
+                boolean sharedRecords = productionClasses.stream()
+                    .filter(type -> type.getEnclosingClass().filter(owner::equals).isPresent())
+                    .noneMatch(type -> Set.of("ProgramSlot", "RawVerb").contains(type.getSimpleName()));
+                events.add(new SimpleConditionEvent(owner, sharedMethods && sharedRecords, owner.getName() + " uses shared scanner and records"));
+              }
+            })
+        .check(productionClasses());
+    classes()
+        .that()
+        .haveNameMatching("world\\.mongoose\\.banteng\\.persistence\\.(ProgramSlot|RawVerb)")
+        .should()
+        .beTopLevelClasses()
+        .check(productionClasses());
   }
 
   @Test

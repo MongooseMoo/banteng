@@ -1,19 +1,15 @@
 package world.mongoose.banteng.persistence;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.StringReader;
-import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.Set;
 import java.util.concurrent.atomic.AtomicLong;
 import world.mongoose.banteng.value.MooValue;
 import world.mongoose.banteng.value.MooValue.AnonymousObjectValue;
@@ -26,9 +22,6 @@ import world.mongoose.banteng.value.MooValue.StringValue;
 import org.junit.jupiter.api.Test;
 
 final class SharedDbReaderInfrastructureTest {
-  private static final List<Class<?>> READERS =
-      List.of(LambdaMooV4Reader.class, LambdaMooV5Reader.class, LambdaMooV17Codec.class);
-
   @Test
   void scannerOwnsTheSharedLineAndNumberContract() throws IOException {
     BufferedReader input = input("2\n-3\n4.5\nexpected\n");
@@ -86,51 +79,16 @@ final class SharedDbReaderInfrastructureTest {
   }
 
   @Test
-  void programAndVerbRecordsAreSingleTopLevelTypes() {
+  void programAndVerbRecordsPreserveTheirValues() {
     ProgramSlot slot = new ProgramSlot(12, 3);
     RawVerb verb = new RawVerb("look examine", 4, 5, 6);
 
-    assertNull(ProgramSlot.class.getEnclosingClass());
-    assertNull(RawVerb.class.getEnclosingClass());
     assertEquals(12, slot.objectId());
     assertEquals(3, slot.verbIndex());
     assertEquals("look examine", verb.names());
     assertEquals(4, verb.owner());
     assertEquals(5, verb.permissions());
     assertEquals(6, verb.preposition());
-    for (Class<?> reader : READERS) {
-      Set<String> nestedNames =
-          Arrays.stream(reader.getDeclaredClasses())
-              .map(Class::getSimpleName)
-              .collect(java.util.stream.Collectors.toSet());
-      assertFalse(nestedNames.contains("ProgramSlot"), reader.getName());
-      assertFalse(nestedNames.contains("RawVerb"), reader.getName());
-    }
-  }
-
-  @Test
-  void readersDoNotRetainScannerPrimitives() {
-    Set<String> scannerMethods =
-        Set.of(
-            "readCount",
-            "parseCount",
-            "readInt",
-            "parseInt",
-            "readParsedInt",
-            "readLong",
-            "parseLong",
-            "readDouble",
-            "requireExact",
-            "requiredLine",
-            "malformed");
-
-    for (Class<?> reader : READERS) {
-      Set<String> declared =
-          Arrays.stream(reader.getDeclaredMethods())
-              .map(java.lang.reflect.Method::getName)
-              .collect(java.util.stream.Collectors.toSet());
-      assertTrue(java.util.Collections.disjoint(scannerMethods, declared), reader.getName());
-    }
   }
 
   private static MooValue readTestV17Value(

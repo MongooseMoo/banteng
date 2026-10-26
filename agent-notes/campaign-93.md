@@ -5,7 +5,7 @@ Implement issue #93's decisions without changing behavioral or conformance check
 
 ## State
 Isolated branch `campaign/93-behavior-tests` from `origin/master` at `90ecb19`.
-Implementation ready for coordinator review, Claude review and hosted CI. No local CI suite was run, and nothing was published or pushed by this worker.
+Initial implementation was committed as a87d584. Coordinator requested completion of the existing structural-rule migration before publication. No local CI suite was run, and nothing was published or pushed by this worker.
 
 ## Decisions and why
 Smallest change is primarily deleting text assertions and retaining real contracts over compiled classes or resources. No workflow changes, no generic testing framework.
@@ -17,7 +17,9 @@ Exact changes and evidence from the starting tree:
 - ThreadingContractTest: move GuardedBy field assertions (33-67) into compiled annotation/private-field checks in ArchitectureTest; remove documentation-word checks (69-79). Keep compiler dependency and lockfile checks (15-30).
 - SharedDbReaderInfrastructureTest: move reader dependency source spelling checks (140-153) into compiled class dependency rules. Keep all scanner/value decoding behavior checks.
 - ObjectFlagsTest: remove numeric-mask source scanner and its own regex tests (17-40, 88-164). Preserve bit values, predicates and existing API assertions (42-85). Those source-token restrictions concern spelling rather than runtime behavior and cannot be faithfully expressed over compiled integer constants.
-- WorldTxnDecompositionTest: remove only the exact switch-branch source substring check (19-37), preserving its remaining compiled/reflection checks.
+- WorldTxnDecompositionTest: remove the exact switch-branch source substring check (19-37); migrate all remaining ownership, sealed holder, method and constructor rules into ArchUnit conditions in ArchitectureTest and delete the empty class. Likewise migrate the remaining ServerLogRoutingTest constructor/field ownership rule and delete that class. SharedDbReaderInfrastructureTest's top-level record/scanner ownership and ObjectFlagsTest's obsolete API checks also move there; their record values and bit/predicate behavior remain.
+- Restrict namespace imports to root/errorprone-checks/rewrite-recipes build/classes/java directories. The modules are declared in settings.gradle.kts:7-8. This avoids importing Gradle worker/dependency classpath directories while still inspecting compiled outputs independently of their declared namespace.
+- ArchUnit v1.4.2 JavaClass source has no sealed/PermittedSubclasses model (https://raw.githubusercontent.com/TNG/ArchUnit/v1.4.2/archunit/src/main/java/com/tngtech/archunit/core/domain/JavaClass.java). Only that class attribute uses reflection inside its ArchUnit condition; field/method/constructor/subtype checks use the imported compiled domain.
 - Preserve existing behavioral/conformance checks and workflow fixed-point step.
 
 ## Surprises
