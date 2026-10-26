@@ -148,6 +148,7 @@ public final class CommandParser {
     if (name.equalsIgnoreCase("here")) {
       return actor.location();
     }
+    StringValue requestedName = StringValue.of(name);
     long exact = -1;
     long partial = -3;
     for (long container : new long[] {player, actor.location()}) {
@@ -171,7 +172,7 @@ public final class CommandParser {
           }
         }
         for (String candidateName : names) {
-          if (candidateName.regionMatches(true, 0, name, 0, name.length())) {
+          if (StringValue.of(candidateName).indexOfIgnoringCase(requestedName) == 0) {
             if (candidateName.length() == name.length()) {
               if (exact != -1 && exact != candidate) {
                 return -2;
