@@ -531,3 +531,19 @@ but close fails every pending ingress, including STARTUP. Smallest repair (~15
 lines): retain the request operation on existing Ingress and complete pending
 STARTUP normally on close, retaining exceptional completion for other requests.
 No extra synchronization, test, or gate. Existing shutdown assertion stays intact.
+
+Controller157 merged b35330f with two parents after CI40401863274 passed.
+Controller worktree/local and remote branches cleaned up; originals preserved.
+Dependent data PR160 at a2388ac is data-only, quality passed, three Toast
+profiles running. Normal auto-merge is enabled under Q's explicit approval.
+Banteng10c5777 CI40402905082 completed: all non-conformance jobs pass, including
+the unchanged shutdown assertion. Conformance has only the old failed-dump
+failure (5 expected/2356 actual),11558 passed and1814 declared skips. These are
+not zero-skip results. Final push follows fixture main merge to test that input.
+
+Fixture160 merged3941bf948529b7133d88fdbd10dfc13abc0dc0a9 with two parents after
+all required CI40404349023 checks passed. Examined all three Toast XML artifacts:
+failed_dump_selects_existing_output executed and passed, with no skipped child.
+This push triggers final Banteng CI against corrected conformance main3941bf9.
+Verify checkout SHA, actual failed-dump execution, admission/promotion results,
+all other jobs and new PR comments. No Banteng merge is authorized.
