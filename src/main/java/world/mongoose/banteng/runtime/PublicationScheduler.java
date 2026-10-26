@@ -1261,8 +1261,8 @@ final class PublicationScheduler implements AutoCloseable {
         long player = runtime.connectionPlayer(request.connectionId()).orElse(-1);
         lastInputTasks.put(player >= 0 ? player : request.connectionId(), taskId);
       } else if (request.operation() == MooRuntime.Operation.LINE) {
-        runtime.inputTaskPlayer(request.connectionId(), request.text())
-            .ifPresent(player -> lastInputTasks.put(player, taskId));
+        OptionalLong inputPlayer = runtime.inputTaskPlayer(request.connectionId(), request.text());
+        if (inputPlayer.isPresent()) lastInputTasks.put(inputPlayer.orElseThrow(), taskId);
       }
       ingress.put(taskId, new Ingress(published,
           socketInput ? OptionalLong.of(request.connectionId()) : OptionalLong.empty(), List.of()));
@@ -1287,8 +1287,8 @@ final class PublicationScheduler implements AutoCloseable {
     ensureOpen();
     long taskId = nextTaskId++;
     if (request.operation() == MooRuntime.Operation.LINE) {
-      runtime.inputTaskPlayer(request.connectionId(), request.text())
-          .ifPresent(player -> lastInputTasks.put(player, taskId));
+      OptionalLong inputPlayer = runtime.inputTaskPlayer(request.connectionId(), request.text());
+      if (inputPlayer.isPresent()) lastInputTasks.put(inputPlayer.orElseThrow(), taskId);
     }
     ready.add(
         Entry.runtime(

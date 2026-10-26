@@ -458,3 +458,14 @@ Smallest repair (~25 lines): keep the socket connection ID in existing Ingress,
 write socket output on publication before queuing children/wakes, and complete
 socket futures with no output. Embedding futures still accumulate their results.
 No extra queue, lock or gate; the publication owner also owns output order.
+
+7398e6c pushed these repairs; CI40288810612 is running. PR comment171 has a
+reply describing the callback binding change; 172/173 have JLS-backed replies.
+Q scope question remains pending: change the upstream failed-dump fixture to
+induce write failure independently of Toast/Barn temp names, or keep main
+unchanged. No upstream fixture edits have been made while that choice is open.
+
+7398e6c CI40288810612 compilation rejected both ifPresent callbacks under
+GuardedBy: the checker cannot transfer the surrounding monitor ownership into
+those lambdas. Use direct OptionalLong presence checks within the existing
+synchronized blocks. No runtime verification ran on that head.
