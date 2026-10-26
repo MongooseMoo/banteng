@@ -49,11 +49,10 @@ public final class MooVm {
           BytecodeProgram.Opcode.SET_PROPERTY,
           BytecodeProgram.Opcode.INDEX,
           BytecodeProgram.Opcode.RANGE,
-          BytecodeProgram.Opcode.FIRST,
-          BytecodeProgram.Opcode.LAST,
           BytecodeProgram.Opcode.SET_INDEX_LOCAL,
           BytecodeProgram.Opcode.SET_INDEX_PROPERTY,
           BytecodeProgram.Opcode.SET_RANGE_LOCAL,
+          BytecodeProgram.Opcode.SET_RANGE_PROPERTY,
           BytecodeProgram.Opcode.CALL,
           BytecodeProgram.Opcode.CALL_VERB,
           BytecodeProgram.Opcode.NEGATE,
@@ -146,9 +145,20 @@ public final class MooVm {
       long taskId) {
     Frame frame = state.currentFrame();
     BytecodeProgram.Opcode opcode = instruction.opcode();
-    if (isCountedInstruction(opcode, frame)) {
+    if ((opcode == BytecodeProgram.Opcode.CALL || (state.remainingTicks() & 1023) == 0)
+        && state.secondsExhausted()) {
+      state.abortSecondsExhaustion();
+      return;
+    }
+    boolean extended = switch (opcode) {
+      case POWER, BITOR, BITAND, BITXOR, BITSHL, BITSHR, COMPLEMENT, SCATTER, ITERATE -> true;
+      case ENTER_HANDLER -> instruction.handler().orElseThrow().catchTarget() < 0;
+      case JUMP -> instruction.astPath().isPresent();
+      default -> false;
+    };
+    for (int tick = 0; tick < instructionTicks(opcode, instruction, frame); tick++) {
       state.decrementRemainingTicks();
-      if (state.remainingTicks() == 0) {
+      if (!extended && state.remainingTicks() <= 0) {
         state.abortTickExhaustion();
         return;
       }
@@ -225,6 +235,8 @@ public final class MooVm {
           IndexOps.execute(IndexOps.Operation.SET_INDEX_PROPERTY, state, instruction, frame, world);
       case SET_RANGE_LOCAL ->
           IndexOps.execute(IndexOps.Operation.SET_RANGE_LOCAL, state, instruction, frame, world);
+      case SET_RANGE_PROPERTY ->
+          IndexOps.execute(IndexOps.Operation.SET_RANGE_PROPERTY, state, instruction, frame, world);
       case CALL -> {
         String callName = instruction.text().orElseThrow();
         if (!callName.equalsIgnoreCase("pass")) {
@@ -499,18 +511,21 @@ public final class MooVm {
     }
   }
 
-  private static boolean isCountedInstruction(
-      BytecodeProgram.Opcode opcode, Frame frame) {
-    if (opcode != BytecodeProgram.Opcode.LIST_APPEND) {
-      return COUNTED_OPCODES.contains(opcode);
-    }
-    var operands = frame.operandStack.iterator();
-    if (operands.hasNext()) {
-      operands.next();
-    }
-    return operands.hasNext()
-        && operands.next() instanceof ListValue list
-        && list.elements().isEmpty();
+  private static int instructionTicks(BytecodeProgram.Opcode opcode, Instruction instruction, Frame frame) {
+    return switch (opcode) {
+      case LIST_APPEND, LIST_EXTEND -> Math.toIntExact(instruction.operand().orElse(1));
+      case LOAD_LOCAL -> Math.toIntExact(instruction.operand().orElse(0));
+      case STORE_LOCAL -> frame.instructionPointer > 0
+          && frame.program.instructions().get(frame.instructionPointer - 1).opcode()
+              == BytecodeProgram.Opcode.FORK ? 0 : 1;
+      case JUMP -> instruction.astPath().isPresent() ? 1 : 0;
+      case ENTER_HANDLER -> {
+        var handler = instruction.handler().orElseThrow();
+        yield handler.catchTarget() < 0 || !handler.catchesAny() ? 1 : 0;
+      }
+      case SET_INDEX_LOCAL, SET_INDEX_PROPERTY -> 2;
+      default -> COUNTED_OPCODES.contains(opcode) ? 1 : 0;
+    };
   }
 
   private static void invokeBuiltin(
@@ -628,11 +643,17 @@ public final class MooVm {
       BuiltinResult result, Frame frame, VmState state, WorldTxn world) {
     switch (result) {
       case BuiltinResult.SecondsAbort _ -> state.abortSecondsExhaustion();
+      case BuiltinResult.KillAbort() -> state.abortKilled();
       case BuiltinResult.ErrorResult error ->
           ErrorOps.raise(state, error.error(), world, false);
       case BuiltinResult.RaisedError raised ->
           ErrorOps.raise(state, raised.error(), raised.details(), world, false);
       case BuiltinResult.Value value -> frame.operandStack.push(value.value());
+      case BuiltinResult.ProtectedCall call -> applyProtectedCall(call, frame, state, world);
+      case BuiltinResult.TaskLocal local -> {
+        state.setTaskLocal(local.value());
+        frame.operandStack.push(new IntegerValue(0));
+      }
       case BuiltinResult.Initialize initialize ->
           applyInitialize(initialize, frame, state, world);
       case BuiltinResult.Checkpoint _ -> {
@@ -656,7 +677,7 @@ public final class MooVm {
         frame.operandStack.push(new IntegerValue(0));
       }
       case BuiltinResult.DynamicEval dynamicEval ->
-          applyDynamicEval(dynamicEval.source(), frame, state, world);
+          applyDynamicEval(dynamicEval.program(), state, world);
       case BuiltinResult.Output output -> {
         state.stageOutput(output.line());
         frame.operandStack.push(new IntegerValue(1));
@@ -675,9 +696,9 @@ public final class MooVm {
         state.setProgrammer(programmer.programmer());
         frame.operandStack.push(new IntegerValue(0));
       }
-      case BuiltinResult.Move move -> applyMove(move, frame, state, world);
+      case BuiltinResult.Move move -> MoveOps.start(move, state, world);
       case BuiltinResult.Recycle recycle ->
-          applyRecycle(recycle.object(), frame, state, world);
+          applyRecycle(recycle.object(), state, world);
       case BuiltinResult.RecycleAnonymous recycle ->
           applyAnonymousRecycle(recycle.object(), frame, state, world);
       case BuiltinResult.BootPlayer bootPlayer -> {
@@ -696,81 +717,78 @@ public final class MooVm {
     }
   }
 
-  private static void applyDynamicEval(
-      String source, Frame frame, VmState state, WorldTxn world) {
-    final BytecodeProgram dynamicProgram;
+  private static void applyProtectedCall(
+      BuiltinResult.ProtectedCall call, Frame frame, VmState state, WorldTxn world) {
+    WorldVerb wrapper = world.verb(0, call.verb(), true).orElseThrow();
+    BytecodeProgram program;
     try {
-      dynamicProgram = new MooCompiler().compile(source);
-    } catch (IllegalArgumentException error) {
-      String diagnostic = error.getMessage();
-      if (diagnostic == null) {
-        diagnostic = error.getClass().getSimpleName();
-      }
-      frame.operandStack.push(
-          new ListValue(
-              List.of(
-                  new IntegerValue(0),
-                  new ListValue(List.of(StringValue.of("Parse error: " + diagnostic))))));
-      return;
-    }
-    if (!state.pushEvalFrame(dynamicProgram)) {
-      ErrorOps.raise(state, ErrorValue.E_MAXREC, world);
-    }
-  }
-
-  private static void applyMove(
-      BuiltinResult.Move move, Frame frame, VmState state, WorldTxn world) {
-    WorldVerb hook = world.verb(move.destination(), "accept").orElse(null);
-    if (hook == null) {
-      if (!ErrorOps.propagateWorldFailure(
-          world.move(move.object(), move.destination(), move.position()), state, world)) {
-        return;
-      }
-      frame.operandStack.push(new IntegerValue(0));
-      return;
-    }
-    BytecodeProgram hookProgram;
-    try {
-      hookProgram = new MooCompiler().compile(hook.programSource());
-    } catch (IllegalArgumentException error) {
+      program = new MooCompiler().compile(wrapper.programSource());
+    } catch (IllegalArgumentException failure) {
       ErrorOps.raise(state, ErrorValue.E_INVARG, world);
       return;
     }
+    ObjectValue system = new ObjectValue(0);
     Map<String, MooValue> locals = new LinkedHashMap<>();
-    ObjectValue destination = new ObjectValue(move.destination());
-    locals.put("this", destination);
+    locals.put("this", system);
     locals.put("player", frame.locals.getOrDefault("player", new ObjectValue(-1)));
     locals.put("caller", frame.receiver);
-    locals.put("verb", StringValue.of("accept"));
-    locals.put("args", new ListValue(List.of(new ObjectValue(move.object()))));
+    locals.put("verb", StringValue.of(call.verb()));
+    locals.put("args", call.arguments());
     locals.put("argstr", StringValue.of(""));
-    if (!state.pushVerbFrame(
-        hookProgram,
-        locals,
-        hook.owner(),
-        destination,
-        destination,
-        OptionalLong.empty(),
-        OptionalLong.of(move.object()),
-        OptionalLong.of(move.destination()),
-        OptionalLong.of(move.position()),
-        "accept",
-        hook.names(),
-        (hook.permissions() & 8) != 0)) {
+    if (!state.pushVerbFrame(program, locals, wrapper.owner(), system,
+        new ObjectValue(world.verbLocation(0, call.verb(), true).orElseThrow()),
+        OptionalLong.empty(), OptionalLong.empty(), OptionalLong.empty(),
+        call.verb(), wrapper.names(), (wrapper.permissions() & 8) != 0)) {
       ErrorOps.raise(state, ErrorValue.E_MAXREC, world, false);
     }
   }
 
+  private static void applyDynamicEval(
+      BytecodeProgram program, VmState state, WorldTxn world) {
+    if (!state.pushEvalFrame(program)) {
+      ErrorOps.raise(state, ErrorValue.E_MAXREC, world);
+    }
+  }
+
   private static void applyRecycle(
-      long recycleTarget, Frame frame, VmState state, WorldTxn world) {
+      long recycleTarget, VmState state, WorldTxn world) {
     WorldVerb hook = world.verb(recycleTarget, "recycle").orElse(null);
     if (hook == null) {
-      if (!ErrorOps.propagateWorldFailure(world.recycleObject(recycleTarget), state, world)) {
-        return;
-      }
-      frame.operandStack.push(new IntegerValue(0));
+      continueRecycle(recycleTarget, state, world);
       return;
     }
+    callRecycleHook(recycleTarget, recycleTarget, "recycle", new ListValue(List.of()), state, world);
+  }
+
+  static void continueRecycle(long target, VmState state, WorldTxn world) {
+    while (true) {
+      WorldObject object = world.object(target).orElse(null);
+      if (object == null) {
+        ErrorOps.raise(state, ErrorValue.E_INVARG, world, false);
+        return;
+      }
+      long moving;
+      if (!object.contents().isEmpty()) moving = object.contents().getFirst();
+      else if (object.location() != -1) moving = target;
+      else break;
+      long oldLocation = world.object(moving).orElseThrow().location();
+      if (!ErrorOps.propagateWorldFailure(world.move(moving, -1, 0), state, world)) return;
+      if (world.verb(oldLocation, "exitfunc").isPresent()) {
+        callRecycleHook(target, oldLocation, "exitfunc",
+            new ListValue(List.of(new ObjectValue(moving))), state, world);
+        return;
+      }
+    }
+    if (ErrorOps.propagateWorldFailure(world.recycleObject(target), state, world)) {
+      state.currentFrame().operandStack.push(new IntegerValue(0));
+    }
+  }
+
+  private static void callRecycleHook(
+      long recycleTarget, long receiver, String name, ListValue arguments,
+      VmState state, WorldTxn world) {
+    Frame frame = state.currentFrame();
+    WorldVerb hook = world.verb(receiver, name).orElseThrow();
     BytecodeProgram hookProgram;
     try {
       hookProgram = new MooCompiler().compile(hook.programSource());
@@ -779,27 +797,27 @@ public final class MooVm {
       return;
     }
     Map<String, MooValue> locals = new LinkedHashMap<>();
-    ObjectValue target = new ObjectValue(recycleTarget);
+    ObjectValue target = new ObjectValue(receiver);
     locals.put("this", target);
     locals.put("player", frame.locals.getOrDefault("player", new ObjectValue(-1)));
     locals.put("caller", frame.locals.getOrDefault("this", new ObjectValue(-1)));
-    locals.put("verb", StringValue.of("recycle"));
-    locals.put("args", new ListValue(List.of()));
+    locals.put("verb", StringValue.of(name));
+    locals.put("args", arguments);
     locals.put("argstr", StringValue.of(""));
-    OptionalLong definingLocation = world.verbLocation(recycleTarget, "recycle", true);
+    OptionalLong definingLocation = world.verbLocation(receiver, name, true);
     if (!state.pushVerbFrame(
         hookProgram,
         locals,
         hook.owner(),
         target,
-        new ObjectValue(definingLocation.orElse(recycleTarget)),
+        new ObjectValue(definingLocation.orElse(receiver)),
         OptionalLong.of(recycleTarget),
         OptionalLong.empty(),
         OptionalLong.empty(),
-        "recycle",
+        name,
         hook.names(),
         (hook.permissions() & 8) != 0)) {
-      ErrorOps.raise(state, ErrorValue.E_MAXREC, world, false);
+      continueRecycle(recycleTarget, state, world);
     }
   }
 

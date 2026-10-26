@@ -118,11 +118,8 @@ final class TaskRegistry {
   synchronized void updateSuspended(
       long taskId, long scheduledStart, VmSnapshot snapshot) {
     TaskInfo current = tasks.get(taskId);
-    if (current != null) {
-      tasks.put(
-          taskId,
-          suspendedTask(taskId, scheduledStart, current.queueSequence(), snapshot));
-    }
+    tasks.put(taskId, suspendedTask(taskId, scheduledStart,
+        current == null ? nextQueueSequence++ : current.queueSequence(), snapshot));
   }
 
   private static TaskInfo suspendedTask(
@@ -258,6 +255,9 @@ final class TaskRegistry {
 
   BuiltinResult killTask(BuiltinCall call) {
     long taskId = ((IntegerValue) call.arguments().getFirst()).value();
+    if (taskId == call.taskId()) {
+      return new BuiltinResult.KillAbort();
+    }
     WorldObject actor = call.world().object(call.programmer()).orElse(null);
     boolean wizard = actor != null && ObjectFlags.isWizard(actor.flags());
     FutureTask<BuiltinResult> submitted;
@@ -295,7 +295,8 @@ final class TaskRegistry {
         call.arguments().size() == 2 && ((IntegerValue) call.arguments().get(1)).isTruthy();
     WorldObject actor = call.world().object(call.programmer()).orElse(null);
     boolean wizard = actor != null && ObjectFlags.isWizard(actor.flags());
-    List<TaskInfo> visible = visibleTo(call.programmer(), wizard);
+    List<TaskInfo> visible = visibleTo(call.programmer(), wizard).stream()
+        .filter(task -> task.taskId() != call.taskId()).toList();
     if (returnCount) {
       return BuiltinResult.value(new IntegerValue(visible.size()));
     }

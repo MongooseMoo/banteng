@@ -378,7 +378,7 @@ final class MooVmTest {
   }
 
   @Test
-  void ordersFullWidthObjectsSeparatelyFromTheNarrowedMapComparator() {
+  void ordersFullWidthObjectsInScalarAndMapComparisons() {
     BytecodeProgram program =
         new MooCompiler()
             .compile(
@@ -398,8 +398,8 @@ final class MooVmTest {
             List.of(
                 new IntegerValue(1),
                 new IntegerValue(1),
-                new IntegerValue(1),
-                large,
+                new IntegerValue(2),
+                StringValue.of("small"),
                 large)),
         state.returnValue().orElseThrow());
   }
@@ -484,7 +484,7 @@ final class MooVmTest {
         new WorldTxn(List.of(), List.of(system, options)),
         new BuiltinCatalog(BuiltinHosts.builder().build()));
 
-    assertEquals(VmState.Outcome.ABORTED, state.outcome());
+    assertEquals(VmState.Outcome.SECONDS_EXHAUSTED, state.outcome());
     assertTrue(state.returnValue().isEmpty());
     assertEquals(List.of("Task ran out of seconds"), state.output());
   }
@@ -623,8 +623,8 @@ final class MooVmTest {
     assertEquals(
         new ListValue(
             List.of(
-                new IntegerValue(1),
-                StringValue.of("large"),
+                new IntegerValue(2),
+                StringValue.of("small"),
                 StringValue.of("large"))),
         state.returnValue().orElseThrow());
   }
@@ -783,9 +783,9 @@ final class MooVmTest {
         5 ITERATE 15 i
         6 BUILD_LIST 0
         7 LOAD_LOCAL x
-        8 LIST_EXTEND
+        8 LIST_EXTEND 1
         9 LOAD_LOCAL i
-        10 LIST_APPEND
+        10 LIST_APPEND 0
         11 DUP
         12 STORE_LOCAL x
         13 POP
@@ -878,13 +878,13 @@ final class MooVmTest {
         5 ITERATE 19 i,j
         6 BUILD_LIST 0
         7 LOAD_LOCAL x
-        8 LIST_EXTEND
+        8 LIST_EXTEND 1
         9 BUILD_LIST 0
         10 LOAD_LOCAL i
-        11 LIST_APPEND
+        11 LIST_APPEND 1
         12 LOAD_LOCAL j
-        13 LIST_APPEND
-        14 LIST_APPEND
+        13 LIST_APPEND 0
+        14 LIST_APPEND 0
         15 DUP
         16 STORE_LOCAL x
         17 POP
@@ -947,9 +947,9 @@ final class MooVmTest {
         9 ITERATE 19 v
         10 BUILD_LIST 0
         11 LOAD_LOCAL x
-        12 LIST_EXTEND
+        12 LIST_EXTEND 1
         13 LOAD_LOCAL v
-        14 LIST_APPEND
+        14 LIST_APPEND 0
         15 DUP
         16 STORE_LOCAL x
         17 POP
@@ -1007,13 +1007,13 @@ final class MooVmTest {
         9 ITERATE 23 v,k
         10 BUILD_LIST 0
         11 LOAD_LOCAL x
-        12 LIST_EXTEND
+        12 LIST_EXTEND 1
         13 BUILD_LIST 0
         14 LOAD_LOCAL v
-        15 LIST_APPEND
+        15 LIST_APPEND 1
         16 LOAD_LOCAL k
-        17 LIST_APPEND
-        18 LIST_APPEND
+        17 LIST_APPEND 0
+        18 LIST_APPEND 0
         19 DUP
         20 STORE_LOCAL x
         21 POP
@@ -1075,11 +1075,11 @@ final class MooVmTest {
         3 POP
         4 BUILD_LIST 0
         5 PUSH_INTEGER 1
-        6 LIST_APPEND
+        6 LIST_APPEND 1
         7 PUSH_INTEGER 2
-        8 LIST_APPEND
+        8 LIST_APPEND 0
         9 PUSH_INTEGER 3
-        10 LIST_APPEND
+        10 LIST_APPEND 0
         11 ITERATE 27 i
         12 LOAD_LOCAL i
         13 PUSH_INTEGER 2
@@ -1089,9 +1089,9 @@ final class MooVmTest {
         17 JUMP 18
         18 BUILD_LIST 0
         19 LOAD_LOCAL x
-        20 LIST_EXTEND
+        20 LIST_EXTEND 1
         21 LOAD_LOCAL i
-        22 LIST_APPEND
+        22 LIST_APPEND 0
         23 DUP
         24 STORE_LOCAL x
         25 POP
@@ -1149,15 +1149,15 @@ final class MooVmTest {
         3 POP
         4 BUILD_LIST 0
         5 PUSH_STRING 1
-        6 LIST_APPEND
+        6 LIST_APPEND 1
         7 PUSH_STRING 2
-        8 LIST_APPEND
+        8 LIST_APPEND 0
         9 PUSH_STRING 3
-        10 LIST_APPEND
+        10 LIST_APPEND 0
         11 PUSH_STRING 4
-        12 LIST_APPEND
+        12 LIST_APPEND 0
         13 PUSH_STRING 5
-        14 LIST_APPEND
+        14 LIST_APPEND 0
         15 ITERATE 31 i,j
         16 LOAD_LOCAL j
         17 PUSH_INTEGER 2
@@ -1167,9 +1167,9 @@ final class MooVmTest {
         21 JUMP 22
         22 BUILD_LIST 0
         23 LOAD_LOCAL x
-        24 LIST_EXTEND
+        24 LIST_EXTEND 1
         25 LOAD_LOCAL i
-        26 LIST_APPEND
+        26 LIST_APPEND 0
         27 DUP
         28 STORE_LOCAL x
         29 POP
@@ -1229,15 +1229,15 @@ final class MooVmTest {
         3 POP
         4 BUILD_LIST 0
         5 PUSH_INTEGER 1
-        6 LIST_APPEND
+        6 LIST_APPEND 1
         7 PUSH_INTEGER 2
-        8 LIST_APPEND
+        8 LIST_APPEND 0
         9 PUSH_INTEGER 3
-        10 LIST_APPEND
+        10 LIST_APPEND 0
         11 PUSH_INTEGER 4
-        12 LIST_APPEND
+        12 LIST_APPEND 0
         13 PUSH_INTEGER 5
-        14 LIST_APPEND
+        14 LIST_APPEND 0
         15 ITERATE 31 i
         16 LOAD_LOCAL i
         17 PUSH_INTEGER 3
@@ -1247,9 +1247,9 @@ final class MooVmTest {
         21 JUMP 22
         22 BUILD_LIST 0
         23 LOAD_LOCAL x
-        24 LIST_EXTEND
+        24 LIST_EXTEND 1
         25 LOAD_LOCAL i
-        26 LIST_APPEND
+        26 LIST_APPEND 0
         27 DUP
         28 STORE_LOCAL x
         29 POP
@@ -1305,14 +1305,14 @@ final class MooVmTest {
         """
         0 BUILD_LIST 0
         1 PUSH_INTEGER 1
-        2 LIST_APPEND
+        2 LIST_APPEND 1
         3 PUSH_INTEGER 2
-        4 LIST_APPEND
+        4 LIST_APPEND 0
         5 BUILD_LIST 0
         6 PUSH_INTEGER 3
-        7 LIST_APPEND
+        7 LIST_APPEND 1
         8 PUSH_INTEGER 4
-        9 LIST_APPEND
+        9 LIST_APPEND 0
         10 ADD
         11 RETURN""",
         program.disassemble());
@@ -1347,9 +1347,9 @@ final class MooVmTest {
         """
         0 BUILD_LIST 0
         1 PUSH_INTEGER 1
-        2 LIST_APPEND
+        2 LIST_APPEND 1
         3 PUSH_INTEGER 2
-        4 LIST_APPEND
+        4 LIST_APPEND 0
         5 PUSH_INTEGER 3
         6 ADD
         7 RETURN""",
@@ -1544,11 +1544,11 @@ final class MooVmTest {
         """
         0 BUILD_LIST 0
         1 PUSH_STRING one
-        2 LIST_APPEND
+        2 LIST_APPEND 1
         3 PUSH_STRING two
-        4 LIST_APPEND
+        4 LIST_APPEND 0
         5 PUSH_STRING three
-        6 LIST_APPEND
+        6 LIST_APPEND 0
         7 ENTER_INDEX
         8 PUSH_INTEGER 3
         9 PUSH_INTEGER 3
@@ -1588,11 +1588,11 @@ final class MooVmTest {
         """
         0 BUILD_LIST 0
         1 PUSH_INTEGER 1
-        2 LIST_APPEND
+        2 LIST_APPEND 1
         3 PUSH_INTEGER 2
-        4 LIST_APPEND
+        4 LIST_APPEND 0
         5 PUSH_INTEGER 3
-        6 LIST_APPEND
+        6 LIST_APPEND 0
         7 ENTER_INDEX
         8 PUSH_INTEGER 17
         9 PUSH_INTEGER 12
@@ -1677,11 +1677,11 @@ final class MooVmTest {
         """
         0 BUILD_LIST 0
         1 PUSH_INTEGER 1
-        2 LIST_APPEND
+        2 LIST_APPEND 1
         3 PUSH_INTEGER 2
-        4 LIST_APPEND
+        4 LIST_APPEND 0
         5 PUSH_INTEGER 3
-        6 LIST_APPEND
+        6 LIST_APPEND 0
         7 DUP
         8 STORE_LOCAL l
         9 POP
@@ -1691,13 +1691,13 @@ final class MooVmTest {
         13 PUSH_INTEGER 3
         14 BUILD_LIST 0
         15 PUSH_INTEGER 6
-        16 LIST_APPEND
+        16 LIST_APPEND 1
         17 PUSH_INTEGER 7
-        18 LIST_APPEND
+        18 LIST_APPEND 0
         19 PUSH_INTEGER 8
-        20 LIST_APPEND
+        20 LIST_APPEND 0
         21 PUSH_INTEGER 9
-        22 LIST_APPEND
+        22 LIST_APPEND 0
         23 SET_RANGE_LOCAL l
         24 POP
         25 LOAD_LOCAL l
@@ -1754,15 +1754,15 @@ final class MooVmTest {
         """
         0 BUILD_LIST 0
         1 PUSH_INTEGER 1
-        2 LIST_APPEND
+        2 LIST_APPEND 1
         3 PUSH_INTEGER 6
-        4 LIST_APPEND
+        4 LIST_APPEND 0
         5 PUSH_INTEGER 7
-        6 LIST_APPEND
+        6 LIST_APPEND 0
         7 PUSH_INTEGER 8
-        8 LIST_APPEND
+        8 LIST_APPEND 0
         9 PUSH_INTEGER 9
-        10 LIST_APPEND
+        10 LIST_APPEND 0
         11 DUP
         12 STORE_LOCAL l
         13 POP
@@ -1772,9 +1772,9 @@ final class MooVmTest {
         17 PUSH_INTEGER 1
         18 BUILD_LIST 0
         19 PUSH_INTEGER 10
-        20 LIST_APPEND
+        20 LIST_APPEND 1
         21 PUSH_STRING foo
-        22 LIST_APPEND
+        22 LIST_APPEND 0
         23 SET_RANGE_LOCAL l
         24 POP
         25 LOAD_LOCAL l
@@ -1842,19 +1842,19 @@ final class MooVmTest {
         """
         0 BUILD_LIST 0
         1 PUSH_INTEGER 1
-        2 LIST_APPEND
+        2 LIST_APPEND 1
         3 PUSH_INTEGER 10
-        4 LIST_APPEND
+        4 LIST_APPEND 0
         5 PUSH_STRING foo
-        6 LIST_APPEND
+        6 LIST_APPEND 0
         7 PUSH_INTEGER 6
-        8 LIST_APPEND
+        8 LIST_APPEND 0
         9 PUSH_INTEGER 7
-        10 LIST_APPEND
+        10 LIST_APPEND 0
         11 PUSH_INTEGER 8
-        12 LIST_APPEND
+        12 LIST_APPEND 0
         13 PUSH_INTEGER 9
-        14 LIST_APPEND
+        14 LIST_APPEND 0
         15 DUP
         16 STORE_LOCAL l
         17 POP
@@ -1915,16 +1915,16 @@ final class MooVmTest {
         0 BUILD_LIST 0
         1 BUILD_LIST 0
         2 PUSH_INTEGER 1
-        3 LIST_APPEND
+        3 LIST_APPEND 1
         4 PUSH_INTEGER 2
-        5 LIST_APPEND
-        6 LIST_APPEND
+        5 LIST_APPEND 0
+        6 LIST_APPEND 1
         7 BUILD_LIST 0
         8 PUSH_INTEGER 1
-        9 LIST_APPEND
+        9 LIST_APPEND 1
         10 PUSH_INTEGER 2
-        11 LIST_APPEND
-        12 LIST_APPEND
+        11 LIST_APPEND 0
+        12 LIST_APPEND 0
         13 DUP
         14 STORE_LOCAL l
         15 POP
@@ -2025,19 +2025,19 @@ final class MooVmTest {
         """
         0 BUILD_LIST 0
         1 PUSH_INTEGER 1
-        2 LIST_APPEND
+        2 LIST_APPEND 1
         3 PUSH_INTEGER 2
-        4 LIST_APPEND
+        4 LIST_APPEND 0
         5 PUSH_INTEGER 3
-        6 LIST_APPEND
+        6 LIST_APPEND 0
         7 PUSH_INTEGER 4
-        8 LIST_APPEND
+        8 LIST_APPEND 0
         9 PUSH_INTEGER 5
-        10 LIST_APPEND
+        10 LIST_APPEND 0
         11 PUSH_INTEGER 6
-        12 LIST_APPEND
+        12 LIST_APPEND 0
         13 PUSH_INTEGER 7
-        14 LIST_APPEND
+        14 LIST_APPEND 0
         15 DUP
         16 STORE_LOCAL t
         17 POP
@@ -2047,11 +2047,11 @@ final class MooVmTest {
         21 PUSH_INTEGER 1
         22 BUILD_LIST 0
         23 PUSH_STRING a
-        24 LIST_APPEND
+        24 LIST_APPEND 1
         25 PUSH_STRING b
-        26 LIST_APPEND
+        26 LIST_APPEND 0
         27 PUSH_STRING c
-        28 LIST_APPEND
+        28 LIST_APPEND 0
         29 SET_RANGE_LOCAL t
         30 POP
         31 LOAD_LOCAL t
@@ -2837,11 +2837,11 @@ final class MooVmTest {
         """
         0 BUILD_LIST 0
         1 PUSH_INTEGER 1
-        2 LIST_APPEND
+        2 LIST_APPEND 1
         3 PUSH_INTEGER 2
-        4 LIST_APPEND
+        4 LIST_APPEND 0
         5 PUSH_INTEGER 3
-        6 LIST_APPEND
+        6 LIST_APPEND 0
         7 ENTER_INDEX
         8 FIRST
         9 INDEX
@@ -2877,19 +2877,19 @@ final class MooVmTest {
         """
         0 BUILD_LIST 0
         1 PUSH_INTEGER 1
-        2 LIST_APPEND
+        2 LIST_APPEND 1
         3 PUSH_INTEGER 2
-        4 LIST_APPEND
+        4 LIST_APPEND 0
         5 PUSH_INTEGER 3
-        6 LIST_APPEND
+        6 LIST_APPEND 0
         7 PUSH_INTEGER 4
-        8 LIST_APPEND
+        8 LIST_APPEND 0
         9 PUSH_INTEGER 5
-        10 LIST_APPEND
+        10 LIST_APPEND 0
         11 PUSH_INTEGER 6
-        12 LIST_APPEND
+        12 LIST_APPEND 0
         13 PUSH_INTEGER 7
-        14 LIST_APPEND
+        14 LIST_APPEND 0
         15 ENTER_INDEX
         16 LAST
         17 INDEX
@@ -3091,11 +3091,11 @@ final class MooVmTest {
         """
         0 BUILD_LIST 0
         1 PUSH_INTEGER 1
-        2 LIST_APPEND
+        2 LIST_APPEND 1
         3 PUSH_INTEGER 2
-        4 LIST_APPEND
+        4 LIST_APPEND 0
         5 PUSH_INTEGER 3
-        6 LIST_APPEND
+        6 LIST_APPEND 0
         7 DUP
         8 STORE_LOCAL t
         9 POP
@@ -4420,7 +4420,7 @@ final class MooVmTest {
   }
 
   @Test
-  void nestedVerbAndEvalThreadModesInheritWithoutLeakingToCallers() {
+  void nestedVerbAndEvalThreadModesStartEnabledWithoutLeakingToCallers() {
     WorldVerb mode =
         new WorldVerb(
             "mode",
@@ -4455,13 +4455,13 @@ final class MooVmTest {
             List.of(
                 new ListValue(
                     List.of(
-                        new IntegerValue(0),
+                        new IntegerValue(1),
                         new ListValue(
                             List.of(
                                 new IntegerValue(1),
                                 new ListValue(
-                                    List.of(new IntegerValue(0), new IntegerValue(1))))),
-                        new IntegerValue(0),
+                                    List.of(new IntegerValue(1), new IntegerValue(1))))),
+                        new IntegerValue(1),
                         new IntegerValue(1))),
                 new IntegerValue(0))),
         state.returnValue().orElseThrow());

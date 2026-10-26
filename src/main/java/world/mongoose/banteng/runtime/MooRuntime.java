@@ -93,7 +93,7 @@ public final class MooRuntime implements AutoCloseable {
       new LinkedHashMap<>();
   private static final ThreadLocal<AttemptContext> ATTEMPT = new ThreadLocal<>();
   private final AtomicLong connectionGenerations = new AtomicLong();
-  private volatile boolean checkpointPublished;
+  private volatile boolean checkpointAttempted;
   @GuardedBy("this")
   private long sessionRevision;
 
@@ -160,6 +160,9 @@ public final class MooRuntime implements AutoCloseable {
             committedWorld, this, taskRegistry);
     checkpointedConnections = List.of();
     builtins = new BuiltinCatalog(builtinHosts(configuredSemantics, taskRegistry));
+    try (WorldTxn initialOptions = committedWorld.begin()) {
+      builtins.reloadProtectedFunctions(initialOptions);
+    }
   }
 
   /** Creates the production runtime with its concrete listener and checkpoint owners. */
@@ -407,6 +410,9 @@ public final class MooRuntime implements AutoCloseable {
     builtins =
         new BuiltinCatalog(
             listenerControl, builtinHosts(configuredSemantics, taskRegistry));
+    try (WorldTxn initialOptions = committedWorld.begin()) {
+      builtins.reloadProtectedFunctions(initialOptions);
+    }
     scheduler.restoreTasks(Objects.requireNonNull(restoredTasks, "restoredTasks"));
   }
 
@@ -446,9 +452,58 @@ public final class MooRuntime implements AutoCloseable {
     scheduler.activateRestoredTasks();
   }
 
-  /** Publishes a final checkpoint and closes the listener after checkpoint hooks finish. */
+  /** Publishes the final shutdown checkpoint without checkpoint notification hooks. */
   public void requestGracefulShutdown() {
     scheduler.submit(RuntimeRequest.gracefulShutdown());
+  }
+
+  /** Delivers a process signal through the same scheduler as server tasks. */
+  public void handleSignal(int signal) {
+    scheduler.enqueueDetached(RuntimeRequest.signal(signal));
+  }
+
+  private RuntimeStep signalNow(int number) {
+    if (number == 14) {
+      return signalDefault("SIGALRM");
+    }
+    if (number != 10 && number != 12) {
+      for (long connectionId : connections().keySet()) {
+        effects().add(RuntimeEffect.write(connectionId,
+            List.of("*** Shutting down: server panic ***")));
+      }
+      effects().add(RuntimeEffect.panic("Caught signal " + number));
+      return RuntimeStep.returned(List.of());
+    }
+    String signal = number == 10 ? "SIGUSR1" : "SIGUSR2";
+    WorldVerb handler = world().verb(0, "handle_signal").orElse(null);
+    if (handler == null) {
+      return signalDefault(signal);
+    }
+    return startStored(
+        handler,
+        verbLocals(0, -1, -1, "handle_signal",
+            new ListValue(List.of(StringValue.of(signal))), ""),
+        RuntimeContinuation.after(
+            RuntimeTransition.SIGNAL_RETURN, 0, signal, List.of(), 0, 0, false));
+  }
+
+  private RuntimeStep signalDefault(String signal) {
+    if (signal.equals("SIGUSR1")) {
+      effects().add(RuntimeEffect.reopenLog());
+      return RuntimeStep.returned(List.of());
+    }
+    WorldVerb started = world().verb(0, "checkpoint_started").orElse(null);
+    String reason = signal.equals("SIGALRM") ? "due to timer." : "due to remote request signal.";
+    if (started == null) {
+      effects().add(RuntimeEffect.checkpoint(false, reason));
+      return RuntimeStep.returned(List.of());
+    }
+    return startStored(
+        started,
+        verbLocals(0, -1, -1, "checkpoint_started", new ListValue(List.of()), ""),
+        RuntimeContinuation.after(
+            RuntimeTransition.CHECKPOINT_STARTED_RETURN, 0, reason,
+            List.of(), 0, 0, false));
   }
 
   /** Stops runtime-owned executor work. */
@@ -491,16 +546,12 @@ public final class MooRuntime implements AutoCloseable {
   }
 
   private RuntimeStep gracefulShutdownNow() {
-    WorldVerb started = world().verb(0, "checkpoint_started").orElse(null);
-    if (started == null) {
-      effects().add(RuntimeEffect.checkpoint(true));
-      return RuntimeStep.returned(List.of());
+    for (long connectionId : connections().keySet()) {
+      effects().add(RuntimeEffect.write(connectionId,
+          List.of("*** Shutting down: shutdown signal received ***")));
     }
-    return startStored(
-        started,
-        verbLocals(0, -1, -1, "checkpoint_started", new ListValue(List.of()), ""),
-        RuntimeContinuation.after(
-            RuntimeTransition.CHECKPOINT_STARTED_RETURN, 0, "", List.of(), 0, 0, true));
+    effects().add(RuntimeEffect.checkpoint(true, "shutdown signal received"));
+    return RuntimeStep.returned(List.of());
   }
 
   private RuntimeStep continueStartupAfterPendingWaifFinalization() {
@@ -571,6 +622,13 @@ public final class MooRuntime implements AutoCloseable {
       long connectionId, long listenerHandler, boolean printMessages, MapValue connectionInfo) {
     return scheduler.submit(
         RuntimeRequest.open(connectionId, listenerHandler, printMessages, connectionInfo));
+  }
+
+  /** Accepts socket input through its first suspension so its reader can continue. */
+  public List<String> acceptConnection(
+      long connectionId, long listenerHandler, boolean printMessages, MapValue connectionInfo) {
+    return scheduler.submit(
+        RuntimeRequest.open(connectionId, listenerHandler, printMessages, connectionInfo), true);
   }
 
   private RuntimeStep openConnectionNow(
@@ -651,6 +709,58 @@ public final class MooRuntime implements AutoCloseable {
     return scheduler.submit(RuntimeRequest.line(connectionId, line));
   }
 
+  /** Processes a socket line through its first suspension, then streams later task output. */
+  public List<String> receiveLine(long connectionId, String line) {
+    return scheduler.submit(RuntimeRequest.line(connectionId, Objects.requireNonNull(line, "line")), true);
+  }
+
+  synchronized OptionalLong inputTaskPlayer(long connectionId, String line) {
+    ConnectionState connection = publishedConnections.get(connectionId);
+    if (pendingReads.containsKey(connectionId)
+        || (connection != null && !connection.disableOob && line.startsWith("#$#"))) {
+      return OptionalLong.empty();
+    }
+    long player = publishedConnectionRegistry.connectionPlayer(connectionId).orElse(-1);
+    return OptionalLong.of(player >= 0 ? player : connectionId);
+  }
+
+  Optional<List<String>> suspendedInputOutput(RuntimeContinuation continuation, VmState state) {
+    RuntimeTransition transition = continuation.transition().orElseThrow();
+    boolean command = transition == RuntimeTransition.LINE_DO_COMMAND_GATE_THEN_DISPATCH
+        || transition == RuntimeTransition.LINE_SELECTED_COMMAND_APPEND_OUTPUT;
+    if (!command && transition != RuntimeTransition.LOGIN_AUTHENTICATE_AND_ASSOCIATE
+        && transition != RuntimeTransition.LOGIN_BLANK_TRUTH_GATE
+        && transition != RuntimeTransition.TRANSPORT_OOB_RETURN_OUTPUT
+        && transition != RuntimeTransition.LINE_OOB_RETURN_OUTPUT) {
+      return Optional.empty();
+    }
+    List<String> output = new ArrayList<>(continuation.output());
+    ConnectionState connection = connections().get(continuation.connectionId());
+    if (connection != null && transition == RuntimeTransition.LINE_DO_COMMAND_GATE_THEN_DISPATCH) {
+      connection.prefix.ifPresent(output::add);
+    }
+    output.addAll(state.output());
+    state.clearOutput();
+    if (connection != null && command) {
+      connection.suffix.ifPresent(output::add);
+    }
+    return Optional.of(List.copyOf(output));
+  }
+
+  void writeDetachedOutput(long player, List<String> output) {
+    OptionalLong connection;
+    synchronized (this) {
+      connection = publishedConnectionRegistry.connectionId(player);
+    }
+    if (connection.isPresent()) {
+      writeConnectionOutput(connection.orElseThrow(), output);
+    }
+  }
+
+  void writeConnectionOutput(long connectionId, List<String> output) {
+    listenerControl.ifPresent(control -> control.writeConnection(connectionId, output));
+  }
+
   private RuntimeStep executeLineNow(long connectionId, String line) {
     return executeLineNow(connectionId, line, Optional.empty());
   }
@@ -660,6 +770,12 @@ public final class MooRuntime implements AutoCloseable {
     Objects.requireNonNull(line, "line");
     ConnectionState connection = requireConnection(connectionId);
     connection.lastActivityNanos = nanoTime.getAsLong();
+    if (!connection.disableOob && line.startsWith("#$#")) {
+      return executeTransportOutOfBandNow(connectionId, line);
+    }
+    if (!connection.disableOob && line.startsWith("#$\"")) {
+      line = line.substring(3);
+    }
     if (hasPendingRead(connectionId)) {
       effects().add(RuntimeEffect.input(connectionId, line));
       return RuntimeStep.returned(List.of());
@@ -784,6 +900,14 @@ public final class MooRuntime implements AutoCloseable {
                   + ".  Use \".\" to end."));
     }
 
+    if (line.regionMatches(true, 0, "OUTPUTPREFIX ", 0, "OUTPUTPREFIX ".length())) {
+      connection.prefix = Optional.of(line.substring("OUTPUTPREFIX ".length()));
+      return RuntimeStep.returned(List.of());
+    }
+    if (line.regionMatches(true, 0, "OUTPUTSUFFIX ", 0, "OUTPUTSUFFIX ".length())) {
+      connection.suffix = Optional.of(line.substring("OUTPUTSUFFIX ".length()));
+      return RuntimeStep.returned(List.of());
+    }
     if (line.regionMatches(true, 0, "PREFIX ", 0, "PREFIX ".length())) {
       connection.prefix = Optional.of(line.substring("PREFIX ".length()));
       return RuntimeStep.returned(List.of());
@@ -832,30 +956,6 @@ public final class MooRuntime implements AutoCloseable {
     List<MooValue> commandWords = new ArrayList<>();
     for (String word : words) {
       commandWords.add(StringValue.of(word));
-    }
-    if (line.startsWith("#$#") && !connection.disableOob) {
-      Optional<WorldVerb> outOfBand =
-          world().verb(connection.listenerHandler, "do_out_of_band_command");
-      if (outOfBand.isEmpty()) {
-        return RuntimeStep.returned(List.of());
-      }
-      return startStored(
-          outOfBand.orElseThrow(),
-          verbLocals(
-              connection.listenerHandler,
-              player,
-              -1,
-              "do_out_of_band_command",
-              new ListValue(commandWords),
-              line),
-          RuntimeContinuation.after(
-              RuntimeTransition.LINE_OOB_RETURN_OUTPUT,
-              connectionId,
-              line,
-              List.of(),
-              0,
-              0,
-              false));
     }
     List<String> doCommandOutput = List.of();
     boolean handled = false;
@@ -1296,6 +1396,7 @@ public final class MooRuntime implements AutoCloseable {
           thisObject = huhReceiver;
         }
         if (selectedVerb == null) {
+          effects().add(RuntimeEffect.unmatchedInput(player));
           output.add("I couldn't understand that.");
           connection.suffix.ifPresent(output::add);
           return RuntimeStep.returned(output);
@@ -1564,9 +1665,9 @@ public final class MooRuntime implements AutoCloseable {
           blank.orElseThrow(),
           verbLocals(
               connection.listenerHandler,
-              connectionId,
-              connectionId,
-              "do_blank_command",
+            connectionId,
+            -1,
+            "do_blank_command",
               new ListValue(List.of()),
               line),
           RuntimeContinuation.after(
@@ -1641,7 +1742,7 @@ public final class MooRuntime implements AutoCloseable {
         verbLocals(
             connection.listenerHandler,
             connectionId,
-            connectionId,
+            -1,
             "do_login_command",
             new ListValue(arguments),
             loginLine);
@@ -1827,12 +1928,7 @@ public final class MooRuntime implements AutoCloseable {
   }
 
   private RuntimeStep continueCreatedLogin(RuntimeContinuation continuation) {
-    return startConnectedHook(
-        continuation.connectionId(),
-        continuation.first(),
-        continuation.output(),
-        RuntimeTransition.LOGIN_EXISTING_USER_CONNECTED_THEN_RETURN,
-        false);
+    return RuntimeStep.returned(continuation.output());
   }
 
   private RuntimeStep startConnectedHook(
@@ -1946,6 +2042,7 @@ public final class MooRuntime implements AutoCloseable {
 
   private RuntimeStep startTaskTimeout(RuntimeContinuation continuation) {
     VmSnapshot timedOut = continuation.timeoutSnapshot().orElseThrow();
+    String resource = timedOut.outcome() == VmState.Outcome.SECONDS_EXHAUSTED ? "seconds" : "ticks";
     Optional<WorldVerb> handler = world().verb(0, "handle_task_timeout");
     if (handler.isEmpty()) {
       return RuntimeStep.returned(continuation.output());
@@ -1982,9 +2079,9 @@ public final class MooRuntime implements AutoCloseable {
     }
     ListValue traceback =
         new ListValue(
-            List.of(StringValue.of("Task ran out of ticks"), StringValue.of("(End of traceback)")));
+            List.of(StringValue.of("Task ran out of " + resource), StringValue.of("(End of traceback)")));
     ListValue arguments =
-        new ListValue(List.of(StringValue.of("ticks"), new ListValue(stack), traceback));
+        new ListValue(List.of(StringValue.of(resource), new ListValue(stack), traceback));
     return startStored(
         handler.orElseThrow(),
         verbLocals(0, continuation.first(), -1, "handle_task_timeout", arguments, ""),
@@ -2862,7 +2959,7 @@ public final class MooRuntime implements AutoCloseable {
         new ObjectValue(connection == null ? -1 : connection.listenerHandler));
     values.put(StringValue.of("connected"), BooleanValue.of(connection != null));
     values.put(StringValue.of("total_input_length"), new IntegerValue(inputLength));
-    values.put(StringValue.of("last_input_task_id"), new IntegerValue(0));
+    values.put(StringValue.of("last_input_task_id"), new IntegerValue(scheduler.lastInputTask(player)));
     values.put(
         StringValue.of("input_suspended"),
         BooleanValue.of(connection != null && connection.holdInput));
@@ -2880,14 +2977,21 @@ public final class MooRuntime implements AutoCloseable {
   }
 
   private BuiltinResult dbDiskSize() {
-    Optional<Path> activeDatabase = checkpointPublished ? checkpoint : database;
-    if (activeDatabase.isEmpty()) {
+    if (checkpointAttempted && checkpoint.isPresent()) {
+      try {
+        return BuiltinResult.value(new IntegerValue(Files.size(checkpoint.orElseThrow())));
+      } catch (IOException ignored) {
+        // As in Toast db_disk_size(), stat the input when output is unavailable.
+      }
+    }
+    if (database.isEmpty()) {
       return BuiltinResult.value(new IntegerValue(0));
     }
     try {
-      return BuiltinResult.value(new IntegerValue(Files.size(activeDatabase.orElseThrow())));
+      return BuiltinResult.value(new IntegerValue(Files.size(database.orElseThrow())));
     } catch (IOException error) {
-      return BuiltinResult.error(ErrorValue.E_QUOTA);
+      return BuiltinResult.raised(ErrorValue.E_QUOTA,
+          StringValue.of("No database file(s) available"), new IntegerValue(0));
     }
   }
 
@@ -3090,6 +3194,7 @@ public final class MooRuntime implements AutoCloseable {
       return switch (request.operation) {
         case STARTUP -> startServerNow();
         case GRACEFUL_SHUTDOWN -> gracefulShutdownNow();
+        case SIGNAL -> signalNow(Math.toIntExact(request.generation));
         case CHECKPOINT_DISCONNECT ->
             checkpointDisconnectNow(request.connectionId, request.listenerHandler);
         case OPEN ->
@@ -3131,10 +3236,14 @@ public final class MooRuntime implements AutoCloseable {
       return RuntimeStep.returned(output);
     }
     return switch (continuation.transition().orElseThrow()) {
+      case SIGNAL_RETURN ->
+          state.outcome() != VmState.Outcome.RETURNED
+                  || state.returnValue().filter(MooValue::isTruthy).isPresent()
+              ? RuntimeStep.returned(state.output()) : signalDefault(continuation.text());
       case SERVER_STARTED_RETURN -> RuntimeStep.returned(state.output());
       case CHECKPOINT_USER_DISCONNECTED_RETURN -> RuntimeStep.returned(List.of());
       case CHECKPOINT_STARTED_RETURN -> {
-        effects().add(RuntimeEffect.checkpoint(continuation.flag()));
+        effects().add(RuntimeEffect.checkpoint(continuation.flag(), continuation.text()));
         yield RuntimeStep.returned(List.of());
       }
       case CHECKPOINT_FINISHED_RETURN -> {
@@ -3210,8 +3319,9 @@ public final class MooRuntime implements AutoCloseable {
         || exception.size() != 4
         || !(exception.elements().get(1) instanceof StringValue message)
         || !(exception.elements().get(3) instanceof ListValue traceback)) {
+      MooValue code = state.uncaughtError().orElse(ErrorValue.E_NONE);
       return List.of(
-          state.uncaughtError().orElse(ErrorValue.E_NONE).description(),
+          code instanceof ErrorValue error ? error.description() : code.toLiteral(),
           "(End of traceback)");
     }
     List<String> lines = new ArrayList<>();
@@ -3502,20 +3612,36 @@ public final class MooRuntime implements AutoCloseable {
           scheduler.enqueueDetached(RuntimeRequest.line(effect.connectionId, effect.text));
         }
       }
+      case UNMATCHED_INPUT -> scheduler.clearLastInputTask(effect.connectionId, currentTaskId);
       case CHECKPOINT -> {
         Path target =
             checkpoint.orElseThrow(
                 () -> new IllegalStateException("dump_database() requires --checkpoint"));
-        serverLog.info("CHECKPOINTING to " + target);
+        if (effect.binary && !effect.text.isEmpty()) {
+          serverLog.info("SHUTDOWN: shutdown signal received");
+        }
+        serverLog.info("CHECKPOINTING " + (effect.text.isEmpty() ? "to " + target : effect.text));
+        checkpointAttempted = true;
         try (WorldTxn.RetainedSnapshot retained = committedWorld.retainSnapshot()) {
           checkpointCodec.writeAtomic(
-              target, retained.snapshot(), scheduler.durableTasks(), activeConnections());
-          checkpointPublished = true;
-          scheduler.enqueueDetached(RuntimeRequest.checkpointFinished(true, effect.binary));
+              target, retained.snapshot(), scheduler.durableTasksExcluding(currentTaskId), activeConnections());
+          if (effect.binary) {
+            listenerControl.ifPresent(ListenerControl::shutdown);
+          } else {
+            scheduler.enqueueDetached(RuntimeRequest.checkpointFinished(true, false));
+          }
         } catch (IOException error) {
           scheduler.enqueueDetached(RuntimeRequest.checkpointFinished(false, effect.binary));
-          throw new UncheckedIOException("checkpoint failed: " + target, error);
+          if (effect.binary) {
+            throw new UncheckedIOException("checkpoint failed: " + target, error);
+          }
+          serverLog.error("CHECKPOINTING failed: " + target + ": " + error.getMessage());
         }
+      }
+      case REOPEN_LOG -> {
+        serverLog.info("LOGFILE: Closing due to remote request signal.");
+        serverLog.reopen();
+        serverLog.info("LOGFILE: Reopening due to remote request signal.");
       }
       case PANIC -> {
         Path target =
@@ -3526,6 +3652,7 @@ public final class MooRuntime implements AutoCloseable {
                         .toString()
                     + ".PANIC");
         serverLog.error("PANIC: " + effect.text);
+        serverLog.error("PANIC-DUMPING to " + target);
         try {
           checkpointCodec.writePanic(
               target,
@@ -3627,6 +3754,7 @@ public final class MooRuntime implements AutoCloseable {
   }
 
   enum RuntimeTransition {
+    SIGNAL_RETURN,
     SERVER_STARTED_RETURN,
     CHECKPOINT_USER_DISCONNECTED_RETURN,
     CHECKPOINT_STARTED_RETURN,
@@ -3946,6 +4074,7 @@ public final class MooRuntime implements AutoCloseable {
   }
 
   enum Operation {
+    SIGNAL,
     STARTUP,
     GRACEFUL_SHUTDOWN,
     CHECKPOINT_DISCONNECT,
@@ -3968,6 +4097,11 @@ public final class MooRuntime implements AutoCloseable {
     static RuntimeRequest startup() {
       return new RuntimeRequest(
           Operation.STARTUP, 0, 0, false, new MapValue(Map.of()), "", 0);
+    }
+
+    static RuntimeRequest signal(int signal) {
+      return new RuntimeRequest(
+          Operation.SIGNAL, 0, 0, false, new MapValue(Map.of()), "", signal);
     }
 
     static RuntimeRequest gracefulShutdown() {
@@ -4058,6 +4192,7 @@ public final class MooRuntime implements AutoCloseable {
       long connectionId, CompletableFuture<BuiltinResult> completion) {}
 
   enum RuntimeEffectKind {
+    REOPEN_LOG,
     START_TIMEOUT,
     WRITE,
     NOTIFY,
@@ -4065,6 +4200,7 @@ public final class MooRuntime implements AutoCloseable {
     BINARY,
     KEEP_ALIVE,
     INPUT,
+    UNMATCHED_INPUT,
     CHECKPOINT,
     PANIC,
     SHUTDOWN
@@ -4164,9 +4300,23 @@ public final class MooRuntime implements AutoCloseable {
           RuntimeEffectKind.INPUT, connectionId, List.of(), false, false, 0, line, false);
     }
 
-    static RuntimeEffect checkpoint(boolean shutdown) {
+    static RuntimeEffect unmatchedInput(long player) {
       return new RuntimeEffect(
-          RuntimeEffectKind.CHECKPOINT, 0, List.of(), shutdown, false, 0, "", false);
+          RuntimeEffectKind.UNMATCHED_INPUT, player, List.of(), false, false, 0, "", false);
+    }
+
+    static RuntimeEffect checkpoint(boolean shutdown) {
+      return checkpoint(shutdown, "");
+    }
+
+    static RuntimeEffect checkpoint(boolean shutdown, String reason) {
+      return new RuntimeEffect(
+          RuntimeEffectKind.CHECKPOINT, 0, List.of(), shutdown, false, 0, reason, false);
+    }
+
+    static RuntimeEffect reopenLog() {
+      return new RuntimeEffect(
+          RuntimeEffectKind.REOPEN_LOG, 0, List.of(), false, false, 0, "", false);
     }
 
     static RuntimeEffect panic(String message) {

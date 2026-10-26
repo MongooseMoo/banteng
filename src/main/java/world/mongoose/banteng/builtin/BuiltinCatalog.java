@@ -36,6 +36,8 @@ import java.util.function.LongBinaryOperator;
 import java.util.function.Supplier;
 import world.mongoose.banteng.bytecode.MooCompiler;
 import world.mongoose.banteng.host.NativeCalls;
+import world.mongoose.banteng.host.Aspell;
+import world.mongoose.banteng.host.NativeCurl;
 import world.mongoose.banteng.host.NativeCalls.NativeCallException;
 import world.mongoose.banteng.logging.ServerLog;
 import world.mongoose.banteng.syntax.Ast;
@@ -54,6 +56,7 @@ import world.mongoose.banteng.value.MooValue.StringValue;
 import world.mongoose.banteng.value.MooValue.WaifValue;
 import world.mongoose.banteng.value.ValueSemantics;
 import world.mongoose.banteng.world.ObjectFlags;
+import world.mongoose.banteng.world.PropertyHolder;
 import world.mongoose.banteng.world.WorldAnonymousObject;
 import world.mongoose.banteng.world.WorldObject;
 import world.mongoose.banteng.world.WorldProperty;
@@ -61,7 +64,17 @@ import world.mongoose.banteng.world.WorldResult;
 import world.mongoose.banteng.world.WorldTxn;
 import world.mongoose.banteng.world.WorldVerb;
 import org.bouncycastle.crypto.generators.Argon2BytesGenerator;
+import org.bouncycastle.crypto.Digest;
+import org.bouncycastle.crypto.digests.MD5Digest;
+import org.bouncycastle.crypto.digests.RIPEMD160Digest;
+import org.bouncycastle.crypto.digests.SHA1Digest;
+import org.bouncycastle.crypto.digests.SHA224Digest;
+import org.bouncycastle.crypto.digests.SHA256Digest;
+import org.bouncycastle.crypto.digests.SHA384Digest;
+import org.bouncycastle.crypto.digests.SHA512Digest;
+import org.bouncycastle.crypto.macs.HMac;
 import org.bouncycastle.crypto.params.Argon2Parameters;
+import org.bouncycastle.crypto.params.KeyParameter;
 
 /** The explicit builtin catalog required by the first managed runtime path. */
 public final class BuiltinCatalog {
@@ -91,6 +104,7 @@ public final class BuiltinCatalog {
   private final ToastRegexService toastRegex = new ToastRegexService();
   private final Random floatingRandom;
   private final Map<String, BuiltinSpec> specs;
+  private volatile Set<String> protectedFunctions = Set.of();
 
   /** Creates a catalog from one complete standalone host composition. */
   public BuiltinCatalog(BuiltinHosts hosts) {
@@ -208,6 +222,26 @@ public final class BuiltinCatalog {
 
   private List<BuiltinSpec> buildManifest() {
     List<BuiltinSpec> entries = new ArrayList<>();
+    entries.add(new BuiltinSpec(
+        "task_local", List.of(new CallShape(List.of(), List.of(), Optional.empty())),
+        BuiltinPermissionRule.WIZARD_ONLY, BuiltinCostRule.fixed(0), EffectClass.PURE,
+        BuiltinOwner.VM, call -> BuiltinResult.value(call.taskLocal())));
+    entries.add(new BuiltinSpec(
+        "set_task_local", List.of(new CallShape(List.of(ANY), List.of(), Optional.empty())),
+        BuiltinPermissionRule.WIZARD_ONLY, BuiltinCostRule.fixed(0), EffectClass.PURE,
+        BuiltinOwner.VM, call -> new BuiltinResult.TaskLocal(call.arguments().getFirst())));
+    entries.add(new BuiltinSpec(
+        "getenv", List.of(new CallShape(List.of(STRING), List.of(), Optional.empty())),
+        BuiltinPermissionRule.WIZARD_ONLY, BuiltinCostRule.fixed(0), EffectClass.EXTERNAL_READ,
+        BuiltinOwner.SERVER, call -> {
+          String value = System.getenv(((StringValue) call.arguments().getFirst()).text());
+          return value == null ? BuiltinResult.value(new IntegerValue(0))
+              : encodeBinary(List.of(StringValue.of(value)));
+        }));
+    entries.add(new BuiltinSpec(
+        "respond_to", List.of(new CallShape(List.of(ANY, STRING), List.of(), Optional.empty())),
+        BuiltinPermissionRule.ANY, BuiltinCostRule.fixed(0), EffectClass.TRANSACTION_READ,
+        BuiltinOwner.WORLD, call -> respondTo(call.arguments(), call.world(), call.programmer())));
     Set<ArgType> floatMath =
         hosts.valueSemantics().promoteNumbers() ? NUMBER : Set.of(ArgType.FLOAT);
     BuiltinHandler setThreadMode =
@@ -246,6 +280,15 @@ public final class BuiltinCatalog {
             BuiltinOwner.WORLD,
             call ->
                 BuiltinResult.value(new IntegerValue(valueBytes(call.arguments().getFirst(), call.world())))));
+    entries.add(
+        new BuiltinSpec(
+            "object_bytes",
+            List.of(new CallShape(List.of(ANY), List.of(), Optional.empty())),
+            BuiltinPermissionRule.ANY,
+            BuiltinCostRule.fixed(0),
+            EffectClass.TRANSACTION_READ,
+            BuiltinOwner.WORLD,
+            call -> objectBytes(call.arguments().getFirst(), call.world(), call.programmer())));
     entries.add(
         new BuiltinSpec(
             "length",
@@ -414,7 +457,10 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.PURE,
             BuiltinOwner.VM,
-            unaryFloatBuiltin(Math::exp)));
+            unaryFloatBuiltin(value -> {
+              double result = Math.exp(value);
+              return result < Double.MIN_NORMAL ? Double.NaN : result;
+            })));
     entries.add(
         new BuiltinSpec(
             "floatstr",
@@ -865,6 +911,22 @@ public final class BuiltinCatalog {
             EffectClass.IRREVOCABLE,
             BuiltinOwner.VM,
             call -> crypt(call.arguments(), call.world(), call.programmer())));
+    entries.add(new BuiltinSpec("salt",
+        List.of(new CallShape(List.of(STRING, STRING), List.of(), Optional.empty())),
+        BuiltinPermissionRule.ANY, BuiltinCostRule.fixed(0), EffectClass.PURE,
+        BuiltinOwner.VM, call -> salt(call.arguments())));
+    for (String input : List.of("string", "binary", "value")) {
+      entries.add(new BuiltinSpec(input + "_hash",
+          List.of(new CallShape(List.of(input.equals("value") ? ANY : STRING),
+              List.of(STRING, ANY), Optional.empty())),
+          BuiltinPermissionRule.ANY, BuiltinCostRule.fixed(0), EffectClass.PURE,
+          BuiltinOwner.VM, call -> hash(input, call.arguments())));
+      entries.add(new BuiltinSpec(input + "_hmac",
+          List.of(new CallShape(List.of(input.equals("value") ? ANY : STRING, STRING),
+              List.of(STRING, ANY), Optional.empty())),
+          BuiltinPermissionRule.ANY, BuiltinCostRule.fixed(0), EffectClass.PURE,
+          BuiltinOwner.VM, call -> hmac(input, call.arguments())));
+    }
     entries.add(
         new BuiltinSpec(
             "argon2",
@@ -907,6 +969,42 @@ public final class BuiltinCatalog {
             EffectClass.TRANSACTION_READ,
             BuiltinOwner.WORLD,
             call -> disassemble(call.arguments(), call.world(), call.programmer())));
+    entries.add(
+        new BuiltinSpec(
+            "curl",
+            List.of(new CallShape(List.of(STRING), List.of(ANY, INTEGER), Optional.empty())),
+            BuiltinPermissionRule.WIZARD_ONLY,
+            BuiltinCostRule.fixed(0),
+            EffectClass.SUSPENDING_HOST,
+            BuiltinOwner.SERVER,
+            call -> curl(call.arguments(), call.world(), call.threadMode())));
+    entries.add(
+        new BuiltinSpec(
+            "spellcheck",
+            List.of(new CallShape(List.of(STRING), List.of(), Optional.empty())),
+            BuiltinPermissionRule.ANY,
+            BuiltinCostRule.fixed(0),
+            EffectClass.EXTERNAL_READ,
+            BuiltinOwner.SERVER,
+            call -> spellcheck((StringValue) call.arguments().getFirst())));
+    entries.add(
+        new BuiltinSpec(
+            "url_encode",
+            List.of(new CallShape(List.of(STRING), List.of(), Optional.empty())),
+            BuiltinPermissionRule.ANY,
+            BuiltinCostRule.fixed(0),
+            EffectClass.PURE,
+            BuiltinOwner.VM,
+            call -> urlEncode((StringValue) call.arguments().getFirst())));
+    entries.add(
+        new BuiltinSpec(
+            "url_decode",
+            List.of(new CallShape(List.of(STRING), List.of(), Optional.empty())),
+            BuiltinPermissionRule.ANY,
+            BuiltinCostRule.fixed(0),
+            EffectClass.PURE,
+            BuiltinOwner.VM,
+            call -> urlDecode((StringValue) call.arguments().getFirst())));
     entries.add(
         new BuiltinSpec(
             "encode_binary",
@@ -1075,7 +1173,7 @@ public final class BuiltinCatalog {
     entries.add(
         new BuiltinSpec(
             "chparent",
-            List.of(new CallShape(List.of(ANY, ANY), List.of(), Optional.empty())),
+            List.of(new CallShape(List.of(ANY, OBJECT), List.of(), Optional.empty())),
             BuiltinPermissionRule.ANY,
             BuiltinCostRule.fixed(0),
             EffectClass.TRANSACTION_WRITE,
@@ -1084,7 +1182,7 @@ public final class BuiltinCatalog {
     entries.add(
         new BuiltinSpec(
             "chparents",
-            List.of(new CallShape(List.of(ANY, ANY), List.of(), Optional.empty())),
+            List.of(new CallShape(List.of(ANY, Set.of(ArgType.LIST)), List.of(), Optional.empty())),
             BuiltinPermissionRule.ANY,
             BuiltinCostRule.fixed(0),
             EffectClass.TRANSACTION_WRITE,
@@ -1834,9 +1932,12 @@ public final class BuiltinCatalog {
             List.of(new CallShape(List.of(), List.of(), Optional.empty())),
             BuiltinPermissionRule.WIZARD_ONLY,
             BuiltinCostRule.fixed(0),
-            EffectClass.PURE,
+            EffectClass.IRREVOCABLE,
             BuiltinOwner.SERVER,
-            call -> BuiltinResult.value(new IntegerValue(0))));
+            call -> {
+              reloadProtectedFunctions(call.world());
+              return BuiltinResult.value(new IntegerValue(0));
+            }));
     entries.add(
         new BuiltinSpec(
             "run_gc",
@@ -1977,31 +2078,31 @@ public final class BuiltinCatalog {
             "sqlite_open",
             new CallShape(List.of(STRING), List.of(INTEGER), Optional.empty()),
             EffectClass.IRREVOCABLE,
-            sqlite::open));
+            call -> sqlite.open(call.arguments())));
     entries.add(
         sqliteSpec(
             "sqlite_close",
             new CallShape(List.of(INTEGER), List.of(), Optional.empty()),
             EffectClass.IRREVOCABLE,
-            sqlite::close));
+            call -> sqlite.close(call.arguments())));
     entries.add(
         sqliteSpec(
             "sqlite_handles",
             new CallShape(List.of(), List.of(), Optional.empty()),
             EffectClass.EXTERNAL_READ,
-            sqlite::handles));
+            call -> sqlite.handles(call.arguments())));
     entries.add(
         sqliteSpec(
             "sqlite_info",
             new CallShape(List.of(INTEGER), List.of(), Optional.empty()),
             EffectClass.EXTERNAL_READ,
-            sqlite::info));
+            call -> sqlite.info(call.arguments())));
     entries.add(
         sqliteSpec(
             "sqlite_query",
             new CallShape(List.of(INTEGER, STRING), List.of(ANY), Optional.empty()),
             EffectClass.SUSPENDING_HOST,
-            sqlite::query));
+            call -> sqlite.query(call.arguments(), call.threadMode())));
     entries.add(
         sqliteSpec(
             "sqlite_execute",
@@ -2010,32 +2111,32 @@ public final class BuiltinCatalog {
                 List.of(),
                 Optional.empty()),
             EffectClass.SUSPENDING_HOST,
-            sqlite::execute));
+            call -> sqlite.execute(call.arguments(), call.threadMode())));
     entries.add(
         sqliteSpec(
             "sqlite_last_insert_row_id",
             new CallShape(List.of(INTEGER), List.of(), Optional.empty()),
             EffectClass.EXTERNAL_READ,
-            sqlite::lastInsertRowId));
+            call -> sqlite.lastInsertRowId(call.arguments())));
     entries.add(
         sqliteSpec(
             "sqlite_limit",
             new CallShape(List.of(INTEGER, ANY, INTEGER), List.of(), Optional.empty()),
             EffectClass.IRREVOCABLE,
-            sqlite::limit));
+            call -> sqlite.limit(call.arguments())));
     entries.add(
         sqliteSpec(
             "sqlite_interrupt",
             new CallShape(List.of(INTEGER), List.of(), Optional.empty()),
             EffectClass.IRREVOCABLE,
-            sqlite::interrupt));
+            call -> sqlite.interrupt(call.arguments())));
   }
 
   private static BuiltinSpec sqliteSpec(
       String name,
       CallShape shape,
       EffectClass effect,
-      Function<List<MooValue>, BuiltinResult> handler) {
+      BuiltinHandler handler) {
     return new BuiltinSpec(
         name,
         List.of(shape),
@@ -2043,8 +2144,7 @@ public final class BuiltinCatalog {
         BuiltinCostRule.fixed(0),
         effect,
         BuiltinOwner.SERVER,
-        call ->
-            handler.apply(call.arguments()));
+        handler);
   }
 
   private BuiltinResult configureThreadPool(BuiltinCall call) {
@@ -2528,8 +2628,22 @@ public final class BuiltinCatalog {
       ListValue callers,
       boolean threadMode,
       LongBinaryOperator stagedBufferedOutputLength) {
+    if (!(receiver instanceof ObjectValue object && object.value() == 0)
+        && protectedFunctions.contains(spec.name())) {
+      String wrapper = "bf_" + spec.name();
+      if (world.verb(0, wrapper, true).isPresent()) {
+        return new BuiltinResult.ProtectedCall(wrapper, new ListValue(arguments));
+      }
+      if (!isWizard(world, programmer)) return BuiltinResult.error(ErrorValue.E_PERM);
+    }
     if (spec.callShapes().stream().noneMatch(shape -> shape.acceptsArity(arguments.size()))) {
-      return BuiltinResult.error(ErrorValue.E_ARGS);
+      int minimum = spec.callShapes().stream().mapToInt(shape -> shape.required().size()).min().orElseThrow();
+      int maximum = spec.callShapes().stream().anyMatch(shape -> shape.variadic().isPresent()) ? -1
+          : spec.callShapes().stream().mapToInt(shape -> shape.required().size() + shape.optional().size()).max().orElseThrow();
+      String expected = minimum == maximum ? Integer.toString(minimum) : minimum + "-" + maximum;
+      return BuiltinResult.raised(ErrorValue.E_ARGS,
+          StringValue.of("Incorrect number of arguments (expected " + expected + "; got " + arguments.size() + ")"),
+          new IntegerValue(0));
     }
     if (spec.callShapes().stream().noneMatch(shape -> shape.accepts(arguments))) {
       return BuiltinResult.error(ErrorValue.E_TYPE);
@@ -2552,6 +2666,20 @@ public final class BuiltinCatalog {
                 callers,
                 threadMode,
                 stagedBufferedOutputLength));
+  }
+
+  /** Loads the builtin protection flags from the published server options. */
+  public void reloadProtectedFunctions(WorldTxn world) {
+    Set<String> protectedNames = new LinkedHashSet<>();
+    if (world.readObjectProperty(0, "server_options").orElse(null) instanceof ObjectValue options) {
+      for (BuiltinSpec spec : manifest) {
+        if (world.readObjectProperty(options.value(), "protect_" + spec.name())
+            .map(MooValue::isTruthy).orElse(false)) {
+          protectedNames.add(spec.name());
+        }
+      }
+    }
+    protectedFunctions = Set.copyOf(protectedNames);
   }
 
   private BuiltinResult functionInfo(List<MooValue> arguments) {
@@ -2604,7 +2732,7 @@ public final class BuiltinCatalog {
                     List.of(
                         versionPair("OUTBOUND_NETWORK", StringValue.of("ON")),
                         versionPair("PROMOTE_NUMBERS", StringValue.of("OFF"))))),
-            versionPair("source", new ListValue(List.of()))));
+            versionPair("source", new ListValue(List.of(versionPair("vcs", StringValue.of("git")))))));
   }
 
   private static ListValue versionPair(String name, MooValue value) {
@@ -2901,6 +3029,119 @@ public final class BuiltinCatalog {
       return BuiltinResult.value(new IntegerValue(map.size()));
     }
     return BuiltinResult.error(ErrorValue.E_TYPE);
+  }
+
+  private static BuiltinResult curl(List<MooValue> arguments, WorldTxn world, boolean threadMode) {
+    long maximumTimeout = Math.max(1, serverIntegerOption(world, "curl_max_timeout", 300));
+    long defaultTimeout = Math.clamp(serverIntegerOption(world, "curl_timeout", 60), 1, maximumTimeout);
+    long requestedTimeout = arguments.size() > 2 ? ((IntegerValue) arguments.get(2)).value() : defaultTimeout;
+    if (requestedTimeout < 1 || requestedTimeout > maximumTimeout) {
+      return BuiltinResult.raised(ErrorValue.E_INVARG,
+          StringValue.of("Timeout must be between 1 and $server_options.curl_max_timeout seconds"),
+          new IntegerValue(requestedTimeout));
+    }
+    long configuredBytes = serverIntegerOption(world, "curl_max_response_bytes", 10 * 1024 * 1024);
+    long maximumBytes = configuredBytes < 1 ? 10 * 1024 * 1024 : Math.min(configuredBytes, 256 * 1024 * 1024);
+    String url = ((StringValue) arguments.getFirst()).text();
+    boolean includeHeaders = arguments.size() > 1 && arguments.get(1).isTruthy();
+    return threadMode
+        ? BuiltinResult.hostWork(() -> curlTransfer(url, includeHeaders, requestedTimeout, maximumBytes))
+        : curlTransfer(url, includeHeaders, requestedTimeout, maximumBytes);
+  }
+
+  private static long serverIntegerOption(WorldTxn world, String name, long fallback) {
+    if (world.readObjectProperty(0, "server_options").orElse(null) instanceof ObjectValue options
+        && world.readObjectProperty(options.value(), name).orElse(null) instanceof IntegerValue integer) {
+      return integer.value();
+    }
+    return fallback;
+  }
+
+  private static BuiltinResult curlTransfer(String url, boolean headers, long timeout, long maximumBytes) {
+    try {
+      NativeCurl.Result result = NativeCurl.get(url, headers, timeout, maximumBytes);
+      if (result.status() == 0) return encodeBinary(List.of(StringValue.of(result.body())));
+      return curlError(result.overflowed() || result.status() == -1 ? ErrorValue.E_QUOTA : ErrorValue.E_INVARG,
+          result.overflowed() ? "Response exceeded the maximum allowed size" : result.message());
+    } catch (IllegalStateException | LinkageError failure) {
+      return curlError(ErrorValue.E_INVARG, "Could not perform curl transfer");
+    }
+  }
+
+  private static BuiltinResult curlError(ErrorValue error, String message) {
+    return BuiltinResult.value(new MapValue(Map.of(
+        StringValue.of("error"), error, StringValue.of("message"), StringValue.of(message))));
+  }
+
+  private static BuiltinResult spellcheck(StringValue value) {
+    try {
+      Aspell.Result result = Aspell.check(value.bytes());
+      return BuiltinResult.value(result.correct() != 0
+          ? new IntegerValue(result.correct())
+          : new ListValue(result.suggestions().stream().map(StringValue::of).map(MooValue.class::cast).toList()));
+    } catch (IllegalStateException | LinkageError failure) {
+      return BuiltinResult.error(ErrorValue.E_INVARG);
+    }
+  }
+
+  private static BuiltinResult urlEncode(StringValue value) {
+    StringBuilder encoded = new StringBuilder();
+    String digits = "0123456789ABCDEF";
+    for (byte raw : value.bytes()) {
+      int b = Byte.toUnsignedInt(raw);
+      if (b == 0) break;
+      if ((b >= 'a' && b <= 'z') || (b >= 'A' && b <= 'Z')
+          || (b >= '0' && b <= '9') || b == '-' || b == '_' || b == '.' || b == '~') {
+        encoded.append((char) b);
+      } else {
+        encoded.append('%').append(digits.charAt(b >>> 4)).append(digits.charAt(b & 15));
+      }
+    }
+    return BuiltinResult.value(StringValue.of(encoded.toString()));
+  }
+
+  private static BuiltinResult urlDecode(StringValue value) {
+    byte[] input = value.bytes();
+    ByteArrayOutputStream decoded = new ByteArrayOutputStream(input.length);
+    for (int i = 0; i < input.length; i++) {
+      int b = Byte.toUnsignedInt(input[i]);
+      if (b == '%' && i + 2 < input.length) {
+        int high = Character.digit((char) Byte.toUnsignedInt(input[i + 1]), 16);
+        int low = Character.digit((char) Byte.toUnsignedInt(input[i + 2]), 16);
+        if (high >= 0 && low >= 0) {
+          b = high * 16 + low;
+          i += 2;
+        }
+      }
+      if (b == 0) break;
+      decoded.write(b);
+    }
+    return BuiltinResult.value(StringValue.of(decoded.toByteArray()));
+  }
+
+  private static BuiltinResult objectBytes(MooValue target, WorldTxn world, long programmer) {
+    PropertyHolder object;
+    if (target instanceof ObjectValue permanent) {
+      object = world.object(permanent.value()).orElse(null);
+    } else if (target instanceof AnonymousObjectValue anonymous) {
+      object = world.anonymousObject(anonymous).orElse(null);
+    } else {
+      return BuiltinResult.error(ErrorValue.E_TYPE);
+    }
+    if (object == null) return BuiltinResult.error(ErrorValue.E_INVIND);
+    if (!isWizard(world, programmer)) return BuiltinResult.error(ErrorValue.E_PERM);
+
+    // Logical 64-bit object layout, consistent with value_bytes. Banteng owns
+    // source text rather than Toast's Program allocation for each stored verb.
+    long bytes = 160L + object.name().length() + 1;
+    for (WorldVerb verb : object.verbs()) {
+      bytes += 40L + verb.names().length() + 1 + verb.programSource().length() + 1;
+    }
+    for (WorldProperty property : object.properties()) {
+      if (property.defined()) bytes += 16L + property.name().length() + 1;
+      bytes += 16L + (property.clear() ? 16 : valueBytes(property.value(), world));
+    }
+    return BuiltinResult.value(new IntegerValue(bytes));
   }
 
   private static long valueBytes(MooValue value, WorldTxn world) {
@@ -3248,6 +3489,12 @@ public final class BuiltinCatalog {
         encoded.write(Character.toUpperCase(Character.forDigit(value & 0x0f, 16)));
       }
     }
+    Optional<BuiltinResult> error = stringLengthError(encoded.size(), world);
+    return error.orElseGet(() -> BuiltinResult.value(StringValue.of(encoded.toByteArray())));
+  }
+
+  /** Checks the configured string limit before the VM allocates a concatenation. */
+  public static Optional<BuiltinResult> stringLengthError(long length, WorldTxn world) {
     long maximumLength = 64_537_861L;
     boolean catchable = false;
     MooValue serverOptions = world.readObjectProperty(0, "server_options").orElse(null);
@@ -3264,12 +3511,12 @@ public final class BuiltinCatalog {
               .map(MooValue::isTruthy)
               .orElse(false);
     }
-    if (encoded.size() > maximumLength) {
-      return catchable
+    if (length > maximumLength) {
+      return Optional.of(catchable
           ? BuiltinResult.error(ErrorValue.E_QUOTA)
-          : new BuiltinResult.SecondsAbort();
+          : new BuiltinResult.SecondsAbort());
     }
-    return BuiltinResult.value(StringValue.of(encoded.toByteArray()));
+    return Optional.empty();
   }
 
   private static BuiltinResult ctime(List<MooValue> arguments) {
@@ -3352,11 +3599,42 @@ public final class BuiltinCatalog {
 
   private static BuiltinResult raise(List<MooValue> arguments) {
     MooValue code = arguments.getFirst();
-    ErrorValue error = code instanceof ErrorValue errorValue ? errorValue : ErrorValue.E_INVARG;
     StringValue message =
-        arguments.size() >= 2 ? (StringValue) arguments.get(1) : StringValue.of(code.toLiteral());
+        arguments.size() >= 2 ? (StringValue) arguments.get(1)
+            : (StringValue) ((BuiltinResult.Value) toStringValue(List.of(code))).value();
     MooValue value = arguments.size() >= 3 ? arguments.get(2) : new IntegerValue(0);
-    return BuiltinResult.raised(error, message, value);
+    return BuiltinResult.raised(code, message, value);
+  }
+
+  private static BuiltinResult respondTo(List<MooValue> arguments, WorldTxn world, long programmer) {
+    MooValue target = arguments.getFirst();
+    String name = ((StringValue) arguments.get(1)).text();
+    WorldVerb verb;
+    MooValue location;
+    long owner;
+    int flags;
+    if (target instanceof ObjectValue object) {
+      WorldObject body = world.object(object.value()).orElse(null);
+      if (body == null) return BuiltinResult.error(ErrorValue.E_INVARG);
+      verb = world.verb(object.value(), name).orElse(null);
+      if (verb == null) return BuiltinResult.value(new IntegerValue(0));
+      location = new ObjectValue(world.verbLocation(object.value(), name, true).orElseThrow());
+      owner = body.owner();
+      flags = body.flags();
+    } else if (target instanceof AnonymousObjectValue anonymous) {
+      WorldAnonymousObject body = world.anonymousObject(anonymous).orElse(null);
+      if (body == null) return BuiltinResult.error(ErrorValue.E_INVARG);
+      verb = world.verb(anonymous, name, true).orElse(null);
+      if (verb == null) return BuiltinResult.value(new IntegerValue(0));
+      location = world.verbLocation(anonymous, name, true).orElseThrow();
+      owner = body.owner();
+      flags = body.flags();
+    } else {
+      return BuiltinResult.error(ErrorValue.E_TYPE);
+    }
+    return owner == programmer || isWizard(world, programmer) || ObjectFlags.isReadable(flags)
+        ? BuiltinResult.value(new ListValue(List.of(location, StringValue.of(verb.names()))))
+        : BuiltinResult.value(new IntegerValue(1));
   }
 
   private static BuiltinResult listInsert(
@@ -4205,11 +4483,68 @@ public final class BuiltinCatalog {
     return BuiltinResult.value(StringValue.of(result));
   }
 
+  private static BuiltinResult salt(List<MooValue> arguments) {
+    String prefix = ((StringValue) arguments.getFirst()).text();
+    String alphabet = "./0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
+    boolean md5 = prefix.startsWith("$1$");
+    boolean sha = prefix.startsWith("$5$") || prefix.startsWith("$6$");
+    boolean bcrypt = isRecognizedBcrypt(prefix);
+    OptionalLong strength = cryptStrength(prefix);
+    if (strength.isEmpty() || (!md5 && !sha && !bcrypt && !prefix.isEmpty()
+        && (prefix.length() < 2 || alphabet.indexOf(prefix.charAt(0)) < 0
+            || alphabet.indexOf(prefix.charAt(1)) < 0))) {
+      return BuiltinResult.raised(ErrorValue.E_INVARG, StringValue.of("Invalid prefix"),
+          arguments.getFirst());
+    }
+    Optional<byte[]> decoded = binaryBytes((StringValue) arguments.get(1));
+    if (decoded.isEmpty()) {
+      return BuiltinResult.raised(ErrorValue.E_INVARG, StringValue.of("Invalid binary input"),
+          arguments.get(1));
+    }
+    byte[] bytes = decoded.orElseThrow();
+    if (bytes.length < (bcrypt ? 16 : md5 || sha ? 3 : 2) || prefix.startsWith("$2x$")) {
+      return BuiltinResult.error(ErrorValue.E_INVARG);
+    }
+    if (bcrypt) {
+      long cost = strength.orElseThrow() == 0 ? 5 : strength.orElseThrow();
+      String encoded = Base64.getEncoder().withoutPadding().encodeToString(Arrays.copyOf(bytes, 16));
+      String base64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+      String bcryptAlphabet = "./ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+      StringBuilder output = new StringBuilder(prefix.substring(0, 4));
+      output.append(cost < 10 ? "0" : "").append(cost).append('$');
+      for (int index = 0; index < encoded.length(); index++) {
+        output.append(bcryptAlphabet.charAt(base64.indexOf(encoded.charAt(index))));
+      }
+      return BuiltinResult.value(StringValue.of(output.toString()));
+    }
+    if (!md5 && !sha) {
+      return BuiltinResult.value(StringValue.of("" + alphabet.charAt(bytes[0] & 63)
+          + alphabet.charAt(bytes[1] & 63)));
+    }
+    StringBuilder output = new StringBuilder(prefix.substring(0, 3));
+    if (sha && strength.orElseThrow() != 0) {
+      output.append("rounds=").append(strength.orElseThrow()).append('$');
+    }
+    int length = Math.min(bytes.length / 3 * 3, md5 ? 6 : 12);
+    for (int index = 0; index < length; index += 3) {
+      int word = Byte.toUnsignedInt(bytes[index])
+          | (Byte.toUnsignedInt(bytes[index + 1]) << 8)
+          | (Byte.toUnsignedInt(bytes[index + 2]) << 16);
+      for (int shift = 0; shift < 24; shift += 6) {
+        output.append(alphabet.charAt((word >>> shift) & 63));
+      }
+    }
+    return BuiltinResult.value(StringValue.of(output.toString()));
+  }
+
   private static OptionalLong cryptStrength(String salt) {
     if (isRecognizedBcrypt(salt)) {
       int separator = salt.indexOf('$', 4);
       if (separator < 0) {
         return OptionalLong.of(0);
+      }
+      if (salt.length() < 7) {
+        return OptionalLong.empty();
       }
       String cost = salt.substring(4, separator);
       try {
@@ -4232,6 +4567,10 @@ public final class BuiltinCatalog {
       } catch (NumberFormatException error) {
         return OptionalLong.empty();
       }
+    }
+    if ((salt.startsWith("$5$") || salt.startsWith("$6$"))
+        && salt.indexOf('$', 3) >= 0) {
+      return OptionalLong.empty();
     }
     return OptionalLong.of(0);
   }
@@ -4424,8 +4763,8 @@ public final class BuiltinCatalog {
     return Arrays.copyOf(bytes, length);
   }
 
-  private static BuiltinResult decodeBinary(List<MooValue> arguments) {
-    byte[] binary = ((StringValue) arguments.getFirst()).bytes();
+  private static Optional<byte[]> binaryBytes(StringValue encoded) {
+    byte[] binary = encoded.bytes();
     ByteArrayOutputStream raw = new ByteArrayOutputStream(binary.length);
     for (int index = 0; index < binary.length; index++) {
       int value = Byte.toUnsignedInt(binary[index]);
@@ -4434,17 +4773,91 @@ public final class BuiltinCatalog {
         continue;
       }
       if (index + 2 >= binary.length) {
-        return BuiltinResult.error(ErrorValue.E_INVARG);
+        return Optional.empty();
       }
       int high = Character.digit((char) Byte.toUnsignedInt(binary[++index]), 16);
       int low = Character.digit((char) Byte.toUnsignedInt(binary[++index]), 16);
       if (high < 0 || low < 0) {
-        return BuiltinResult.error(ErrorValue.E_INVARG);
+        return Optional.empty();
       }
       raw.write((high << 4) | low);
     }
 
-    byte[] decoded = raw.toByteArray();
+    return Optional.of(raw.toByteArray());
+  }
+
+  private static Optional<byte[]> hashInput(String input, MooValue value) {
+    return switch (input) {
+      case "binary" -> binaryBytes((StringValue) value);
+      case "value" -> Optional.of(StringValue.of(value.toLiteral()).bytes());
+      default -> Optional.of(((StringValue) value).bytes());
+    };
+  }
+
+  private static BuiltinResult hash(String input, List<MooValue> arguments) {
+    String algorithm = arguments.size() > 1
+        ? ((StringValue) arguments.get(1)).text().toLowerCase(Locale.ROOT) : "sha256";
+    Digest digest = switch (algorithm) {
+      case "md5" -> new MD5Digest();
+      case "sha1" -> new SHA1Digest();
+      case "sha224" -> new SHA224Digest();
+      case "sha256" -> new SHA256Digest();
+      case "sha384" -> new SHA384Digest();
+      case "sha512" -> new SHA512Digest();
+      case "ripemd160" -> new RIPEMD160Digest();
+      default -> null;
+    };
+    Optional<byte[]> message = hashInput(input, arguments.getFirst());
+    if (digest == null || message.isEmpty()) {
+      return BuiltinResult.error(ErrorValue.E_INVARG);
+    }
+    byte[] bytes = message.orElseThrow();
+    digest.update(bytes, 0, bytes.length);
+    byte[] result = new byte[digest.getDigestSize()];
+    digest.doFinal(result, 0);
+    return digestResult(result, arguments.size() > 2 && arguments.get(2).isTruthy());
+  }
+
+  private static BuiltinResult hmac(String input, List<MooValue> arguments) {
+    String algorithm = arguments.size() > 2
+        ? ((StringValue) arguments.get(2)).text().toLowerCase(Locale.ROOT) : "sha256";
+    HMac mac = switch (algorithm) {
+      case "sha1" -> new HMac(new SHA1Digest());
+      case "sha256" -> new HMac(new SHA256Digest());
+      default -> null;
+    };
+    Optional<byte[]> key = binaryBytes((StringValue) arguments.get(1));
+    Optional<byte[]> message = hashInput(input, arguments.getFirst());
+    if (mac == null || key.isEmpty() || message.isEmpty()) {
+      return BuiltinResult.error(ErrorValue.E_INVARG);
+    }
+    mac.init(new KeyParameter(key.orElseThrow()));
+    byte[] bytes = message.orElseThrow();
+    mac.update(bytes, 0, bytes.length);
+    byte[] digest = new byte[mac.getMacSize()];
+    mac.doFinal(digest, 0);
+    return digestResult(digest, arguments.size() > 3 && arguments.get(3).isTruthy());
+  }
+
+  private static BuiltinResult digestResult(byte[] digest, boolean binary) {
+    StringBuilder result = new StringBuilder(digest.length * (binary ? 3 : 2));
+    for (byte current : digest) {
+      int value = Byte.toUnsignedInt(current);
+      if (binary) {
+        result.append('~');
+      }
+      result.append("0123456789ABCDEF".charAt(value >>> 4));
+      result.append("0123456789ABCDEF".charAt(value & 15));
+    }
+    return BuiltinResult.value(StringValue.of(result.toString()));
+  }
+
+  private static BuiltinResult decodeBinary(List<MooValue> arguments) {
+    Optional<byte[]> bytes = binaryBytes((StringValue) arguments.getFirst());
+    if (bytes.isEmpty()) {
+      return BuiltinResult.error(ErrorValue.E_INVARG);
+    }
+    byte[] decoded = bytes.orElseThrow();
     if (arguments.size() == 2 && arguments.get(1).isTruthy()) {
       return BuiltinResult.value(
           new ListValue(
@@ -4537,7 +4950,12 @@ public final class BuiltinCatalog {
         return BuiltinResult.error(ErrorValue.E_INVARG);
       }
     }
-    return BuiltinResult.value(StringValue.of(raw.toByteArray()));
+    byte[] bytes = raw.toByteArray();
+    int length = 0;
+    while (length < bytes.length && bytes[length] != 0) {
+      length++;
+    }
+    return BuiltinResult.value(StringValue.of(Arrays.copyOf(bytes, length)));
   }
 
   private static BuiltinResult disassemble(
@@ -4578,11 +4996,12 @@ public final class BuiltinCatalog {
     if (verb.owner() != programmer && !wizard && (verb.permissions() & 1) == 0) {
       return BuiltinResult.error(ErrorValue.E_PERM);
     }
-    List<MooValue> lines =
-        new MooCompiler().compile(verb.programSource()).disassemble().lines()
+    List<MooValue> lines = new ArrayList<>();
+    lines.add(StringValue.of("Main code vector:"));
+    new MooCompiler().compile(verb.programSource()).disassemble().lines()
             .map(StringValue::of)
             .map(MooValue.class::cast)
-            .toList();
+            .forEach(lines::add);
     return BuiltinResult.value(new ListValue(lines));
   }
 
@@ -5186,7 +5605,12 @@ public final class BuiltinCatalog {
         return BuiltinResult.error(ErrorValue.E_INVARG);
       }
     }
-    String names = namesValue.text().stripLeading();
+    String names = namesValue.text();
+    int firstName = 0;
+    while (firstName < names.length() && names.charAt(firstName) == ' ') {
+      firstName++;
+    }
+    names = names.substring(firstName);
     if (names.isEmpty()) {
       return BuiltinResult.error(ErrorValue.E_INVARG);
     }
@@ -5213,14 +5637,7 @@ public final class BuiltinCatalog {
           case "this" -> 2;
           default -> -1;
         };
-    int preposition =
-        switch (prepositionText.toLowerCase(Locale.ROOT)) {
-          case "none" -> -1;
-          case "any" -> -2;
-          case "at" -> 1;
-          case "in" -> 3;
-          default -> Integer.MIN_VALUE;
-        };
+    int preposition = parsePreposition(prepositionText);
     if (direct < 0 || indirect < 0 || preposition == Integer.MIN_VALUE) {
       return BuiltinResult.error(ErrorValue.E_INVARG);
     }
@@ -5350,11 +5767,16 @@ public final class BuiltinCatalog {
 
   private static BuiltinResult isClearProperty(
       List<MooValue> arguments, WorldTxn world, long programmer) {
-    if (!(arguments.getFirst() instanceof ObjectValue object)) {
+    MooValue receiver = arguments.getFirst();
+    if (!(receiver instanceof ObjectValue || receiver instanceof AnonymousObjectValue)) {
       return BuiltinResult.error(ErrorValue.E_INVARG);
     }
-    WorldObject target = world.object(object.value()).orElse(null);
-    if (target == null) {
+    boolean invalid = switch (receiver) {
+      case ObjectValue object -> world.object(object.value()).isEmpty();
+      case AnonymousObjectValue anonymous -> world.anonymousObject(anonymous).isEmpty();
+      default -> true;
+    };
+    if (invalid) {
       return BuiltinResult.error(ErrorValue.E_INVARG);
     }
     String name = ((StringValue) arguments.get(1)).text();
@@ -5370,7 +5792,9 @@ public final class BuiltinCatalog {
         || normalized.equals("f")) {
       return BuiltinResult.value(new IntegerValue(0));
     }
-    WorldProperty property = world.property(object.value(), name).orElse(null);
+    WorldProperty property = receiver instanceof ObjectValue object
+        ? world.property(object.value(), name).orElse(null)
+        : world.property((AnonymousObjectValue) receiver, name).orElse(null);
     if (property == null) {
       return BuiltinResult.error(ErrorValue.E_PROPNF);
     }
@@ -5379,12 +5803,7 @@ public final class BuiltinCatalog {
     if (property.owner() != programmer && !wizard && (property.permissions() & 1) == 0) {
       return BuiltinResult.error(ErrorValue.E_PERM);
     }
-    WorldProperty local =
-        target.properties().stream()
-            .filter(candidate -> candidate.name().equalsIgnoreCase(name))
-            .findFirst()
-            .orElse(null);
-    return BuiltinResult.value(new IntegerValue(local != null && local.clear() ? 1 : 0));
+    return BuiltinResult.value(new IntegerValue(property.clear() ? 1 : 0));
   }
 
   private static BuiltinResult propertyInfo(
@@ -5392,10 +5811,16 @@ public final class BuiltinCatalog {
     if (arguments.getFirst() instanceof WaifValue) {
       return BuiltinResult.error(ErrorValue.E_INVARG);
     }
-    if (!(arguments.getFirst() instanceof ObjectValue object)) {
+    MooValue receiver = arguments.getFirst();
+    if (!(receiver instanceof ObjectValue || receiver instanceof AnonymousObjectValue)) {
       return BuiltinResult.error(ErrorValue.E_TYPE);
     }
-    if (world.object(object.value()).isEmpty()) {
+    boolean invalid = switch (receiver) {
+      case ObjectValue object -> world.object(object.value()).isEmpty();
+      case AnonymousObjectValue anonymous -> world.anonymousObject(anonymous).isEmpty();
+      default -> true;
+    };
+    if (invalid) {
       return BuiltinResult.error(ErrorValue.E_INVARG);
     }
     String name = ((StringValue) arguments.get(1)).text();
@@ -5411,7 +5836,9 @@ public final class BuiltinCatalog {
         || normalized.equals("f")) {
       return BuiltinResult.error(ErrorValue.E_PROPNF);
     }
-    WorldProperty property = world.property(object.value(), name).orElse(null);
+    WorldProperty property = receiver instanceof ObjectValue object
+        ? world.property(object.value(), name).orElse(null)
+        : world.property((AnonymousObjectValue) receiver, name).orElse(null);
     if (property == null) {
       return BuiltinResult.error(ErrorValue.E_PROPNF);
     }
@@ -5551,7 +5978,12 @@ public final class BuiltinCatalog {
         return BuiltinResult.error(ErrorValue.E_INVARG);
       }
     }
-    String names = namesValue.text().stripLeading();
+    String names = namesValue.text();
+    int firstName = 0;
+    while (firstName < names.length() && names.charAt(firstName) == ' ') {
+      firstName++;
+    }
+    names = names.substring(firstName);
     if (names.isEmpty()) {
       return BuiltinResult.error(ErrorValue.E_INVARG);
     }
@@ -5831,12 +6263,47 @@ public final class BuiltinCatalog {
           case "this" -> 2;
           default -> -1;
         };
+    int preposition = parsePreposition(prepositionText);
+    if (direct < 0 || indirect < 0 || preposition == Integer.MIN_VALUE) {
+      return BuiltinResult.error(ErrorValue.E_INVARG);
+    }
+
+    List<WorldVerb> targetVerbs = target.verbs();
+    WorldVerb verb;
+    int verbIndex;
+    if (descriptor instanceof IntegerValue integer) {
+      long index = integer.value() - 1;
+      if (index >= targetVerbs.size()) {
+        return BuiltinResult.error(ErrorValue.E_VERBNF);
+      }
+      verbIndex = (int) index;
+      verb = targetVerbs.get(verbIndex);
+    } else {
+      WorldVerb candidate =
+          world.verb(object.value(), ((StringValue) descriptor).text(), false).orElse(null);
+      if (candidate == null || !targetVerbs.contains(candidate)) {
+        return BuiltinResult.error(ErrorValue.E_VERBNF);
+      }
+      verb = candidate;
+      verbIndex = targetVerbs.indexOf(verb);
+    }
+
+    boolean wizard = BuiltinPermissionRule.WIZARD_ONLY.allows(world, programmer);
+    if (verb.owner() != programmer && !wizard && (verb.permissions() & 2) == 0) {
+      return BuiltinResult.error(ErrorValue.E_PERM);
+    }
+    WorldResult<Boolean> updated =
+        world.setVerbArgs(object.value(), verbIndex, direct, preposition, indirect);
+    return mutationResult(updated, new IntegerValue(0));
+  }
+
+  private static int parsePreposition(String prepositionText) {
     String normalizedPreposition = prepositionText.toLowerCase(Locale.ROOT);
     int slash = normalizedPreposition.indexOf('/');
     if (slash >= 0) {
       normalizedPreposition = normalizedPreposition.substring(0, slash);
     }
-    int preposition =
+    return
         switch (normalizedPreposition) {
           case "none" -> -1;
           case "any" -> -2;
@@ -5872,46 +6339,25 @@ public final class BuiltinCatalog {
             }
           }
         };
-    if (direct < 0 || indirect < 0 || preposition == Integer.MIN_VALUE) {
-      return BuiltinResult.error(ErrorValue.E_INVARG);
-    }
-
-    List<WorldVerb> targetVerbs = target.verbs();
-    WorldVerb verb;
-    int verbIndex;
-    if (descriptor instanceof IntegerValue integer) {
-      long index = integer.value() - 1;
-      if (index >= targetVerbs.size()) {
-        return BuiltinResult.error(ErrorValue.E_VERBNF);
-      }
-      verbIndex = (int) index;
-      verb = targetVerbs.get(verbIndex);
-    } else {
-      WorldVerb candidate =
-          world.verb(object.value(), ((StringValue) descriptor).text(), false).orElse(null);
-      if (candidate == null || !targetVerbs.contains(candidate)) {
-        return BuiltinResult.error(ErrorValue.E_VERBNF);
-      }
-      verb = candidate;
-      verbIndex = targetVerbs.indexOf(verb);
-    }
-
-    boolean wizard = BuiltinPermissionRule.WIZARD_ONLY.allows(world, programmer);
-    if (verb.owner() != programmer && !wizard && (verb.permissions() & 2) == 0) {
-      return BuiltinResult.error(ErrorValue.E_PERM);
-    }
-    WorldResult<Boolean> updated =
-        world.setVerbArgs(object.value(), verbIndex, direct, preposition, indirect);
-    return mutationResult(updated, new IntegerValue(0));
   }
 
-  private static BuiltinResult setVerbCode(
+  private BuiltinResult setVerbCode(
       List<MooValue> arguments, WorldTxn world, long programmer) {
     ListValue code = (ListValue) arguments.get(2);
     if (code.elements().stream().anyMatch(value -> !(value instanceof StringValue))) {
       return BuiltinResult.error(ErrorValue.E_TYPE);
     }
     MooValue receiver = arguments.get(0);
+    if (!(receiver instanceof ObjectValue) && !(receiver instanceof AnonymousObjectValue)) {
+      return BuiltinResult.error(ErrorValue.E_TYPE);
+    }
+    MooValue descriptor = arguments.get(1);
+    if (!(descriptor instanceof StringValue) && !(descriptor instanceof IntegerValue)) {
+      return BuiltinResult.error(ErrorValue.E_TYPE);
+    }
+    if (descriptor instanceof IntegerValue integer && integer.value() <= 0) {
+      return BuiltinResult.error(ErrorValue.E_INVARG);
+    }
     List<WorldVerb> targetVerbs;
     if (receiver instanceof ObjectValue object) {
       WorldObject target = world.object(object.value()).orElse(null);
@@ -5927,13 +6373,6 @@ public final class BuiltinCatalog {
       targetVerbs = target.verbs();
     } else {
       return BuiltinResult.error(ErrorValue.E_TYPE);
-    }
-    MooValue descriptor = arguments.get(1);
-    if (!(descriptor instanceof StringValue) && !(descriptor instanceof IntegerValue)) {
-      return BuiltinResult.error(ErrorValue.E_TYPE);
-    }
-    if (descriptor instanceof IntegerValue integer && integer.value() <= 0) {
-      return BuiltinResult.error(ErrorValue.E_INVARG);
     }
     WorldVerb verb;
     int verbIndex;
@@ -5974,19 +6413,14 @@ public final class BuiltinCatalog {
             .map(StringValue.class::cast)
             .map(StringValue::text)
             .collect(java.util.stream.Collectors.joining("\n"));
-    final Ast.Program program;
-    try {
-      program = MooParser.parse(suppliedSource);
-    } catch (IllegalArgumentException error) {
-      return compilationDiagnostic(error);
-    }
-    try {
-      new MooCompiler().compile(program);
-    } catch (IllegalArgumentException error) {
-      return compilationDiagnostic(error);
+    MooCompiler.CompilationResult compiled =
+        new MooCompiler().compileResult(suppliedSource, name -> spec(name).isPresent());
+    if (!compiled.diagnostics().isEmpty()) {
+      return BuiltinResult.value(new ListValue(compiled.diagnostics().stream()
+          .map(diagnostic -> (MooValue) StringValue.of(diagnostic.display())).toList()));
     }
     String canonicalSource =
-        MooUnparser.unparse(program).lines()
+        Arrays.stream(compiled.program().orElseThrow().source().split("\n", -1))
             .map(String::stripLeading)
             .collect(java.util.stream.Collectors.joining("\n"));
     WorldResult<Boolean> updated =
@@ -5994,14 +6428,6 @@ public final class BuiltinCatalog {
             ? world.setVerbCode(object.value(), verbIndex, canonicalSource)
             : world.setVerbCode((AnonymousObjectValue) receiver, verbIndex, canonicalSource);
     return mutationResult(updated, new ListValue(List.of()));
-  }
-
-  private static BuiltinResult compilationDiagnostic(IllegalArgumentException error) {
-    String diagnostic = error.getMessage();
-    if (diagnostic == null) {
-      diagnostic = error.getClass().getSimpleName();
-    }
-    return BuiltinResult.value(new ListValue(List.of(StringValue.of(diagnostic))));
   }
 
   private static BuiltinResult verbCode(
@@ -6044,8 +6470,12 @@ public final class BuiltinCatalog {
     }
 
     boolean indent = arguments.size() < 4 || arguments.get(3).isTruthy();
+    if (verb.programSource().isEmpty()) {
+      return BuiltinResult.value(new ListValue(List.of()));
+    }
     List<MooValue> lines =
-        MooUnparser.unparse(MooParser.parse(verb.programSource())).lines()
+        Arrays.stream(MooUnparser.unparse(MooParser.parse(verb.programSource()),
+            arguments.size() >= 3 && arguments.get(2).isTruthy()).split("\n", -1))
             .map(line -> indent ? line : line.stripLeading())
             .map(StringValue::of)
             .map(MooValue.class::cast)
@@ -6066,37 +6496,15 @@ public final class BuiltinCatalog {
         || (destination.value() != -1 && world.object(destination.value()).isEmpty())) {
       return BuiltinResult.error(ErrorValue.E_INVARG);
     }
-    if (recursiveMove(world, object.value(), destination.value())) {
-      return BuiltinResult.error(ErrorValue.E_RECMOVE);
+    boolean wizard = isWizard(world, programmer);
+    if (!wizard && moving.owner() != programmer) {
+      return BuiltinResult.error(ErrorValue.E_PERM);
     }
-    WorldObject programmerObject = world.object(programmer).orElse(null);
-    if (programmerObject != null && ObjectFlags.isWizard(programmerObject.flags())) {
-      if (destination.value() == moving.location()) {
-        return position == 0
-            ? BuiltinResult.value(new IntegerValue(0))
-            : mutationResult(
-                world.move(object.value(), destination.value(), position), new IntegerValue(0));
-      }
-      return new BuiltinResult.Move(object.value(), destination.value(), position);
+    if (position > 0 && destination.value() != -1 && destination.value() != moving.location()
+        && !wizard && world.object(destination.value()).orElseThrow().owner() != programmer) {
+      return BuiltinResult.error(ErrorValue.E_PERM);
     }
-    return mutationResult(
-        world.move(object.value(), destination.value(), position), new IntegerValue(0));
-  }
-
-  private static boolean recursiveMove(WorldTxn world, long object, long destination) {
-    Set<Long> visited = new LinkedHashSet<>();
-    long location = destination;
-    while (location != -1 && visited.add(location)) {
-      if (location == object) {
-        return true;
-      }
-      WorldObject container = world.object(location).orElse(null);
-      if (container == null) {
-        return false;
-      }
-      location = container.location();
-    }
-    return false;
+    return new BuiltinResult.Move(object.value(), destination.value(), position);
   }
 
   private static BuiltinResult recycle(
@@ -6207,7 +6615,11 @@ public final class BuiltinCatalog {
     }
     if (argument instanceof StringValue string) {
       try {
-        double converted = Double.parseDouble(string.text().strip());
+        String text = string.text().strip();
+        if (text.matches("[+-]?0[xX][0-9a-fA-F]+(?:\\.[0-9a-fA-F]*)?")) {
+          text += "p0";
+        }
+        double converted = Double.parseDouble(text);
         return Double.isFinite(converted)
             ? BuiltinResult.value(new FloatValue(converted))
             : BuiltinResult.error(ErrorValue.E_INVARG);
@@ -6388,13 +6800,20 @@ public final class BuiltinCatalog {
     return left.equals(right);
   }
 
-  private static BuiltinResult dynamicEval(List<MooValue> arguments) {
+  private BuiltinResult dynamicEval(List<MooValue> arguments) {
     String source =
         arguments.stream()
             .map(StringValue.class::cast)
             .map(StringValue::text)
             .collect(java.util.stream.Collectors.joining("\n"));
-    return new BuiltinResult.DynamicEval(source);
+    MooCompiler.CompilationResult compiled =
+        new MooCompiler().compileResult(source, name -> spec(name).isPresent());
+    if (!compiled.diagnostics().isEmpty()) {
+      return BuiltinResult.value(new ListValue(List.of(new IntegerValue(0),
+          new ListValue(compiled.diagnostics().stream()
+              .map(diagnostic -> (MooValue) StringValue.of(diagnostic.display())).toList()))));
+    }
+    return new BuiltinResult.DynamicEval(compiled.program().orElseThrow());
   }
 
   private static BuiltinResult gcStats() {

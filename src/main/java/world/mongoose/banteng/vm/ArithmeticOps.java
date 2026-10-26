@@ -3,6 +3,8 @@ package world.mongoose.banteng.vm;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import world.mongoose.banteng.builtin.BuiltinCatalog;
+import world.mongoose.banteng.builtin.BuiltinResult;
 import world.mongoose.banteng.bytecode.BytecodeProgram.Instruction;
 import world.mongoose.banteng.value.MooValue;
 import world.mongoose.banteng.value.MooValue.BooleanValue;
@@ -294,6 +296,16 @@ final class ArithmeticOps {
     if (operation == NumericOperation.ADD
         && leftValue instanceof StringValue left
         && rightValue instanceof StringValue right) {
+      Optional<BuiltinResult> error =
+          BuiltinCatalog.stringLengthError((long) left.length() + right.length(), world);
+      if (error.isPresent()) {
+        if (error.orElseThrow() instanceof BuiltinResult.ErrorResult quota) {
+          ErrorOps.raise(state, quota.error(), world);
+        } else {
+          state.abortSecondsExhaustion();
+        }
+        return;
+      }
       byte[] leftBytes = left.bytes();
       byte[] rightBytes = right.bytes();
       byte[] concatenated = new byte[Math.addExact(leftBytes.length, rightBytes.length)];
@@ -354,7 +366,11 @@ final class ArithmeticOps {
       pushFiniteFloat(frame, state, world, floatResult(operation, left.value(), right.value()));
       return;
     }
-    ErrorOps.raise(state, ErrorValue.E_TYPE, world);
+    if (operation == NumericOperation.ADD && leftValue instanceof StringValue) {
+      ErrorOps.typeMismatch(state, "string", rightValue, world);
+    } else {
+      ErrorOps.raise(state, ErrorValue.E_TYPE, world);
+    }
   }
 
   private static boolean dividesByZero(NumericOperation operation, double right) {

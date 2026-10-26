@@ -54,6 +54,17 @@ final class BuiltinCatalogTest {
   private static final Set<String> REACHABLE_NAMES =
       Set.of(
           "abs",
+          "getenv",
+          "respond_to",
+          "task_local",
+          "set_task_local",
+          "salt",
+          "string_hmac",
+          "binary_hmac",
+          "value_hmac",
+          "string_hash",
+          "binary_hash",
+          "value_hash",
           "acos",
           "acosh",
           "add_property",
@@ -255,6 +266,11 @@ final class BuiltinCatalogTest {
           "usage",
           "valid",
           "value_bytes",
+          "object_bytes",
+          "url_encode",
+          "url_decode",
+          "spellcheck",
+          "curl",
           "verbs",
           "waif_stats",
           "verb_args",
@@ -1629,7 +1645,7 @@ final class BuiltinCatalogTest {
 
     assertEquals(List.of(noArguments), load.callShapes());
     assertSame(BuiltinPermissionRule.WIZARD_ONLY, load.permission());
-    assertEquals(EffectClass.PURE, load.effect());
+    assertEquals(EffectClass.IRREVOCABLE, load.effect());
     assertEquals(BuiltinOwner.SERVER, load.owner());
     assertEquals(List.of(noArguments), taskId.callShapes());
     assertSame(BuiltinPermissionRule.ANY, taskId.permission());
@@ -3436,7 +3452,7 @@ final class BuiltinCatalogTest {
   @Test
   void parentMutationDistinguishesPermissionRecursionAndInvalidArguments() {
     BuiltinCatalog catalog = new BuiltinCatalog(BuiltinHosts.builder().build());
-    BuiltinSpec chparents = catalog.spec("chparents").orElseThrow();
+    BuiltinSpec chparents = catalog.spec("chparent").orElseThrow();
     WorldObject programmer =
         new WorldObject(1, "programmer", 0, 1, -1, -1, List.of(), List.of(), List.of(), List.of());
     WorldObject fertile =
@@ -3877,7 +3893,7 @@ final class BuiltinCatalogTest {
       assertEquals(
           Optional.of(
               new ListValue(
-                  List.of(string("E_INVARG"), new IntegerValue(0), new ListValue(List.of())))),
+                  List.of(string("Invalid argument"), new IntegerValue(0), new ListValue(List.of())))),
           errorDetails(basic));
 
       ListValue customValue = new ListValue(List.of(new IntegerValue(1), new IntegerValue(2)));
@@ -6275,14 +6291,14 @@ final class BuiltinCatalogTest {
   private static Optional<ErrorValue> error(BuiltinResult result) {
     return switch (result) {
       case BuiltinResult.ErrorResult error -> Optional.of(error.error());
-      case BuiltinResult.RaisedError raised -> Optional.of(raised.error());
+      case BuiltinResult.RaisedError raised -> Optional.of((ErrorValue) raised.error());
       default -> Optional.empty();
     };
   }
 
   private static Optional<String> dynamicSource(BuiltinResult result) {
     return result instanceof BuiltinResult.DynamicEval dynamic
-        ? Optional.of(dynamic.source())
+        ? Optional.of(dynamic.program().source().stripTrailing())
         : Optional.empty();
   }
 

@@ -105,7 +105,7 @@ final class PropertyLayoutEngine {
             new WorldProperty(
                 property.name(),
                 fallback.value(),
-                (fallback.permissions() & 8) != 0 ? owner : fallback.owner(),
+                (fallback.permissions() & 4) != 0 ? owner : fallback.owner(),
                 fallback.permissions(),
                 true,
                 false));
@@ -186,7 +186,7 @@ final class PropertyLayoutEngine {
               new WorldProperty(
                   definition.name(),
                   fallback.value(),
-                  (fallback.permissions() & 8) != 0 ? object.owner() : fallback.owner(),
+                  (fallback.permissions() & 4) != 0 ? object.owner() : fallback.owner(),
                   fallback.permissions(),
                   true,
                   false));
@@ -349,7 +349,7 @@ final class PropertyLayoutEngine {
               new WorldProperty(
                   definition.name(),
                   fallback.value(),
-                  (fallback.permissions() & 8) != 0 ? object.owner() : fallback.owner(),
+                  (fallback.permissions() & 4) != 0 ? object.owner() : fallback.owner(),
                   fallback.permissions(),
                   true,
                   false));

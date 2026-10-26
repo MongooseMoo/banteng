@@ -246,11 +246,17 @@ public final class MooServer implements AutoCloseable, ListenerControl {
 
   /** Accepts connections until the server is closed. */
   public void serve() {
+    serve(() -> {});
+  }
+
+  /** Starts the runtime, enables process signal dispatch, then accepts connections. */
+  public void serve(Runnable ready) {
     if (!serving.compareAndSet(false, true)) {
       throw new IllegalStateException("server is already serving");
     }
     try {
       runtime.startServer();
+      ready.run();
       acceptConnections(primary);
     } finally {
       serving.set(false);
@@ -293,7 +299,7 @@ public final class MooServer implements AutoCloseable, ListenerControl {
       ConnectionOutput connectionOutput = new ConnectionOutput(output);
       outputs.put(connectionId, connectionOutput);
       List<String> initialOutput =
-          runtime.openConnection(
+          runtime.acceptConnection(
               connectionId, listener.handler, listener.printMessages, connectionInfo(socket, false));
       opened = true;
       connectionOutput.writeLines(initialOutput);
@@ -308,7 +314,7 @@ public final class MooServer implements AutoCloseable, ListenerControl {
       while ((inputCount = input.read(inputBuffer)) != -1) {
         if (binaryConnections.containsKey(connectionId)) {
           connectionOutput.writeLines(
-              runtime.executeLine(
+              runtime.receiveLine(
                   connectionId,
                   new String(inputBuffer, 0, inputCount, StringValue.charset())));
           continue;
@@ -367,7 +373,7 @@ public final class MooServer implements AutoCloseable, ListenerControl {
           }
           if (inputByte == '\r') {
             connectionOutput.writeLines(
-                runtime.executeLine(connectionId, line.toString(StringValue.charset())));
+                runtime.receiveLine(connectionId, line.toString(StringValue.charset())));
             line.reset();
             afterCarriageReturn = true;
             continue;
@@ -378,7 +384,7 @@ public final class MooServer implements AutoCloseable, ListenerControl {
               continue;
             }
             connectionOutput.writeLines(
-                runtime.executeLine(connectionId, line.toString(StringValue.charset())));
+                runtime.receiveLine(connectionId, line.toString(StringValue.charset())));
             line.reset();
             continue;
           }
@@ -388,7 +394,7 @@ public final class MooServer implements AutoCloseable, ListenerControl {
       }
       if (line.size() > 0) {
         connectionOutput.writeLines(
-            runtime.executeLine(connectionId, line.toString(StringValue.charset())));
+            runtime.receiveLine(connectionId, line.toString(StringValue.charset())));
       }
     } catch (IOException error) {
       if (!closed.get() && !socket.isClosed()) {
@@ -639,6 +645,15 @@ public final class MooServer implements AutoCloseable, ListenerControl {
             failure -> {
               throw new UncheckedIOException("server shutdown failed", failure);
             });
+  }
+
+  /** Dispatches an external POSIX signal through the runtime's server-task machinery. */
+  public void handleSignal(int signal) {
+    if (signal == 2 || signal == 15) {
+      gracefulShutdown();
+    } else {
+      runtime.handleSignal(signal);
+    }
   }
 
   /** Requests a final checkpoint, then waits for listener and executor termination. */

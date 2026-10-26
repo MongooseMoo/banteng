@@ -156,7 +156,7 @@ public sealed interface MooValue
     @Override
     public String toLiteral() {
       if (value == 0.0) {
-        return "0.0";
+        return Double.doubleToRawLongBits(value) < 0 ? "-0.0" : "0.0";
       }
       String formatted = String.format(Locale.ROOT, "%.15g", new BigDecimal(value));
       int exponent = Math.max(formatted.indexOf('e'), formatted.indexOf('E'));
@@ -941,8 +941,8 @@ public sealed interface MooValue
       }
       return switch (left) {
         case IntegerValue integer ->
-            (int) (integer.value() - ((IntegerValue) right).value());
-        case ObjectValue object -> (int) (object.value() - ((ObjectValue) right).value());
+            Long.compare(integer.value(), ((IntegerValue) right).value());
+        case ObjectValue object -> Long.compare(object.value(), ((ObjectValue) right).value());
         case ErrorValue error -> Integer.compare(error.code(), ((ErrorValue) right).code());
         case FloatValue floating -> {
           double leftValue = floating.value();

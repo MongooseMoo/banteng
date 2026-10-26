@@ -44,8 +44,8 @@ public record VmSnapshot(
     List<AnonymousObjectValue> anonymousCollectionDeferrals,
     VmState.Outcome outcome,
     Optional<MooValue> returnValue,
-    Optional<ErrorValue> pendingError,
-    Optional<ErrorValue> uncaughtError,
+    Optional<MooValue> pendingError,
+    Optional<MooValue> uncaughtError,
     OptionalLong switchedPlayer,
     Optional<Fork> forkRequest,
     OptionalDouble suspensionDelaySeconds,
@@ -139,8 +139,8 @@ public record VmSnapshot(
     }
     size = add(size, Byte.BYTES);
     size = add(size, optionalValueSize(returnValue));
-    size = add(size, optionalValueSize(pendingError.map(error -> error)));
-    size = add(size, optionalValueSize(uncaughtError.map(error -> error)));
+    size = add(size, optionalValueSize(pendingError));
+    size = add(size, optionalValueSize(uncaughtError));
     size = add(size, Byte.BYTES);
     if (switchedPlayer.isPresent()) {
       size = add(size, Long.BYTES);
@@ -476,7 +476,7 @@ public record VmSnapshot(
   public record Raise(ListValue exception) implements FinallyState {
     public Raise {
       Objects.requireNonNull(exception, "exception");
-      if (exception.size() != 4 || !(exception.elements().getFirst() instanceof ErrorValue)) {
+      if (exception.size() != 4) {
         throw new IllegalArgumentException("raise continuation requires a full exception tuple");
       }
     }
@@ -633,7 +633,10 @@ public record VmSnapshot(
   public enum ReturnMode {
     ROOT,
     EVAL,
-    VERB
+    VERB,
+    MOVE_ACCEPT,
+    MOVE_EXIT,
+    MOVE_ENTER
   }
 
   /** Current phase of an active exception handler. */

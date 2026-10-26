@@ -3,6 +3,7 @@ package world.mongoose.banteng.builtin;
 import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.Callable;
+import world.mongoose.banteng.bytecode.BytecodeProgram;
 import world.mongoose.banteng.builtin.BuiltinCatalog.ConnectionOption;
 import world.mongoose.banteng.value.MooValue;
 import world.mongoose.banteng.value.MooValue.AnonymousObjectValue;
@@ -18,6 +19,9 @@ public sealed interface BuiltinResult {
       Objects.requireNonNull(value, "value");
     }
   }
+
+  /** Invokes the system wrapper for a protected builtin before native validation. */
+  record ProtectedCall(String verb, ListValue arguments) implements BuiltinResult {}
 
   /** Invokes initialize after creating an object or anonymous object. */
   record Initialize(MooValue created, ListValue arguments) implements BuiltinResult {
@@ -60,21 +64,27 @@ public sealed interface BuiltinResult {
   /** Changes the current task's thread mode and returns zero. */
   record ThreadMode(boolean enabled) implements BuiltinResult {}
 
+  /** Replaces the current task-local value and returns zero. */
+  record TaskLocal(MooValue value) implements BuiltinResult {}
+
   /** Aborts remaining-seconds exhaustion without completing the builtin. */
   record SecondsAbort() implements BuiltinResult {}
 
+  /** Ends the current task while preserving effects it has already performed. */
+  record KillAbort() implements BuiltinResult {}
+
   /** Raises one MOO error with structured details. */
-  record RaisedError(ErrorValue error, ListValue details) implements BuiltinResult {
+  record RaisedError(MooValue error, ListValue details) implements BuiltinResult {
     public RaisedError {
       Objects.requireNonNull(error, "error");
       Objects.requireNonNull(details, "details");
     }
   }
 
-  /** Compiles and evaluates source in a new frame. */
-  record DynamicEval(String source) implements BuiltinResult {
+  /** Evaluates the compiled program in a new frame. */
+  record DynamicEval(BytecodeProgram program) implements BuiltinResult {
     public DynamicEval {
-      Objects.requireNonNull(source, "source");
+      Objects.requireNonNull(program, "program");
     }
   }
 
@@ -147,7 +157,7 @@ public sealed interface BuiltinResult {
   }
 
   /** Creates an error completion with structured raise details. */
-  static BuiltinResult raised(ErrorValue error, StringValue message, MooValue value) {
+  static BuiltinResult raised(MooValue error, StringValue message, MooValue value) {
     return new RaisedError(
         error, new ListValue(List.of(message, value, new ListValue(List.of()))));
   }

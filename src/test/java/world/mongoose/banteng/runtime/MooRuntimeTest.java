@@ -540,7 +540,7 @@ final class MooRuntimeTest {
             connectionId,
             "; x = {}; for in ({\"1\", \"2\", \"3\", \"4\", \"5\"}) endfor return x;");
 
-    assertTrue(output.stream().anyMatch(line -> line.contains("Parse error")), output::toString);
+    assertTrue(output.stream().anyMatch(line -> line.contains("Line 1:  syntax error")), output::toString);
   }
 
   @Test

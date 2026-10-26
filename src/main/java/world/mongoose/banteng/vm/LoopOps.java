@@ -19,7 +19,6 @@ import world.mongoose.banteng.vm.VmState.CollectionCursor;
 import world.mongoose.banteng.vm.VmState.Frame;
 import world.mongoose.banteng.vm.VmState.LoopCursor;
 import world.mongoose.banteng.vm.VmState.RangeCursor;
-import world.mongoose.banteng.world.WorldResult;
 import world.mongoose.banteng.world.WorldTxn;
 
 /** Fork, branch, handler, loop, scatter, and return operations. */
@@ -152,15 +151,12 @@ final class LoopOps {
         List<MooValue> tuple = raise.exception().elements();
         ErrorOps.raise(
             state,
-            (ErrorValue) tuple.get(0),
+            tuple.get(0),
             new ListValue(tuple.subList(1, tuple.size())),
             world);
       }
       case VmSnapshot.Uncaught uncaught ->
-          state.failUncaught(
-              uncaught.value() instanceof ErrorValue error
-                  ? error
-                  : state.uncaughtError().orElse(ErrorValue.E_NONE));
+          state.failUncaught(uncaught.value());
       case VmSnapshot.Return returned -> routeReturnInternal(state, returned.value(), world);
       case VmSnapshot.Exit exit -> {
         while (frame.operandStack.size() > exit.operandDepth()) {
@@ -327,7 +323,7 @@ final class LoopOps {
     }
     MooValue source = frame.operandStack.pop();
     if (!(source instanceof ListValue list)) {
-      ErrorOps.raise(state, ErrorValue.E_TYPE, world);
+      ErrorOps.typeMismatch(state, "list", source, world);
       return;
     }
     int requiredValues = 0;
@@ -368,6 +364,11 @@ final class LoopOps {
         if (list.size() - sourceIndex > requiredAfter) {
           frame.locals.put(name, list.elements().get(sourceIndex++));
         } else if (defaults[index] != null) {
+          state.decrementRemainingTicks();
+          if (state.remainingTicks() <= 0) {
+            state.abortTickExhaustion();
+            return;
+          }
           frame.locals.put(name, defaults[index]);
         }
       } else {
@@ -398,12 +399,7 @@ final class LoopOps {
     if (frame.recycleTarget.isPresent()) {
       long recycleTarget = frame.recycleTarget.orElseThrow();
       state.unwindChildFrame();
-      WorldResult<Boolean> result = world.recycleObject(recycleTarget);
-      if (result instanceof WorldResult.Failed<?> failed) {
-        ErrorOps.raise(state, failed.reason().value(), world, false);
-        return;
-      }
-      state.currentFrame().operandStack.push(new IntegerValue(0));
+      MooVm.continueRecycle(recycleTarget, state, world);
       return;
     }
     if (frame.anonymousRecycleTarget.isPresent()) {
@@ -414,15 +410,7 @@ final class LoopOps {
     if (frame.moveObject.isPresent()
         && frame.moveDestination.isPresent()
         && frame.movePosition.isPresent()) {
-      long moveObject = frame.moveObject.orElseThrow();
-      long moveDestination = frame.moveDestination.orElseThrow();
-      long movePosition = frame.movePosition.orElseThrow();
-      state.unwindChildFrame();
-      if (!ErrorOps.propagateWorldFailure(
-          world.move(moveObject, moveDestination, movePosition), state, world)) {
-        return;
-      }
-      state.currentFrame().operandStack.push(new IntegerValue(0));
+      MoveOps.returned(frame, value, state, world);
       return;
     }
     state.finishFrame(value);

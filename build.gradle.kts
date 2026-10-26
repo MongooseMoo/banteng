@@ -25,6 +25,20 @@ application {
     applicationDefaultJvmArgs = listOf("--enable-native-access=ALL-UNNAMED")
 }
 
+val nativeSignals = tasks.register<Exec>("nativeSignals") {
+    val source = layout.projectDirectory.file("src/main/c/signals.c")
+    val library = layout.buildDirectory.file("native/libbanteng-signals.so")
+    inputs.file(source)
+    outputs.file(library)
+    doFirst { library.get().asFile.parentFile.mkdirs() }
+    commandLine("cc", "-std=c11", "-Wall", "-Wextra", "-Werror", "-O2", "-fPIC", "-shared",
+        source.asFile.absolutePath, "-o", library.get().asFile.absolutePath)
+}
+
+tasks.processResources {
+    from(nativeSignals)
+}
+
 val jcstress = sourceSets.create("jcstress") {
     compileClasspath += sourceSets.main.get().output
     runtimeClasspath += sourceSets.main.get().output

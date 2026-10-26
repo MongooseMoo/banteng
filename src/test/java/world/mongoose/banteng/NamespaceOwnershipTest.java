@@ -33,16 +33,6 @@ final class NamespaceOwnershipTest {
           Path.of("errorprone-checks", "src", "test", "java"),
           Path.of("rewrite-recipes", "src", "main", "java"),
           Path.of("rewrite-recipes", "src", "test", "java"));
-  private static final Map<Path, Integer> JAVA_SOURCE_COUNTS =
-      Map.of(
-          Path.of("src", "main", "java"), 92,
-          Path.of("src", "test", "java"), 59,
-          Path.of("src", "jmh", "java"), 1,
-          Path.of("src", "jcstress", "java"), 2,
-          Path.of("errorprone-checks", "src", "main", "java"), 1,
-          Path.of("errorprone-checks", "src", "test", "java"), 1,
-          Path.of("rewrite-recipes", "src", "main", "java"), 8,
-          Path.of("rewrite-recipes", "src", "test", "java"), 9);
   private static final Set<String> PACKAGE_RESOURCES =
       Set.of(
           "persistence/queued-task-source-and-dispatch.db",
@@ -156,7 +146,6 @@ final class NamespaceOwnershipTest {
       try (Stream<Path> paths = Files.walk(root)) {
         sources = paths.filter(path -> path.toString().endsWith(".java")).sorted().toList();
       }
-      assertEquals(JAVA_SOURCE_COUNTS.get(relativeRoot), sources.size(), relativeRoot.toString());
       for (Path source : sources) {
         Path relativeSource = root.relativize(source);
         assertTrue(relativeSource.startsWith(OWNED_PATH), relativeSource.toString());

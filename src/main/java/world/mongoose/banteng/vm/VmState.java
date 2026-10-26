@@ -56,8 +56,8 @@ public final class VmState {
   private final List<AnonymousObjectValue> anonymousCollectionDeferrals = new ArrayList<>();
   private Outcome outcome = Outcome.RUNNING;
   private Optional<MooValue> returnValue = Optional.empty();
-  private Optional<ErrorValue> pendingError = Optional.empty();
-  private Optional<ErrorValue> uncaughtError = Optional.empty();
+  private Optional<MooValue> pendingError = Optional.empty();
+  private Optional<MooValue> uncaughtError = Optional.empty();
   private OptionalLong switchedPlayer = OptionalLong.empty();
   private Optional<ForkRequest> forkRequest = Optional.empty();
   private OptionalDouble suspensionDelaySeconds = OptionalDouble.empty();
@@ -224,18 +224,23 @@ public final class VmState {
   }
 
   /** Returns the MOO error currently being routed through handlers. */
-  public Optional<ErrorValue> pendingError() {
+  public Optional<MooValue> pendingError() {
     return pendingError;
   }
 
   /** Returns an uncaught MOO error after execution terminates. */
-  public Optional<ErrorValue> uncaughtError() {
+  public Optional<MooValue> uncaughtError() {
     return uncaughtError;
   }
 
   /** Returns ordered output staged by this execution. */
   public List<String> output() {
     return List.copyOf(output);
+  }
+
+  /** Clears output already delivered when the foreground input task suspended. */
+  public void clearOutput() {
+    output.clear();
   }
 
   /** Returns a connection player switch staged by this execution. */
@@ -281,7 +286,17 @@ public final class VmState {
   void abortSecondsExhaustion() {
     pendingError = Optional.empty();
     output.add("Task ran out of seconds");
-    outcome = Outcome.ABORTED;
+    outcome = Outcome.SECONDS_EXHAUSTED;
+  }
+
+  boolean secondsExhausted() {
+    return (remainingCpuNanos != 0 || elapsedCpuNanos != 0)
+        && Math.max(0L, currentThreadCpuNanos() - segmentCpuAnchorNanos) >= remainingCpuNanos;
+  }
+
+  void abortKilled() {
+    pendingError = Optional.empty();
+    outcome = Outcome.KILLED;
   }
 
   public void ensureRoot(BytecodeProgram program) {
@@ -362,7 +377,7 @@ public final class VmState {
             OptionalLong.empty(),
             OptionalLong.empty(),
             true,
-            caller.threadMode));
+            true));
     return true;
   }
 
@@ -607,7 +622,6 @@ public final class VmState {
     if (frames.size() >= maxStackDepth) {
       return false;
     }
-    boolean inheritedThreadMode = currentFrame().threadMode;
     frames.push(
         new Frame(
             program,
@@ -625,7 +639,22 @@ public final class VmState {
             movePosition,
             anonymousRecycleTarget,
             debug,
-            inheritedThreadMode));
+            true));
+    return true;
+  }
+
+  boolean pushMoveFrame(
+      BytecodeProgram program, Map<String, MooValue> locals,
+      world.mongoose.banteng.world.WorldVerb hook, long receiver, long location,
+      ReturnMode phase, BuiltinResult.Move move) {
+    if (frames.size() >= maxStackDepth) {
+      return false;
+    }
+    frames.push(new Frame(
+        program, locals, phase, hook.owner(), new ObjectValue(receiver), new ObjectValue(location),
+        calledVerb(locals), hook.names(), Optional.empty(), OptionalLong.empty(),
+        OptionalLong.of(move.object()), OptionalLong.of(move.destination()),
+        OptionalLong.of(move.position()), (hook.permissions() & 8) != 0, true));
     return true;
   }
 
@@ -713,7 +742,7 @@ public final class VmState {
     return true;
   }
 
-  void beginError(ErrorValue error) {
+  void beginError(MooValue error) {
     pendingError = Optional.of(error);
   }
 
@@ -721,15 +750,15 @@ public final class VmState {
     pendingError = Optional.empty();
   }
 
-  void failUncaught(ErrorValue error) {
+  void failUncaught(MooValue error) {
     failUncaught(error, Optional.empty());
   }
 
-  void failUncaught(ErrorValue error, ListValue exception) {
+  void failUncaught(MooValue error, ListValue exception) {
     failUncaught(error, Optional.of(exception));
   }
 
-  private void failUncaught(ErrorValue error, Optional<ListValue> exception) {
+  private void failUncaught(MooValue error, Optional<ListValue> exception) {
     pendingError = Optional.empty();
     uncaughtError = Optional.of(error);
     returnValue = exception.map(value -> (MooValue) value);
@@ -852,14 +881,25 @@ public final class VmState {
     outcome = Outcome.FORKED;
   }
 
-  /** Clears a published fork boundary and supplies its assigned child task ID. */
-  public void continueAfterFork(IntegerValue taskId) {
+  /** Binds the assigned child ID before copying the fork's environment. */
+  public VmSnapshot.Fork continueAfterFork(IntegerValue taskId) {
     if (outcome != Outcome.FORKED || forkRequest.isEmpty()) {
       throw new IllegalStateException("VM is not at a fork boundary");
+    }
+    ForkRequest request = forkRequest.orElseThrow();
+    Map<String, MooValue> childLocals = new LinkedHashMap<>(request.locals());
+    Frame frame = currentFrame();
+    // The compiler emits the fork's named binding immediately after FORK.
+    var binding = frame.program.instructions().get(frame.instructionPointer);
+    if (binding.opcode() == BytecodeProgram.Opcode.STORE_LOCAL) {
+      childLocals.put(binding.text().orElseThrow().toLowerCase(Locale.ROOT), taskId);
     }
     forkRequest = Optional.empty();
     currentFrame().operandStack.push(taskId);
     outcome = Outcome.RUNNING;
+    return new VmSnapshot.Fork(request.program(), childLocals, request.programmer(),
+        request.verbLocation(), request.calledVerb(), request.fullVerbName(),
+        request.debug(), request.delaySeconds());
   }
 
   void suspend(OptionalDouble delaySeconds, Optional<Callable<BuiltinResult>> externalWork) {
@@ -1341,7 +1381,10 @@ public final class VmState {
   enum ReturnMode {
     ROOT,
     EVAL,
-    VERB
+    VERB,
+    MOVE_ACCEPT,
+    MOVE_EXIT,
+    MOVE_ENTER
   }
 
   enum HandlerPhase {
@@ -1357,6 +1400,8 @@ public final class VmState {
     PENDING_BUILTIN,
     RETURNED,
     ERRORED,
-    ABORTED
+    ABORTED,
+    SECONDS_EXHAUSTED,
+    KILLED
   }
 }

@@ -26,6 +26,7 @@ import world.mongoose.banteng.value.MooValue.StringValue;
 import org.jspecify.annotations.Nullable;
 import org.sqlite.SQLiteConnection;
 import org.sqlite.SQLiteLimits;
+import org.sqlite.SQLiteException;
 
 /** Catalog-scoped owner of Toast-compatible transient SQLite connections. */
 final class SqliteService {
@@ -61,9 +62,11 @@ final class SqliteService {
         return BuiltinResult.error(ErrorValue.E_INVARG);
       }
       key = path.toString();
-      for (Database database : databases.values()) {
-        if (database.key.equals(key)) {
-          return BuiltinResult.error(ErrorValue.E_INVARG);
+      for (Map.Entry<Long, Database> entry : databases.entrySet()) {
+        if (entry.getValue().key.equals(key)) {
+          return BuiltinResult.raised(ErrorValue.E_INVARG,
+              StringValue.of("Database already open with handle: " + entry.getKey()),
+              new IntegerValue(entry.getKey()));
         }
       }
       url = "jdbc:sqlite:" + path;
@@ -133,7 +136,7 @@ final class SqliteService {
     return BuiltinResult.value(new MapValue(values));
   }
 
-  synchronized BuiltinResult query(List<MooValue> arguments) {
+  synchronized BuiltinResult query(List<MooValue> arguments, boolean threaded) {
     Database database = databases.get(integer(arguments.get(0)));
     if (database == null) {
       return BuiltinResult.value(ErrorValue.E_INVARG);
@@ -141,10 +144,12 @@ final class SqliteService {
     String sql = ((StringValue) arguments.get(1)).text();
     boolean headers = arguments.size() == 3 && arguments.get(2).isTruthy();
     database.locks.incrementAndGet();
-    return BuiltinResult.hostWork(() -> run(database, () -> executeQuery(database, sql, headers)));
+    return threaded
+        ? BuiltinResult.hostWork(() -> run(database, () -> executeQuery(database, sql, headers)))
+        : run(database, () -> executeQuery(database, sql, headers));
   }
 
-  synchronized BuiltinResult execute(List<MooValue> arguments) {
+  synchronized BuiltinResult execute(List<MooValue> arguments, boolean threaded) {
     Database database = databases.get(integer(arguments.get(0)));
     if (database == null) {
       return BuiltinResult.value(ErrorValue.E_INVARG);
@@ -152,7 +157,9 @@ final class SqliteService {
     String sql = ((StringValue) arguments.get(1)).text();
     ListValue parameters = (ListValue) arguments.get(2);
     database.locks.incrementAndGet();
-    return BuiltinResult.hostWork(() -> run(database, () -> executePrepared(database, sql, parameters)));
+    return threaded
+        ? BuiltinResult.hostWork(() -> run(database, () -> executePrepared(database, sql, parameters)))
+        : run(database, () -> executePrepared(database, sql, parameters));
   }
 
   BuiltinResult lastInsertRowId(List<MooValue> arguments) {
@@ -165,7 +172,7 @@ final class SqliteService {
           ResultSet result = statement.executeQuery("SELECT last_insert_rowid()")) {
         return BuiltinResult.value(new IntegerValue(result.next() ? result.getLong(1) : 0));
       } catch (SQLException failure) {
-        return stringResult(failure.getMessage());
+        return errorResult(failure);
       }
     }
   }
@@ -187,7 +194,7 @@ final class SqliteService {
       int previous = database.connection.getDatabase().limit(category, (int) requested);
       return BuiltinResult.value(new IntegerValue(previous));
     } catch (SQLException failure) {
-      return stringResult(failure.getMessage());
+      return errorResult(failure);
     }
   }
 
@@ -208,7 +215,7 @@ final class SqliteService {
       database.connection.getDatabase().interrupt();
       return BuiltinResult.value(new IntegerValue(0));
     } catch (SQLException failure) {
-      return stringResult(failure.getMessage());
+      return errorResult(failure);
     }
   }
 
@@ -224,7 +231,7 @@ final class SqliteService {
           return BuiltinResult.value(rows(database, result, headers));
         }
       } catch (SQLException failure) {
-        return stringResult(failure.getMessage());
+        return errorResult(failure);
       } finally {
         database.activeStatement = null;
       }
@@ -244,7 +251,7 @@ final class SqliteService {
           return BuiltinResult.value(rows(database, result, false));
         }
       } catch (SQLException failure) {
-        return stringResult(failure.getMessage());
+        return errorResult(failure);
       } finally {
         database.activeStatement = null;
       }
@@ -360,7 +367,14 @@ final class SqliteService {
     return ((IntegerValue) value).value();
   }
 
-  private static BuiltinResult stringResult(@Nullable String value) {
+  private static BuiltinResult errorResult(SQLException failure) {
+    String value = failure.getMessage();
+    if (failure instanceof SQLiteException sqlite && value != null) {
+      String prefix = sqlite.getResultCode() + " (";
+      if (value.startsWith(prefix) && value.endsWith(")")) {
+        value = value.substring(prefix.length(), value.length() - 1);
+      }
+    }
     return BuiltinResult.value(StringValue.of(value == null ? "SQLite error" : value));
   }
 

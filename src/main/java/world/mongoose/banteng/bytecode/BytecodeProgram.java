@@ -91,6 +91,7 @@ public record BytecodeProgram(
     SET_INDEX_LOCAL,
     SET_INDEX_PROPERTY,
     SET_RANGE_LOCAL,
+    SET_RANGE_PROPERTY,
     CALL,
     CALL_VERB,
     NEGATE,
@@ -198,7 +199,10 @@ public record BytecodeProgram(
           };
       boolean handlerRequired = opcode == Opcode.ENTER_HANDLER;
       boolean optionalParent =
-          opcode == Opcode.INDEX
+          opcode == Opcode.LIST_APPEND
+              || opcode == Opcode.LIST_EXTEND
+              || opcode == Opcode.LOAD_LOCAL
+              || opcode == Opcode.INDEX
               || opcode == Opcode.SET_INDEX_LOCAL
               || opcode == Opcode.SET_RANGE_LOCAL;
       if ((!optionalParent && numberRequired != operand.isPresent())

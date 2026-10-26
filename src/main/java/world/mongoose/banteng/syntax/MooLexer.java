@@ -1,9 +1,14 @@
 package world.mongoose.banteng.syntax;
 
 import java.util.Locale;
+import java.util.Set;
 
 /** The single lexer for stored and dynamically compiled MOO source. */
 final class MooLexer {
+  private static final Set<String> ERROR_NAMES = Set.of(
+      "E_NONE", "E_TYPE", "E_DIV", "E_PERM", "E_PROPNF", "E_VERBNF", "E_VARNF",
+      "E_INVIND", "E_RECMOVE", "E_MAXREC", "E_RANGE", "E_ARGS", "E_NACC", "E_INVARG",
+      "E_QUOTA", "E_FLOAT", "E_FILE", "E_EXEC", "E_INTRPT");
   enum TokenKind {
     EOF,
     IDENTIFIER,
@@ -282,7 +287,7 @@ final class MooLexer {
           case "endtry" -> TokenKind.ENDTRY;
           case "return" -> TokenKind.RETURN;
           case "any" -> TokenKind.ANY;
-          default -> lexeme.startsWith("E_") ? TokenKind.ERROR : TokenKind.IDENTIFIER;
+          default -> ERROR_NAMES.contains(lexeme) ? TokenKind.ERROR : TokenKind.IDENTIFIER;
         };
     return new Token(
         kind,
@@ -301,12 +306,7 @@ final class MooLexer {
         advance();
         skipped = true;
       }
-      if (!atEnd() && peek() == '/' && peekNext() == '/') {
-        while (!atEnd() && peek() != '\n') {
-          advance();
-        }
-        skipped = true;
-      } else if (!atEnd() && peek() == '/' && peekNext() == '*') {
+      if (!atEnd() && peek() == '/' && peekNext() == '*') {
         int commentLine = line;
         int commentColumn = column;
         advanceInBlockComment();

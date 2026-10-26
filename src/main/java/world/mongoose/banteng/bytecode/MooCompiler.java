@@ -3,10 +3,13 @@ package world.mongoose.banteng.bytecode;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.IdentityHashMap;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.OptionalInt;
+import java.util.function.Predicate;
 import world.mongoose.banteng.bytecode.BytecodeProgram.AstPath;
 import world.mongoose.banteng.bytecode.BytecodeProgram.HandlerSpec;
 import world.mongoose.banteng.bytecode.BytecodeProgram.Instruction;
@@ -14,10 +17,12 @@ import world.mongoose.banteng.bytecode.BytecodeProgram.Opcode;
 import world.mongoose.banteng.syntax.Ast;
 import world.mongoose.banteng.syntax.MooParser;
 import world.mongoose.banteng.syntax.MooUnparser;
+import world.mongoose.banteng.value.MooValue.FloatValue;
 
 /** Lowers parsed MOO syntax directly into executable bytecode. */
 public final class MooCompiler {
   private int catchSequence;
+  private final Map<FloatValue, FloatValue> floatLiterals = new HashMap<>();
   private final List<List<String>> activeLoopVariables = new ArrayList<>();
   private final List<Integer> activeLoopStarts = new ArrayList<>();
   private final List<List<Integer>> activeLoopBreaks = new ArrayList<>();
@@ -31,6 +36,11 @@ public final class MooCompiler {
 
   /** Parses and compiles one MOO verb body while retaining user-facing diagnostics. */
   public CompilationResult compileResult(String source) {
+    return compileResult(source, name -> true);
+  }
+
+  /** Compiles against the target's available builtin names as well as language syntax. */
+  public CompilationResult compileResult(String source, Predicate<String> knownBuiltin) {
     Objects.requireNonNull(source, "source");
     MooParser.ParseResult parsed = MooParser.parseResult(source);
     Ast.Program program = parsed.program().orElseThrow();
@@ -44,11 +54,31 @@ public final class MooCompiler {
                     diagnostic.column()))
         .forEach(positionedDiagnostics::add);
     positionedDiagnostics.addAll(controlFlowDiagnostics(program));
+    callPaths.clear();
+    controlPaths.clear();
+    indexCallPaths(program);
+    for (Ast.Expression expression : callPaths.keySet()) {
+      if (expression instanceof Ast.Call call
+          && !call.name().equalsIgnoreCase("pass") && !knownBuiltin.test(call.name())) {
+        Ast.SourceSpan span = call.span().orElseThrow();
+        int end = span.endOffset() - 1;
+        int line = 1 + (int) source.substring(0, end).chars().filter(value -> value == '\n').count();
+        int column = end - source.lastIndexOf('\n', end);
+        positionedDiagnostics.add(new PositionedDiagnostic(
+            new Diagnostic(line, "Unknown built-in function: " + call.name()), column));
+      }
+    }
     positionedDiagnostics.sort(
         Comparator.comparingInt((PositionedDiagnostic diagnostic) -> diagnostic.value().line())
             .thenComparingInt(PositionedDiagnostic::column));
     List<Diagnostic> diagnostics =
         positionedDiagnostics.stream().map(PositionedDiagnostic::value).toList();
+    for (int index = 0; index < diagnostics.size(); index++) {
+      if (diagnostics.get(index).message().equals("syntax error")) {
+        diagnostics = diagnostics.subList(0, index + 1);
+        break;
+      }
+    }
     if (!diagnostics.isEmpty()) {
       return new CompilationResult(Optional.empty(), diagnostics);
     }
@@ -199,6 +229,7 @@ public final class MooCompiler {
     List<Instruction> instructions = new ArrayList<>();
     List<BytecodeProgram> forkVectors = new ArrayList<>();
     catchSequence = 0;
+    floatLiterals.clear();
     activeLoopVariables.clear();
     activeLoopStarts.clear();
     activeLoopBreaks.clear();
@@ -691,8 +722,10 @@ public final class MooCompiler {
       return;
     }
     if (expression instanceof Ast.FloatLiteral floating) {
+      FloatValue literal = new FloatValue(floating.value());
+      FloatValue interned = floatLiterals.computeIfAbsent(literal, value -> value);
       instructions.add(
-          new Instruction(Opcode.PUSH_FLOAT, Double.doubleToRawLongBits(floating.value())));
+          new Instruction(Opcode.PUSH_FLOAT, Double.doubleToRawLongBits(interned.value())));
       return;
     }
     if (expression instanceof Ast.StringLiteral string) {
@@ -712,16 +745,7 @@ public final class MooCompiler {
       return;
     }
     if (expression instanceof Ast.ListLiteral list) {
-      instructions.add(new Instruction(Opcode.BUILD_LIST, 0));
-      for (Ast.Expression element : list.elements()) {
-        if (element instanceof Ast.Splice splice) {
-          compileExpression(splice.value(), instructions);
-          instructions.add(new Instruction(Opcode.LIST_EXTEND));
-        } else {
-          compileExpression(element, instructions);
-          instructions.add(new Instruction(Opcode.LIST_APPEND));
-        }
-      }
+      compileArguments(list.elements(), instructions);
       return;
     }
     if (expression instanceof Ast.MapLiteral map) {
@@ -733,32 +757,14 @@ public final class MooCompiler {
       return;
     }
     if (expression instanceof Ast.Call call) {
-      instructions.add(new Instruction(Opcode.BUILD_LIST, 0));
-      for (Ast.Expression argument : call.arguments()) {
-        if (argument instanceof Ast.Splice splice) {
-          compileExpression(splice.value(), instructions);
-          instructions.add(new Instruction(Opcode.LIST_EXTEND));
-        } else {
-          compileExpression(argument, instructions);
-          instructions.add(new Instruction(Opcode.LIST_APPEND));
-        }
-      }
+      compileArguments(call.arguments(), instructions);
       instructions.add(new Instruction(Opcode.CALL, call.name(), callPath(call)));
       return;
     }
     if (expression instanceof Ast.VerbCall call) {
       compileExpression(call.object(), instructions);
       compileExpression(call.name(), instructions);
-      instructions.add(new Instruction(Opcode.BUILD_LIST, 0));
-      for (Ast.Expression argument : call.arguments()) {
-        if (argument instanceof Ast.Splice splice) {
-          compileExpression(splice.value(), instructions);
-          instructions.add(new Instruction(Opcode.LIST_EXTEND));
-        } else {
-          compileExpression(argument, instructions);
-          instructions.add(new Instruction(Opcode.LIST_APPEND));
-        }
-      }
+      compileArguments(call.arguments(), instructions);
       instructions.add(new Instruction(Opcode.CALL_VERB, callPath(call)));
       return;
     }
@@ -827,6 +833,20 @@ public final class MooCompiler {
     throw new AssertionError("unreachable MOO expression variant: " + expression);
   }
 
+  private void compileArguments(List<Ast.Expression> arguments, List<Instruction> instructions) {
+    instructions.add(new Instruction(Opcode.BUILD_LIST, 0));
+    for (int index = 0; index < arguments.size(); index++) {
+      Ast.Expression argument = arguments.get(index);
+      if (argument instanceof Ast.Splice splice) {
+        compileExpression(splice.value(), instructions);
+        instructions.add(new Instruction(Opcode.LIST_EXTEND, index == 0 ? 1 : 0));
+      } else {
+        compileExpression(argument, instructions);
+        instructions.add(new Instruction(Opcode.LIST_APPEND, index == 0 ? 1 : 0));
+      }
+    }
+  }
+
   private void compileAssignment(Ast.Assignment assignment, List<Instruction> instructions) {
     if (assignment.target() instanceof Ast.VariableTarget variable) {
       compileExpression(assignment.value(), instructions);
@@ -878,6 +898,18 @@ public final class MooCompiler {
       throw new IllegalArgumentException("indexed assignment requires a local owner");
     }
     if (assignment.target() instanceof Ast.RangeTarget range) {
+      if (range.collection() instanceof Ast.PropertyAccess property) {
+        compileExpression(property.object(), instructions);
+        compileExpression(property.property(), instructions);
+        instructions.add(new Instruction(Opcode.DUP_PAIR));
+        instructions.add(new Instruction(Opcode.GET_PROPERTY));
+        instructions.add(new Instruction(Opcode.ENTER_INDEX));
+        compileExpression(range.start(), instructions);
+        compileExpression(range.end(), instructions);
+        compileExpression(assignment.value(), instructions);
+        instructions.add(new Instruction(Opcode.SET_RANGE_PROPERTY));
+        return;
+      }
       if (range.collection() instanceof Ast.Identifier owner) {
         instructions.add(new Instruction(Opcode.LOAD_LOCAL, owner.name()));
         instructions.add(new Instruction(Opcode.ENTER_INDEX));
@@ -962,7 +994,7 @@ public final class MooCompiler {
     if (expression.fallback().isPresent()) {
       compileExpression(expression.fallback().orElseThrow(), instructions);
     } else {
-      instructions.add(new Instruction(Opcode.LOAD_LOCAL, caughtLocal));
+      instructions.add(new Instruction(Opcode.LOAD_LOCAL, 1, caughtLocal));
     }
     instructions.add(new Instruction(Opcode.LEAVE_HANDLER));
     int endTarget = instructions.size();

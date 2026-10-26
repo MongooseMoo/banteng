@@ -348,7 +348,7 @@ public final class WorldTxn implements AutoCloseable {
   private record LocatedVerb(Object location, WorldVerb verb) {}
 
   private static boolean matchesVerbName(WorldVerb verb, String requestedName) {
-    StringTokenizer names = new StringTokenizer(verb.names());
+    StringTokenizer names = new StringTokenizer(verb.names(), " ");
     while (names.hasMoreTokens()) {
       String pattern = names.nextToken().toLowerCase(Locale.ROOT);
       int wildcard = pattern.indexOf('*');
@@ -624,6 +624,7 @@ public final class WorldTxn implements AutoCloseable {
           switch (normalizedName) {
             case "programmer" -> ObjectFlags.FLAG_PROGRAMMER;
             case "wizard" -> ObjectFlags.FLAG_WIZARD;
+            case "r" -> ObjectFlags.FLAG_READ;
             case "w" -> ObjectFlags.FLAG_WRITE;
             case "f" -> ObjectFlags.FLAG_FERTILE;
             case "a" -> ObjectFlags.FLAG_ANONYMOUS;

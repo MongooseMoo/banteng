@@ -81,6 +81,9 @@ jobs:
       - name: Check shell scripts
         run: shellcheck scripts/*.sh
 
+      - name: Install spelling dictionary
+        run: sudo apt-get update && sudo apt-get install --yes libaspell15 aspell-en
+
       - name: Run static analysis and test gates
         run: |
           ./gradlew --no-daemon clean check
@@ -186,6 +189,9 @@ jobs:
       - name: Build Banteng distribution
         run: ./gradlew --no-daemon installDist
 
+      - name: Install spelling dictionary
+        run: sudo apt-get update && sudo apt-get install --yes libaspell15 aspell-en
+
       - name: Checkout MOO conformance suite
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -209,7 +215,7 @@ jobs:
         run: |
           uv run --project moo-conformance-tests --frozen moo-conformance \
             -m "admission or conformance" \
-            --server-command "${{ github.workspace }}/build/install/banteng/bin/banteng --database {db} --checkpoint {db}.new --listen-address 127.0.0.1 --port {port} --promote-numbers=false" \
+            --server-command "${{ github.workspace }}/build/install/banteng/bin/banteng --database {db} --checkpoint {db}.new --log-file {log} --listen-address 127.0.0.1 --port {port} --promote-numbers=false" \
             --server-db="${{ github.workspace }}/moo-conformance-tests/src/moo_conformance/_db/Test.db" \
             --server-db-dir="${{ github.workspace }}/moo-conformance-tests/src/moo_conformance/_db/startup" \
             --moo-host=127.0.0.1 \

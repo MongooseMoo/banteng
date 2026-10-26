@@ -1163,7 +1163,7 @@ final class PublicationSchedulerTest {
   }
 
   @Test
-  void rollsBackTickAbortedMutationAndCompletesWithFramedOutput() throws Exception {
+  void retainsTickAbortedMutationAndCompletesWithFramedOutput() throws Exception {
     try (Harness harness = Harness.open(1, new RecordingListener())) {
       try (WorldTxn transaction = harness.root.begin()) {
         ObjectValue serverOptions =
@@ -1195,7 +1195,7 @@ final class PublicationSchedulerTest {
               "Task ran out of ticks",
               CONNECTION_SUFFIX),
           output);
-      assertEquals(0, harness.counter());
+      assertEquals(99, harness.counter());
     }
   }
 
