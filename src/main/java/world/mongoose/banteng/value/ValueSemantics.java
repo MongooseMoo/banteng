@@ -108,11 +108,9 @@ public record ValueSemantics(boolean promoteNumbers) {
   }
 
   private static int compareStrings(StringValue left, StringValue right, boolean caseMatters) {
-    byte[] leftBytes = left.bytes();
-    byte[] rightBytes = right.bytes();
     for (int index = 0; ; index++) {
-      int lhs = index < leftBytes.length ? Byte.toUnsignedInt(leftBytes[index]) : 0;
-      int rhs = index < rightBytes.length ? Byte.toUnsignedInt(rightBytes[index]) : 0;
+      int lhs = index < left.length() ? left.unsignedByteAt(index) : 0;
+      int rhs = index < right.length() ? right.unsignedByteAt(index) : 0;
       if (!caseMatters) {
         if (lhs >= 'A' && lhs <= 'Z') lhs += 'a' - 'A';
         if (rhs >= 'A' && rhs <= 'Z') rhs += 'a' - 'A';

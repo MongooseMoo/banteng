@@ -29,4 +29,6 @@ Title: Share MOO equality and comparison across values and callers
 
 Set addition, removal, VM equality/membership, and equal() now use the same Toast equality rules, including boolean/integer equivalence and configured numeric promotion. All map-key comparisons delegate to ValueSemantics; map ordering follows the existing lookup tree instead of Java sorting with an asymmetric identity comparator. Java representation equality/hashing and caller-specific natural-sort/relational policies remain intact.
 
-Validation: focused authored ValueSemanticsTest passed through WSL Java 25; full CI belongs to the PR. Conformance suite unchanged. Depends on the builtin-contract branch.
+Prepublication repair: compareStrings initially called StringValue.bytes() twice, allocating two full defensive array copies per comparison. It now reads through package-private StringValue.unsignedByteAt(int), retaining comparison ownership in ValueSemantics and keeping the backing array private. No cache, storage, or comparison policy changed. Parent explicitly requested no repeated local CI; the focused test passed on the prior source commit 2d280e4, and final PR CI must verify this repair.
+
+Validation: focused authored ValueSemanticsTest passed through WSL Java 25 before the byte-access repair; it was not rerun afterward. Full CI belongs to the PR. Conformance suite unchanged. Depends on the builtin-contract branch.

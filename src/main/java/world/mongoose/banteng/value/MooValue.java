@@ -224,6 +224,11 @@ public sealed interface MooValue
       return Arrays.copyOf(bytes, bytes.length);
     }
 
+    /** Reads one unsigned byte without copying or exposing the owned contents. */
+    int unsignedByteAt(int index) {
+      return Byte.toUnsignedInt(bytes[index]);
+    }
+
     /** Decodes the binary string as Latin-1 text without losing any byte values. */
     public String text() {
       return new String(bytes, CHARSET);
