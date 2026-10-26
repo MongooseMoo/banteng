@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.ByteArrayOutputStream;
@@ -28,6 +29,8 @@ import java.util.Set;
 import java.util.concurrent.Callable;
 import world.mongoose.banteng.builtin.BuiltinCatalog.ConnectionOption;
 import world.mongoose.banteng.builtin.BuiltinResult;
+import world.mongoose.banteng.host.Crypt;
+import world.mongoose.banteng.host.NativeCallException;
 import world.mongoose.banteng.logging.ServerLog;
 import world.mongoose.banteng.server.ConnectionRegistry;
 import world.mongoose.banteng.value.MooValue;
@@ -5389,6 +5392,36 @@ final class BuiltinCatalogTest {
   }
 
   @Test
+  void missingCryptLibraryDoesNotDisableLibcBuiltins() {
+    Crypt missing = new Crypt("libbanteng-deliberately-missing-crypt.so");
+    NativeCallException failure = assertThrows(NativeCallException.class,
+        () -> missing.hash(string("foobar").bytes(), string("SA").bytes()));
+    assertInstanceOf(IllegalArgumentException.class, failure.getCause());
+    BuiltinCatalog catalog = new BuiltinCatalog(BuiltinHosts.builder()
+        .crypt(missing)
+        .build());
+    try (WorldTxn transaction = world().begin()) {
+      for (int attempt = 0; attempt < 2; attempt++) {
+        assertString("*0", invoke(catalog, catalog.spec("crypt").orElseThrow(),
+            List.of(string("foobar"), string("SA")), transaction, 1));
+        assertEquals(ErrorValue.E_INVARG,
+            error(invoke(catalog, catalog.spec("crypt").orElseThrow(),
+                List.of(string("foobar"), string("$2x$05$KRGxLBS0Lxe3KBCwKxOzLe")),
+                transaction, 1)).orElseThrow());
+        assertInstanceOf(StringValue.class,
+            value(invoke(catalog, catalog.spec("ctime").orElseThrow(),
+                List.of(new IntegerValue(0)), transaction, 1)).orElseThrow());
+        assertInstanceOf(FloatValue.class,
+            value(invoke(catalog, catalog.spec("ftime").orElseThrow(),
+                List.of(), transaction, 1)).orElseThrow());
+        assertInstanceOf(ListValue.class,
+            value(invoke(catalog, catalog.spec("usage").orElseThrow(),
+                List.of(), transaction, 1)).orElseThrow());
+      }
+    }
+  }
+
+  @Test
   void cryptPreservesTheStockUnixVectorAndUnsupportedPrefixMarker() {
     BuiltinCatalog catalog = new BuiltinCatalog(BuiltinHosts.builder().build());
     BuiltinSpec spec = catalog.spec("crypt").orElseThrow();
@@ -6162,6 +6195,8 @@ final class BuiltinCatalogTest {
     BuiltinCatalog catalog = new BuiltinCatalog(BuiltinHosts.builder().build());
     BuiltinSpec spec = catalog.spec("server_version").orElseThrow();
     try (WorldTxn transaction = world().begin()) {
+      assertEquals(Optional.of(string(System.getProperty("os.name"))),
+          value(invoke(catalog, spec, List.of(string("os")), transaction, 1)));
       assertEquals(
           Optional.of(string("0.1.0-SNAPSHOT")),
           value(invoke(catalog, spec, List.of(), transaction, 1)));
