@@ -746,7 +746,7 @@ public final class MooVm {
   private static void applyDynamicEval(
       BytecodeProgram program, VmState state, WorldTxn world) {
     if (!state.pushEvalFrame(program)) {
-      ErrorOps.raise(state, ErrorValue.E_MAXREC, world);
+      ErrorOps.raise(state, ErrorValue.E_MAXREC, world, false);
     }
   }
 
