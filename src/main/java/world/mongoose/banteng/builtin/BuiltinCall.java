@@ -2,6 +2,7 @@ package world.mongoose.banteng.builtin;
 
 import java.util.List;
 import java.util.Objects;
+import java.util.function.Function;
 import java.util.function.LongBinaryOperator;
 import world.mongoose.banteng.value.MooValue;
 import world.mongoose.banteng.value.MooValue.ListValue;
@@ -18,7 +19,7 @@ public record BuiltinCall(
     long remainingSeconds,
     MooValue receiver,
     long callerProgrammer,
-    ListValue callers,
+    Function<Boolean, ListValue> callers,
     boolean threadMode,
     LongBinaryOperator stagedBufferedOutputLength) {
   /** Takes immutable ownership of the invocation context. */

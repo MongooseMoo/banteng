@@ -1150,19 +1150,28 @@ public final class BuiltinCatalog {
             call -> switchPlayer(call.arguments(), call.world())));
     entries.add(
         new BuiltinSpec(
+            "pass",
+            List.of(new CallShape(List.of(), List.of(), Optional.of(ANY))),
+            BuiltinPermissionRule.ANY,
+            false,
+            call -> new BuiltinResult.Pass(new ListValue(call.arguments()))));
+    entries.add(
+        new BuiltinSpec(
             "caller_perms",
             List.of(new CallShape(List.of(), List.of(), Optional.empty())),
             BuiltinPermissionRule.ANY,
             false,
             call ->
-                BuiltinResult.value(new ObjectValue(call.callers().size() == 0 ? -1 : call.callerProgrammer()))));
+                BuiltinResult.value(new ObjectValue(call.callers().apply(false).size() == 0 ? -1 : call.callerProgrammer()))));
     entries.add(
         new BuiltinSpec(
             "callers",
             List.of(new CallShape(List.of(), List.of(ANY), Optional.empty())),
             BuiltinPermissionRule.ANY,
             false,
-            call -> callers(call.callers(), call.world(), call.programmer())));
+            call -> callers(call.callers().apply(
+                !call.arguments().isEmpty() && call.arguments().getFirst().isTruthy()),
+                call.world(), call.programmer())));
     entries.add(
         new BuiltinSpec(
             "call_function",

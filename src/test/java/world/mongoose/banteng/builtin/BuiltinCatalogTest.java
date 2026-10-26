@@ -191,6 +191,7 @@ final class BuiltinCatalogTest {
           "owned_objects",
           "parent",
           "parents",
+          "pass",
           "parse_ansi",
           "parse_json",
           "pcre_cache_stats",
@@ -1330,7 +1331,7 @@ final class BuiltinCatalogTest {
       BuiltinCall nested = new BuiltinCall(
           List.of(string("buffered_output_length"), new ObjectValue(2)),
           transaction, 2, new IntegerValue(0), 17, 60_000, 5,
-          new ObjectValue(2), 2, new ListValue(List.of()), false,
+          new ObjectValue(2), 2, _lineNumbers -> new ListValue(List.of()), false,
           (connectionId, queuedBytes) -> connectionId == -2 ? queuedBytes + 11 : queuedBytes);
       assertEquals(
           Optional.of(new IntegerValue(48)),
@@ -1468,7 +1469,7 @@ final class BuiltinCatalogTest {
         5,
         new ObjectValue(1),
         1,
-        callers,
+        _lineNumbers -> callers,
         true,
         (_connectionId, queuedBytes) -> queuedBytes))
               ));
@@ -1667,7 +1668,7 @@ final class BuiltinCatalogTest {
         5,
         new ObjectValue(2),
         2,
-        new ListValue(List.of()),
+        _lineNumbers -> new ListValue(List.of()),
         true,
         (_connectionId, queuedBytes) -> queuedBytes));
       assertEquals(Optional.of(new IntegerValue(8_123)), value(identity));
@@ -1686,7 +1687,7 @@ final class BuiltinCatalogTest {
         5,
         new ObjectValue(2),
         2,
-        new ListValue(List.of()),
+        _lineNumbers -> new ListValue(List.of()),
         true,
         (_connectionId, queuedBytes) -> queuedBytes));
       assertEquals(Optional.of(new IntegerValue(59_321)), value(remaining));
@@ -1705,7 +1706,7 @@ final class BuiltinCatalogTest {
         11,
         new ObjectValue(2),
         2,
-        new ListValue(List.of()),
+        _lineNumbers -> new ListValue(List.of()),
         true,
         (_connectionId, queuedBytes) -> queuedBytes));
       assertEquals(Optional.of(new IntegerValue(11)), value(remainingSeconds));
@@ -1747,7 +1748,7 @@ final class BuiltinCatalogTest {
         5,
         new ObjectValue(2),
         2,
-        new ListValue(List.of()),
+        _lineNumbers -> new ListValue(List.of()),
         true,
         (_connectionId, queuedBytes) -> queuedBytes));
       assertEquals(OptionalDouble.of(0), delaySeconds(tickYield));
@@ -1763,7 +1764,7 @@ final class BuiltinCatalogTest {
         3,
         new ObjectValue(2),
         2,
-        new ListValue(List.of()),
+        _lineNumbers -> new ListValue(List.of()),
         true,
         (_connectionId, queuedBytes) -> queuedBytes));
       assertEquals(OptionalDouble.of(0), delaySeconds(secondYield));
@@ -1779,7 +1780,7 @@ final class BuiltinCatalogTest {
         4,
         new ObjectValue(2),
         2,
-        new ListValue(List.of()),
+        _lineNumbers -> new ListValue(List.of()),
         true,
         (_connectionId, queuedBytes) -> queuedBytes));
       assertEquals(Optional.of(new IntegerValue(0)), value(noYield));
@@ -6342,7 +6343,7 @@ final class BuiltinCatalogTest {
         5,
         new ObjectValue(programmer),
         programmer,
-        new ListValue(List.of()),
+        _lineNumbers -> new ListValue(List.of()),
         true,
         (_connectionId, queuedBytes) -> queuedBytes));
   }
@@ -6364,7 +6365,7 @@ final class BuiltinCatalogTest {
         5,
         new ObjectValue(programmer),
         programmer,
-        new ListValue(List.of()),
+        _lineNumbers -> new ListValue(List.of()),
         threadMode,
         (_connectionId, queuedBytes) -> queuedBytes));
   }

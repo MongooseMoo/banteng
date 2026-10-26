@@ -30,12 +30,6 @@ import world.mongoose.banteng.world.WorldTxn;
 
 /** Local and world-property operations. */
 final class PropertyOps {
-  enum Operation {
-    LOAD_LOCAL,
-    GET_PROPERTY,
-    SET_PROPERTY
-  }
-
   private static final Set<Opcode> CONTROL_FLOW =
       Set.of(
           Opcode.FORK,
@@ -52,25 +46,7 @@ final class PropertyOps {
 
   private PropertyOps() {}
 
-  static boolean execute(
-      Operation operation, VmState state, Instruction instruction, Frame frame, WorldTxn world) {
-    return switch (operation) {
-      case LOAD_LOCAL -> {
-        loadLocal(frame, instruction.text().orElseThrow(), state, world);
-        yield true;
-      }
-      case GET_PROPERTY -> {
-        getProperty(frame, state, world);
-        yield true;
-      }
-      case SET_PROPERTY -> {
-        setProperty(frame, state, world);
-        yield true;
-      }
-    };
-  }
-
-  private static void loadLocal(Frame frame, String name, VmState state, WorldTxn world) {
+  static void loadLocal(Frame frame, String name, VmState state, WorldTxn world) {
     String normalized = normalize(name);
     MooValue value = frame.locals.get(normalized);
     if (value == null) {
@@ -190,7 +166,8 @@ final class PropertyOps {
       }
       if (opcode == Opcode.CALL) {
         String callName = future.text().orElseThrow();
-        if (callName.equalsIgnoreCase("eval") || callName.equalsIgnoreCase("pass")) {
+        if (callName.equalsIgnoreCase("eval") || callName.equalsIgnoreCase("pass")
+            || callName.equalsIgnoreCase("call_function")) {
           return false;
         }
       }
@@ -201,7 +178,7 @@ final class PropertyOps {
     return true;
   }
 
-  private static void getProperty(Frame frame, VmState state, WorldTxn world) {
+  static void getProperty(Frame frame, VmState state, WorldTxn world) {
     MooValue name = frame.operandStack.pop();
     MooValue receiver = frame.operandStack.pop();
     if (!(name instanceof StringValue propertyName)) {

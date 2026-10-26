@@ -32,7 +32,7 @@ final class BuiltinCompositionTest {
 
     BuiltinCall call =
         new BuiltinCall(
-            arguments, world, 5, taskLocal, 6, 7, 8, receiver, 9, callers, true,
+            arguments, world, 5, taskLocal, 6, 7, 8, receiver, 9, _lineNumbers -> callers, true,
             (_connectionId, queuedBytes) -> queuedBytes);
 
     assertAll(
@@ -45,7 +45,7 @@ final class BuiltinCompositionTest {
         () -> assertEquals(8, call.remainingSeconds()),
         () -> assertSame(receiver, call.receiver()),
         () -> assertEquals(9, call.callerProgrammer()),
-        () -> assertSame(callers, call.callers()),
+        () -> assertSame(callers, call.callers().apply(false)),
         () -> assertTrue(call.threadMode()));
   }
 
@@ -124,7 +124,7 @@ final class BuiltinCompositionTest {
         0,
         new IntegerValue(0),
         0,
-        new ListValue(List.of()),
+        _lineNumbers -> new ListValue(List.of()),
         threadMode,
         (_connectionId, queuedBytes) -> queuedBytes);
   }
