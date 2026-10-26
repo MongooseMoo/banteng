@@ -980,9 +980,10 @@ final class PublicationSchedulerTest {
       CountDownLatch release = new CountDownLatch(1);
       ThreadPoolExecutor executor =
           new ThreadPoolExecutor(
-              1, 1, 0, TimeUnit.MILLISECONDS, new ArrayBlockingQueue<>(4),
+              1, 1, 0, TimeUnit.MILLISECONDS,
+              new ArrayBlockingQueue<>(original.getQueue().remainingCapacity()),
               Thread.ofPlatform().name("moo-vm-rejection-test-", 0).factory(),
-              new ThreadPoolExecutor.AbortPolicy()) {
+              original.getRejectedExecutionHandler()) {
             @Override
             public void execute(Runnable command) {
               if (command instanceof FutureTask<?>) {
