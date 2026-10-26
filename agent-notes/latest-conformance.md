@@ -15,7 +15,7 @@ Necessary redesign/cleanup is in scope; weakening tests or skipping failures is 
 - Current behavioral evidence:a8f2390 / CI40289133756, tested merge1eca5fd against suite main3d51b08. Java/static/stress/benchmarks, CodeQL, workflow lint and dependency review passed. Conformance:1 failure,11558 passed,1771 declared skips. Only failed_dump_selects_existing_output remains (expected5, actual2356 after a successful checkpoint).
 - Fork/suspend and waif task_stack cases passed on the output-order repair. The source race is fixed; this single CI run does not prove every possible intermittent timeout is eliminated. No local CI/test/build runs.
 - Q additionally requested PR comments addressed. Original two are fixed. Callback cleanup is pushed; match-all-pattern false positives have JLS-backed replies. No review or alert was dismissed.
-- Scope question pending via question tool: may the upstream failed-dump fixture be corrected to induce write failure independently of Toast/Barn temporary names? No upstream fixture changes made.
+- Q approved the upstream fixture correction ("yeax fix in conformance tests"). Controller PR157 adds confined chmod; dependent fixture is local until that controller is trusted on main. See the controller/data task notes in their isolated conformance worktrees.
 
 ## Decisions and why
 
@@ -34,10 +34,10 @@ investigation. It remains untouched.
 
 ## Next step
 
-Await Q's upstream fixture scope decision before any fixture edits. All
-independently authorized implementation and PR-comment repairs are pushed.
-Keep the original checkout and dirty sibling suite untouched. Historical
-implementation slices and evidence follow below.
+Finish the ordinary checkpoint-failure repair below, read both repositories'
+PR CI, and land the approved upstream fixture correction through the controller
+then data dependency. No separate merge go-ahead has been received. Keep original
+checkouts untouched. Historical implementation slices and evidence follow below.
 
 ## Implementation: verb-name whitespace
 
@@ -427,7 +427,8 @@ ArrayRecordComponent. Store immutable Latin-1 String instead, preserving bytes.
 
 Disk-size repair (~15 lines): Toast db_file.cc:1128 increments dump_generation
 before attempting output; db_disk_size:1285-1294 then stats output and falls
-back to input if unavailable, returning -1 only if both stats fail. Replace
+back to input if unavailable. Its internal -1 is translated by the public
+bf_db_disk_size (server.cc:2638-2642) into structured E_QUOTA. Replace
 checkpointPublished with checkpointAttempted and follow that selection order.
 This fixes real selection semantics but does not make the suite's Toast/Barn
 temporary filename blockers prevent Banteng's PID-named checkpoint from writing.
@@ -484,3 +485,16 @@ timeout case passed. Original comments168/169 and callback171 are fixed;
 172/173 remain explained match-all-pattern false positives, not dismissed.
 Current code is published. This final status-note update is committed locally
 without re-pushing unchanged implementation while upstream scope is pending.
+
+Q approved the fixture fix upstream. Conformance controller PR157 (38d9686)
+candidate quality passed; six Toast jobs are running. Its separate trusted-head
+probe failed on GitHub HTTP502, not a candidate test. No check was overridden.
+
+Ordinary checkpoint-failure repair (~7 lines): Toast bf_dump_database
+(server.cc:2618-2627) queues the checkpoint and returns zero; its later dump
+failure does not raise into that completed task. Banteng publishEffect currently
+rethrows every checkpoint IOException after task commit, dropping the response.
+For an ordinary dump, log the failure and keep the existing checkpoint_finished
+false notification. Preserve shutdown's throwing path. Also correct dbDiskSize's
+unavailable-file result to structured E_QUOTA: the earlier change read the
+internal db_disk_size helper but missed its public builtin wrapper.

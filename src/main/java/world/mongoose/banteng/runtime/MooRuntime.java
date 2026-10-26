@@ -2990,7 +2990,8 @@ public final class MooRuntime implements AutoCloseable {
     try {
       return BuiltinResult.value(new IntegerValue(Files.size(database.orElseThrow())));
     } catch (IOException error) {
-      return BuiltinResult.value(new IntegerValue(-1));
+      return BuiltinResult.raised(ErrorValue.E_QUOTA,
+          StringValue.of("No database file(s) available"), new IntegerValue(0));
     }
   }
 
@@ -3631,7 +3632,10 @@ public final class MooRuntime implements AutoCloseable {
           }
         } catch (IOException error) {
           scheduler.enqueueDetached(RuntimeRequest.checkpointFinished(false, effect.binary));
-          throw new UncheckedIOException("checkpoint failed: " + target, error);
+          if (effect.binary) {
+            throw new UncheckedIOException("checkpoint failed: " + target, error);
+          }
+          serverLog.error("CHECKPOINTING failed: " + target + ": " + error.getMessage());
         }
       }
       case REOPEN_LOG -> {
