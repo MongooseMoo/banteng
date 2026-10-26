@@ -26,6 +26,7 @@ final class BuiltinResultTest {
             "ForceInput",
             "HostWork",
             "Initialize",
+            "KillAbort",
             "Move",
             "Notify",
             "Output",
@@ -55,6 +56,7 @@ final class BuiltinResultTest {
             Map.entry("ForceInput", List.of("target", "input")),
             Map.entry("HostWork", List.of("work")),
             Map.entry("Initialize", List.of("created", "arguments")),
+            Map.entry("KillAbort", List.of()),
             Map.entry("Move", List.of("object", "destination", "position")),
             Map.entry(
                 "Notify", List.of("connectionId", "line", "noFlush", "noNewline")),

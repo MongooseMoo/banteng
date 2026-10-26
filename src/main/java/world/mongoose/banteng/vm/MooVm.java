@@ -623,6 +623,7 @@ public final class MooVm {
       BuiltinResult result, Frame frame, VmState state, WorldTxn world) {
     switch (result) {
       case BuiltinResult.SecondsAbort _ -> state.abortSecondsExhaustion();
+      case BuiltinResult.KillAbort _ -> state.abortKilled();
       case BuiltinResult.ErrorResult error ->
           ErrorOps.raise(state, error.error(), world, false);
       case BuiltinResult.RaisedError raised ->

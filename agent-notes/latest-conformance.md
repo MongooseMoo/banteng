@@ -250,3 +250,25 @@ break/continue, named fork, exception/scatter charges and extended-op exhaustion
 Fork ID binding and error-valued resume now pass. Zero-fork observation and expired
 resume still fail. Waif queued_tasks self-kill causes a new connection-loss cascade;
 startup checkpoint failures match the Java evidence addressed above.
+
+Decompiler repair (~25 functional lines plus moving the expression helpers into
+the existing Renderer): honor verb_code's parenthesize flag per unparse.cc:350-374,
+use the existing FloatValue literal renderer, and split canonical source on LF
+only. Java String.lines() treats literal CR bytes as source line breaks in both
+set_verb_code and verb_code; the roundtrip fixture explicitly contains chr(13).
+
+Remaining Java checkpoint cause (artifact12631711672): Anon5/Anon6 execute
+shutdown(); kill_task(task_id());. TaskRegistry marks the current task canceled,
+so publishAttempt discards its shutdown effect. Toast tasks.cc:2774-2785 returns
+ABORT_KILL for self-kill. Add a killed terminal result/outcome (~25 lines), commit
+prior effects and suppress timeout handling. Other-task cancellation stays as is.
+PropertyLayoutEngine's three chown checks use 8; db.h:317 and our permission
+parser both define c as 4. Correct those checks (~3 lines).
+
+f55f619 CI40279191363 completed:54 failures; utility, error-text, signed-zero,
+queued-waif and most startup checkpoint cases now pass. Java has only Anon5/6
+checkpoint failures. Fork timing fixtures call missing string_hash, so their
+stored verbs never compile; implement the hash family (~45 lines sharing HMAC's
+input/hex conversion) before changing scheduler behavior further. Toast
+crypto.cc:395-516 defines the algorithms and binary flag. Fix bcrypt prefix
+minimum length (parse_prefix requires >=7 when a cost separator is present).

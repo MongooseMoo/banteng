@@ -1487,6 +1487,9 @@ final class PublicationScheduler implements AutoCloseable {
         }
 
         VmSnapshot completed = state.snapshot();
+        if (state.outcome() == VmState.Outcome.KILLED) {
+          aborted = true;
+        }
         if (state.outcome() == VmState.Outcome.ABORTED) {
           aborted = true;
           boolean timeoutHandlerAborted =
@@ -1500,7 +1503,8 @@ final class PublicationScheduler implements AutoCloseable {
         }
         if ((state.outcome() == VmState.Outcome.RETURNED
                 || state.outcome() == VmState.Outcome.ERRORED
-                || state.outcome() == VmState.Outcome.ABORTED)
+                || state.outcome() == VmState.Outcome.ABORTED
+                || state.outcome() == VmState.Outcome.KILLED)
             && continuation.isPresent()) {
           completedVm = Optional.of(completed);
           program = Optional.empty();
@@ -1527,7 +1531,8 @@ final class PublicationScheduler implements AutoCloseable {
           break;
         }
         if (state.outcome() == VmState.Outcome.RETURNED
-            || state.outcome() == VmState.Outcome.ABORTED) {
+            || state.outcome() == VmState.Outcome.ABORTED
+            || state.outcome() == VmState.Outcome.KILLED) {
           return SegmentResult.returned(
               completed.output(),
               taskPlayer,
@@ -1748,7 +1753,7 @@ final class PublicationScheduler implements AutoCloseable {
     }
     switch (snapshot.outcome()) {
       case SUSPENDED -> publishSuspension(entry, snapshot, hostWork);
-      case FORKED, PENDING_BUILTIN, RETURNED, ERRORED, ABORTED, RUNNING ->
+      case FORKED, PENDING_BUILTIN, RETURNED, ERRORED, ABORTED, KILLED, RUNNING ->
           throw new IllegalStateException(
               "worker returned a non-boundary VM outcome: " + snapshot.outcome());
     }

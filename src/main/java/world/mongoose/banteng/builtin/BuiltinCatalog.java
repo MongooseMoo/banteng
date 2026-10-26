@@ -61,8 +61,14 @@ import world.mongoose.banteng.world.WorldResult;
 import world.mongoose.banteng.world.WorldTxn;
 import world.mongoose.banteng.world.WorldVerb;
 import org.bouncycastle.crypto.generators.Argon2BytesGenerator;
+import org.bouncycastle.crypto.Digest;
+import org.bouncycastle.crypto.digests.MD5Digest;
+import org.bouncycastle.crypto.digests.RIPEMD160Digest;
 import org.bouncycastle.crypto.digests.SHA1Digest;
+import org.bouncycastle.crypto.digests.SHA224Digest;
 import org.bouncycastle.crypto.digests.SHA256Digest;
+import org.bouncycastle.crypto.digests.SHA384Digest;
+import org.bouncycastle.crypto.digests.SHA512Digest;
 import org.bouncycastle.crypto.macs.HMac;
 import org.bouncycastle.crypto.params.Argon2Parameters;
 import org.bouncycastle.crypto.params.KeyParameter;
@@ -897,6 +903,11 @@ public final class BuiltinCatalog {
         BuiltinPermissionRule.ANY, BuiltinCostRule.fixed(0), EffectClass.PURE,
         BuiltinOwner.VM, call -> salt(call.arguments())));
     for (String input : List.of("string", "binary", "value")) {
+      entries.add(new BuiltinSpec(input + "_hash",
+          List.of(new CallShape(List.of(input.equals("value") ? ANY : STRING),
+              List.of(STRING, ANY), Optional.empty())),
+          BuiltinPermissionRule.ANY, BuiltinCostRule.fixed(0), EffectClass.PURE,
+          BuiltinOwner.VM, call -> hash(input, call.arguments())));
       entries.add(new BuiltinSpec(input + "_hmac",
           List.of(new CallShape(List.of(input.equals("value") ? ANY : STRING, STRING),
               List.of(STRING, ANY), Optional.empty())),
@@ -4345,6 +4356,9 @@ public final class BuiltinCatalog {
       if (separator < 0) {
         return OptionalLong.of(0);
       }
+      if (salt.length() < 7) {
+        return OptionalLong.empty();
+      }
       String cost = salt.substring(4, separator);
       try {
         long parsed = Long.parseLong(cost);
@@ -4585,6 +4599,38 @@ public final class BuiltinCatalog {
     return Optional.of(raw.toByteArray());
   }
 
+  private static Optional<byte[]> hashInput(String input, MooValue value) {
+    return switch (input) {
+      case "binary" -> binaryBytes((StringValue) value);
+      case "value" -> Optional.of(StringValue.of(value.toLiteral()).bytes());
+      default -> Optional.of(((StringValue) value).bytes());
+    };
+  }
+
+  private static BuiltinResult hash(String input, List<MooValue> arguments) {
+    String algorithm = arguments.size() > 1
+        ? ((StringValue) arguments.get(1)).text().toLowerCase(Locale.ROOT) : "sha256";
+    Digest digest = switch (algorithm) {
+      case "md5" -> new MD5Digest();
+      case "sha1" -> new SHA1Digest();
+      case "sha224" -> new SHA224Digest();
+      case "sha256" -> new SHA256Digest();
+      case "sha384" -> new SHA384Digest();
+      case "sha512" -> new SHA512Digest();
+      case "ripemd160" -> new RIPEMD160Digest();
+      default -> null;
+    };
+    Optional<byte[]> message = hashInput(input, arguments.getFirst());
+    if (digest == null || message.isEmpty()) {
+      return BuiltinResult.error(ErrorValue.E_INVARG);
+    }
+    byte[] bytes = message.orElseThrow();
+    digest.update(bytes, 0, bytes.length);
+    byte[] result = new byte[digest.getDigestSize()];
+    digest.doFinal(result, 0);
+    return digestResult(result, arguments.size() > 2 && arguments.get(2).isTruthy());
+  }
+
   private static BuiltinResult hmac(String input, List<MooValue> arguments) {
     String algorithm = arguments.size() > 2
         ? ((StringValue) arguments.get(2)).text().toLowerCase(Locale.ROOT) : "sha256";
@@ -4594,11 +4640,7 @@ public final class BuiltinCatalog {
       default -> null;
     };
     Optional<byte[]> key = binaryBytes((StringValue) arguments.get(1));
-    Optional<byte[]> message = switch (input) {
-      case "binary" -> binaryBytes((StringValue) arguments.getFirst());
-      case "value" -> Optional.of(StringValue.of(arguments.getFirst().toLiteral()).bytes());
-      default -> Optional.of(((StringValue) arguments.getFirst()).bytes());
-    };
+    Optional<byte[]> message = hashInput(input, arguments.getFirst());
     if (mac == null || key.isEmpty() || message.isEmpty()) {
       return BuiltinResult.error(ErrorValue.E_INVARG);
     }
@@ -4607,7 +4649,10 @@ public final class BuiltinCatalog {
     mac.update(bytes, 0, bytes.length);
     byte[] digest = new byte[mac.getMacSize()];
     mac.doFinal(digest, 0);
-    boolean binary = arguments.size() > 3 && arguments.get(3).isTruthy();
+    return digestResult(digest, arguments.size() > 3 && arguments.get(3).isTruthy());
+  }
+
+  private static BuiltinResult digestResult(byte[] digest, boolean binary) {
     StringBuilder result = new StringBuilder(digest.length * (binary ? 3 : 2));
     for (byte current : digest) {
       int value = Byte.toUnsignedInt(current);
@@ -6187,7 +6232,7 @@ public final class BuiltinCatalog {
           .map(diagnostic -> (MooValue) StringValue.of(diagnostic.display())).toList()));
     }
     String canonicalSource =
-        compiled.program().orElseThrow().source().lines()
+        Arrays.stream(compiled.program().orElseThrow().source().split("\n", -1))
             .map(String::stripLeading)
             .collect(java.util.stream.Collectors.joining("\n"));
     WorldResult<Boolean> updated =
@@ -6238,7 +6283,8 @@ public final class BuiltinCatalog {
 
     boolean indent = arguments.size() < 4 || arguments.get(3).isTruthy();
     List<MooValue> lines =
-        MooUnparser.unparse(MooParser.parse(verb.programSource())).lines()
+        Arrays.stream(MooUnparser.unparse(MooParser.parse(verb.programSource()),
+            arguments.size() >= 3 && arguments.get(2).isTruthy()).split("\n", -1))
             .map(line -> indent ? line : line.stripLeading())
             .map(StringValue::of)
             .map(MooValue.class::cast)

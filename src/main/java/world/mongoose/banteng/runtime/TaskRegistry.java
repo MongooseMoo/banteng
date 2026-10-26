@@ -255,6 +255,9 @@ final class TaskRegistry {
 
   BuiltinResult killTask(BuiltinCall call) {
     long taskId = ((IntegerValue) call.arguments().getFirst()).value();
+    if (taskId == call.taskId()) {
+      return new BuiltinResult.KillAbort();
+    }
     WorldObject actor = call.world().object(call.programmer()).orElse(null);
     boolean wizard = actor != null && ObjectFlags.isWizard(actor.flags());
     FutureTask<BuiltinResult> submitted;

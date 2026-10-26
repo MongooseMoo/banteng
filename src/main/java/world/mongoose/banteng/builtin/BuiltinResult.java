@@ -67,6 +67,9 @@ public sealed interface BuiltinResult {
   /** Aborts remaining-seconds exhaustion without completing the builtin. */
   record SecondsAbort() implements BuiltinResult {}
 
+  /** Ends the current task while preserving effects it has already performed. */
+  record KillAbort() implements BuiltinResult {}
+
   /** Raises one MOO error with structured details. */
   record RaisedError(MooValue error, ListValue details) implements BuiltinResult {
     public RaisedError {

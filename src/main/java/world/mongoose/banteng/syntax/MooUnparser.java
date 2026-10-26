@@ -5,6 +5,7 @@ import java.util.Locale;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import world.mongoose.banteng.value.MooValue.FloatValue;
 
 /** Canonically renders the complete MOO syntax tree accepted by {@link MooParser}. */
 public final class MooUnparser {
@@ -45,14 +46,24 @@ public final class MooUnparser {
 
   /** Returns deterministic line-oriented MOO source for {@code program}. */
   public static String unparse(Ast.Program program) {
+    return unparse(program, false);
+  }
+
+  /** Renders optional parentheses around compound child expressions. */
+  public static String unparse(Ast.Program program, boolean parenthesize) {
     Objects.requireNonNull(program, "program");
-    Renderer renderer = new Renderer();
+    Renderer renderer = new Renderer(parenthesize);
     renderer.statements(program.statements(), 0);
     return renderer.text.toString();
   }
 
   private static final class Renderer {
     private final StringBuilder text = new StringBuilder();
+    private final boolean parenthesize;
+
+    private Renderer(boolean parenthesize) {
+      this.parenthesize = parenthesize;
+    }
 
     private void statements(List<Ast.Statement> statements, int indentation) {
       for (Ast.Statement statement : statements) {
@@ -192,197 +203,200 @@ public final class MooUnparser {
       }
       text.append("  ".repeat(indentation)).append(line);
     }
-  }
 
-  private static String expression(Ast.Expression expression, int minimumPrecedence) {
-    int precedence = precedence(expression);
-    String rendered;
-    if (expression instanceof Ast.Identifier identifier) {
-      rendered = canonicalVariableName(identifier.name());
-    } else if (expression instanceof Ast.IntegerLiteral integer) {
-      rendered = Long.toString(integer.value());
-    } else if (expression instanceof Ast.FloatLiteral floating) {
-      if (!Double.isFinite(floating.value())) {
-        throw new IllegalArgumentException("non-finite float literal");
-      }
-      rendered = Double.toString(floating.value());
-    } else if (expression instanceof Ast.StringLiteral string) {
-      rendered = quote(string.value());
-    } else if (expression instanceof Ast.ObjectLiteral object) {
-      rendered = "#" + object.value();
-    } else if (expression instanceof Ast.ErrorLiteral error) {
-      rendered = error.name();
-    } else if (expression instanceof Ast.ListLiteral list) {
-      rendered = "{" + joinExpressions(list.elements()) + "}";
-    } else if (expression instanceof Ast.MapLiteral map) {
-      StringBuilder entries = new StringBuilder();
-      for (Ast.MapEntry entry : map.entries()) {
-        if (!entries.isEmpty()) {
-          entries.append(", ");
+    private String expression(Ast.Expression expression, int minimumPrecedence) {
+      int precedence = precedence(expression);
+      String rendered;
+      if (expression instanceof Ast.Identifier identifier) {
+        rendered = canonicalVariableName(identifier.name());
+      } else if (expression instanceof Ast.IntegerLiteral integer) {
+        rendered = Long.toString(integer.value());
+      } else if (expression instanceof Ast.FloatLiteral floating) {
+        if (!Double.isFinite(floating.value())) {
+          throw new IllegalArgumentException("non-finite float literal");
         }
-        entries
-            .append(expression(entry.key(), ASSIGNMENT_PRECEDENCE))
-            .append(" -> ")
-            .append(expression(entry.value(), ASSIGNMENT_PRECEDENCE));
-      }
-      rendered = "[" + entries + "]";
-    } else if (expression instanceof Ast.Splice splice) {
-      rendered = "@" + expression(splice.value(), UNARY_PRECEDENCE);
-    } else if (expression instanceof Ast.ScatterElement element) {
-      rendered =
-          (element.rest() ? "@" : element.optional() ? "?" : "")
-              + canonicalVariableName(element.name())
-              + element
-                  .defaultValue()
-                  .map(value -> " = " + expression(value, ASSIGNMENT_PRECEDENCE))
-                  .orElse("");
-    } else if (expression instanceof Ast.Call call) {
-      rendered = call.name() + "(" + joinExpressions(call.arguments()) + ")";
-    } else if (expression instanceof Ast.VerbCall verbCall) {
-      Optional<String> name = staticName(verbCall.name());
-      Optional<String> systemName = systemName(verbCall.object(), verbCall.name());
-      rendered =
-          systemName.map(value -> "$" + value).orElseGet(
-                  () ->
-                      expression(verbCall.object(), POSTFIX_PRECEDENCE)
-                          + ":"
-                          + (name.isEmpty()
-                              ? "("
-                                  + expression(verbCall.name(), ASSIGNMENT_PRECEDENCE)
-                                  + ")"
-                              : name.orElseThrow()))
-              + "("
-              + joinExpressions(verbCall.arguments())
-              + ")";
-    } else if (expression instanceof Ast.Assignment assignment) {
-      rendered =
-          assignmentTarget(assignment.target())
-              + " = "
-              + expression(assignment.value(), ASSIGNMENT_PRECEDENCE);
-    } else if (expression instanceof Ast.PropertyAccess property) {
-      Optional<String> name = staticName(property.property());
-      Optional<String> systemName = systemName(property.object(), property.property());
-      rendered =
-          systemName.map(value -> "$" + value).orElseGet(
-              () ->
-                  expression(property.object(), POSTFIX_PRECEDENCE)
-                      + "."
-                      + (name.isEmpty()
-                          ? "("
-                              + expression(property.property(), ASSIGNMENT_PRECEDENCE)
-                              + ")"
-                          : name.orElseThrow()));
-    } else if (expression instanceof Ast.IndexAccess index) {
-      rendered =
-          expression(index.collection(), POSTFIX_PRECEDENCE)
-              + "["
-              + expression(index.index(), ASSIGNMENT_PRECEDENCE)
-              + "]";
-    } else if (expression instanceof Ast.RangeAccess range) {
-      rendered =
-          expression(range.collection(), POSTFIX_PRECEDENCE)
-              + "["
-              + expression(range.start(), ASSIGNMENT_PRECEDENCE)
-              + ".."
-              + expression(range.end(), ASSIGNMENT_PRECEDENCE)
-              + "]";
-    } else if (expression instanceof Ast.FirstIndex) {
-      rendered = "^";
-    } else if (expression instanceof Ast.LastIndex) {
-      rendered = "$";
-    } else if (expression instanceof Ast.Unary unary) {
-      rendered =
-          switch (unary.operator()) {
-            case NEGATE -> "-";
-            case NOT -> "!";
-            case COMPLEMENT -> "~";
+        rendered = new FloatValue(floating.value()).toLiteral();
+      } else if (expression instanceof Ast.StringLiteral string) {
+        rendered = quote(string.value());
+      } else if (expression instanceof Ast.ObjectLiteral object) {
+        rendered = "#" + object.value();
+      } else if (expression instanceof Ast.ErrorLiteral error) {
+        rendered = error.name();
+      } else if (expression instanceof Ast.ListLiteral list) {
+        rendered = "{" + joinExpressions(list.elements()) + "}";
+      } else if (expression instanceof Ast.MapLiteral map) {
+        StringBuilder entries = new StringBuilder();
+        for (Ast.MapEntry entry : map.entries()) {
+          if (!entries.isEmpty()) {
+            entries.append(", ");
           }
-              + expression(unary.operand(), UNARY_PRECEDENCE);
-    } else if (expression instanceof Ast.Binary binary) {
-      int operatorPrecedence = binaryPrecedence(binary.operator());
-      boolean rightAssociative = binary.operator() == Ast.BinaryOperator.POWER;
-      rendered =
-          expression(binary.left(), operatorPrecedence + (rightAssociative ? 1 : 0))
-              + " "
-              + binaryOperator(binary.operator())
-              + " "
-              + expression(binary.right(), operatorPrecedence + (rightAssociative ? 0 : 1));
-    } else if (expression instanceof Ast.Ternary ternary) {
-      rendered =
-          expression(ternary.condition(), TERNARY_PRECEDENCE + 1)
-              + " ? "
-              + expression(ternary.trueExpression(), ASSIGNMENT_PRECEDENCE)
-              + " | "
-              + expression(ternary.falseExpression(), ASSIGNMENT_PRECEDENCE);
-    } else if (expression instanceof Ast.Catch catchExpression) {
-      rendered =
-          "`"
-              + expression(catchExpression.guarded(), ASSIGNMENT_PRECEDENCE)
-              + " ! "
-              + errors(catchExpression.errors())
-              + catchExpression
-                  .fallback()
-                  .map(value -> " => " + expression(value, ASSIGNMENT_PRECEDENCE))
-                  .orElse("")
-              + "'";
-    } else {
-      throw new IllegalArgumentException("unsupported expression: " + expression);
-    }
-    return precedence < minimumPrecedence ? "(" + rendered + ")" : rendered;
-  }
-
-  private static String assignmentTarget(Ast.AssignmentTarget target) {
-    if (target instanceof Ast.VariableTarget variable) {
-      return canonicalVariableName(variable.name());
-    }
-    if (target instanceof Ast.PropertyTarget property) {
-      Optional<String> name = staticName(property.property());
-      Optional<String> systemName = systemName(property.object(), property.property());
-      if (systemName.isPresent()) {
-        return "$" + systemName.orElseThrow();
-      }
-      return expression(property.object(), POSTFIX_PRECEDENCE)
-          + "."
-          + (name.isEmpty()
-              ? "(" + expression(property.property(), ASSIGNMENT_PRECEDENCE) + ")"
-              : name.orElseThrow());
-    }
-    if (target instanceof Ast.IndexTarget index) {
-      return expression(index.collection(), POSTFIX_PRECEDENCE)
-          + "["
-          + expression(index.index(), ASSIGNMENT_PRECEDENCE)
-          + "]";
-    }
-    if (target instanceof Ast.RangeTarget range) {
-      return expression(range.collection(), POSTFIX_PRECEDENCE)
-          + "["
-          + expression(range.start(), ASSIGNMENT_PRECEDENCE)
-          + ".."
-          + expression(range.end(), ASSIGNMENT_PRECEDENCE)
-          + "]";
-    }
-    if (target instanceof Ast.ScatterTarget scatter) {
-      StringBuilder elements = new StringBuilder();
-      for (Ast.ScatterElement element : scatter.elements()) {
-        if (!elements.isEmpty()) {
-          elements.append(", ");
+          entries
+              .append(expression(entry.key(), ASSIGNMENT_PRECEDENCE))
+              .append(" -> ")
+              .append(expression(entry.value(), ASSIGNMENT_PRECEDENCE));
         }
-        elements.append(expression(element, ASSIGNMENT_PRECEDENCE));
+        rendered = "[" + entries + "]";
+      } else if (expression instanceof Ast.Splice splice) {
+        rendered = "@" + expression(splice.value(), UNARY_PRECEDENCE);
+      } else if (expression instanceof Ast.ScatterElement element) {
+        rendered =
+            (element.rest() ? "@" : element.optional() ? "?" : "")
+                + canonicalVariableName(element.name())
+                + element
+                    .defaultValue()
+                    .map(value -> " = " + expression(value, ASSIGNMENT_PRECEDENCE))
+                    .orElse("");
+      } else if (expression instanceof Ast.Call call) {
+        rendered = call.name() + "(" + joinExpressions(call.arguments()) + ")";
+      } else if (expression instanceof Ast.VerbCall verbCall) {
+        Optional<String> name = staticName(verbCall.name());
+        Optional<String> systemName = systemName(verbCall.object(), verbCall.name());
+        rendered =
+            systemName.map(value -> "$" + value).orElseGet(
+                    () ->
+                        expression(verbCall.object(), POSTFIX_PRECEDENCE)
+                            + ":"
+                            + (name.isEmpty()
+                                ? "("
+                                    + expression(verbCall.name(), ASSIGNMENT_PRECEDENCE)
+                                    + ")"
+                                : name.orElseThrow()))
+                + "("
+                + joinExpressions(verbCall.arguments())
+                + ")";
+      } else if (expression instanceof Ast.Assignment assignment) {
+        rendered =
+            assignmentTarget(assignment.target())
+                + " = "
+                + expression(assignment.value(), ASSIGNMENT_PRECEDENCE);
+      } else if (expression instanceof Ast.PropertyAccess property) {
+        Optional<String> name = staticName(property.property());
+        Optional<String> systemName = systemName(property.object(), property.property());
+        rendered =
+            systemName.map(value -> "$" + value).orElseGet(
+                () ->
+                    expression(property.object(), POSTFIX_PRECEDENCE)
+                        + "."
+                        + (name.isEmpty()
+                            ? "("
+                                + expression(property.property(), ASSIGNMENT_PRECEDENCE)
+                                + ")"
+                            : name.orElseThrow()));
+      } else if (expression instanceof Ast.IndexAccess index) {
+        rendered =
+            expression(index.collection(), POSTFIX_PRECEDENCE)
+                + "["
+                + expression(index.index(), ASSIGNMENT_PRECEDENCE)
+                + "]";
+      } else if (expression instanceof Ast.RangeAccess range) {
+        rendered =
+            expression(range.collection(), POSTFIX_PRECEDENCE)
+                + "["
+                + expression(range.start(), ASSIGNMENT_PRECEDENCE)
+                + ".."
+                + expression(range.end(), ASSIGNMENT_PRECEDENCE)
+                + "]";
+      } else if (expression instanceof Ast.FirstIndex) {
+        rendered = "^";
+      } else if (expression instanceof Ast.LastIndex) {
+        rendered = "$";
+      } else if (expression instanceof Ast.Unary unary) {
+        rendered =
+            switch (unary.operator()) {
+              case NEGATE -> "-";
+              case NOT -> "!";
+              case COMPLEMENT -> "~";
+            }
+                + expression(unary.operand(), UNARY_PRECEDENCE);
+      } else if (expression instanceof Ast.Binary binary) {
+        int operatorPrecedence = binaryPrecedence(binary.operator());
+        boolean rightAssociative = binary.operator() == Ast.BinaryOperator.POWER;
+        rendered =
+            expression(binary.left(), operatorPrecedence + (rightAssociative ? 1 : 0))
+                + " "
+                + binaryOperator(binary.operator())
+                + " "
+                + expression(binary.right(), operatorPrecedence + (rightAssociative ? 0 : 1));
+      } else if (expression instanceof Ast.Ternary ternary) {
+        rendered =
+            expression(ternary.condition(), TERNARY_PRECEDENCE + 1)
+                + " ? "
+                + expression(ternary.trueExpression(), ASSIGNMENT_PRECEDENCE)
+                + " | "
+                + expression(ternary.falseExpression(), ASSIGNMENT_PRECEDENCE);
+      } else if (expression instanceof Ast.Catch catchExpression) {
+        rendered =
+            "`"
+                + expression(catchExpression.guarded(), ASSIGNMENT_PRECEDENCE)
+                + " ! "
+                + errors(catchExpression.errors())
+                + catchExpression
+                    .fallback()
+                    .map(value -> " => " + expression(value, ASSIGNMENT_PRECEDENCE))
+                    .orElse("")
+                + "'";
+      } else {
+        throw new IllegalArgumentException("unsupported expression: " + expression);
       }
-      return "{" + elements + "}";
+      return precedence < minimumPrecedence
+              || (parenthesize && minimumPrecedence > ASSIGNMENT_PRECEDENCE
+                  && precedence < POSTFIX_PRECEDENCE)
+          ? "(" + rendered + ")" : rendered;
     }
-    throw new IllegalArgumentException("unsupported assignment target: " + target);
-  }
 
-  private static String joinExpressions(List<Ast.Expression> expressions) {
-    StringBuilder joined = new StringBuilder();
-    for (Ast.Expression expression : expressions) {
-      if (!joined.isEmpty()) {
-        joined.append(", ");
+    private String assignmentTarget(Ast.AssignmentTarget target) {
+      if (target instanceof Ast.VariableTarget variable) {
+        return canonicalVariableName(variable.name());
       }
-      joined.append(expression(expression, ASSIGNMENT_PRECEDENCE));
+      if (target instanceof Ast.PropertyTarget property) {
+        Optional<String> name = staticName(property.property());
+        Optional<String> systemName = systemName(property.object(), property.property());
+        if (systemName.isPresent()) {
+          return "$" + systemName.orElseThrow();
+        }
+        return expression(property.object(), POSTFIX_PRECEDENCE)
+            + "."
+            + (name.isEmpty()
+                ? "(" + expression(property.property(), ASSIGNMENT_PRECEDENCE) + ")"
+                : name.orElseThrow());
+      }
+      if (target instanceof Ast.IndexTarget index) {
+        return expression(index.collection(), POSTFIX_PRECEDENCE)
+            + "["
+            + expression(index.index(), ASSIGNMENT_PRECEDENCE)
+            + "]";
+      }
+      if (target instanceof Ast.RangeTarget range) {
+        return expression(range.collection(), POSTFIX_PRECEDENCE)
+            + "["
+            + expression(range.start(), ASSIGNMENT_PRECEDENCE)
+            + ".."
+            + expression(range.end(), ASSIGNMENT_PRECEDENCE)
+            + "]";
+      }
+      if (target instanceof Ast.ScatterTarget scatter) {
+        StringBuilder elements = new StringBuilder();
+        for (Ast.ScatterElement element : scatter.elements()) {
+          if (!elements.isEmpty()) {
+            elements.append(", ");
+          }
+          elements.append(expression(element, ASSIGNMENT_PRECEDENCE));
+        }
+        return "{" + elements + "}";
+      }
+      throw new IllegalArgumentException("unsupported assignment target: " + target);
     }
-    return joined.toString();
+
+    private String joinExpressions(List<Ast.Expression> expressions) {
+      StringBuilder joined = new StringBuilder();
+      for (Ast.Expression expression : expressions) {
+        if (!joined.isEmpty()) {
+          joined.append(", ");
+        }
+        joined.append(expression(expression, ASSIGNMENT_PRECEDENCE));
+      }
+      return joined.toString();
+    }
   }
 
   private static Optional<String> staticName(Ast.Expression expression) {

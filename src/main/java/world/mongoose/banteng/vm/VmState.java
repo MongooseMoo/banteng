@@ -284,6 +284,11 @@ public final class VmState {
     outcome = Outcome.ABORTED;
   }
 
+  void abortKilled() {
+    pendingError = Optional.empty();
+    outcome = Outcome.KILLED;
+  }
+
   public void ensureRoot(BytecodeProgram program) {
     if (frames.isEmpty()) {
       MooValue receiver = initialLocals.getOrDefault("this", new ObjectValue(-1));
@@ -1385,6 +1390,7 @@ public final class VmState {
     PENDING_BUILTIN,
     RETURNED,
     ERRORED,
-    ABORTED
+    ABORTED,
+    KILLED
   }
 }
