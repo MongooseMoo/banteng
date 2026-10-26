@@ -2,17 +2,12 @@ package world.mongoose.banteng.app;
 
 import java.io.BufferedReader;
 import java.io.IOException;
-import java.lang.reflect.Method;
-import java.lang.reflect.Proxy;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.Callable;
-import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicReference;
 import world.mongoose.banteng.logging.ServerLog;
 import world.mongoose.banteng.persistence.LambdaMooV17Codec;
 import world.mongoose.banteng.persistence.LambdaMooV17Codec.Checkpoint;
@@ -64,6 +59,7 @@ public final class Banteng implements Callable<Integer> {
 
   /** Loads the configured database and blocks while serving connections. */
   @Override
+  @SuppressWarnings("try")
   public Integer call() throws Exception {
     CommandSpec spec = Objects.requireNonNull(commandSpec, "picocli command spec");
     if (port < 1 || port > 65_535) {
@@ -99,12 +95,7 @@ public final class Banteng implements Callable<Integer> {
               default -> throw new IOException("unsupported database header: " + header);
             };
       }
-      GracefulShutdownCoordinator shutdown = new GracefulShutdownCoordinator();
-      try (SignalRegistration signalRegistration =
-              SignalRegistration.install("TERM", shutdown::request);
-          SignalRegistration interruptRegistration =
-              SignalRegistration.install("INT", shutdown::request);
-          MooServer server =
+      try (MooServer server =
               new MooServer(
                   listenAddress,
                   port,
@@ -115,17 +106,8 @@ public final class Banteng implements Callable<Integer> {
                   loaded.activeConnections(),
                   serverLog,
                   valueSemantics())) {
-        signalRegistration.keepAlive();
-        interruptRegistration.keepAlive();
-        try (SignalRegistration usr1 =
-                SignalRegistration.install("USR1", () -> server.handleSignal("SIGUSR1"));
-            SignalRegistration usr2 =
-                SignalRegistration.install("USR2", () -> server.handleSignal("SIGUSR2"))) {
-          usr1.keepAlive();
-          usr2.keepAlive();
-          if (!shutdown.attach(server)) {
-            server.serve();
-          }
+        try (ProcessSignals signals = new ProcessSignals(server::handleSignal)) {
+          server.serve();
         }
       }
     }
@@ -142,82 +124,4 @@ public final class Banteng implements Callable<Integer> {
     return new ValueSemantics(promoteNumbers);
   }
 
-  private static final class SignalRegistration implements AutoCloseable {
-    private final Method handle;
-    private final Object signal;
-    private final Object previous;
-    @SuppressWarnings("unused")
-    private final Object installed;
-
-    private SignalRegistration(Method handle, Object signal, Object previous, Object installed) {
-      this.handle = handle;
-      this.signal = signal;
-      this.previous = previous;
-      this.installed = installed;
-    }
-
-    static SignalRegistration install(String name, Runnable action) throws ReflectiveOperationException {
-      Class<?> signalType = Class.forName("sun.misc.Signal");
-      Class<?> handlerType = Class.forName("sun.misc.SignalHandler");
-      Object signal = signalType.getConstructor(String.class).newInstance(name);
-      Object handler =
-          Proxy.newProxyInstance(
-              ClassLoader.getSystemClassLoader(),
-              new Class<?>[] {handlerType},
-              (proxy, method, arguments) -> {
-                if (method.getName().equals("handle")) {
-                  Thread.ofPlatform().name("banteng-signal-" + name).start(action);
-                }
-                return null;
-              });
-      Method handle = signalType.getMethod("handle", signalType, handlerType);
-      Object previous = handle.invoke(null, signal, handler);
-      return new SignalRegistration(handle, signal, previous, handler);
-    }
-
-    @Override
-    public void close() throws ReflectiveOperationException {
-      handle.invoke(null, signal, previous);
-    }
-
-    void keepAlive() {
-      // Referenced by the serving scope so javac verifies the registration remains live.
-    }
-  }
-
-  private static final class GracefulShutdownCoordinator {
-    private final AtomicReference<@Nullable MooServer> server = new AtomicReference<>();
-    private final AtomicBoolean requested = new AtomicBoolean();
-    private final AtomicBoolean handled = new AtomicBoolean();
-    private final CountDownLatch attached = new CountDownLatch(1);
-
-    boolean attach(MooServer attachedServer) {
-      if (!server.compareAndSet(null, attachedServer)) {
-        throw new IllegalStateException("shutdown server is already attached");
-      }
-      attached.countDown();
-      if (!requested.get()) {
-        return false;
-      }
-      handle(attachedServer);
-      return true;
-    }
-
-    void request() {
-      requested.set(true);
-      try {
-        attached.await();
-      } catch (InterruptedException interrupted) {
-        Thread.currentThread().interrupt();
-        throw new IllegalStateException("SIGTERM handling interrupted", interrupted);
-      }
-      handle(Objects.requireNonNull(server.get(), "attached shutdown server"));
-    }
-
-    private void handle(MooServer attachedServer) {
-      if (handled.compareAndSet(false, true)) {
-        attachedServer.gracefulShutdown();
-      }
-    }
-  }
 }

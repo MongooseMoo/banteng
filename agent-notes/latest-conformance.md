@@ -124,3 +124,20 @@ explicit parentheses in the new scatter operand condition; corrected it.
 Also register INT with TERM's existing shutdown coordinator. Toast server.cc:929
 and 2354-2362 plus signals_shutdown.yaml require a shutdown notification and final
 dump without checkpoint hooks. Correct that existing shutdown path (~15 lines).
+
+OpenJDK jdk25u src/hotspot/os/posix/jvm_posix.cpp JVM_RegisterSignal rejects
+FPE/ILL/SEGV/QUIT; signals_posix.cpp uses SIGUSR2 for VM thread suspend/resume.
+The reflection adapter cannot implement the tested POSIX contract safely. Replace
+it with a process-owned native bridge (~220 lines C/Java/build integration):
+async-signal-safe pipe writes for externally delivered signals, saved JVM handlers
+for internally generated signals, blocking pipe read on a Java platform thread.
+No Java upcall from signal context. Preserve inherited ignored HUP. Keep bridge
+code/descriptors alive until process exit so an in-flight native handler cannot
+use an unloaded function or reused descriptor. Existing runtime owns all effects.
+
+CI 40274221191 compiles the parser and Java signal slice. Its Java suite has one
+stale expectation for the former "Parse error" text; update the existing assertion
+to "Line 1:  syntax error". Conformance still running while native work proceeds.
+Native bridge additionally dispatches ALRM to timer checkpoint and panic signals
+to existing panic snapshot/abort, preserving inherited HUP ignore. Build uses a
+POSIX C compiler and packages the bridge in the application resources.

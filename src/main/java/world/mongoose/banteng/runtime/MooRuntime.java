@@ -452,11 +452,23 @@ public final class MooRuntime implements AutoCloseable {
   }
 
   /** Delivers a process signal through the same scheduler as server tasks. */
-  public void handleSignal(String signal) {
+  public void handleSignal(int signal) {
     scheduler.enqueueDetached(RuntimeRequest.signal(signal));
   }
 
-  private RuntimeStep signalNow(String signal) {
+  private RuntimeStep signalNow(int number) {
+    if (number == 14) {
+      return signalDefault("SIGALRM");
+    }
+    if (number != 10 && number != 12) {
+      for (long connectionId : connections().keySet()) {
+        effects().add(RuntimeEffect.write(connectionId,
+            List.of("*** Shutting down: server panic ***")));
+      }
+      effects().add(RuntimeEffect.panic("Caught signal " + number));
+      return RuntimeStep.returned(List.of());
+    }
+    String signal = number == 10 ? "SIGUSR1" : "SIGUSR2";
     WorldVerb handler = world().verb(0, "handle_signal").orElse(null);
     if (handler == null) {
       return signalDefault(signal);
@@ -475,15 +487,16 @@ public final class MooRuntime implements AutoCloseable {
       return RuntimeStep.returned(List.of());
     }
     WorldVerb started = world().verb(0, "checkpoint_started").orElse(null);
+    String reason = signal.equals("SIGALRM") ? "due to timer." : "due to remote request signal.";
     if (started == null) {
-      effects().add(RuntimeEffect.checkpoint(false, "due to remote request signal."));
+      effects().add(RuntimeEffect.checkpoint(false, reason));
       return RuntimeStep.returned(List.of());
     }
     return startStored(
         started,
         verbLocals(0, -1, -1, "checkpoint_started", new ListValue(List.of()), ""),
         RuntimeContinuation.after(
-            RuntimeTransition.CHECKPOINT_STARTED_RETURN, 0, "due to remote request signal.",
+            RuntimeTransition.CHECKPOINT_STARTED_RETURN, 0, reason,
             List.of(), 0, 0, false));
   }
 
@@ -3122,7 +3135,7 @@ public final class MooRuntime implements AutoCloseable {
       return switch (request.operation) {
         case STARTUP -> startServerNow();
         case GRACEFUL_SHUTDOWN -> gracefulShutdownNow();
-        case SIGNAL -> signalNow(request.text);
+        case SIGNAL -> signalNow(Math.toIntExact(request.generation));
         case CHECKPOINT_DISCONNECT ->
             checkpointDisconnectNow(request.connectionId, request.listenerHandler);
         case OPEN ->
@@ -3571,6 +3584,7 @@ public final class MooRuntime implements AutoCloseable {
                         .toString()
                     + ".PANIC");
         serverLog.error("PANIC: " + effect.text);
+        serverLog.error("PANIC-DUMPING to " + target);
         try {
           checkpointCodec.writePanic(
               target,
@@ -4017,9 +4031,9 @@ public final class MooRuntime implements AutoCloseable {
           Operation.STARTUP, 0, 0, false, new MapValue(Map.of()), "", 0);
     }
 
-    static RuntimeRequest signal(String signal) {
+    static RuntimeRequest signal(int signal) {
       return new RuntimeRequest(
-          Operation.SIGNAL, 0, 0, false, new MapValue(Map.of()), signal, 0);
+          Operation.SIGNAL, 0, 0, false, new MapValue(Map.of()), "", signal);
     }
 
     static RuntimeRequest gracefulShutdown() {
