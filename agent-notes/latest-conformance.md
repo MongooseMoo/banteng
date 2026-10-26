@@ -9,9 +9,13 @@ Necessary redesign/cleanup is in scope; weakening tests or skipping failures is 
 ## State
 
 - Isolated branch `fix/latest-conformance` starts at Banteng master `2ccad0597d7a6889e1607174cd2e6513a2032542`.
-- Existing master CI run 32452595044 passed against suite `6528b8cf6d72c065c722469b070fea16d626e602` in August; it is not current evidence.
-- Suite main observed as `8dbe801819c41529122cfb1f98f68e9b709db383` at task start and is actively changing.
-- No implementation changes yet. Publish this note to obtain the existing PR CI baseline.
+- PR: https://github.com/MongooseMoo/banteng/pull/82. Worktree: `C:/Users/Q/code/banteng-latest-conformance`.
+- Current pushed implementation head: `a8f2390`; CI40289133756 completed. No merge or release.
+- Suite main refreshed to `3d51b089017a1985b42ab5ee71159ebad3fff2b6` on October26. CI checks out main on every run.
+- Current behavioral evidence:a8f2390 / CI40289133756, tested merge1eca5fd against suite main3d51b08. Java/static/stress/benchmarks, CodeQL, workflow lint and dependency review passed. Conformance:1 failure,11558 passed,1771 declared skips. Only failed_dump_selects_existing_output remains (expected5, actual2356 after a successful checkpoint).
+- Fork/suspend and waif task_stack cases passed on the output-order repair. The source race is fixed; this single CI run does not prove every possible intermittent timeout is eliminated. No local CI/test/build runs.
+- Q additionally requested PR comments addressed. Original two are fixed. Callback cleanup is pushed; match-all-pattern false positives have JLS-backed replies. No review or alert was dismissed.
+- Scope question pending via question tool: may the upstream failed-dump fixture be corrected to induce write failure independently of Toast/Barn temporary names? No upstream fixture changes made.
 
 ## Decisions and why
 
@@ -30,8 +34,10 @@ investigation. It remains untouched.
 
 ## Next step
 
-Open the PR, inspect the suite checkout SHA and conformance failures, and trace
-each failure into current tests and Banteng source before changing behavior.
+Await Q's upstream fixture scope decision before any fixture edits. All
+independently authorized implementation and PR-comment repairs are pushed.
+Keep the original checkout and dirty sibling suite untouched. Historical
+implementation slices and evidence follow below.
 
 ## Implementation: verb-name whitespace
 
@@ -469,3 +475,12 @@ unchanged. No upstream fixture edits have been made while that choice is open.
 GuardedBy: the checker cannot transfer the surrounding monitor ownership into
 those lambdas. Use direct OptionalLong presence checks within the existing
 synchronized blocks. No runtime verification ran on that head.
+
+a8f2390 CI40289133756 completed: Java/static/fuzz/schedulerStress/jcstress/jmh
+and namespace rewrite all passed, as did CodeQL/workflow/dependency jobs.
+Conformance main3d51b08: only failed_dump_selects_existing_output failed,
+expected5 versus2356;11558 passed and1771 declared skips. The fork/suspend
+timeout case passed. Original comments168/169 and callback171 are fixed;
+172/173 remain explained match-all-pattern false positives, not dismissed.
+Current code is published. This final status-note update is committed locally
+without re-pushing unchanged implementation while upstream scope is pending.
