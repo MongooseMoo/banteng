@@ -177,3 +177,24 @@ E_INVARG. Use their existing world.property overload and anonymous body metadata
 
 CI 40275811465 stopped at compilation: Error Prone rejects the anonymous cast
 inside the receiver-test ternaries. Replaced those with typed pattern switches.
+
+Fork repair uses existing irrevocable authorization and checkpointingWork, not
+a second scheduler (~100 changed lines replacing the fork boundary branch).
+Before allocating an ID, rerun the current segment at its publication turn.
+Register the child for same-task introspection/persistence, bind its ID into
+the copied locals, continue the parent in the same WorldTxn, and make children
+runnable only after that segment publishes. Toast tasks.cc:1258-1296 copies the
+environment after binding the named ID. Task abort also publishes effects already
+performed; only speculative conflicts roll back (architecture research line 30).
+
+Resume repair (~45 lines): updateSuspended must register foreground tasks too.
+Keep zero-delay waits in existing checkpointingWork until publication, search
+that owner as well as timedWork in resume(), and retain one queued activation.
+An attempt whose wake value was changed by an earlier ticket must retry from its
+existing snapshot with the new value. ErrorValue resumes raise at suspend.
+These are the producer paths in fork_timing.yaml's zero/expired-resume cases.
+
+CI 40276121013 conformance completed: 93 failed, 11223 passed, 1958 skipped.
+Java compileTest needs its TaskRegistryTest error helper to assert ErrorValue
+after RaisedError was widened; fixed. Native signal startup failures are not
+yet reverified by the Java suite because that compilation failure stopped it.

@@ -351,7 +351,8 @@ final class TaskRegistryTest {
     if (result instanceof BuiltinResult.ErrorResult error) {
       return error.error();
     }
-    return assertInstanceOf(BuiltinResult.RaisedError.class, result).error();
+    return assertInstanceOf(ErrorValue.class,
+        assertInstanceOf(BuiltinResult.RaisedError.class, result).error());
   }
 
   private static StringValue string(String value) {

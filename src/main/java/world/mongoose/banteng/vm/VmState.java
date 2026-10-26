@@ -866,14 +866,25 @@ public final class VmState {
     outcome = Outcome.FORKED;
   }
 
-  /** Clears a published fork boundary and supplies its assigned child task ID. */
-  public void continueAfterFork(IntegerValue taskId) {
+  /** Binds the assigned child ID before copying the fork's environment. */
+  public VmSnapshot.Fork continueAfterFork(IntegerValue taskId) {
     if (outcome != Outcome.FORKED || forkRequest.isEmpty()) {
       throw new IllegalStateException("VM is not at a fork boundary");
+    }
+    VmSnapshot.Fork request = forkRequest.orElseThrow();
+    Map<String, MooValue> childLocals = new LinkedHashMap<>(request.locals());
+    Frame frame = currentFrame();
+    // The compiler emits the fork's named binding immediately after FORK.
+    var binding = frame.program.instructions().get(frame.instructionPointer);
+    if (binding.opcode() == BytecodeProgram.Opcode.STORE_LOCAL) {
+      childLocals.put(binding.text().orElseThrow().toLowerCase(Locale.ROOT), taskId);
     }
     forkRequest = Optional.empty();
     currentFrame().operandStack.push(taskId);
     outcome = Outcome.RUNNING;
+    return new VmSnapshot.Fork(request.program(), childLocals, request.programmer(),
+        request.verbLocation(), request.calledVerb(), request.fullVerbName(),
+        request.debug(), request.delaySeconds());
   }
 
   void suspend(OptionalDouble delaySeconds, Optional<Callable<BuiltinResult>> externalWork) {

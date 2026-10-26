@@ -766,6 +766,7 @@ final class PublicationScheduler implements AutoCloseable {
 
   BuiltinResult resumeTask(BuiltinCall call) {
     long taskId = ((IntegerValue) call.arguments().getFirst()).value();
+    if (taskId == call.taskId()) return BuiltinResult.error(ErrorValue.E_INVARG);
     switch (taskRegistry.taskControlDecision(taskId, call.world(), call.programmer())) {
       case DENIED -> {
         return BuiltinResult.error(ErrorValue.E_PERM);
@@ -779,9 +780,20 @@ final class PublicationScheduler implements AutoCloseable {
     }
     MooValue value =
         call.arguments().size() == 2 ? call.arguments().get(1) : new IntegerValue(0);
+    BuiltinResult completion = value instanceof ErrorValue error
+        ? BuiltinResult.error(error) : BuiltinResult.value(value);
     TimedWork resumed;
     synchronized (this) {
       resumed = timedWork.get(taskId);
+      if (resumed == null) {
+        resumed = checkpointingWork.get(taskId);
+        if (resumed == null || resumed.wakeResult().isEmpty()) {
+          return BuiltinResult.error(ErrorValue.E_INVARG);
+        }
+        checkpointingWork.put(taskId, new TimedWork(resumed.work(), System.currentTimeMillis(),
+            Optional.of(completion), resumed.durableTask()));
+        return BuiltinResult.value(new IntegerValue(0));
+      }
       if (resumed == null || resumed.wakeResult().isEmpty()) {
         return BuiltinResult.error(ErrorValue.E_INVARG);
       }
@@ -792,7 +804,7 @@ final class PublicationScheduler implements AutoCloseable {
           new TimedWork(
               resumed.work(),
               System.currentTimeMillis(),
-              Optional.of(BuiltinResult.value(value)),
+              Optional.of(completion),
               resumed.durableTask());
       if (checkpointingWork.putIfAbsent(taskId, readyToResume) != null) {
         throw new IllegalStateException("task already has checkpointing state " + taskId);
@@ -1301,6 +1313,12 @@ final class PublicationScheduler implements AutoCloseable {
   }
 
   private void executeAttempt(Entry entry) {
+    synchronized (this) {
+      TimedWork pending = checkpointingWork.get(entry.taskId());
+      if (entry.wakeResult().isPresent() && pending != null && pending.wakeResult().isPresent()) {
+        entry = entry.withWake(pending.wakeResult().orElseThrow());
+      }
+    }
     @Nullable TaskSegmentEvent segment = null;
     if (FlightRecorder.isInitialized()) {
       segment = new TaskSegmentEvent();
@@ -1389,13 +1407,7 @@ final class PublicationScheduler implements AutoCloseable {
               : VmState.restore(snapshot.orElseThrow());
       if (wakeResult.isPresent()) {
         BuiltinResult completion = wakeResult.orElseThrow();
-        if (state.outcome() == VmState.Outcome.FORKED) {
-          if (!(completion instanceof BuiltinResult.Value(MooValue value))
-              || !(value instanceof IntegerValue integer)) {
-            throw new IllegalStateException("fork completion is not an integer value");
-          }
-          state.continueAfterFork(integer);
-        } else if (completion instanceof BuiltinResult.ErrorResult
+        if (completion instanceof BuiltinResult.ErrorResult
             || completion instanceof BuiltinResult.RaisedError) {
           runtime.vm().resumeWithError(state, completion, transaction);
         } else if (completion instanceof BuiltinResult.Value value) {
@@ -1416,15 +1428,20 @@ final class PublicationScheduler implements AutoCloseable {
                 transaction,
                 runtime.builtins(),
                 start.taskId());
-        if (state.outcome() != VmState.Outcome.ABORTED) {
-          runtime.publishVmState(
+        runtime.publishVmState(
               state,
               taskPlayer,
               finalizationControl.isEmpty(),
               taskRegistry.snapshotsExcluding(start.taskId()));
-        }
         if (state.outcome() == VmState.Outcome.FORKED) {
-          VmSnapshot.Fork fork = state.snapshot().forkRequest().orElseThrow();
+          if (!start.irrevocableAuthorized()) {
+            return SegmentResult.irrevocable(pendingForks, finalizationControl);
+          }
+          long childTaskId;
+          synchronized (this) {
+            childTaskId = nextTaskId++;
+          }
+          VmSnapshot.Fork fork = state.continueAfterFork(new IntegerValue(childTaskId));
           VmState child =
               new VmState(
                   fork.locals(),
@@ -1436,17 +1453,22 @@ final class PublicationScheduler implements AutoCloseable {
                   fork.debug(),
                   fork.calledVerb(),
                   fork.fullVerbName());
-          pendingForks.add(
-              new PendingFork(
-                  fork.program(), child.snapshot(), taskPlayer, fork.delaySeconds()));
-          return SegmentResult.boundary(
-              program.orElseThrow(),
-              state.snapshot(),
-              taskPlayer,
-              continuation,
-              finalizationControl,
-              Optional.empty(),
-              pendingForks);
+          VmSnapshot childState = child.snapshot();
+          long scheduledStart = Math.addExact(
+              System.currentTimeMillis(), Math.round(fork.delaySeconds() * 1_000.0));
+          TimedWork pending = new TimedWork(
+              new SuspendedWork(childTaskId, fork.program(), childState, taskPlayer,
+                  Optional.empty(), Optional.empty(), true),
+              scheduledStart, Optional.empty(), Optional.empty());
+          synchronized (this) {
+            taskRegistry.registerFork(childTaskId, Math.floorDiv(scheduledStart, 1_000L),
+                childState.initialProgrammer(), childState.initialVerbLocation(),
+                childState.initialLocals(), childState.initialFullVerbName(),
+                fork.program().instructions().isEmpty() ? 1 : fork.program().sourceLine(0), childState);
+            checkpointingWork.put(childTaskId, pending);
+          }
+          pendingForks.add(new PendingFork(pending));
+          continue;
         }
         if (state.outcome() == VmState.Outcome.PENDING_BUILTIN) {
           if (!start.irrevocableAuthorized()) {
@@ -1593,6 +1615,20 @@ final class PublicationScheduler implements AutoCloseable {
   }
 
   private void publishSegmentResultOutsideMonitor(Entry start, SegmentResult result) {
+    for (PendingFork fork : result.pendingForks()) {
+      TimedWork pending = fork.work();
+      synchronized (this) {
+        if (taskRegistry.discardIfCanceled(pending.work().taskId())) {
+          checkpointingWork.remove(pending.work().taskId());
+          continue;
+        }
+      }
+      if (pending.scheduledEpochMilli() <= System.currentTimeMillis()) {
+        enqueueReady(pending.work());
+      } else {
+        startTimer(pending);
+      }
+    }
     if (result.timeoutSnapshot().isPresent()) {
       synchronized (this) {
         nextPublicationTicket++;
@@ -1634,11 +1670,19 @@ final class PublicationScheduler implements AutoCloseable {
     publishVmCompletionOutsideMonitor(
         boundary,
         result.snapshot().orElseThrow(),
-        result.hostWork(),
-        result.pendingForks());
+        result.hostWork());
   }
 
   private PublishedAttempt publishAttempt(Attempt attempt) {
+    synchronized (this) {
+      TimedWork pending = checkpointingWork.get(attempt.entry().taskId());
+      if (attempt.entry().wakeResult().isPresent() && pending != null
+          && pending.wakeResult().isPresent()
+          && !pending.wakeResult().equals(attempt.entry().wakeResult())) {
+        attempt.transaction().close();
+        return PublishedAttempt.retryAttempt();
+      }
+    }
     if (taskRegistry.discardIfCanceled(attempt.entry().taskId())) {
       attempt.transaction().close();
       return PublishedAttempt.failed(
@@ -1649,10 +1693,6 @@ final class PublicationScheduler implements AutoCloseable {
       return PublishedAttempt.failed(attempt.failure().orElseThrow());
     }
     SegmentResult segment = attempt.result().orElseThrow();
-    if (segment.aborted()) {
-      attempt.transaction().close();
-      return PublishedAttempt.published(List.of());
-    }
     MooRuntime.AttemptContext context = attempt.context().orElseThrow();
     if (!runtime.sessionsAreCurrent(context)) {
       attempt.transaction().close();
@@ -1702,69 +1742,13 @@ final class PublicationScheduler implements AutoCloseable {
   private void publishVmCompletionOutsideMonitor(
       Entry entry,
       VmSnapshot snapshot,
-      Optional<Callable<BuiltinResult>> hostWork,
-      List<PendingFork> pendingForks) {
+      Optional<Callable<BuiltinResult>> hostWork) {
     synchronized (this) {
       checkpointingWork.remove(entry.taskId());
     }
     switch (snapshot.outcome()) {
       case SUSPENDED -> publishSuspension(entry, snapshot, hostWork);
-      case FORKED -> {
-        if (pendingForks.size() != 1) {
-          throw new IllegalStateException("fork boundary requires exactly one child");
-        }
-        PendingFork fork = pendingForks.getFirst();
-        Optional<TimedWork> timer;
-        synchronized (this) {
-          long childTaskId = nextTaskId++;
-          VmSnapshot childState = fork.initialState();
-          long scheduledStartMillis =
-              Math.addExact(
-                  System.currentTimeMillis(), Math.round(fork.delaySeconds() * 1_000.0));
-          long scheduledStart = Math.floorDiv(scheduledStartMillis, 1_000L);
-          taskRegistry.registerFork(
-              childTaskId,
-              scheduledStart,
-              childState.initialProgrammer(),
-              childState.initialVerbLocation(),
-              childState.initialLocals(),
-              childState.initialFullVerbName(),
-              fork.program().instructions().isEmpty() ? 1 : fork.program().sourceLine(0),
-              childState);
-          SuspendedWork child =
-              new SuspendedWork(
-                  childTaskId,
-                  fork.program(),
-                  childState,
-                  fork.taskPlayer(),
-                  Optional.empty(),
-                  Optional.empty(),
-                  true);
-          SuspendedWork parent =
-              new SuspendedWork(
-                  entry.taskId(),
-                  entry.program().orElseThrow(),
-                  snapshot,
-                  entry.taskPlayer(),
-                  entry.continuation(),
-                  entry.finalizationControl(),
-                  false);
-          nextPublicationTicket++;
-          ready.add(parent.wake(nextTicket++, BuiltinResult.value(new IntegerValue(childTaskId))));
-          if (fork.delaySeconds() == 0.0) {
-            ready.add(child.ready(nextTicket++));
-            timer = Optional.empty();
-          } else {
-            timer =
-                Optional.of(
-                    new TimedWork(
-                        child, scheduledStartMillis, Optional.empty(), Optional.empty()));
-          }
-          dispatch();
-        }
-        timer.ifPresent(this::startTimer);
-      }
-      case PENDING_BUILTIN, RETURNED, ERRORED, ABORTED, RUNNING ->
+      case FORKED, PENDING_BUILTIN, RETURNED, ERRORED, ABORTED, RUNNING ->
           throw new IllegalStateException(
               "worker returned a non-boundary VM outcome: " + snapshot.outcome());
     }
@@ -1804,6 +1788,10 @@ final class PublicationScheduler implements AutoCloseable {
                   Optional.empty()));
         }
       } else if (delaySeconds == 0.0) {
+        synchronized (this) {
+          checkpointingWork.put(entry.taskId(), new TimedWork(suspended, scheduledStartMillis,
+              Optional.of(BuiltinResult.value(new IntegerValue(0))), Optional.empty()));
+        }
         enqueueZeroDelayWake(suspended);
       } else {
         startTimer(
@@ -1891,6 +1879,7 @@ final class PublicationScheduler implements AutoCloseable {
   }
 
   private synchronized void registerTimer(TimedWork timed) {
+    checkpointingWork.remove(timed.work().taskId(), timed);
     if (timedWork.putIfAbsent(timed.work().taskId(), timed) != null) {
       throw new IllegalStateException("task already has a pending timer");
     }
@@ -2293,11 +2282,7 @@ final class PublicationScheduler implements AutoCloseable {
       Optional<SegmentResult> result,
       Optional<Throwable> failure) {}
 
-  private record PendingFork(
-      BytecodeProgram program,
-      VmSnapshot initialState,
-      long taskPlayer,
-      double delaySeconds) {}
+  private record PendingFork(TimedWork work) {}
 
   private record SegmentResult(
       Optional<List<String>> output,

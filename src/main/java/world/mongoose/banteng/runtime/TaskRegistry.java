@@ -118,11 +118,8 @@ final class TaskRegistry {
   synchronized void updateSuspended(
       long taskId, long scheduledStart, VmSnapshot snapshot) {
     TaskInfo current = tasks.get(taskId);
-    if (current != null) {
-      tasks.put(
-          taskId,
-          suspendedTask(taskId, scheduledStart, current.queueSequence(), snapshot));
-    }
+    tasks.put(taskId, suspendedTask(taskId, scheduledStart,
+        current == null ? nextQueueSequence++ : current.queueSequence(), snapshot));
   }
 
   private static TaskInfo suspendedTask(
