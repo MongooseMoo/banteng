@@ -4,7 +4,7 @@
 Implement issue 88 using Toast's tokenizer and object matcher and one world preposition table.
 
 ## State
-Implementation complete locally; focused CommandParserTest passed. No publication authorized.
+Implementation complete; focused CommandParserTest passed. This note records the worker handoff and source evidence. The coordinator owns PR publication and live CI/merge state in the central issue-campaign note; the worker has no publication authority.
 
 ## Decisions and why
 Smallest change: pure CommandParser and ParsedCommand, canonical Prepositions, replace duplicated loops and matchers, move existing execution phases unchanged within MooRuntime to keep executeLineNow below 150 lines. Approximately 250–330 parser/table lines plus focused tests and runtime moves. Preserve original do_command words, shortcut argstr spacing, and .program's system-property lookup.
@@ -30,4 +30,4 @@ Command parsing previously split tabs and discarded empty quoted arguments in se
 Validation: focused CommandParserTest; four required tokenizer expectations observed from the original Toast C++ function. Full conformance remains for PR CI. Closes #88.
 
 ## Next step
-Local implementation committed on campaign/88-command-parser. Parent reviews primary source and publishes; worker never publishes. Full PR CI/conformance and independent review remain unverified.
+Implementation committed on campaign/88-command-parser. Coordinator follows PR CI/conformance and independent review through normal merge. Consult the PR and central issue-campaign note for current delivery state; local focused validation is recorded above.
