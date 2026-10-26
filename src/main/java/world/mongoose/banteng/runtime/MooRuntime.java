@@ -893,17 +893,15 @@ public final class MooRuntime implements AutoCloseable {
       return RuntimeStep.returned(output);
     }
 
-    String programPrefix = ".program ";
+    List<String> programmingWords = CommandParser.words(line);
     boolean programmer =
         world().object(player).map(object -> ObjectFlags.isProgrammer(object.flags())).orElse(false);
-    if (programmer && (line.equals(".program") || line.startsWith(programPrefix))) {
-      String descriptor =
-          line.equals(".program") ? "" : line.substring(programPrefix.length()).trim();
-      boolean oneDescriptor = !descriptor.isEmpty();
-      oneDescriptor = oneDescriptor && descriptor.chars().noneMatch(Character::isWhitespace);
-      if (!oneDescriptor) {
+    if (programmer && !programmingWords.isEmpty()
+        && programmingWords.getFirst().equals(".program")) {
+      if (programmingWords.size() != 2) {
         return RuntimeStep.returned(List.of("Usage:  .program object:verb"));
       }
+      String descriptor = programmingWords.get(1);
       int colon = descriptor.indexOf(':');
       if (colon < 0 || colon == descriptor.length() - 1) {
         return RuntimeStep.returned(

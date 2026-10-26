@@ -681,6 +681,34 @@ final class MooRuntimeTest {
   }
 
   @Test
+  void dotProgramUsesDecodedWordsForDescriptors() throws Exception {
+    WorldTxn world = new LambdaMooV4Reader().read(FIXTURE);
+    MooRuntime runtime = runtimeFor(world);
+    long connectionId = -47;
+    assertEquals(List.of(), runtime.openConnection(connectionId));
+    assertEquals(List.of("*** Connected ***"), runtime.executeLine(connectionId, "connect Wizard"));
+
+    for (String descriptor : List.of("\"here:eval\"", "here\\:eval")) {
+      assertEquals(
+          List.of("Now programming The First Room:eval.  Use \".\" to end."),
+          runtime.executeLine(connectionId, ".program " + descriptor));
+      assertEquals(
+          List.of("0 error(s).", "Verb programmed."), runtime.executeLine(connectionId, "."));
+    }
+    assertEquals(
+        List.of("Now programming System Object:do_login_command.  Use \".\" to end."),
+        runtime.executeLine(connectionId, ".program \"# 0:do_login_command\""));
+    assertEquals(
+        List.of("0 error(s).", "Verb programmed."), runtime.executeLine(connectionId, "."));
+    assertEquals(
+        List.of("I don't see \"here\t\" here."),
+        runtime.executeLine(connectionId, ".program here\t:eval"));
+    assertEquals(
+        List.of("Usage:  .program object:verb"),
+        runtime.executeLine(connectionId, ".program here:eval extra"));
+  }
+
+  @Test
   void dotProgramReportsToastFeedbackAndOnlyInstallsValidSource() throws Exception {
     WorldTxn world = new LambdaMooV4Reader().read(FIXTURE);
     MooRuntime runtime = runtimeFor(world);
