@@ -28,6 +28,15 @@ Current NamespaceOwnershipTest has no file-count map. Five other test classes re
 ## Next step
 Coordinator: inspect exact diff, obtain Claude review, publish PR, inspect hosted CI and normally merge if accepted.
 
+## PR #99 review repair
+Claude reviewed e991411 and the coordinator verified all three architecture findings. The stderr rule incorrectly exempted only ServerLog itself, excluding its existing anonymous Writer in ServerLog.java:42-53. The condition now follows compiled enclosing classes to the exact ServerLog top-level owner, preserving the original source-file ownership scope. No other class is exempt.
+
+The nested reader rule captured one import graph but checked another. Both reader rules now check the captured graph, so enclosing JavaClass identity comparisons refer to the same imported objects.
+
+The root test task previously depended on installDist but not all compilation tasks needed by the old eight-root namespace scope (build.gradle.kts:42-50,128). Its prerequisites now compile JMH, jcstress and both subproject test source sets; their main compilation is transitively required. Namespace imports name all eight output directories explicitly and include no Gradle/dependency classpath directories. No new gate was introduced; these are prerequisites of the existing namespace test.
+
+Validation: focused diff inspection and git diff --check; no local full suite. The coordinator separately owns the scheduler stress timeout investigation. Worker has not pushed these repairs.
+
 ## Draft PR text
 Title: Replace source-shape tests with compiled architecture rules
 

@@ -50,9 +50,14 @@ final class ArchitectureTest {
         .check(
             new ClassFileImporter()
                 .importPaths(
-                    Path.of("build/classes/java"),
-                    Path.of("errorprone-checks/build/classes/java"),
-                    Path.of("rewrite-recipes/build/classes/java")));
+                    Path.of("build/classes/java/main"),
+                    Path.of("build/classes/java/test"),
+                    Path.of("build/classes/java/jmh"),
+                    Path.of("build/classes/java/jcstress"),
+                    Path.of("errorprone-checks/build/classes/java/main"),
+                    Path.of("errorprone-checks/build/classes/java/test"),
+                    Path.of("rewrite-recipes/build/classes/java/main"),
+                    Path.of("rewrite-recipes/build/classes/java/test")));
   }
 
   @Test
@@ -201,22 +206,35 @@ final class ArchitectureTest {
                 events.add(new SimpleConditionEvent(owner, sharedMethods && sharedRecords, owner.getName() + " uses shared scanner and records"));
               }
             })
-        .check(productionClasses());
+        .check(productionClasses);
     classes()
         .that()
         .haveNameMatching("world\\.mongoose\\.banteng\\.persistence\\.(ProgramSlot|RawVerb)")
         .should()
         .beTopLevelClasses()
-        .check(productionClasses());
+        .check(productionClasses);
   }
 
   @Test
   void systemErrorIsOwnedOnlyByServerLog() {
-    noClasses()
-        .that()
-        .doNotHaveFullyQualifiedName("world.mongoose.banteng.logging.ServerLog")
-        .should()
-        .accessField(System.class, "err")
+    classes()
+        .should(
+            new ArchCondition<JavaClass>("leave System.err access to the ServerLog source owner") {
+              @Override
+              public void check(JavaClass owner, ConditionEvents events) {
+                JavaClass sourceOwner = owner;
+                while (sourceOwner.getEnclosingClass().isPresent()) {
+                  sourceOwner = sourceOwner.getEnclosingClass().orElseThrow();
+                }
+                if (sourceOwner.getName().equals("world.mongoose.banteng.logging.ServerLog")) {
+                  return;
+                }
+                owner.getFieldAccessesFromSelf().stream()
+                    .filter(access -> access.getTarget().getOwner().isEquivalentTo(System.class))
+                    .filter(access -> access.getTarget().getName().equals("err"))
+                    .forEach(access -> events.add(SimpleConditionEvent.violated(access, access.getDescription())));
+              }
+            })
         .check(productionClasses());
   }
 
