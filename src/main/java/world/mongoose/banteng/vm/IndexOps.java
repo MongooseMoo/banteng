@@ -22,7 +22,7 @@ import world.mongoose.banteng.value.MooValue.StringValue;
 import world.mongoose.banteng.value.MooValue.WaifValue;
 import world.mongoose.banteng.vm.VmState.Frame;
 import world.mongoose.banteng.vm.VmState.IndexContext;
-import world.mongoose.banteng.world.ObjectFlags;
+
 import world.mongoose.banteng.world.WorldObject;
 import world.mongoose.banteng.world.WorldTxn;
 import world.mongoose.banteng.world.WorldVerb;
@@ -312,8 +312,7 @@ final class IndexOps {
       ErrorOps.raise(state, ErrorValue.E_INVIND, world);
       return;
     }
-    WorldObject classOwner = world.object(waifClass.owner()).orElse(null);
-    if (classOwner == null || !ObjectFlags.isWizard(classOwner.flags())) {
+    if (!world.isWizard(waifClass.owner())) {
       ErrorOps.raise(state, ErrorValue.E_TYPE, world);
       return;
     }
@@ -354,7 +353,7 @@ final class IndexOps {
         OptionalLong.empty(),
         verbName,
         verb.names(),
-        (verb.permissions() & 8) != 0)) {
+        verb.perms().debug())) {
       ErrorOps.raise(state, ErrorValue.E_MAXREC, world, false);
     }
   }

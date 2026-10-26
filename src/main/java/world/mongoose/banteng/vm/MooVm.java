@@ -318,7 +318,7 @@ public final class MooVm {
               OptionalLong.empty(),
               verbName,
               target.names(),
-              (target.permissions() & 8) != 0)) {
+              target.perms().debug())) {
             ErrorOps.raise(state, ErrorValue.E_MAXREC, world, false);
             return;
           }
@@ -402,7 +402,7 @@ public final class MooVm {
             OptionalLong.empty(),
             lookupName,
             verb.names(),
-            (verb.permissions() & 8) != 0)) {
+            verb.perms().debug())) {
           ErrorOps.raise(state, ErrorValue.E_MAXREC, world, false);
           return;
         }
@@ -728,7 +728,7 @@ public final class MooVm {
     if (!state.pushVerbFrame(program, locals, wrapper.owner(), system,
         new ObjectValue(world.verbLocation(0, call.verb(), true).orElseThrow()),
         OptionalLong.empty(), OptionalLong.empty(), OptionalLong.empty(),
-        call.verb(), wrapper.names(), (wrapper.permissions() & 8) != 0)) {
+        call.verb(), wrapper.names(), wrapper.perms().debug())) {
       ErrorOps.raise(state, ErrorValue.E_MAXREC, world, false);
     }
   }
@@ -806,7 +806,7 @@ public final class MooVm {
         OptionalLong.empty(),
         name,
         hook.names(),
-        (hook.permissions() & 8) != 0)) {
+        hook.perms().debug())) {
       continueRecycle(recycleTarget, state, world);
     }
   }
@@ -860,7 +860,7 @@ public final class MooVm {
         definingLocation,
         "recycle",
         hook.names(),
-        (hook.permissions() & 8) != 0)) {
+        hook.perms().debug())) {
       ErrorOps.raise(state, ErrorValue.E_MAXREC, world, false);
     }
   }
@@ -908,7 +908,7 @@ public final class MooVm {
         created,
         "initialize",
         initialize.names(),
-        (initialize.permissions() & 8) != 0)) {
+        initialize.perms().debug())) {
       ErrorOps.raise(state, ErrorValue.E_MAXREC, world, false);
     }
   }

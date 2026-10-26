@@ -117,7 +117,7 @@ final class WorldTxnMultipleInheritanceTest {
     WorldObject second =
         object(2, "second", List.of(), List.of(), List.of(property("shared", 20, true)));
     WorldProperty override =
-        new WorldProperty("shared", new IntegerValue(99), 1, 0, false, false);
+        new WorldProperty("shared", new IntegerValue(99), 1, new PropertyPerms(0), false, false);
     WorldObject child = object(3, "child", List.of(1L), List.of(), List.of(override));
     try (WorldTxn transaction = new WorldTxn(List.of(), List.of(first, second, child)).begin()) {
       assertTrue(transaction.changeParents(3, List.of(2L)).isOk());
@@ -270,7 +270,13 @@ final class WorldTxnMultipleInheritanceTest {
   }
 
   private static WorldProperty property(String name, long value, boolean defined) {
-    return new WorldProperty(name, new IntegerValue(value), 1, 0, !defined, defined);
+    return new WorldProperty(
+        name,
+        new IntegerValue(value),
+        1,
+        new PropertyPerms(0),
+        !defined,
+        defined);
   }
 
   private static List<String> names(List<WorldProperty> properties) {

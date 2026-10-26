@@ -420,7 +420,9 @@ final class WorldHistory {
       WorldVerb oldVerb = before.get(index);
       WorldVerb newVerb = after.get(index);
       if (!oldVerb.names().equals(newVerb.names())
-          || oldVerb.permissions() != newVerb.permissions()
+          || !oldVerb.perms().equals(newVerb.perms())
+          || oldVerb.dobj() != newVerb.dobj()
+          || oldVerb.iobj() != newVerb.iobj()
           || oldVerb.preposition() != newVerb.preposition()) {
         return true;
       }

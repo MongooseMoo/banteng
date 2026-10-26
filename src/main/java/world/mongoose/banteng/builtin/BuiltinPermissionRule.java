@@ -15,11 +15,7 @@ public interface BuiltinPermissionRule {
         return actor != null && ObjectFlags.isProgrammer(actor.flags());
       };
 
-  BuiltinPermissionRule WIZARD_ONLY =
-      (world, programmer) -> {
-        WorldObject actor = world.object(programmer).orElse(null);
-        return actor != null && ObjectFlags.isWizard(actor.flags());
-      };
+  BuiltinPermissionRule WIZARD_ONLY = WorldTxn::isWizard;
 
   /** Returns whether the current programmer may invoke the builtin. */
   boolean allows(WorldTxn world, long programmer);

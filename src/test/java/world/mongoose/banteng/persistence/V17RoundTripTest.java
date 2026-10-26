@@ -28,6 +28,9 @@ import world.mongoose.banteng.value.MooValue.MapValue;
 import world.mongoose.banteng.value.MooValue.ObjectValue;
 import world.mongoose.banteng.value.MooValue.StringValue;
 import world.mongoose.banteng.value.MooValue.WaifValue;
+import world.mongoose.banteng.world.ArgSpec;
+import world.mongoose.banteng.world.PropertyPerms;
+import world.mongoose.banteng.world.VerbPerms;
 import world.mongoose.banteng.world.WorldAnonymousObject;
 import world.mongoose.banteng.world.WorldObject;
 import world.mongoose.banteng.world.WorldProperty;
@@ -251,10 +254,17 @@ final class V17RoundTripTest {
             0,
             0,
             0,
-            List.of(new WorldVerb("ping", 0, 173, -1, "return 1;\n")),
+            List.of(new WorldVerb(
+                "ping",
+                0,
+                new VerbPerms(13),
+                ArgSpec.THIS,
+                -1,
+                ArgSpec.THIS,
+                "return 1;\n")),
             List.of(
-                new WorldProperty("graph", graph, 0, 1, true, false),
-                new WorldProperty("other", secondAnonymous, 0, 1, false, false))));
+                new WorldProperty("graph", graph, 0, new PropertyPerms(1), true, false),
+                new WorldProperty("other", secondAnonymous, 0, new PropertyPerms(1), false, false))));
     anonymousObjects.put(
         secondAnonymous,
         new WorldAnonymousObject(
@@ -264,8 +274,8 @@ final class V17RoundTripTest {
             0,
             List.of(),
             List.of(
-                new WorldProperty("graph", graph, 0, 1, true, false),
-                new WorldProperty("other", firstAnonymous, 0, 1, false, false))));
+                new WorldProperty("graph", graph, 0, new PropertyPerms(1), true, false),
+                new WorldProperty("other", firstAnonymous, 0, new PropertyPerms(1), false, false))));
     WorldSnapshot world =
         new WorldSnapshot(0, List.of(0L), Map.of(0L, root), anonymousObjects);
     LambdaMooV17Codec codec = new LambdaMooV17Codec();
@@ -341,10 +351,22 @@ final class V17RoundTripTest {
             List.of(),
             List.of(),
             List.of(),
-            List.of(new WorldProperty(":marker", new IntegerValue(0), 1, 0, false, true)));
+            List.of(new WorldProperty(
+                ":marker",
+                new IntegerValue(0),
+                1,
+                new PropertyPerms(0),
+                false,
+                true)));
     WorldWaif body =
         new WorldWaif(
-            List.of(new WorldProperty(":marker", new IntegerValue(7), 1, 0, false, false)));
+            List.of(new WorldProperty(
+                ":marker",
+                new IntegerValue(7),
+                1,
+                new PropertyPerms(0),
+                false,
+                false)));
     WorldSnapshot world =
         new WorldSnapshot(
             0,
@@ -478,7 +500,13 @@ final class V17RoundTripTest {
             0,
             0,
             List.of(),
-            List.of(new WorldProperty("state", new IntegerValue(0), 0, 1, true, false))));
+            List.of(new WorldProperty(
+                "state",
+                new IntegerValue(0),
+                0,
+                new PropertyPerms(1),
+                true,
+                false))));
     anonymousObjects.put(
         secondAnonymous,
         new WorldAnonymousObject(
@@ -487,7 +515,13 @@ final class V17RoundTripTest {
             0,
             0,
             List.of(),
-            List.of(new WorldProperty("state", new IntegerValue(0), 0, 1, true, false))));
+            List.of(new WorldProperty(
+                "state",
+                new IntegerValue(0),
+                0,
+                new PropertyPerms(1),
+                true,
+                false))));
     WorldSnapshot world =
         new WorldSnapshot(0, List.of(0L), Map.of(0L, root), anonymousObjects);
     LambdaMooV17Codec codec = new LambdaMooV17Codec();
@@ -560,7 +594,14 @@ final class V17RoundTripTest {
             -1,
             List.of(),
             List.of(1L),
-            List.of(new WorldVerb("evaluate", 0, 173, -1, "return \"caf\u00e9\";\n")),
+            List.of(new WorldVerb(
+                "evaluate",
+                0,
+                new VerbPerms(13),
+                ArgSpec.THIS,
+                -1,
+                ArgSpec.THIS,
+                "return \"caf\u00e9\";\n")),
             List.of(
                 property("integer", new IntegerValue(Long.MIN_VALUE)),
                 property("float", new FloatValue(-17.25)),
@@ -586,29 +627,51 @@ final class V17RoundTripTest {
                     "local",
                     new ListValue(List.of(BooleanValue.TRUE, BooleanValue.FALSE)),
                     0,
-                    1,
+                    new PropertyPerms(1),
                     false,
                     true),
                 new WorldProperty(
-                    "integer", new IntegerValue(Long.MIN_VALUE), 0, 1, true, false),
-                new WorldProperty("float", new FloatValue(3.5), 0, 1, false, false),
+                    "integer",
+                    new IntegerValue(Long.MIN_VALUE),
+                    0,
+                    new PropertyPerms(1),
+                    true,
+                    false),
                 new WorldProperty(
-                    "string", StringValue.of(new byte[] {(byte) 0xff, 0x41}), 0, 1, true, false),
-                new WorldProperty("object", new ObjectValue(0), 0, 1, true, false),
-                new WorldProperty("error", ErrorValue.E_PERM, 0, 1, true, false),
+                    "float",
+                    new FloatValue(3.5),
+                    0,
+                    new PropertyPerms(1),
+                    false,
+                    false),
+                new WorldProperty(
+                    "string",
+                    StringValue.of(new byte[] {(byte) 0xff, 0x41}),
+                    0,
+                    new PropertyPerms(1),
+                    true,
+                    false),
+                new WorldProperty(
+                    "object",
+                    new ObjectValue(0),
+                    0,
+                    new PropertyPerms(1),
+                    true,
+                    false),
+                new WorldProperty("error", ErrorValue.E_PERM, 0, new PropertyPerms(1), true, false),
                 new WorldProperty(
                     "list",
                     new ListValue(List.of(new IntegerValue(1), string("two"))),
                     0,
-                    1,
+                    new PropertyPerms(1),
                     true,
                     false),
-                new WorldProperty("map", new MapValue(map), 0, 1, true, false)));
+                new WorldProperty("map", new MapValue(map), 0, new PropertyPerms(1), true, false)));
     return new WorldTxn(List.of(0L), List.of(object, child));
   }
 
   private static WorldProperty property(String name, MooValue value) {
-    return new WorldProperty(name, value, 0, 1, false, true);
+    return new WorldProperty(name, value, 0, new PropertyPerms(1), false, true);
   }
 
   private static StringValue string(String value) {

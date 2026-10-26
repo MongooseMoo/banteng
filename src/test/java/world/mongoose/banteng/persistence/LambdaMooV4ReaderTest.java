@@ -11,6 +11,9 @@ import java.util.List;
 import java.util.Objects;
 import world.mongoose.banteng.value.MooValue.ObjectValue;
 import world.mongoose.banteng.value.MooValue.StringValue;
+import world.mongoose.banteng.world.ArgSpec;
+import world.mongoose.banteng.world.PropertyPerms;
+import world.mongoose.banteng.world.VerbPerms;
 import world.mongoose.banteng.world.WorldObject;
 import world.mongoose.banteng.world.WorldProperty;
 import world.mongoose.banteng.world.WorldTxn;
@@ -123,9 +126,30 @@ final class LambdaMooV4ReaderTest {
                   List.of(),
                   List.of(),
                   List.of(
-                      new WorldVerb("do_login_command", 3, 173, -1, LOGIN_SOURCE),
-                      new WorldVerb("handle_uncaught_error", 3, 172, -1, UNCAUGHT_SOURCE),
-                      new WorldVerb("handle_task_timeout", 3, 172, -1, TIMEOUT_SOURCE)),
+                      new WorldVerb(
+                          "do_login_command",
+                          3,
+                          new VerbPerms(13),
+                          ArgSpec.THIS,
+                          -1,
+                          ArgSpec.THIS,
+                          LOGIN_SOURCE),
+                      new WorldVerb(
+                          "handle_uncaught_error",
+                          3,
+                          new VerbPerms(12),
+                          ArgSpec.THIS,
+                          -1,
+                          ArgSpec.THIS,
+                          UNCAUGHT_SOURCE),
+                      new WorldVerb(
+                          "handle_task_timeout",
+                          3,
+                          new VerbPerms(12),
+                          ArgSpec.THIS,
+                          -1,
+                          ArgSpec.THIS,
+                          TIMEOUT_SOURCE)),
                   List.of(
                       property("nothing", -1, 4),
                       property("system", 0, 4),
@@ -153,7 +177,14 @@ final class LambdaMooV4ReaderTest {
                   1,
                   List.of(3L, 4L),
                   List.of(),
-                  List.of(new WorldVerb("eval", 3, 88, -2, EVAL_SOURCE)),
+                  List.of(new WorldVerb(
+                      "eval",
+                      3,
+                      new VerbPerms(8),
+                      ArgSpec.ANY,
+                      -2,
+                      ArgSpec.ANY,
+                      EVAL_SOURCE)),
                   List.of()),
               object(3, "Wizard", 7, 3, 2, 1),
               object(4, "Programmer", 3, 4, 2, 1),
@@ -168,7 +199,14 @@ final class LambdaMooV4ReaderTest {
                   1,
                   List.of(),
                   List.of(),
-                  List.of(new WorldVerb("new", 3, 173, -1, NEW_SOURCE)),
+                  List.of(new WorldVerb(
+                      "new",
+                      3,
+                      new VerbPerms(13),
+                      ArgSpec.THIS,
+                      -1,
+                      ArgSpec.THIS,
+                      NEW_SOURCE)),
                   List.of()));
 
       for (WorldObject expectedObject : expected) {
@@ -243,7 +281,7 @@ final class LambdaMooV4ReaderTest {
   }
 
   private static WorldProperty property(String name, long value, long owner) {
-    return new WorldProperty(name, new ObjectValue(value), owner, 1, false, true);
+    return new WorldProperty(name, new ObjectValue(value), owner, new PropertyPerms(1), false, true);
   }
 
   private static WorldObject object(
