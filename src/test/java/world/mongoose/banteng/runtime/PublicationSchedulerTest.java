@@ -28,6 +28,7 @@ import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.FutureTask;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.IntStream;
@@ -972,35 +973,41 @@ final class PublicationSchedulerTest {
   @Test
   void mapsRejectedHostSubmissionToCatchableQuotaError() throws Exception {
     try (Harness harness = Harness.open(1, new RecordingListener())) {
-      try (WorldTxn transaction = harness.root.begin()) {
-        ObjectValue serverOptions =
-            (ObjectValue) transaction.readObjectProperty(0, "server_options").orElseThrow();
-        boolean configured =
-            transaction.property(serverOptions.value(), "fg_ticks").isPresent()
-                ? transaction.writeObjectProperty(
-                        serverOptions.value(), "fg_ticks", new IntegerValue(20_000_000))
-                    .isOk()
-                : transaction.addProperty(
-                        serverOptions.value(), "fg_ticks", new IntegerValue(20_000_000), 0, 3)
-                    .isOk();
-        assertTrue(configured);
-        assertTrue(transaction.commit().isCommitted());
-      }
-      ThreadPoolExecutor executor =
+      ThreadPoolExecutor original =
           field(harness.scheduler, "executor", ThreadPoolExecutor.class);
+      original.shutdown();
+      assertTrue(original.awaitTermination(3, TimeUnit.SECONDS));
       CountDownLatch release = new CountDownLatch(1);
-      long ticket = harness.scheduler.nextTicket();
+      ThreadPoolExecutor executor =
+          new ThreadPoolExecutor(
+              1, 1, 0, TimeUnit.MILLISECONDS,
+              new ArrayBlockingQueue<>(original.getQueue().remainingCapacity()),
+              Thread.ofPlatform().name("moo-vm-rejection-test-", 0).factory(),
+              original.getRejectedExecutionHandler()) {
+            @Override
+            public void execute(Runnable command) {
+              if (command instanceof FutureTask<?>) {
+                // Host work is submitted by the active VM worker. Saturate its queue
+                // here so ingress and irrevocable reruns cannot race the setup.
+                synchronized (harness.scheduler) {
+                  assertEquals(1, getActiveCount());
+                  while (getQueue().remainingCapacity() > 0) {
+                    super.execute(() -> awaitRelease(release));
+                  }
+                  super.execute(command);
+                }
+                return;
+              }
+              super.execute(command);
+            }
+          };
+      Field executorField = PublicationScheduler.class.getDeclaredField("executor");
+      executorField.setAccessible(true);
+      executorField.set(harness.scheduler, executor);
       CompletableFuture<List<String>> result =
           harness.lineAsync(
-              "; i = 0; while (i < 2000000) i = i + 1; endwhile "
-                  + "try return all_members(1, {1}); "
+              "; try return all_members(1, {1}); "
                   + "except (E_QUOTA) return \"quota\"; endtry");
-      while (harness.scheduler.nextTicket() == ticket || executor.getActiveCount() == 0) {
-        Thread.onSpinWait();
-      }
-      for (int queued = 0; queued < 4; queued++) {
-        executor.execute(() -> awaitRelease(release));
-      }
 
       try {
         long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(3);

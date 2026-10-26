@@ -1,5 +1,6 @@
 package world.mongoose.banteng.bytecode;
 
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -21,6 +22,50 @@ import world.mongoose.banteng.world.WorldVerb;
 import org.junit.jupiter.api.Test;
 
 final class MooCompilerTest {
+  @Test
+  void compilesMixedCaseLoopExitsInExecutableAndToastLayouts() {
+    for (String exit : List.of("break", "continue")) {
+      for (String source :
+          List.of(
+              "for X in ({1, 2}) EXIT X; endfor",
+              "for X in [1..2] EXIT X; endfor",
+              "for Value, X in ({1, 2}) EXIT X; endfor",
+              "while X (1) EXIT X; endwhile",
+              "for X in ({1}) while Y (1) EXIT X; endwhile endfor",
+              "while X (1) for Y in ({1}) EXIT X; endfor endwhile",
+              "while X (1) while x (1) EXIT X; endwhile endwhile")) {
+        String sameCase = source.replace("EXIT", exit);
+        String mixedCase = sameCase.replace(exit + " X;", exit + " x;");
+        MooCompiler.CompilationResult expected = new MooCompiler().compileResult(sameCase);
+        MooCompiler.CompilationResult actual = new MooCompiler().compileResult(mixedCase);
+
+        assertTrue(expected.diagnostics().isEmpty(), sameCase);
+        assertTrue(actual.diagnostics().isEmpty(), mixedCase);
+        assertEquals(
+            expected.program().orElseThrow().instructions(),
+            actual.program().orElseThrow().instructions(),
+            mixedCase);
+        assertDoesNotThrow(() -> new LayoutCompiler(mixedCase).callBoundaries(-1), mixedCase);
+      }
+    }
+  }
+
+  @Test
+  void reportsLoopNamesThatDoNotMatchLocalVariableCaseFolding() {
+    for (String exit : List.of("break", "continue")) {
+      for (String source :
+          List.of("for I in ({1}) EXIT ı; endfor", "while I (1) EXIT ı; endwhile")) {
+        MooCompiler.CompilationResult result =
+            new MooCompiler().compileResult(source.replace("EXIT", exit));
+
+        assertTrue(result.program().isEmpty());
+        assertEquals(
+            List.of(new MooCompiler.Diagnostic(1, "Invalid loop name in `" + exit + "' statement: ı")),
+            result.diagnostics());
+      }
+    }
+  }
+
   @Test
   void reportsContextOnlyExpressionNodesPrecisely() {
     MooCompiler compiler = new MooCompiler();
