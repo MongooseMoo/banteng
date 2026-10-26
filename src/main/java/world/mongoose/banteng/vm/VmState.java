@@ -871,7 +871,7 @@ public final class VmState {
     if (outcome != Outcome.FORKED || forkRequest.isEmpty()) {
       throw new IllegalStateException("VM is not at a fork boundary");
     }
-    VmSnapshot.Fork request = forkRequest.orElseThrow();
+    ForkRequest request = forkRequest.orElseThrow();
     Map<String, MooValue> childLocals = new LinkedHashMap<>(request.locals());
     Frame frame = currentFrame();
     // The compiler emits the fork's named binding immediately after FORK.

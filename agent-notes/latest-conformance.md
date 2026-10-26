@@ -210,3 +210,7 @@ IllegalArgumentException in MooCompiler; add its missing operation, sharing the
 existing range replacement implementation and PropertyOps write permission path.
 This explains the lost connection beginning at tick_property_write_and_indexed_writes;
 the exact server exception is not available in the current CI artifact.
+
+CI 40277890765 reached compilation and rejected VmState.continueAfterFork's local
+type: forkRequest holds ForkRequest, not VmSnapshot.Fork. Corrected that local
+declaration; the returned immutable snapshot still carries the copied environment.
