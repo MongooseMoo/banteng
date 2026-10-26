@@ -4,7 +4,7 @@ Preserve ready publication tickets when the executor rejects a dispatch during t
 
 # State
 
-Based on origin/master at 9a1bfd6. Isolated branch campaign/dispatch-rejection. Coordinator published PR103. Claude verified the code repair; its note finding is corrected below. CI failed the preexisting host-rejection test setup at line1002, whose repair is PR101. Conformance was pending at this update.
+Based on origin/master at 9a1bfd6. Coordinator published PR103. The first CI run failed the preexisting host-rejection test setup at line1002. Merge015262b incorporates PR101 headf9e24ad, which repairs that setup and inherits production executor configuration. Claude reviewed the integrated code without a code finding. Run40416177681 passed static analysis and tests. Live CI and queue state are recorded in GitHub and the central issue-campaign note.
 
 # Decisions and why
 
@@ -16,7 +16,7 @@ Source: base PublicationScheduler.java:1321-1332 removes an entry before execute
 
 No repository AGENTS.md exists in this checkout; the task includes Q's global instructions directly.
 
-Progress paths checked in source: a full executor queue contains VM attempts or host FutureTasks. VM attempts call complete and dispatch (1605); host terminal success enqueues a wake (1918), failure calls failWaiting, and cancellation calls cancelWaiting, which dispatches (2075). The dispatch monitor also guards queue head removal, and executeAttempt immediately acquires that monitor, so accepted work cannot complete/requeue before removal. close sets closed under the same monitor before shutdownNow (2195-2208), preventing shutdown races with dispatch. This is source reasoning, not a runtime liveness proof.
+Progress paths checked in source: a full executor queue contains VM attempts or host FutureTasks. VM attempts call complete and dispatch (1605); host terminal success enqueues a wake (1918), failure calls failWaiting, and cancellation calls cancelWaiting, which dispatches (2075) when discardIfCanceled is true, including the real kill path. The dispatch monitor also guards queue head removal, and executeAttempt immediately acquires that monitor, so accepted work cannot complete/requeue before removal. close sets closed under the same monitor before shutdownNow (2195-2208), preventing shutdown races with dispatch. These are base-source line references and source reasoning, not a runtime liveness proof.
 
 # Draft PR description
 
@@ -26,4 +26,4 @@ Validation: source inspection and diff review only; PR CI remains pending. Exist
 
 # Next step
 
-Coordinator will obtain updated Claude review and green CI, incorporating the separately reviewed PR101 test setup repair before retrying this failed check. No local CI suite was run.
+PR101 is already incorporated. Coordinator follows final-head Claude review and hosted CI through the normal merge queue. No local CI suite was run. Consult GitHub for current completion state rather than treating this historical validation record as live status.
