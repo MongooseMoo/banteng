@@ -209,7 +209,7 @@ jobs:
         run: |
           uv run --project moo-conformance-tests --frozen moo-conformance \
             -m "admission or conformance" \
-            --server-command "${{ github.workspace }}/build/install/banteng/bin/banteng --database {db} --checkpoint {db}.new --listen-address 127.0.0.1 --port {port} --promote-numbers=false" \
+            --server-command "${{ github.workspace }}/build/install/banteng/bin/banteng --database {db} --checkpoint {db}.new --log-file {log} --listen-address 127.0.0.1 --port {port} --promote-numbers=false" \
             --server-db="${{ github.workspace }}/moo-conformance-tests/src/moo_conformance/_db/Test.db" \
             --server-db-dir="${{ github.workspace }}/moo-conformance-tests/src/moo_conformance/_db/startup" \
             --moo-host=127.0.0.1 \

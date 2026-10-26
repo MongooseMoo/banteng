@@ -226,8 +226,6 @@ final class JsonCodec {
   }
 
   private static final class Parser {
-    private static final long TOAST_MIN_INTEGER = Integer.MIN_VALUE;
-    private static final long TOAST_MAX_INTEGER = Integer.MAX_VALUE;
     private final byte[] input;
     private final Mode mode;
     private int position;
@@ -290,7 +288,9 @@ final class JsonCodec {
         skipWhitespace();
         consume(':');
         MooValue value = parseValue(depth);
-        map = map.with(key, value);
+        if (map.get(key).isEmpty()) {
+          map = map.with(key, value);
+        }
         skipWhitespace();
         if (consumeIf('}')) {
           return map;
@@ -335,10 +335,7 @@ final class JsonCodec {
       rootNumber = root;
       if (!floating) {
         try {
-          long integer = Long.parseLong(number);
-          if (integer >= TOAST_MIN_INTEGER && integer <= TOAST_MAX_INTEGER) {
-            return new IntegerValue(integer);
-          }
+          return new IntegerValue(Long.parseLong(number));
         } catch (NumberFormatException ignored) {
           // Toast falls back to a float when the integer conversion overflows.
         }

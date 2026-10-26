@@ -414,7 +414,10 @@ public final class BuiltinCatalog {
             BuiltinCostRule.fixed(0),
             EffectClass.PURE,
             BuiltinOwner.VM,
-            unaryFloatBuiltin(Math::exp)));
+            unaryFloatBuiltin(value -> {
+              double result = Math.exp(value);
+              return result < Double.MIN_NORMAL ? Double.NaN : result;
+            })));
     entries.add(
         new BuiltinSpec(
             "floatstr",
@@ -1075,7 +1078,7 @@ public final class BuiltinCatalog {
     entries.add(
         new BuiltinSpec(
             "chparent",
-            List.of(new CallShape(List.of(ANY, ANY), List.of(), Optional.empty())),
+            List.of(new CallShape(List.of(ANY, OBJECT), List.of(), Optional.empty())),
             BuiltinPermissionRule.ANY,
             BuiltinCostRule.fixed(0),
             EffectClass.TRANSACTION_WRITE,
@@ -1084,7 +1087,7 @@ public final class BuiltinCatalog {
     entries.add(
         new BuiltinSpec(
             "chparents",
-            List.of(new CallShape(List.of(ANY, ANY), List.of(), Optional.empty())),
+            List.of(new CallShape(List.of(ANY, Set.of(ArgType.LIST)), List.of(), Optional.empty())),
             BuiltinPermissionRule.ANY,
             BuiltinCostRule.fixed(0),
             EffectClass.TRANSACTION_WRITE,
@@ -4233,6 +4236,10 @@ public final class BuiltinCatalog {
         return OptionalLong.empty();
       }
     }
+    if ((salt.startsWith("$5$") || salt.startsWith("$6$"))
+        && salt.indexOf('$', 3) >= 0) {
+      return OptionalLong.empty();
+    }
     return OptionalLong.of(0);
   }
 
@@ -4537,7 +4544,12 @@ public final class BuiltinCatalog {
         return BuiltinResult.error(ErrorValue.E_INVARG);
       }
     }
-    return BuiltinResult.value(StringValue.of(raw.toByteArray()));
+    byte[] bytes = raw.toByteArray();
+    int length = 0;
+    while (length < bytes.length && bytes[length] != 0) {
+      length++;
+    }
+    return BuiltinResult.value(StringValue.of(Arrays.copyOf(bytes, length)));
   }
 
   private static BuiltinResult disassemble(
@@ -5186,7 +5198,12 @@ public final class BuiltinCatalog {
         return BuiltinResult.error(ErrorValue.E_INVARG);
       }
     }
-    String names = namesValue.text().stripLeading();
+    String names = namesValue.text();
+    int firstName = 0;
+    while (firstName < names.length() && names.charAt(firstName) == ' ') {
+      firstName++;
+    }
+    names = names.substring(firstName);
     if (names.isEmpty()) {
       return BuiltinResult.error(ErrorValue.E_INVARG);
     }
@@ -5551,7 +5568,12 @@ public final class BuiltinCatalog {
         return BuiltinResult.error(ErrorValue.E_INVARG);
       }
     }
-    String names = namesValue.text().stripLeading();
+    String names = namesValue.text();
+    int firstName = 0;
+    while (firstName < names.length() && names.charAt(firstName) == ' ') {
+      firstName++;
+    }
+    names = names.substring(firstName);
     if (names.isEmpty()) {
       return BuiltinResult.error(ErrorValue.E_INVARG);
     }
@@ -6207,7 +6229,11 @@ public final class BuiltinCatalog {
     }
     if (argument instanceof StringValue string) {
       try {
-        double converted = Double.parseDouble(string.text().strip());
+        String text = string.text().strip();
+        if (text.matches("[+-]?0[xX][0-9a-fA-F]+(?:\\.[0-9a-fA-F]*)?")) {
+          text += "p0";
+        }
+        double converted = Double.parseDouble(text);
         return Double.isFinite(converted)
             ? BuiltinResult.value(new FloatValue(converted))
             : BuiltinResult.error(ErrorValue.E_INVARG);

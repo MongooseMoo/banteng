@@ -91,7 +91,7 @@ final class MooValueTest {
     assertEquals(positiveZero.hashCode(), negativeZero.hashCode());
     assertNotEquals(one, adjacent);
     assertNotEquals(one.hashCode(), adjacent.hashCode());
-    assertEquals("0.0", negativeZero.toLiteral());
+    assertEquals("-0.0", negativeZero.toLiteral());
     assertEquals("11.0", new FloatValue(11.0).toLiteral());
     assertEquals("1.4142135623731", new FloatValue(Math.sqrt(2.0)).toLiteral());
     assertEquals("0.333333333333333", new FloatValue(1.0 / 3.0).toLiteral());

@@ -362,7 +362,7 @@ public final class VmState {
             OptionalLong.empty(),
             OptionalLong.empty(),
             true,
-            caller.threadMode));
+            true));
     return true;
   }
 
@@ -607,7 +607,6 @@ public final class VmState {
     if (frames.size() >= maxStackDepth) {
       return false;
     }
-    boolean inheritedThreadMode = currentFrame().threadMode;
     frames.push(
         new Frame(
             program,
@@ -625,7 +624,7 @@ public final class VmState {
             movePosition,
             anonymousRecycleTarget,
             debug,
-            inheritedThreadMode));
+            true));
     return true;
   }
 
