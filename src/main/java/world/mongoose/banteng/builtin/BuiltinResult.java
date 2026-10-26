@@ -3,6 +3,7 @@ package world.mongoose.banteng.builtin;
 import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.Callable;
+import world.mongoose.banteng.bytecode.BytecodeProgram;
 import world.mongoose.banteng.builtin.BuiltinCatalog.ConnectionOption;
 import world.mongoose.banteng.value.MooValue;
 import world.mongoose.banteng.value.MooValue.AnonymousObjectValue;
@@ -71,10 +72,10 @@ public sealed interface BuiltinResult {
     }
   }
 
-  /** Compiles and evaluates source in a new frame. */
-  record DynamicEval(String source) implements BuiltinResult {
+  /** Evaluates the compiled program in a new frame. */
+  record DynamicEval(BytecodeProgram program) implements BuiltinResult {
     public DynamicEval {
-      Objects.requireNonNull(source, "source");
+      Objects.requireNonNull(program, "program");
     }
   }
 

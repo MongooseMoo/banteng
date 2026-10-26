@@ -5926,7 +5926,7 @@ public final class BuiltinCatalog {
     return mutationResult(updated, new IntegerValue(0));
   }
 
-  private static BuiltinResult setVerbCode(
+  private BuiltinResult setVerbCode(
       List<MooValue> arguments, WorldTxn world, long programmer) {
     ListValue code = (ListValue) arguments.get(2);
     if (code.elements().stream().anyMatch(value -> !(value instanceof StringValue))) {
@@ -5995,19 +5995,14 @@ public final class BuiltinCatalog {
             .map(StringValue.class::cast)
             .map(StringValue::text)
             .collect(java.util.stream.Collectors.joining("\n"));
-    final Ast.Program program;
-    try {
-      program = MooParser.parse(suppliedSource);
-    } catch (IllegalArgumentException error) {
-      return compilationDiagnostic(error);
-    }
-    try {
-      new MooCompiler().compile(program);
-    } catch (IllegalArgumentException error) {
-      return compilationDiagnostic(error);
+    MooCompiler.CompilationResult compiled =
+        new MooCompiler().compileResult(suppliedSource, name -> spec(name).isPresent());
+    if (!compiled.diagnostics().isEmpty()) {
+      return BuiltinResult.value(new ListValue(compiled.diagnostics().stream()
+          .map(diagnostic -> (MooValue) StringValue.of(diagnostic.display())).toList()));
     }
     String canonicalSource =
-        MooUnparser.unparse(program).lines()
+        compiled.program().orElseThrow().source().lines()
             .map(String::stripLeading)
             .collect(java.util.stream.Collectors.joining("\n"));
     WorldResult<Boolean> updated =
@@ -6015,14 +6010,6 @@ public final class BuiltinCatalog {
             ? world.setVerbCode(object.value(), verbIndex, canonicalSource)
             : world.setVerbCode((AnonymousObjectValue) receiver, verbIndex, canonicalSource);
     return mutationResult(updated, new ListValue(List.of()));
-  }
-
-  private static BuiltinResult compilationDiagnostic(IllegalArgumentException error) {
-    String diagnostic = error.getMessage();
-    if (diagnostic == null) {
-      diagnostic = error.getClass().getSimpleName();
-    }
-    return BuiltinResult.value(new ListValue(List.of(StringValue.of(diagnostic))));
   }
 
   private static BuiltinResult verbCode(
@@ -6391,13 +6378,20 @@ public final class BuiltinCatalog {
     return left.equals(right);
   }
 
-  private static BuiltinResult dynamicEval(List<MooValue> arguments) {
+  private BuiltinResult dynamicEval(List<MooValue> arguments) {
     String source =
         arguments.stream()
             .map(StringValue.class::cast)
             .map(StringValue::text)
             .collect(java.util.stream.Collectors.joining("\n"));
-    return new BuiltinResult.DynamicEval(source);
+    MooCompiler.CompilationResult compiled =
+        new MooCompiler().compileResult(source, name -> spec(name).isPresent());
+    if (!compiled.diagnostics().isEmpty()) {
+      return BuiltinResult.value(new ListValue(List.of(new IntegerValue(0),
+          new ListValue(compiled.diagnostics().stream()
+              .map(diagnostic -> (MooValue) StringValue.of(diagnostic.display())).toList()))));
+    }
+    return new BuiltinResult.DynamicEval(compiled.program().orElseThrow());
   }
 
   private static BuiltinResult gcStats() {

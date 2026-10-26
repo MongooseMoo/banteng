@@ -656,7 +656,7 @@ public final class MooVm {
         frame.operandStack.push(new IntegerValue(0));
       }
       case BuiltinResult.DynamicEval dynamicEval ->
-          applyDynamicEval(dynamicEval.source(), frame, state, world);
+          applyDynamicEval(dynamicEval.program(), state, world);
       case BuiltinResult.Output output -> {
         state.stageOutput(output.line());
         frame.operandStack.push(new IntegerValue(1));
@@ -697,23 +697,8 @@ public final class MooVm {
   }
 
   private static void applyDynamicEval(
-      String source, Frame frame, VmState state, WorldTxn world) {
-    final BytecodeProgram dynamicProgram;
-    try {
-      dynamicProgram = new MooCompiler().compile(source);
-    } catch (IllegalArgumentException error) {
-      String diagnostic = error.getMessage();
-      if (diagnostic == null) {
-        diagnostic = error.getClass().getSimpleName();
-      }
-      frame.operandStack.push(
-          new ListValue(
-              List.of(
-                  new IntegerValue(0),
-                  new ListValue(List.of(StringValue.of("Parse error: " + diagnostic))))));
-      return;
-    }
-    if (!state.pushEvalFrame(dynamicProgram)) {
+      BytecodeProgram program, VmState state, WorldTxn world) {
+    if (!state.pushEvalFrame(program)) {
       ErrorOps.raise(state, ErrorValue.E_MAXREC, world);
     }
   }

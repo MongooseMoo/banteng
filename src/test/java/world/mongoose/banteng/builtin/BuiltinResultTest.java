@@ -49,7 +49,7 @@ final class BuiltinResultTest {
         Map.ofEntries(
             Map.entry("BootPlayer", List.of("target")),
             Map.entry("Checkpoint", List.of()),
-            Map.entry("DynamicEval", List.of("source")),
+            Map.entry("DynamicEval", List.of("program")),
             Map.entry("ErrorResult", List.of("error")),
             Map.entry("ForceInput", List.of("target", "input")),
             Map.entry("HostWork", List.of("work")),

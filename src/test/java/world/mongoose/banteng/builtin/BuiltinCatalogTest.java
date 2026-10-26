@@ -6282,7 +6282,7 @@ final class BuiltinCatalogTest {
 
   private static Optional<String> dynamicSource(BuiltinResult result) {
     return result instanceof BuiltinResult.DynamicEval dynamic
-        ? Optional.of(dynamic.source())
+        ? Optional.of(dynamic.program().source().stripTrailing())
         : Optional.empty();
   }
 

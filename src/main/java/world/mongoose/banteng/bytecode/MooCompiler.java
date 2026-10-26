@@ -7,6 +7,7 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.OptionalInt;
+import java.util.function.Predicate;
 import world.mongoose.banteng.bytecode.BytecodeProgram.AstPath;
 import world.mongoose.banteng.bytecode.BytecodeProgram.HandlerSpec;
 import world.mongoose.banteng.bytecode.BytecodeProgram.Instruction;
@@ -31,6 +32,11 @@ public final class MooCompiler {
 
   /** Parses and compiles one MOO verb body while retaining user-facing diagnostics. */
   public CompilationResult compileResult(String source) {
+    return compileResult(source, name -> true);
+  }
+
+  /** Compiles against the target's available builtin names as well as language syntax. */
+  public CompilationResult compileResult(String source, Predicate<String> knownBuiltin) {
     Objects.requireNonNull(source, "source");
     MooParser.ParseResult parsed = MooParser.parseResult(source);
     Ast.Program program = parsed.program().orElseThrow();
@@ -44,11 +50,27 @@ public final class MooCompiler {
                     diagnostic.column()))
         .forEach(positionedDiagnostics::add);
     positionedDiagnostics.addAll(controlFlowDiagnostics(program));
+    callPaths.clear();
+    controlPaths.clear();
+    indexCallPaths(program);
+    for (Ast.Expression expression : callPaths.keySet()) {
+      if (expression instanceof Ast.Call call && !knownBuiltin.test(call.name())) {
+        Ast.SourceSpan span = call.span().orElseThrow();
+        positionedDiagnostics.add(new PositionedDiagnostic(
+            new Diagnostic(span.line(), "Unknown built-in function: " + call.name()), span.column()));
+      }
+    }
     positionedDiagnostics.sort(
         Comparator.comparingInt((PositionedDiagnostic diagnostic) -> diagnostic.value().line())
             .thenComparingInt(PositionedDiagnostic::column));
     List<Diagnostic> diagnostics =
         positionedDiagnostics.stream().map(PositionedDiagnostic::value).toList();
+    for (int index = 0; index < diagnostics.size(); index++) {
+      if (diagnostics.get(index).message().equals("syntax error")) {
+        diagnostics = diagnostics.subList(0, index + 1);
+        break;
+      }
+    }
     if (!diagnostics.isEmpty()) {
       return new CompilationResult(Optional.empty(), diagnostics);
     }

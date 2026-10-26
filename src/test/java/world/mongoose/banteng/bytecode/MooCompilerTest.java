@@ -135,16 +135,7 @@ final class MooCompilerTest {
     assertEquals(
         List.of(
             new MooCompiler.Diagnostic(2, "No enclosing loop for `break' statement"),
-            new MooCompiler.Diagnostic(2, "syntax error"),
-            new MooCompiler.Diagnostic(5, "Invalid loop name in `break' statement: missing"),
-            new MooCompiler.Diagnostic(5, "syntax error"),
-            new MooCompiler.Diagnostic(
-                8, "Invalid loop name in `continue' statement: missing"),
-            new MooCompiler.Diagnostic(8, "syntax error"),
-            new MooCompiler.Diagnostic(11, "No enclosing loop for `continue' statement"),
-            new MooCompiler.Diagnostic(11, "syntax error"),
-            new MooCompiler.Diagnostic(14, "No enclosing loop for `break' statement"),
-            new MooCompiler.Diagnostic(14, "syntax error")),
+            new MooCompiler.Diagnostic(2, "syntax error")),
         result.diagnostics());
 
     MooCompiler.CompilationResult incomplete =

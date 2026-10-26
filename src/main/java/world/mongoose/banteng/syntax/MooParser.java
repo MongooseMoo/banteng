@@ -371,7 +371,7 @@ public final class MooParser {
   }
 
   private Ast.Expression parseExpression(int minimumPrecedence) {
-    if (expressionDepth >= MAX_EXPRESSION_DEPTH) {
+    if (expressionDepth > MAX_EXPRESSION_DEPTH) {
       throw error("expression nesting limit exceeded");
     }
     expressionDepth++;
@@ -383,7 +383,10 @@ public final class MooParser {
           left = parsePostfix(left, firstToken);
           continue;
         }
-        if (current.kind() == TokenKind.EQUAL && ASSIGNMENT_PRECEDENCE >= minimumPrecedence) {
+        if (current.kind() == TokenKind.EQUAL
+            && (ASSIGNMENT_PRECEDENCE >= minimumPrecedence
+                || left instanceof Ast.ListLiteral list
+                    && list.elements().stream().anyMatch(Ast.ScatterElement.class::isInstance))) {
           advance();
           Ast.Expression value = parseExpression(ASSIGNMENT_PRECEDENCE);
           left =
@@ -820,9 +823,11 @@ public final class MooParser {
       return new Ast.PropertyTarget(property.object(), property.property());
     }
     if (expression instanceof Ast.IndexAccess index) {
+      validateIndexedTarget(index.collection());
       return new Ast.IndexTarget(index.collection(), index.index());
     }
     if (expression instanceof Ast.RangeAccess range) {
+      validateIndexedTarget(range.collection());
       return new Ast.RangeTarget(range.collection(), range.start(), range.end());
     }
     if (expression instanceof Ast.ListLiteral list) {
@@ -835,10 +840,6 @@ public final class MooParser {
           elements.add(optional);
         } else if (element instanceof Ast.Splice splice
             && splice.value() instanceof Ast.Identifier identifier) {
-          if (elements.stream().anyMatch(Ast.ScatterElement::rest)) {
-            reportRecoverable(
-                current, "scatter assignment has multiple rest targets");
-          }
           elements.add(new Ast.ScatterElement(identifier.name(), true, false, Optional.empty()));
         } else {
           throw error("scatter assignment requires variable targets");
@@ -847,12 +848,30 @@ public final class MooParser {
       if (elements.isEmpty()) {
         throw error("scatter assignment requires at least one target");
       }
+      boolean seenRest = false;
+      for (Ast.ScatterElement element : elements) {
+        if (element.rest()) {
+          if (seenRest) {
+            reportRecoverable(current, "scatter assignment has multiple rest targets");
+          }
+          seenRest = true;
+        }
+      }
       if (elements.size() > 255) {
         throw error("scatter assignment has too many targets");
       }
       return new Ast.ScatterTarget(elements);
     }
     throw error("invalid assignment target");
+  }
+
+  private void validateIndexedTarget(Ast.Expression expression) {
+    while (expression instanceof Ast.IndexAccess index) {
+      expression = index.collection();
+    }
+    if (!(expression instanceof Ast.Identifier || expression instanceof Ast.PropertyAccess)) {
+      throw error("invalid assignment target");
+    }
   }
 
   private static boolean isPostfix(TokenKind kind) {

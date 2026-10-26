@@ -85,3 +85,28 @@ source-confirmed contract. SQLite next: retain the existing service but obey
 activation thread mode and remove JDBC's documented exception prefix from the
 returned SQLite error text (~30 lines). Xerial DB.newSQLException builds
 `resultCode + " (" + errmsg + ")"`; Toast sqlite.cc returns sqlite3_errmsg alone.
+
+Parser group: reuse existing MooCompiler.compileResult from both set_verb_code
+and eval (~25 lines replacing fail-fast exception conversion). Remove lexer
+support for // comments and recognize only actual error constants. Preserve
+ordinary syntax fail-fast while recovering independent semantic diagnostics.
+No new parser or diagnostic layer. Baseline cases identify these exact gaps.
+
+CI 40273084042 tested the move/SQLite commit: 81 failures, 10939 passes,
+2012 skips, again stopped after SIGUSR1 killed the managed process. Move and
+SQLite cases no longer appear in the failure list. Java's sole failure was
+NamespaceOwnershipTest's hard-coded source-file count after adding MoveOps;
+remove that count while retaining its per-file package/path assertions.
+
+Parser implementation now compiles dynamic eval at the builtin boundary and
+passes the compiled program to the VM. Both programming entry points validate
+calls against the active builtin catalog. Existing compiler recovery retains
+semantic errors before the first syntax error; diagnostics after that syntax
+error are suppressed. Toast parser.y:463-495 also requires indexed assignment
+roots to be variables/properties and treats optional scatter assignment as an
+operand; parser.y:1083-1121 validates simple targets before duplicate-rest checks.
+Use these existing AST paths (~30 lines), with no new parsing layer.
+
+Next: push parser group, inspect CI, then implement process signal delivery via
+the existing runtime request/continuation machinery. Signal behavior remains
+unimplemented beyond TERM and blocks evidence for the later suite cases.
