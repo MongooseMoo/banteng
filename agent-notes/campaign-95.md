@@ -4,7 +4,7 @@
 Preserve the next instruction when eval cannot push a frame in a non-debug activation.
 
 ## State
-Implemented the one-argument correction in MooVm.applyDynamicEval and a focused regression in MooVmTest. Not pushed or published. CI will validate the PR; no local suite run.
+Implemented the one-argument correction in MooVm.applyDynamicEval and a focused regression in MooVmTest. PR #96 is open; hosted CI and final review are pending. No local suite was run. The coordinator's campaign note tracks subsequent delivery state.
 
 ## Decisions and why
 The smallest change is to pass false to ErrorOps.raise because invokeBuiltin already advanced past CALL. Existing error routing remains the owner. The regression uses a non-debug root activation with maximum stack depth 1 and evaluates `x = eval("return 1;"); y = 2; return {x, y};`, checking `{E_MAXREC, 2}`. Approximately 30 added test lines and one changed implementation line.
