@@ -21,10 +21,8 @@ import world.mongoose.banteng.value.MooValue.ObjectValue;
 import world.mongoose.banteng.value.MooValue.StringValue;
 import world.mongoose.banteng.value.MooValue.WaifValue;
 import world.mongoose.banteng.vm.VmState.Frame;
-
 import world.mongoose.banteng.world.Access;
 import world.mongoose.banteng.world.WorldAnonymousObject;
-
 import world.mongoose.banteng.world.WorldProperty;
 import world.mongoose.banteng.world.WorldResult;
 import world.mongoose.banteng.world.WorldTxn;

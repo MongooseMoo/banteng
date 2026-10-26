@@ -22,7 +22,6 @@ import world.mongoose.banteng.value.MooValue.MapValue;
 import world.mongoose.banteng.value.MooValue.ObjectValue;
 import world.mongoose.banteng.value.MooValue.StringValue;
 import world.mongoose.banteng.vm.VmSnapshot;
-
 import world.mongoose.banteng.world.WorldTxn;
 
 /** The scheduler-owned live registry used by task-management builtins. */

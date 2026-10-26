@@ -17,6 +17,8 @@ The authored-test compiler caught missing imports, reliance on Enum.ordinal(), s
 Ready for parent handoff. Parent integrates after dependency PR104 and owns publication and review. Focused validation is complete; no worker work remains.
 
 ## PR #106 CI repair
+Claude review cleanup removed only blank import lines introduced by removed imports; the WorldResultTest repair is preserved, and no local tests were run for this cosmetic change.
+
 CI run 40419707970, job 121910790465 failed `WorldResultTest.everyPublicBooleanWorldMutationUsesWorldResult` at line 35: its explicit read-only predicate inventory omitted `isWizard`. Issue #86 Decision 4 explicitly requires public `WorldTxn.isWizard(long)`; `WorldTxn.java:1658-1661` reads the object and its wizard flag without mutating the world. The smallest repair is two test lines: add `isWizard` to that explicit inventory and sort the reflected names before comparison so reflection order cannot affect it. Boolean mutations are still rejected; no blanket method exclusion was added. No production code changed. No local CI rerun; parent owns publication and PR CI verification.
 
 ## Draft PR
