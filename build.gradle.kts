@@ -127,6 +127,12 @@ tasks.withType<Test>().configureEach {
 
 tasks.named<Test>("test") {
     dependsOn(tasks.installDist)
+    dependsOn(
+        tasks.named(jmh.compileJavaTaskName),
+        tasks.named(jcstress.compileJavaTaskName),
+        ":errorprone-checks:compileTestJava",
+        ":rewrite-recipes:compileTestJava",
+    )
     environment("JAZZER_FUZZ", "0")
     val executableName =
         if (System.getProperty("os.name").startsWith("Windows")) "banteng.bat" else "banteng"
