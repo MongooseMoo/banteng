@@ -37,6 +37,7 @@ import java.util.function.Supplier;
 import world.mongoose.banteng.bytecode.MooCompiler;
 import world.mongoose.banteng.host.NativeCalls;
 import world.mongoose.banteng.host.Aspell;
+import world.mongoose.banteng.host.NativeCurl;
 import world.mongoose.banteng.host.NativeCalls.NativeCallException;
 import world.mongoose.banteng.logging.ServerLog;
 import world.mongoose.banteng.syntax.Ast;
@@ -968,6 +969,15 @@ public final class BuiltinCatalog {
             EffectClass.TRANSACTION_READ,
             BuiltinOwner.WORLD,
             call -> disassemble(call.arguments(), call.world(), call.programmer())));
+    entries.add(
+        new BuiltinSpec(
+            "curl",
+            List.of(new CallShape(List.of(STRING), List.of(ANY, INTEGER), Optional.empty())),
+            BuiltinPermissionRule.WIZARD_ONLY,
+            BuiltinCostRule.fixed(0),
+            EffectClass.SUSPENDING_HOST,
+            BuiltinOwner.SERVER,
+            call -> curl(call.arguments(), call.world(), call.threadMode())));
     entries.add(
         new BuiltinSpec(
             "spellcheck",
@@ -3019,6 +3029,48 @@ public final class BuiltinCatalog {
       return BuiltinResult.value(new IntegerValue(map.size()));
     }
     return BuiltinResult.error(ErrorValue.E_TYPE);
+  }
+
+  private static BuiltinResult curl(List<MooValue> arguments, WorldTxn world, boolean threadMode) {
+    long maximumTimeout = Math.max(1, serverIntegerOption(world, "curl_max_timeout", 300));
+    long defaultTimeout = Math.clamp(serverIntegerOption(world, "curl_timeout", 60), 1, maximumTimeout);
+    long requestedTimeout = arguments.size() > 2 ? ((IntegerValue) arguments.get(2)).value() : defaultTimeout;
+    if (requestedTimeout < 1 || requestedTimeout > maximumTimeout) {
+      return BuiltinResult.raised(ErrorValue.E_INVARG,
+          StringValue.of("Timeout must be between 1 and $server_options.curl_max_timeout seconds"),
+          new IntegerValue(requestedTimeout));
+    }
+    long configuredBytes = serverIntegerOption(world, "curl_max_response_bytes", 10 * 1024 * 1024);
+    long maximumBytes = configuredBytes < 1 ? 10 * 1024 * 1024 : Math.min(configuredBytes, 256 * 1024 * 1024);
+    String url = ((StringValue) arguments.getFirst()).text();
+    boolean includeHeaders = arguments.size() > 1 && arguments.get(1).isTruthy();
+    return threadMode
+        ? BuiltinResult.hostWork(() -> curlTransfer(url, includeHeaders, requestedTimeout, maximumBytes))
+        : curlTransfer(url, includeHeaders, requestedTimeout, maximumBytes);
+  }
+
+  private static long serverIntegerOption(WorldTxn world, String name, long fallback) {
+    if (world.readObjectProperty(0, "server_options").orElse(null) instanceof ObjectValue options
+        && world.readObjectProperty(options.value(), name).orElse(null) instanceof IntegerValue integer) {
+      return integer.value();
+    }
+    return fallback;
+  }
+
+  private static BuiltinResult curlTransfer(String url, boolean headers, long timeout, long maximumBytes) {
+    try {
+      NativeCurl.Result result = NativeCurl.get(url, headers, timeout, maximumBytes);
+      if (result.status() == 0) return encodeBinary(List.of(StringValue.of(result.body())));
+      return curlError(result.overflowed() || result.status() == -1 ? ErrorValue.E_QUOTA : ErrorValue.E_INVARG,
+          result.overflowed() ? "Response exceeded the maximum allowed size" : result.message());
+    } catch (IllegalStateException | LinkageError failure) {
+      return curlError(ErrorValue.E_INVARG, "Could not perform curl transfer");
+    }
+  }
+
+  private static BuiltinResult curlError(ErrorValue error, String message) {
+    return BuiltinResult.value(new MapValue(Map.of(
+        StringValue.of("error"), error, StringValue.of("message"), StringValue.of(message))));
   }
 
   private static BuiltinResult spellcheck(StringValue value) {

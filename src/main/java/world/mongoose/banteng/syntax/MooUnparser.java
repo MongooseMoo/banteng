@@ -320,10 +320,10 @@ public final class MooUnparser {
                   + expression(range.end(), ASSIGNMENT_PRECEDENCE)
                   + "]";
         }
-        case Ast.FirstIndex() -> {
+        case Ast.FirstIndex(_) -> {
           rendered = "^";
         }
-        case Ast.LastIndex() -> {
+        case Ast.LastIndex(_) -> {
           rendered = "$";
         }
         case Ast.Unary unary -> {

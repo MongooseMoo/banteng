@@ -270,6 +270,7 @@ final class BuiltinCatalogTest {
           "url_encode",
           "url_decode",
           "spellcheck",
+          "curl",
           "verbs",
           "waif_stats",
           "verb_args",

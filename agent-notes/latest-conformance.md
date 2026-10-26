@@ -401,3 +401,17 @@ db268ff CI40285958878 admission failed before listening: constructor reload read
 the committed WorldTxn root, which forbids direct reads. Open/close an initial
 read transaction for that reload. Existing Java manifest/result shape assertions
 also need their new builtin names, ProtectedCall record, and load-options effect.
+
+Curl slice (~180 lines): implement the tested legacy curl(url, headers, timeout)
+contract through the system libcurl, retaining HTTP/HTTPS/DICT allowlist, TLS
+verification, bounded response bytes and native error maps (curl.cc:511-639).
+Resolve existing server timeout/size options before handing pure request data
+to existing HostWork. Bind Linux 64-bit libcurl using curl/curl.h enum values
+(https://raw.githubusercontent.com/curl/curl/master/include/curl/curl.h).
+The newer options-map extension is not part of this slice; no signature stub.
+
+2952abd CI40286262997 compiler rejected FirstIndex()/LastIndex() because those
+records carry Optional<SourceSpan>. Match the ignored component with (_) in
+both arms. The KillAbort record is empty and its pattern remains KillAbort().
+PR comment replies link 2952abd and explicitly state CI was still running;
+threads have not been resolved or any review dismissed.
