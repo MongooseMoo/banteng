@@ -10,6 +10,7 @@ import org.openrewrite.ExecutionContext;
 import org.openrewrite.ScanningRecipe;
 import org.openrewrite.SourceFile;
 import org.openrewrite.TreeVisitor;
+import org.openrewrite.java.AddImport;
 import org.openrewrite.java.JavaIsoVisitor;
 import org.openrewrite.java.JavaParser;
 import org.openrewrite.java.RandomizeIdVisitor;
@@ -92,8 +93,12 @@ public final class MoveDurableTaskCodec extends ScanningRecipe<MoveDurableTaskCo
         .withSourcePath(Path.of("src/main/java/world/mongoose/banteng/persistence/DurableTaskCodec.java"));
     generated = (J.CompilationUnit) new RandomizeIdVisitor<ExecutionContext>()
         .visitNonNull(generated, context);
-    return List.of((SourceFile) new RemoveUnusedImports().getVisitor()
-        .visitNonNull(generated, context));
+    generated = (J.CompilationUnit) new RemoveUnusedImports().getVisitor()
+        .visitNonNull(generated, context);
+    // Import cleanup on the transplanted members loses this static-call owner.
+    generated = (J.CompilationUnit) new AddImport<ExecutionContext>(
+        "java.util.OptionalLong", null, false).visitNonNull(generated, context);
+    return List.of(generated);
   }
 
   @Override public TreeVisitor<?, ExecutionContext> getVisitor(Members members) {

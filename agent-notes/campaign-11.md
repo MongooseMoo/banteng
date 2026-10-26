@@ -10,6 +10,8 @@ Read issue #11, the scheduler conversion closure, scheduler callback calls, runt
 Smallest change: approximately 1,000 moved lines, a roughly 150-line recipe and the actual callback interface. Restore registration, timers and VmSnapshot construction remain scheduler-owned for #19. Export currently takes private TimedWork/SuspendedWork; expose its existing primitive/program/snapshot/wake inputs instead, keeping cache selection and continuation rejection in scheduler. This avoids persistence depending on runtime without new record protocols.
 
 ## Surprises
+
+Coordinator found that generated DurableTaskCodec referenced OptionalLong.empty four times without importing OptionalLong. The pre-extraction PublicationScheduler imported java.util.OptionalLong, and MoveDurableTaskCodec copied the source imports before running RemoveUnusedImports over transplanted members. That cleanup did not preserve the required static-call owner import. The recipe now adds that required import after cleanup, and the generated codec has the import restored. Inspection of the codec's capitalized references against its imports, qualified names, nested records and java.lang types found no other missing imports; this is source inspection, not compilation evidence. No local CI suite or compilation was run for this repair.
 The issue's pure static exports depend on private scheduler records; copying them unchanged would violate the existing persistence dependency rule. Scheduler also uses MooRuntime nested data types; the interface cuts its concrete field/constructor callback coupling while preserving those existing data contracts.
 
 The requested rewrite program compiles all source sets before applying recipes. The first attempt failed because I referenced the destination before generation; recipe now retargets the initially local calls itself. Rewrite's Gradle plugin cannot use this project's configuration cache, so this invocation sets GRADLE_OPTS=-Dorg.gradle.configuration-cache=false without changing repository configuration. Compilation is prerequisite tool work, not a local CI gate.
@@ -26,6 +28,8 @@ Move the scheduler's static durable task import/export closure and four support 
 Closes #11.
 
 Validation: requested scripts/rewrite.sh --apply world.mongoose.banteng.persistence.ExtractDurableTaskCodec completed with -Werror compilation prerequisites. Hosted CI must validate the final refactor, persistence and restart suites; the worker did not run those suites locally.
+
+Follow-up: restore the generated codec's required OptionalLong import and make the extraction recipe retain it after import cleanup. Source inspection found no other missing imports; hosted CI must compile this final head.
 
 Focused edited-file validation: :rewrite-recipes:test --tests world.mongoose.banteng.rewrite.RecipeCatalogTest passed. The requested extraction command logged Gradle plugin classpath-lock warnings during subproject scanning but completed successfully and generated the codec. Final production compilation and ArchUnit execution remain unverified until PR CI.
 
