@@ -18,6 +18,7 @@ public final class Aspell {
   public record Result(int correct, List<String> suggestions) {}
 
   /** Checks a complete byte string, as aspell_speller_check does. */
+  @SuppressWarnings("restricted")
   public static synchronized Result check(byte[] word) {
     try (Arena arena = Arena.ofConfined()) {
       MemorySegment input = arena.allocate(word.length + 1L);

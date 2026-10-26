@@ -368,3 +368,7 @@ updated here. Remaining: curl registration/implementation, three recycle hook
 cases, three protected valid redirects, portable failed-dump fixture mismatch,
 and a task_stack waif-owner timeout whose cause is not yet established.
 Current object_bytes/URL/Aspell changes are ready for PR CI, not yet verified.
+
+bff08d4 CI40285380542 stopped at compilation: Aspell.check's native string
+reinterpretation lacked the restricted-FFM annotation used by other host calls.
+Add it at that method boundary; no behavioral verification ran for this slice.
