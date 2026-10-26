@@ -102,6 +102,48 @@ final class CommandParserTest {
     }
   }
 
+  @Test
+  void matchesLatin1NamesWithoutFoldingTheirHighBytes() {
+    String upper = StringValue.of(new byte[] {(byte) 0xC9, 'C', 'L', 'A', 'I', 'R'}).text();
+    String lower = StringValue.of(new byte[] {(byte) 0xE9, 'c', 'l', 'a', 'i', 'r'}).text();
+    WorldObject room = object(0, "room", -1, List.of(1L, 2L, 3L), List.of());
+    WorldObject player = object(1, "player", 0, List.of(), List.of());
+    WorldTxn owner = new WorldTxn(List.of(1L), List.of(room, player,
+        object(2, upper, 0, List.of(), List.of()),
+        object(3, lower, 0, List.of(), List.of())));
+    try (WorldTxn world = owner.begin()) {
+      assertEquals(2, CommandParser.matchObject(1,
+          StringValue.of(new byte[] {(byte) 0xC9, 'c', 'l', 'a', 'i', 'r'}).text(), world));
+      assertEquals(3, CommandParser.matchObject(1,
+          StringValue.of(new byte[] {(byte) 0xE9, 'C', 'L', 'A', 'I', 'R'}).text(), world));
+      assertEquals(2, CommandParser.matchObject(1,
+          StringValue.of(new byte[] {(byte) 0xC9, 'c', 'l'}).text(), world));
+      assertEquals(3, CommandParser.matchObject(1,
+          StringValue.of(new byte[] {(byte) 0xE9, 'C', 'L'}).text(), world));
+    }
+  }
+
+  @Test
+  void aliasesUseAsciiBytePrefixesAndKeepDuplicateMatchesOnOneIdentity() {
+    StringValue alias = StringValue.of(new byte[] {(byte) 0xC9, 'B', 'O', 'X'});
+    WorldProperty aliases = new WorldProperty("aliases",
+        new ListValue(List.of(alias, alias)), 1, 0, false, true);
+    WorldObject room = object(0, "room", -1, List.of(1L, 2L), List.of());
+    WorldObject player = object(1, "player", 0, List.of(), List.of());
+    WorldTxn owner = new WorldTxn(List.of(1L), List.of(room, player,
+        object(2, "target", 0, List.of(), List.of(aliases))));
+    try (WorldTxn world = owner.begin()) {
+      assertEquals(2, CommandParser.matchObject(1,
+          StringValue.of(new byte[] {(byte) 0xC9, 'b', 'o', 'x'}).text(), world));
+      assertEquals(2, CommandParser.matchObject(1,
+          StringValue.of(new byte[] {(byte) 0xC9, 'b'}).text(), world));
+      assertEquals(-3, CommandParser.matchObject(1,
+          StringValue.of(new byte[] {(byte) 0xE9, 'B', 'O', 'X'}).text(), world));
+      assertEquals(-3, CommandParser.matchObject(1,
+          StringValue.of(new byte[] {(byte) 0xE9, 'B'}).text(), world));
+    }
+  }
+
   private static WorldObject object(long id, String name, long location,
       List<Long> contents, List<WorldProperty> properties) {
     return new WorldObject(id, name, 0, 1, location, -1, contents, List.of(), List.of(), properties);
