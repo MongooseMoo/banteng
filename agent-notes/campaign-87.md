@@ -4,7 +4,7 @@
 Centralize MOO equality and ordering in ValueSemantics, following Toast utils.cc:408-492 plus the existing numeric-promotion extension. Preserve Java representation equality/hashCode and constructor behavior.
 
 ## State
-Own isolated branch campaign/87-value-semantics starts at campaign/89-builtin-contract aabe141. Implementation and focused tests are local; no publication by this agent. Other agents own permission changes in separate worktrees. Source is stable during the authored test run.
+Own isolated branch campaign/87-value-semantics starts at campaign/89-builtin-contract aabe141, with current master integrated at 8d8ade7. Implementation and focused tests are committed locally; no publication by this agent. Other agents own permission changes in separate worktrees.
 
 ## Decisions and why
 Smallest approved change: about 250 added / 300 deleted lines plus focused tests. Add equality/comparison to the existing ValueSemantics record; expose in-order traversal of the existing map lookup tree; delete duplicate semantic comparisons and migrate actual equality/membership/key-order callers. No Java sort with Toast's asymmetric identity comparison, no new storage or comparator framework. Keep natural sorting and relational/NaN boundary policies, and keep all Java equals/hashCode methods unchanged.
@@ -13,7 +13,7 @@ Smallest approved change: about 250 added / 300 deleted lines plus focused tests
 Long integer/object key comparison is already fixed. Toast's runtime type rank includes TYPE_COMPLEX_FLAG and differs from persisted Type.code ordering. Its map equality and map-value membership traverse tree order. Java representation methods deliberately retain existing behavior and are not used for MOO-level equality.
 
 ## Next step
-Q explicitly answered "Allow the narrow suppression" for ReferenceEquality on ValueSemantics.equal. Applied only that method annotation with a source comment identifying Toast list.cc:359 and map.cc:766, restored the direct collection identity shortcuts, and deleted the attempted sameReference helpers. The prior three runs stopped at compilation; no tests executed in those runs. The focused root :test --tests world.mongoose.banteng.vm.ValueSemanticsTest run is now active with Java source stable; no success claimed yet. Current master is integrated cleanly as 8d8ade7; implementation began at 87abfdc. Parent owns publication and full PR CI.
+Q explicitly answered "Allow the narrow suppression" for ReferenceEquality on ValueSemantics.equal. Applied only that method annotation with a source comment identifying Toast list.cc:359 and map.cc:766, restored the direct collection identity shortcuts, and deleted the attempted sameReference helpers. The prior three runs stopped at compilation; no tests executed in those runs. The focused run passed on committed Java source 2d280e4: `JAVA_HOME=/opt/java/25 ./gradlew --no-daemon :test --tests world.mongoose.banteng.vm.ValueSemanticsTest`, BUILD SUCCESSFUL in 6m 48s. Java source stayed unchanged throughout compilation/execution. Parent owns publication and full PR CI; those remain unverified locally.
 
 ## Source and implementation
 ValueSemantics now owns Toast equality and compare (utils.cc:408-492). Its type ordering accounts for the complex flag (include/structures.h:84,100-118). String comparison uses C-string byte/ASCII rules; equality retains the memo-length comparison enabled by include/options.h:343. Collection equality follows list.cc:359-373 and map.cc:766-790, including same-collection identity shortcuts.
@@ -29,4 +29,4 @@ Title: Share MOO equality and comparison across values and callers
 
 Set addition, removal, VM equality/membership, and equal() now use the same Toast equality rules, including boolean/integer equivalence and configured numeric promotion. All map-key comparisons delegate to ValueSemantics; map ordering follows the existing lookup tree instead of Java sorting with an asymmetric identity comparator. Java representation equality/hashing and caller-specific natural-sort/relational policies remain intact.
 
-Validation: focused authored ValueSemanticsTest pending; full CI belongs to the PR. Conformance suite unchanged. Depends on the builtin-contract branch.
+Validation: focused authored ValueSemanticsTest passed through WSL Java 25; full CI belongs to the PR. Conformance suite unchanged. Depends on the builtin-contract branch.
