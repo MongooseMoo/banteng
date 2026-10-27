@@ -7,6 +7,7 @@ import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.List;
+import java.util.ArrayList;
 import java.util.Map;
 import world.mongoose.banteng.builtin.BuiltinCatalog;
 import world.mongoose.banteng.builtin.BuiltinHosts;
@@ -174,7 +175,7 @@ final class MooVmTest {
   }
 
   @Test
-  void intrinsifiedDefaultYinPreservesItsValueAndSuspensionThreshold() {
+  void registeredDefaultYinPreservesItsValueAndSuspensionThreshold() {
     BytecodeProgram program = new MooCompiler().compile(MooParser.parse("return yin();"));
     MooVm vm = new MooVm();
     WorldTxn root = new WorldTxn(List.of(), List.of());
@@ -4170,6 +4171,25 @@ final class MooVmTest {
   }
 
   @Test
+  void passAtMaximumDepthReturnsTheErrorAndContinuesWithoutSkippingInstructions() {
+    WorldVerb inherited = new WorldVerb("inspect", 1, new VerbPerms(4), ArgSpec.NONE, -1, ArgSpec.NONE, "return 99;");
+    WorldObject parent = new WorldObject(1, "parent", 0, 1, -1, List.of(), List.of(),
+        List.of(2L), List.of(inherited), List.of());
+    WorldObject child = new WorldObject(2, "child", 0, 2, -1, List.of(1L), List.of(),
+        List.of(), List.of(), List.of());
+    for (String dispatch : List.of("pass()", "call_function(\"pass\")")) {
+      VmState state = new VmState(Map.of("this", new ObjectValue(2),
+          "verb", StringValue.of("inspect")), 2, new ObjectValue(2), 60_000, 5, 1, false);
+      executeAndClose(new MooCompiler().compile("return {" + dispatch + ", 7};"), state,
+          new WorldTxn(List.of(), List.of(parent, child)),
+          new BuiltinCatalog(BuiltinHosts.builder().build()));
+      assertEquals(VmState.Outcome.RETURNED, state.outcome());
+      assertEquals(new ListValue(List.of(ErrorValue.E_MAXREC, new IntegerValue(7))),
+          state.returnValue().orElseThrow(), dispatch);
+    }
+  }
+
+  @Test
   void anonymousVerbCallsAndPassRetainAnonymousReceiverAndLocation() {
     AnonymousObjectValue identity = new AnonymousObjectValue();
     WorldVerb parentVerb = new WorldVerb(
@@ -4217,55 +4237,44 @@ final class MooVmTest {
 
   @Test
   void passRetainsAnonymousLocalsCopiedIntoTheParentVerbFrame() {
-    AnonymousObjectValue identity = new AnonymousObjectValue();
-    WorldVerb parentVerb = new WorldVerb(
-        "inspect",
-        1,
-        new VerbPerms(4),
-        ArgSpec.NONE,
-        -1,
-        ArgSpec.NONE,
-        "return typeof(subject);");
-    WorldVerb childVerb =
-        new WorldVerb(
-            "inspect",
-            2,
-            new VerbPerms(4),
-            ArgSpec.NONE,
-            -1,
-            ArgSpec.NONE,
-            "subject = args[1]; subject; return pass();");
-    WorldObject parent =
-        new WorldObject(
-            1, "parent", 0, 1, -1, -1, List.of(), List.of(2L), List.of(parentVerb), List.of());
-    WorldObject child =
-        new WorldObject(
-            2,
-            "child",
-            0,
-            2,
-            -1,
-            List.of(1L),
-            List.of(),
-            List.of(),
-            List.of(childVerb),
-            List.of());
-    VmState state =
-        new VmState(
-            Map.of(
-                "player", new ObjectValue(2),
-                "this", new ObjectValue(2),
-                "subject", identity),
-            2);
+    for (String dispatch : List.of("pass()", "call_function(\"pass\")",
+        "call_function(\"call_function\", \"pass\")")) {
+      AnonymousObjectValue identity = new AnonymousObjectValue();
+      WorldVerb parentVerb = new WorldVerb("inspect", 1, new VerbPerms(4), ArgSpec.NONE, -1, ArgSpec.NONE, "return typeof(subject);");
+      WorldVerb childVerb =
+          new WorldVerb("inspect", 2, new VerbPerms(4), ArgSpec.NONE, -1, ArgSpec.NONE, "subject = args[1]; subject; return " + dispatch + ";");
+      WorldObject parent =
+          new WorldObject(
+              1, "parent", 0, 1, -1, -1, List.of(), List.of(2L), List.of(parentVerb), List.of());
+      WorldObject child =
+          new WorldObject(
+              2,
+              "child",
+              0,
+              2,
+              -1,
+              List.of(1L),
+              List.of(),
+              List.of(),
+              List.of(childVerb),
+              List.of());
+      VmState state =
+          new VmState(
+              Map.of(
+                  "player", new ObjectValue(2),
+                  "this", new ObjectValue(2),
+                  "subject", identity),
+              2);
 
-    executeAndClose(
-        new MooCompiler().compile(MooParser.parse("return #2:inspect(subject);")),
-        state,
-        new WorldTxn(List.of(), List.of(parent, child)),
-        new BuiltinCatalog(BuiltinHosts.builder().build()));
+      executeAndClose(
+          new MooCompiler().compile(MooParser.parse("return #2:inspect(subject);")),
+          state,
+          new WorldTxn(List.of(), List.of(parent, child)),
+          new BuiltinCatalog(BuiltinHosts.builder().build()));
 
-    assertEquals(VmState.Outcome.RETURNED, state.outcome());
-    assertEquals(new IntegerValue(12), state.returnValue().orElseThrow());
+      assertEquals(VmState.Outcome.RETURNED, state.outcome());
+      assertEquals(new IntegerValue(12), state.returnValue().orElseThrow());
+    }
   }
 
   @Test
@@ -4713,14 +4722,9 @@ final class MooVmTest {
   @Test
   void callersReturnsCallerFramesAndOptionallyAppendsSourceLines() {
     WorldVerb inspect =
-        new WorldVerb(
-            "inspect",
-            1,
-            new VerbPerms(4),
-            ArgSpec.NONE,
-            -1,
-            ArgSpec.NONE,
-            "return {callers(), callers(1)};");
+        new WorldVerb("inspect", 1, new VerbPerms(4), ArgSpec.NONE, -1, ArgSpec.NONE,
+            "return {callers(), callers(1), call_function(\"callers\", 1), "
+                + "call_function(\"call_function\", \"callers\", 1)};");
     WorldObject object =
         new WorldObject(
             1, "caller object", 4, 1, -1, -1, List.of(), List.of(), List.of(inspect), List.of());
@@ -4729,34 +4733,20 @@ final class MooVmTest {
         new VmState(Map.of("player", new ObjectValue(1), "this", new ObjectValue(1)), 1);
 
     executeAndClose(
-        new MooCompiler().compile(MooParser.parse("return #1:inspect();")),
+        new MooCompiler().compile(MooParser.parse("unused = 1;\nreturn #1:inspect();")),
         state,
         world,
         new BuiltinCatalog(BuiltinHosts.builder().build()));
 
-    ListValue caller =
-        new ListValue(
-            List.of(
-                new ObjectValue(1),
-                StringValue.of(new byte[0]),
-                new ObjectValue(1),
-                new ObjectValue(1),
-                new ObjectValue(1)));
+    List<MooValue> fields =
+        List.of(new ObjectValue(1), StringValue.of(new byte[0]), new ObjectValue(1),
+            new ObjectValue(1), new ObjectValue(1));
+    List<MooValue> numberedFields = new ArrayList<>(fields);
+    numberedFields.add(new IntegerValue(2));
+    ListValue caller = new ListValue(List.of(new ListValue(fields)));
+    ListValue numbered = new ListValue(List.of(new ListValue(numberedFields)));
     assertEquals(VmState.Outcome.RETURNED, state.outcome());
-    assertEquals(
-        new ListValue(
-            List.of(
-                new ListValue(List.of(caller)),
-                new ListValue(
-                    List.of(
-                        new ListValue(
-                            List.of(
-                                new ObjectValue(1),
-                                StringValue.of(new byte[0]),
-                                new ObjectValue(1),
-                                new ObjectValue(1),
-                                new ObjectValue(1),
-                                new IntegerValue(1))))))),
+    assertEquals(new ListValue(List.of(caller, numbered, numbered, numbered)),
         state.returnValue().orElseThrow());
   }
 
