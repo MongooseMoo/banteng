@@ -15,7 +15,7 @@ Use existing registrar and AST mover. Preserve object/anonymous/WAIF checks, mut
 OpenRewrite emitted Gradle runtimeClasspath exclusive-lock warnings for subprojects and configuration-cache incompatibility warnings; the runner nevertheless parsed all sources, generated exactly the three intended production file changes and reported BUILD SUCCESSFUL.
 
 ## Next step
-Parent verifies source, integrates sibling recipe/YAML changes as needed, obtains required Claude review and publishes for PR CI. This branch remains local only.
+Published as PR129. Claude completed the code review with no code findings; its stale-publication-note finding is corrected here. Original PR CI passed. Merged Conversion is integrated, with the completed code review retained; current integration CI must pass before normal merge.
 
 ## Draft PR body
 

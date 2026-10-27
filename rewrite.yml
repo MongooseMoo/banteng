@@ -446,6 +446,16 @@ recipeList:
       methods: [randomInteger, floatingRandom, randomBytes]
 ---
 type: specs.openrewrite.org/v1beta/recipe
+name: world.mongoose.banteng.builtin.ExtractConversionBuiltins
+displayName: Extract conversion builtins
+description: Moves conversion registrations and implementations into their family owner.
+recipeList:
+  - world.mongoose.banteng.rewrite.MoveBuiltinFamily:
+      family: ConversionBuiltins
+      builtins: [tostr, tofloat, toint, toliteral, toobj, equal, typeof]
+      methods: [toStringValue, errorDescription, toFloat, toInteger, toLiteral, toObject, parseToastObjectId, isAsciiWhitespace, equalValues, typeOf]
+---
+type: specs.openrewrite.org/v1beta/recipe
 name: world.mongoose.banteng.builtin.ExtractObjectBuiltins
 displayName: Extract object builtins
 description: Moves object registrations and implementation closure while preserving existing result ownership.
