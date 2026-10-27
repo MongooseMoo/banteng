@@ -542,3 +542,16 @@ recipeList:
       family: TaskBuiltins
       builtins: [task_local, set_task_local, raise, pass, caller_perms, callers, call_function, queue_info, queued_tasks, task_stack, kill_task, thread_pool, threads, task_perms, task_id, ticks_left, seconds_left, set_task_perms, set_thread_mode, eval, suspend, resume, yin]
       methods: [configureThreadPool, callFunction, suspend, yin, raise, setThreadMode, callers, anonymizeTaskReference, setTaskPerms, dynamicEval]
+---
+type: specs.openrewrite.org/v1beta/recipe
+name: world.mongoose.banteng.builtin.ExtractNoiseBuiltins
+displayName: Extract noise builtins
+description: Moves simplex noise registration and wrapper beside its package-private numeric implementation.
+recipeList:
+  - world.mongoose.banteng.rewrite.MoveBuiltinFamily:
+      family: NoiseBuiltins
+      builtins: [simplex_noise]
+      methods: [simplexNoise]
+  - org.openrewrite.java.ChangeType:
+      oldFullyQualifiedTypeName: world.mongoose.banteng.builtin.SimplexNoise
+      newFullyQualifiedTypeName: world.mongoose.banteng.builtin.family.SimplexNoise

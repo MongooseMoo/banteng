@@ -142,6 +142,47 @@ final class MoveBuiltinFamilyTest {
   }
 
   @Test
+  void movesNoiseWrapperAndRelocatesItsPackagePrivateImplementation() {
+    var context = new InMemoryExecutionContext(failure -> { throw new AssertionError(failure); });
+    var files = JavaParser.fromJavaVersion().build().parse(context, """
+        package world.mongoose.banteng.builtin;
+        import java.util.List;
+        class BuiltinCatalog {
+          void buildManifest() {
+            before();
+            entries.add(new BuiltinSpec("simplex_noise", List.of(), BuiltinPermissionRule.ANY, false, call -> simplexNoise(call.arguments())));
+            after();
+          }
+          private static Object simplexNoise(Object arguments) { return SimplexNoise.noise(1.0); }
+        }
+        """, """
+        package world.mongoose.banteng.builtin;
+        final class SimplexNoise {
+          private static final double SCALE = 0.25;
+          static double noise(double coordinate) { return coordinate * SCALE; }
+        }
+        """).toList();
+    var recipe = Environment.builder().scanRuntimeClasspath().build()
+        .activateRecipes("world.mongoose.banteng.builtin.ExtractNoiseBuiltins");
+    var changes = recipe.run(new InMemoryLargeSourceSet(files), context).getChangeset().getAllResults();
+    String catalog = changedFile(changes, "BuiltinCatalog.java");
+    String family = changedFile(changes, "NoiseBuiltins.java");
+    String implementation = changedFile(changes, "SimplexNoise.java");
+    assertTrue(catalog.indexOf("before()") < catalog.indexOf("NoiseBuiltins.register(entries)"));
+    assertTrue(catalog.indexOf("NoiseBuiltins.register(entries)") < catalog.indexOf("after()"));
+    assertFalse(catalog.contains("private static Object simplexNoise"));
+    assertTrue(family.contains("private static Object simplexNoise"));
+    assertTrue(family.contains("SimplexNoise.noise(1.0)"));
+    assertTrue(implementation.contains("package world.mongoose.banteng.builtin.family;"));
+    assertTrue(implementation.contains("final class SimplexNoise"));
+    assertFalse(implementation.contains("public final class SimplexNoise"));
+    assertTrue(implementation.contains("coordinate * SCALE"));
+    assertTrue(implementation.contains("SCALE = 0.25"));
+    assertTrue(recipe.run(new InMemoryLargeSourceSet(changes.stream().map(Result::getAfter).toList()), context)
+        .getChangeset().getAllResults().isEmpty());
+  }
+
+  @Test
   void movesConversionGroupsAndRetargetsTheRealRemainingHelperCaller() {
     var context = new InMemoryExecutionContext(failure -> { throw new AssertionError(failure); });
     var files = JavaParser.fromJavaVersion().build().parse(context, """
