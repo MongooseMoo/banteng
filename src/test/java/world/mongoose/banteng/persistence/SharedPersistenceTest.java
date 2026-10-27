@@ -25,6 +25,8 @@ import world.mongoose.banteng.value.MooValue.AnonymousObjectValue;
 import world.mongoose.banteng.value.MooValue.IntegerValue;
 import world.mongoose.banteng.value.MooValue.MapValue;
 import world.mongoose.banteng.value.MooValue.StringValue;
+import world.mongoose.banteng.world.ArgSpec;
+import world.mongoose.banteng.world.VerbPerms;
 import world.mongoose.banteng.world.WorldAnonymousObject;
 import world.mongoose.banteng.world.WorldObject;
 import world.mongoose.banteng.world.WorldSnapshot;
@@ -77,7 +79,8 @@ final class SharedPersistenceTest {
   void bothVerbProgramWritersRejectUnrepresentableSource(@TempDir Path directory) {
     LambdaMooV17Codec codec = new LambdaMooV17Codec();
     for (String source : List.of("return 1;\r\n", "return 1;\n.\n")) {
-      WorldVerb verb = new WorldVerb("test", 0, 4, -1, source);
+      WorldVerb verb =
+          new WorldVerb("test", 0, new VerbPerms(4), ArgSpec.NONE, -1, ArgSpec.NONE, source);
       WorldSnapshot permanent = new WorldTxn(List.of(), List.of(root(List.of(verb)))).snapshot();
       assertThrows(IOException.class, () -> codec.writeAtomic(directory.resolve("permanent.db"),
           permanent, List.of(), List.of()));

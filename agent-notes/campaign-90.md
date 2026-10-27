@@ -5,6 +5,7 @@ Extract one activation header writer/reader, one program-section reader, shared 
 
 ## State
 Shared helpers and authored SharedPersistenceTest are implemented. Integrated current master cleanly; the merge changed none of this task's persistence source or focused regression. Existing source review can be reused; no review ledger or local CI was refreshed. Parent owns publication; no worker push authorized.
+The subsequent typed-permissions integration merged without conflicts and updated the persistence readers/writer through master's existing changes. Adapted the remaining local test constructor to VerbPerms(4) with ArgSpec.NONE for both argument slots, retaining its original packed-wire value and preposition. This follows the merged readers' low-four-bit flag mask and argument extraction, plus existing typed persistence fixtures. No broad local CI or test rerun; published PR CI remains required.
 Prior authored-test validation reported BUILD SUCCESSFUL in 1m 39s with source frozen. Its first invocation had passed production/jcstress/JMH compilation but test compilation rejected a nullable error.getMessage().contains assertion; direct expected-message equality resolved that without suppressions. Direct numeric tag lookup replaced the temporary values() scan, and redundant forwarding methods were removed. This preparation did not rerun tests or claim restart-suite acceptance.
 
 ## Decisions and why
