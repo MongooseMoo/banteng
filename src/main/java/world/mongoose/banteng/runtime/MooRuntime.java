@@ -23,6 +23,7 @@ import java.util.OptionalLong;
 import java.util.Set;
 import java.util.StringTokenizer;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Callable;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.LongSupplier;
@@ -48,6 +49,7 @@ import world.mongoose.banteng.value.MooValue;
 import world.mongoose.banteng.value.MooValue.AnonymousObjectValue;
 import world.mongoose.banteng.value.MooValue.BooleanValue;
 import world.mongoose.banteng.value.MooValue.ErrorValue;
+import world.mongoose.banteng.value.MooValue.FloatValue;
 import world.mongoose.banteng.value.MooValue.IntegerValue;
 import world.mongoose.banteng.value.MooValue.ListValue;
 import world.mongoose.banteng.value.MooValue.MapValue;
@@ -461,7 +463,8 @@ public final class MooRuntime implements AutoCloseable, SchedulerRuntime {
     if (!command && transition != RuntimeTransition.LOGIN_AUTHENTICATE_AND_ASSOCIATE
         && transition != RuntimeTransition.LOGIN_BLANK_TRUTH_GATE
         && transition != RuntimeTransition.TRANSPORT_OOB_RETURN_OUTPUT
-        && transition != RuntimeTransition.LINE_OOB_RETURN_OUTPUT) {
+        && transition != RuntimeTransition.LINE_OOB_RETURN_OUTPUT
+        && transition != RuntimeTransition.LAG_HANDLER_RETURN) {
       return Optional.empty();
     }
     List<String> output = new ArrayList<>(continuation.output());
@@ -960,6 +963,43 @@ public final class MooRuntime implements AutoCloseable, SchedulerRuntime {
         RuntimeContinuation.timeoutReturn(continuation.output()));
   }
 
+  @Override
+  public long nanoTime() {
+    return nanoTime.getAsLong();
+  }
+
+  @Override
+  public Optional<RuntimeStep> startLaggingTask(AttemptContext context,
+      VmSnapshot initial, VmSnapshot completed, long player, double elapsedSeconds) {
+    MooValue options = context.world.readObjectProperty(0, "server_options").orElse(null);
+    MooValue configured = options instanceof ObjectValue object
+        ? context.world.readObjectProperty(object.value(), "task_lag_threshold").orElse(null) : null;
+    double threshold = configured instanceof FloatValue value ? value.value() : 5.0;
+    if (!(threshold >= 0.1 && elapsedSeconds >= threshold)) {
+      return Optional.empty();
+    }
+    ResolvedVerb handler = context.world.resolveVerb(0, "handle_lagging_task", true).orElse(null);
+    if (handler == null) {
+      return Optional.empty();
+    }
+    VmSnapshot.Frame entry = initial.frames().isEmpty() ? null : initial.frames().getFirst();
+    MooValue location = entry == null ? initial.initialVerbLocation() : entry.verbLocation();
+    String name = entry == null ? initial.initialFullVerbName() : entry.fullVerbName();
+    long programmer = entry == null ? initial.initialProgrammer() : entry.programmer();
+    MooValue includeVariables = options instanceof ObjectValue object
+        ? context.world.readObjectProperty(object.value(), "include_rt_vars").orElse(new IntegerValue(0))
+        : new IntegerValue(0);
+    ListValue stack = completed.outcome() == VmState.Outcome.RETURNED
+        ? new ListValue(List.of(new ObjectValue(-1), StringValue.of(name), new ObjectValue(-1),
+            location, new ObjectValue(-1), new ObjectValue(-1)))
+        : TaskRegistry.projectStackFrames(completed.frames(), true, includeVariables.isTruthy(),
+            context.world, programmer);
+    ListValue arguments = new ListValue(List.of(stack, new FloatValue(elapsedSeconds)));
+    return Optional.of(startStored(context, handler,
+        new RootVerbCall(0, player, -1, "handle_lagging_task", arguments, ""),
+        RuntimeContinuation.after(RuntimeTransition.LAG_HANDLER_RETURN, 0, "", List.of(), 0, 0, false)));
+  }
+
   RuntimeStep startStored(AttemptContext context,
       ResolvedVerb resolution, RootVerbCall call, RuntimeContinuation continuation) {
     MooValue serverOptions = context.world.readObjectProperty(0, "server_options").orElse(null);
@@ -1149,6 +1189,9 @@ public final class MooRuntime implements AutoCloseable, SchedulerRuntime {
   }
 
   private RuntimeStep resumeRuntime(AttemptContext context, RuntimeContinuation continuation, VmState state) {
+    if (continuation.transition().orElseThrow() == RuntimeTransition.LAG_HANDLER_RETURN) {
+      return RuntimeStep.returned(state.effects().output());
+    }
     if (state.outcome() == VmState.Outcome.ERRORED) {
       finishErroredFinalization(context, continuation);
       List<String> output = new ArrayList<>(continuation.output());
@@ -1234,7 +1277,7 @@ public final class MooRuntime implements AutoCloseable, SchedulerRuntime {
         }
         yield RuntimeStep.returned(output);
       }
-      case UNCAUGHT_HANDLER_RETURN -> RuntimeStep.returned(state.effects().output());
+      case UNCAUGHT_HANDLER_RETURN, LAG_HANDLER_RETURN -> RuntimeStep.returned(state.effects().output());
     };
   }
 
@@ -1667,7 +1710,8 @@ public final class MooRuntime implements AutoCloseable, SchedulerRuntime {
     WAIF_BACKGROUND_FINALIZATION_RETURN,
     TASK_TIMEOUT_START,
     TASK_TIMEOUT_RETURN,
-    UNCAUGHT_HANDLER_RETURN
+    UNCAUGHT_HANDLER_RETURN,
+    LAG_HANDLER_RETURN
   }
 
   enum FinalizationKind {
@@ -1863,12 +1907,14 @@ public final class MooRuntime implements AutoCloseable, SchedulerRuntime {
       long taskPlayer,
       Optional<RuntimeContinuation> continuation,
       Optional<List<String>> output,
-      Optional<LoginTimeoutResult> loginTimeout) {
+      Optional<LoginTimeoutResult> loginTimeout,
+      Optional<Callable<BuiltinResult>> suspendedHostWork) {
     RuntimeStep {
       Objects.requireNonNull(program, "program");
       Objects.requireNonNull(snapshot, "snapshot");
       Objects.requireNonNull(continuation, "continuation");
       Objects.requireNonNull(loginTimeout, "loginTimeout");
+      Objects.requireNonNull(suspendedHostWork, "suspendedHostWork");
       output = output.map(List::copyOf);
       boolean vm = program.isPresent() && snapshot.isPresent() && continuation.isPresent();
       boolean returned = output.isPresent();
@@ -1887,19 +1933,19 @@ public final class MooRuntime implements AutoCloseable, SchedulerRuntime {
           Optional.of(snapshot),
           taskPlayer,
           Optional.of(continuation),
-          Optional.empty(), Optional.empty());
+          Optional.empty(), Optional.empty(), Optional.empty());
     }
 
     static RuntimeStep returned(List<String> output) {
       return new RuntimeStep(
           Optional.empty(), Optional.empty(), Long.MIN_VALUE, Optional.empty(), Optional.of(output),
-          Optional.empty());
+          Optional.empty(), Optional.empty());
     }
 
     static RuntimeStep loginTimeout(LoginTimeoutResult result, List<String> output) {
       return new RuntimeStep(
           Optional.empty(), Optional.empty(), Long.MIN_VALUE, Optional.empty(), Optional.of(output),
-          Optional.of(result));
+          Optional.of(result), Optional.empty());
     }
   }
 
