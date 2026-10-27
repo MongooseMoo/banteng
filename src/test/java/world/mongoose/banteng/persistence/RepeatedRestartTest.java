@@ -1,5 +1,6 @@
 package world.mongoose.banteng.persistence;
 
+import world.mongoose.banteng.world.Checkpoint;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
@@ -10,11 +11,11 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import world.mongoose.banteng.persistence.LambdaMooV17Codec.DurableTask;
-import world.mongoose.banteng.persistence.LambdaMooV17Codec.QueuedTask;
-import world.mongoose.banteng.persistence.LambdaMooV17Codec.SuspendedActivation;
-import world.mongoose.banteng.persistence.LambdaMooV17Codec.SuspendedStackSlot;
-import world.mongoose.banteng.persistence.LambdaMooV17Codec.SuspendedTask;
+import world.mongoose.banteng.world.DurableTask;
+import world.mongoose.banteng.world.QueuedTask;
+import world.mongoose.banteng.world.SuspendedActivation;
+import world.mongoose.banteng.world.SuspendedStackSlot;
+import world.mongoose.banteng.world.SuspendedTask;
 import world.mongoose.banteng.value.MooValue;
 import world.mongoose.banteng.value.MooValue.IntegerValue;
 import world.mongoose.banteng.value.MooValue.MapValue;
@@ -35,11 +36,11 @@ final class RepeatedRestartTest {
         previous, new WorldTxn(List.of(), List.of()).snapshot(), tasks, List.of());
 
     for (int cycle = 1; cycle <= 100; cycle++) {
-      LambdaMooV17Codec.Checkpoint before = codec.read(previous);
+      Checkpoint before = codec.read(previous);
       byte[] ordered = Files.readAllBytes(previous);
       Path next = directory.resolve("cycle-" + cycle + ".db");
       codec.writeAtomic(next, before.world().snapshot(), before.tasks(), before.activeConnections());
-      LambdaMooV17Codec.Checkpoint after = codec.read(next);
+      Checkpoint after = codec.read(next);
 
       assertEquals(before.world().snapshot(), after.world().snapshot());
       assertEquals(before.tasks(), after.tasks());
@@ -90,7 +91,7 @@ final class RepeatedRestartTest {
                 17,
                 "suspend();\n",
                 Map.of("this", Optional.of(new ObjectValue(0))),
-                List.of(new SuspendedStackSlot(Optional.empty(), 6, 0)),
+                List.of(new SuspendedStackSlot(Optional.empty(), SuspendedStackSlot.Kind.NONE, 0)),
                 new ObjectValue(0),
                 new ObjectValue(0),
                 true,

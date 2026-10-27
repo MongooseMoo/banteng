@@ -9,6 +9,7 @@ import static world.mongoose.banteng.persistence.DbScanner.requiredLine;
 import static world.mongoose.banteng.persistence.ValueTagDecoder.readV5;
 
 import java.io.BufferedReader;
+import java.io.BufferedWriter;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -21,33 +22,36 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import world.mongoose.banteng.logging.ServerLog;
-import world.mongoose.banteng.value.MooValue;
+import world.mongoose.banteng.world.ActiveConnection;
+import world.mongoose.banteng.world.Checkpoint;
+import world.mongoose.banteng.world.DurableTask;
 import world.mongoose.banteng.value.MooValue.ListValue;
 import world.mongoose.banteng.value.MooValue.ObjectValue;
 import world.mongoose.banteng.value.MooValue.StringValue;
+import world.mongoose.banteng.value.MooValue;
 import world.mongoose.banteng.world.PropertyPerms;
 import world.mongoose.banteng.world.WorldObject;
 import world.mongoose.banteng.world.WorldProperty;
+import world.mongoose.banteng.world.WorldSnapshot;
 import world.mongoose.banteng.world.WorldTxn;
 import world.mongoose.banteng.world.WorldVerb;
 
 /** Reader and topology repairer for LambdaMOO's first next-generation database format. */
-public final class LambdaMooV5Reader {
+public final class LambdaMooV5Reader implements DbCodec {
   private static final String HEADER = "** LambdaMOO Database, Format Version 5 **";
   private final ServerLog serverLog;
 
-  /** Creates a reader that emits validation diagnostics to standard error. */
-  public LambdaMooV5Reader() {
-    this(ServerLog.stderr(System.Logger.Level.INFO));
-  }
+  private final DbCodec output;
 
-  /** Creates a reader that emits validation diagnostics through the supplied server log. */
-  public LambdaMooV5Reader(ServerLog serverLog) {
+  /** Receives the shared log and the application's canonical checkpoint output codec. */
+  public LambdaMooV5Reader(ServerLog serverLog, DbCodec output) {
     this.serverLog = Objects.requireNonNull(serverLog, "serverLog");
+    this.output = Objects.requireNonNull(output, "output");
   }
 
   /** Reads a v5 world, applying the same three topology-repair phases as LambdaMOO. */
-  public WorldTxn read(Path database) throws IOException {
+  @Override
+  public Checkpoint read(Path database) throws IOException {
     Objects.requireNonNull(database, "database");
     try (BufferedReader input =
         Files.newBufferedReader(database, StringValue.charset())) {
@@ -85,9 +89,31 @@ public final class LambdaMooV5Reader {
       validatePlayers(players, rawObjects);
       Map<Long, RepairedObject> repaired = repairTopology(rawObjects);
       List<WorldObject> objects = restoreObjects(rawObjects, repaired, programs);
-      return new WorldTxn(
-          players, objects, Map.of(), Map.of(), List.of(), objectSlotCount - 1L);
+      return new Checkpoint(new WorldTxn(
+          players, objects, Map.of(), Map.of(), List.of(), objectSlotCount - 1L),
+          List.of(), List.of());
     }
+  }
+
+  @Override
+  public void write(BufferedWriter writer, WorldSnapshot world,
+      List<? extends DurableTask> tasks, List<ActiveConnection> activeConnections)
+      throws IOException {
+    output.write(writer, world, tasks, activeConnections);
+  }
+
+  @Override
+  public void writeAtomic(Path checkpoint, WorldSnapshot world,
+      List<? extends DurableTask> tasks, List<ActiveConnection> activeConnections)
+      throws IOException {
+    output.writeAtomic(checkpoint, world, tasks, activeConnections);
+  }
+
+  @Override
+  public void writePanic(Path checkpoint, WorldSnapshot world,
+      List<? extends DurableTask> tasks, List<ActiveConnection> activeConnections)
+      throws IOException {
+    output.writePanic(checkpoint, world, tasks, activeConnections);
   }
 
   private static Optional<RawObject> readObject(BufferedReader input, long expectedId)

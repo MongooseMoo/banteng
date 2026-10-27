@@ -328,6 +328,45 @@ displayName: Extract durable task codec
 description: Moves the scheduler durable conversion closure into persistence.
 recipeList:
   - world.mongoose.banteng.rewrite.MoveDurableTaskCodec
+
+---
+type: specs.openrewrite.org/v1beta/recipe
+name: world.mongoose.banteng.persistence.MoveDurableRecords
+displayName: Move durable records to runtime
+description: Retargets checkpoint DTO references to runtime-owned records.
+recipeList:
+  - org.openrewrite.java.ChangeType:
+      oldFullyQualifiedTypeName: world.mongoose.banteng.persistence.LambdaMooV17Codec$DurableTask
+      newFullyQualifiedTypeName: world.mongoose.banteng.world.DurableTask
+      ignoreDefinition: true
+  - org.openrewrite.java.ChangeType:
+      oldFullyQualifiedTypeName: world.mongoose.banteng.persistence.LambdaMooV17Codec$ActiveConnection
+      newFullyQualifiedTypeName: world.mongoose.banteng.world.ActiveConnection
+      ignoreDefinition: true
+  - org.openrewrite.java.ChangeType:
+      oldFullyQualifiedTypeName: world.mongoose.banteng.persistence.LambdaMooV17Codec$Checkpoint
+      newFullyQualifiedTypeName: world.mongoose.banteng.world.Checkpoint
+      ignoreDefinition: true
+  - org.openrewrite.java.ChangeType:
+      oldFullyQualifiedTypeName: world.mongoose.banteng.persistence.LambdaMooV17Codec$QueuedEnvironment
+      newFullyQualifiedTypeName: world.mongoose.banteng.world.QueuedEnvironment
+      ignoreDefinition: true
+  - org.openrewrite.java.ChangeType:
+      oldFullyQualifiedTypeName: world.mongoose.banteng.persistence.LambdaMooV17Codec$QueuedTask
+      newFullyQualifiedTypeName: world.mongoose.banteng.world.QueuedTask
+      ignoreDefinition: true
+  - org.openrewrite.java.ChangeType:
+      oldFullyQualifiedTypeName: world.mongoose.banteng.persistence.LambdaMooV17Codec$SuspendedStackSlot
+      newFullyQualifiedTypeName: world.mongoose.banteng.world.SuspendedStackSlot
+      ignoreDefinition: true
+  - org.openrewrite.java.ChangeType:
+      oldFullyQualifiedTypeName: world.mongoose.banteng.persistence.LambdaMooV17Codec$SuspendedActivation
+      newFullyQualifiedTypeName: world.mongoose.banteng.world.SuspendedActivation
+      ignoreDefinition: true
+  - org.openrewrite.java.ChangeType:
+      oldFullyQualifiedTypeName: world.mongoose.banteng.persistence.LambdaMooV17Codec$SuspendedTask
+      newFullyQualifiedTypeName: world.mongoose.banteng.world.SuspendedTask
+      ignoreDefinition: true
 ---
 type: specs.openrewrite.org/v1beta/recipe
 name: world.mongoose.banteng.builtin.ExtractMathBuiltins

@@ -1,5 +1,6 @@
 package world.mongoose.banteng.runtime;
 
+import world.mongoose.banteng.world.DurableTask;
 import world.mongoose.banteng.vm.TaskOrigin;
 import world.mongoose.banteng.vm.TaskBudget;
 
@@ -42,8 +43,7 @@ import world.mongoose.banteng.builtin.ConnectionRegistryAccess;
 import world.mongoose.banteng.bytecode.BytecodeProgram;
 import world.mongoose.banteng.bytecode.MooCompiler;
 import world.mongoose.banteng.logging.ServerLog;
-import world.mongoose.banteng.persistence.LambdaMooV17Codec;
-import world.mongoose.banteng.persistence.LambdaMooV17Codec.ActiveConnection;
+import world.mongoose.banteng.persistence.DbCodec;
 import world.mongoose.banteng.value.MooValue;
 import world.mongoose.banteng.value.MooValue.AnonymousObjectValue;
 import world.mongoose.banteng.value.MooValue.BooleanValue;
@@ -56,6 +56,7 @@ import world.mongoose.banteng.value.MooValue.StringValue;
 import world.mongoose.banteng.value.MooValue.WaifValue;
 import world.mongoose.banteng.value.ValueSemantics;
 import world.mongoose.banteng.world.Access;
+import world.mongoose.banteng.world.ActiveConnection;
 import world.mongoose.banteng.world.ArgSpec;
 import world.mongoose.banteng.world.ObjectFlags;
 import world.mongoose.banteng.world.WorldAnonymousObject;
@@ -85,7 +86,7 @@ public final class MooRuntime implements AutoCloseable, SchedulerRuntime {
   private final ConnectionIo connectionIo;
   private final BuiltinCatalog builtins;
   private final ValueSemantics valueSemantics;
-  private final TaskRegistry taskRegistry = new TaskRegistry();
+  private final TaskRegistry taskRegistry;
   private final ServerLog serverLog;
   private final Optional<ListenerControl> listenerControl;
   private final Optional<Path> database;
@@ -93,7 +94,7 @@ public final class MooRuntime implements AutoCloseable, SchedulerRuntime {
   private final WorldTxn committedWorld;
   @GuardedBy("this")
   private final ConnectionRegistryAccess publishedConnectionRegistry;
-  private final LambdaMooV17Codec checkpointCodec = new LambdaMooV17Codec();
+  private final DbCodec checkpointCodec;
   private final LongSupplier nanoTime;
   private final ConnectionNameResolver connectionNameResolver;
   private final MooVm vm;
@@ -106,327 +107,43 @@ public final class MooRuntime implements AutoCloseable, SchedulerRuntime {
   @GuardedBy("this")
   private long sessionRevision;
 
-  /** Creates a runtime over the one concrete world transaction. */
-  public MooRuntime(WorldTxn world, ConnectionRegistryAccess connections) {
-    this(world, ValueSemantics.STANDARD, connections);
-  }
-
-  /** Creates a runtime over one world transaction with selected value semantics. */
+  /** Receives the concrete collaborators assembled by the application. */
   public MooRuntime(
-      WorldTxn world,
-      ValueSemantics valueSemantics,
-      ConnectionRegistryAccess connections) {
-    this(
-        world,
-        valueSemantics,
-        connections,
-        System::nanoTime,
-        MooRuntime::resolveCanonicalConnectionName);
-  }
-
-  MooRuntime(WorldTxn world, ConnectionRegistryAccess connections, LongSupplier nanoTime) {
-    this(
-        world,
-        ValueSemantics.STANDARD,
-        connections,
-        nanoTime,
-        MooRuntime::resolveCanonicalConnectionName);
-  }
-
-  MooRuntime(
-      WorldTxn world,
-      ConnectionRegistryAccess connections,
-      ConnectionNameResolver connectionNameResolver) {
-    this(
-        world,
-        ValueSemantics.STANDARD,
-        connections,
-        System::nanoTime,
-        connectionNameResolver);
-  }
-
-  private MooRuntime(
       WorldTxn world,
       ValueSemantics valueSemantics,
       ConnectionRegistryAccess connections,
       LongSupplier nanoTime,
-      ConnectionNameResolver connectionNameResolver) {
-    committedWorld = Objects.requireNonNull(world, "world");
-    publishedConnectionRegistry = Objects.requireNonNull(connections, "connections");
-    this.nanoTime = Objects.requireNonNull(nanoTime, "nanoTime");
-    this.connectionNameResolver =
-        Objects.requireNonNull(connectionNameResolver, "connectionNameResolver");
-    ValueSemantics configuredSemantics =
-        Objects.requireNonNull(valueSemantics, "valueSemantics");
-    this.valueSemantics = configuredSemantics;
-    vm = new MooVm(configuredSemantics);
-    listenerControl = Optional.empty();
-    database = Optional.empty();
-    checkpoint = Optional.empty();
-    serverLog = ServerLog.stderr(System.Logger.Level.INFO);
-    scheduler =
-        new PublicationScheduler(
-            committedWorld, this, taskRegistry);
-    checkpointedConnections = List.of();
-    loginFlow = new LoginFlow(this, scheduler, listenerControl);
-    connectionIo = new ConnectionIo(this, scheduler, listenerControl);
-    builtins = new BuiltinCatalog(BuiltinHosts.builder().valueSemantics(configuredSemantics).serverLog(serverLog).build());
-    try (WorldTxn initialOptions = committedWorld.begin()) {
-      builtins.reloadProtectedFunctions(initialOptions);
-    }
-  }
-
-  /** Creates the production runtime with its concrete listener and checkpoint owners. */
-  public MooRuntime(
-      WorldTxn world,
-      ListenerControl listenerControl,
-      Path checkpoint,
-      ConnectionRegistryAccess connections) {
-    this(
-        world,
-        listenerControl,
-        Math.max(2, Runtime.getRuntime().availableProcessors()),
-        Optional.empty(),
-        Optional.of(Objects.requireNonNull(checkpoint, "checkpoint")),
-        List.of(),
-        List.of(),
-        ServerLog.stderr(System.Logger.Level.INFO),
-        ValueSemantics.STANDARD,
-        connections);
-  }
-
-  /** Creates the production runtime and restores delayed fork tasks from one checkpoint. */
-  public MooRuntime(
-      WorldTxn world,
-      ListenerControl listenerControl,
-      Path checkpoint,
-      List<LambdaMooV17Codec.DurableTask> restoredTasks,
-      List<ActiveConnection> activeConnections,
-      ConnectionRegistryAccess connections) {
-    this(
-        world,
-        listenerControl,
-        checkpoint,
-        restoredTasks,
-        activeConnections,
-        ValueSemantics.STANDARD,
-        connections);
-  }
-
-  /** Creates the production runtime from one checkpoint with selected value semantics. */
-  public MooRuntime(
-      WorldTxn world,
-      ListenerControl listenerControl,
-      Path checkpoint,
-      List<LambdaMooV17Codec.DurableTask> restoredTasks,
-      List<ActiveConnection> activeConnections,
-      ValueSemantics valueSemantics,
-      ConnectionRegistryAccess connections) {
-    this(
-        world,
-        listenerControl,
-        Math.max(2, Runtime.getRuntime().availableProcessors()),
-        Optional.empty(),
-        Optional.of(Objects.requireNonNull(checkpoint, "checkpoint")),
-        restoredTasks,
-        activeConnections,
-        ServerLog.stderr(System.Logger.Level.INFO),
-        valueSemantics,
-        connections);
-  }
-
-  /** Creates the production runtime with restored state and the shared server log. */
-  public MooRuntime(
-      WorldTxn world,
-      ListenerControl listenerControl,
-      Path checkpoint,
-      List<LambdaMooV17Codec.DurableTask> restoredTasks,
-      List<ActiveConnection> activeConnections,
-      ServerLog serverLog,
-      ConnectionRegistryAccess connections) {
-    this(
-        world,
-        listenerControl,
-        Math.max(2, Runtime.getRuntime().availableProcessors()),
-        Optional.empty(),
-        Optional.of(Objects.requireNonNull(checkpoint, "checkpoint")),
-        restoredTasks,
-        activeConnections,
-        serverLog,
-        ValueSemantics.STANDARD,
-        connections);
-  }
-
-  /** Creates the production runtime with restored state, shared log, and value semantics. */
-  public MooRuntime(
-      WorldTxn world,
-      ListenerControl listenerControl,
-      Path checkpoint,
-      List<LambdaMooV17Codec.DurableTask> restoredTasks,
-      List<ActiveConnection> activeConnections,
-      ServerLog serverLog,
-      ValueSemantics valueSemantics,
-      ConnectionRegistryAccess connections) {
-    this(
-        world,
-        listenerControl,
-        Math.max(2, Runtime.getRuntime().availableProcessors()),
-        Optional.empty(),
-        Optional.of(Objects.requireNonNull(checkpoint, "checkpoint")),
-        restoredTasks,
-        activeConnections,
-        serverLog,
-        valueSemantics,
-        connections);
-  }
-
-  /** Creates the production runtime with distinct loaded and checkpoint database files. */
-  public MooRuntime(
-      WorldTxn world,
-      ListenerControl listenerControl,
-      Path database,
-      Path checkpoint,
-      List<LambdaMooV17Codec.DurableTask> restoredTasks,
-      List<ActiveConnection> activeConnections,
-      ConnectionRegistryAccess connections) {
-    this(
-        world,
-        listenerControl,
-        database,
-        checkpoint,
-        restoredTasks,
-        activeConnections,
-        ValueSemantics.STANDARD,
-        connections);
-  }
-
-  /** Creates the production runtime with selected value semantics. */
-  public MooRuntime(
-      WorldTxn world,
-      ListenerControl listenerControl,
-      Path database,
-      Path checkpoint,
-      List<LambdaMooV17Codec.DurableTask> restoredTasks,
-      List<ActiveConnection> activeConnections,
-      ValueSemantics valueSemantics,
-      ConnectionRegistryAccess connections) {
-    this(
-        world,
-        listenerControl,
-        Math.max(2, Runtime.getRuntime().availableProcessors()),
-        Optional.of(Objects.requireNonNull(database, "database")),
-        Optional.of(Objects.requireNonNull(checkpoint, "checkpoint")),
-        restoredTasks,
-        activeConnections,
-        ServerLog.stderr(System.Logger.Level.INFO),
-        valueSemantics,
-        connections);
-  }
-
-  /** Creates the production runtime with distinct database files and the shared server log. */
-  public MooRuntime(
-      WorldTxn world,
-      ListenerControl listenerControl,
-      Path database,
-      Path checkpoint,
-      List<LambdaMooV17Codec.DurableTask> restoredTasks,
-      List<ActiveConnection> activeConnections,
-      ServerLog serverLog,
-      ConnectionRegistryAccess connections) {
-    this(
-        world,
-        listenerControl,
-        Math.max(2, Runtime.getRuntime().availableProcessors()),
-        Optional.of(Objects.requireNonNull(database, "database")),
-        Optional.of(Objects.requireNonNull(checkpoint, "checkpoint")),
-        restoredTasks,
-        activeConnections,
-        serverLog,
-        ValueSemantics.STANDARD,
-        connections);
-  }
-
-  /** Creates the production runtime with database files, shared log, and value semantics. */
-  public MooRuntime(
-      WorldTxn world,
-      ListenerControl listenerControl,
-      Path database,
-      Path checkpoint,
-      List<LambdaMooV17Codec.DurableTask> restoredTasks,
-      List<ActiveConnection> activeConnections,
-      ServerLog serverLog,
-      ValueSemantics valueSemantics,
-      ConnectionRegistryAccess connections) {
-    this(
-        world,
-        listenerControl,
-        Math.max(2, Runtime.getRuntime().availableProcessors()),
-        Optional.of(Objects.requireNonNull(database, "database")),
-        Optional.of(Objects.requireNonNull(checkpoint, "checkpoint")),
-        restoredTasks,
-        activeConnections,
-        serverLog,
-        valueSemantics,
-        connections);
-  }
-
-  MooRuntime(
-      WorldTxn world,
-      ListenerControl listenerControl,
-      int workers,
-      ConnectionRegistryAccess connections) {
-    this(
-        world,
-        listenerControl,
-        workers,
-        Optional.empty(),
-        Optional.empty(),
-        List.of(),
-        List.of(),
-        ServerLog.stderr(System.Logger.Level.INFO),
-        ValueSemantics.STANDARD,
-        connections);
-  }
-
-  private MooRuntime(
-      WorldTxn world,
-      ListenerControl listenerControl,
-      int workers,
+      ConnectionNameResolver connectionNameResolver,
+      Optional<ListenerControl> listenerControl,
       Optional<Path> database,
       Optional<Path> checkpoint,
-      List<LambdaMooV17Codec.DurableTask> restoredTasks,
       List<ActiveConnection> activeConnections,
       ServerLog serverLog,
-      ValueSemantics valueSemantics,
-      ConnectionRegistryAccess connections) {
+      MooVm vm,
+      TaskRegistry taskRegistry,
+      PublicationScheduler scheduler,
+      BuiltinCatalog builtins,
+      DbCodec checkpointCodec) {
     committedWorld = Objects.requireNonNull(world, "world");
     publishedConnectionRegistry = Objects.requireNonNull(connections, "connections");
-    nanoTime = System::nanoTime;
-    connectionNameResolver = MooRuntime::resolveCanonicalConnectionName;
-    ValueSemantics configuredSemantics =
-        Objects.requireNonNull(valueSemantics, "valueSemantics");
-    this.valueSemantics = configuredSemantics;
-    vm = new MooVm(configuredSemantics);
-    this.listenerControl = Optional.of(Objects.requireNonNull(listenerControl, "listenerControl"));
+    this.valueSemantics = Objects.requireNonNull(valueSemantics, "valueSemantics");
+    this.nanoTime = Objects.requireNonNull(nanoTime, "nanoTime");
+    this.connectionNameResolver = Objects.requireNonNull(connectionNameResolver, "connectionNameResolver");
+    this.listenerControl = Objects.requireNonNull(listenerControl, "listenerControl");
     this.database = Objects.requireNonNull(database, "database");
     this.checkpoint = Objects.requireNonNull(checkpoint, "checkpoint");
     this.serverLog = Objects.requireNonNull(serverLog, "serverLog");
+    this.vm = Objects.requireNonNull(vm, "vm");
+    this.taskRegistry = Objects.requireNonNull(taskRegistry, "taskRegistry");
+    this.scheduler = Objects.requireNonNull(scheduler, "scheduler");
+    this.builtins = Objects.requireNonNull(builtins, "builtins");
+    this.checkpointCodec = Objects.requireNonNull(checkpointCodec, "checkpointCodec");
     checkpointedConnections = List.copyOf(activeConnections);
-    scheduler =
-        new PublicationScheduler(
-            committedWorld,
-            this,
-            workers,
-            taskRegistry);
-    loginFlow = new LoginFlow(this, scheduler, this.listenerControl);
-    connectionIo = new ConnectionIo(this, scheduler, this.listenerControl);
-    builtins =
-        new BuiltinCatalog(
-            listenerControl, BuiltinHosts.builder().valueSemantics(configuredSemantics).serverLog(serverLog).build());
+    loginFlow = new LoginFlow(this, scheduler, listenerControl);
+    connectionIo = new ConnectionIo(this, scheduler, listenerControl);
     try (WorldTxn initialOptions = committedWorld.begin()) {
       builtins.reloadProtectedFunctions(initialOptions);
     }
-    scheduler.restoreTasks(Objects.requireNonNull(restoredTasks, "restoredTasks"));
   }
 
   @Override
@@ -1718,7 +1435,7 @@ public final class MooRuntime implements AutoCloseable, SchedulerRuntime {
     }
   }
 
-  private static String resolveCanonicalConnectionName(String address)
+  public static String resolveCanonicalConnectionName(String address)
       throws UnknownHostException {
     InetAddress[] candidates = InetAddress.getAllByName(address);
     if (candidates.length == 0) {
@@ -1915,7 +1632,7 @@ public final class MooRuntime implements AutoCloseable, SchedulerRuntime {
   }
 
   @FunctionalInterface
-  interface ConnectionNameResolver {
+  public interface ConnectionNameResolver {
     String resolve(String address) throws UnknownHostException;
   }
 

@@ -14,18 +14,19 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
+import org.junit.jupiter.api.Test;
+import world.mongoose.banteng.persistence.LambdaMooV17Codec;
 import world.mongoose.banteng.persistence.LambdaMooV4Reader;
 import world.mongoose.banteng.server.ConnectionRegistry;
 import world.mongoose.banteng.value.MooValue.IntegerValue;
 import world.mongoose.banteng.value.MooValue.MapValue;
 import world.mongoose.banteng.value.MooValue.StringValue;
 import world.mongoose.banteng.world.ArgSpec;
-import world.mongoose.banteng.world.VerbPerms;
 import world.mongoose.banteng.world.ObjectFlags;
+import world.mongoose.banteng.world.VerbPerms;
 import world.mongoose.banteng.world.WorldObject;
 import world.mongoose.banteng.world.WorldTxn;
 import world.mongoose.banteng.world.WorldVerb;
-import org.junit.jupiter.api.Test;
 
 final class MooRuntimeTest {
   private static final Path FIXTURE =
@@ -35,9 +36,11 @@ final class MooRuntimeTest {
 
   @Test
   void publishesConnectionIdentityIntoTheInjectedServerRegistry() throws Exception {
-    WorldTxn world = new LambdaMooV4Reader().read(FIXTURE);
+    WorldTxn world = new LambdaMooV4Reader(new LambdaMooV17Codec()).read(FIXTURE).world();
     ConnectionRegistry connections = new ConnectionRegistry();
-    MooRuntime runtime = new MooRuntime(world, connections);
+    MooRuntime runtime = SchedulerTestHarness.runtime(
+        world, connections, Math.max(2, Runtime.getRuntime().availableProcessors()), System::nanoTime,
+        MooRuntime::resolveCanonicalConnectionName, Optional.empty(), Optional.empty(), Optional.empty(), List.of(), List.of());
     long connectionId = -47;
 
     assertEquals(List.of(), runtime.openConnection(connectionId));
@@ -50,10 +53,12 @@ final class MooRuntimeTest {
 
   @Test
   void connectionTimersUseMonotonicOpenLoginAndLastInputTimes() throws Exception {
-    WorldTxn world = new LambdaMooV4Reader().read(FIXTURE);
+    WorldTxn world = new LambdaMooV4Reader(new LambdaMooV17Codec()).read(FIXTURE).world();
     ConnectionRegistry connections = new ConnectionRegistry();
     AtomicLong now = new AtomicLong();
-    MooRuntime runtime = new MooRuntime(world, connections, now::get);
+    MooRuntime runtime = SchedulerTestHarness.runtime(
+        world, connections, Math.max(2, Runtime.getRuntime().availableProcessors()), now::get,
+        MooRuntime::resolveCanonicalConnectionName, Optional.empty(), Optional.empty(), Optional.empty(), List.of(), List.of());
     long wizardConnection = -47;
     long pendingConnection = -48;
     long programmerConnection = -49;
@@ -90,9 +95,11 @@ final class MooRuntimeTest {
   @Test
   void connectionNameLookupRunsAsHostWorkAndOptionallyRewritesThePublishedName()
       throws Exception {
-    WorldTxn world = new LambdaMooV4Reader().read(FIXTURE);
+    WorldTxn world = new LambdaMooV4Reader(new LambdaMooV17Codec()).read(FIXTURE).world();
     ConnectionRegistry connections = new ConnectionRegistry();
-    MooRuntime runtime = new MooRuntime(world, connections);
+    MooRuntime runtime = SchedulerTestHarness.runtime(
+        world, connections, Math.max(2, Runtime.getRuntime().availableProcessors()), System::nanoTime,
+        MooRuntime::resolveCanonicalConnectionName, Optional.empty(), Optional.empty(), Optional.empty(), List.of(), List.of());
     long connectionId = -47;
     MapValue info =
         new MapValue(
@@ -129,15 +136,14 @@ final class MooRuntimeTest {
 
   @Test
   void connectionNameLookupRejectsARewriteAfterTheConnectionCloses() throws Exception {
-    WorldTxn world = new LambdaMooV4Reader().read(FIXTURE);
+    WorldTxn world = new LambdaMooV4Reader(new LambdaMooV17Codec()).read(FIXTURE).world();
     ConnectionRegistry connections = new ConnectionRegistry();
     CountDownLatch lookupStarted = new CountDownLatch(1);
     CountDownLatch allowLookup = new CountDownLatch(1);
     MooRuntime runtime =
-        new MooRuntime(
-            world,
-            connections,
-            address -> {
+        SchedulerTestHarness.runtime(
+        world, connections, Math.max(2, Runtime.getRuntime().availableProcessors()), System::nanoTime,
+        address -> {
               lookupStarted.countDown();
               try {
                 if (!allowLookup.await(5, TimeUnit.SECONDS)) {
@@ -151,7 +157,7 @@ final class MooRuntimeTest {
                 throw failure;
               }
               return "late.example";
-            });
+            }, Optional.empty(), Optional.empty(), Optional.empty(), List.of(), List.of());
     long connectionId = -47;
     MapValue info =
         new MapValue(
@@ -201,7 +207,7 @@ final class MooRuntimeTest {
 
   @Test
   void executesTheFirstManagedRowThroughStoredVerbsAndOneWorldTxn() throws Exception {
-    WorldTxn world = new LambdaMooV4Reader().read(FIXTURE);
+    WorldTxn world = new LambdaMooV4Reader(new LambdaMooV17Codec()).read(FIXTURE).world();
     MooRuntime runtime = runtimeFor(world);
     long connectionId = -47;
     assertEquals(List.of(), runtime.openConnection(connectionId));
@@ -220,7 +226,7 @@ final class MooRuntimeTest {
 
   @Test
   void connectionOptionsReadTheirOwnFlushCommandWrite() throws Exception {
-    WorldTxn world = new LambdaMooV4Reader().read(FIXTURE);
+    WorldTxn world = new LambdaMooV4Reader(new LambdaMooV17Codec()).read(FIXTURE).world();
     MooRuntime runtime = runtimeFor(world);
     long connectionId = -47;
     assertEquals(List.of(), runtime.openConnection(connectionId));
@@ -236,7 +242,7 @@ final class MooRuntimeTest {
 
   @Test
   void keepAliveConnectionOptionAcceptsToastIntegerAndMapForms() throws Exception {
-    WorldTxn world = new LambdaMooV4Reader().read(FIXTURE);
+    WorldTxn world = new LambdaMooV4Reader(new LambdaMooV17Codec()).read(FIXTURE).world();
     MooRuntime runtime = runtimeFor(world);
     long connectionId = -47;
     assertEquals(List.of(), runtime.openConnection(connectionId));
@@ -269,7 +275,7 @@ final class MooRuntimeTest {
 
   @Test
   void noArgumentReadFromForkIsNotTheLastInputTask() throws Exception {
-    WorldTxn world = new LambdaMooV4Reader().read(FIXTURE);
+    WorldTxn world = new LambdaMooV4Reader(new LambdaMooV17Codec()).read(FIXTURE).world();
     MooRuntime runtime = runtimeFor(world);
     long connectionId = -47;
     assertEquals(List.of(), runtime.openConnection(connectionId));
@@ -287,7 +293,7 @@ final class MooRuntimeTest {
 
   @Test
   void blockingReadResumesWithForcedInputForImplicitAndExplicitPlayer() throws Exception {
-    WorldTxn world = new LambdaMooV4Reader().read(FIXTURE);
+    WorldTxn world = new LambdaMooV4Reader(new LambdaMooV17Codec()).read(FIXTURE).world();
     MooRuntime runtime = runtimeFor(world);
     long connectionId = -47;
     assertEquals(List.of(), runtime.openConnection(connectionId));
@@ -308,7 +314,7 @@ final class MooRuntimeTest {
 
   @Test
   void flushInputUsesToastSelfOrWizardPermissionWithoutRequiringALiveTarget() throws Exception {
-    WorldTxn world = new LambdaMooV4Reader().read(FIXTURE);
+    WorldTxn world = new LambdaMooV4Reader(new LambdaMooV17Codec()).read(FIXTURE).world();
     MooRuntime runtime = runtimeFor(world);
     long wizardConnection = -47;
     long programmerConnection = -48;
@@ -335,7 +341,7 @@ final class MooRuntimeTest {
 
   @Test
   void outputDelimitersReturnsLiveSessionValuesWithToastPermissionOrder() throws Exception {
-    WorldTxn world = new LambdaMooV4Reader().read(FIXTURE);
+    WorldTxn world = new LambdaMooV4Reader(new LambdaMooV17Codec()).read(FIXTURE).world();
     MooRuntime runtime = runtimeFor(world);
     long programmerConnection = -47;
     long wizardConnection = -48;
@@ -379,7 +385,7 @@ final class MooRuntimeTest {
 
   @Test
   void queueInfoReadsTheExistingConnectionAndTaskOwners() throws Exception {
-    WorldTxn world = new LambdaMooV4Reader().read(FIXTURE);
+    WorldTxn world = new LambdaMooV4Reader(new LambdaMooV17Codec()).read(FIXTURE).world();
     MooRuntime runtime = runtimeFor(world);
     long programmerConnection = -47;
     long wizardConnection = -48;
@@ -409,7 +415,7 @@ final class MooRuntimeTest {
 
   @Test
   void writesIntrinsicFertileFlagAsIntegerZero() throws Exception {
-    WorldTxn world = new LambdaMooV4Reader().read(FIXTURE);
+    WorldTxn world = new LambdaMooV4Reader(new LambdaMooV17Codec()).read(FIXTURE).world();
     MooRuntime runtime = runtimeFor(world);
     long connectionId = -47;
 
@@ -438,7 +444,7 @@ final class MooRuntimeTest {
 
   @Test
   void dispatchesMatchingCommandVerbWithoutExecutePermission() throws Exception {
-    WorldTxn world = new LambdaMooV4Reader().read(FIXTURE);
+    WorldTxn world = new LambdaMooV4Reader(new LambdaMooV17Codec()).read(FIXTURE).world();
     MooRuntime runtime = runtimeFor(world);
     long connectionId = -47;
 
@@ -463,7 +469,7 @@ final class MooRuntimeTest {
 
   @Test
   void dispatchesUnknownCommandsThroughSelectedHuhVerb() throws Exception {
-    WorldTxn world = new LambdaMooV4Reader().read(FIXTURE);
+    WorldTxn world = new LambdaMooV4Reader(new LambdaMooV17Codec()).read(FIXTURE).world();
     MooRuntime runtime = runtimeFor(world);
     long connectionId = -47;
 
@@ -506,7 +512,7 @@ final class MooRuntimeTest {
 
   @Test
   void evalRuntimeErrorUnwindsIntoPersistedCallerExceptAndFinally() throws Exception {
-    WorldTxn world = new LambdaMooV4Reader().read(FIXTURE);
+    WorldTxn world = new LambdaMooV4Reader(new LambdaMooV17Codec()).read(FIXTURE).world();
     MooRuntime runtime = runtimeFor(world);
     long connectionId = -47;
 
@@ -528,7 +534,7 @@ final class MooRuntimeTest {
 
   @Test
   void evalCompileErrorReturnsParseDiagnosticThroughStoredCaller() throws Exception {
-    WorldTxn world = new LambdaMooV4Reader().read(FIXTURE);
+    WorldTxn world = new LambdaMooV4Reader(new LambdaMooV17Codec()).read(FIXTURE).world();
     MooRuntime runtime = runtimeFor(world);
     long connectionId = -47;
 
@@ -547,7 +553,7 @@ final class MooRuntimeTest {
 
   @Test
   void evalInvalidContinueLoopNameReturnsToastDiagnosticThroughStoredCaller() throws Exception {
-    WorldTxn world = new LambdaMooV4Reader().read(FIXTURE);
+    WorldTxn world = new LambdaMooV4Reader(new LambdaMooV17Codec()).read(FIXTURE).world();
     MooRuntime runtime = runtimeFor(world);
     long connectionId = -47;
 
@@ -566,7 +572,7 @@ final class MooRuntimeTest {
 
   @Test
   void executesEqualityCollectionsThroughStoredEvalRuntime() throws Exception {
-    WorldTxn world = new LambdaMooV4Reader().read(FIXTURE);
+    WorldTxn world = new LambdaMooV4Reader(new LambdaMooV17Codec()).read(FIXTURE).world();
     MooRuntime runtime = runtimeFor(world);
     long connectionId = -47;
 
@@ -589,7 +595,7 @@ final class MooRuntimeTest {
 
   @Test
   void anonymousRecycleHookFinishesBeforeZeroDelayTaskResumes() throws Exception {
-    WorldTxn world = new LambdaMooV4Reader().read(FIXTURE);
+    WorldTxn world = new LambdaMooV4Reader(new LambdaMooV17Codec()).read(FIXTURE).world();
     MooRuntime runtime = runtimeFor(world);
     long connectionId = -47;
     assertEquals(List.of(), runtime.openConnection(connectionId));
@@ -635,7 +641,7 @@ final class MooRuntimeTest {
 
   @Test
   void locallyDefinedAnonymousPropertyDoesNotJoinTheSameRecycleWave() throws Exception {
-    WorldTxn world = new LambdaMooV4Reader().read(FIXTURE);
+    WorldTxn world = new LambdaMooV4Reader(new LambdaMooV17Codec()).read(FIXTURE).world();
     MooRuntime runtime = runtimeFor(world);
     long connectionId = -47;
     assertEquals(List.of(), runtime.openConnection(connectionId));
@@ -684,7 +690,7 @@ final class MooRuntimeTest {
 
   @Test
   void quotedDotProgramUsesSayShortcut() throws Exception {
-    WorldTxn world = new LambdaMooV4Reader().read(FIXTURE);
+    WorldTxn world = new LambdaMooV4Reader(new LambdaMooV17Codec()).read(FIXTURE).world();
     MooRuntime runtime = runtimeFor(world);
     long connectionId = -47;
     assertEquals(List.of(), runtime.openConnection(connectionId));
@@ -709,7 +715,7 @@ final class MooRuntimeTest {
 
   @Test
   void dotProgramUsesDecodedWordsForDescriptors() throws Exception {
-    WorldTxn world = new LambdaMooV4Reader().read(FIXTURE);
+    WorldTxn world = new LambdaMooV4Reader(new LambdaMooV17Codec()).read(FIXTURE).world();
     MooRuntime runtime = runtimeFor(world);
     long connectionId = -47;
     assertEquals(List.of(), runtime.openConnection(connectionId));
@@ -737,7 +743,7 @@ final class MooRuntimeTest {
 
   @Test
   void dotProgramReportsToastFeedbackAndOnlyInstallsValidSource() throws Exception {
-    WorldTxn world = new LambdaMooV4Reader().read(FIXTURE);
+    WorldTxn world = new LambdaMooV4Reader(new LambdaMooV17Codec()).read(FIXTURE).world();
     MooRuntime runtime = runtimeFor(world);
     long connectionId = -47;
     assertEquals(List.of(), runtime.openConnection(connectionId));
@@ -797,7 +803,7 @@ final class MooRuntimeTest {
 
   @Test
   void dotProgramUsesRequestedObjectForDisplayAndDefiningObjectForStorage() throws Exception {
-    WorldTxn world = new LambdaMooV4Reader().read(FIXTURE);
+    WorldTxn world = new LambdaMooV4Reader(new LambdaMooV17Codec()).read(FIXTURE).world();
     MooRuntime runtime = runtimeFor(world);
     long connectionId = -47;
     assertEquals(List.of(), runtime.openConnection(connectionId));
@@ -833,7 +839,7 @@ final class MooRuntimeTest {
 
   @Test
   void dotProgramRejectsEmptyObjectsAndVerbsWithoutWritePermission() throws Exception {
-    WorldTxn world = new LambdaMooV4Reader().read(FIXTURE);
+    WorldTxn world = new LambdaMooV4Reader(new LambdaMooV17Codec()).read(FIXTURE).world();
     MooRuntime runtime = runtimeFor(world);
     long connectionId = -47;
     assertEquals(List.of(), runtime.openConnection(connectionId));
@@ -857,7 +863,7 @@ final class MooRuntimeTest {
 
   @Test
   void dotProgramFallsThroughAsAnUnknownCommandWhenActorIsNotAProgrammer() throws Exception {
-    WorldTxn world = new LambdaMooV4Reader().read(FIXTURE);
+    WorldTxn world = new LambdaMooV4Reader(new LambdaMooV17Codec()).read(FIXTURE).world();
     MooRuntime runtime = runtimeFor(world);
     long connectionId = -47;
     assertEquals(List.of(), runtime.openConnection(connectionId));
@@ -884,7 +890,7 @@ final class MooRuntimeTest {
   @Test
   void dotProgramReresolvesReorderedVerbAndReportsDisappearanceBeforeCompilation()
       throws Exception {
-    WorldTxn world = new LambdaMooV4Reader().read(FIXTURE);
+    WorldTxn world = new LambdaMooV4Reader(new LambdaMooV17Codec()).read(FIXTURE).world();
     MooRuntime runtime = runtimeFor(world);
     long connectionId = -47;
     assertEquals(List.of(), runtime.openConnection(connectionId));
@@ -934,7 +940,7 @@ final class MooRuntimeTest {
 
   @Test
   void dotProgramReportsDefiningObjectDisappearanceBeforeCompilation() throws Exception {
-    WorldTxn world = new LambdaMooV4Reader().read(FIXTURE);
+    WorldTxn world = new LambdaMooV4Reader(new LambdaMooV17Codec()).read(FIXTURE).world();
     MooRuntime runtime = runtimeFor(world);
     long connectionId = -47;
     assertEquals(List.of(), runtime.openConnection(connectionId));
@@ -963,7 +969,9 @@ final class MooRuntimeTest {
   }
 
   private static MooRuntime runtimeFor(WorldTxn world) {
-    return new MooRuntime(world, new ConnectionRegistry());
+    return SchedulerTestHarness.runtime(
+        world, new ConnectionRegistry(), Math.max(2, Runtime.getRuntime().availableProcessors()), System::nanoTime,
+        MooRuntime::resolveCanonicalConnectionName, Optional.empty(), Optional.empty(), Optional.empty(), List.of(), List.of());
   }
 
   private static Optional<WorldObject> readObject(WorldTxn root, long objectId) {

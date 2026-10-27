@@ -9,6 +9,8 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Objects;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 import world.mongoose.banteng.value.MooValue.ObjectValue;
 import world.mongoose.banteng.value.MooValue.StringValue;
 import world.mongoose.banteng.world.ArgSpec;
@@ -18,8 +20,6 @@ import world.mongoose.banteng.world.WorldObject;
 import world.mongoose.banteng.world.WorldProperty;
 import world.mongoose.banteng.world.WorldTxn;
 import world.mongoose.banteng.world.WorldVerb;
-import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.io.TempDir;
 
 final class LambdaMooV4ReaderTest {
   private static final Path TEST_DATABASE =
@@ -108,7 +108,7 @@ final class LambdaMooV4ReaderTest {
 
   @Test
   void readsTheCompleteAuthoritativeFixtureThroughWorldTxn() throws IOException {
-    WorldTxn root = new LambdaMooV4Reader().read(TEST_DATABASE);
+    WorldTxn root = new LambdaMooV4Reader(new LambdaMooV17Codec()).read(TEST_DATABASE).world();
 
     try (WorldTxn world = root.begin()) {
       assertEquals(List.of(3L, 4L), world.players());
@@ -299,7 +299,7 @@ final class LambdaMooV4ReaderTest {
     Path database = temporaryDirectory.resolve("invalid.db");
     Files.writeString(database, contents, StringValue.charset());
     IOException error =
-        assertThrows(IOException.class, () -> new LambdaMooV4Reader().read(database));
+        assertThrows(IOException.class, () -> new LambdaMooV4Reader(new LambdaMooV17Codec()).read(database).world());
     String actualMessage = Objects.requireNonNull(error.getMessage());
     assertTrue(actualMessage.contains(message), actualMessage);
   }

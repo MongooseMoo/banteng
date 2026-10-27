@@ -12,6 +12,14 @@ import static world.mongoose.banteng.persistence.DbScanner.readLong;
 import static world.mongoose.banteng.persistence.DbScanner.requireExact;
 import static world.mongoose.banteng.persistence.DbScanner.requiredLine;
 
+import world.mongoose.banteng.world.DurableTask;
+import world.mongoose.banteng.world.ActiveConnection;
+import world.mongoose.banteng.world.Checkpoint;
+import world.mongoose.banteng.world.QueuedEnvironment;
+import world.mongoose.banteng.world.QueuedTask;
+import world.mongoose.banteng.world.SuspendedStackSlot;
+import world.mongoose.banteng.world.SuspendedActivation;
+import world.mongoose.banteng.world.SuspendedTask;
 import java.io.BufferedReader;
 import java.io.BufferedWriter;
 import java.io.IOException;
@@ -59,7 +67,7 @@ import world.mongoose.banteng.world.WorldWaif;
 import org.jspecify.annotations.Nullable;
 
 /** Streaming Latin-1 reader and atomic writer for LambdaMOO format version 17. */
-public final class LambdaMooV17Codec {
+public final class LambdaMooV17Codec implements DbCodec {
   private static final String HEADER = "** LambdaMOO Database, Format Version 17 **";
   private final AtomicPromoter promoter;
 
@@ -77,208 +85,8 @@ public final class LambdaMooV17Codec {
     void promote(Path source, Path target) throws IOException;
   }
 
-  /** A durable v17 task record. */
-  public sealed interface DurableTask permits QueuedTask, SuspendedTask {}
-
-  /** One connection that was active when a v17 checkpoint was written. */
-  public record ActiveConnection(long player, long listener) {}
-
-  /** A restored committed world, durable tasks, and checkpointed connections. */
-  public record Checkpoint(
-      WorldTxn world, List<DurableTask> tasks, List<ActiveConnection> activeConnections) {
-    /** Takes an immutable snapshot of the restored task list. */
-    public Checkpoint {
-      Objects.requireNonNull(world, "world");
-      tasks = List.copyOf(tasks);
-      activeConnections = List.copyOf(activeConnections);
-    }
-  }
-
-  /** Ordered queued-task runtime slots, including Toast's uninitialized variables. */
-  public record QueuedEnvironment(Map<String, Optional<MooValue>> slots) {
-    /** Takes an immutable ordered copy of the saved runtime environment. */
-    public QueuedEnvironment {
-      Objects.requireNonNull(slots, "slots");
-      slots.forEach(
-          (name, value) -> {
-            Objects.requireNonNull(name, "queued-task variable name");
-            Objects.requireNonNull(value, "queued-task variable slot");
-          });
-      slots = Collections.unmodifiableMap(new LinkedHashMap<>(slots));
-    }
-
-    private static QueuedEnvironment assigned(Map<String, MooValue> locals) {
-      Objects.requireNonNull(locals, "initialLocals");
-      Map<String, Optional<MooValue>> slots = new LinkedHashMap<>();
-      locals.forEach((name, value) -> slots.put(name, Optional.of(value)));
-      return new QueuedEnvironment(slots);
-    }
-
-    private Map<String, MooValue> initializedLocals() {
-      Map<String, MooValue> initialized = new LinkedHashMap<>();
-      slots.forEach((name, value) -> value.ifPresent(local -> initialized.put(name, local)));
-      return Collections.unmodifiableMap(initialized);
-    }
-  }
-
-  /** The durable state needed to restart one delayed fork. */
-  public record QueuedTask(
-      long taskId,
-      long scheduledEpochSecond,
-      int firstSourceLine,
-      String calledVerb,
-      String fullVerbName,
-      String programSource,
-      QueuedEnvironment environment,
-      long programmer,
-      MooValue verbLocation,
-      long taskPlayer,
-      boolean debug,
-      boolean threadMode) implements DurableTask {
-    public QueuedTask(
-        long taskId,
-        long scheduledEpochSecond,
-        int firstSourceLine,
-        String calledVerb,
-        String fullVerbName,
-        String programSource,
-        Map<String, MooValue> initialLocals,
-        long programmer,
-        MooValue verbLocation,
-        long taskPlayer,
-        boolean debug,
-        boolean threadMode) {
-      this(
-          taskId,
-          scheduledEpochSecond,
-          firstSourceLine,
-          calledVerb,
-          fullVerbName,
-          programSource,
-          QueuedEnvironment.assigned(initialLocals),
-          programmer,
-          verbLocation,
-          taskPlayer,
-          debug,
-          threadMode);
-    }
-
-    public QueuedTask(
-        long taskId,
-        long scheduledEpochSecond,
-        int firstSourceLine,
-        String calledVerb,
-        String fullVerbName,
-        String programSource,
-        Map<String, MooValue> initialLocals,
-        long programmer,
-        MooValue verbLocation,
-        long taskPlayer,
-        boolean threadMode) {
-      this(
-          taskId,
-          scheduledEpochSecond,
-          firstSourceLine,
-          calledVerb,
-          fullVerbName,
-          programSource,
-          initialLocals,
-          programmer,
-          verbLocation,
-          taskPlayer,
-          true,
-          threadMode);
-    }
-
-    /** Takes immutable copies of task-owned state. */
-    public QueuedTask {
-      if (firstSourceLine < 1) {
-        throw new IllegalArgumentException("queued-task first source line must be positive");
-      }
-      Objects.requireNonNull(calledVerb, "calledVerb");
-      Objects.requireNonNull(fullVerbName, "fullVerbName");
-      Objects.requireNonNull(programSource, "programSource");
-      Objects.requireNonNull(environment, "environment");
-      Objects.requireNonNull(verbLocation, "verbLocation");
-    }
-
-    /** Returns only initialized variables for VM restoration and queued_tasks(). */
-    public Map<String, MooValue> initialLocals() {
-      return environment.initializedLocals();
-    }
-  }
-
-  /** One ordinary MOO value or one Toast control marker on a suspended runtime stack. */
-  public record SuspendedStackSlot(
-      Optional<MooValue> value, int controlTag, long controlValue) {
-    /** Requires exactly one supported slot representation. */
-    public SuspendedStackSlot {
-      Objects.requireNonNull(value, "value");
-      if (value.isPresent() == (controlTag >= 0)
-          || (controlTag >= 0 && controlTag != V17Format.ValueTag.NONE.code() && controlTag != V17Format.ValueTag.CATCH.code() && controlTag != V17Format.ValueTag.FINALLY.code())
-          || (controlTag == V17Format.ValueTag.NONE.code() && controlValue != 0)) {
-        throw new IllegalArgumentException("invalid suspended stack slot");
-      }
-    }
-  }
-
-  /** One complete v17 activation retained for a suspended VM. */
-  public record SuspendedActivation(
-      int languageVersion,
-      String programSource,
-      Map<String, Optional<MooValue>> locals,
-      List<SuspendedStackSlot> operandStack,
-      MooValue receiver,
-      MooValue verbLocation,
-      boolean threadMode,
-      long taskPlayer,
-      long programmer,
-      boolean debug,
-      String verb,
-      String verbNames,
-      Optional<MooValue> temporary,
-      long programCounter,
-      long builtinFunctionCounter,
-      long errorCounter) {
-    /** Takes immutable copies of activation-owned state. */
-    public SuspendedActivation {
-      Objects.requireNonNull(programSource, "programSource");
-      Objects.requireNonNull(locals, "locals");
-      Objects.requireNonNull(operandStack, "operandStack");
-      Objects.requireNonNull(receiver, "receiver");
-      Objects.requireNonNull(verbLocation, "verbLocation");
-      Objects.requireNonNull(verb, "verb");
-      Objects.requireNonNull(verbNames, "verbNames");
-      Objects.requireNonNull(temporary, "temporary");
-      locals = Collections.unmodifiableMap(new LinkedHashMap<>(locals));
-      operandStack = List.copyOf(operandStack);
-    }
-  }
-
-  /** The durable state needed to resume one v17 VM. */
-  public record SuspendedTask(
-      long taskId,
-      long scheduledEpochSecond,
-      MooValue resumeValue,
-      MooValue taskLocal,
-      int rootActivationVector,
-      long functionId,
-      long maxStackDepth,
-      Optional<String> interruptionStatus,
-      List<SuspendedActivation> activations) implements DurableTask {
-    /** Takes immutable copies of task-owned state. */
-    public SuspendedTask {
-      Objects.requireNonNull(resumeValue, "resumeValue");
-      Objects.requireNonNull(taskLocal, "taskLocal");
-      Objects.requireNonNull(interruptionStatus, "interruptionStatus");
-      activations = List.copyOf(activations);
-      if (activations.isEmpty()) {
-        throw new IllegalArgumentException("suspended task requires an activation");
-      }
-    }
-  }
-
   /** Writes a byte-stable v17 checkpoint through an atomic same-directory replacement. */
+  @Override
   public void writeAtomic(
       Path checkpoint,
       WorldSnapshot world,
@@ -350,6 +158,7 @@ public final class LambdaMooV17Codec {
   }
 
   /** Writes a Toast-style panic database directly, without checkpoint promotion or rename. */
+  @Override
   public void writePanic(
       Path target,
       WorldSnapshot world,
@@ -390,6 +199,7 @@ public final class LambdaMooV17Codec {
   }
 
   /** Reads the exact minimum v17 checkpoint emitted by {@link #writeAtomic}. */
+  @Override
   public Checkpoint read(Path database) throws IOException {
     Objects.requireNonNull(database, "database");
     try (BufferedReader input =
@@ -506,7 +316,8 @@ public final class LambdaMooV17Codec {
     }
   }
 
-  private static void write(
+  @Override
+  public void write(
       BufferedWriter output,
       WorldSnapshot world,
       List<? extends DurableTask> tasks,
@@ -691,8 +502,8 @@ public final class LambdaMooV17Codec {
       if (slot.value().isPresent()) {
         writeValue(output, slot.value().orElseThrow(), context);
       } else {
-        line(output, slot.controlTag());
-        if (slot.controlTag() != V17Format.ValueTag.NONE.code()) {
+        line(output, V17Format.stackTag(slot.kind()));
+        if (V17Format.stackTag(slot.kind()) != V17Format.ValueTag.NONE.code()) {
           line(output, slot.controlValue());
         }
       }
@@ -997,12 +808,12 @@ public final class LambdaMooV17Codec {
       int stackTag = readInt(input, "suspended activation runtime stack tag");
       if (stackTag == V17Format.ValueTag.NONE.code()) {
         operandStack.add(
-            new SuspendedStackSlot(Optional.empty(), stackTag, 0));
+            new SuspendedStackSlot(Optional.empty(), V17Format.stackKind(stackTag), 0));
       } else if (stackTag == V17Format.ValueTag.CATCH.code() || stackTag == V17Format.ValueTag.FINALLY.code()) {
         operandStack.add(
             new SuspendedStackSlot(
                 Optional.empty(),
-                stackTag,
+                V17Format.stackKind(stackTag),
                 readLong(input, "suspended activation runtime control value")));
       } else {
         operandStack.add(
@@ -1018,7 +829,7 @@ public final class LambdaMooV17Codec {
                             + activationIndex
                             + " stack slot "
                             + index)),
-                -1,
+                SuspendedStackSlot.Kind.VALUE,
                 0));
       }
     }

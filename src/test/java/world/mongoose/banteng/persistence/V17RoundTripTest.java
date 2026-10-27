@@ -1,5 +1,6 @@
 package world.mongoose.banteng.persistence;
 
+import world.mongoose.banteng.world.Checkpoint;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -198,7 +199,7 @@ final class V17RoundTripTest {
     LambdaMooV17Codec codec = new LambdaMooV17Codec();
 
     codec.writeAtomic(first, expected, List.of(), List.of());
-    LambdaMooV17Codec.Checkpoint restored = codec.read(first);
+    Checkpoint restored = codec.read(first);
 
     assertEquals(expected.players(), restored.world().snapshot().players());
     assertEquals(expected.objects(), restored.world().snapshot().objects());
@@ -209,7 +210,7 @@ final class V17RoundTripTest {
         second, restored.world().snapshot(), restored.tasks(), restored.activeConnections());
     assertArrayEquals(Files.readAllBytes(first), Files.readAllBytes(second));
 
-    LambdaMooV17Codec.Checkpoint repeated = codec.read(first);
+    Checkpoint repeated = codec.read(first);
     assertEquals(restored.world().snapshot(), repeated.world().snapshot());
     assertEquals(restored.tasks(), repeated.tasks());
   }
@@ -378,7 +379,7 @@ final class V17RoundTripTest {
     Path first = temporaryDirectory.resolve("waif-first.db");
 
     codec.writeAtomic(first, world, List.of(), List.of());
-    LambdaMooV17Codec.Checkpoint firstCheckpoint = codec.read(first);
+    Checkpoint firstCheckpoint = codec.read(first);
     WorldSnapshot firstRestored = firstCheckpoint.world().snapshot();
     ListValue firstAliases =
         assertInstanceOf(

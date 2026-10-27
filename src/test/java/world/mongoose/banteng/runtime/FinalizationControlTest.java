@@ -10,18 +10,20 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.TimeUnit;
+import org.junit.jupiter.api.Test;
+import world.mongoose.banteng.persistence.LambdaMooV17Codec;
 import world.mongoose.banteng.persistence.LambdaMooV4Reader;
 import world.mongoose.banteng.server.ConnectionRegistry;
-import world.mongoose.banteng.value.MooValue;
 import world.mongoose.banteng.value.MooValue.AnonymousObjectValue;
 import world.mongoose.banteng.value.MooValue.IntegerValue;
 import world.mongoose.banteng.value.MooValue.ListValue;
 import world.mongoose.banteng.value.MooValue.ObjectValue;
 import world.mongoose.banteng.value.MooValue.StringValue;
 import world.mongoose.banteng.value.MooValue.WaifValue;
+import world.mongoose.banteng.value.MooValue;
 import world.mongoose.banteng.world.WorldTxn;
-import org.junit.jupiter.api.Test;
 
 final class FinalizationControlTest {
   private static final Path FIXTURE =
@@ -69,7 +71,9 @@ final class FinalizationControlTest {
             List.of(anonymousList, waifList),
             -1);
 
-    try (MooRuntime runtime = new MooRuntime(world, new ConnectionRegistry())) {
+    try (MooRuntime runtime = SchedulerTestHarness.runtime(
+        world, new ConnectionRegistry(), Math.max(2, Runtime.getRuntime().availableProcessors()), System::nanoTime,
+        MooRuntime::resolveCanonicalConnectionName, Optional.empty(), Optional.empty(), Optional.empty(), List.of(), List.of())) {
       runtime.startServer();
       assertEquals(List.of(anonymousList, waifList), world.snapshot().pendingFinalization());
     }
@@ -77,7 +81,7 @@ final class FinalizationControlTest {
 
   @Test
   void mooReturnedMarkerShapeCannotImpersonateFinalizationControl() throws Exception {
-    WorldTxn world = new LambdaMooV4Reader().read(FIXTURE);
+    WorldTxn world = new LambdaMooV4Reader(new LambdaMooV17Codec()).read(FIXTURE).world();
     try (MooRuntime runtime = connectedRuntime(world)) {
       List<String> output =
           runtime.executeLine(
@@ -110,7 +114,7 @@ final class FinalizationControlTest {
 
   @Test
   void suspendedAnonymousHookKeepsItsRawRootWithoutDuplicateHooks() throws Exception {
-    WorldTxn world = new LambdaMooV4Reader().read(FIXTURE);
+    WorldTxn world = new LambdaMooV4Reader(new LambdaMooV17Codec()).read(FIXTURE).world();
     try (MooRuntime runtime = connectedRuntime(world)) {
       runtime.executeLine(
           CONNECTION_ID,
@@ -142,7 +146,7 @@ final class FinalizationControlTest {
 
   @Test
   void suspendedWaifHookKeepsItsRawRootWithoutDuplicateHooks() throws Exception {
-    WorldTxn world = new LambdaMooV4Reader().read(FIXTURE);
+    WorldTxn world = new LambdaMooV4Reader(new LambdaMooV17Codec()).read(FIXTURE).world();
     try (MooRuntime runtime = connectedRuntime(world)) {
       runtime.executeLine(
           CONNECTION_ID,
@@ -169,7 +173,7 @@ final class FinalizationControlTest {
 
   @Test
   void anonymousControlSurvivesForkWakeIrrevocableRetryAndZeroDelayWake() throws Exception {
-    WorldTxn world = new LambdaMooV4Reader().read(FIXTURE);
+    WorldTxn world = new LambdaMooV4Reader(new LambdaMooV17Codec()).read(FIXTURE).world();
     try (MooRuntime runtime = connectedRuntime(world)) {
       runtime.executeLine(
           CONNECTION_ID,
@@ -219,7 +223,7 @@ final class FinalizationControlTest {
 
   @Test
   void ordinaryZeroDelayWakeWaitsForActiveAnonymousFinalizer() throws Exception {
-    WorldTxn world = new LambdaMooV4Reader().read(FIXTURE);
+    WorldTxn world = new LambdaMooV4Reader(new LambdaMooV17Codec()).read(FIXTURE).world();
     try (MooRuntime runtime = connectedRuntime(world)) {
       connect(runtime, SECOND_CONNECTION_ID);
       connect(runtime, THIRD_CONNECTION_ID);
@@ -304,7 +308,7 @@ final class FinalizationControlTest {
 
   @Test
   void erroredAnonymousFinalizerIsTerminalAndRunsOnce() throws Exception {
-    WorldTxn world = new LambdaMooV4Reader().read(FIXTURE);
+    WorldTxn world = new LambdaMooV4Reader(new LambdaMooV17Codec()).read(FIXTURE).world();
     try (MooRuntime runtime = connectedRuntime(world)) {
       runtime.executeLine(
           CONNECTION_ID,
@@ -339,7 +343,7 @@ final class FinalizationControlTest {
 
   @Test
   void erroredWaifFinalizerIsTerminalAndRunsOnce() throws Exception {
-    WorldTxn world = new LambdaMooV4Reader().read(FIXTURE);
+    WorldTxn world = new LambdaMooV4Reader(new LambdaMooV17Codec()).read(FIXTURE).world();
     try (MooRuntime runtime = connectedRuntime(world)) {
       runtime.executeLine(
           CONNECTION_ID,
@@ -364,7 +368,7 @@ final class FinalizationControlTest {
 
   @Test
   void anonConstantEvaluatesToItsSymbolicTypeCode() throws Exception {
-    WorldTxn world = new LambdaMooV4Reader().read(FIXTURE);
+    WorldTxn world = new LambdaMooV4Reader(new LambdaMooV17Codec()).read(FIXTURE).world();
     try (MooRuntime runtime = connectedRuntime(world)) {
       assertContains(
           runtime.executeLine(CONNECTION_ID, "; return ANON;"),
@@ -373,7 +377,9 @@ final class FinalizationControlTest {
   }
 
   private static MooRuntime connectedRuntime(WorldTxn world) throws Exception {
-    MooRuntime runtime = new MooRuntime(world, new ConnectionRegistry());
+    MooRuntime runtime = SchedulerTestHarness.runtime(
+        world, new ConnectionRegistry(), Math.max(2, Runtime.getRuntime().availableProcessors()), System::nanoTime,
+        MooRuntime::resolveCanonicalConnectionName, Optional.empty(), Optional.empty(), Optional.empty(), List.of(), List.of());
     connect(runtime, CONNECTION_ID);
     return runtime;
   }

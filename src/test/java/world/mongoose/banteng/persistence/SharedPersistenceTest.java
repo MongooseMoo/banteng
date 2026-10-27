@@ -1,5 +1,6 @@
 package world.mongoose.banteng.persistence;
 
+import world.mongoose.banteng.world.Checkpoint;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
@@ -19,9 +20,9 @@ import java.util.Optional;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import world.mongoose.banteng.bytecode.MooCompiler;
-import world.mongoose.banteng.persistence.LambdaMooV17Codec.QueuedTask;
-import world.mongoose.banteng.persistence.LambdaMooV17Codec.SuspendedActivation;
-import world.mongoose.banteng.persistence.LambdaMooV17Codec.SuspendedTask;
+import world.mongoose.banteng.world.QueuedTask;
+import world.mongoose.banteng.world.SuspendedActivation;
+import world.mongoose.banteng.world.SuspendedTask;
 import world.mongoose.banteng.value.MooValue.AnonymousObjectValue;
 import world.mongoose.banteng.value.MooValue.IntegerValue;
 import world.mongoose.banteng.value.MooValue.MapValue;
@@ -57,7 +58,7 @@ final class SharedPersistenceTest {
     String legacy = "-1 -7 -8 0 -9 0 1 -10 1";
     assertEquals(2, text.lines().filter(legacy::equals).count());
     assertTrue(text.contains("-111\n12\n1\n12\n1\n1\n" + legacy));
-    LambdaMooV17Codec.Checkpoint restored = codec.read(database);
+    Checkpoint restored = codec.read(database);
     QueuedTask restoredQueued = assertInstanceOf(QueuedTask.class, restored.tasks().getFirst());
     SuspendedTask restoredSuspended = assertInstanceOf(SuspendedTask.class, restored.tasks().get(1));
     assertSame(restoredQueued.verbLocation(), restoredQueued.initialLocals().get("this"));
@@ -120,7 +121,7 @@ final class SharedPersistenceTest {
     Path copy = directory.resolve("copy.db");
     Files.write(original, fixture);
     LambdaMooV17Codec codec = new LambdaMooV17Codec();
-    LambdaMooV17Codec.Checkpoint restored = codec.read(original);
+    Checkpoint restored = codec.read(original);
     codec.writeAtomic(copy, restored.world().snapshot(), restored.tasks(), restored.activeConnections());
     assertArrayEquals(fixture, Files.readAllBytes(copy));
   }
