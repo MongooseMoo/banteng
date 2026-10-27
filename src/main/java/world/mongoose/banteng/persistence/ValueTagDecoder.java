@@ -51,17 +51,17 @@ final class ValueTagDecoder {
   static Optional<MooValue> readCommon(
       BufferedReader input, int tag, IndexedNestedValueDecoder nestedValueDecoder)
       throws IOException {
-    return switch (tag) {
-      case 0 -> Optional.of(new IntegerValue(readLong(input, "integer value")));
-      case 1 -> Optional.of(new ObjectValue(readLong(input, "object value")));
-      case 2 -> Optional.of(StringValue.of(requiredLine(input, "string value")));
-      case 3 -> {
+    return switch (V17Format.ValueTag.fromCode(tag)) {
+      case INTEGER -> Optional.of(new IntegerValue(readLong(input, "integer value")));
+      case OBJECT -> Optional.of(new ObjectValue(readLong(input, "object value")));
+      case STRING -> Optional.of(StringValue.of(requiredLine(input, "string value")));
+      case ERROR -> {
         long code = readLong(input, "error value");
         yield Optional.of(
             ErrorValue.fromCode(code & 0xffff_ffffL)
                 .orElseThrow(() -> malformed("unsupported error value " + code)));
       }
-      case 4 -> {
+      case LIST -> {
         int count = readCount(input, "list count");
         List<MooValue> values = new ArrayList<>(count);
         for (int index = 0; index < count; index++) {
@@ -69,8 +69,8 @@ final class ValueTagDecoder {
         }
         yield Optional.of(new ListValue(values));
       }
-      case 9 -> Optional.of(new FloatValue(readDouble(input, "float value")));
-      default -> Optional.empty();
+      case FLOAT -> Optional.of(new FloatValue(readDouble(input, "float value")));
+      case null, default -> Optional.empty();
     };
   }
 }

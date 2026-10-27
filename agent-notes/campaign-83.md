@@ -55,3 +55,6 @@ Merged the current published value-semantics branch without conflicts. Its order
 
 ## Next step
 Receive and merge the final published value-semantics repair from the parent, then hand off the substantive change and draft above for parent-owned publication and PR CI. Reuse completed reviews of unchanged code. No worker push/publication or broad local CI; no new design decision is open.
+
+## Persistence dependency integration
+Merged master after the shared persistence work landed. SharedPersistenceTest's writer-validation fixture intentionally contains a carriage return or standalone dot line; compiling the dot source in WorldVerb's convenience constructor would fail before either writer assertion. The fixture now uses the existing canonical source/program constructor with valid compiled return bytecode and the exact invalid persisted source. Both IOException assertions remain unchanged, exercising permanent and anonymous writer rejection. Production writer source checks and loader compilation remain unchanged. No local tests run; parent-owned PR CI remains pending.
