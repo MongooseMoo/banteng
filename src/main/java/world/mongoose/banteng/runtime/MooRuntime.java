@@ -24,6 +24,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.LongSupplier;
 import java.util.stream.Stream;
+import org.jspecify.annotations.Nullable;
 import world.mongoose.banteng.builtin.BuiltinCall;
 import world.mongoose.banteng.builtin.BuiltinCatalog;
 import world.mongoose.banteng.builtin.BuiltinCatalog.ConnectionOption;
@@ -67,7 +68,7 @@ import world.mongoose.banteng.vm.VmSnapshot;
 import world.mongoose.banteng.vm.VmState;
 
 /** Concrete session and command owner backed by the sole production publication scheduler. */
-public final class MooRuntime implements AutoCloseable {
+public final class MooRuntime implements AutoCloseable, SchedulerRuntime {
   static final long DEFAULT_FOREGROUND_TICKS = 60_000;
   static final long DEFAULT_FOREGROUND_SECONDS = 5;
   static final long DEFAULT_BACKGROUND_TICKS = 30_000;
@@ -716,7 +717,8 @@ public final class MooRuntime implements AutoCloseable {
     return scheduler.submit(RuntimeRequest.line(connectionId, Objects.requireNonNull(line, "line")), true);
   }
 
-  synchronized OptionalLong inputTaskPlayer(long connectionId, String line) {
+  @Override
+  public synchronized OptionalLong inputTaskPlayer(long connectionId, String line) {
     ConnectionState connection = publishedConnections.get(connectionId);
     if (pendingReads.containsKey(connectionId)
         || (connection != null && !connection.disableOob && line.startsWith("#$#"))) {
@@ -726,7 +728,8 @@ public final class MooRuntime implements AutoCloseable {
     return OptionalLong.of(player >= 0 ? player : connectionId);
   }
 
-  Optional<List<String>> suspendedInputOutput(RuntimeContinuation continuation, VmState state) {
+  @Override
+  public Optional<List<String>> suspendedInputOutput(RuntimeContinuation continuation, VmState state) {
     RuntimeTransition transition = continuation.transition().orElseThrow();
     boolean command = transition == RuntimeTransition.LINE_DO_COMMAND_GATE_THEN_DISPATCH
         || transition == RuntimeTransition.LINE_SELECTED_COMMAND_APPEND_OUTPUT;
@@ -749,7 +752,8 @@ public final class MooRuntime implements AutoCloseable {
     return Optional.of(List.copyOf(output));
   }
 
-  void writeDetachedOutput(long player, List<String> output) {
+  @Override
+  public void writeDetachedOutput(long player, List<String> output) {
     OptionalLong connection;
     synchronized (this) {
       connection = publishedConnectionRegistry.connectionId(player);
@@ -759,7 +763,8 @@ public final class MooRuntime implements AutoCloseable {
     }
   }
 
-  void writeConnectionOutput(long connectionId, List<String> output) {
+  @Override
+  public void writeConnectionOutput(long connectionId, List<String> output) {
     listenerControl.ifPresent(control -> control.writeConnection(connectionId, output));
   }
 
@@ -804,6 +809,60 @@ public final class MooRuntime implements AutoCloseable {
       return RuntimeStep.returned(List.of());
     }
 
+    RuntimeStep programming = executeProgrammingOrOutputControl(connection, player, line);
+    if (programming != null) {
+      return programming;
+    }
+
+    List<String> words = CommandParser.words(line);
+
+    if (words.isEmpty()) {
+      return RuntimeStep.returned(List.of());
+    }
+
+    List<MooValue> commandWords = new ArrayList<>();
+    for (String word : words) {
+      commandWords.add(StringValue.of(word));
+    }
+    List<String> doCommandOutput = List.of();
+    boolean handled = false;
+    Optional<WorldVerb> doCommand = world().verb(connection.listenerHandler, "do_command");
+    if (completedDoCommand.isPresent()) {
+      VmState state = completedDoCommand.orElseThrow();
+      doCommandOutput = state.output();
+      handled = state.returnValue().isPresent() && state.returnValue().orElseThrow().isTruthy();
+    } else if (doCommand.isPresent()) {
+      return startStored(
+          doCommand.orElseThrow(),
+          verbLocals(
+              connection.listenerHandler,
+              player,
+              -1,
+              "do_command",
+              new ListValue(commandWords),
+              line),
+          RuntimeContinuation.after(
+              RuntimeTransition.LINE_DO_COMMAND_GATE_THEN_DISPATCH,
+              connectionId,
+              line,
+              List.of(),
+              0,
+              0,
+              false));
+    }
+
+    List<String> output = new ArrayList<>();
+    connection.prefix.ifPresent(output::add);
+    output.addAll(doCommandOutput);
+    if (handled) {
+      connection.suffix.ifPresent(output::add);
+      return RuntimeStep.returned(output);
+    }
+    return dispatchCommand(connectionId, connection, player, line, output);
+  }
+
+  private @Nullable RuntimeStep executeProgrammingOrOutputControl(
+      ConnectionState connection, long player, String line) {
     if (connection.programmingObject >= 0) {
       if (!line.equals(".")) {
         connection.programmingSource.append(line).append('\n');
@@ -840,19 +899,15 @@ public final class MooRuntime implements AutoCloseable {
       return RuntimeStep.returned(output);
     }
 
-    String programPrefix = ".program ";
+    CommandParser.ParsedCommand programmingCommand = CommandParser.parse(line);
+    List<String> programmingWords = programmingCommand.words();
     boolean programmer =
         world().object(player).map(object -> ObjectFlags.isProgrammer(object.flags())).orElse(false);
-    if (programmer && (line.equals(".program") || line.startsWith(programPrefix))) {
-      String descriptor =
-          line.equals(".program") ? "" : line.substring(programPrefix.length()).trim();
-      boolean oneDescriptor = !descriptor.isEmpty();
-      for (int index = 0; index < descriptor.length() && oneDescriptor; index++) {
-        oneDescriptor = !Character.isWhitespace(descriptor.charAt(index));
-      }
-      if (!oneDescriptor) {
+    if (programmer && programmingCommand.verb().equals(".program")) {
+      if (programmingWords.size() != 2) {
         return RuntimeStep.returned(List.of("Usage:  .program object:verb"));
       }
+      String descriptor = programmingWords.get(1);
       int colon = descriptor.indexOf(':');
       if (colon < 0 || colon == descriptor.length() - 1) {
         return RuntimeStep.returned(
@@ -917,149 +972,14 @@ public final class MooRuntime implements AutoCloseable {
       return RuntimeStep.returned(List.of());
     }
 
-    List<String> words = new ArrayList<>();
-    StringBuilder currentWord = new StringBuilder();
-    boolean inQuotes = false;
-    int inputIndex = 0;
-    while (inputIndex < line.length()) {
-      char character = line.charAt(inputIndex);
-      if (character == '\\') {
-        if (inputIndex + 1 < line.length()) {
-          currentWord.append(line.charAt(inputIndex + 1));
-          inputIndex += 2;
-        } else {
-          currentWord.append(character);
-          inputIndex++;
-        }
-      } else if (character == '"') {
-        inQuotes = !inQuotes;
-        inputIndex++;
-      } else if (Character.isWhitespace(character) && !inQuotes) {
-        if (!currentWord.isEmpty()) {
-          words.add(currentWord.toString());
-          currentWord.setLength(0);
-        }
-        inputIndex++;
-      } else {
-        currentWord.append(character);
-        inputIndex++;
-      }
-    }
-    if (!currentWord.isEmpty()) {
-      words.add(currentWord.toString());
-    }
+    return null;
+  }
 
-    if (words.isEmpty()) {
-      return RuntimeStep.returned(List.of());
-    }
-
-    List<MooValue> commandWords = new ArrayList<>();
-    for (String word : words) {
-      commandWords.add(StringValue.of(word));
-    }
-    List<String> doCommandOutput = List.of();
-    boolean handled = false;
-    Optional<WorldVerb> doCommand = world().verb(connection.listenerHandler, "do_command");
-    if (completedDoCommand.isPresent()) {
-      VmState state = completedDoCommand.orElseThrow();
-      doCommandOutput = state.output();
-      handled = state.returnValue().isPresent() && state.returnValue().orElseThrow().isTruthy();
-    } else if (doCommand.isPresent()) {
-      return startStored(
-          doCommand.orElseThrow(),
-          verbLocals(
-              connection.listenerHandler,
-              player,
-              -1,
-              "do_command",
-              new ListValue(commandWords),
-              line),
-          RuntimeContinuation.after(
-              RuntimeTransition.LINE_DO_COMMAND_GATE_THEN_DISPATCH,
-              connectionId,
-              line,
-              List.of(),
-              0,
-              0,
-              false));
-    }
-
-    List<String> output = new ArrayList<>();
-    connection.prefix.ifPresent(output::add);
-    output.addAll(doCommandOutput);
-    if (handled) {
-      connection.suffix.ifPresent(output::add);
-      return RuntimeStep.returned(output);
-    }
-    String dispatchLine = line;
-    int dispatchStart = 0;
-    while (dispatchStart < dispatchLine.length() && dispatchLine.charAt(dispatchStart) == ' ') {
-      dispatchStart++;
-    }
-    String shortcutVerb =
-        dispatchStart == dispatchLine.length()
-            ? null
-            : switch (dispatchLine.charAt(dispatchStart)) {
-              case '"' -> "say";
-              case ':' -> "emote";
-              case ';' -> "eval";
-              default -> null;
-            };
-    if (shortcutVerb != null) {
-      dispatchLine = shortcutVerb + " " + dispatchLine.substring(dispatchStart + 1);
-      words.clear();
-      currentWord.setLength(0);
-      inQuotes = false;
-      inputIndex = 0;
-      while (inputIndex < dispatchLine.length()) {
-        char character = dispatchLine.charAt(inputIndex);
-        if (character == '\\') {
-          if (inputIndex + 1 < dispatchLine.length()) {
-            currentWord.append(dispatchLine.charAt(inputIndex + 1));
-            inputIndex += 2;
-          } else {
-            currentWord.append(character);
-            inputIndex++;
-          }
-        } else if (character == '"') {
-          inQuotes = !inQuotes;
-          inputIndex++;
-        } else if (Character.isWhitespace(character) && !inQuotes) {
-          if (!currentWord.isEmpty()) {
-            words.add(currentWord.toString());
-            currentWord.setLength(0);
-          }
-          inputIndex++;
-        } else {
-          currentWord.append(character);
-          inputIndex++;
-        }
-      }
-      if (!currentWord.isEmpty()) {
-        words.add(currentWord.toString());
-      }
-    }
+  private RuntimeStep dispatchCommand(
+      long connectionId, ConnectionState connection, long player, String line, List<String> output) {
+    CommandParser.ParsedCommand parsed = CommandParser.parse(line);
+    List<String> words = parsed.words();
     if (!words.isEmpty()) {
-      int argumentStart = 0;
-      while (argumentStart < dispatchLine.length()
-          && Character.isWhitespace(dispatchLine.charAt(argumentStart))) {
-        argumentStart++;
-      }
-      boolean commandWordQuotes = false;
-      while (argumentStart < dispatchLine.length()
-          && (commandWordQuotes || !Character.isWhitespace(dispatchLine.charAt(argumentStart)))) {
-        char character = dispatchLine.charAt(argumentStart++);
-        if (character == '"') {
-          commandWordQuotes = !commandWordQuotes;
-        } else if (character == '\\' && argumentStart < dispatchLine.length()) {
-          argumentStart++;
-        }
-      }
-      while (argumentStart < dispatchLine.length()
-          && Character.isWhitespace(dispatchLine.charAt(argumentStart))) {
-        argumentStart++;
-      }
-
       long room = world().object(player).orElseThrow().location();
       Optional<WorldVerb> playerCommandVerb = world().verb(player, words.getFirst(), false);
       Optional<WorldVerb> roomCommandVerb = world().verb(room, words.getFirst(), false);
@@ -1084,237 +1004,12 @@ public final class MooRuntime implements AutoCloseable {
         for (int index = 1; index < words.size(); index++) {
           arguments.add(StringValue.of(words.get(index)));
         }
-        List<List<String>> prepositionsByCode =
-            List.of(
-                List.of("with", "using"),
-                List.of("at", "to"),
-                List.of("in front of"),
-                List.of("in", "inside", "into"),
-                List.of("on top of", "on", "onto", "upon"),
-                List.of("out of", "from inside", "from"),
-                List.of("over"),
-                List.of("through"),
-                List.of("under", "underneath", "beneath"),
-                List.of("behind"),
-                List.of("beside"),
-                List.of("for", "about"),
-                List.of("is"),
-                List.of("as"),
-                List.of("off", "off of"));
-        int prepositionStart = words.size();
-        int prepositionEnd = words.size();
-        int preposition = -1;
-        prepositionScan:
-        for (int wordIndex = 1; wordIndex < words.size(); wordIndex++) {
-          for (int prepositionCode = 0;
-              prepositionCode < prepositionsByCode.size();
-              prepositionCode++) {
-            List<String> aliases = prepositionsByCode.get(prepositionCode);
-            for (String alias : aliases) {
-              StringTokenizer aliasWords = new StringTokenizer(alias);
-              int aliasWordCount = aliasWords.countTokens();
-              if (wordIndex + aliasWordCount > words.size()) {
-                continue;
-              }
-              boolean matches = true;
-              int aliasIndex = 0;
-              while (aliasWords.hasMoreTokens()) {
-                if (!words.get(wordIndex + aliasIndex).equalsIgnoreCase(aliasWords.nextToken())) {
-                  matches = false;
-                  break;
-                }
-                aliasIndex++;
-              }
-              if (matches) {
-                prepositionStart = wordIndex;
-                prepositionEnd = wordIndex + aliasWordCount;
-                preposition = prepositionCode;
-                break prepositionScan;
-              }
-            }
-          }
-        }
-        String directObjectString = String.join(" ", words.subList(1, prepositionStart));
-        String prepositionString =
-            prepositionStart == words.size()
-                ? ""
-                : String.join(" ", words.subList(prepositionStart, prepositionEnd));
-        String indirectObjectString =
-            prepositionStart == words.size()
-                ? ""
-                : String.join(" ", words.subList(prepositionEnd, words.size()));
-        long directObject = directObjectString.isEmpty() ? -1 : -3;
-        if (!directObjectString.isEmpty()) {
-          if (directObjectString.startsWith("#")) {
-            try {
-              long literalObject = Long.parseLong(directObjectString.substring(1));
-              if (literalObject >= 0 && world().object(literalObject).isPresent()) {
-                directObject = literalObject;
-              }
-            } catch (NumberFormatException ignored) {
-              // Malformed and out-of-range object literals are failed matches.
-            }
-          } else if (directObjectString.equalsIgnoreCase("me")) {
-            directObject = player;
-          } else {
-            WorldObject playerObject = world().object(player).orElseThrow();
-            if (directObjectString.equalsIgnoreCase("here")) {
-              directObject = playerObject.location();
-            } else {
-              List<Long> candidates = new ArrayList<>();
-              for (long candidate : playerObject.contents()) {
-                if (!candidates.contains(candidate)) {
-                  candidates.add(candidate);
-                }
-              }
-              WorldObject location = world().object(playerObject.location()).orElse(null);
-              if (location != null) {
-                for (long candidate : location.contents()) {
-                  if (!candidates.contains(candidate)) {
-                    candidates.add(candidate);
-                  }
-                }
-              }
-
-              List<Long> exactMatches = new ArrayList<>();
-              List<Long> partialMatches = new ArrayList<>();
-              for (long candidate : candidates) {
-                WorldObject candidateObject = world().object(candidate).orElse(null);
-                if (candidateObject == null) {
-                  continue;
-                }
-                boolean exact = false;
-                boolean partial = false;
-                String candidateName = candidateObject.name();
-                if (candidateName.regionMatches(
-                    true, 0, directObjectString, 0, directObjectString.length())) {
-                  if (candidateName.length() == directObjectString.length()) {
-                    exact = true;
-                  } else {
-                    partial = true;
-                  }
-                }
-                MooValue aliasesValue = world().readObjectProperty(candidate, "aliases").orElse(null);
-                if (aliasesValue instanceof ListValue aliases) {
-                  for (MooValue aliasValue : aliases.elements()) {
-                    if (!(aliasValue instanceof StringValue alias)) {
-                      continue;
-                    }
-                    String candidateAlias = alias.text();
-                    if (candidateAlias.regionMatches(
-                        true, 0, directObjectString, 0, directObjectString.length())) {
-                      if (candidateAlias.length() == directObjectString.length()) {
-                        exact = true;
-                      } else {
-                        partial = true;
-                      }
-                    }
-                  }
-                }
-                if (exact) {
-                  exactMatches.add(candidate);
-                } else if (partial) {
-                  partialMatches.add(candidate);
-                }
-              }
-              if (exactMatches.size() == 1) {
-                directObject = exactMatches.getFirst();
-              } else if (exactMatches.size() > 1) {
-                directObject = -2;
-              } else if (partialMatches.size() == 1) {
-                directObject = partialMatches.getFirst();
-              } else if (partialMatches.size() > 1) {
-                directObject = -2;
-              }
-            }
-          }
-        }
-        long indirectObject = indirectObjectString.isEmpty() ? -1 : -3;
-        if (!indirectObjectString.isEmpty()) {
-          if (indirectObjectString.startsWith("#")) {
-            try {
-              long literalObject = Long.parseLong(indirectObjectString.substring(1));
-              if (literalObject >= 0 && world().object(literalObject).isPresent()) {
-                indirectObject = literalObject;
-              }
-            } catch (NumberFormatException ignored) {
-              // Malformed and out-of-range object literals are failed matches.
-            }
-          } else if (indirectObjectString.equalsIgnoreCase("me")) {
-            indirectObject = player;
-          } else {
-            WorldObject playerObject = world().object(player).orElseThrow();
-            if (indirectObjectString.equalsIgnoreCase("here")) {
-              indirectObject = playerObject.location();
-            } else {
-              List<Long> candidates = new ArrayList<>();
-              for (long candidate : playerObject.contents()) {
-                if (!candidates.contains(candidate)) {
-                  candidates.add(candidate);
-                }
-              }
-              WorldObject location = world().object(playerObject.location()).orElse(null);
-              if (location != null) {
-                for (long candidate : location.contents()) {
-                  if (!candidates.contains(candidate)) {
-                    candidates.add(candidate);
-                  }
-                }
-              }
-
-              List<Long> exactMatches = new ArrayList<>();
-              List<Long> partialMatches = new ArrayList<>();
-              for (long candidate : candidates) {
-                WorldObject candidateObject = world().object(candidate).orElse(null);
-                if (candidateObject == null) {
-                  continue;
-                }
-                boolean exact = false;
-                boolean partial = false;
-                String candidateName = candidateObject.name();
-                if (candidateName.regionMatches(
-                    true, 0, indirectObjectString, 0, indirectObjectString.length())) {
-                  if (candidateName.length() == indirectObjectString.length()) {
-                    exact = true;
-                  } else {
-                    partial = true;
-                  }
-                }
-                MooValue aliasesValue = world().readObjectProperty(candidate, "aliases").orElse(null);
-                if (aliasesValue instanceof ListValue aliases) {
-                  for (MooValue aliasValue : aliases.elements()) {
-                    if (!(aliasValue instanceof StringValue alias)) {
-                      continue;
-                    }
-                    String candidateAlias = alias.text();
-                    if (candidateAlias.regionMatches(
-                        true, 0, indirectObjectString, 0, indirectObjectString.length())) {
-                      if (candidateAlias.length() == indirectObjectString.length()) {
-                        exact = true;
-                      } else {
-                        partial = true;
-                      }
-                    }
-                  }
-                }
-                if (exact) {
-                  exactMatches.add(candidate);
-                } else if (partial) {
-                  partialMatches.add(candidate);
-                }
-              }
-              if (exactMatches.size() == 1) {
-                indirectObject = exactMatches.getFirst();
-              } else if (exactMatches.size() > 1) {
-                indirectObject = -2;
-              } else if (partialMatches.size() == 1) {
-                indirectObject = partialMatches.getFirst();
-              } else if (partialMatches.size() > 1) {
-                indirectObject = -2;
-              }
-            }
-          }
-        }
+        int preposition = parsed.preposition();
+        String directObjectString = parsed.dobjstr();
+        String prepositionString = parsed.prepstr();
+        String indirectObjectString = parsed.iobjstr();
+        long directObject = CommandParser.matchObject(player, directObjectString, world());
+        long indirectObject = CommandParser.matchObject(player, indirectObjectString, world());
         WorldVerb selectedVerb = null;
         long thisObject = -1;
         if (playerCommandVerb.isPresent()) {
@@ -1408,7 +1103,7 @@ public final class MooRuntime implements AutoCloseable {
                 player,
                 words.getFirst(),
                 new ListValue(arguments),
-                dispatchLine.substring(argumentStart));
+                parsed.argstr());
         locals.put("dobjstr", StringValue.of(directObjectString));
         locals.put("prepstr", StringValue.of(prepositionString));
         locals.put("iobjstr", StringValue.of(indirectObjectString));
@@ -1453,35 +1148,8 @@ public final class MooRuntime implements AutoCloseable {
       return RuntimeStep.returned(List.of());
     }
     List<MooValue> arguments = new ArrayList<>();
-    StringBuilder currentWord = new StringBuilder();
-    boolean inQuotes = false;
-    int inputIndex = 0;
-    while (inputIndex < command.length()) {
-      char character = command.charAt(inputIndex);
-      if (character == '\\') {
-        if (inputIndex + 1 < command.length()) {
-          currentWord.append(command.charAt(inputIndex + 1));
-          inputIndex += 2;
-        } else {
-          currentWord.append(character);
-          inputIndex++;
-        }
-      } else if (character == '"') {
-        inQuotes = !inQuotes;
-        inputIndex++;
-      } else if (Character.isWhitespace(character) && !inQuotes) {
-        if (!currentWord.isEmpty()) {
-          arguments.add(StringValue.of(currentWord.toString()));
-          currentWord.setLength(0);
-        }
-        inputIndex++;
-      } else {
-        currentWord.append(character);
-        inputIndex++;
-      }
-    }
-    if (!currentWord.isEmpty()) {
-      arguments.add(StringValue.of(currentWord.toString()));
+    for (String word : CommandParser.words(command)) {
+      arguments.add(StringValue.of(word));
     }
     return startStored(
         outOfBand.orElseThrow(),
@@ -1503,17 +1171,6 @@ public final class MooRuntime implements AutoCloseable {
   }
 
   private long matchProgramObject(long player, String reference) {
-    if (reference.isEmpty()) {
-      return -1;
-    }
-    if (reference.startsWith("#")) {
-      try {
-        long objectId = Long.parseLong(reference.substring(1));
-        return objectId >= 0 && world().object(objectId).isPresent() ? objectId : -3;
-      } catch (NumberFormatException error) {
-        return -3;
-      }
-    }
     if (reference.startsWith("$")) {
       MooValue value = world().readObjectProperty(0, reference.substring(1)).orElse(null);
       if (value instanceof ObjectValue object && world().object(object.value()).isPresent()) {
@@ -1521,77 +1178,7 @@ public final class MooRuntime implements AutoCloseable {
       }
       return -1;
     }
-    if (reference.equalsIgnoreCase("me")) {
-      return player;
-    }
-    WorldObject playerObject = world().object(player).orElseThrow();
-    if (reference.equalsIgnoreCase("here")) {
-      return playerObject.location();
-    }
-
-    List<Long> candidates = new ArrayList<>();
-    for (long candidate : playerObject.contents()) {
-      if (!candidates.contains(candidate)) {
-        candidates.add(candidate);
-      }
-    }
-    WorldObject location = world().object(playerObject.location()).orElse(null);
-    if (location != null) {
-      for (long candidate : location.contents()) {
-        if (!candidates.contains(candidate)) {
-          candidates.add(candidate);
-        }
-      }
-    }
-
-    List<Long> exactMatches = new ArrayList<>();
-    List<Long> partialMatches = new ArrayList<>();
-    for (long candidate : candidates) {
-      WorldObject candidateObject = world().object(candidate).orElse(null);
-      if (candidateObject == null) {
-        continue;
-      }
-      boolean exact = false;
-      boolean partial = false;
-      if (candidateObject.name().regionMatches(true, 0, reference, 0, reference.length())) {
-        if (candidateObject.name().length() == reference.length()) {
-          exact = true;
-        } else {
-          partial = true;
-        }
-      }
-      MooValue aliasesValue = world().readObjectProperty(candidate, "aliases").orElse(null);
-      if (aliasesValue instanceof ListValue aliases) {
-        for (MooValue aliasValue : aliases.elements()) {
-          if (!(aliasValue instanceof StringValue alias)) {
-            continue;
-          }
-          String candidateAlias = alias.text();
-          if (candidateAlias.regionMatches(true, 0, reference, 0, reference.length())) {
-            if (candidateAlias.length() == reference.length()) {
-              exact = true;
-            } else {
-              partial = true;
-            }
-          }
-        }
-      }
-      if (exact) {
-        exactMatches.add(candidate);
-      } else if (partial) {
-        partialMatches.add(candidate);
-      }
-    }
-    if (exactMatches.size() == 1) {
-      return exactMatches.getFirst();
-    }
-    if (exactMatches.size() > 1) {
-      return -2;
-    }
-    if (partialMatches.size() == 1) {
-      return partialMatches.getFirst();
-    }
-    return partialMatches.size() > 1 ? -2 : -3;
+    return CommandParser.matchObject(player, reference, world());
   }
 
   private static void clearProgramming(ConnectionState connection) {
@@ -1716,27 +1303,8 @@ public final class MooRuntime implements AutoCloseable {
     }
     WorldVerb login = world().verb(connection.listenerHandler, "do_login_command").orElseThrow();
     List<MooValue> arguments = new ArrayList<>();
-    StringBuilder word = new StringBuilder();
-    boolean quoted = false;
-    for (int index = 0; index < loginLine.length(); index++) {
-      char character = loginLine.charAt(index);
-      if (character == '\\') {
-        if (index + 1 < loginLine.length()) {
-          word.append(loginLine.charAt(++index));
-        }
-      } else if (character == '"') {
-        quoted = !quoted;
-      } else if (character == ' ' && !quoted) {
-        if (!word.isEmpty()) {
-          arguments.add(StringValue.of(word.toString()));
-          word.setLength(0);
-        }
-      } else {
-        word.append(character);
-      }
-    }
-    if (!word.isEmpty()) {
-      arguments.add(StringValue.of(word.toString()));
+    for (String word : CommandParser.words(loginLine)) {
+      arguments.add(StringValue.of(word));
     }
     Map<String, MooValue> locals =
         verbLocals(
@@ -2149,7 +1717,8 @@ public final class MooRuntime implements AutoCloseable {
     return RuntimeStep.vm(program, root.snapshot(), taskPlayer, continuation);
   }
 
-  VmState startBackgroundTask(VmSnapshot initial) {
+  @Override
+  public VmState startBackgroundTask(VmSnapshot initial) {
     long backgroundTicks = DEFAULT_BACKGROUND_TICKS;
     long backgroundSeconds = DEFAULT_BACKGROUND_SECONDS;
     long backgroundMaxStackDepth = DEFAULT_MAX_STACK_DEPTH;
@@ -2172,7 +1741,8 @@ public final class MooRuntime implements AutoCloseable {
         initial, backgroundTicks, backgroundSeconds, backgroundMaxStackDepth);
   }
 
-  void publishVmState(
+  @Override
+  public void publishVmState(
       VmState task,
       long taskPlayer,
       boolean collectAfterCompletion,
@@ -2313,7 +1883,8 @@ public final class MooRuntime implements AutoCloseable {
     world().replacePendingFinalization(remaining);
   }
 
-  void collectAfterAnonymousFinalization(
+  @Override
+  public void collectAfterAnonymousFinalization(
       AnonymousObjectValue target,
       List<VmSnapshot> otherTaskRoots,
       boolean startNextFinalizationWave) {
@@ -3184,7 +2755,8 @@ public final class MooRuntime implements AutoCloseable {
     return locals;
   }
 
-  RuntimeStep execute(
+  @Override
+  public RuntimeStep execute(
       RuntimeContinuation continuation, Optional<world.mongoose.banteng.vm.VmSnapshot> completedVm) {
     RuntimeRequest request = continuation.ingress().orElse(null);
     if (request != null) {
@@ -3364,7 +2936,8 @@ public final class MooRuntime implements AutoCloseable {
     return lines;
   }
 
-  RuntimeStep startUncaughtError(VmState state) {
+  @Override
+  public RuntimeStep startUncaughtError(VmState state) {
     List<String> formatted = formatUncaughtException(state);
     WorldVerb handler = world().verb(0, "handle_uncaught_error").orElse(null);
     if (handler == null
@@ -3397,7 +2970,8 @@ public final class MooRuntime implements AutoCloseable {
             RuntimeTransition.UNCAUGHT_HANDLER_RETURN, 0, "", List.of(), 0, 0, false));
   }
 
-  synchronized AttemptContext openAttempt(WorldTxn transaction, long taskId) {
+  @Override
+  public synchronized AttemptContext openAttempt(WorldTxn transaction, long taskId) {
     Map<Long, ConnectionState> sessions = new LinkedHashMap<>();
     publishedConnections.forEach((id, state) -> sessions.put(id, state.copy()));
     ConnectionRegistryAccess connections = publishedConnectionRegistry.copy();
@@ -3422,21 +2996,25 @@ public final class MooRuntime implements AutoCloseable {
     context.world = transaction;
   }
 
-  AttemptContext finishAttempt() {
+  @Override
+  public AttemptContext finishAttempt() {
     AttemptContext context = requireAttempt();
     ATTEMPT.remove();
     return context;
   }
 
-  void abandonAttempt() {
+  @Override
+  public void abandonAttempt() {
     ATTEMPT.remove();
   }
 
-  synchronized boolean sessionsAreCurrent(AttemptContext context) {
+  @Override
+  public synchronized boolean sessionsAreCurrent(AttemptContext context) {
     return context.baseSessionRevision == sessionRevision;
   }
 
-  synchronized OptionalLong connectionPlayer(long connectionId) {
+  @Override
+  public synchronized OptionalLong connectionPlayer(long connectionId) {
     return publishedConnectionRegistry.connectionPlayer(connectionId);
   }
 
@@ -3519,7 +3097,8 @@ public final class MooRuntime implements AutoCloseable {
     return candidates[0].getCanonicalHostName();
   }
 
-  void publishAttempt(AttemptContext context, WorldSnapshot committedWorld) {
+  @Override
+  public void publishAttempt(AttemptContext context, WorldSnapshot committedWorld) {
     List<RuntimeEffect> publishedEffects;
     List<ReadRegistration> readRegistrations;
     synchronized (this) {
@@ -3570,7 +3149,8 @@ public final class MooRuntime implements AutoCloseable {
     }
   }
 
-  List<RuntimeStep> takeSpawnedSteps(AttemptContext context) {
+  @Override
+  public List<RuntimeStep> takeSpawnedSteps(AttemptContext context) {
     List<RuntimeStep> spawned = List.copyOf(context.spawnedSteps);
     context.spawnedSteps.clear();
     return spawned;
@@ -3726,11 +3306,13 @@ public final class MooRuntime implements AutoCloseable {
     return requireAttempt().spawnedSteps;
   }
 
-  MooVm vm() {
+  @Override
+  public MooVm vm() {
     return vm;
   }
 
-  BuiltinCatalog builtins() {
+  @Override
+  public BuiltinCatalog builtins() {
     return builtins;
   }
 

@@ -59,6 +59,7 @@ import world.mongoose.banteng.world.WorldObject;
 import world.mongoose.banteng.world.WorldProperty;
 import world.mongoose.banteng.world.WorldResult;
 import world.mongoose.banteng.world.WorldTxn;
+import world.mongoose.banteng.world.Prepositions;
 import world.mongoose.banteng.world.WorldVerb;
 import org.bouncycastle.crypto.generators.Argon2BytesGenerator;
 import org.bouncycastle.crypto.Digest;
@@ -5567,27 +5568,7 @@ public final class BuiltinCatalog {
           case THIS -> "this";
           default -> throw new IllegalStateException("invalid indirect-object verb specification");
         };
-    String preposition =
-        switch (verb.preposition()) {
-          case -1 -> "none";
-          case -2 -> "any";
-          case 0 -> "with/using";
-          case 1 -> "at/to";
-          case 2 -> "in front of";
-          case 3 -> "in/inside/into";
-          case 4 -> "on top of/on/onto/upon";
-          case 5 -> "out of/from inside/from";
-          case 6 -> "over";
-          case 7 -> "through";
-          case 8 -> "under/underneath/beneath";
-          case 9 -> "behind";
-          case 10 -> "beside";
-          case 11 -> "for/about";
-          case 12 -> "is";
-          case 13 -> "as";
-          case 14 -> "off/off of";
-          default -> throw new IllegalStateException("invalid verb preposition specification");
-        };
+    String preposition = Prepositions.format(verb.preposition());
     return BuiltinResult.value(
         new ListValue(List.of(StringValue.of(direct), StringValue.of(preposition), StringValue.of(indirect))));
   }
@@ -5708,47 +5689,7 @@ public final class BuiltinCatalog {
   }
 
   private static int parsePreposition(String prepositionText) {
-    String normalizedPreposition = prepositionText.toLowerCase(Locale.ROOT);
-    int slash = normalizedPreposition.indexOf('/');
-    if (slash >= 0) {
-      normalizedPreposition = normalizedPreposition.substring(0, slash);
-    }
-    return
-        switch (normalizedPreposition) {
-          case "none" -> -1;
-          case "any" -> -2;
-          case "with", "using" -> 0;
-          case "at", "to" -> 1;
-          case "in front of" -> 2;
-          case "in", "inside", "into" -> 3;
-          case "on top of", "on", "onto", "upon" -> 4;
-          case "out of", "from inside", "from" -> 5;
-          case "over" -> 6;
-          case "through" -> 7;
-          case "under", "underneath", "beneath" -> 8;
-          case "behind" -> 9;
-          case "beside" -> 10;
-          case "for", "about" -> 11;
-          case "is" -> 12;
-          case "as" -> 13;
-          case "off", "off of" -> 14;
-          default -> {
-            String numeric =
-                normalizedPreposition.startsWith("#")
-                    ? normalizedPreposition.substring(1)
-                    : normalizedPreposition;
-            if (numeric.isEmpty()
-                || numeric.chars().anyMatch(character -> character < '0' || character > '9')) {
-              yield Integer.MIN_VALUE;
-            }
-            try {
-              int code = Integer.parseInt(numeric);
-              yield code >= 0 && code <= 14 ? code : Integer.MIN_VALUE;
-            } catch (NumberFormatException ignored) {
-              yield Integer.MIN_VALUE;
-            }
-          }
-        };
+    return Prepositions.parse(prepositionText);
   }
 
   private BuiltinResult setVerbCode(

@@ -1,0 +1,46 @@
+# Issue 88: command parser
+
+## Goal
+Implement issue 88 using Toast's tokenizer and object matcher and one world preposition table.
+
+## State
+PR #105 shortcut repair complete: intrinsic `.program` detection now uses `CommandParser.parse(line).verb()` and its decoded words, matching Toast tasks.cc:772 after parse_cmd.cc:138–185 expands leading quote/colon/semicolon shortcuts. The previous words-only detector decoded `".program" here:eval` to `.program` and wrongly entered programming instead of say. Smallest repair is three production-line changes plus a focused runtime regression; raw do_command token production stays unchanged. No publication authorized.
+
+Focused validation: WSL Debian/root Java25 `bash ./gradlew --no-daemon --max-workers=2 :test --tests world.mongoose.banteng.runtime.MooRuntimeTest.quotedDotProgramUsesSayShortcut --tests world.mongoose.banteng.runtime.MooRuntimeTest.dotProgramUsesDecodedWordsForDescriptors` passed (`BUILD SUCCESSFUL in 38s`). The regression installs a say handler, verifies the exact quoted command reaches it, then verifies a subsequent eval executes instead of becoming programming source. Existing decoded descriptor/arity expectations pass unchanged. Three initial runs exposed my fixture mistakes: `here` is not an eval variable (E_VARNF), eval returns `{1, result}`, and ordinary say notifications have no eval delimiters; corrected to player.location and existing fixture output conventions. Production source was unchanged across those reruns; all source stayed stable during each compilation. No broader local CI/conformance run; parent owns PR validation and publication.
+
+Implementation complete; focused CommandParserTest passed. This note records the worker handoff and source evidence. The coordinator owns PR publication and live CI/merge state in the central issue-campaign note; the worker has no publication authority.
+
+## Decisions and why
+Smallest change: pure CommandParser and ParsedCommand, canonical Prepositions, replace duplicated loops and matchers, move existing execution phases unchanged within MooRuntime to keep executeLineNow below 150 lines. Approximately 250–330 parser/table lines plus focused tests and runtime moves. Preserve original do_command words, shortcut argstr spacing, and .program's system-property lookup.
+
+## Surprises
+Toast `match_object` uses strtol: `#` can match object zero, leading ASCII whitespace and signs are accepted, trailing characters are rejected. The port preserves these semantics. `.program` retains its separate `$property` lookup before using the shared matcher.
+
+## Source and validation
+- Toast source read: `C:/Users/Q/src/toaststunt/src/parse_cmd.cc:34-79,122-238`, `match.cc:51-134`, `db_verbs.cc:50-193`.
+- Runtime producers read: command gate and dispatch, transport OOB, login, `.program`; BuiltinCatalog verb_args formatting and set_verb_args parsing.
+- Compiled the original Toast `parse_into_words` function extracted directly from parse_cmd.cc using g++ with allocator stubs. Observed: `foo<TAB>bar baz` -> two words (`foo<TAB>bar`, `baz`); trailing backslash disappears; `""` yields one empty word; `ab"cd ef"gh ij` -> (`abcd efgh`, `ij`). These observations back the required focused tests.
+- Authored `CommandParserTest` covers tokenizer cases, shortcuts and raw argstr spacing, quoted verbs, ordered prepositions, persisted preposition aliases, object names and aliases, duplicate identity, exact/partial ambiguity, invalid actors and literals.
+- `executeLineNow` occupies lines 769–856 (88 lines). The initial implementation retained a raw `.program` descriptor whitespace scan; that contradicted the shared-tokenizer claim and rejected quoted descriptors. Existing execution phases moved within MooRuntime; no new execution owner.
+- First test command mistakenly used unqualified `test`, selecting subproject test tasks as well; `:errorprone-checks:test` failed with `No tests found for given includes: [world.mongoose.banteng.runtime.CommandParserTest](--tests filter)`.
+- I edited runtime imports/nullable annotation while that compilation was active. Analyzer output then had displaced NotJavadoc warnings and `MooRuntime.java:81: error: An unhandled exception was thrown by the Error Prone static analysis plugin`, `BugPattern: StringConcatToTextBlock`, `NoSuchElementException at Iterables.getLast / StringConcatToTextBlock.matchLiteral:101`. Full first log: WSL `/root/.gradle/daemon/9.6.1/daemon-2857303.out.log`. Concurrent source changes are the identified explanation for displaced positions; corrected run uses stable source. No check was disabled.
+- Corrected authored-test invocation: WSL Java25 `./gradlew --no-daemon :test --tests world.mongoose.banteng.runtime.CommandParserTest`. Stable production compilation passed with all analyzers enabled; the first source-position exception did not recur. Matcher test setup had two defects: a committed WorldTxn owner was passed despite object:170-173 requiring an active transaction, and one object was listed in two containers despite WorldHistory.validateTopology:328 requiring reciprocal locations. Changed tests to owner.begin() and a reciprocal world; duplicate alias identity remains covered. Corrected authored class passed (`BUILD SUCCESSFUL in 21s`). Conformance unchanged and unrun locally; PR CI remains required evidence.
+
+## Draft PR
+Title: Share Toast command parsing and object matching
+
+Command parsing previously split tabs and discarded empty quoted arguments in several separate runtime paths. Share Toast's tokenizer and object matcher between commands, login, OOB and programming lookup, and share persistent preposition codes with verb_args/set_verb_args. Preserve original do_command input and shortcut argstr spacing. Move existing programming/output-control and selected-command phases into private MooRuntime methods so executeLineNow stays below 150 lines.
+
+Validation: focused CommandParserTest; four required tokenizer expectations observed from the original Toast C++ function. Full conformance remains for PR CI. Closes #88.
+
+## Next step
+PR #105 repair: replaced the raw `.program` descriptor substring/whitespace check with `CommandParser.words`, requiring exactly two words and passing the decoded descriptor to the existing lookup. Toast `tasks.cc:779-786` requires one decoded argument; `parse_cmd.cc:34-79` preserves tabs inside words and removes quotes/escapes. Existing exact `.program` spelling, `$property` lookup and continuation remain. Authored `MooRuntimeTest.dotProgramUsesDecodedWordsForDescriptors` covers quoted and escaped descriptors, a quoted numeric descriptor containing a space, tabs retained inside the object reference, and excess arguments.
+
+Repair validation: WSL Debian/root Java25 `./gradlew --no-daemon --max-workers=2 :test --tests world.mongoose.banteng.runtime.MooRuntimeTest.dotProgramUsesDecodedWordsForDescriptors` passed (`BUILD SUCCESSFUL in 33s`). First invocation failed before Gradle because an unquoted expanded PATH included Windows paths; corrected launch uses `wsl ... env` with a fixed Linux PATH. First actual test run failed because I expected the room's own name to match although matchObject searches only contents (`CommandParser.java:153-158`); output was `I don't see "The First Room" here.` Corrected fixture uses the numeric object path. No production source changed during compilation. No local conformance/CI run; coordinator owns publication and PR CI.
+
+Implementation committed on campaign/88-command-parser. Coordinator follows PR CI/conformance and independent review through normal merge. Consult the PR and central issue-campaign note for current delivery state; local focused validation is recorded above.
+
+## PR #105 byte-case review repair
+Smallest repair: reuse StringValue.indexOfIgnoringCase for the prefix comparison, constructing the requested byte string once; approximately three production lines plus focused name/alias tests. Preserve current candidate traversal, exact-match priority and identity handling. Read CommandParser's matcher, StringValue's Latin1 encoding and ASCII-only byte folding (MooValue.java:195–218,265–283,373–380), the normal socket producer (server/MooServer.java:376,387), and Toast match.cc:51–134. The socket producer decodes bytes through StringValue.charset (ISO-8859-1); regionMatches(true) incorrectly treats C9 and E9 as equivalent Unicode characters, whereas the existing byte matcher folds A–Z only. Existing preposition parsing is outside this repair. Coordinator owns publication; no push authorized for this worker.
+
+Repair complete: the requested byte string is constructed once and candidate prefixes use the existing ASCII byte matcher. Raw-byte tests cover distinct C9/E9 object names for exact and prefix matching, ASCII case folding, alias matching/rejection and duplicate alias identity. WSL Debian/root Java25 `bash ./gradlew --no-daemon --max-workers=2 :test --tests world.mongoose.banteng.runtime.CommandParserTest` completed `BUILD SUCCESSFUL in 57s`. Production and test source remained unchanged during compilation. Only CommandParser, its authored test and this existing note changed; no conformance or broader local CI run, no publication/push. Ready for coordinator handoff.
