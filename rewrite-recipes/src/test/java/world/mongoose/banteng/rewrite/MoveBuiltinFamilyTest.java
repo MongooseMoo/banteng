@@ -15,6 +15,52 @@ import org.openrewrite.java.JavaParser;
 
 final class MoveBuiltinFamilyTest {
   @Test
+  void movesStringGroupsWithSharedRandomAndExistingValueSemanticsOwner() {
+    var context = new InMemoryExecutionContext(failure -> { throw new AssertionError(failure); });
+    var files = JavaParser.fromJavaVersion().build().parse(context, """
+        package world.mongoose.banteng.builtin;
+        import java.util.List;
+        import java.util.Random;
+        class BuiltinCatalog {
+          private final Random random = new Random();
+          void buildManifest() {
+            entries.add(new BuiltinSpec("explode", List.of(STRING), BuiltinPermissionRule.ANY, false, call -> explode()));
+            reverse();
+            entries.add(new BuiltinSpec("parse_ansi", List.of(STRING), BuiltinPermissionRule.ANY, true, call -> parseAnsi(call.arguments())));
+            simplexNoise();
+            entries.add(new BuiltinSpec("index", List.of(STRING), BuiltinPermissionRule.ANY, false, call -> stringIndex()));
+          }
+          private static int explode() { return 1; }
+          private BuiltinResult parseAnsi(List<MooValue> arguments) { random.nextInt(6); return null; }
+          private static int stringIndex() { return matchesAt() ? 1 : 0; }
+          private static boolean matchesAt() { return true; }
+          private boolean locateByName() { return matchesAt(); }
+          private record AnsiReplacement(String tag, String code) {}
+        }
+        """, "package world.mongoose.banteng.value; public record ValueSemantics(boolean promoteNumbers) {}")
+        .toList();
+    var recipe = new MoveBuiltinFamily("StringBuiltins", Set.of("explode", "parse_ansi", "index"),
+        Set.of("explode", "parseAnsi", "stringIndex"));
+    var changes = recipe.run(new InMemoryLargeSourceSet(files), context).getChangeset().getAllResults();
+    String catalog = changedFile(changes, "BuiltinCatalog.java");
+    String family = changedFile(changes, "StringBuiltins.java");
+    assertTrue(catalog.indexOf("registerExplode(entries)") < catalog.indexOf("reverse()"));
+    assertTrue(catalog.indexOf("reverse()") < catalog.indexOf("registerSubstitutionAndAnsi(entries, random)"));
+    assertTrue(catalog.indexOf("registerSubstitutionAndAnsi(entries, random)") < catalog.indexOf("simplexNoise()"));
+    assertTrue(catalog.indexOf("simplexNoise()") < catalog.indexOf("registerSearchAndCompare(entries)"));
+    assertTrue(family.contains("private static BuiltinResult parseAnsi(List<MooValue> arguments, Random random)"));
+    assertTrue(family.contains("parseAnsi(call.arguments(), random)"));
+    assertTrue(family.contains(".irrevocable()"));
+    assertTrue(family.contains("private record AnsiReplacement"));
+    assertTrue(family.contains("Set.of(ArgType.STRING)"));
+    assertFalse(catalog.contains("record AnsiReplacement"));
+    assertTrue(catalog.contains("import static world.mongoose.banteng.value.ValueSemantics.matchesAt;"));
+    assertTrue(changedFile(changes, "ValueSemantics.java").contains("public static boolean matchesAt"));
+    List<SourceFile> after = changes.stream().map(Result::getAfter).toList();
+    assertTrue(recipe.run(new InMemoryLargeSourceSet(after), context).getChangeset().getAllResults().isEmpty());
+  }
+
+  @Test
   void movesListGroupsHandlersAndSharedOwnersWithoutReorderingInterleavedEntries() {
     var context = new InMemoryExecutionContext(failure -> { throw new AssertionError(failure); });
     String catalogSource = """

@@ -120,4 +120,23 @@ public record ValueSemantics(boolean promoteNumbers) {
   public static int foldAscii(int value) {
     return value >= 'A' && value <= 'Z' ? value + ('a' - 'A') : value;
   }
+
+  public static boolean matchesAt(
+      byte[] source, int position, byte[] what, boolean caseMatters) {
+    if (position < 0 || position + what.length > source.length) {
+      return false;
+    }
+    for (int index = 0; index < what.length; index++) {
+      int sourceByte = Byte.toUnsignedInt(source[position + index]);
+      int whatByte = Byte.toUnsignedInt(what[index]);
+      if (!caseMatters) {
+        sourceByte = foldAscii(sourceByte);
+        whatByte = foldAscii(whatByte);
+      }
+      if (sourceByte != whatByte) {
+        return false;
+      }
+    }
+    return true;
+  }
 }

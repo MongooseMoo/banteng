@@ -355,3 +355,13 @@ recipeList:
       family: ListBuiltins
       builtins: [length, listappend, listinsert, listdelete, listset, setadd, setremove, all_members, sort, reverse]
       methods: [length, listInsert, listDelete, listSet, setAdd, setRemove, allMembers, sortValues, sortableType, compareSortValues, compareNaturallyIgnoringCase, compareLeftAlignedDigits, compareRightAlignedDigits, cStringByte, isAsciiDigit, isAsciiSpace, reverse]
+---
+type: specs.openrewrite.org/v1beta/recipe
+name: world.mongoose.banteng.builtin.ExtractStringBuiltins
+displayName: Extract core string builtins
+description: Moves core text registration groups and their implementation closure into StringBuiltins.
+recipeList:
+  - world.mongoose.banteng.rewrite.MoveBuiltinFamily:
+      family: StringBuiltins
+      builtins: [explode, strsub, strtr, parse_ansi, remove_ansi, index, rindex, strcmp]
+      methods: [explode, stringSubstitute, stringTranslate, preserveAsciiCase, parseAnsi, removeAnsi, replaceAsciiIgnoringCase, stringIndex, stringCompare]
