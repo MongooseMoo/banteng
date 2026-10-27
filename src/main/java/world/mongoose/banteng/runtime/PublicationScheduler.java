@@ -722,7 +722,10 @@ public final class PublicationScheduler implements AutoCloseable {
             state.effects().clearOutput();
           }
           if (inputOutput.isPresent()) {
-            continuation = Optional.empty();
+            continuation = continuation
+                .filter(value -> value.transition().orElseThrow() == MooRuntime.RuntimeTransition.UNCAUGHT_HANDLER_RETURN)
+                .map(value -> MooRuntime.RuntimeContinuation.after(
+                    MooRuntime.RuntimeTransition.UNCAUGHT_HANDLER_RETURN, value.connectionId(), "", List.of(), 0, 0, false));
             completed = state.snapshot();
           }
           continuation = continuation.filter(
