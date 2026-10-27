@@ -45,15 +45,15 @@ final class VmSnapshotTest {
         frame.verbLocation(), frame.calledVerb(), frame.fullVerbName(), frame.createReturnOverride(),
         frame.recycleTarget(), frame.moveObject(), frame.moveDestination(), frame.movePosition(),
         frame.programmer(), frame.debug(), frame.threadMode(), frame.instructionPointer(),
-        frame.anonymousRecycleTarget());
+        frame.anonymousRecycleTarget(), frame.builtinContinuation(), frame.player());
     VmSnapshot saved = new VmSnapshot(snapshot.initialLocals(), snapshot.initialProgrammer(),
         snapshot.initialVerbLocation(), snapshot.initialCalledVerb(), snapshot.initialFullVerbName(),
         List.of(upper), snapshot.output(), snapshot.connectionOptionRequests(), snapshot.bootPlayerTargets(),
         snapshot.forcedInputRequests(), snapshot.notificationRequests(), snapshot.checkpointRequests(),
         snapshot.anonymousCollectionDeferrals(), snapshot.outcome(), snapshot.returnValue(), snapshot.pendingError(),
-        snapshot.uncaughtError(), snapshot.switchedPlayer(), snapshot.forkRequest(), snapshot.suspensionDelaySeconds(),
+        snapshot.uncaughtError(), snapshot.forkRequest(), snapshot.suspensionDelaySeconds(),
         snapshot.awaitingHostResult(), snapshot.pendingBuiltin(), snapshot.taskLocal(), snapshot.remainingTicks(),
-        snapshot.elapsedCpuNanos(), snapshot.remainingCpuNanos(), snapshot.maxStackDepth());
+        snapshot.elapsedCpuNanos(), snapshot.remainingCpuNanos(), snapshot.maxStackDepth(), snapshot.initialPlayer());
     VmState restored = VmState.restore(saved);
     assertEquals(new IntegerValue(77), restored.currentFrame().locals[16]);
     assertFalse(restored.currentFrame().namedLocals().containsKey("float"));
@@ -76,7 +76,7 @@ final class VmSnapshotTest {
     state.pushFrame(program, Map.of("VERB", text("entered")), new VmState.FrameOrigin(
         VmState.ReturnMode.ROOT, 23, new ObjectValue(29), new ObjectValue(31), "entered",
         "entered full", Optional.empty(), OptionalLong.empty(), OptionalLong.empty(),
-        OptionalLong.empty(), OptionalLong.empty(), Optional.empty(), true));
+        OptionalLong.empty(), OptionalLong.empty(), Optional.empty(), true, -1));
     VmSnapshot snapshot = state.snapshot(0);
     assertEquals(Map.of("seed", new IntegerValue(7), "verb", text("entered")), snapshot.initialLocals());
     assertEquals(17, snapshot.initialProgrammer());
@@ -171,7 +171,6 @@ final class VmSnapshotTest {
     state.effects().stageNotificationRequest(new ConnectionBuiltins.NotificationRequest(-7, "abc", true, true));
     AnonymousObjectValue deferred = new AnonymousObjectValue();
     state.effects().deferAnonymousCollection(List.of(deferred));
-    state.switchPlayer(53);
     state.setTaskLocal(new ListValue(List.of(new IntegerValue(59))));
     state.setThreadMode(false);
     state.beginError(ErrorValue.E_INVARG);
@@ -239,7 +238,7 @@ final class VmSnapshotTest {
         state.pushFrame(verbProgram, collidingLocals, new VmState.FrameOrigin(
             VmState.ReturnMode.VERB, 1, created, new ObjectValue(1), "", "", Optional.of(created),
             OptionalLong.empty(), OptionalLong.empty(), OptionalLong.empty(), OptionalLong.empty(),
-            Optional.empty(), true)));
+            Optional.empty(), true, -1)));
 
     VmState restored = VmState.restore(state.snapshot(0));
 
@@ -250,7 +249,7 @@ final class VmSnapshotTest {
         restored.pushFrame(verbProgram, collidingLocals, new VmState.FrameOrigin(
             VmState.ReturnMode.VERB, 1, new ObjectValue(1), new ObjectValue(1), "", "",
             Optional.empty(), OptionalLong.empty(), OptionalLong.empty(), OptionalLong.empty(),
-            OptionalLong.empty(), Optional.empty(), true)));
+            OptionalLong.empty(), Optional.empty(), true, -1)));
     assertTrue(restored.currentFrame().createReturnOverride.isEmpty());
     restored.finishFrame(new IntegerValue(99));
     assertEquals(new IntegerValue(99), restored.currentFrame().operandStack.pop());

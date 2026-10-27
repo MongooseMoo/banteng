@@ -1539,9 +1539,9 @@ final class PublicationSchedulerTest {
     try {
       Method method =
           DurableTaskCodec.class.getDeclaredMethod(
-              "exportActivation", VmSnapshot.Frame.class, long.class);
+              "exportActivation", VmSnapshot.Frame.class);
       method.setAccessible(true);
-      return (SuspendedActivation) method.invoke(null, frame, 0L);
+      return (SuspendedActivation) method.invoke(null, frame);
     } catch (InvocationTargetException failure) {
       throw rethrowInvocation(failure);
     } catch (ReflectiveOperationException failure) {

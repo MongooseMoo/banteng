@@ -152,7 +152,10 @@ final class LoginFlow {
   RuntimeStep finishLogin(AttemptContext context,
       long connectionId, long maximumObjectIdBeforeLogin, VmState state) {
     ConnectionState connection = runtime.requireConnection(context, connectionId);
-    OptionalLong authenticatedPlayer = state.switchedPlayer();
+    if (context.connections.connectionPlayer(connectionId).orElse(connectionId) >= 0) {
+      return RuntimeStep.returned(state.effects().output());
+    }
+    OptionalLong authenticatedPlayer = OptionalLong.empty();
     boolean returnedPlayerAssociation = false;
     if (authenticatedPlayer.isEmpty()
         && state.returnValue().orElse(null) instanceof ObjectValue returnedPlayer

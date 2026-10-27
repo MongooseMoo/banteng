@@ -334,6 +334,7 @@ public final class MoveBuiltinFamily extends ScanningRecipe<MoveBuiltinFamily.Me
     }
     if (family.equals("ConnectionBuiltins")) {
       result = result.replace("this::connectionNameLookup", "ConnectionBuiltins::connectionNameLookup")
+          .replace("this::switchPlayer", "ConnectionBuiltins::switchPlayer")
           .replace("this::openNetworkConnection", "call -> openNetworkConnection(listenerControl, call)");
       for (String name : List.of("bufferedOutputLength", "listen", "listeners", "unlisten")) {
         result = result.replaceAll("\\b" + name + "\\(", name + "(listenerControl, ");

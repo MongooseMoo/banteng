@@ -64,7 +64,7 @@ public final class MooVm {
   public static boolean callVerb(
       VmState state, MooValue receiver, ResolvedVerb resolution, ListValue arguments,
       String name, VerbCallKind kind, Optional<MooValue> lifecycleTarget,
-      Optional<BuiltinResult.Move> move, Optional<RootVerbCall> root) {
+      Optional<BuiltinResult.Move> move, Optional<RootVerbCall> root, WorldTxn world) {
     Frame caller = kind == VerbCallKind.ROOT ? null : state.currentFrame();
     Map<String, MooValue> locals = kind == VerbCallKind.PASS
         ? new LinkedHashMap<>(Objects.requireNonNull(caller).namedLocals()) : new LinkedHashMap<>();
@@ -73,6 +73,11 @@ public final class MooVm {
       locals.put("player", new ObjectValue(context.player()));
       locals.put("caller", new ObjectValue(context.caller()));
       locals.put("argstr", StringValue.of(context.argstr()));
+      locals.put("dobj", new ObjectValue(-1));
+      locals.put("iobj", new ObjectValue(-1));
+      locals.put("dobjstr", StringValue.of(""));
+      locals.put("prepstr", StringValue.of(""));
+      locals.put("iobjstr", StringValue.of(""));
       context.command().ifPresent(command -> {
         locals.put("dobj", new ObjectValue(command.dobj()));
         locals.put("dobjstr", StringValue.of(command.dobjstr()));
@@ -84,25 +89,23 @@ public final class MooVm {
       locals.put("caller", receiver);
     } else {
       Frame parent = Objects.requireNonNull(caller);
-      locals.put("player", parent.localOrDefault(5, new ObjectValue(-1)));
-      boolean recycle = kind == VerbCallKind.HOOK_RECYCLE
-          || kind == VerbCallKind.HOOK_ANONYMOUS_RECYCLE;
-      locals.put("caller", recycle
-          ? parent.localOrDefault(6, new ObjectValue(-1)) : parent.receiver);
-      locals.put("argstr", kind == VerbCallKind.NORMAL
-          ? parent.localOrDefault(10, StringValue.of("")) : StringValue.of(""));
-      if (kind == VerbCallKind.NORMAL) {
-        for (String field : List.of("dobj", "iobj")) {
-          locals.put(field, parent.localOrDefault(verbFieldSlot(field), new ObjectValue(-1)));
-        }
-        for (String field : List.of("dobjstr", "prepstr", "iobjstr")) {
-          locals.put(field, parent.localOrDefault(verbFieldSlot(field), StringValue.of("")));
-        }
+      locals.put("caller", parent.receiver);
+      locals.put("argstr", parent.localOrDefault(10, StringValue.of("")));
+      for (String field : List.of("dobj", "iobj")) {
+        locals.put(field, parent.localOrDefault(verbFieldSlot(field), new ObjectValue(-1)));
       }
+      for (String field : List.of("dobjstr", "prepstr", "iobjstr")) {
+        locals.put(field, parent.localOrDefault(verbFieldSlot(field), StringValue.of("")));
+      }
+    }
+    if (caller != null) {
+      MooValue mutablePlayer = caller.localOrDefault(5, new ObjectValue(caller.player));
+      locals.put("player", world.isWizard(caller.programmer) && mutablePlayer instanceof ObjectValue
+          ? mutablePlayer : new ObjectValue(caller.player));
     }
     if (kind != VerbCallKind.PASS) {
       locals.put("this", receiver);
-      locals.put("verb", StringValue.of(name));
+      locals.put("verb", StringValue.of(kind != VerbCallKind.ROOT && name.startsWith(":") ? name.substring(1) : name));
     }
     locals.put("args", arguments);
     VmState.ReturnMode mode = switch (kind) {
@@ -122,7 +125,7 @@ public final class MooVm {
         move.isPresent() ? OptionalLong.of(move.orElseThrow().destination()) : OptionalLong.empty(),
         move.isPresent() ? OptionalLong.of(move.orElseThrow().position()) : OptionalLong.empty(),
         kind == VerbCallKind.HOOK_ANONYMOUS_RECYCLE
-            ? Optional.of((AnonymousObjectValue) receiver) : Optional.empty(), verb.perms().debug()));
+            ? Optional.of((AnonymousObjectValue) receiver) : Optional.empty(), verb.perms().debug(), TaskOrigin.initialPlayer(locals)));
   }
 
   private static final Set<BytecodeProgram.Opcode> COUNTED_OPCODES =
@@ -349,7 +352,7 @@ public final class MooVm {
         }
         frame.instructionPointer++;
         if (!callVerb(state, receiverValue, resolution, arguments, lookupName,
-            VerbCallKind.NORMAL, Optional.empty(), Optional.empty(), Optional.empty())) {
+            VerbCallKind.NORMAL, Optional.empty(), Optional.empty(), Optional.empty(), world)) {
           ErrorOps.raise(state, ErrorValue.E_MAXREC, world, false);
         }
       }
@@ -543,10 +546,6 @@ public final class MooVm {
                 notify.connectionId(), notify.line(), notify.noFlush(), notify.noNewline()));
         frame.operandStack.push(new IntegerValue(1));
       }
-      case BuiltinResult.SwitchPlayer switchPlayer -> {
-        state.switchPlayer(switchPlayer.player());
-        frame.operandStack.push(new IntegerValue(0));
-      }
       case BuiltinResult.Programmer programmer -> {
         state.setProgrammer(programmer.programmer());
         frame.operandStack.push(new IntegerValue(0));
@@ -569,6 +568,15 @@ public final class MooVm {
         state.effects().stageForcedInputRequest(new ConnectionBuiltins.ForcedInputRequest(request.target(), request.input()));
         frame.operandStack.push(new IntegerValue(0));
       }
+    }
+    if (state.currentFrame() != frame && state.activeFrames().contains(frame)) {
+      state.currentFrame().builtinContinuation = switch (result) {
+        case BuiltinResult.Initialize initialized -> initialized.continuation();
+        case BuiltinResult.DynamicEval evaluated -> Optional.of(evaluated.continuation());
+        case BuiltinResult.Move moved -> Optional.of(moved.continuation());
+        case BuiltinResult.Recycle recycled -> Optional.of(recycled.continuation());
+        default -> state.currentFrame().builtinContinuation;
+      };
     }
   }
 
@@ -621,7 +629,7 @@ public final class MooVm {
       return;
     }
     if (!callVerb(state, receiver, target, arguments, verbName, VerbCallKind.PASS,
-        Optional.empty(), Optional.empty(), Optional.empty())) {
+        Optional.empty(), Optional.empty(), Optional.empty(), world)) {
       ErrorOps.raise(state, ErrorValue.E_MAXREC, world, false);
     }
   }
@@ -630,7 +638,7 @@ public final class MooVm {
       BuiltinResult.ProtectedCall call, VmState state, WorldTxn world) {
     ResolvedVerb wrapper = world.resolveVerb(0, call.verb(), true).orElseThrow();
     if (!callVerb(state, new ObjectValue(0), wrapper, call.arguments(), call.verb(),
-        VerbCallKind.PROTECTED, Optional.empty(), Optional.empty(), Optional.empty())) {
+        VerbCallKind.PROTECTED, Optional.empty(), Optional.empty(), Optional.empty(), world)) {
       ErrorOps.raise(state, ErrorValue.E_MAXREC, world, false);
     }
   }
@@ -639,7 +647,7 @@ public final class MooVm {
       BytecodeProgram program, VmState state, WorldTxn world) {
     Frame caller = state.currentFrame();
     Map<String, MooValue> locals = new LinkedHashMap<>();
-    locals.put("player", caller.localOrDefault(5, new ObjectValue(-1)));
+    locals.put("player", new ObjectValue(caller.player));
     locals.put("caller", caller.receiver);
     for (String field : List.of("this", "dobj", "iobj")) {
       locals.put(field, new ObjectValue(-1));
@@ -651,7 +659,7 @@ public final class MooVm {
     if (!state.pushFrame(program, locals, new VmState.FrameOrigin(
         VmState.ReturnMode.EVAL, caller.programmer, new ObjectValue(-1), new ObjectValue(-1),
         "", "Input to EVAL", Optional.empty(), OptionalLong.empty(), OptionalLong.empty(),
-        OptionalLong.empty(), OptionalLong.empty(), Optional.empty(), true))) {
+        OptionalLong.empty(), OptionalLong.empty(), Optional.empty(), true, caller.player))) {
       ErrorOps.raise(state, ErrorValue.E_MAXREC, world, false);
     }
   }
@@ -693,7 +701,7 @@ public final class MooVm {
     if (hook == null) return false;
     if (!callVerb(state, new ObjectValue(receiver), hook, arguments, name,
         VerbCallKind.HOOK_RECYCLE, Optional.of(new ObjectValue(recycleTarget)),
-        Optional.empty(), Optional.empty())) {
+        Optional.empty(), Optional.empty(), world)) {
       continueRecycle(recycleTarget, state, world);
     }
     return true;
@@ -725,7 +733,7 @@ public final class MooVm {
       return;
     }
     if (!callVerb(state, recycleTarget, hook, new ListValue(List.of()), "recycle",
-        VerbCallKind.HOOK_ANONYMOUS_RECYCLE, Optional.empty(), Optional.empty(), Optional.empty())) {
+        VerbCallKind.HOOK_ANONYMOUS_RECYCLE, Optional.empty(), Optional.empty(), Optional.empty(), world)) {
       ErrorOps.raise(state, ErrorValue.E_MAXREC, world, false);
     }
   }
@@ -743,7 +751,7 @@ public final class MooVm {
       return;
     }
     if (!callVerb(state, created, initialize, request.arguments(), "initialize",
-        VerbCallKind.HOOK_INITIALIZE, Optional.of(created), Optional.empty(), Optional.empty())) {
+        VerbCallKind.HOOK_INITIALIZE, Optional.of(created), Optional.empty(), Optional.empty(), world)) {
       ErrorOps.raise(state, ErrorValue.E_MAXREC, world, false);
     }
   }

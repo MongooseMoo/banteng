@@ -41,7 +41,7 @@ public final class ConnectionBuiltins {
 
     public static void registerSwitchPlayer(List<BuiltinSpec> entries, Optional<ListenerControl> listenerControl) {
         BuiltinRegistrar registrar = new BuiltinRegistrar(entries);
-        registrar.builtin("switch_player", List.of(new CallShape(List.of(OBJECT, OBJECT), List.of(INTEGER), Optional.empty()))).permission(BuiltinPermissionRule.WIZARD_ONLY).implementation(call -> switchPlayer(call.hosts(), call.arguments(), call.world()));
+        registrar.builtin("switch_player", List.of(new CallShape(List.of(OBJECT, OBJECT), List.of(INTEGER), Optional.empty()))).permission(BuiltinPermissionRule.WIZARD_ONLY).implementation(ConnectionBuiltins::switchPlayer);
     }
 
     public static void registerInventory(List<BuiltinSpec> entries, Optional<ListenerControl> listenerControl) {
@@ -441,15 +441,15 @@ public final class ConnectionBuiltins {
         }
     }
 
-    private static BuiltinResult switchPlayer(BuiltinHosts invocationHosts, List<MooValue> arguments, WorldTxn world) {
-        long oldPlayer = ((ObjectValue) arguments.getFirst()).value();
-        long newPlayer = ((ObjectValue) arguments.get(1)).value();
+    private static BuiltinResult switchPlayer(BuiltinCall call) {
+        long oldPlayer = ((ObjectValue) call.arguments().getFirst()).value();
+        long newPlayer = ((ObjectValue) call.arguments().get(1)).value();
         if (oldPlayer == newPlayer
-                || connections(invocationHosts).connectionId(oldPlayer).isEmpty()
-                || !world.players().contains(newPlayer)) {
+                || connections(call.hosts()).connectionId(oldPlayer).isEmpty()
+                || !call.world().players().contains(newPlayer)) {
             return BuiltinResult.error(ErrorValue.E_INVARG);
         }
-        return new BuiltinResult.SwitchPlayer(newPlayer);
+        return call.hosts().switchPlayer().invoke(call);
     }
 
     private static BuiltinResult notifyLine(BuiltinHosts invocationHosts,

@@ -25,7 +25,7 @@ final class MoveBuiltinFamilyTest {
           private static final int DEFAULT_MAX_QUEUED_OUTPUT = 65536;
           private Optional<ListenerControl> listenerControl;
           void buildManifest() {
-            entries.add(new BuiltinSpec("switch_player", List.of(OBJECT), BuiltinPermissionRule.WIZARD_ONLY, false, call -> switchPlayer(call.hosts())));
+            entries.add(new BuiltinSpec("switch_player", List.of(OBJECT), BuiltinPermissionRule.WIZARD_ONLY, false, this::switchPlayer));
             between();
             entries.add(new BuiltinSpec("buffered_output_length", List.of(), BuiltinPermissionRule.ANY, false, call -> bufferedOutputLength(call.hosts(), call.stagedBufferedOutputLength())));
             between();
@@ -36,7 +36,7 @@ final class MoveBuiltinFamilyTest {
             between();
             entries.add(new BuiltinSpec("notify", List.of(), BuiltinPermissionRule.ANY, false, call -> notifyLine(call.hosts())));
           }
-          private BuiltinResult switchPlayer(BuiltinHosts hosts) { return null; }
+          private BuiltinResult switchPlayer(BuiltinCall call) { return call.hosts().switchPlayer().invoke(call); }
           private BuiltinResult bufferedOutputLength(BuiltinHosts hosts, Object projection) { return value(listenerControl, projection, DEFAULT_MAX_QUEUED_OUTPUT); }
           private BuiltinResult listen(List<Object> arguments) { return value(listenerControl); }
           private BuiltinResult unlisten(List<Object> arguments) { return value(listenerControl); }
@@ -60,6 +60,7 @@ final class MoveBuiltinFamilyTest {
         import world.mongoose.banteng.builtin.BuiltinCatalog.ConnectionOption;
         public class BuiltinHosts {
           private java.util.function.Supplier<Object> connections = BuiltinCatalog.standaloneConnections();
+          private BuiltinHandler switchPlayer;
         }
         """).toList();
     var mover = new MoveBuiltinFamily("ConnectionBuiltins",
@@ -81,6 +82,9 @@ final class MoveBuiltinFamilyTest {
     assertTrue(family.contains("call -> openNetworkConnection(listenerControl, call)"));
     assertTrue(family.contains("call -> unlisten(listenerControl, call.arguments())"));
     assertTrue(family.contains("ConnectionBuiltins::connectionNameLookup"));
+    assertTrue(family.contains("ConnectionBuiltins::switchPlayer"));
+    assertTrue(family.contains("private static BuiltinResult switchPlayer(BuiltinCall call)"));
+    assertTrue(family.contains("call.hosts().switchPlayer().invoke(call)"));
     assertTrue(family.contains("public record NotificationRequest"));
     assertTrue(family.contains("private static final Set<ArgType> OBJECT"));
     assertTrue(family.contains("import world.mongoose.banteng.builtin.BuiltinHosts;"));
@@ -88,6 +92,7 @@ final class MoveBuiltinFamilyTest {
     assertTrue(family.contains(".permission(BuiltinPermissionRule.WIZARD_ONLY).irrevocable()"));
     assertTrue(hosts.contains("() -> EmptyConnectionRegistry.INSTANCE"));
     assertTrue(hosts.contains("private enum EmptyConnectionRegistry"));
+    assertTrue(hosts.contains("private BuiltinHandler switchPlayer;"));
     assertTrue(hosts.contains("import world.mongoose.banteng.builtin.family.ConnectionBuiltins.ConnectionOption;"));
     assertFalse(family.contains("EmptyConnectionRegistry"));
     assertTrue(mover.run(new InMemoryLargeSourceSet(changes.stream().map(Result::getAfter).toList()), context)

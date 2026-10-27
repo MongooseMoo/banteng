@@ -769,7 +769,8 @@ final class BuiltinCatalogTest {
   void switchPlayerAcceptsAnOptionalIntegerSilentFlagAndRejectsOtherTypes() {
     ConnectionRegistry connections = new ConnectionRegistry();
     BuiltinCatalog catalog =
-        new BuiltinCatalog(BuiltinHosts.builder().connections(() -> connections).build());
+        new BuiltinCatalog(BuiltinHosts.builder().connections(() -> connections)
+            .switchPlayer(call -> BuiltinResult.value(new IntegerValue(0))).build());
     BuiltinSpec spec = catalog.spec("switch_player").orElseThrow();
 
     assertEquals(
@@ -790,8 +791,8 @@ final class BuiltinCatalogTest {
       connections.openConnection(-17, new MapValue(Map.of()));
       assertTrue(connections.switchConnectionPlayer(-17, 2));
       assertEquals(
-          OptionalLong.of(3),
-          switchedPlayer(invoke(
+          Optional.of(new IntegerValue(0)),
+          value(invoke(
                   catalog,
                   spec,
                   List.of(new ObjectValue(2), new ObjectValue(3), new IntegerValue(1)),
@@ -6452,12 +6453,6 @@ final class BuiltinCatalogTest {
     return result instanceof BuiltinResult.DynamicEval dynamic
         ? Optional.of(dynamic.program().source().stripTrailing())
         : Optional.empty();
-  }
-
-  private static OptionalLong switchedPlayer(BuiltinResult result) {
-    return result instanceof BuiltinResult.SwitchPlayer switched
-        ? OptionalLong.of(switched.player())
-        : OptionalLong.empty();
   }
 
   private static OptionalLong recycleTarget(BuiltinResult result) {
