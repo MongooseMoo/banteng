@@ -299,6 +299,9 @@ public final class MoveBuiltinFamily extends ScanningRecipe<MoveBuiltinFamily.Me
     if (family.equals("ConversionBuiltins")) {
       return List.of("registerConversions", "registerTypeOf").get(group);
     }
+    if (family.equals("HostBuiltins")) {
+      return List.of("registerEnvironment", "registerTransferAndText").get(group);
+    }
     if (family.equals("BinaryBuiltins")) {
       return List.of("registerDecode", "registerEncodeAndChr").get(group);
     }

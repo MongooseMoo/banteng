@@ -47,6 +47,52 @@ final class MoveBuiltinFamilyTest {
   }
 
   @Test
+  void movesHostGroupsAndRetainsInlineEnvironmentAndPrivateTransferClosure() {
+    var context = new InMemoryExecutionContext(failure -> { throw new AssertionError(failure); });
+    var files = JavaParser.fromJavaVersion().build().parse(context, """
+        package world.mongoose.banteng.builtin;
+        import java.util.List;
+        class BuiltinCatalog {
+          void buildManifest() {
+            entries.add(new BuiltinSpec("getenv", List.of(STRING), BuiltinPermissionRule.WIZARD_ONLY, false, call -> {
+              String value = System.getenv(((StringValue) call.arguments().getFirst()).text());
+              return value == null ? BuiltinResult.value(new IntegerValue(0)) : BuiltinResult.value(StringValue.of(value).encodeBinary());
+            }));
+            unrelated();
+            entries.add(new BuiltinSpec("curl", List.of(STRING), BuiltinPermissionRule.WIZARD_ONLY, false, call -> curl(call.arguments(), call.world(), call.threadMode())));
+            entries.add(new BuiltinSpec("spellcheck", List.of(STRING), BuiltinPermissionRule.ANY, false, call -> spellcheck((StringValue) call.arguments().getFirst())));
+            entries.add(new BuiltinSpec("url_encode", List.of(STRING), BuiltinPermissionRule.ANY, false, call -> urlEncode((StringValue) call.arguments().getFirst())));
+            entries.add(new BuiltinSpec("url_decode", List.of(STRING), BuiltinPermissionRule.ANY, false, call -> urlDecode((StringValue) call.arguments().getFirst())));
+          }
+          private static Object curl(Object arguments, Object world, boolean threadMode) {
+            return threadMode ? BuiltinResult.hostWork(() -> curlTransfer()) : curlTransfer();
+          }
+          private static Object curlTransfer() { return StringValue.of(NativeCurl.get()).encodeBinary(); }
+          private static Object spellcheck(StringValue value) { return Aspell.check(value.bytes()); }
+          private static Object urlEncode(StringValue value) { return value; }
+          private static Object urlDecode(StringValue value) { return value; }
+        }
+        """).toList();
+    var recipe = new MoveBuiltinFamily("HostBuiltins", Set.of("getenv", "curl", "spellcheck", "url_encode", "url_decode"),
+        Set.of("curl", "curlTransfer", "spellcheck", "urlEncode", "urlDecode"));
+    var changes = recipe.run(new InMemoryLargeSourceSet(files), context).getChangeset().getAllResults();
+    String catalog = changedFile(changes, "BuiltinCatalog.java");
+    String family = changedFile(changes, "HostBuiltins.java");
+    assertTrue(catalog.indexOf("registerEnvironment(entries)") < catalog.indexOf("unrelated()"));
+    assertTrue(catalog.indexOf("unrelated()") < catalog.indexOf("registerTransferAndText(entries)"));
+    assertFalse(catalog.contains("System.getenv"));
+    assertFalse(catalog.contains("private static Object curl"));
+    assertTrue(family.contains("System.getenv"));
+    assertTrue(family.contains("StringValue.of(value).encodeBinary()"));
+    assertTrue(family.contains("BuiltinResult.hostWork(() -> curlTransfer())"));
+    assertTrue(family.contains("private static Object curlTransfer()"));
+    assertTrue(family.contains(".permission(BuiltinPermissionRule.WIZARD_ONLY)"));
+    assertFalse(family.contains(".irrevocable()"));
+    assertTrue(recipe.run(new InMemoryLargeSourceSet(changes.stream().map(Result::getAfter).toList()), context)
+        .getChangeset().getAllResults().isEmpty());
+  }
+
+  @Test
   void movesBinaryGroupsAndRetargetsSharedCodecCallers() {
     var context = new InMemoryExecutionContext(failure -> { throw new AssertionError(failure); });
     var files = JavaParser.fromJavaVersion().build().parse(context, """

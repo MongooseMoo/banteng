@@ -464,3 +464,13 @@ recipeList:
       family: BinaryBuiltins
       builtins: [decode_binary, encode_binary, chr]
       methods: [decodeBinary, encodeBinary, chr, appendBinaryBytes]
+---
+type: specs.openrewrite.org/v1beta/recipe
+name: world.mongoose.banteng.builtin.ExtractHostBuiltins
+displayName: Extract host builtins
+description: Moves environment, transfer, spelling and URL registrations into their family owner.
+recipeList:
+  - world.mongoose.banteng.rewrite.MoveBuiltinFamily:
+      family: HostBuiltins
+      builtins: [getenv, curl, spellcheck, url_encode, url_decode]
+      methods: [curl, serverIntegerOption, curlTransfer, curlError, spellcheck, urlEncode, urlDecode]
