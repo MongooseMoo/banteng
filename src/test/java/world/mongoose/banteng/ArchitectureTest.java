@@ -245,14 +245,7 @@ final class ArchitectureTest {
         .check(productionClasses);
     classes()
         .that()
-        .haveNameMatching(".*\\.(LambdaMooV5Reader|LambdaMooV17Codec)")
-        .should()
-        .dependOnClassesThat()
-        .haveFullyQualifiedName("world.mongoose.banteng.persistence.ValueTagDecoder")
-        .check(productionClasses);
-    noClasses()
-        .that()
-        .haveFullyQualifiedName("world.mongoose.banteng.persistence.LambdaMooV4Reader")
+        .haveNameMatching(".*\\.(LambdaMooV4Reader|LambdaMooV5Reader|LambdaMooV17Codec)")
         .should()
         .dependOnClassesThat()
         .haveFullyQualifiedName("world.mongoose.banteng.persistence.ValueTagDecoder")

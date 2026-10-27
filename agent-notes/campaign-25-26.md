@@ -35,6 +35,17 @@ Parent read Toast db_file190–290/447–743, db_properties52–70/580–625, db
 No extra compatibility framework, topology conflict policy, test weakening or conformance edits. Existing clearFallback resolves by name; no evidence yet justifies inventing a duplicate-definition policy. Preserve known accepted semantics and trace a real counterexample before expanding that part.
 
 ## Next step
+PR CI found stale contracts in ArchitectureTest and the two original legacy reader test files.
+Those corrected test files pass locally, with the production source frozen: require the shared value decoder for every reader;
+replace v4 subset-only rejection cases with supported integer/connection assertions plus truly
+unsupported or truncated cases; retain Broken1 repair checks and require Broken2–5 rejection.
+This repair does not alter production readers or protections.
+Conformance also exposed a production diagnostic defect. Toast db_file.cc logs all invalid
+field types in parents/children/location/contents order before phase-one rejection, and logs
+reciprocity failures in location/contents/parents/children order across objects before rejecting.
+The existing V5 reader rejects at the first mismatch without those diagnostics. The authorized
+repair adds that log-before-reject behavior inside the existing reader, retaining cycle admission
+and missing-reference repair. Conformance fixtures and assertions remain unchanged.
 Coordinator verifies the implementation and primary-source claims, publishes, obtains Claude
 review and PR CI, then normally merges after prerequisites. Nothing has been published by worker.
 
