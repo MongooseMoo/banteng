@@ -7,6 +7,7 @@ import java.util.*;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import world.mongoose.banteng.builtin.*;
+import world.mongoose.banteng.bytecode.ToastV17ProgramModel.CallKind;
 import world.mongoose.banteng.logging.ServerLog;
 import world.mongoose.banteng.value.MooValue;
 import world.mongoose.banteng.value.MooValue.*;
@@ -173,7 +174,8 @@ final class LegacyDatabaseRestorationTest {
       String source = assignment ? "x[1][suspend()] = 9; return x;\n"
           : "return {10, 20}[1..suspend()];\n";
       var layout = new ToastV17ProgramLayout(4);
-      var boundary = layout.callBoundaries(source, -1).getFirst();
+      var boundary = layout.callBoundaries(source, -1).stream()
+          .filter(candidate -> candidate.kind() == CallKind.BUILTIN).findFirst().orElseThrow();
       List<MooValue> stack = assignment ? List.of(inner, new IntegerValue(1), outer)
           : List.of(new IntegerValue(1), inner);
       List<SuspendedStackSlot> slots = stack.stream().map(value -> new SuspendedStackSlot(
