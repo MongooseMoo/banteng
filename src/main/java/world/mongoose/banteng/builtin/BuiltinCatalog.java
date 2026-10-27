@@ -35,6 +35,7 @@ import org.bouncycastle.crypto.generators.Argon2BytesGenerator;
 import org.bouncycastle.crypto.macs.HMac;
 import org.bouncycastle.crypto.params.Argon2Parameters;
 import org.bouncycastle.crypto.params.KeyParameter;
+import world.mongoose.banteng.builtin.family.JsonBuiltins;
 
 import static world.mongoose.banteng.builtin.ValueLimits.valueBytes;
 import world.mongoose.banteng.builtin.family.ListBuiltins;
@@ -327,20 +328,7 @@ public final class BuiltinCatalog {
             call -> raise(call.arguments())));
     ListBuiltins.registerListEdits(entries);
     MapBuiltins.register(entries);
-    entries.add(
-        new BuiltinSpec(
-            "generate_json",
-            List.of(new CallShape(List.of(ANY), List.of(STRING, ANY), Optional.empty())),
-            BuiltinPermissionRule.ANY,
-            false,
-            call -> generateJson(call.arguments())));
-    entries.add(
-        new BuiltinSpec(
-            "parse_json",
-            List.of(new CallShape(List.of(STRING), List.of(STRING), Optional.empty())),
-            BuiltinPermissionRule.ANY,
-            false,
-            call -> parseJson(call.arguments())));
+    JsonBuiltins.register(entries);
     ListBuiltins.registerSetsAndSort(entries);
     StringBuiltins.registerExplode(entries);
     ListBuiltins.registerReverse(entries);
@@ -2792,38 +2780,6 @@ public final class BuiltinCatalog {
       values.add(StringValue.of(printable.toByteArray()));
     }
     return BuiltinResult.value(new ListValue(values));
-  }
-
-  private static BuiltinResult generateJson(List<MooValue> arguments) {
-    JsonCodec.Mode mode = JsonCodec.Mode.COMMON_SUBSET;
-    if (arguments.size() >= 2) {
-      mode = JsonCodec.Mode.parse((StringValue) arguments.get(1)).orElse(null);
-      if (mode == null) {
-        return BuiltinResult.error(ErrorValue.E_INVARG);
-      }
-    }
-    try {
-      return BuiltinResult.value(
-          JsonCodec.generate(
-              arguments.getFirst(), mode, arguments.size() >= 3 && arguments.get(2).isTruthy()));
-    } catch (IllegalArgumentException error) {
-      return BuiltinResult.error(ErrorValue.E_INVARG);
-    }
-  }
-
-  private static BuiltinResult parseJson(List<MooValue> arguments) {
-    JsonCodec.Mode mode = JsonCodec.Mode.COMMON_SUBSET;
-    if (arguments.size() == 2) {
-      mode = JsonCodec.Mode.parse((StringValue) arguments.get(1)).orElse(null);
-      if (mode == null) {
-        return BuiltinResult.error(ErrorValue.E_INVARG);
-      }
-    }
-    try {
-      return BuiltinResult.value(JsonCodec.parse((StringValue) arguments.getFirst(), mode));
-    } catch (IllegalArgumentException error) {
-      return BuiltinResult.error(ErrorValue.E_INVARG);
-    }
   }
 
   private static BuiltinResult encodeBinary(List<MooValue> arguments) {

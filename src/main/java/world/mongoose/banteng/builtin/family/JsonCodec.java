@@ -1,4 +1,4 @@
-package world.mongoose.banteng.builtin;
+package world.mongoose.banteng.builtin.family;
 
 import java.io.ByteArrayOutputStream;
 import java.nio.charset.StandardCharsets;
