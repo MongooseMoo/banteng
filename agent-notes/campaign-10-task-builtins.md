@@ -29,3 +29,6 @@ Validation: WSL JDK 25 scripts/rewrite.sh world.mongoose.banteng.builtin.Extract
 
 ## Login and layout repair ancestry
 Merged the latest coordinator runtime login-output and pinned-layout-boundary repairs normally, without conflicts or family source adaptations. Family implementations, services, dependencies, extraction mover, authored fixtures and YAML are unchanged. No local tests, CI, migration or repeated review ran for this mechanical integration. Parent owns publication, hosted checks and merge.
+
+## Queue prerequisite integration
+Normally merged the published Verb tip and its reviewed prerequisite families. Mover resolution preserves Task instance selection, handler treatment, catalog argument and registration groups alongside Crypto loop tracking/dependencies and Verb/Regex generation. Retained existing shared imports and all YAML recipe documents. Reused fixture/catalog resolutions preserve each family's sections and Task's six registration positions, matching final assembly. TaskBuiltins, including its continuation handling, and incoming family owners remain byte-identical. No local tests, repeated review or publication; parent owns hosted validation and merge.
