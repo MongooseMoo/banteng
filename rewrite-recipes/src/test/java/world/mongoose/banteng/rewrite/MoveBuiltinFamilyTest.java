@@ -15,6 +15,44 @@ import org.openrewrite.java.JavaParser;
 
 final class MoveBuiltinFamilyTest {
   @Test
+  void movesPropertyMethodsAndSharedOwnershipIntoExistingAccess() {
+    var context = new InMemoryExecutionContext(failure -> { throw new AssertionError(failure); });
+    var files = JavaParser.fromJavaVersion().build().parse(context, """
+        package world.mongoose.banteng.builtin;
+        class BuiltinCatalog {
+          void buildManifest() {
+            before();
+            entries.add(new BuiltinSpec("add_property", List.of(ANY), BuiltinPermissionRule.ANY, false, call -> addProperty()));
+            entries.add(new BuiltinSpec("properties", List.of(ANY), BuiltinPermissionRule.ANY, false, call -> properties()));
+            after();
+          }
+          private static int addProperty() { return resolveOwnershipPreamble(); }
+          private static int callers() { return 7; }
+          private static int properties() { return 2; }
+          private static int addVerb() { return resolveOwnershipPreamble(); }
+          private static int resolveOwnershipPreamble() { return 3; }
+        }
+        """, "package world.mongoose.banteng.world; public final class Access { private Access() {} }")
+        .toList();
+    var recipe = new MoveBuiltinFamily("PropertyBuiltins", Set.of("add_property", "properties"),
+        Set.of("addProperty", "properties"));
+    var changes = recipe.run(new InMemoryLargeSourceSet(files), context).getChangeset().getAllResults();
+    String catalog = changedFile(changes, "BuiltinCatalog.java");
+    String family = changedFile(changes, "PropertyBuiltins.java");
+    assertTrue(catalog.indexOf("before()") < catalog.indexOf("PropertyBuiltins.register(entries)"));
+    assertTrue(catalog.indexOf("PropertyBuiltins.register(entries)") < catalog.indexOf("after()"));
+    assertTrue(catalog.contains("private static int callers()"));
+    assertTrue(catalog.contains("private static int addVerb()"));
+    assertFalse(catalog.contains("static int resolveOwnershipPreamble"));
+    assertTrue(catalog.contains("import static world.mongoose.banteng.world.Access.resolveOwnershipPreamble;"));
+    assertTrue(family.contains("import static world.mongoose.banteng.world.Access.resolveOwnershipPreamble;"));
+    assertFalse(family.contains("callers()"));
+    assertTrue(changedFile(changes, "Access.java").contains("public static int resolveOwnershipPreamble"));
+    assertTrue(recipe.run(new InMemoryLargeSourceSet(changes.stream().map(Result::getAfter).toList()), context)
+        .getChangeset().getAllResults().isEmpty());
+  }
+
+  @Test
   void movesObjectGroupsRecordAndSharedResultIntoExistingOwner() {
     var context = new InMemoryExecutionContext(failure -> { throw new AssertionError(failure); });
     var files = JavaParser.fromJavaVersion().build().parse(context, """
