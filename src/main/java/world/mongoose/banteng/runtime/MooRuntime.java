@@ -77,6 +77,7 @@ public final class MooRuntime implements AutoCloseable, SchedulerRuntime {
   static final long DEFAULT_BACKGROUND_SECONDS = 3;
   static final long DEFAULT_MAX_STACK_DEPTH = 50;
   static final long DEFAULT_CONNECT_TIMEOUT_SECONDS = 300;
+  private final FinalizationCollector finalizationCollector = new FinalizationCollector(this);
   private final BuiltinCatalog builtins;
   private final ServerLog serverLog;
   private final Optional<ListenerControl> listenerControl;
@@ -1663,7 +1664,7 @@ public final class MooRuntime implements AutoCloseable, SchedulerRuntime {
         RuntimeContinuation.timeoutReturn(continuation.output()));
   }
 
-  private RuntimeStep startStored(
+  RuntimeStep startStored(
       ResolvedVerb resolution, RootVerbCall call, RuntimeContinuation continuation) {
     MooValue serverOptions = world().readObjectProperty(0, "server_options").orElse(null);
     long foregroundTicks = DEFAULT_FOREGROUND_TICKS;
@@ -1735,26 +1736,26 @@ public final class MooRuntime implements AutoCloseable, SchedulerRuntime {
             || effects().stream().anyMatch(effect -> effect.kind() == RuntimeEffectKind.CHECKPOINT);
     if (task.outcome() == VmState.Outcome.SUSPENDED) {
       if (!checkpointPending) {
-        finalizePendingObjects();
+        finalizationCollector.finalizePendingObjects(requireAttempt());
       }
       if (!panicPending) {
-        queueUnreachableAnonymousObjects(otherTaskRoots, task.snapshot());
+        finalizationCollector.queueUnreachableAnonymousObjects(requireAttempt(), otherTaskRoots, task.snapshot());
       }
       if (!checkpointPending) {
-        finalizePendingObjects();
+        finalizationCollector.finalizePendingObjects(requireAttempt());
       }
     } else if (collectAfterCompletion
         && (task.outcome() == VmState.Outcome.RETURNED
             || task.outcome() == VmState.Outcome.ERRORED)) {
       if (!panicPending) {
         if (checkpointPending) {
-          queueUnreachableAnonymousObjects(otherTaskRoots);
+          finalizationCollector.queueUnreachableAnonymousObjects(requireAttempt(), otherTaskRoots);
         } else {
-          queueUnreachableAnonymousObjects(otherTaskRoots, task.snapshot());
+          finalizationCollector.queueUnreachableAnonymousObjects(requireAttempt(), otherTaskRoots, task.snapshot());
         }
       }
       if (!checkpointPending) {
-        finalizePendingObjects();
+        finalizationCollector.finalizePendingObjects(requireAttempt());
       }
     }
     for (var request : checkpointRequests) {
@@ -1784,452 +1785,11 @@ public final class MooRuntime implements AutoCloseable, SchedulerRuntime {
     }
   }
 
-  private void finalizePendingObjects() {
-    List<MooValue> pending = world().pendingFinalization();
-    if (pending.isEmpty()) {
-      return;
-    }
-    WorldSnapshot snapshot = world().snapshot();
-    Set<AnonymousObjectValue> finalizing = new LinkedHashSet<>();
-    Set<WaifValue> visitedWaifs = new LinkedHashSet<>();
-    List<WaifValue> finalizingWaifs = new ArrayList<>();
-    List<MooValue> remaining = new ArrayList<>();
-    for (MooValue value : pending) {
-      if (value instanceof AnonymousObjectValue anonymous) {
-        markFinalizingAnonymous(anonymous, snapshot, finalizing, visitedWaifs);
-      } else if (value instanceof WaifValue waif) {
-        finalizingWaifs.add(waif);
-      } else {
-        remaining.add(value);
-      }
-    }
-    for (AnonymousObjectValue anonymous : finalizing) {
-      ResolvedVerb recycle = world().resolveVerb(anonymous, "recycle", true).orElse(null);
-      if (recycle == null) {
-        world().removeAnonymousObject(anonymous);
-        continue;
-      }
-      remaining.add(anonymous);
-      RootVerbCall locals = new RootVerbCall(anonymous, -1, -1, "recycle",
-          new ListValue(List.of()), "", Optional.empty());
-      spawnedSteps()
-          .add(
-              startStored(
-                  recycle,
-                  locals,
-                  RuntimeContinuation.anonymousFinalization(anonymous)));
-    }
-    for (WaifValue waif : finalizingWaifs) {
-      ResolvedVerb recycle = world().resolveVerb(waif.classObject().value(), ":recycle", true).orElse(null);
-      if (recycle == null) {
-        removeWaifComponent(waif);
-        continue;
-      }
-      remaining.add(waif);
-      RootVerbCall locals = new RootVerbCall(waif, -1, -1, ":recycle",
-          new ListValue(List.of()), "", Optional.empty());
-      spawnedSteps()
-          .add(
-              startStored(
-                  recycle,
-                  locals,
-                  RuntimeContinuation.backgroundWaifFinalization(waif)));
-    }
-    world().replacePendingFinalization(remaining);
-  }
-
-  private void finishAnonymousFinalization(AnonymousObjectValue anonymous) {
-    world().removeAnonymousObject(anonymous);
-    List<MooValue> remaining = new ArrayList<>();
-    for (MooValue value : world().pendingFinalization()) {
-      if (value != anonymous) {
-        remaining.add(value);
-      }
-    }
-    world().replacePendingFinalization(remaining);
-  }
-
   @Override
   public void collectAfterAnonymousFinalization(
-      AnonymousObjectValue target,
-      List<VmSnapshot> otherTaskRoots,
-      boolean startNextFinalizationWave) {
-    Objects.requireNonNull(target, "target");
-    List<MooValue> transientRoots =
-        world().anonymousObject(target).orElseThrow().properties().stream()
-            .filter(WorldProperty::defined)
-            .map(WorldProperty::value)
-            .toList();
-    finishAnonymousFinalization(target);
-    queueUnreachableAnonymousObjects(otherTaskRoots, transientRoots);
-    finalizePendingObjects();
-    if (startNextFinalizationWave) {
-      queueUnreachableAnonymousObjects(otherTaskRoots);
-      finalizePendingObjects();
-    }
-  }
-
-  private void finishWaifFinalization(WaifValue root) {
-    Set<WaifValue> component = removeWaifComponent(root);
-    List<MooValue> remaining = new ArrayList<>();
-    for (MooValue value : world().pendingFinalization()) {
-      if (value instanceof WaifValue waif && component.contains(waif)) {
-        continue;
-      }
-      remaining.add(value);
-    }
-    world().replacePendingFinalization(remaining);
-  }
-
-  private Set<WaifValue> removeWaifComponent(WaifValue root) {
-    WorldSnapshot snapshot = world().snapshot();
-    Set<WaifValue> component = new LinkedHashSet<>();
-    markReachableAnonymous(root, snapshot, new LinkedHashSet<>(), component);
-    for (WaifValue waif : component) {
-      world().removeWaif(waif);
-    }
-    return component;
-  }
-
-  private void queueUnreachableAnonymousObjects(
-      List<VmSnapshot> otherTaskRoots, VmSnapshot... taskRoots) {
-    queueUnreachableAnonymousObjects(otherTaskRoots, List.of(), taskRoots);
-  }
-
-  private void queueUnreachableAnonymousObjects(
-      List<VmSnapshot> otherTaskRoots,
-      List<MooValue> transientRoots,
-      VmSnapshot... taskRoots) {
-    WorldSnapshot snapshot = world().snapshot();
-    Set<AnonymousObjectValue> reachable = new LinkedHashSet<>();
-    Set<WaifValue> visitedWaifs = new LinkedHashSet<>();
-    for (WorldObject object : snapshot.objects().values()) {
-      for (WorldProperty property : object.properties()) {
-        markReachableAnonymous(
-            property.value(), snapshot, reachable, visitedWaifs);
-      }
-    }
-    for (MooValue value : transientRoots) {
-      markReachableAnonymous(value, snapshot, reachable, visitedWaifs);
-    }
-    for (VmSnapshot task : Stream.concat(otherTaskRoots.stream(), Arrays.stream(taskRoots)).toList()) {
-      for (MooValue value : task.initialLocals().values()) {
-        markReachableAnonymous(value, snapshot, reachable, visitedWaifs);
-      }
-      for (VmSnapshot.Frame frame : task.frames()) {
-        for (MooValue value : frame.operandStack()) {
-          markReachableAnonymous(value, snapshot, reachable, visitedWaifs);
-        }
-        for (VmSnapshot.IndexState index : frame.indexCollections()) {
-          markReachableAnonymous(index.collection(), snapshot, reachable, visitedWaifs);
-          index
-              .key()
-              .ifPresent(value -> markReachableAnonymous(value, snapshot, reachable, visitedWaifs));
-        }
-        for (MooValue value : frame.locals().values()) {
-          markReachableAnonymous(value, snapshot, reachable, visitedWaifs);
-        }
-        for (VmSnapshot.FinallyState state : frame.finallyStates()) {
-          switch (state) {
-            case VmSnapshot.Raise raised ->
-                markReachableAnonymous(
-                    raised.exception(), snapshot, reachable, visitedWaifs);
-            case VmSnapshot.Uncaught uncaught ->
-                markReachableAnonymous(
-                    uncaught.value(), snapshot, reachable, visitedWaifs);
-            case VmSnapshot.Return returned ->
-                markReachableAnonymous(
-                    returned.value(), snapshot, reachable, visitedWaifs);
-            case VmSnapshot.FallThrough ignored -> {
-              // No retained MOO value.
-            }
-            case VmSnapshot.Exit ignored -> {
-              // No retained MOO value.
-            }
-          }
-        }
-        for (VmSnapshot.LoopState loop : frame.loops().values()) {
-          switch (loop) {
-            case VmSnapshot.CollectionLoop collection -> {
-              markReachableAnonymous(
-                  collection.base(), snapshot, reachable, visitedWaifs);
-              collection
-                  .next()
-                  .ifPresent(
-                      value ->
-                          markReachableAnonymous(
-                              value, snapshot, reachable, visitedWaifs));
-            }
-            case VmSnapshot.RangeLoop range -> {
-              markReachableAnonymous(
-                  range.next(), snapshot, reachable, visitedWaifs);
-              markReachableAnonymous(
-                  range.end(), snapshot, reachable, visitedWaifs);
-            }
-          }
-        }
-        markReachableAnonymous(frame.receiver(), snapshot, reachable, visitedWaifs);
-      }
-      for (ConnectionOptionRequest request : task.connectionOptionRequests()) {
-        markReachableAnonymous(request.value(), snapshot, reachable, visitedWaifs);
-      }
-      for (AnonymousObjectValue anonymous : task.anonymousCollectionDeferrals()) {
-        markReachableAnonymous(anonymous, snapshot, reachable, visitedWaifs);
-      }
-      task
-          .returnValue()
-          .ifPresent(value -> markReachableAnonymous(value, snapshot, reachable, visitedWaifs));
-      task
-          .forkRequest()
-          .ifPresent(
-              fork -> {
-                for (MooValue value : fork.locals().values()) {
-                  markReachableAnonymous(value, snapshot, reachable, visitedWaifs);
-                }
-              });
-      task
-          .pendingBuiltin()
-          .ifPresent(
-              pending -> {
-                for (MooValue value : pending.arguments()) {
-                  markReachableAnonymous(value, snapshot, reachable, visitedWaifs);
-                }
-                markReachableAnonymous(pending.taskLocal(), snapshot, reachable, visitedWaifs);
-                markReachableAnonymous(pending.receiver(), snapshot, reachable, visitedWaifs);
-                markReachableAnonymous(pending.callers(), snapshot, reachable, visitedWaifs);
-              });
-      markReachableAnonymous(task.taskLocal(), snapshot, reachable, visitedWaifs);
-    }
-
-    List<MooValue> pending = new ArrayList<>(snapshot.pendingFinalization());
-    for (MooValue value : pending) {
-      markReachableAnonymous(value, snapshot, reachable, visitedWaifs);
-    }
-    Set<AnonymousObjectValue> unclaimed =
-        new LinkedHashSet<>(snapshot.anonymousObjects().keySet());
-    unclaimed.removeAll(reachable);
-    while (!unclaimed.isEmpty()) {
-      Set<AnonymousObjectValue> referenced = new LinkedHashSet<>();
-      Set<WaifValue> referenceWaifs = new LinkedHashSet<>();
-      for (AnonymousObjectValue identity : unclaimed) {
-        WorldAnonymousObject body =
-            Objects.requireNonNull(snapshot.anonymousObjects().get(identity));
-        for (WorldProperty property : body.properties()) {
-          collectAnonymousReferences(
-              property.value(), snapshot, referenced, referenceWaifs);
-        }
-      }
-      referenced.retainAll(unclaimed);
-      AnonymousObjectValue root =
-          unclaimed.stream()
-              .filter(identity -> !referenced.contains(identity))
-              .findFirst()
-              .orElse(unclaimed.iterator().next());
-      pending.add(root);
-      Set<AnonymousObjectValue> component = new LinkedHashSet<>();
-      markReachableAnonymous(root, snapshot, component, new LinkedHashSet<>());
-      unclaimed.removeAll(component);
-    }
-
-    Set<WaifValue> unclaimedWaifs = new LinkedHashSet<>(snapshot.waifs().keySet());
-    unclaimedWaifs.removeAll(visitedWaifs);
-    while (!unclaimedWaifs.isEmpty()) {
-      Set<WaifValue> referenced = new LinkedHashSet<>();
-      for (WaifValue identity : unclaimedWaifs) {
-        WorldWaif body = Objects.requireNonNull(snapshot.waifs().get(identity));
-        for (WorldProperty property : body.properties()) {
-          collectWaifReferences(
-              property.value(),
-              snapshot,
-              referenced,
-              new LinkedHashSet<>(),
-              new LinkedHashSet<>());
-        }
-      }
-      referenced.retainAll(unclaimedWaifs);
-      WaifValue root =
-          unclaimedWaifs.stream()
-              .filter(identity -> !referenced.contains(identity))
-              .findFirst()
-              .orElse(unclaimedWaifs.iterator().next());
-      pending.add(root);
-      Set<WaifValue> component = new LinkedHashSet<>();
-      markReachableAnonymous(root, snapshot, new LinkedHashSet<>(), component);
-      unclaimedWaifs.removeAll(component);
-    }
-    world().replacePendingFinalization(pending);
-  }
-
-  private static void collectWaifReferences(
-      MooValue value,
-      WorldSnapshot world,
-      Set<WaifValue> references,
-      Set<WaifValue> visitedWaifs,
-      Set<AnonymousObjectValue> visitedAnonymous) {
-    if (value instanceof WaifValue waif) {
-      references.add(waif);
-      if (!visitedWaifs.add(waif)) {
-        return;
-      }
-      WorldWaif body = world.waifs().get(waif);
-      if (body != null) {
-        for (WorldProperty property : body.properties()) {
-          collectWaifReferences(
-              property.value(), world, references, visitedWaifs, visitedAnonymous);
-        }
-      }
-      return;
-    }
-    if (value instanceof AnonymousObjectValue anonymous) {
-      if (!visitedAnonymous.add(anonymous)) {
-        return;
-      }
-      WorldAnonymousObject body = world.anonymousObjects().get(anonymous);
-      if (body != null) {
-        for (WorldProperty property : body.properties()) {
-          collectWaifReferences(
-              property.value(), world, references, visitedWaifs, visitedAnonymous);
-        }
-      }
-      return;
-    }
-    if (value instanceof ListValue list) {
-      for (MooValue element : list.elements()) {
-        collectWaifReferences(element, world, references, visitedWaifs, visitedAnonymous);
-      }
-      return;
-    }
-    if (value instanceof MapValue map) {
-      for (Map.Entry<MooValue, MooValue> entry : map.entries().entrySet()) {
-        collectWaifReferences(
-            entry.getKey(), world, references, visitedWaifs, visitedAnonymous);
-        collectWaifReferences(
-            entry.getValue(), world, references, visitedWaifs, visitedAnonymous);
-      }
-    }
-  }
-
-  private static void collectAnonymousReferences(
-      MooValue value,
-      WorldSnapshot world,
-      Set<AnonymousObjectValue> references,
-      Set<WaifValue> visitedWaifs) {
-    if (value instanceof AnonymousObjectValue anonymous) {
-      references.add(anonymous);
-      return;
-    }
-    if (value instanceof WaifValue waif) {
-      if (!visitedWaifs.add(waif)) {
-        return;
-      }
-      WorldWaif body = world.waifs().get(waif);
-      if (body != null) {
-        for (WorldProperty property : body.properties()) {
-          collectAnonymousReferences(property.value(), world, references, visitedWaifs);
-        }
-      }
-      return;
-    }
-    if (value instanceof ListValue list) {
-      for (MooValue element : list.elements()) {
-        collectAnonymousReferences(element, world, references, visitedWaifs);
-      }
-      return;
-    }
-    if (value instanceof MapValue map) {
-      for (Map.Entry<MooValue, MooValue> entry : map.entries().entrySet()) {
-        collectAnonymousReferences(entry.getKey(), world, references, visitedWaifs);
-        collectAnonymousReferences(entry.getValue(), world, references, visitedWaifs);
-      }
-    }
-  }
-
-  private static void markReachableAnonymous(
-      MooValue value,
-      WorldSnapshot world,
-      Set<AnonymousObjectValue> reachable,
-      Set<WaifValue> visitedWaifs) {
-    if (value instanceof AnonymousObjectValue anonymous) {
-      if (!reachable.add(anonymous)) {
-        return;
-      }
-      WorldAnonymousObject body = world.anonymousObjects().get(anonymous);
-      if (body != null) {
-        for (WorldProperty property : body.properties()) {
-          markReachableAnonymous(property.value(), world, reachable, visitedWaifs);
-        }
-      }
-      return;
-    }
-    if (value instanceof WaifValue waif) {
-      if (!visitedWaifs.add(waif)) {
-        return;
-      }
-      WorldWaif body = world.waifs().get(waif);
-      if (body != null) {
-        for (WorldProperty property : body.properties()) {
-          markReachableAnonymous(property.value(), world, reachable, visitedWaifs);
-        }
-      }
-      return;
-    }
-    if (value instanceof ListValue list) {
-      for (MooValue element : list.elements()) {
-        markReachableAnonymous(element, world, reachable, visitedWaifs);
-      }
-      return;
-    }
-    if (value instanceof MapValue map) {
-      for (Map.Entry<MooValue, MooValue> entry : map.entries().entrySet()) {
-        markReachableAnonymous(entry.getKey(), world, reachable, visitedWaifs);
-        markReachableAnonymous(entry.getValue(), world, reachable, visitedWaifs);
-      }
-    }
-  }
-
-  private static void markFinalizingAnonymous(
-      MooValue value,
-      WorldSnapshot world,
-      Set<AnonymousObjectValue> finalizing,
-      Set<WaifValue> visitedWaifs) {
-    if (value instanceof AnonymousObjectValue anonymous) {
-      if (!finalizing.add(anonymous)) {
-        return;
-      }
-      WorldAnonymousObject body = world.anonymousObjects().get(anonymous);
-      if (body != null) {
-        for (WorldProperty property : body.properties()) {
-          if (!property.defined()) {
-            markFinalizingAnonymous(property.value(), world, finalizing, visitedWaifs);
-          }
-        }
-      }
-      return;
-    }
-    if (value instanceof WaifValue waif) {
-      if (!visitedWaifs.add(waif)) {
-        return;
-      }
-      WorldWaif body = world.waifs().get(waif);
-      if (body != null) {
-        for (WorldProperty property : body.properties()) {
-          markFinalizingAnonymous(property.value(), world, finalizing, visitedWaifs);
-        }
-      }
-      return;
-    }
-    if (value instanceof ListValue list) {
-      for (MooValue element : list.elements()) {
-        markFinalizingAnonymous(element, world, finalizing, visitedWaifs);
-      }
-      return;
-    }
-    if (value instanceof MapValue map) {
-      for (Map.Entry<MooValue, MooValue> entry : map.entries().entrySet()) {
-        markFinalizingAnonymous(entry.getKey(), world, finalizing, visitedWaifs);
-        markFinalizingAnonymous(entry.getValue(), world, finalizing, visitedWaifs);
-      }
-    }
+      AnonymousObjectValue target, List<VmSnapshot> otherTaskRoots, boolean startNextFinalizationWave) {
+    finalizationCollector.collectAfterAnonymousFinalization(
+        requireAttempt(), target, otherTaskRoots, startNextFinalizationWave);
   }
 
   private BuiltinResult read(BuiltinCall call) {
@@ -2811,11 +2371,11 @@ public final class MooRuntime implements AutoCloseable, SchedulerRuntime {
           finishBootPlayer(continuation.connectionId(), continuation.output());
       case ANONYMOUS_FINALIZATION_RETURN -> RuntimeStep.returned(List.of());
       case WAIF_FINALIZATION_RETURN -> {
-        finishWaifFinalization((WaifValue) continuation.finalizationControl().orElseThrow().target());
+        finalizationCollector.finishWaifFinalization(requireAttempt(), (WaifValue) continuation.finalizationControl().orElseThrow().target());
         yield continueStartupAfterPendingWaifFinalization();
       }
       case WAIF_BACKGROUND_FINALIZATION_RETURN -> {
-        finishWaifFinalization((WaifValue) continuation.finalizationControl().orElseThrow().target());
+        finalizationCollector.finishWaifFinalization(requireAttempt(), (WaifValue) continuation.finalizationControl().orElseThrow().target());
         yield RuntimeStep.returned(List.of());
       }
       case TASK_TIMEOUT_START ->
@@ -2835,7 +2395,7 @@ public final class MooRuntime implements AutoCloseable, SchedulerRuntime {
     continuation
         .finalizationControl()
         .filter(control -> control.kind() == FinalizationKind.WAIF)
-        .ifPresent(control -> finishWaifFinalization((WaifValue) control.target()));
+        .ifPresent(control -> finalizationCollector.finishWaifFinalization(requireAttempt(), (WaifValue) control.target()));
   }
 
   private List<String> formatUncaughtException(VmState state) {
