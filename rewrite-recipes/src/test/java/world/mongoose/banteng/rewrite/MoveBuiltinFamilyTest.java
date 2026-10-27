@@ -15,6 +15,57 @@ import org.openrewrite.java.JavaParser;
 
 final class MoveBuiltinFamilyTest {
   @Test
+  void movesVerbGroupsWithExplicitExistingCatalogLookup() {
+    var context = new InMemoryExecutionContext(failure -> { throw new AssertionError(failure); });
+    var files = JavaParser.fromJavaVersion().build().parse(context, """
+        package world.mongoose.banteng.builtin;
+        import java.util.List;
+        import static world.mongoose.banteng.world.Access.resolveOwnershipPreamble;
+        import static world.mongoose.banteng.builtin.BuiltinResult.mutationResult;
+        class BuiltinCatalog {
+          void buildManifest() {
+            entries.add(new BuiltinSpec("respond_to", List.of(ANY), BuiltinPermissionRule.ANY, false, call -> respondTo()));
+            sizes();
+            entries.add(new BuiltinSpec("disassemble", List.of(ANY), BuiltinPermissionRule.ANY, false, call -> disassemble()));
+            properties();
+            entries.add(new BuiltinSpec("add_verb", List.of(ANY), BuiltinPermissionRule.ANY, false, call -> addVerb()));
+            objects();
+            entries.add(new BuiltinSpec("set_verb_code", List.of(ANY), BuiltinPermissionRule.ANY, false, call -> setVerbCode(call.arguments(), call.world(), call.programmer())));
+            after();
+          }
+          private static int respondTo() { return 1; }
+          private static int disassemble() { return 2; }
+          private static int addVerb() { return resolveOwnershipPreamble(); }
+          private BuiltinResult setVerbCode(List<MooValue> arguments, WorldTxn world, long programmer) {
+            return compile(name -> spec(name).isPresent(), mutationResult());
+          }
+          private static int parsePreposition() { return 3; }
+          private int other() { return spec("other").isPresent() ? 1 : 0; }
+        }
+        """).toList();
+    var recipe = new MoveBuiltinFamily("VerbBuiltins", Set.of("respond_to", "disassemble", "add_verb", "set_verb_code"),
+        Set.of("respondTo", "disassemble", "addVerb", "setVerbCode", "parsePreposition"));
+    var changes = recipe.run(new InMemoryLargeSourceSet(files), context).getChangeset().getAllResults();
+    String catalog = changedFile(changes, "BuiltinCatalog.java");
+    String family = changedFile(changes, "VerbBuiltins.java");
+    assertTrue(catalog.indexOf("registerRespondTo(entries)") < catalog.indexOf("sizes()"));
+    assertTrue(catalog.indexOf("sizes()") < catalog.indexOf("registerDisassemble(entries)"));
+    assertTrue(catalog.indexOf("properties()") < catalog.indexOf("registerDefinitionEdits(entries)"));
+    assertTrue(catalog.indexOf("objects()") < catalog.indexOf("registerMetadataAndCode(entries, this)"));
+    assertTrue(family.contains("registerMetadataAndCode(List<BuiltinSpec> entries, BuiltinCatalog catalog)"));
+    assertTrue(family.contains("private static BuiltinResult setVerbCode(BuiltinCatalog catalog, List<MooValue> arguments"));
+    assertTrue(family.contains("setVerbCode(catalog, call.arguments(), call.world(), call.programmer())"));
+    assertTrue(family.contains("name -> catalog.spec(name).isPresent()"));
+    assertTrue(family.contains("private static int parsePreposition()"));
+    assertTrue(family.contains("import static world.mongoose.banteng.world.Access.resolveOwnershipPreamble;"));
+    assertTrue(family.contains("import static world.mongoose.banteng.builtin.BuiltinResult.mutationResult;"));
+    assertTrue(catalog.contains("spec(\"other\").isPresent()"));
+    assertFalse(catalog.contains("BuiltinResult setVerbCode"));
+    assertTrue(recipe.run(new InMemoryLargeSourceSet(changes.stream().map(Result::getAfter).toList()), context)
+        .getChangeset().getAllResults().isEmpty());
+  }
+
+  @Test
   void movesPropertyMethodsAndSharedOwnershipIntoExistingAccess() {
     var context = new InMemoryExecutionContext(failure -> { throw new AssertionError(failure); });
     var files = JavaParser.fromJavaVersion().build().parse(context, """

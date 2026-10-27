@@ -447,3 +447,13 @@ recipeList:
       family: PropertyBuiltins
       builtins: [add_property, properties, property_info, is_clear_property, clear_property, delete_property]
       methods: [addProperty, properties, propertyInfo, isClearProperty, clearProperty, deleteProperty]
+---
+type: specs.openrewrite.org/v1beta/recipe
+name: world.mongoose.banteng.builtin.ExtractVerbBuiltins
+displayName: Extract verb builtins
+description: Moves verb registrations and implementations with explicit existing catalog lookup.
+recipeList:
+  - world.mongoose.banteng.rewrite.MoveBuiltinFamily:
+      family: VerbBuiltins
+      builtins: [respond_to, disassemble, delete_verb, add_verb, set_verb_code, set_verb_args, set_verb_info, verbs, verb_args, verb_code, verb_info]
+      methods: [respondTo, disassemble, deleteVerb, addVerb, setVerbCode, setVerbArgs, setVerbInfo, verbs, verbArgs, verbCode, verbInfo, parsePreposition]

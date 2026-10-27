@@ -112,7 +112,8 @@ public final class MoveBuiltinFamily extends ScanningRecipe<MoveBuiltinFamily.Me
             }
             if (methods.contains(method.getSimpleName()) && method.getModifiers().stream()
                 .anyMatch(modifier -> modifier.getType() == J.Modifier.Type.Static)
-                || family.equals("StringBuiltins") && method.getSimpleName().equals("parseAnsi")) {
+                || family.equals("StringBuiltins") && method.getSimpleName().equals("parseAnsi")
+                || family.equals("VerbBuiltins") && method.getSimpleName().equals("setVerbCode")) {
               members.implementations.add(method);
             }
             if (method.getSimpleName().equals("buildManifest") && method.getBody() != null) {
@@ -176,7 +177,7 @@ public final class MoveBuiltinFamily extends ScanningRecipe<MoveBuiltinFamily.Me
     StringBuilder body = new StringBuilder();
     for (int group = 0; group < members.groups.size(); group++) {
       body.append("  public static void ").append(registerMethod(group))
-          .append("(List<BuiltinSpec> entries" + (stringAnsiGroup(group) ? ", Random random" : "") + ") {\n")
+          .append("(List<BuiltinSpec> entries" + (stringAnsiGroup(group) ? ", Random random" : verbCodeGroup(group) ? ", BuiltinCatalog catalog" : "") + ") {\n")
           .append("    BuiltinRegistrar registrar = new BuiltinRegistrar(entries);\n");
       for (Statement handler : members.handlers) {
         String name = ((J.VariableDeclarations) handler).getVariables().getFirst().getSimpleName();
@@ -197,7 +198,10 @@ public final class MoveBuiltinFamily extends ScanningRecipe<MoveBuiltinFamily.Me
       if (!arguments.get(3).printTrimmed(new Cursor(null, members.source)).equals("false")) { body.append(".irrevocable()"); }
       body.append(".implementation(")
            .append(arguments.get(4).printTrimmed(new Cursor(null, members.source)).replace("BuiltinCatalog::", family + "::")
-               .replace("parseAnsi(call.arguments())", "parseAnsi(call.arguments(), random)"))
+               .replace("parseAnsi(call.arguments())", "parseAnsi(call.arguments(), random)")
+               .replace("setVerbCode(call.arguments(), call.world(), call.programmer())",
+                   family.equals("VerbBuiltins") ? "setVerbCode(catalog, call.arguments(), call.world(), call.programmer())"
+                       : "setVerbCode(call.arguments(), call.world(), call.programmer())"))
           .append(");\n");
       }
       body.append("  }\n");
@@ -206,6 +210,7 @@ public final class MoveBuiltinFamily extends ScanningRecipe<MoveBuiltinFamily.Me
         .parse(context, "package world.mongoose.banteng.builtin.family;\n"
             + "import java.util.List; import java.util.Set;\n"
             + "import world.mongoose.banteng.builtin.ArgType;\n"
+            + (family.equals("VerbBuiltins") ? "import world.mongoose.banteng.builtin.BuiltinCatalog;\n" : "")
             + "import world.mongoose.banteng.builtin.BuiltinRegistrar;\n"
             + "import world.mongoose.banteng.builtin.BuiltinSpec;\n"
             + "import world.mongoose.banteng.builtin.BuiltinHandler;\n"
@@ -236,6 +241,14 @@ public final class MoveBuiltinFamily extends ScanningRecipe<MoveBuiltinFamily.Me
         .withSourcePath(Path.of("src/main/java/world/mongoose/banteng/builtin/family/" + family + ".java"));
     generated = (J.CompilationUnit) new RandomizeIdVisitor<ExecutionContext>().visitNonNull(generated, context);
     generated = (J.CompilationUnit) new AutoFormatVisitor<ExecutionContext>(null).visitNonNull(generated, context);
+    if (family.equals("VerbBuiltins")) {
+      String source = generated.printAll()
+          .replace("private BuiltinResult setVerbCode(", "private static BuiltinResult setVerbCode(")
+          .replaceAll("(private static BuiltinResult setVerbCode\\(\\s*)List", "$1BuiltinCatalog catalog, List")
+          .replace("name -> spec(name).isPresent()", "name -> catalog.spec(name).isPresent()");
+      generated = ((J.CompilationUnit) JavaParser.fromJavaVersion().build().parse(context, source)
+          .findFirst().orElseThrow()).withSourcePath(generated.getSourcePath());
+    }
     if (family.equals("ObjectBuiltins")) {
       generated = objectSharedImports(generated, context);
     }
@@ -273,6 +286,9 @@ public final class MoveBuiltinFamily extends ScanningRecipe<MoveBuiltinFamily.Me
   }
 
   private String registerMethod(int group) {
+    if (family.equals("VerbBuiltins")) {
+      return List.of("registerRespondTo", "registerDisassemble", "registerDefinitionEdits", "registerMetadataAndCode").get(group);
+    }
     if (family.equals("ObjectBuiltins")) {
       return List.of("registerLifecycleAndTopology", "registerMovementAndWaifs", "registerResetMaximum").get(group);
     }
@@ -282,6 +298,10 @@ public final class MoveBuiltinFamily extends ScanningRecipe<MoveBuiltinFamily.Me
     return family.equals("ListBuiltins")
         ? List.of("registerLength", "registerListEdits", "registerSetsAndSort", "registerReverse").get(group)
         : "register";
+  }
+
+  private boolean verbCodeGroup(int group) {
+    return family.equals("VerbBuiltins") && group == 3;
   }
 
   private boolean stringAnsiGroup(int group) {
@@ -447,7 +467,7 @@ public final class MoveBuiltinFamily extends ScanningRecipe<MoveBuiltinFamily.Me
           if (group >= 0) {
             Statement replacement = ((J.CompilationUnit) JavaParser.fromJavaVersion().build()
              .parse(context, "class Replacement { void register() { " + family + "." + registerMethod(group)
-                 + "(entries" + (stringAnsiGroup(group) ? ", random" : "") + "); } }")
+                 + "(entries" + (stringAnsiGroup(group) ? ", random" : verbCodeGroup(group) ? ", this" : "") + "); } }")
             .findFirst().orElseThrow()).getClasses().getFirst().getBody().getStatements().stream()
             .filter(J.MethodDeclaration.class::isInstance).map(J.MethodDeclaration.class::cast)
             .findFirst().orElseThrow().getBody().getStatements().getFirst();

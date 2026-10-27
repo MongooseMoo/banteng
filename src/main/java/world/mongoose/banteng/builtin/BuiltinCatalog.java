@@ -34,8 +34,6 @@ import org.bouncycastle.crypto.generators.Argon2BytesGenerator;
 import org.bouncycastle.crypto.macs.HMac;
 import org.bouncycastle.crypto.params.Argon2Parameters;
 import org.bouncycastle.crypto.params.KeyParameter;
-
-import static world.mongoose.banteng.builtin.BuiltinResult.mutationResult;
 import static world.mongoose.banteng.builtin.ValueLimits.valueBytes;
 
 import world.mongoose.banteng.builtin.family.JsonBuiltins;
@@ -46,14 +44,13 @@ import world.mongoose.banteng.builtin.family.ObjectBuiltins;
 import world.mongoose.banteng.builtin.family.PropertyBuiltins;
 import world.mongoose.banteng.builtin.family.StringBuiltins;
 import world.mongoose.banteng.builtin.family.TimeBuiltins;
+import world.mongoose.banteng.builtin.family.VerbBuiltins;
 import world.mongoose.banteng.bytecode.MooCompiler;
 import world.mongoose.banteng.host.Aspell;
 import world.mongoose.banteng.host.Libc;
 import world.mongoose.banteng.host.NativeCallException;
 import world.mongoose.banteng.host.NativeCurl;
 import world.mongoose.banteng.logging.ServerLog;
-import world.mongoose.banteng.syntax.MooParser;
-import world.mongoose.banteng.syntax.MooUnparser;
 import world.mongoose.banteng.value.MooValue;
 import world.mongoose.banteng.value.MooValue.AnonymousObjectValue;
 import world.mongoose.banteng.value.MooValue.BooleanValue;
@@ -67,17 +64,10 @@ import world.mongoose.banteng.value.MooValue.StringValue;
 import world.mongoose.banteng.value.MooValue.WaifValue;
 
 import world.mongoose.banteng.value.ValueSemantics;
-import static world.mongoose.banteng.world.Access.resolveOwnershipPreamble;
-import world.mongoose.banteng.world.Access;
-import world.mongoose.banteng.world.ArgSpec;
-import world.mongoose.banteng.world.ObjectFlags;
-import world.mongoose.banteng.world.Prepositions;
 import world.mongoose.banteng.world.PropertyHolder;
-import world.mongoose.banteng.world.VerbPerms;
 import world.mongoose.banteng.world.WorldAnonymousObject;
 import world.mongoose.banteng.world.WorldObject;
 import world.mongoose.banteng.world.WorldProperty;
-import world.mongoose.banteng.world.WorldResult;
 import world.mongoose.banteng.world.WorldTxn;
 import world.mongoose.banteng.world.WorldVerb;
 
@@ -238,9 +228,7 @@ public final class BuiltinCatalog {
           return value == null ? BuiltinResult.value(new IntegerValue(0))
               : encodeBinary(List.of(StringValue.of(value)));
         }));
-    entries.add(new BuiltinSpec(
-        "respond_to", List.of(new CallShape(List.of(ANY, STRING), List.of(), Optional.empty())),
-        BuiltinPermissionRule.ANY, false, call -> respondTo(call.arguments(), call.world(), call.programmer())));
+    VerbBuiltins.registerRespondTo(entries);
     BuiltinHandler setThreadMode =
         call -> setThreadMode(call.arguments(), call.threadMode());
     BuiltinHandler callFunction = this::callFunction;
@@ -366,13 +354,7 @@ public final class BuiltinCatalog {
             BuiltinPermissionRule.ANY,
             false,
             call -> decodeBinary(call.arguments())));
-    entries.add(
-        new BuiltinSpec(
-            "disassemble",
-            List.of(new CallShape(List.of(ANY, ANY), List.of(), Optional.empty())),
-            BuiltinPermissionRule.ANY,
-            false,
-            call -> disassemble(call.arguments(), call.world(), call.programmer())));
+    VerbBuiltins.registerDisassemble(entries);
     entries.add(
         new BuiltinSpec(
             "curl",
@@ -416,86 +398,9 @@ public final class BuiltinCatalog {
             false,
             call -> chr(call.arguments(), call.world(), call.programmer())));
     PropertyBuiltins.register(entries);
-    entries.add(
-        new BuiltinSpec(
-            "delete_verb",
-            List.of(new CallShape(List.of(ANY, ANY), List.of(), Optional.empty())),
-            BuiltinPermissionRule.ANY,
-            false,
-            call -> deleteVerb(call.arguments(), call.world(), call.programmer())));
-    entries.add(
-        new BuiltinSpec(
-            "add_verb",
-            List.of(
-                new CallShape(
-                    List.of(ANY, Set.of(ArgType.LIST), Set.of(ArgType.LIST)),
-                    List.of(),
-                    Optional.empty())),
-            BuiltinPermissionRule.ANY,
-            false,
-            call -> addVerb(call.arguments(), call.world(), call.programmer())));
+    VerbBuiltins.registerDefinitionEdits(entries);
     ObjectBuiltins.registerLifecycleAndTopology(entries);
-    entries.add(
-        new BuiltinSpec(
-            "set_verb_code",
-            List.of(
-                new CallShape(
-                    List.of(ANY, ANY, Set.of(ArgType.LIST)),
-                    List.of(),
-                    Optional.empty())),
-            BuiltinPermissionRule.ANY,
-            false,
-            call -> setVerbCode(call.arguments(), call.world(), call.programmer())));
-    entries.add(
-        new BuiltinSpec(
-            "set_verb_args",
-            List.of(
-                new CallShape(
-                    List.of(ANY, ANY, Set.of(ArgType.LIST)),
-                    List.of(),
-                    Optional.empty())),
-            BuiltinPermissionRule.ANY,
-            false,
-            call -> setVerbArgs(call.arguments(), call.world(), call.programmer())));
-    entries.add(
-        new BuiltinSpec(
-            "set_verb_info",
-            List.of(
-                new CallShape(
-                    List.of(ANY, ANY, Set.of(ArgType.LIST)),
-                    List.of(),
-                    Optional.empty())),
-            BuiltinPermissionRule.ANY,
-            false,
-            call -> setVerbInfo(call.arguments(), call.world(), call.programmer())));
-    entries.add(
-        new BuiltinSpec(
-            "verbs",
-            List.of(new CallShape(List.of(ANY), List.of(), Optional.empty())),
-            BuiltinPermissionRule.ANY,
-            false,
-            call -> verbs(call.arguments(), call.world(), call.programmer())));
-    entries.add(
-        new BuiltinSpec(
-            "verb_args",
-            List.of(new CallShape(List.of(ANY, ANY), List.of(), Optional.empty())),
-            BuiltinPermissionRule.ANY,
-            false,
-            call -> verbArgs(call.arguments(), call.world(), call.programmer())));
-    entries.add(
-        new BuiltinSpec(
-            "verb_code",
-            List.of(new CallShape(List.of(ANY, ANY), List.of(ANY, ANY), Optional.empty())),
-            BuiltinPermissionRule.ANY,
-            false,
-            call -> verbCode(call.arguments(), call.world(), call.programmer())));
-    entries.add(
-        new BuiltinSpec(
-            "verb_info",
-            List.of(new CallShape(List.of(ANY, ANY), List.of(), Optional.empty())),
-            BuiltinPermissionRule.ANY,
-            false,
-            call -> verbInfo(call.arguments(), call.world(), call.programmer())));
+    VerbBuiltins.registerMetadataAndCode(entries, this);
     ObjectBuiltins.registerMovementAndWaifs(entries);
     entries.add(
         new BuiltinSpec(
@@ -2034,37 +1939,6 @@ public final class BuiltinCatalog {
     return BuiltinResult.raised(code, message, value);
   }
 
-  private static BuiltinResult respondTo(List<MooValue> arguments, WorldTxn world, long programmer) {
-    MooValue target = arguments.getFirst();
-    String name = ((StringValue) arguments.get(1)).text();
-    WorldVerb verb;
-    MooValue location;
-    long owner;
-    int flags;
-    if (target instanceof ObjectValue object) {
-      WorldObject body = world.object(object.value()).orElse(null);
-      if (body == null) return BuiltinResult.error(ErrorValue.E_INVARG);
-      verb = world.verb(object.value(), name).orElse(null);
-      if (verb == null) return BuiltinResult.value(new IntegerValue(0));
-      location = new ObjectValue(world.verbLocation(object.value(), name, true).orElseThrow());
-      owner = body.owner();
-      flags = body.flags();
-    } else if (target instanceof AnonymousObjectValue anonymous) {
-      WorldAnonymousObject body = world.anonymousObject(anonymous).orElse(null);
-      if (body == null) return BuiltinResult.error(ErrorValue.E_INVARG);
-      verb = world.verb(anonymous, name, true).orElse(null);
-      if (verb == null) return BuiltinResult.value(new IntegerValue(0));
-      location = world.verbLocation(anonymous, name, true).orElseThrow();
-      owner = body.owner();
-      flags = body.flags();
-    } else {
-      return BuiltinResult.error(ErrorValue.E_TYPE);
-    }
-    return owner == programmer || world.isWizard(programmer) || ObjectFlags.isReadable(flags)
-        ? BuiltinResult.value(new ListValue(List.of(location, StringValue.of(verb.names()))))
-        : BuiltinResult.value(new IntegerValue(1));
-  }
-
   private static BuiltinResult setThreadMode(List<MooValue> arguments, boolean threadMode) {
     if (arguments.isEmpty()) {
       return BuiltinResult.value(new IntegerValue(threadMode ? 1 : 0));
@@ -2549,51 +2423,6 @@ public final class BuiltinCatalog {
     return BuiltinResult.value(StringValue.of(Arrays.copyOf(bytes, length)));
   }
 
-  private static BuiltinResult disassemble(
-      List<MooValue> arguments, WorldTxn world, long programmer) {
-    if (!(arguments.get(0) instanceof ObjectValue object)) {
-      return BuiltinResult.error(ErrorValue.E_TYPE);
-    }
-    MooValue descriptor = arguments.get(1);
-    if (!(descriptor instanceof StringValue) && !(descriptor instanceof IntegerValue)) {
-      return BuiltinResult.error(ErrorValue.E_TYPE);
-    }
-    if (descriptor instanceof IntegerValue integer && integer.value() <= 0) {
-      return BuiltinResult.error(ErrorValue.E_INVARG);
-    }
-    WorldObject target = world.object(object.value()).orElse(null);
-    if (target == null) {
-      return BuiltinResult.error(ErrorValue.E_INVARG);
-    }
-
-    WorldVerb verb;
-    if (descriptor instanceof IntegerValue integer) {
-      long index = integer.value() - 1;
-      if (index >= target.verbs().size()) {
-        return BuiltinResult.error(ErrorValue.E_VERBNF);
-      }
-      verb = target.verbs().get((int) index);
-    } else {
-      WorldVerb candidate =
-          world.verb(object.value(), ((StringValue) descriptor).text(), false).orElse(null);
-      if (candidate == null || !target.verbs().contains(candidate)) {
-        return BuiltinResult.error(ErrorValue.E_VERBNF);
-      }
-      verb = candidate;
-    }
-
-    if (!Access.canRead(world, programmer, verb.owner(), verb.perms())) {
-      return BuiltinResult.error(ErrorValue.E_PERM);
-    }
-    List<MooValue> lines = new ArrayList<>();
-    lines.add(StringValue.of("Main code vector:"));
-    verb.program().disassemble().lines()
-            .map(StringValue::of)
-            .map(MooValue.class::cast)
-            .forEach(lines::add);
-    return BuiltinResult.value(new ListValue(lines));
-  }
-
   private static boolean appendBinaryBytes(
       ByteArrayOutputStream output, MooValue value, int minimum, int maximum) {
     if (value instanceof StringValue string) {
@@ -2616,90 +2445,6 @@ public final class BuiltinCatalog {
       return true;
     }
     return false;
-  }
-
-  private static BuiltinResult addVerb(
-      List<MooValue> arguments, WorldTxn world, long programmer) {
-    ListValue info = (ListValue) arguments.get(1);
-    if (info.size() != 3
-        || !(info.elements().get(0) instanceof ObjectValue owner)
-        || !(info.elements().get(1) instanceof StringValue permissionValue)
-        || !(info.elements().get(2) instanceof StringValue namesValue)) {
-      return BuiltinResult.error(ErrorValue.E_TYPE);
-    }
-    if (world.object(owner.value()).isEmpty()) {
-      return BuiltinResult.error(ErrorValue.E_INVARG);
-    }
-    int permissions = 0;
-    String permissionText = permissionValue.text();
-    for (int index = 0; index < permissionText.length(); index++) {
-      permissions |=
-          switch (Character.toLowerCase(permissionText.charAt(index))) {
-            case 'r' -> 1;
-            case 'w' -> 2;
-            case 'x' -> 4;
-            case 'd' -> 8;
-            default -> -1;
-          };
-      if (permissions < 0) {
-        return BuiltinResult.error(ErrorValue.E_INVARG);
-      }
-    }
-    String names = namesValue.text();
-    int firstName = 0;
-    while (firstName < names.length() && names.charAt(firstName) == ' ') {
-      firstName++;
-    }
-    names = names.substring(firstName);
-    if (names.isEmpty()) {
-      return BuiltinResult.error(ErrorValue.E_INVARG);
-    }
-
-    ListValue verbArguments = (ListValue) arguments.get(2);
-    if (verbArguments.size() != 3
-        || verbArguments.elements().stream().anyMatch(value -> !(value instanceof StringValue))) {
-      return BuiltinResult.error(ErrorValue.E_TYPE);
-    }
-    String directText = ((StringValue) verbArguments.elements().get(0)).text();
-    String prepositionText = ((StringValue) verbArguments.elements().get(1)).text();
-    String indirectText = ((StringValue) verbArguments.elements().get(2)).text();
-    ArgSpec direct =
-        switch (directText.toLowerCase(Locale.ROOT)) {
-          case "none" -> ArgSpec.NONE;
-          case "any" -> ArgSpec.ANY;
-          case "this" -> ArgSpec.THIS;
-          default -> null;
-        };
-    ArgSpec indirect =
-        switch (indirectText.toLowerCase(Locale.ROOT)) {
-          case "none" -> ArgSpec.NONE;
-          case "any" -> ArgSpec.ANY;
-          case "this" -> ArgSpec.THIS;
-          default -> null;
-        };
-    int preposition = parsePreposition(prepositionText);
-    if (direct == null || indirect == null || preposition == Integer.MIN_VALUE) {
-      return BuiltinResult.error(ErrorValue.E_INVARG);
-    }
-
-    MooValue receiver = arguments.get(0);
-    Optional<ErrorValue> ownershipError =
-        resolveOwnershipPreamble(receiver, owner.value(), world, programmer);
-    if (ownershipError.isPresent()) {
-      return BuiltinResult.error(ownershipError.orElseThrow());
-    }
-
-    int slot =
-        receiver instanceof ObjectValue object
-            ? world.addVerb(
-                object.value(), names, owner.value(), new VerbPerms(permissions), direct, preposition, indirect)
-            : world.addVerb(
-                (AnonymousObjectValue) receiver,
-                names,
-                owner.value(),
-                new VerbPerms(permissions), direct, preposition, indirect);
-    return BuiltinResult.value(
-        new IntegerValue(slot));
   }
 
   private static BuiltinResult callers(ListValue callers, WorldTxn world, long programmer) {
@@ -2728,491 +2473,6 @@ public final class BuiltinCatalog {
     }
     boolean wizard = world.isWizard(programmer);
     return wizard || body.owner() == programmer ? value : new AnonymousObjectValue();
-  }
-
-  private static BuiltinResult setVerbInfo(
-      List<MooValue> arguments, WorldTxn world, long programmer) {
-    MooValue descriptor = arguments.get(1);
-    if (!(descriptor instanceof StringValue) && !(descriptor instanceof IntegerValue)) {
-      return BuiltinResult.error(ErrorValue.E_TYPE);
-    }
-    if (descriptor instanceof IntegerValue integer && integer.value() <= 0) {
-      return BuiltinResult.error(ErrorValue.E_INVARG);
-    }
-
-    MooValue receiver = arguments.get(0);
-    if (!(receiver instanceof ObjectValue object)) {
-      return BuiltinResult.error(ErrorValue.E_TYPE);
-    }
-    WorldObject target = world.object(object.value()).orElse(null);
-    if (target == null) {
-      return BuiltinResult.error(ErrorValue.E_INVARG);
-    }
-    List<WorldVerb> targetVerbs = target.verbs();
-
-    ListValue info = (ListValue) arguments.get(2);
-    if (info.size() != 3
-        || !(info.elements().get(0) instanceof ObjectValue owner)
-        || !(info.elements().get(1) instanceof StringValue permissionValue)
-        || !(info.elements().get(2) instanceof StringValue namesValue)) {
-      return BuiltinResult.error(ErrorValue.E_TYPE);
-    }
-    if (world.object(owner.value()).isEmpty()) {
-      return BuiltinResult.error(ErrorValue.E_INVARG);
-    }
-    int permissions = 0;
-    String permissionText = permissionValue.text();
-    for (int index = 0; index < permissionText.length(); index++) {
-      permissions |=
-          switch (Character.toLowerCase(permissionText.charAt(index))) {
-            case 'r' -> 1;
-            case 'w' -> 2;
-            case 'x' -> 4;
-            case 'd' -> 8;
-            default -> -1;
-          };
-      if (permissions < 0) {
-        return BuiltinResult.error(ErrorValue.E_INVARG);
-      }
-    }
-    String names = namesValue.text();
-    int firstName = 0;
-    while (firstName < names.length() && names.charAt(firstName) == ' ') {
-      firstName++;
-    }
-    names = names.substring(firstName);
-    if (names.isEmpty()) {
-      return BuiltinResult.error(ErrorValue.E_INVARG);
-    }
-
-    WorldVerb verb;
-    int verbIndex;
-    if (descriptor instanceof IntegerValue integer) {
-      long index = integer.value() - 1;
-      if (index >= targetVerbs.size()) {
-        return BuiltinResult.error(ErrorValue.E_VERBNF);
-      }
-      verbIndex = (int) index;
-      verb = targetVerbs.get(verbIndex);
-    } else {
-      WorldVerb candidate =
-          world.verb(object.value(), ((StringValue) descriptor).text(), false).orElse(null);
-      if (candidate == null || !targetVerbs.contains(candidate)) {
-        return BuiltinResult.error(ErrorValue.E_VERBNF);
-      }
-      verb = candidate;
-      verbIndex = targetVerbs.indexOf(verb);
-    }
-
-    boolean wizard = world.isWizard(programmer);
-    if (!Access.canWrite(world, programmer, verb.owner(), verb.perms())
-        || (!wizard && verb.owner() != owner.value())) {
-      return BuiltinResult.error(ErrorValue.E_PERM);
-    }
-    WorldResult<Boolean> updated =
-        world.setVerbInfo(object.value(), verbIndex, names, owner.value(), new VerbPerms(permissions));
-    return mutationResult(updated, new IntegerValue(0));
-  }
-
-  private static BuiltinResult verbs(List<MooValue> arguments, WorldTxn world, long programmer) {
-    MooValue receiver = arguments.getFirst();
-    long owner;
-    int flags;
-    List<WorldVerb> verbs;
-    if (receiver instanceof ObjectValue object) {
-      WorldObject target = world.object(object.value()).orElse(null);
-      if (target == null) {
-        return BuiltinResult.error(ErrorValue.E_INVARG);
-      }
-      owner = target.owner();
-      flags = target.flags();
-      verbs = target.verbs();
-    } else if (receiver instanceof AnonymousObjectValue anonymous) {
-      WorldAnonymousObject target = world.anonymousObject(anonymous).orElse(null);
-      if (target == null) {
-        return BuiltinResult.error(ErrorValue.E_INVARG);
-      }
-      owner = target.owner();
-      flags = target.flags();
-      verbs = target.verbs();
-    } else {
-      return BuiltinResult.error(ErrorValue.E_TYPE);
-    }
-    if (owner != programmer && !world.isWizard(programmer) && !ObjectFlags.isReadable(flags)) {
-      return BuiltinResult.error(ErrorValue.E_PERM);
-    }
-    return BuiltinResult.value(
-        new ListValue(verbs.stream().map(WorldVerb::names).map(StringValue::of).toList()));
-  }
-
-  private static BuiltinResult verbInfo(
-      List<MooValue> arguments, WorldTxn world, long programmer) {
-    MooValue receiver = arguments.get(0);
-    if (!(receiver instanceof ObjectValue object)) {
-      return BuiltinResult.error(ErrorValue.E_TYPE);
-    }
-    MooValue descriptor = arguments.get(1);
-    if (!(descriptor instanceof StringValue) && !(descriptor instanceof IntegerValue)) {
-      return BuiltinResult.error(ErrorValue.E_TYPE);
-    }
-    if (descriptor instanceof IntegerValue integer && integer.value() <= 0) {
-      return BuiltinResult.error(ErrorValue.E_INVARG);
-    }
-    WorldObject target = world.object(object.value()).orElse(null);
-    if (target == null) {
-      return BuiltinResult.error(ErrorValue.E_INVARG);
-    }
-
-    WorldVerb verb;
-    if (descriptor instanceof IntegerValue integer) {
-      long index = integer.value() - 1;
-      if (index >= target.verbs().size()) {
-        return BuiltinResult.error(ErrorValue.E_VERBNF);
-      }
-      verb = target.verbs().get((int) index);
-    } else {
-      WorldVerb candidate =
-          world.verb(object.value(), ((StringValue) descriptor).text(), false).orElse(null);
-      if (candidate == null || !target.verbs().contains(candidate)) {
-        return BuiltinResult.error(ErrorValue.E_VERBNF);
-      }
-      verb = candidate;
-    }
-
-    if (!Access.canRead(world, programmer, verb.owner(), verb.perms())) {
-      return BuiltinResult.error(ErrorValue.E_PERM);
-    }
-    StringBuilder flags = new StringBuilder(4);
-    if (verb.perms().readable()) {
-      flags.append('r');
-    }
-    if (verb.perms().writable()) {
-      flags.append('w');
-    }
-    if (verb.perms().executable()) {
-      flags.append('x');
-    }
-    if (verb.perms().debug()) {
-      flags.append('d');
-    }
-    return BuiltinResult.value(
-        new ListValue(
-            List.of(new ObjectValue(verb.owner()), StringValue.of(flags.toString()), StringValue.of(verb.names()))));
-  }
-
-  private static BuiltinResult verbArgs(
-      List<MooValue> arguments, WorldTxn world, long programmer) {
-    MooValue receiver = arguments.get(0);
-    if (!(receiver instanceof ObjectValue object)) {
-      return BuiltinResult.error(ErrorValue.E_TYPE);
-    }
-    MooValue descriptor = arguments.get(1);
-    if (!(descriptor instanceof StringValue) && !(descriptor instanceof IntegerValue)) {
-      return BuiltinResult.error(ErrorValue.E_TYPE);
-    }
-    if (descriptor instanceof IntegerValue integer && integer.value() <= 0) {
-      return BuiltinResult.error(ErrorValue.E_INVARG);
-    }
-    WorldObject target = world.object(object.value()).orElse(null);
-    if (target == null) {
-      return BuiltinResult.error(ErrorValue.E_INVARG);
-    }
-
-    WorldVerb verb;
-    if (descriptor instanceof IntegerValue integer) {
-      long index = integer.value() - 1;
-      if (index >= target.verbs().size()) {
-        return BuiltinResult.error(ErrorValue.E_VERBNF);
-      }
-      verb = target.verbs().get((int) index);
-    } else {
-      WorldVerb candidate =
-          world.verb(object.value(), ((StringValue) descriptor).text(), false).orElse(null);
-      if (candidate == null || !target.verbs().contains(candidate)) {
-        return BuiltinResult.error(ErrorValue.E_VERBNF);
-      }
-      verb = candidate;
-    }
-
-    if (!Access.canRead(world, programmer, verb.owner(), verb.perms())) {
-      return BuiltinResult.error(ErrorValue.E_PERM);
-    }
-    String direct =
-        switch (verb.dobj()) {
-          case NONE -> "none";
-          case ANY -> "any";
-          case THIS -> "this";
-          default -> throw new IllegalStateException("invalid direct-object verb specification");
-        };
-    String indirect =
-        switch (verb.iobj()) {
-          case NONE -> "none";
-          case ANY -> "any";
-          case THIS -> "this";
-          default -> throw new IllegalStateException("invalid indirect-object verb specification");
-        };
-    String preposition = Prepositions.format(verb.preposition());
-    return BuiltinResult.value(
-        new ListValue(List.of(StringValue.of(direct), StringValue.of(preposition), StringValue.of(indirect))));
-  }
-
-  private static BuiltinResult deleteVerb(
-      List<MooValue> arguments, WorldTxn world, long programmer) {
-    MooValue descriptor = arguments.get(1);
-    if (!(descriptor instanceof StringValue) && !(descriptor instanceof IntegerValue)) {
-      return BuiltinResult.error(ErrorValue.E_TYPE);
-    }
-    if (descriptor instanceof IntegerValue integer && integer.value() <= 0) {
-      return BuiltinResult.error(ErrorValue.E_INVARG);
-    }
-    MooValue receiver = arguments.get(0);
-    if (!(receiver instanceof ObjectValue object)) {
-      return BuiltinResult.error(ErrorValue.E_TYPE);
-    }
-    WorldObject target = world.object(object.value()).orElse(null);
-    if (target == null) {
-      return BuiltinResult.error(ErrorValue.E_INVARG);
-    }
-
-    boolean wizard = world.isWizard(programmer);
-    if (target.owner() != programmer && !wizard && !ObjectFlags.isWritable(target.flags())) {
-      return BuiltinResult.error(ErrorValue.E_PERM);
-    }
-
-    int verbIndex;
-    if (descriptor instanceof IntegerValue integer) {
-      long index = integer.value() - 1;
-      if (index >= target.verbs().size()) {
-        return BuiltinResult.error(ErrorValue.E_VERBNF);
-      }
-      verbIndex = (int) index;
-    } else {
-      WorldVerb candidate =
-          world.verb(object.value(), ((StringValue) descriptor).text(), false).orElse(null);
-      if (candidate == null || !target.verbs().contains(candidate)) {
-        return BuiltinResult.error(ErrorValue.E_VERBNF);
-      }
-      verbIndex = target.verbs().indexOf(candidate);
-    }
-    return mutationResult(world.deleteVerb(object.value(), verbIndex), new IntegerValue(0));
-  }
-
-  private static BuiltinResult setVerbArgs(
-      List<MooValue> arguments, WorldTxn world, long programmer) {
-    MooValue descriptor = arguments.get(1);
-    if (!(descriptor instanceof StringValue) && !(descriptor instanceof IntegerValue)) {
-      return BuiltinResult.error(ErrorValue.E_TYPE);
-    }
-    if (descriptor instanceof IntegerValue integer && integer.value() <= 0) {
-      return BuiltinResult.error(ErrorValue.E_INVARG);
-    }
-
-    MooValue receiver = arguments.get(0);
-    if (!(receiver instanceof ObjectValue object)) {
-      return BuiltinResult.error(ErrorValue.E_TYPE);
-    }
-    WorldObject target = world.object(object.value()).orElse(null);
-    if (target == null) {
-      return BuiltinResult.error(ErrorValue.E_INVARG);
-    }
-
-    ListValue verbArguments = (ListValue) arguments.get(2);
-    if (verbArguments.size() != 3
-        || verbArguments.elements().stream().anyMatch(value -> !(value instanceof StringValue))) {
-      return BuiltinResult.error(ErrorValue.E_TYPE);
-    }
-    String directText = ((StringValue) verbArguments.elements().get(0)).text();
-    String prepositionText = ((StringValue) verbArguments.elements().get(1)).text();
-    String indirectText = ((StringValue) verbArguments.elements().get(2)).text();
-    ArgSpec direct =
-        switch (directText.toLowerCase(Locale.ROOT)) {
-          case "none" -> ArgSpec.NONE;
-          case "any" -> ArgSpec.ANY;
-          case "this" -> ArgSpec.THIS;
-          default -> null;
-        };
-    ArgSpec indirect =
-        switch (indirectText.toLowerCase(Locale.ROOT)) {
-          case "none" -> ArgSpec.NONE;
-          case "any" -> ArgSpec.ANY;
-          case "this" -> ArgSpec.THIS;
-          default -> null;
-        };
-    int preposition = parsePreposition(prepositionText);
-    if (direct == null || indirect == null || preposition == Integer.MIN_VALUE) {
-      return BuiltinResult.error(ErrorValue.E_INVARG);
-    }
-
-    List<WorldVerb> targetVerbs = target.verbs();
-    WorldVerb verb;
-    int verbIndex;
-    if (descriptor instanceof IntegerValue integer) {
-      long index = integer.value() - 1;
-      if (index >= targetVerbs.size()) {
-        return BuiltinResult.error(ErrorValue.E_VERBNF);
-      }
-      verbIndex = (int) index;
-      verb = targetVerbs.get(verbIndex);
-    } else {
-      WorldVerb candidate =
-          world.verb(object.value(), ((StringValue) descriptor).text(), false).orElse(null);
-      if (candidate == null || !targetVerbs.contains(candidate)) {
-        return BuiltinResult.error(ErrorValue.E_VERBNF);
-      }
-      verb = candidate;
-      verbIndex = targetVerbs.indexOf(verb);
-    }
-
-    if (!Access.canWrite(world, programmer, verb.owner(), verb.perms())) {
-      return BuiltinResult.error(ErrorValue.E_PERM);
-    }
-    WorldResult<Boolean> updated =
-        world.setVerbArgs(object.value(), verbIndex, direct, preposition, indirect);
-    return mutationResult(updated, new IntegerValue(0));
-  }
-
-  private static int parsePreposition(String prepositionText) {
-    return Prepositions.parse(prepositionText);
-  }
-
-  private BuiltinResult setVerbCode(
-      List<MooValue> arguments, WorldTxn world, long programmer) {
-    ListValue code = (ListValue) arguments.get(2);
-    if (code.elements().stream().anyMatch(value -> !(value instanceof StringValue))) {
-      return BuiltinResult.error(ErrorValue.E_TYPE);
-    }
-    MooValue receiver = arguments.get(0);
-    if (!(receiver instanceof ObjectValue) && !(receiver instanceof AnonymousObjectValue)) {
-      return BuiltinResult.error(ErrorValue.E_TYPE);
-    }
-    MooValue descriptor = arguments.get(1);
-    if (!(descriptor instanceof StringValue) && !(descriptor instanceof IntegerValue)) {
-      return BuiltinResult.error(ErrorValue.E_TYPE);
-    }
-    if (descriptor instanceof IntegerValue integer && integer.value() <= 0) {
-      return BuiltinResult.error(ErrorValue.E_INVARG);
-    }
-    List<WorldVerb> targetVerbs;
-    if (receiver instanceof ObjectValue object) {
-      WorldObject target = world.object(object.value()).orElse(null);
-      if (target == null) {
-        return BuiltinResult.error(ErrorValue.E_INVARG);
-      }
-      targetVerbs = target.verbs();
-    } else if (receiver instanceof AnonymousObjectValue anonymous) {
-      WorldAnonymousObject target = world.anonymousObject(anonymous).orElse(null);
-      if (target == null) {
-        return BuiltinResult.error(ErrorValue.E_INVARG);
-      }
-      targetVerbs = target.verbs();
-    } else {
-      return BuiltinResult.error(ErrorValue.E_TYPE);
-    }
-    WorldVerb verb;
-    int verbIndex;
-    if (descriptor instanceof IntegerValue integer) {
-      long index = integer.value() - 1;
-      if (index >= targetVerbs.size()) {
-        return BuiltinResult.error(ErrorValue.E_VERBNF);
-      }
-      verbIndex = (int) index;
-      verb = targetVerbs.get(verbIndex);
-    } else {
-      WorldVerb candidate =
-          receiver instanceof ObjectValue object
-              ? world.verb(object.value(), ((StringValue) descriptor).text(), false).orElse(null)
-              : world
-                  .verb(
-                      (AnonymousObjectValue) receiver,
-                      ((StringValue) descriptor).text(),
-                      false)
-                  .orElse(null);
-      if (candidate == null || !targetVerbs.contains(candidate)) {
-        return BuiltinResult.error(ErrorValue.E_VERBNF);
-      }
-      verb = candidate;
-      verbIndex = targetVerbs.indexOf(verb);
-    }
-
-    boolean wizard = world.isWizard(programmer);
-    WorldObject actor = world.object(programmer).orElse(null);
-    boolean programmerFlag = actor != null && ObjectFlags.isProgrammer(actor.flags());
-    if ((!programmerFlag && !wizard)
-        || !Access.canWrite(world, programmer, verb.owner(), verb.perms())) {
-      return BuiltinResult.error(ErrorValue.E_PERM);
-    }
-
-    String suppliedSource =
-        code.elements().stream()
-            .map(StringValue.class::cast)
-            .map(StringValue::text)
-            .collect(java.util.stream.Collectors.joining("\n"));
-    MooCompiler.CompilationResult compiled =
-        new MooCompiler().compileResult(suppliedSource, name -> spec(name).isPresent());
-    if (!compiled.diagnostics().isEmpty()) {
-      return BuiltinResult.value(new ListValue(compiled.diagnostics().stream()
-          .map(diagnostic -> (MooValue) StringValue.of(diagnostic.display())).toList()));
-    }
-    String canonicalSource =
-        Arrays.stream(compiled.program().orElseThrow().source().split("\n", -1))
-            .map(String::stripLeading)
-            .collect(java.util.stream.Collectors.joining("\n"));
-    WorldResult<Boolean> updated =
-        receiver instanceof ObjectValue object
-            ? world.setVerbCode(object.value(), verbIndex, canonicalSource)
-            : world.setVerbCode((AnonymousObjectValue) receiver, verbIndex, canonicalSource);
-    return mutationResult(updated, new ListValue(List.of()));
-  }
-
-  private static BuiltinResult verbCode(
-      List<MooValue> arguments, WorldTxn world, long programmer) {
-    if (!(arguments.get(0) instanceof ObjectValue object)) {
-      return BuiltinResult.error(ErrorValue.E_TYPE);
-    }
-    MooValue descriptor = arguments.get(1);
-    if (!(descriptor instanceof StringValue) && !(descriptor instanceof IntegerValue)) {
-      return BuiltinResult.error(ErrorValue.E_TYPE);
-    }
-    if (descriptor instanceof IntegerValue integer && integer.value() <= 0) {
-      return BuiltinResult.error(ErrorValue.E_INVARG);
-    }
-    WorldObject target = world.object(object.value()).orElse(null);
-    if (target == null) {
-      return BuiltinResult.error(ErrorValue.E_INVARG);
-    }
-
-    WorldVerb verb;
-    if (descriptor instanceof IntegerValue integer) {
-      long index = integer.value() - 1;
-      if (index >= target.verbs().size()) {
-        return BuiltinResult.error(ErrorValue.E_VERBNF);
-      }
-      verb = target.verbs().get((int) index);
-    } else {
-      WorldVerb candidate =
-          world.verb(object.value(), ((StringValue) descriptor).text(), false).orElse(null);
-      if (candidate == null || !target.verbs().contains(candidate)) {
-        return BuiltinResult.error(ErrorValue.E_VERBNF);
-      }
-      verb = candidate;
-    }
-
-    if (!Access.canRead(world, programmer, verb.owner(), verb.perms())) {
-      return BuiltinResult.error(ErrorValue.E_PERM);
-    }
-
-    boolean indent = arguments.size() < 4 || arguments.get(3).isTruthy();
-    if (verb.programSource().isEmpty()) {
-      return BuiltinResult.value(new ListValue(List.of()));
-    }
-    List<MooValue> lines =
-        Arrays.stream(MooUnparser.unparse(MooParser.parse(verb.programSource()),
-            arguments.size() >= 3 && arguments.get(2).isTruthy()).split("\n", -1))
-            .map(line -> indent ? line : line.stripLeading())
-            .map(StringValue::of)
-            .map(MooValue.class::cast)
-            .toList();
-    return BuiltinResult.value(new ListValue(lines));
   }
 
   private BuiltinResult switchPlayer(BuiltinHosts invocationHosts, List<MooValue> arguments, WorldTxn world) {
