@@ -1533,7 +1533,7 @@ final class PublicationSchedulerTest {
   }
 
   private static VmSnapshot.Frame importActivation(SuspendedActivation activation) {
-    return DurableTaskCodec.importActivation(activation, -1, true, new ToastV17ProgramLayout());
+    return DurableTaskCodec.importActivation(activation, -1, true);
   }
 
   private static SuspendedActivation exportActivation(VmSnapshot.Frame frame) {
