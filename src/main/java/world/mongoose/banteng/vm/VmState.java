@@ -553,7 +553,7 @@ public final class VmState {
         frame.threadMode,
         frame.instructionPointer,
         frame.anonymousRecycleTarget,
-        frame.builtinContinuation, frame.player);
+        frame.builtinContinuation, frame.player, frame.temporary);
   }
 
   private static Frame restore(VmSnapshot.Frame snapshot) {
@@ -576,6 +576,7 @@ public final class VmState {
             snapshot.debug(),
             snapshot.threadMode(), snapshot.player());
     frame.builtinContinuation = snapshot.builtinContinuation();
+    frame.temporary = snapshot.temporary();
     Map<String, MooValue> normalized = normalizedLocals(snapshot.locals());
     for (int slot = 0; slot < frame.locals.length; slot++) {
       frame.locals[slot] = normalized.get(frame.program.variableNames().get(slot));
@@ -653,6 +654,7 @@ public final class VmState {
     final Map<Integer, LoopCursor> loops = new LinkedHashMap<>();
     final ReturnMode returnMode;
     Optional<BuiltinContinuation> builtinContinuation = Optional.empty();
+    Optional<MooValue> temporary = Optional.empty();
     final MooValue receiver;
     final MooValue verbLocation;
     final String calledVerb;

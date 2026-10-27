@@ -197,6 +197,7 @@ public record VmSnapshot(
     size = add(size, textSize(frame.calledVerb()));
     size = add(size, textSize(frame.fullVerbName()));
     size = add(size, optionalValueSize(frame.createReturnOverride()));
+    size = add(size, optionalValueSize(frame.temporary()));
     size = add(size, frame.builtinContinuation().map(VmSnapshot::continuationSize).orElse(0L));
     size = add(size, optionalLongSize(frame.recycleTarget()));
     size = add(size, optionalValueSize(frame.anonymousRecycleTarget()));
@@ -427,7 +428,7 @@ public record VmSnapshot(
       boolean threadMode,
       int instructionPointer,
       Optional<AnonymousObjectValue> anonymousRecycleTarget,
-      Optional<BuiltinContinuation> builtinContinuation, long player) {
+      Optional<BuiltinContinuation> builtinContinuation, long player, Optional<MooValue> temporary) {
     public Frame(
         BytecodeProgram program,
         List<MooValue> operandStack,
@@ -471,7 +472,7 @@ public record VmSnapshot(
           true,
           threadMode,
           instructionPointer,
-          Optional.empty(), Optional.empty(), TaskOrigin.initialPlayer(locals));
+          Optional.empty(), Optional.empty(), TaskOrigin.initialPlayer(locals), Optional.empty());
     }
 
     public Optional<ListValue> builtinStackFrame(Frame parent, boolean lines, boolean variables) {
@@ -483,6 +484,7 @@ public record VmSnapshot(
 
     public Frame {
       Objects.requireNonNull(builtinContinuation, "builtinContinuation");
+      Objects.requireNonNull(temporary, "temporary");
       operandStack = List.copyOf(operandStack);
       indexCollections = List.copyOf(indexCollections);
       locals = Collections.unmodifiableMap(new LinkedHashMap<>(locals));

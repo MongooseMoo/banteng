@@ -600,7 +600,7 @@ final class ToastV17ProgramLayoutTest {
     BytecodeProgram nestedOwner = compiled.forkVectors().getFirst().forkVectors().getFirst();
 
     ToastV17ProgramModel.BantengCallSite call =
-        layout.locateBantengCall(compiled, boundary.astPath());
+        layout.locateBantengCall(compiled, boundary);
 
     assertSame(nestedOwner, call.program());
     assertEquals(1, call.callInstructionIndex());
@@ -641,7 +641,9 @@ final class ToastV17ProgramLayoutTest {
       String source, int vector, int callIndex) {
     ToastV17ProgramLayout layout = new ToastV17ProgramLayout();
     ToastV17ProgramModel.CallBoundary boundary =
-        layout.callBoundaries(source, vector).get(callIndex);
+        layout.callBoundaries(source, vector).stream()
+            .filter(candidate -> candidate.kind() == ToastV17ProgramModel.CallKind.BUILTIN
+                || candidate.kind() == ToastV17ProgramModel.CallKind.VERB).toList().get(callIndex);
     return layout.resolveStructuralStack(
         source, vector, new MooCompiler().compile(source), boundary);
   }
