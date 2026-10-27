@@ -1,4 +1,13 @@
-package world.mongoose.banteng.builtin;
+package world.mongoose.banteng.builtin.family;
+import java.util.Optional;
+import world.mongoose.banteng.builtin.ArgType;
+import world.mongoose.banteng.builtin.BuiltinRegistrar;
+import world.mongoose.banteng.builtin.BuiltinPermissionRule;
+import world.mongoose.banteng.builtin.BuiltinResult;
+import world.mongoose.banteng.builtin.BuiltinSpec;
+import world.mongoose.banteng.builtin.CallShape;
+import world.mongoose.banteng.builtin.ConfinedFileRoot;
+
 
 import java.io.ByteArrayOutputStream;
 import java.io.EOFException;
@@ -27,17 +36,53 @@ import world.mongoose.banteng.value.MooValue.StringValue;
 import org.jspecify.annotations.Nullable;
 
 /** Catalog-scoped owner of Toast-compatible transient file handles. */
-final class FileIoService {
+public final class FileIoBuiltins {
+  private static final Set<ArgType> ANY = Set.of(ArgType.ANY);
+  private static final Set<ArgType> INTEGER = Set.of(ArgType.INTEGER);
+  private static final Set<ArgType> STRING = Set.of(ArgType.STRING);
+  public void register(List<BuiltinSpec> entries) {
+    BuiltinRegistrar registrar = new BuiltinRegistrar(entries);
+    registrar.builtin("file_handles", List.of(new CallShape(List.of(), List.of(), Optional.empty()))).permission(BuiltinPermissionRule.WIZARD_ONLY).irrevocable().implementation(call -> handles(call.arguments()));
+    registrar.builtin("file_open", List.of(new CallShape(List.of(STRING, STRING), List.of(), Optional.empty()))).permission(BuiltinPermissionRule.WIZARD_ONLY).irrevocable().implementation(call -> open(call.arguments()));
+    registrar.builtin("file_close", List.of(new CallShape(List.of(INTEGER), List.of(), Optional.empty()))).permission(BuiltinPermissionRule.WIZARD_ONLY).irrevocable().implementation(call -> close(call.arguments()));
+    registrar.builtin("file_name", List.of(new CallShape(List.of(INTEGER), List.of(), Optional.empty()))).permission(BuiltinPermissionRule.WIZARD_ONLY).irrevocable().implementation(call -> name(call.arguments()));
+    registrar.builtin("file_openmode", List.of(new CallShape(List.of(INTEGER), List.of(), Optional.empty()))).permission(BuiltinPermissionRule.WIZARD_ONLY).irrevocable().implementation(call -> openMode(call.arguments()));
+    registrar.builtin("file_readline", List.of(new CallShape(List.of(INTEGER), List.of(), Optional.empty()))).permission(BuiltinPermissionRule.WIZARD_ONLY).irrevocable().implementation(call -> readLine(call.arguments()));
+    registrar.builtin("file_readlines", List.of(new CallShape(List.of(INTEGER, INTEGER, INTEGER), List.of(), Optional.empty()))).permission(BuiltinPermissionRule.WIZARD_ONLY).irrevocable().implementation(call -> readLines(call.arguments()));
+    registrar.builtin("file_writeline", List.of(new CallShape(List.of(INTEGER, STRING), List.of(), Optional.empty()))).permission(BuiltinPermissionRule.WIZARD_ONLY).irrevocable().implementation(call -> writeLine(call.arguments()));
+    registrar.builtin("file_grep", List.of(new CallShape(List.of(INTEGER, STRING), List.of(INTEGER), Optional.empty()))).permission(BuiltinPermissionRule.WIZARD_ONLY).irrevocable().implementation(call -> grep(call.arguments()));
+    registrar.builtin("file_read", List.of(new CallShape(List.of(INTEGER, INTEGER), List.of(), Optional.empty()))).permission(BuiltinPermissionRule.WIZARD_ONLY).irrevocable().implementation(call -> read(call.arguments()));
+    registrar.builtin("file_write", List.of(new CallShape(List.of(INTEGER, STRING), List.of(), Optional.empty()))).permission(BuiltinPermissionRule.WIZARD_ONLY).irrevocable().implementation(call -> write(call.arguments()));
+    registrar.builtin("file_flush", List.of(new CallShape(List.of(INTEGER), List.of(), Optional.empty()))).permission(BuiltinPermissionRule.WIZARD_ONLY).irrevocable().implementation(call -> flush(call.arguments()));
+    registrar.builtin("file_seek", List.of(new CallShape(List.of(INTEGER, INTEGER, STRING), List.of(), Optional.empty()))).permission(BuiltinPermissionRule.WIZARD_ONLY).irrevocable().implementation(call -> seek(call.arguments()));
+    registrar.builtin("file_tell", List.of(new CallShape(List.of(INTEGER), List.of(), Optional.empty()))).permission(BuiltinPermissionRule.WIZARD_ONLY).irrevocable().implementation(call -> tell(call.arguments()));
+    registrar.builtin("file_eof", List.of(new CallShape(List.of(INTEGER), List.of(), Optional.empty()))).permission(BuiltinPermissionRule.WIZARD_ONLY).irrevocable().implementation(call -> eof(call.arguments()));
+    registrar.builtin("file_count_lines", List.of(new CallShape(List.of(INTEGER), List.of(), Optional.empty()))).permission(BuiltinPermissionRule.WIZARD_ONLY).irrevocable().implementation(call -> countLines(call.arguments()));
+    registrar.builtin("file_list", List.of(new CallShape(List.of(STRING), List.of(ANY), Optional.empty()))).permission(BuiltinPermissionRule.WIZARD_ONLY).irrevocable().implementation(call -> list(call.arguments()));
+    registrar.builtin("file_mkdir", List.of(new CallShape(List.of(STRING), List.of(), Optional.empty()))).permission(BuiltinPermissionRule.WIZARD_ONLY).irrevocable().implementation(call -> mkdir(call.arguments()));
+    registrar.builtin("file_rmdir", List.of(new CallShape(List.of(STRING), List.of(), Optional.empty()))).permission(BuiltinPermissionRule.WIZARD_ONLY).irrevocable().implementation(call -> rmdir(call.arguments()));
+    registrar.builtin("file_remove", List.of(new CallShape(List.of(STRING), List.of(), Optional.empty()))).permission(BuiltinPermissionRule.WIZARD_ONLY).irrevocable().implementation(call -> remove(call.arguments()));
+    registrar.builtin("file_rename", List.of(new CallShape(List.of(STRING, STRING), List.of(), Optional.empty()))).permission(BuiltinPermissionRule.WIZARD_ONLY).irrevocable().implementation(call -> rename(call.arguments()));
+    registrar.builtin("file_chmod", List.of(new CallShape(List.of(STRING, STRING), List.of(), Optional.empty()))).permission(BuiltinPermissionRule.WIZARD_ONLY).irrevocable().implementation(call -> chmod(call.arguments()));
+    registrar.builtin("file_size", List.of(new CallShape(List.of(ANY), List.of(), Optional.empty()))).permission(BuiltinPermissionRule.WIZARD_ONLY).irrevocable().implementation(call -> size(call.arguments()));
+    registrar.builtin("file_mode", List.of(new CallShape(List.of(ANY), List.of(), Optional.empty()))).permission(BuiltinPermissionRule.WIZARD_ONLY).irrevocable().implementation(call -> mode(call.arguments()));
+    registrar.builtin("file_type", List.of(new CallShape(List.of(ANY), List.of(), Optional.empty()))).permission(BuiltinPermissionRule.WIZARD_ONLY).irrevocable().implementation(call -> type(call.arguments()));
+    registrar.builtin("file_last_access", List.of(new CallShape(List.of(ANY), List.of(), Optional.empty()))).permission(BuiltinPermissionRule.WIZARD_ONLY).irrevocable().implementation(call -> lastAccess(call.arguments()));
+    registrar.builtin("file_last_modify", List.of(new CallShape(List.of(ANY), List.of(), Optional.empty()))).permission(BuiltinPermissionRule.WIZARD_ONLY).irrevocable().implementation(call -> lastModify(call.arguments()));
+    registrar.builtin("file_last_change", List.of(new CallShape(List.of(ANY), List.of(), Optional.empty()))).permission(BuiltinPermissionRule.WIZARD_ONLY).irrevocable().implementation(call -> lastChange(call.arguments()));
+    registrar.builtin("file_stat", List.of(new CallShape(List.of(ANY), List.of(), Optional.empty()))).permission(BuiltinPermissionRule.WIZARD_ONLY).irrevocable().implementation(call -> stat(call.arguments()));
+  }
+
   private static final int MAX_HANDLES = 256;
   private final Map<Long, Handle> handles = new LinkedHashMap<>();
   private final ConfinedFileRoot root;
   private long nextHandle = 1;
 
-  FileIoService(ConfinedFileRoot root) {
+  public FileIoBuiltins(ConfinedFileRoot root) {
     this.root = root;
   }
 
-  synchronized BuiltinResult open(List<MooValue> arguments) {
+  private synchronized BuiltinResult open(List<MooValue> arguments) {
     String name = ((StringValue) arguments.get(0)).text();
     Mode mode = Mode.parse(((StringValue) arguments.get(1)).text());
     if (mode == null) {
@@ -66,7 +111,7 @@ final class FileIoService {
     }
   }
 
-  synchronized BuiltinResult close(List<MooValue> arguments) {
+  private synchronized BuiltinResult close(List<MooValue> arguments) {
     long id = integer(arguments.get(0));
     Handle handle = handles.remove(id);
     if (handle == null) {
@@ -83,17 +128,17 @@ final class FileIoService {
     }
   }
 
-  synchronized BuiltinResult name(List<MooValue> arguments) {
+  private synchronized BuiltinResult name(List<MooValue> arguments) {
     Handle handle = handle(arguments.get(0));
     return handle == null ? invalidArgument() : string(handle.name);
   }
 
-  synchronized BuiltinResult openMode(List<MooValue> arguments) {
+  private synchronized BuiltinResult openMode(List<MooValue> arguments) {
     Handle handle = handle(arguments.get(0));
     return handle == null ? invalidArgument() : string(handle.mode.source);
   }
 
-  synchronized BuiltinResult readLine(List<MooValue> arguments) {
+  private synchronized BuiltinResult readLine(List<MooValue> arguments) {
     Handle handle = readable(arguments.get(0));
     if (handle == null) {
       return invalidArgument();
@@ -108,7 +153,7 @@ final class FileIoService {
     }
   }
 
-  synchronized BuiltinResult readLines(List<MooValue> arguments) {
+  private synchronized BuiltinResult readLines(List<MooValue> arguments) {
     long begin = integer(arguments.get(1));
     long end = integer(arguments.get(2));
     if (begin < 1 || begin > end) {
@@ -142,7 +187,7 @@ final class FileIoService {
     }
   }
 
-  synchronized BuiltinResult writeLine(List<MooValue> arguments) {
+  private synchronized BuiltinResult writeLine(List<MooValue> arguments) {
     Handle handle = writable(arguments.get(0));
     if (handle == null) {
       return invalidArgument();
@@ -163,7 +208,7 @@ final class FileIoService {
     }
   }
 
-  synchronized BuiltinResult read(List<MooValue> arguments) {
+  private synchronized BuiltinResult read(List<MooValue> arguments) {
     Handle handle = readable(arguments.get(0));
     long requested = integer(arguments.get(1));
     if (handle == null || requested < 0 || requested > Integer.MAX_VALUE) {
@@ -189,7 +234,7 @@ final class FileIoService {
     }
   }
 
-  synchronized BuiltinResult write(List<MooValue> arguments) {
+  private synchronized BuiltinResult write(List<MooValue> arguments) {
     Handle handle = writable(arguments.get(0));
     if (handle == null) {
       return invalidArgument();
@@ -209,7 +254,7 @@ final class FileIoService {
     }
   }
 
-  synchronized BuiltinResult flush(List<MooValue> arguments) {
+  private synchronized BuiltinResult flush(List<MooValue> arguments) {
     Handle handle = handle(arguments.get(0));
     if (handle == null) {
       return invalidArgument();
@@ -222,7 +267,7 @@ final class FileIoService {
     }
   }
 
-  synchronized BuiltinResult seek(List<MooValue> arguments) {
+  private synchronized BuiltinResult seek(List<MooValue> arguments) {
     Handle handle = handle(arguments.get(0));
     if (handle == null) {
       return invalidArgument();
@@ -248,7 +293,7 @@ final class FileIoService {
     }
   }
 
-  synchronized BuiltinResult tell(List<MooValue> arguments) {
+  private synchronized BuiltinResult tell(List<MooValue> arguments) {
     Handle handle = handle(arguments.get(0));
     if (handle == null) {
       return invalidArgument();
@@ -260,12 +305,12 @@ final class FileIoService {
     }
   }
 
-  synchronized BuiltinResult eof(List<MooValue> arguments) {
+  private synchronized BuiltinResult eof(List<MooValue> arguments) {
     Handle handle = handle(arguments.get(0));
     return handle == null ? invalidArgument() : BuiltinResult.value(new IntegerValue(handle.eof ? 1 : 0));
   }
 
-  synchronized BuiltinResult countLines(List<MooValue> arguments) {
+  private synchronized BuiltinResult countLines(List<MooValue> arguments) {
     Handle handle = readable(arguments.get(0));
     if (handle == null) {
       return invalidArgument();
@@ -288,7 +333,7 @@ final class FileIoService {
     }
   }
 
-  synchronized BuiltinResult grep(List<MooValue> arguments) {
+  private synchronized BuiltinResult grep(List<MooValue> arguments) {
     Handle handle = readable(arguments.get(0));
     if (handle == null) {
       return invalidArgument();
@@ -324,7 +369,7 @@ final class FileIoService {
     }
   }
 
-  synchronized BuiltinResult handles(List<MooValue> arguments) {
+  private synchronized BuiltinResult handles(List<MooValue> arguments) {
     return BuiltinResult.value(
         new ListValue(
             handles.keySet().stream()
@@ -334,7 +379,7 @@ final class FileIoService {
                 .toList()));
   }
 
-  synchronized BuiltinResult list(List<MooValue> arguments) {
+  private synchronized BuiltinResult list(List<MooValue> arguments) {
     Path path = resolve(((StringValue) arguments.get(0)).text());
     if (path == null) {
       return invalidArgument();
@@ -371,7 +416,7 @@ final class FileIoService {
     }
   }
 
-  synchronized BuiltinResult mkdir(List<MooValue> arguments) {
+  private synchronized BuiltinResult mkdir(List<MooValue> arguments) {
     Path path = resolve(((StringValue) arguments.get(0)).text());
     if (path == null) {
       return invalidArgument();
@@ -384,15 +429,15 @@ final class FileIoService {
     }
   }
 
-  synchronized BuiltinResult rmdir(List<MooValue> arguments) {
+  private synchronized BuiltinResult rmdir(List<MooValue> arguments) {
     return removePath(arguments, true);
   }
 
-  synchronized BuiltinResult remove(List<MooValue> arguments) {
+  private synchronized BuiltinResult remove(List<MooValue> arguments) {
     return removePath(arguments, false);
   }
 
-  synchronized BuiltinResult rename(List<MooValue> arguments) {
+  private synchronized BuiltinResult rename(List<MooValue> arguments) {
     Path from = resolve(((StringValue) arguments.get(0)).text());
     if (from == null) {
       return fileError();
@@ -409,7 +454,7 @@ final class FileIoService {
     }
   }
 
-  synchronized BuiltinResult chmod(List<MooValue> arguments) {
+  private synchronized BuiltinResult chmod(List<MooValue> arguments) {
     String mode = ((StringValue) arguments.get(1)).text();
     if (!mode.matches("[0-7]{3}")) {
       return invalidArgument();
@@ -426,43 +471,43 @@ final class FileIoService {
     }
   }
 
-  synchronized BuiltinResult size(List<MooValue> arguments) {
+  private synchronized BuiltinResult size(List<MooValue> arguments) {
     FileInfo info = fileInfo(arguments.get(0));
     return info == null ? fileSpecError(arguments.get(0)) : BuiltinResult.value(new IntegerValue(info.size));
   }
 
-  synchronized BuiltinResult mode(List<MooValue> arguments) {
+  private synchronized BuiltinResult mode(List<MooValue> arguments) {
     FileInfo info = fileInfo(arguments.get(0));
     return info == null ? fileSpecError(arguments.get(0)) : string(info.mode);
   }
 
-  synchronized BuiltinResult type(List<MooValue> arguments) {
+  private synchronized BuiltinResult type(List<MooValue> arguments) {
     FileInfo info = fileInfo(arguments.get(0));
     return info == null ? fileSpecError(arguments.get(0)) : string(info.type);
   }
 
-  synchronized BuiltinResult lastAccess(List<MooValue> arguments) {
+  private synchronized BuiltinResult lastAccess(List<MooValue> arguments) {
     FileInfo info = fileInfo(arguments.get(0));
     return info == null
         ? fileSpecError(arguments.get(0))
         : BuiltinResult.value(new IntegerValue(info.access));
   }
 
-  synchronized BuiltinResult lastModify(List<MooValue> arguments) {
+  private synchronized BuiltinResult lastModify(List<MooValue> arguments) {
     FileInfo info = fileInfo(arguments.get(0));
     return info == null
         ? fileSpecError(arguments.get(0))
         : BuiltinResult.value(new IntegerValue(info.modify));
   }
 
-  synchronized BuiltinResult lastChange(List<MooValue> arguments) {
+  private synchronized BuiltinResult lastChange(List<MooValue> arguments) {
     FileInfo info = fileInfo(arguments.get(0));
     return info == null
         ? fileSpecError(arguments.get(0))
         : BuiltinResult.value(new IntegerValue(info.change));
   }
 
-  synchronized BuiltinResult stat(List<MooValue> arguments) {
+  private synchronized BuiltinResult stat(List<MooValue> arguments) {
     FileInfo info = fileInfo(arguments.get(0));
     if (info == null) {
       return fileSpecError(arguments.get(0));
