@@ -25,3 +25,6 @@ Uses the existing family mover and ChangeType recipe without new migration machi
 
 # Next step
 Parent owns publication and required PR CI/conformance after runtime lands. Preserve existing review coverage because Noise extraction/mover code is unchanged; this ancestry integration adds no code to re-review. No publication, release or deployment performed by this worker.
+
+## Login and layout repair ancestry
+Merged the latest coordinator runtime login-output and pinned-layout-boundary repairs normally, without conflicts or family source adaptations. Family implementations, services, dependencies, extraction mover, authored fixtures and YAML are unchanged. No local tests, CI, migration or repeated review ran for this mechanical integration. Parent owns publication, hosted checks and merge.
