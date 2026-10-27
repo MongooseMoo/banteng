@@ -26,7 +26,8 @@ final class PropertyOps {
     if (value == null) {
       ErrorOps.raise(state, ErrorValue.E_VARNF,
           new ListValue(List.of(StringValue.of("Variable not found: "
-              + frame.program.variableNames().get(slot)), new IntegerValue(0))), world);
+              + frame.program.instructions().get(frame.instructionPointer).text()
+                  .orElse(frame.program.variableNames().get(slot))), new IntegerValue(0))), world);
       return;
     }
     frame.operandStack.push(value);

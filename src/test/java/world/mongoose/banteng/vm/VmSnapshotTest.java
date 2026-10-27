@@ -34,6 +34,37 @@ import org.junit.jupiter.api.Test;
 
 final class VmSnapshotTest {
   @Test
+  void restoreNormalizesSavedNamesWithoutRefillingMissingSlots() {
+    BytecodeProgram program = new world.mongoose.banteng.bytecode.MooCompiler().compile("return {Value, INT};");
+    VmState state = new VmState(new TaskOrigin(Map.of(), 0, new ObjectValue(-1), "", "", true),
+        new TaskBudget(60000, 5, 50));
+    state.ensureRoot(program);
+    VmSnapshot snapshot = state.snapshot(0);
+    VmSnapshot.Frame frame = snapshot.frames().getFirst();
+    VmSnapshot.Frame upper = new VmSnapshot.Frame(frame.program(), frame.operandStack(),
+        frame.indexCollections(), Map.of("VALUE", new IntegerValue(9), "INT", new IntegerValue(77)),
+        frame.handlers(), frame.finallyStates(), frame.loops(), frame.returnMode(), frame.receiver(),
+        frame.verbLocation(), frame.calledVerb(), frame.fullVerbName(), frame.createReturnOverride(),
+        frame.recycleTarget(), frame.moveObject(), frame.moveDestination(), frame.movePosition(),
+        frame.programmer(), frame.debug(), frame.threadMode(), frame.instructionPointer(),
+        frame.anonymousRecycleTarget());
+    VmSnapshot saved = new VmSnapshot(snapshot.initialLocals(), snapshot.initialProgrammer(),
+        snapshot.initialVerbLocation(), snapshot.initialCalledVerb(), snapshot.initialFullVerbName(),
+        List.of(upper), snapshot.output(), snapshot.connectionOptionRequests(), snapshot.bootPlayerTargets(),
+        snapshot.forcedInputRequests(), snapshot.notificationRequests(), snapshot.checkpointRequests(),
+        snapshot.anonymousCollectionDeferrals(), snapshot.outcome(), snapshot.returnValue(), snapshot.pendingError(),
+        snapshot.uncaughtError(), snapshot.switchedPlayer(), snapshot.forkRequest(), snapshot.suspensionDelaySeconds(),
+        snapshot.awaitingHostResult(), snapshot.pendingBuiltin(), snapshot.taskLocal(), snapshot.remainingTicks(),
+        snapshot.elapsedCpuNanos(), snapshot.remainingCpuNanos(), snapshot.maxStackDepth());
+    VmState restored = VmState.restore(saved);
+    assertEquals(new IntegerValue(77), restored.currentFrame().locals[16]);
+    assertFalse(restored.currentFrame().namedLocals().containsKey("float"));
+    new PureVmFixture().execute(program, restored);
+    assertEquals(new ListValue(List.of(new IntegerValue(9), new IntegerValue(77))),
+        restored.returnValue().orElseThrow());
+  }
+
+  @Test
   void taskOriginOwnsCopiedNormalizedLocalsAndRootMergePreservesMetadata() {
     Map<String, world.mongoose.banteng.value.MooValue> locals = new LinkedHashMap<>();
     locals.put("SEED", new IntegerValue(7));

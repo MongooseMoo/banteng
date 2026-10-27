@@ -582,8 +582,9 @@ public final class VmState {
             snapshot.anonymousRecycleTarget(),
             snapshot.debug(),
             snapshot.threadMode());
+    Map<String, MooValue> normalized = normalizedLocals(snapshot.locals());
     for (int slot = 0; slot < frame.locals.length; slot++) {
-      frame.locals[slot] = snapshot.locals().get(frame.program.variableNames().get(slot));
+      frame.locals[slot] = normalized.get(frame.program.variableNames().get(slot));
     }
     frame.operandStack.addAll(snapshot.operandStack());
     for (VmSnapshot.IndexState index : snapshot.indexCollections()) {
@@ -619,6 +620,16 @@ public final class VmState {
     Map<String, MooValue> normalized = new LinkedHashMap<>();
     locals.forEach((name, value) -> normalized.put(name.toLowerCase(Locale.ROOT), value));
     return normalized;
+  }
+
+  /** Initial runtime constants for importing older named activation environments. */
+  public static Map<String, MooValue> constantLocals(BytecodeProgram program) {
+    Map<String, MooValue> constants = new LinkedHashMap<>();
+    for (int slot = 0; slot < Frame.CONSTANT_VALUES.length; slot++) {
+      MooValue value = Frame.CONSTANT_VALUES[slot];
+      if (value != null) constants.put(program.variableNames().get(slot), value);
+    }
+    return constants;
   }
 
   static final class Frame {

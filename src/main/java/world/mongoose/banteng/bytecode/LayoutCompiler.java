@@ -414,6 +414,7 @@ public final class LayoutCompiler {
 
   private final Ast.Program program;
   private final Map<String, Integer> symbols = new LinkedHashMap<>();
+  private final List<String> symbolSpellings = new ArrayList<>();
   private final GlobalState global = new GlobalState();
 
   /** Parses one MOO source body for Toast v17 layout queries. */
@@ -425,12 +426,18 @@ public final class LayoutCompiler {
     this.program = program;
     for (String name : PREDEFINED_NAMES) {
       symbols.put(name, symbols.size());
+      symbolSpellings.add(name.equals("true") || name.equals("false")
+          || (symbols.size() > 5 && symbols.size() <= 16) ? name : name.toUpperCase(Locale.ROOT));
     }
     collectSymbols(program.statements());
   }
 
   static List<String> variableNames(Ast.Program program) {
     return List.copyOf(new LayoutCompiler(program).symbols.keySet());
+  }
+
+  static List<String> variableSpellings(Ast.Program program) {
+    return List.copyOf(new LayoutCompiler(program).symbolSpellings);
   }
 
   /** Returns every exact call boundary in one Toast vector. */
@@ -519,7 +526,10 @@ public final class LayoutCompiler {
   }
 
   private void register(String name) {
-    symbols.computeIfAbsent(name.toLowerCase(Locale.ROOT), ignored -> symbols.size());
+    symbols.computeIfAbsent(name.toLowerCase(Locale.ROOT), ignored -> {
+      symbolSpellings.add(name);
+      return symbols.size();
+    });
   }
 
   private void collectSymbols(List<Ast.Statement> statements) {

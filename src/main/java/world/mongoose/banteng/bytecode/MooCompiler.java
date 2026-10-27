@@ -247,8 +247,10 @@ public final class MooCompiler {
               : OptionalInt.of(instructions.get(firstImplicitInstruction - 1).sourceLine()));
     }
     List<String> names = new ArrayList<>(LayoutCompiler.variableNames(program));
+    List<String> spellings = new ArrayList<>(LayoutCompiler.variableSpellings(program));
     collectTemporaryNames(instructions, forkVectors, names);
-    return slotProgram(new BytecodeProgram(instructions, forkVectors, MooUnparser.unparse(program)), names);
+    spellings.addAll(names.subList(spellings.size(), names.size()));
+    return slotProgram(new BytecodeProgram(instructions, forkVectors, MooUnparser.unparse(program)), names, spellings);
   }
 
   private static void collectTemporaryNames(List<Instruction> instructions,
@@ -261,7 +263,8 @@ public final class MooCompiler {
     for (BytecodeProgram fork : forks) collectTemporaryNames(fork.instructions(), fork.forkVectors(), names);
   }
 
-  private static BytecodeProgram slotProgram(BytecodeProgram program, List<String> names) {
+  private static BytecodeProgram slotProgram(BytecodeProgram program, List<String> names,
+      List<String> spellings) {
     List<Instruction> code = new ArrayList<>();
     for (Instruction instruction : program.instructions()) {
       Opcode opcode = instruction.opcode();
@@ -281,13 +284,15 @@ public final class MooCompiler {
       code.add(new Instruction(opcode,
           local ? java.util.OptionalLong.of(names.indexOf(instruction.text().orElseThrow()
               .toLowerCase(java.util.Locale.ROOT))) : instruction.operand(),
-          local ? Optional.empty() : instruction.text(), handler, instruction.sourceLine(),
+          opcode == Opcode.LOAD_LOCAL ? Optional.of(spellings.get(names.indexOf(
+              instruction.text().orElseThrow().toLowerCase(java.util.Locale.ROOT))))
+              : local ? Optional.empty() : instruction.text(), handler, instruction.sourceLine(),
           instruction.astPath(), local ? Math.toIntExact(instruction.operand().orElse(0)) : 0,
           destinations));
     }
     clearLastReads(code);
     return new BytecodeProgram(code, program.forkVectors().stream()
-        .map(fork -> slotProgram(fork, names)).toList(), program.source(), names);
+        .map(fork -> slotProgram(fork, names, spellings)).toList(), program.source(), names);
   }
 
   /** Toast's reverse basic-block pass: only definite replacement/end makes a read clearable. */

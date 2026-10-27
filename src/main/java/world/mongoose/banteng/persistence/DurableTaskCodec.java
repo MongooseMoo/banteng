@@ -22,6 +22,7 @@ import world.mongoose.banteng.value.MooValue.ErrorValue;
 import world.mongoose.banteng.value.MooValue.IntegerValue;
 import world.mongoose.banteng.value.MooValue.ListValue;
 import world.mongoose.banteng.vm.VmSnapshot;
+import world.mongoose.banteng.vm.VmState;
 
 /** Converts durable task records and VM activation state. */
 public final class DurableTaskCodec {
@@ -90,9 +91,12 @@ public final class DurableTaskCodec {
             activation.programSource(), vector, selected, boundary);
     ImportedActivationStack imported =
         importStructuralStack(structural, activation.operandStack());
-    Map<String, MooValue> locals = new LinkedHashMap<>();
-    activation.locals().forEach(
-        (name, value) -> value.ifPresent(present -> locals.put(name, present)));
+    Map<String, MooValue> locals = VmState.constantLocals(selected);
+    activation.locals().forEach((name, value) -> {
+      String normalized = name.toLowerCase(java.util.Locale.ROOT);
+      if (value.isPresent()) locals.put(normalized, value.orElseThrow());
+      else locals.remove(normalized);
+    });
     return new VmSnapshot.Frame(
         site.call().program(),
         imported.operandStack(),

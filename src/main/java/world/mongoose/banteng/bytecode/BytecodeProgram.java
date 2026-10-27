@@ -58,7 +58,9 @@ public record BytecodeProgram(
       Instruction instruction = instructions.get(index);
       text.append(index).append(' ').append(instruction.opcode());
       instruction.operand().ifPresent(operand -> text.append(' ').append(operand));
-      instruction.text().ifPresent(operand -> text.append(' ').append(operand));
+      if (instruction.opcode() != Opcode.LOAD_LOCAL && instruction.opcode() != Opcode.PUSH_CLEAR) {
+        instruction.text().ifPresent(operand -> text.append(' ').append(operand));
+      }
       instruction.handler().ifPresent(operand -> text.append(' ').append(operand.disassemble()));
     }
     for (int index = 0; index < forkVectors.size(); index++) {
@@ -218,7 +220,7 @@ public record BytecodeProgram(
               || opcode == Opcode.SET_RANGE_LOCAL;
       if ((!local && !optionalParent && numberRequired != operand.isPresent())
           || (local && text.isEmpty() && (operand.isEmpty() || operand.orElseThrow() < 0))
-          || (local && text.isPresent() && opcode == Opcode.PUSH_CLEAR)
+          || (opcode == Opcode.PUSH_CLEAR && (operand.isEmpty() || operand.orElseThrow() < 0))
           || (opcode == Opcode.STORE_LOCAL && text.isPresent() && operand.isPresent())
           || (opcode == Opcode.INDEX
               && operand.isPresent()

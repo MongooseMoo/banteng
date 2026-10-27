@@ -4,6 +4,8 @@ import static org.junit.jupiter.api.Assertions.*;
 
 import java.util.List;
 import java.util.Map;
+import java.util.LinkedHashMap;
+import java.util.Optional;
 import org.junit.jupiter.api.Test;
 import world.mongoose.banteng.bytecode.BytecodeProgram;
 import world.mongoose.banteng.bytecode.BytecodeProgram.Opcode;
@@ -12,6 +14,46 @@ import world.mongoose.banteng.value.MooValue.IntegerValue;
 import world.mongoose.banteng.value.MooValue.ListValue;
 
 final class SlotLocalsTest {
+  @Test
+  void missingVariableDiagnosticUsesFirstSourceSpelling() {
+    BytecodeProgram program = new MooCompiler().compile(
+        "if (0) E_ASSERT = 1; endif try return e_assert; except caught (ANY) return caught[2]; endtry");
+    VmState state = new VmState(new TaskOrigin(Map.of(), 0,
+        new world.mongoose.banteng.value.MooValue.ObjectValue(-1), "", "", true), new TaskBudget(60000, 5, 50));
+    new PureVmFixture().execute(program, state);
+    assertEquals(world.mongoose.banteng.value.MooValue.StringValue.of(
+        "Variable not found: E_ASSERT"), state.returnValue().orElseThrow());
+    BytecodeProgram clearedRead = new MooCompiler().compile("return E_ASSERT;");
+    assertTrue(clearedRead.instructions().stream().anyMatch(i -> i.opcode() == Opcode.PUSH_CLEAR
+        && i.text().orElseThrow().equals("E_ASSERT")));
+    assertFalse(clearedRead.disassemble().contains("E_ASSERT"));
+  }
+
+  @Test
+  void activationImportRestoresOldAbsentConstantsButPreservesExplicitClears() {
+    BytecodeProgram program = new MooCompiler().compile("value = 9; suspend(60); return {value, INT};");
+    VmState state = new VmState(new TaskOrigin(Map.of(), 0,
+        new world.mongoose.banteng.value.MooValue.ObjectValue(-1), "", "", true), new TaskBudget(60000, 5, 50));
+    new PureVmFixture().execute(program, state);
+    var saved = world.mongoose.banteng.persistence.DurableTaskCodec.durableSuspension(
+        1, 0, state.snapshot(0), 0, new IntegerValue(0)).activations().getFirst();
+    Map<String, Optional<world.mongoose.banteng.value.MooValue>> locals = new LinkedHashMap<>();
+    locals.put("VALUE", Optional.of(new IntegerValue(9)));
+    locals.put("NUM", Optional.of(new IntegerValue(77)));
+    locals.put("FLOAT", Optional.empty());
+    var old = new world.mongoose.banteng.persistence.LambdaMooV17Codec.SuspendedActivation(
+        saved.languageVersion(), saved.programSource(), locals, saved.operandStack(), saved.receiver(),
+        saved.verbLocation(), saved.threadMode(), saved.taskPlayer(), saved.programmer(), saved.debug(),
+        saved.verb(), saved.verbNames(), saved.temporary(), saved.programCounter(),
+        saved.builtinFunctionCounter(), saved.errorCounter());
+    var imported = world.mongoose.banteng.persistence.DurableTaskCodec.importActivation(old, -1, true,
+        new world.mongoose.banteng.persistence.ToastV17ProgramLayout());
+    assertEquals(new IntegerValue(9), imported.locals().get("value"));
+    assertEquals(new IntegerValue(77), imported.locals().get("num"));
+    assertEquals(new IntegerValue(0), imported.locals().get("int"));
+    assertFalse(imported.locals().containsKey("float"));
+  }
+
   @Test
   void suspendedForkExportsCatchBindingsAgainstItsSharedSlotTable() {
     BytecodeProgram enclosing = new MooCompiler().compile(
