@@ -22,6 +22,7 @@ import world.mongoose.banteng.value.MooValue.ErrorValue;
 import world.mongoose.banteng.value.MooValue.IntegerValue;
 import world.mongoose.banteng.value.MooValue.ListValue;
 import world.mongoose.banteng.vm.VmSnapshot;
+import world.mongoose.banteng.vm.VmState;
 
 /** Converts durable task records and VM activation state. */
 public final class DurableTaskCodec {
@@ -47,13 +48,13 @@ public final class DurableTaskCodec {
                         instruction.text(),
                         instruction.handler(),
                         Math.addExact(instruction.sourceLine(), offset),
-                        instruction.astPath()))
+                        instruction.astPath(), instruction.localAux(), instruction.localSlots()))
             .toList();
     List<BytecodeProgram> forkVectors =
         program.forkVectors().stream()
             .map(vector -> shiftSourceLines(vector, offset))
             .toList();
-    return new BytecodeProgram(instructions, forkVectors, program.source());
+    return new BytecodeProgram(instructions, forkVectors, program.source(), program.variableNames());
   }
 
   public static VmSnapshot.Frame importActivation(
@@ -90,9 +91,12 @@ public final class DurableTaskCodec {
             activation.programSource(), vector, selected, boundary);
     ImportedActivationStack imported =
         importStructuralStack(structural, activation.operandStack());
-    Map<String, MooValue> locals = new LinkedHashMap<>();
-    activation.locals().forEach(
-        (name, value) -> value.ifPresent(present -> locals.put(name, present)));
+    Map<String, MooValue> locals = VmState.constantLocals(selected);
+    activation.locals().forEach((name, value) -> {
+      String normalized = name.toLowerCase(java.util.Locale.ROOT);
+      if (value.isPresent()) locals.put(normalized, value.orElseThrow());
+      else locals.remove(normalized);
+    });
     return new VmSnapshot.Frame(
         site.call().program(),
         imported.operandStack(),
@@ -583,7 +587,8 @@ public final class DurableTaskCodec {
     if (!remainingLoops.isEmpty()) {
       throw new IllegalStateException("unclaimed Banteng loop state");
     }
-    validateExportedHandlers(expectedHandlerGroups, frame.handlers(), structural);
+    validateExportedHandlers(expectedHandlerGroups, frame.handlers(), structural,
+        frame.program().variableNames());
     fillOrdinarySlots(baseToTop, structural, frame.operandStack());
     List<SuspendedStackSlot> topToBase = new ArrayList<>(List.of(baseToTop));
     Collections.reverse(topToBase);
@@ -621,7 +626,8 @@ public final class DurableTaskCodec {
   private static void validateExportedHandlers(
       List<ImportedHandlerGroup> groups,
       List<VmSnapshot.HandlerState> actualHandlers,
-      boolean[] structural) {
+      boolean[] structural,
+      List<String> variableNames) {
     groups.sort(
         java.util.Comparator.comparingInt(ImportedHandlerGroup::baseDepth).reversed());
     int actualIndex = 0;
@@ -632,7 +638,12 @@ public final class DurableTaskCodec {
           throw new IllegalStateException("missing Banteng handler state");
         }
         VmSnapshot.HandlerState actual = actualHandlers.get(actualIndex++);
-        if (!actual.specification().equals(expected.control().specification())
+        BytecodeProgram.HandlerSpec canonical = expected.control().specification();
+        BytecodeProgram.HandlerSpec rebound = new BytecodeProgram.HandlerSpec(
+            canonical.catchTarget(), canonical.catchVariable(), canonical.catchesAny(),
+            canonical.caughtErrors(), canonical.structuredCatchBinding(), canonical.finallyTarget(),
+            canonical.endTarget(), canonical.catchVariable().map(variableNames::indexOf).orElse(-1));
+        if (!actual.specification().equals(rebound)
             || actual.operandDepth() != operandDepth
             || actual.phase() != expected.phase()) {
           throw new IllegalStateException("Banteng handler disagrees with v17 structure");
@@ -852,7 +863,9 @@ public final class DurableTaskCodec {
         layout.resolveStructuralStack(frame.program().source(), -1, canonical, boundary);
     List<SuspendedStackSlot> stack = exportStructuralStack(structural, frame);
     Map<String, Optional<MooValue>> locals = new LinkedHashMap<>();
-    frame.locals().forEach((name, value) -> locals.put(name, Optional.of(value)));
+    for (String name : frame.program().variableNames()) {
+      locals.put(name, Optional.ofNullable(frame.locals().get(name)));
+    }
     String verb =
         frame.locals().get("verb") instanceof world.mongoose.banteng.value.MooValue.StringValue value
             ? value.text()

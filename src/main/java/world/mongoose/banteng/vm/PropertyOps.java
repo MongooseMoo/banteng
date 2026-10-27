@@ -1,22 +1,12 @@
 package world.mongoose.banteng.vm;
 
-import java.util.ArrayDeque;
-import java.util.Collections;
-import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Locale;
-import java.util.Map;
-import java.util.Objects;
-import java.util.Set;
-import world.mongoose.banteng.bytecode.BytecodeProgram.Instruction;
-import world.mongoose.banteng.bytecode.BytecodeProgram.Opcode;
 import world.mongoose.banteng.value.MooValue;
 import world.mongoose.banteng.value.MooValue.AnonymousObjectValue;
-import world.mongoose.banteng.value.MooValue.BooleanValue;
 import world.mongoose.banteng.value.MooValue.ErrorValue;
 import world.mongoose.banteng.value.MooValue.IntegerValue;
 import world.mongoose.banteng.value.MooValue.ListValue;
-import world.mongoose.banteng.value.MooValue.MapValue;
 import world.mongoose.banteng.value.MooValue.ObjectValue;
 import world.mongoose.banteng.value.MooValue.StringValue;
 import world.mongoose.banteng.value.MooValue.WaifValue;
@@ -29,152 +19,20 @@ import world.mongoose.banteng.world.WorldTxn;
 
 /** Local and world-property operations. */
 final class PropertyOps {
-  private static final Set<Opcode> CONTROL_FLOW =
-      Set.of(
-          Opcode.FORK,
-          Opcode.JUMP,
-          Opcode.JUMP_IF_FALSE,
-          Opcode.JUMP_IF_TRUE,
-          Opcode.ENTER_HANDLER,
-          Opcode.LEAVE_HANDLER,
-          Opcode.END_FINALLY,
-          Opcode.ITERATE,
-          Opcode.ITERATE_RANGE,
-          Opcode.LEAVE_LOOP,
-          Opcode.SCATTER);
-
   private PropertyOps() {}
 
-  static void loadLocal(Frame frame, String name, VmState state, WorldTxn world) {
-    String normalized = normalize(name);
-    MooValue value = frame.locals.get(normalized);
+  static void loadLocal(Frame frame, int slot, boolean clear, VmState state, WorldTxn world) {
+    MooValue value = frame.locals[slot];
     if (value == null) {
-      if (name.equalsIgnoreCase("INT") || name.equalsIgnoreCase("NUM")) {
-        frame.operandStack.push(new IntegerValue(MooValue.Type.INTEGER.code()));
-        frame.instructionPointer++;
-        return;
-      }
-      if (name.equalsIgnoreCase("STR")) {
-        frame.operandStack.push(new IntegerValue(MooValue.Type.STRING.code()));
-        frame.instructionPointer++;
-        return;
-      }
-      if (name.equalsIgnoreCase("FLOAT")) {
-        frame.operandStack.push(new IntegerValue(MooValue.Type.FLOAT.code()));
-        frame.instructionPointer++;
-        return;
-      }
-      if (name.equalsIgnoreCase("OBJ")) {
-        frame.operandStack.push(new IntegerValue(MooValue.Type.OBJECT.code()));
-        frame.instructionPointer++;
-        return;
-      }
-      if (name.equalsIgnoreCase("LIST")) {
-        frame.operandStack.push(new IntegerValue(MooValue.Type.LIST.code()));
-        frame.instructionPointer++;
-        return;
-      }
-      if (name.equalsIgnoreCase("WAIF")) {
-        frame.operandStack.push(new IntegerValue(MooValue.Type.WAIF.code()));
-        frame.instructionPointer++;
-        return;
-      }
-      if (name.equalsIgnoreCase("ERR")) {
-        frame.operandStack.push(new IntegerValue(MooValue.Type.ERROR.code()));
-        frame.instructionPointer++;
-        return;
-      }
-      if (name.equalsIgnoreCase("MAP")) {
-        frame.operandStack.push(new IntegerValue(MooValue.Type.MAP.code()));
-        frame.instructionPointer++;
-        return;
-      }
-      if (name.equalsIgnoreCase("ANON")) {
-        frame.operandStack.push(new IntegerValue(MooValue.Type.ANONYMOUS.code()));
-        frame.instructionPointer++;
-        return;
-      }
-      if (name.equalsIgnoreCase("BOOL")) {
-        frame.operandStack.push(new IntegerValue(MooValue.Type.BOOLEAN.code()));
-        frame.instructionPointer++;
-        return;
-      }
-      if (name.equalsIgnoreCase("true")) {
-        frame.operandStack.push(BooleanValue.TRUE);
-        frame.instructionPointer++;
-        return;
-      }
-      if (name.equalsIgnoreCase("false")) {
-        frame.operandStack.push(BooleanValue.FALSE);
-        frame.instructionPointer++;
-        return;
-      }
       ErrorOps.raise(state, ErrorValue.E_VARNF,
-          new ListValue(List.of(StringValue.of("Variable not found: " + name), new IntegerValue(0))), world);
+          new ListValue(List.of(StringValue.of("Variable not found: "
+              + frame.program.instructions().get(frame.instructionPointer).text()
+                  .orElse(frame.program.variableNames().get(slot))), new IntegerValue(0))), world);
       return;
     }
     frame.operandStack.push(value);
-    if (containsAnonymousOrWaifReference(value)
-        && isFinalStraightLineLocalRead(frame, normalized)) {
-      frame.locals.remove(normalized);
-    }
+    if (clear) frame.locals[slot] = null;
     frame.instructionPointer++;
-  }
-
-  private static boolean containsAnonymousOrWaifReference(MooValue value) {
-    Objects.requireNonNull(value, "value");
-    Set<MooValue> visited = Collections.newSetFromMap(new IdentityHashMap<>());
-    ArrayDeque<MooValue> pending = new ArrayDeque<>();
-    pending.push(value);
-    while (!pending.isEmpty()) {
-      MooValue current = pending.pop();
-      if (!visited.add(current)) {
-        continue;
-      }
-      if (current instanceof AnonymousObjectValue || current instanceof WaifValue) {
-        return true;
-      }
-      if (current instanceof ListValue list) {
-        for (MooValue element : list.elements()) {
-          pending.push(element);
-        }
-      } else if (current instanceof MapValue map) {
-        for (Map.Entry<MooValue, MooValue> entry : map.entries().entrySet()) {
-          pending.push(entry.getValue());
-          pending.push(entry.getKey());
-        }
-      }
-    }
-    return false;
-  }
-
-  private static boolean isFinalStraightLineLocalRead(Frame frame, String name) {
-    List<Instruction> instructions = frame.program.instructions();
-    for (int index = frame.instructionPointer + 1; index < instructions.size(); index++) {
-      Instruction future = instructions.get(index);
-      Opcode opcode = future.opcode();
-      if (opcode == Opcode.LOAD_LOCAL && normalize(future.text().orElseThrow()).equals(name)) {
-        return false;
-      }
-      if (opcode == Opcode.STORE_LOCAL && normalize(future.text().orElseThrow()).equals(name)) {
-        return true;
-      }
-      if ((opcode == Opcode.SET_INDEX_LOCAL || opcode == Opcode.SET_RANGE_LOCAL)
-          && normalize(future.text().orElseThrow()).equals(name)) {
-        return false;
-      }
-      if (opcode == Opcode.CALL) {
-        String callName = future.text().orElseThrow();
-        if (callName.equalsIgnoreCase("eval") || callName.equalsIgnoreCase("pass")
-            || callName.equalsIgnoreCase("call_function")) {
-          return false;
-        }
-      }
-      if (CONTROL_FLOW.contains(opcode)) {
-        return false;
-      }
-    }
-    return true;
   }
 
   static void getProperty(Frame frame, VmState state, WorldTxn world) {

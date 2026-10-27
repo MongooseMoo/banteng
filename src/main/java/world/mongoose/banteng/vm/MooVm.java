@@ -69,7 +69,7 @@ public final class MooVm {
       Optional<BuiltinResult.Move> move, Optional<RootVerbCall> root) {
     Frame caller = kind == VerbCallKind.ROOT ? null : state.currentFrame();
     Map<String, MooValue> locals = kind == VerbCallKind.PASS
-        ? new LinkedHashMap<>(Objects.requireNonNull(caller).locals) : new LinkedHashMap<>();
+        ? new LinkedHashMap<>(Objects.requireNonNull(caller).namedLocals()) : new LinkedHashMap<>();
     if (kind == VerbCallKind.ROOT) {
       RootVerbCall context = root.orElseThrow();
       locals.put("player", new ObjectValue(context.player()));
@@ -86,19 +86,19 @@ public final class MooVm {
       locals.put("caller", receiver);
     } else {
       Frame parent = Objects.requireNonNull(caller);
-      locals.put("player", parent.locals.getOrDefault("player", new ObjectValue(-1)));
+      locals.put("player", parent.localOrDefault(5, new ObjectValue(-1)));
       boolean recycle = kind == VerbCallKind.HOOK_RECYCLE
           || kind == VerbCallKind.HOOK_ANONYMOUS_RECYCLE;
       locals.put("caller", recycle
-          ? parent.locals.getOrDefault("this", new ObjectValue(-1)) : parent.receiver);
+          ? parent.localOrDefault(6, new ObjectValue(-1)) : parent.receiver);
       locals.put("argstr", kind == VerbCallKind.NORMAL
-          ? parent.locals.getOrDefault("argstr", StringValue.of("")) : StringValue.of(""));
+          ? parent.localOrDefault(10, StringValue.of("")) : StringValue.of(""));
       if (kind == VerbCallKind.NORMAL) {
         for (String field : List.of("dobj", "iobj")) {
-          locals.put(field, parent.locals.getOrDefault(field, new ObjectValue(-1)));
+          locals.put(field, parent.localOrDefault(verbFieldSlot(field), new ObjectValue(-1)));
         }
         for (String field : List.of("dobjstr", "prepstr", "iobjstr")) {
-          locals.put(field, parent.locals.getOrDefault(field, StringValue.of("")));
+          locals.put(field, parent.localOrDefault(verbFieldSlot(field), StringValue.of("")));
         }
       }
     }
@@ -169,6 +169,14 @@ public final class MooVm {
           BytecodeProgram.Opcode.ITERATE,
           BytecodeProgram.Opcode.ITERATE_RANGE,
           BytecodeProgram.Opcode.SCATTER);
+
+  private static int verbFieldSlot(String field) {
+    return switch (field) {
+      case "dobj" -> 11; case "dobjstr" -> 12; case "prepstr" -> 13;
+      case "iobj" -> 14; case "iobjstr" -> 15;
+      default -> throw new IllegalArgumentException(field);
+    };
+  }
 
   private final ValueSemantics valueSemantics;
 
@@ -261,9 +269,10 @@ public final class MooVm {
       case LIST_APPEND -> ListOps.appendList(frame, state, world);
       case LIST_EXTEND -> ListOps.extendList(frame, state, world);
       case BUILD_MAP -> ListOps.buildMap(frame, state, world, Math.toIntExact(instruction.operand().orElseThrow()));
-      case LOAD_LOCAL -> PropertyOps.loadLocal(frame, instruction.text().orElseThrow(), state, world);
+      case LOAD_LOCAL, PUSH_CLEAR -> PropertyOps.loadLocal(frame,
+          Math.toIntExact(instruction.operand().orElseThrow()), opcode == BytecodeProgram.Opcode.PUSH_CLEAR, state, world);
       case STORE_LOCAL -> {
-        frame.locals.put(PropertyOps.normalize(instruction.text().orElseThrow()), frame.operandStack.pop());
+        frame.locals[Math.toIntExact(instruction.operand().orElseThrow())] = frame.operandStack.pop();
         frame.instructionPointer++;
       }
       case DUP -> {
@@ -293,13 +302,13 @@ public final class MooVm {
       case RANGE -> IndexOps.range(frame, state, world);
       case FIRST -> IndexOps.boundaryIndex(frame, state, world, false);
       case LAST -> IndexOps.boundaryIndex(frame, state, world, true);
-      case SET_INDEX_LOCAL -> IndexOps.setIndexedLocal(frame, state, world, instruction.text().orElseThrow(),
-              Math.toIntExact(instruction.operand().orElse(0)));
+      case SET_INDEX_LOCAL -> IndexOps.setIndexedLocal(frame, state, world, Math.toIntExact(instruction.operand().orElseThrow()),
+              instruction.localAux());
       case SET_INDEX_PROPERTY -> IndexOps.setIndexedProperty(frame, state, world,
           Math.toIntExact(instruction.operand().orElse(0)));
-      case SET_RANGE_LOCAL -> IndexOps.setRange(frame, state, world, instruction.text(),
-              Math.toIntExact(instruction.operand().orElse(0)));
-      case SET_RANGE_PROPERTY -> IndexOps.setRange(frame, state, world, Optional.empty(),
+      case SET_RANGE_LOCAL -> IndexOps.setRange(frame, state, world, java.util.OptionalInt.of(Math.toIntExact(instruction.operand().orElseThrow())),
+              instruction.localAux());
+      case SET_RANGE_PROPERTY -> IndexOps.setRange(frame, state, world, java.util.OptionalInt.empty(),
           Math.toIntExact(instruction.operand().orElse(0)));
       case CALL -> invokeBuiltin(instruction, frame, state, world, builtins, hosts, taskId);
       case CALL_VERB -> {
@@ -386,7 +395,7 @@ public final class MooVm {
   private static int instructionTicks(BytecodeProgram.Opcode opcode, Instruction instruction, Frame frame) {
     return switch (opcode) {
       case LIST_APPEND, LIST_EXTEND -> Math.toIntExact(instruction.operand().orElse(1));
-      case LOAD_LOCAL -> Math.toIntExact(instruction.operand().orElse(0));
+      case LOAD_LOCAL, PUSH_CLEAR -> instruction.localAux();
       case STORE_LOCAL -> frame.instructionPointer > 0
           && frame.program.instructions().get(frame.instructionPointer - 1).opcode()
               == BytecodeProgram.Opcode.FORK ? 0 : 1;
@@ -568,8 +577,8 @@ public final class MooVm {
   private static void applyPass(
       BuiltinResult.Pass call, Frame frame, VmState state, WorldTxn world) {
     ListValue arguments = call.arguments();
-    MooValue thisValue = frame.locals.get("this");
-    MooValue verbValue = frame.locals.get("verb");
+    MooValue thisValue = frame.locals[6];
+    MooValue verbValue = frame.locals[8];
     if (thisValue == null
         || (!(thisValue instanceof ObjectValue)
             && !(thisValue instanceof AnonymousObjectValue)
@@ -632,7 +641,7 @@ public final class MooVm {
       BytecodeProgram program, VmState state, WorldTxn world) {
     Frame caller = state.currentFrame();
     Map<String, MooValue> locals = new LinkedHashMap<>();
-    locals.put("player", caller.locals.getOrDefault("player", new ObjectValue(-1)));
+    locals.put("player", caller.localOrDefault(5, new ObjectValue(-1)));
     locals.put("caller", caller.receiver);
     for (String field : List.of("this", "dobj", "iobj")) {
       locals.put(field, new ObjectValue(-1));
