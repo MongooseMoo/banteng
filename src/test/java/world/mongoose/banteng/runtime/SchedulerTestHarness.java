@@ -13,8 +13,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.LongSupplier;
 import world.mongoose.banteng.builtin.ConnectionRegistryAccess;
-import world.mongoose.banteng.builtin.BuiltinCatalog.ListenerControl;
-import world.mongoose.banteng.builtin.BuiltinCatalog.ListenerDescription;
+import world.mongoose.banteng.builtin.family.ConnectionBuiltins;
 import world.mongoose.banteng.builtin.BuiltinCatalog;
 import world.mongoose.banteng.builtin.BuiltinHosts;
 import world.mongoose.banteng.logging.ServerLog;
@@ -47,7 +46,7 @@ public final class SchedulerTestHarness implements AutoCloseable {
       ConnectionRegistryAccess connections,
       int workers, LongSupplier nanoTime,
       MooRuntime.ConnectionNameResolver resolver,
-      Optional<ListenerControl> listener,
+      Optional<ConnectionBuiltins.ListenerControl> listener,
       Optional<Path> database, Optional<Path> checkpoint,
       List<DurableTask> tasks, List<ActiveConnection> activeConnections) {
     var semantics = ValueSemantics.STANDARD;
@@ -174,7 +173,7 @@ public final class SchedulerTestHarness implements AutoCloseable {
     scheduler.close();
   }
 
-  private static final class NoOpListener implements ListenerControl {
+  private static final class NoOpListener implements ConnectionBuiltins.ListenerControl {
     @Override
     public int listen(
         long handler,
@@ -186,7 +185,7 @@ public final class SchedulerTestHarness implements AutoCloseable {
     }
 
     @Override
-    public List<ListenerDescription> listeners() {
+    public List<ConnectionBuiltins.ListenerDescription> listeners() {
       return List.of();
     }
 

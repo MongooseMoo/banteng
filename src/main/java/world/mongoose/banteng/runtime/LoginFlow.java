@@ -1,7 +1,5 @@
 package world.mongoose.banteng.runtime;
 
-import world.mongoose.banteng.builtin.BuiltinCatalog.ListenerControl;
-
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -9,6 +7,7 @@ import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.StringTokenizer;
 import java.util.concurrent.TimeUnit;
+import world.mongoose.banteng.builtin.family.ConnectionBuiltins;
 import world.mongoose.banteng.value.MooValue;
 import world.mongoose.banteng.value.MooValue.IntegerValue;
 import world.mongoose.banteng.value.MooValue.ListValue;
@@ -30,9 +29,9 @@ import world.mongoose.banteng.runtime.MooRuntime.LoginTimeoutResult;
 final class LoginFlow {
   private final MooRuntime runtime;
   private final PublicationScheduler scheduler;
-  private final Optional<ListenerControl> listenerControl;
+  private final Optional<ConnectionBuiltins.ListenerControl> listenerControl;
 
-  LoginFlow(MooRuntime runtime, PublicationScheduler scheduler, Optional<ListenerControl> listenerControl) {
+  LoginFlow(MooRuntime runtime, PublicationScheduler scheduler, Optional<ConnectionBuiltins.ListenerControl> listenerControl) {
     this.runtime = runtime;
     this.scheduler = scheduler;
     this.listenerControl = listenerControl;

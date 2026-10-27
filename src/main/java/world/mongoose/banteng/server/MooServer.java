@@ -30,9 +30,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
-import world.mongoose.banteng.builtin.BuiltinCatalog.ListenerDescription;
-import world.mongoose.banteng.builtin.BuiltinCatalog.ListenerControl;
-import world.mongoose.banteng.builtin.BuiltinCatalog.KeepAliveOptions;
+import world.mongoose.banteng.builtin.family.ConnectionBuiltins;
 import world.mongoose.banteng.runtime.MooRuntime;
 import world.mongoose.banteng.value.MooValue;
 import world.mongoose.banteng.value.MooValue.IntegerValue;
@@ -40,7 +38,7 @@ import world.mongoose.banteng.value.MooValue.MapValue;
 import world.mongoose.banteng.value.MooValue.StringValue;
 
 /** The concrete blocking socket server for the first managed vertical slice. */
-public final class MooServer implements AutoCloseable, ListenerControl {
+public final class MooServer implements AutoCloseable, ConnectionBuiltins.ListenerControl {
   private final java.util.function.Supplier<MooRuntime> runtime;
   private final InetAddress listenAddress;
   private final ServerSocket primaryListener;
@@ -328,11 +326,11 @@ public final class MooServer implements AutoCloseable, ListenerControl {
 
   /** Returns a stable snapshot of the active listener inventory. */
   @Override
-  public synchronized List<ListenerDescription> listeners() {
-    List<ListenerDescription> result = new ArrayList<>();
+  public synchronized List<ConnectionBuiltins.ListenerDescription> listeners() {
+    List<ConnectionBuiltins.ListenerDescription> result = new ArrayList<>();
     for (Listener listener : listeners.values()) {
       result.add(
-          new ListenerDescription(
+          new ConnectionBuiltins.ListenerDescription(
               listener.handler,
               listener.description,
               listener.socket.getLocalPort(),
@@ -340,7 +338,7 @@ public final class MooServer implements AutoCloseable, ListenerControl {
               listener.printMessages,
               listener.interfaceAddress));
     }
-    result.sort(Comparator.comparingInt(ListenerDescription::port));
+    result.sort(Comparator.comparingInt(ConnectionBuiltins.ListenerDescription::port));
     return List.copyOf(result);
   }
 
@@ -466,7 +464,7 @@ public final class MooServer implements AutoCloseable, ListenerControl {
 
   /** Applies the portable TCP keep-alive switch for one accepted socket. */
   @Override
-  public void setConnectionKeepAlive(long connectionId, KeepAliveOptions options) {
+  public void setConnectionKeepAlive(long connectionId, ConnectionBuiltins.KeepAliveOptions options) {
     Socket socket = connections.get(connectionId);
     if (socket == null) {
       return;

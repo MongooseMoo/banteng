@@ -13,12 +13,10 @@ import org.jspecify.annotations.Nullable;
 import world.mongoose.banteng.builtin.BuiltinCall;
 import world.mongoose.banteng.builtin.BuiltinHosts;
 import world.mongoose.banteng.builtin.BuiltinCatalog;
-import world.mongoose.banteng.builtin.BuiltinCatalog.ConnectionOptionRequest;
-import world.mongoose.banteng.builtin.BuiltinCatalog.ForcedInputRequest;
-import world.mongoose.banteng.builtin.BuiltinCatalog.NotificationRequest;
 import world.mongoose.banteng.builtin.BuiltinResult;
 import world.mongoose.banteng.builtin.BuiltinSpec;
 import world.mongoose.banteng.builtin.CheckpointRequest;
+import world.mongoose.banteng.builtin.family.ConnectionBuiltins;
 import world.mongoose.banteng.bytecode.BytecodeProgram;
 import world.mongoose.banteng.bytecode.BytecodeProgram.Instruction;
 import world.mongoose.banteng.value.MooValue;
@@ -546,7 +544,7 @@ public final class MooVm {
       }
       case BuiltinResult.Notify notify -> {
         state.effects().stageNotificationRequest(
-            new NotificationRequest(
+            new ConnectionBuiltins.NotificationRequest(
                 notify.connectionId(), notify.line(), notify.noFlush(), notify.noNewline()));
         frame.operandStack.push(new IntegerValue(1));
       }
@@ -565,11 +563,11 @@ public final class MooVm {
       }
       case BuiltinResult.SetConnectionOption request -> {
         state.effects().stageConnectionOptionRequest(
-            new ConnectionOptionRequest(request.target(), request.option(), request.value()));
+            new ConnectionBuiltins.ConnectionOptionRequest(request.target(), request.option(), request.value()));
         frame.operandStack.push(new IntegerValue(0));
       }
       case BuiltinResult.ForceInput request -> {
-        state.effects().stageForcedInputRequest(new ForcedInputRequest(request.target(), request.input()));
+        state.effects().stageForcedInputRequest(new ConnectionBuiltins.ForcedInputRequest(request.target(), request.input()));
         frame.operandStack.push(new IntegerValue(0));
       }
     }

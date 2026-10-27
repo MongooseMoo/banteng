@@ -10,11 +10,9 @@ import java.util.OptionalLong;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import world.mongoose.banteng.builtin.BuiltinCall;
-import world.mongoose.banteng.builtin.BuiltinCatalog.ConnectionOption;
-import world.mongoose.banteng.builtin.BuiltinCatalog.ConnectionOptionRequest;
-import world.mongoose.banteng.builtin.BuiltinCatalog.ForcedInputRequest;
-import world.mongoose.banteng.builtin.BuiltinCatalog.NotificationRequest;
 import world.mongoose.banteng.builtin.BuiltinResult;
+import world.mongoose.banteng.builtin.family.ConnectionBuiltins;
+import world.mongoose.banteng.builtin.family.ConnectionBuiltins.ConnectionOption;
 import world.mongoose.banteng.value.MooValue;
 import world.mongoose.banteng.value.MooValue.BooleanValue;
 import world.mongoose.banteng.value.MooValue.ErrorValue;
@@ -35,17 +33,16 @@ import world.mongoose.banteng.runtime.MooRuntime.RuntimeTransition;
 import world.mongoose.banteng.runtime.MooRuntime.RuntimeEffect;
 import world.mongoose.banteng.runtime.MooRuntime.ReadRegistration;
 import com.google.errorprone.annotations.concurrent.GuardedBy;
-import world.mongoose.banteng.builtin.BuiltinCatalog.ListenerControl;
 
 /** Connection input/options, retaining publication's single runtime monitor for pending reads. */
 final class ConnectionIo {
   private final MooRuntime runtime;
   private final PublicationScheduler scheduler;
-  private final Optional<ListenerControl> listenerControl;
+  private final Optional<ConnectionBuiltins.ListenerControl> listenerControl;
   @GuardedBy("runtime")
   private final Map<Long, CompletableFuture<BuiltinResult>> pendingReads = new LinkedHashMap<>();
 
-  ConnectionIo(MooRuntime runtime, PublicationScheduler scheduler, Optional<ListenerControl> listenerControl) {
+  ConnectionIo(MooRuntime runtime, PublicationScheduler scheduler, Optional<ConnectionBuiltins.ListenerControl> listenerControl) {
     this.runtime = runtime;
     this.scheduler = scheduler;
     this.listenerControl = listenerControl;
@@ -122,13 +119,13 @@ final class ConnectionIo {
   }
 
   void applyConnectionOptionRequests(AttemptContext context, VmState task) {
-    for (ConnectionOptionRequest request : task.effects().drainConnectionOptionRequests()) {
+    for (ConnectionBuiltins.ConnectionOptionRequest request : task.effects().drainConnectionOptionRequests()) {
       applyConnectionOption(context, request.target(), request.option(), request.value());
     }
   }
 
   BuiltinResult applyConnectionOption(AttemptContext context,
-      long target, ConnectionOption option, MooValue value) {
+      long target, ConnectionBuiltins.ConnectionOption option, MooValue value) {
     long connectionId = target;
     ConnectionState connection = context.sessions.get(target);
     if (connection == null) {
@@ -143,7 +140,7 @@ final class ConnectionIo {
     if (connection == null) {
       return BuiltinResult.error(ErrorValue.E_INVARG);
     }
-    if (option == ConnectionOption.HOLD_INPUT) {
+    if (option == ConnectionBuiltins.ConnectionOption.HOLD_INPUT) {
       boolean release = connection.holdInput && !value.isTruthy();
       connection.holdInput = value.isTruthy();
       if (release) {
@@ -153,18 +150,18 @@ final class ConnectionIo {
           context.effects.add(RuntimeEffect.input(connectionId, line));
         }
       }
-    } else if (option == ConnectionOption.DISABLE_OOB) {
+    } else if (option == ConnectionBuiltins.ConnectionOption.DISABLE_OOB) {
       connection.disableOob = value.isTruthy();
-    } else if (option == ConnectionOption.BINARY) {
+    } else if (option == ConnectionBuiltins.ConnectionOption.BINARY) {
       connection.binary = value.isTruthy();
       long binaryConnectionId = connectionId;
       if (listenerControl.isPresent()) {
         context.effects.add(RuntimeEffect.binary(binaryConnectionId, connection.binary));
       }
-    } else if (option == ConnectionOption.KEEP_ALIVE) {
+    } else if (option == ConnectionBuiltins.ConnectionOption.KEEP_ALIVE) {
       connection.keepAlive = connection.keepAlive.with(value);
       context.effects.add(RuntimeEffect.keepAlive(connectionId, connection.keepAlive));
-    } else if (option == ConnectionOption.INTRINSIC_COMMANDS) {
+    } else if (option == ConnectionBuiltins.ConnectionOption.INTRINSIC_COMMANDS) {
       context.connections.setIntrinsicCommands(connectionId, (ListValue) value);
     } else if (value instanceof StringValue command && command.length() > 0) {
       connection.flushCommand = Optional.of(command.text());
@@ -445,7 +442,7 @@ final class ConnectionIo {
   }
 
   void applyForcedInputRequests(AttemptContext context, VmState task) {
-    for (ForcedInputRequest request : task.effects().drainForcedInputRequests()) {
+    for (ConnectionBuiltins.ForcedInputRequest request : task.effects().drainForcedInputRequests()) {
       long connectionId = request.target();
       if (!context.sessions.containsKey(connectionId)) {
         for (Map.Entry<Long, ConnectionState> entry : context.sessions.entrySet()) {
@@ -464,7 +461,7 @@ final class ConnectionIo {
   }
 
   void applyNotificationRequests(AttemptContext context, VmState task, long taskPlayer) {
-    for (NotificationRequest request : task.effects().drainNotificationRequests()) {
+    for (ConnectionBuiltins.NotificationRequest request : task.effects().drainNotificationRequests()) {
       long notificationPlayer =
           context.connections
               .connectionPlayer(request.connectionId())
