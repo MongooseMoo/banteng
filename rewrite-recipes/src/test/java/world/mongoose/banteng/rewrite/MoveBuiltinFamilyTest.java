@@ -106,6 +106,238 @@ final class MoveBuiltinFamilyTest {
   }
 
   @Test
+  void movesCryptoLoopInstanceDependenciesAndNestedTypes() {
+    var context = new InMemoryExecutionContext(failure -> { throw new AssertionError(failure); });
+    var files = JavaParser.fromJavaVersion().build().parse(context, """
+        package world.mongoose.banteng.builtin;
+        import java.security.SecureRandom;
+        import java.util.List;
+        class BuiltinCatalog {
+          void buildManifest() {
+            before();
+            entries.add(new BuiltinSpec("crypt", List.of(STRING), BuiltinPermissionRule.ANY, true, call -> crypt(call.arguments(), call.world(), call.programmer())));
+            for (String input : List.of("string", "binary", "value")) {
+              entries.add(new BuiltinSpec(input + "_hash", List.of(STRING), BuiltinPermissionRule.ANY, false, call -> hash(input, call.arguments())));
+              entries.add(new BuiltinSpec(input + "_hmac", List.of(STRING), BuiltinPermissionRule.ANY, false, call -> hmac(input, call.arguments())));
+            }
+            entries.add(new BuiltinSpec("argon2_verify", List.of(STRING), BuiltinPermissionRule.WIZARD_ONLY, false, call -> argon2Verify(call.arguments(), call.hosts().serverLog(), BuiltinCatalog::argon2Hash)));
+            after();
+          }
+          private BuiltinResult crypt(List<MooValue> arguments, WorldTxn world, long programmer) {
+            SECURE_RANDOM.nextInt(2);
+            return nativeCrypt(password, StringValue.of(salt).bytes());
+          }
+          private String nativeCrypt(byte[] password, byte[] salt) { return hosts.crypt().hash(password, salt); }
+          private static Object hash(String input, Object args) { return null; }
+          private static Object hmac(String input, Object args) { return null; }
+          static Object argon2Verify(Object args, Object log, Argon2Hasher hasher) { return null; }
+          private static byte[] argon2Hash() { return null; }
+          private record Argon2Settings(int iterations) {}
+          interface Argon2Hasher { byte[] hash(); }
+        }
+        """).toList();
+    var recipe = new MoveBuiltinFamily("CryptoBuiltins",
+        Set.of("crypt", "string_hash", "string_hmac", "binary_hash", "binary_hmac", "value_hash", "value_hmac", "argon2_verify"),
+        Set.of("crypt", "nativeCrypt", "hash", "hmac", "argon2Verify", "argon2Hash"));
+    var changes = recipe.run(new InMemoryLargeSourceSet(files), context).getChangeset().getAllResults();
+    String catalog = changedFile(changes, "BuiltinCatalog.java");
+    String family = changedFile(changes, "CryptoBuiltins.java");
+    assertTrue(catalog.indexOf("before()") < catalog.indexOf("CryptoBuiltins.register(entries, SECURE_RANDOM, hosts.crypt())"));
+    assertTrue(catalog.indexOf("CryptoBuiltins.register(entries, SECURE_RANDOM, hosts.crypt())") < catalog.indexOf("after()"));
+    assertFalse(catalog.contains("Argon2Hasher"));
+    assertFalse(catalog.contains("private BuiltinResult crypt"));
+    assertTrue(family.contains("for (String input : List.of(\"string\", \"binary\", \"value\"))"));
+    assertTrue(family.indexOf("input + \"_hash\"") < family.indexOf("input + \"_hmac\""));
+    assertTrue(family.contains("register(List<BuiltinSpec> entries, SecureRandom secureRandom, Crypt crypt)"));
+    assertTrue(family.contains("secureRandom, crypt)"));
+    assertTrue(family.contains("private static String nativeCrypt(byte[] password, byte[] salt, Crypt crypt)"));
+    assertTrue(family.contains("crypt.hash(password, salt)"));
+    assertTrue(family.contains("record Argon2Settings"));
+    assertTrue(family.contains("interface Argon2Hasher"));
+    assertTrue(family.contains("CryptoBuiltins::argon2Hash"));
+    assertTrue(family.contains(".irrevocable()"));
+    assertTrue(family.contains(".permission(BuiltinPermissionRule.WIZARD_ONLY)"));
+    assertTrue(recipe.run(new InMemoryLargeSourceSet(changes.stream().map(Result::getAfter).toList()), context)
+        .getChangeset().getAllResults().isEmpty());
+  }
+
+  @Test
+  void movesHostGroupsAndRetainsInlineEnvironmentAndPrivateTransferClosure() {
+    var context = new InMemoryExecutionContext(failure -> { throw new AssertionError(failure); });
+    var files = JavaParser.fromJavaVersion().build().parse(context, """
+        package world.mongoose.banteng.builtin;
+        import java.util.List;
+        class BuiltinCatalog {
+          void buildManifest() {
+            entries.add(new BuiltinSpec("getenv", List.of(STRING), BuiltinPermissionRule.WIZARD_ONLY, false, call -> {
+              String value = System.getenv(((StringValue) call.arguments().getFirst()).text());
+              return value == null ? BuiltinResult.value(new IntegerValue(0)) : BuiltinResult.value(StringValue.of(value).encodeBinary());
+            }));
+            unrelated();
+            entries.add(new BuiltinSpec("curl", List.of(STRING), BuiltinPermissionRule.WIZARD_ONLY, false, call -> curl(call.arguments(), call.world(), call.threadMode())));
+            entries.add(new BuiltinSpec("spellcheck", List.of(STRING), BuiltinPermissionRule.ANY, false, call -> spellcheck((StringValue) call.arguments().getFirst())));
+            entries.add(new BuiltinSpec("url_encode", List.of(STRING), BuiltinPermissionRule.ANY, false, call -> urlEncode((StringValue) call.arguments().getFirst())));
+            entries.add(new BuiltinSpec("url_decode", List.of(STRING), BuiltinPermissionRule.ANY, false, call -> urlDecode((StringValue) call.arguments().getFirst())));
+          }
+          private static Object curl(Object arguments, Object world, boolean threadMode) {
+            return threadMode ? BuiltinResult.hostWork(() -> curlTransfer()) : curlTransfer();
+          }
+          private static Object curlTransfer() { return StringValue.of(NativeCurl.get()).encodeBinary(); }
+          private static Object spellcheck(StringValue value) { return Aspell.check(value.bytes()); }
+          private static Object urlEncode(StringValue value) { return value; }
+          private static Object urlDecode(StringValue value) { return value; }
+        }
+        """).toList();
+    var recipe = new MoveBuiltinFamily("HostBuiltins", Set.of("getenv", "curl", "spellcheck", "url_encode", "url_decode"),
+        Set.of("curl", "curlTransfer", "spellcheck", "urlEncode", "urlDecode"));
+    var changes = recipe.run(new InMemoryLargeSourceSet(files), context).getChangeset().getAllResults();
+    String catalog = changedFile(changes, "BuiltinCatalog.java");
+    String family = changedFile(changes, "HostBuiltins.java");
+    assertTrue(catalog.indexOf("registerEnvironment(entries)") < catalog.indexOf("unrelated()"));
+    assertTrue(catalog.indexOf("unrelated()") < catalog.indexOf("registerTransferAndText(entries)"));
+    assertFalse(catalog.contains("System.getenv"));
+    assertFalse(catalog.contains("private static Object curl"));
+    assertTrue(family.contains("System.getenv"));
+    assertTrue(family.contains("StringValue.of(value).encodeBinary()"));
+    assertTrue(family.contains("BuiltinResult.hostWork(() -> curlTransfer())"));
+    assertTrue(family.contains("private static Object curlTransfer()"));
+    assertTrue(family.contains(".permission(BuiltinPermissionRule.WIZARD_ONLY)"));
+    assertFalse(family.contains(".irrevocable()"));
+    assertTrue(recipe.run(new InMemoryLargeSourceSet(changes.stream().map(Result::getAfter).toList()), context)
+        .getChangeset().getAllResults().isEmpty());
+  }
+
+  @Test
+  void movesRegexGroupsAndServicesWithOneCapturedInstancePerGroup() {
+    var context = new InMemoryExecutionContext(failure -> { throw new AssertionError(failure); });
+    var files = JavaParser.fromJavaVersion().build().parse(context, """
+        package world.mongoose.banteng.builtin;
+        import java.util.List;
+        class BuiltinCatalog {
+          private final PcreService pcre = new PcreService();
+          private final ToastRegexService toastRegex = new ToastRegexService();
+          void buildManifest() {
+            before();
+            entries.add(new BuiltinSpec("match", List.of(), BuiltinPermissionRule.ANY, false, call -> toastMatch(call.arguments(), false)));
+            entries.add(new BuiltinSpec("rmatch", List.of(), BuiltinPermissionRule.ANY, false, call -> toastMatch(call.arguments(), true)));
+            between();
+            entries.add(new BuiltinSpec("pcre_match", List.of(), BuiltinPermissionRule.ANY, true, call -> pcre.match(call.arguments())));
+            entries.add(new BuiltinSpec("pcre_replace", List.of(), BuiltinPermissionRule.ANY, false, call -> pcre.replace(call.arguments())));
+            entries.add(new BuiltinSpec("pcre_cache_stats", List.of(), BuiltinPermissionRule.WIZARD_ONLY, false, call -> pcre.cacheStats()));
+            after();
+          }
+          private BuiltinResult toastMatch(List<MooValue> arguments, boolean reverse) {
+            return toastRegex.match(arguments, reverse);
+          }
+        }
+        """, """
+        package world.mongoose.banteng.builtin;
+        final class PcreService {
+          synchronized BuiltinResult cacheStats() { return null; }
+        }
+        """, """
+        package world.mongoose.banteng.builtin;
+        final class ToastRegexService {
+          BuiltinResult match() { return null; }
+        }
+        """).map(org.openrewrite.java.tree.J.CompilationUnit.class::cast)
+        .map(file -> file.withSourcePath(java.nio.file.Path.of(
+            "src/main/java/world/mongoose/banteng/builtin/" + file.getClasses().getFirst().getSimpleName() + ".java")))
+        .map(SourceFile.class::cast).toList();
+    var recipe = new MoveBuiltinFamily("RegexBuiltins",
+        Set.of("match", "rmatch", "pcre_match", "pcre_replace", "pcre_cache_stats"), Set.of("toastMatch"));
+    var changes = recipe.run(new InMemoryLargeSourceSet(files), context).getChangeset().getAllResults();
+    String catalog = changedFile(changes, "BuiltinCatalog.java");
+    String family = changedFile(changes, "RegexBuiltins.java");
+    assertTrue(catalog.indexOf("registerLegacy(entries)") < catalog.indexOf("between()"));
+    assertTrue(catalog.indexOf("between()") < catalog.indexOf("registerPcre(entries)"));
+    assertFalse(catalog.contains("new PcreService"));
+    assertFalse(catalog.contains("new ToastRegexService"));
+    assertTrue(family.indexOf("new PcreService()") == family.lastIndexOf("new PcreService()"));
+    assertTrue(family.indexOf("new ToastRegexService()") == family.lastIndexOf("new ToastRegexService()"));
+    assertTrue(family.contains("toastMatch(toastRegex, call.arguments(), false)"));
+    assertTrue(family.contains("private static BuiltinResult toastMatch(ToastRegexService toastRegex,"));
+    assertTrue(family.contains(".irrevocable().implementation(call -> pcre.match"));
+    assertTrue(family.contains(".permission(BuiltinPermissionRule.WIZARD_ONLY).implementation(call -> pcre.cacheStats"));
+    for (String service : List.of("PcreService.java", "ToastRegexService.java")) {
+      String moved = changedFile(changes, service);
+      assertTrue(moved.contains("package world.mongoose.banteng.builtin.family;"));
+      assertTrue(moved.contains("import world.mongoose.banteng.builtin.BuiltinResult;"));
+    }
+    assertTrue(changedFile(changes, "PcreService.java").contains("synchronized BuiltinResult cacheStats()"));
+    assertTrue(recipe.clone().run(new InMemoryLargeSourceSet(changes.stream().map(Result::getAfter).toList()), context)
+        .getChangeset().getAllResults().isEmpty());
+  }
+
+  @Test
+  void movesBinaryGroupsAndRetargetsSharedCodecCallers() {
+    var context = new InMemoryExecutionContext(failure -> { throw new AssertionError(failure); });
+    var files = JavaParser.fromJavaVersion().build().parse(context, """
+        package world.mongoose.banteng.builtin;
+        import java.io.ByteArrayOutputStream;
+        import java.util.List;
+        import java.util.Optional;
+        class BuiltinCatalog {
+          void buildManifest() {
+            entries.add(new BuiltinSpec("decode_binary", List.of(STRING), BuiltinPermissionRule.ANY, false, call -> decodeBinary(call.arguments())));
+            unrelated();
+            entries.add(new BuiltinSpec("encode_binary", List.of(ANY), BuiltinPermissionRule.ANY, false, call -> encodeBinary(call.arguments())));
+            entries.add(new BuiltinSpec("chr", List.of(ANY), BuiltinPermissionRule.ANY, false, call -> chr(call.arguments())));
+          }
+          private static Optional<byte[]> binaryBytes(StringValue encoded) {
+            byte[] binary = encoded.bytes();
+            return Optional.of(binary);
+          }
+          private static BuiltinResult decodeBinary(List<MooValue> arguments) {
+            return binaryBytes((StringValue) arguments.getFirst()).isPresent() ? null : null;
+          }
+          private static BuiltinResult encodeBinary(List<MooValue> arguments) {
+            ByteArrayOutputStream raw = new ByteArrayOutputStream();
+            ByteArrayOutputStream encoded = new ByteArrayOutputStream(raw.size());
+            for (byte current : raw.toByteArray()) { encoded.write(current); }
+            return BuiltinResult.value(StringValue.of(encoded.toByteArray()));
+          }
+          private static BuiltinResult chr(List<MooValue> arguments) { return null; }
+          private static boolean appendBinaryBytes() { return true; }
+          private static Object hashInput(MooValue value) { return binaryBytes((StringValue) value); }
+          private static Object hmac(List<MooValue> arguments) { return binaryBytes((StringValue) arguments.get(1)); }
+          private static Object getenv(String value) { return encodeBinary(List.of(StringValue.of(value))); }
+          private static Object curl(Result result) { return encodeBinary(List.of(StringValue.of(result.body()))); }
+        }
+        """, """
+        package world.mongoose.banteng.value;
+        import java.math.BigDecimal;
+        import java.util.Optional;
+        public interface MooValue {
+          final class StringValue implements MooValue {
+            private byte[] bytes;
+            public byte[] bytes() { return bytes; }
+          }
+        }
+        """).toList();
+    var recipe = new MoveBuiltinFamily("BinaryBuiltins", Set.of("decode_binary", "encode_binary", "chr"),
+        Set.of("decodeBinary", "encodeBinary", "chr", "appendBinaryBytes"));
+    var changes = recipe.run(new InMemoryLargeSourceSet(files), context).getChangeset().getAllResults();
+    String catalog = changedFile(changes, "BuiltinCatalog.java");
+    String family = changedFile(changes, "BinaryBuiltins.java");
+    String values = changedFile(changes, "MooValue.java");
+    assertTrue(catalog.indexOf("registerDecode(entries)") < catalog.indexOf("unrelated()"));
+    assertTrue(catalog.indexOf("unrelated()") < catalog.indexOf("registerEncodeAndChr(entries)"));
+    assertFalse(catalog.contains("private static Optional<byte[]> binaryBytes"));
+    assertTrue(catalog.contains("((StringValue) value).binaryBytes()"));
+    assertTrue(catalog.contains("((StringValue) arguments.get(1)).binaryBytes()"));
+    assertTrue(catalog.contains("BuiltinResult.value(StringValue.of(value).encodeBinary())"));
+    assertTrue(catalog.contains("BuiltinResult.value(StringValue.of(result.body()).encodeBinary())"));
+    assertTrue(family.contains("StringValue.of(raw.toByteArray()).encodeBinary()"));
+    assertTrue(family.contains("((StringValue) arguments.getFirst()).binaryBytes()"));
+    assertTrue(values.contains("public Optional<byte[]> binaryBytes()"));
+    assertTrue(values.contains("public StringValue encodeBinary()"));
+    assertTrue(values.contains("for (byte current : bytes)"));
+    assertTrue(recipe.run(new InMemoryLargeSourceSet(changes.stream().map(Result::getAfter).toList()), context)
+        .getChangeset().getAllResults().isEmpty());
+  }
+
+  @Test
   void movesStringGroupsWithSharedRandomAndExistingValueSemanticsOwner() {
     var context = new InMemoryExecutionContext(failure -> { throw new AssertionError(failure); });
     var files = JavaParser.fromJavaVersion().build().parse(context, """

@@ -76,6 +76,11 @@ public final class MoveBuiltinFamily extends ScanningRecipe<MoveBuiltinFamily.Me
         members.source = getCursor().firstEnclosingOrThrow(J.CompilationUnit.class);
         members.owner = type.getId();
         for (Statement statement : type.getBody().getStatements()) {
+          if (family.equals("RegexBuiltins") && statement instanceof J.VariableDeclarations field
+              && field.getVariables().stream().anyMatch(variable ->
+                  Set.of("pcre", "toastRegex").contains(variable.getSimpleName()))) {
+            members.regexFields.add(field);
+          }
           if (family.equals("TimeBuiltins") && statement instanceof J.VariableDeclarations field
               && field.getVariables().stream().anyMatch(variable -> Set.of(
                   "CLOCK_REALTIME", "CLOCK_MONOTONIC", "CLOCK_MONOTONIC_RAW",
@@ -84,7 +89,8 @@ public final class MoveBuiltinFamily extends ScanningRecipe<MoveBuiltinFamily.Me
           }
           if (statement instanceof J.ClassDeclaration nested
               && (family.equals("StringBuiltins") && nested.getSimpleName().equals("AnsiReplacement")
-                  || family.equals("ObjectBuiltins") && nested.getSimpleName().equals("ParentArgument"))) {
+                  || family.equals("ObjectBuiltins") && nested.getSimpleName().equals("ParentArgument")
+                  || family.equals("CryptoBuiltins") && Set.of("Argon2Settings", "Argon2Hasher").contains(nested.getSimpleName()))) {
             members.nested.add(nested);
           }
           if (family.equals("ListBuiltins") && statement instanceof J.VariableDeclarations field
@@ -96,6 +102,9 @@ public final class MoveBuiltinFamily extends ScanningRecipe<MoveBuiltinFamily.Me
           if (statement instanceof J.MethodDeclaration method) {
             if (family.equals("RandomBuiltins") && method.getSimpleName().equals("stringLengthError")) {
               members.stringLengthError = method;
+            }
+            if (family.equals("BinaryBuiltins") && method.getSimpleName().equals("binaryBytes")) {
+              members.binaryBytes = method;
             }
             if (family.equals("StringBuiltins") && method.getSimpleName().equals("matchesAt")) {
               members.matchesAt = method;
@@ -113,7 +122,9 @@ public final class MoveBuiltinFamily extends ScanningRecipe<MoveBuiltinFamily.Me
             if (methods.contains(method.getSimpleName()) && method.getModifiers().stream()
                 .anyMatch(modifier -> modifier.getType() == J.Modifier.Type.Static)
                 || family.equals("StringBuiltins") && method.getSimpleName().equals("parseAnsi")
-                || family.equals("RandomBuiltins") && methods.contains(method.getSimpleName())) {
+                || family.equals("RandomBuiltins") && methods.contains(method.getSimpleName())
+                || family.equals("CryptoBuiltins") && Set.of("crypt", "nativeCrypt").contains(method.getSimpleName())
+                || family.equals("RegexBuiltins") && method.getSimpleName().equals("toastMatch")) {
               members.implementations.add(method);
             }
             if (method.getSimpleName().equals("buildManifest") && method.getBody() != null) {
@@ -121,12 +132,13 @@ public final class MoveBuiltinFamily extends ScanningRecipe<MoveBuiltinFamily.Me
               boolean previousRegistration = false;
               for (Statement entry : method.getBody().getStatements()) {
                 J.NewClass spec = registration(entry);
-                if (spec != null) {
+                boolean cryptoLoop = cryptoLoop(entry);
+                if (spec != null || cryptoLoop) {
                   if (!previousRegistration) { members.groups.add(new ArrayList<>()); }
                   members.groups.getLast().add(entry);
                   members.registrations.add(entry);
                 }
-                previousRegistration = spec != null;
+                previousRegistration = spec != null || cryptoLoop;
                 if (family.equals("ListBuiltins") && entry instanceof J.VariableDeclarations variables
                     && variables.getVariables().stream().anyMatch(variable ->
                         Set.of("allMembers", "sort").contains(variable.getSimpleName()))) {
@@ -151,6 +163,23 @@ public final class MoveBuiltinFamily extends ScanningRecipe<MoveBuiltinFamily.Me
       return spec;
     }
     return null;
+  }
+
+  private boolean cryptoLoop(Statement statement) {
+    return family.equals("CryptoBuiltins") && statement instanceof J.ForEachLoop loop
+        && loop.getControl().getVariable() instanceof J.VariableDeclarations variable
+        && variable.getVariables().getFirst().getSimpleName().equals("input")
+        && loop.getBody() instanceof J.Block block && block.getStatements().size() == 2
+        && loopRegistration(block.getStatements().getFirst(), "_hash")
+        && loopRegistration(block.getStatements().getLast(), "_hmac");
+  }
+
+  private static boolean loopRegistration(Statement statement, String suffix) {
+    return statement instanceof J.MethodInvocation add && add.getSimpleName().equals("add")
+        && add.getArguments().size() == 1 && add.getArguments().getFirst() instanceof J.NewClass spec
+        && spec.getArguments().size() == 5 && spec.getArguments().getFirst() instanceof J.Binary name
+        && name.getLeft() instanceof J.Identifier input && input.getSimpleName().equals("input")
+        && name.getRight() instanceof J.Literal literal && suffix.equals(literal.getValue());
   }
 
   @Override public Collection<SourceFile> generate(Members members, ExecutionContext context) {
@@ -178,9 +207,14 @@ public final class MoveBuiltinFamily extends ScanningRecipe<MoveBuiltinFamily.Me
     for (int group = 0; group < members.groups.size(); group++) {
       body.append("  public static void ").append(registerMethod(group))
           .append("(List<BuiltinSpec> entries" + (stringAnsiGroup(group) ? ", Random random" : "")
+              + (family.equals("CryptoBuiltins") ? ", SecureRandom secureRandom, Crypt crypt" : "")
               + (family.equals("RandomBuiltins")
                   ? ", java.util.function.Supplier<Random> random, java.util.function.Supplier<Random> floatingRandom, SecureRandom secureRandom" : "") + ") {\n")
           .append("    BuiltinRegistrar registrar = new BuiltinRegistrar(entries);\n");
+      if (family.equals("RegexBuiltins")) {
+        body.append(group == 0 ? "    ToastRegexService toastRegex = new ToastRegexService();\n"
+            : "    PcreService pcre = new PcreService();\n");
+      }
       for (Statement handler : members.handlers) {
         String name = ((J.VariableDeclarations) handler).getVariables().getFirst().getSimpleName();
         if (members.groups.get(group).stream().anyMatch(statement ->
@@ -190,6 +224,23 @@ public final class MoveBuiltinFamily extends ScanningRecipe<MoveBuiltinFamily.Me
         }
       }
       for (Statement statement : members.groups.get(group)) {
+      if (cryptoLoop(statement)) {
+        J.ForEachLoop loop = (J.ForEachLoop) statement;
+        body.append("    for (")
+            .append(loop.getControl().getVariable().printTrimmed(new Cursor(null, members.source)))
+            .append(" : ").append(loop.getControl().getIterable().printTrimmed(new Cursor(null, members.source)))
+            .append(") {\n");
+        for (Statement entry : ((J.Block) loop.getBody()).getStatements()) {
+          J.NewClass spec = (J.NewClass) ((J.MethodInvocation) entry).getArguments().getFirst();
+          List<Expression> args = spec.getArguments();
+          body.append("      registrar.builtin(").append(args.get(0).printTrimmed(new Cursor(null, members.source)))
+              .append(", ").append(args.get(1).printTrimmed(new Cursor(null, members.source)))
+              .append(").implementation(").append(args.get(4).printTrimmed(new Cursor(null, members.source)))
+              .append(");\n");
+        }
+        body.append("    }\n");
+        continue;
+      }
       List<Expression> arguments = registration(statement).getArguments();
       body.append("    registrar.builtin(").append(arguments.get(0).printTrimmed(new Cursor(null, members.source)))
           .append(", ").append(arguments.get(1).printTrimmed(new Cursor(null, members.source))).append(')');
@@ -199,7 +250,8 @@ public final class MoveBuiltinFamily extends ScanningRecipe<MoveBuiltinFamily.Me
       }
       if (!arguments.get(3).printTrimmed(new Cursor(null, members.source)).equals("false")) { body.append(".irrevocable()"); }
       body.append(".implementation(")
-           .append(registrationImplementation(arguments.get(4).printTrimmed(new Cursor(null, members.source))))
+           .append(registrationImplementation(arguments.get(4).printTrimmed(new Cursor(null, members.source)))
+               .replace("toastMatch(call.arguments(),", "toastMatch(toastRegex, call.arguments(),"))
           .append(");\n");
       }
       body.append("  }\n");
@@ -214,6 +266,7 @@ public final class MoveBuiltinFamily extends ScanningRecipe<MoveBuiltinFamily.Me
             + "import world.mongoose.banteng.builtin.BuiltinPermissionRule;\n"
             + "import world.mongoose.banteng.builtin.BuiltinResult;\n"
             + "import world.mongoose.banteng.builtin.CallShape;\n"
+            + (family.equals("CryptoBuiltins") ? "import world.mongoose.banteng.host.Crypt;\n" : "")
             + "/** Owns builtin registrations and implementations for this family. */\n"
             + "public final class " + family + " {\n"
             + constants
@@ -243,6 +296,28 @@ public final class MoveBuiltinFamily extends ScanningRecipe<MoveBuiltinFamily.Me
     if (family.equals("ObjectBuiltins")) {
       generated = objectSharedImports(generated, context);
     }
+    if (family.equals("CryptoBuiltins")) {
+      String source = generated.printAll()
+          .replace("crypt(call.arguments(), call.world(), call.programmer())", "crypt(call.arguments(), call.world(), call.programmer(), secureRandom, crypt)")
+          .replace("private BuiltinResult crypt(List<MooValue> arguments, WorldTxn world, long programmer)", "private static BuiltinResult crypt(List<MooValue> arguments, WorldTxn world, long programmer, SecureRandom secureRandom, Crypt crypt)")
+          .replace("SECURE_RANDOM.nextInt", "secureRandom.nextInt")
+          .replace("nativeCrypt(password, StringValue.of(salt).bytes())", "nativeCrypt(password, StringValue.of(salt).bytes(), crypt)")
+          .replace("private String nativeCrypt(byte[] password, byte[] salt)", "private static String nativeCrypt(byte[] password, byte[] salt, Crypt crypt)")
+          .replace("hosts.crypt().hash(password, salt)", "crypt.hash(password, salt)");
+      generated = reparse(generated, source, context);
+    }
+    if (family.equals("BinaryBuiltins")) {
+      String source = generated.printAll();
+      int start = source.indexOf("ByteArrayOutputStream encoded =", source.indexOf("private static BuiltinResult encodeBinary"));
+      int end = source.indexOf("return BuiltinResult.value(StringValue.of(encoded.toByteArray()));", start)
+          + "return BuiltinResult.value(StringValue.of(encoded.toByteArray()));".length();
+      source = source.substring(0, start)
+          + "return BuiltinResult.value(StringValue.of(raw.toByteArray()).encodeBinary());"
+          + source.substring(end);
+      source = binaryCalls(source);
+      generated = ((J.CompilationUnit) JavaParser.fromJavaVersion().build().parse(context, source)
+          .findFirst().orElseThrow()).withSourcePath(generated.getSourcePath());
+    }
     if (family.equals("StringBuiltins")) {
       String source = generated.printAll().replace("private BuiltinResult parseAnsi(List<MooValue> arguments)",
           "private static BuiltinResult parseAnsi(List<MooValue> arguments, Random random)");
@@ -261,6 +336,13 @@ public final class MoveBuiltinFamily extends ScanningRecipe<MoveBuiltinFamily.Me
           .replace("SECURE_RANDOM.nextBytes", "secureRandom.nextBytes")
           .replace("stringLengthError(encoded.size(), world)", "ValueLimits.stringLengthError(encoded.size(), world)")
           .replace("import java.util.List;", "import java.util.List;\nimport world.mongoose.banteng.builtin.ValueLimits;");
+      generated = ((J.CompilationUnit) JavaParser.fromJavaVersion().build().parse(context, source)
+          .findFirst().orElseThrow()).withSourcePath(generated.getSourcePath());
+    }
+    if (family.equals("RegexBuiltins")) {
+      String source = generated.printAll().replace(
+          "private BuiltinResult toastMatch(List<MooValue> arguments, boolean reverse)",
+          "private static BuiltinResult toastMatch(ToastRegexService toastRegex, List<MooValue> arguments, boolean reverse)");
       generated = ((J.CompilationUnit) JavaParser.fromJavaVersion().build().parse(context, source)
           .findFirst().orElseThrow()).withSourcePath(generated.getSourcePath());
     }
@@ -294,6 +376,13 @@ public final class MoveBuiltinFamily extends ScanningRecipe<MoveBuiltinFamily.Me
     if (family.equals("ObjectBuiltins")) {
       return List.of("registerLifecycleAndTopology", "registerMovementAndWaifs", "registerResetMaximum").get(group);
     }
+    if (family.equals("HostBuiltins")) {
+      return List.of("registerEnvironment", "registerTransferAndText").get(group);
+    }
+    if (family.equals("RegexBuiltins")) { return group == 0 ? "registerLegacy" : "registerPcre"; }
+    if (family.equals("BinaryBuiltins")) {
+      return List.of("registerDecode", "registerEncodeAndChr").get(group);
+    }
     if (family.equals("StringBuiltins")) {
       return List.of("registerExplode", "registerSubstitutionAndAnsi", "registerSearchAndCompare").get(group);
     }
@@ -325,6 +414,19 @@ public final class MoveBuiltinFamily extends ScanningRecipe<MoveBuiltinFamily.Me
         return super.visitCompilationUnit(source, unused);
       }
     }.visitNonNull(unit, context);
+  }
+
+  private static String binaryCalls(String source) {
+    return source.replace("binaryBytes((StringValue) arguments.getFirst())", "((StringValue) arguments.getFirst()).binaryBytes()")
+        .replace("binaryBytes((StringValue) arguments.get(1))", "((StringValue) arguments.get(1)).binaryBytes()")
+        .replace("binaryBytes((StringValue) value)", "((StringValue) value).binaryBytes()")
+        .replace("encodeBinary(List.of(StringValue.of(value)))", "BuiltinResult.value(StringValue.of(value).encodeBinary())")
+        .replace("encodeBinary(List.of(StringValue.of(result.body())))", "BuiltinResult.value(StringValue.of(result.body()).encodeBinary())");
+  }
+
+  private static J.CompilationUnit reparse(J.CompilationUnit unit, String source, ExecutionContext context) {
+    return ((J.CompilationUnit) JavaParser.fromJavaVersion().build().parse(context, source)
+        .findFirst().orElseThrow()).withId(unit.getId()).withSourcePath(unit.getSourcePath());
   }
 
   private static J.CompilationUnit stringSharedImports(J.CompilationUnit unit, ExecutionContext context) {
@@ -398,6 +500,33 @@ public final class MoveBuiltinFamily extends ScanningRecipe<MoveBuiltinFamily.Me
           maybeAddImport("world.mongoose.banteng.world.WorldResult", false);
           return super.visitCompilationUnit(unit.withClasses(List.of(type.withBody(type.getBody().withStatements(body)))), context);
         }
+        if (family.equals("RegexBuiltins") && (unit.getSourcePath().endsWith("builtin/PcreService.java")
+            || unit.getSourcePath().endsWith("builtin/ToastRegexService.java"))) {
+          String source = unit.printAll().replace("package world.mongoose.banteng.builtin;",
+              "package world.mongoose.banteng.builtin.family;\n\n"
+                  + "import world.mongoose.banteng.builtin.BuiltinResult;");
+          return ((J.CompilationUnit) JavaParser.fromJavaVersion().build().parse(context, source)
+              .findFirst().orElseThrow()).withId(unit.getId()).withFileAttributes(unit.getFileAttributes()).withSourcePath(
+                  unit.getSourcePath().getParent().resolve("family").resolve(unit.getSourcePath().getFileName()));
+        }
+        if (family.equals("BinaryBuiltins") && unit.getSourcePath().endsWith("value/MooValue.java")) {
+          String decoder = members.binaryBytes.printTrimmed(new Cursor(null, members.source))
+              .replace("private static Optional<byte[]> binaryBytes(StringValue encoded)", "public Optional<byte[]> binaryBytes()")
+              .replace("byte[] binary = encoded.bytes();", "byte[] binary = bytes();").strip().indent(4);
+          J.MethodDeclaration encode = members.implementations.stream()
+              .filter(method -> method.getSimpleName().equals("encodeBinary")).findFirst().orElseThrow();
+          String original = encode.printTrimmed(new Cursor(null, members.source));
+          String encoder = "public StringValue encodeBinary() {\n"
+              + original.substring(original.indexOf("ByteArrayOutputStream encoded ="))
+                  .replace("raw.size()", "bytes.length").replace("raw.toByteArray()", "bytes")
+                  .replace("return BuiltinResult.value(StringValue.of(encoded.toByteArray()));", "return StringValue.of(encoded.toByteArray());");
+          encoder = encoder.replace("{\nByteArrayOutputStream", "{\n  ByteArrayOutputStream").indent(4);
+          String source = unit.printAll().replace("import java.math.BigDecimal;", "import java.io.ByteArrayOutputStream;\nimport java.math.BigDecimal;")
+              .replace("final class StringValue implements MooValue {", "final class StringValue implements MooValue {\n"
+                  + "    /** Decodes Toast binary escapes, rejecting malformed escape sequences. */\n" + decoder + "\n"
+                  + "    /** Escapes this string as Toast binary input. */\n" + encoder + "\n");
+          return reparse(unit, source, context);
+        }
         if (family.equals("StringBuiltins") && unit.getSourcePath().endsWith("value/ValueSemantics.java")) {
           J.ClassDeclaration type = unit.getClasses().getFirst();
           List<Statement> body = new ArrayList<>(type.getBody().getStatements());
@@ -428,6 +557,7 @@ public final class MoveBuiltinFamily extends ScanningRecipe<MoveBuiltinFamily.Me
         if (family.equals("ListBuiltins")) { changed = addSharedImports(changed, context); }
         if (family.equals("StringBuiltins")) { changed = stringSharedImports(changed, context); }
         if (family.equals("ObjectBuiltins")) { changed = objectSharedImports(changed, context); }
+        if (family.equals("BinaryBuiltins")) { changed = reparse(changed, binaryCalls(changed.printAll()), context); }
         return usedImports(changed, context);
       }
       @Override public J.MethodInvocation visitMethodInvocation(J.MethodInvocation invocation,
@@ -458,12 +588,14 @@ public final class MoveBuiltinFamily extends ScanningRecipe<MoveBuiltinFamily.Me
         return super.visitClassDeclaration(type.withBody(type.getBody().withStatements(
             type.getBody().getStatements().stream().filter(statement -> members.implementations
                 .stream().noneMatch(method -> method.getId().equals(statement.getId())))
+                .filter(statement -> members.regexFields.stream().noneMatch(member -> member.getId().equals(statement.getId())))
                 .filter(statement -> members.limits.stream().noneMatch(member -> member.getId().equals(statement.getId())))
                 .filter(statement -> members.fields.stream().noneMatch(member -> member.getId().equals(statement.getId())))
                  .filter(statement -> members.foldAscii == null || !members.foldAscii.getId().equals(statement.getId()))
                  .filter(statement -> members.mutationResult == null || !members.mutationResult.getId().equals(statement.getId()))
                  .filter(statement -> members.matchesAt == null || !members.matchesAt.getId().equals(statement.getId()))
                  .filter(statement -> members.stringLengthError == null || !members.stringLengthError.getId().equals(statement.getId()))
+                 .filter(statement -> members.binaryBytes == null || !members.binaryBytes.getId().equals(statement.getId()))
                  .filter(statement -> members.nested.stream().noneMatch(member -> member.getId().equals(statement.getId())))
                 .toList())), context);
       }
@@ -482,6 +614,7 @@ public final class MoveBuiltinFamily extends ScanningRecipe<MoveBuiltinFamily.Me
             Statement replacement = ((J.CompilationUnit) JavaParser.fromJavaVersion().build()
              .parse(context, "class Replacement { void register() { " + family + "." + registerMethod(group)
                  + "(entries" + (stringAnsiGroup(group) ? ", random" : "")
+                 + (family.equals("CryptoBuiltins") ? ", SECURE_RANDOM, hosts.crypt()" : "")
                  + (family.equals("RandomBuiltins") ? ", () -> random, () -> floatingRandom, SECURE_RANDOM" : "") + "); } }")
             .findFirst().orElseThrow()).getClasses().getFirst().getBody().getStatements().stream()
             .filter(J.MethodDeclaration.class::isInstance).map(J.MethodDeclaration.class::cast)
@@ -507,14 +640,16 @@ public final class MoveBuiltinFamily extends ScanningRecipe<MoveBuiltinFamily.Me
     private final List<List<Statement>> groups = new ArrayList<>();
     private final List<Statement> handlers = new ArrayList<>();
     private final List<Statement> limits = new ArrayList<>();
+    private final List<Statement> regexFields = new ArrayList<>();
     private final List<Statement> fields = new ArrayList<>();
     private J.MethodDeclaration foldAscii;
     private J.MethodDeclaration matchesAt;
     private J.MethodDeclaration stringLengthError;
     private J.MethodDeclaration mutationResult;
+    private J.MethodDeclaration binaryBytes;
     private final List<Statement> nested = new ArrayList<>();
     private boolean ready() {
-      return !collision && source != null && registrations.size() == builtins.size()
+      return !collision && source != null && registrations.size() == builtins.size() - (family.equals("CryptoBuiltins") ? 5 : 0)
           && implementations.size() == methods.size();
     }
   }
