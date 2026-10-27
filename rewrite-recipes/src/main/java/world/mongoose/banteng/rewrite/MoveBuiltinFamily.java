@@ -76,6 +76,12 @@ public final class MoveBuiltinFamily extends ScanningRecipe<MoveBuiltinFamily.Me
         members.source = getCursor().firstEnclosingOrThrow(J.CompilationUnit.class);
         members.owner = type.getId();
         for (Statement statement : type.getBody().getStatements()) {
+          if (family.equals("TimeBuiltins") && statement instanceof J.VariableDeclarations field
+              && field.getVariables().stream().anyMatch(variable -> Set.of(
+                  "CLOCK_REALTIME", "CLOCK_MONOTONIC", "CLOCK_MONOTONIC_RAW",
+                  "CTIME_MAX_SECONDS").contains(variable.getSimpleName()))) {
+            members.fields.add(field);
+          }
           if (family.equals("StringBuiltins") && statement instanceof J.ClassDeclaration nested
               && nested.getSimpleName().equals("AnsiReplacement")) {
             members.nested.add(nested);
@@ -208,6 +214,7 @@ public final class MoveBuiltinFamily extends ScanningRecipe<MoveBuiltinFamily.Me
     J.ClassDeclaration type = skeleton.getClasses().getFirst();
     List<Statement> statements = new ArrayList<>(type.getBody().getStatements());
     statements.addAll(members.implementations);
+    statements.addAll(members.fields);
     statements.addAll(members.nested);
     List<J.Import> imports = new ArrayList<>(members.source.getImports());
     for (J.Import imported : skeleton.getImports()) {
@@ -361,6 +368,7 @@ public final class MoveBuiltinFamily extends ScanningRecipe<MoveBuiltinFamily.Me
             type.getBody().getStatements().stream().filter(statement -> members.implementations
                 .stream().noneMatch(method -> method.getId().equals(statement.getId())))
                 .filter(statement -> members.limits.stream().noneMatch(member -> member.getId().equals(statement.getId())))
+                .filter(statement -> members.fields.stream().noneMatch(member -> member.getId().equals(statement.getId())))
                  .filter(statement -> members.foldAscii == null || !members.foldAscii.getId().equals(statement.getId()))
                  .filter(statement -> members.matchesAt == null || !members.matchesAt.getId().equals(statement.getId()))
                  .filter(statement -> members.nested.stream().noneMatch(member -> member.getId().equals(statement.getId())))
@@ -405,6 +413,7 @@ public final class MoveBuiltinFamily extends ScanningRecipe<MoveBuiltinFamily.Me
     private final List<List<Statement>> groups = new ArrayList<>();
     private final List<Statement> handlers = new ArrayList<>();
     private final List<Statement> limits = new ArrayList<>();
+    private final List<Statement> fields = new ArrayList<>();
     private J.MethodDeclaration foldAscii;
     private J.MethodDeclaration matchesAt;
     private final List<Statement> nested = new ArrayList<>();

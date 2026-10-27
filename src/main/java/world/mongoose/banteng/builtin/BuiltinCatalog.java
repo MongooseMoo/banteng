@@ -6,7 +6,6 @@ import java.math.BigInteger;
 import java.nio.file.Path;
 import java.security.MessageDigest;
 import java.security.SecureRandom;
-import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Base64;
@@ -35,13 +34,14 @@ import org.bouncycastle.crypto.generators.Argon2BytesGenerator;
 import org.bouncycastle.crypto.macs.HMac;
 import org.bouncycastle.crypto.params.Argon2Parameters;
 import org.bouncycastle.crypto.params.KeyParameter;
-import world.mongoose.banteng.builtin.family.JsonBuiltins;
 
 import static world.mongoose.banteng.builtin.ValueLimits.valueBytes;
+import world.mongoose.banteng.builtin.family.JsonBuiltins;
 import world.mongoose.banteng.builtin.family.ListBuiltins;
 import world.mongoose.banteng.builtin.family.MapBuiltins;
 import world.mongoose.banteng.builtin.family.MathBuiltins;
 import world.mongoose.banteng.builtin.family.StringBuiltins;
+import world.mongoose.banteng.builtin.family.TimeBuiltins;
 import world.mongoose.banteng.bytecode.MooCompiler;
 import world.mongoose.banteng.host.Aspell;
 import world.mongoose.banteng.host.Libc;
@@ -80,10 +80,6 @@ import world.mongoose.banteng.world.WorldVerb;
 
 /** The explicit builtin catalog required by the first managed runtime path. */
 public final class BuiltinCatalog {
-  private static final int CLOCK_REALTIME = 0;
-  private static final int CLOCK_MONOTONIC = 1;
-  private static final int CLOCK_MONOTONIC_RAW = 4;
-  private static final long CTIME_MAX_SECONDS = (long) Integer.MAX_VALUE * 31_536_000L;
   private static final SecureRandom SECURE_RANDOM = new SecureRandom();
   private static final Set<ArgType> ANY = Set.of(ArgType.ANY);
   private static final Set<ArgType> INTEGER = Set.of(ArgType.INTEGER);
@@ -297,28 +293,7 @@ public final class BuiltinCatalog {
             BuiltinPermissionRule.ANY,
             true,
             call -> randomBytes(call.arguments(), call.world())));
-    entries.add(
-        new BuiltinSpec(
-            "time",
-            List.of(new CallShape(List.of(), List.of(), Optional.empty())),
-            BuiltinPermissionRule.ANY,
-            true,
-            call ->
-                BuiltinResult.value(new IntegerValue(Instant.now().getEpochSecond()))));
-    entries.add(
-        new BuiltinSpec(
-            "ctime",
-            List.of(new CallShape(List.of(), List.of(INTEGER), Optional.empty())),
-            BuiltinPermissionRule.ANY,
-            true,
-            call -> ctime(call.arguments())));
-    entries.add(
-        new BuiltinSpec(
-            "ftime",
-            List.of(new CallShape(List.of(), List.of(INTEGER), Optional.empty())),
-            BuiltinPermissionRule.ANY,
-            true,
-            call -> ftime(call.arguments())));
+    TimeBuiltins.register(entries);
     entries.add(
         new BuiltinSpec(
             "raise",
@@ -2237,35 +2212,6 @@ public final class BuiltinCatalog {
           : new BuiltinResult.SecondsAbort());
     }
     return Optional.empty();
-  }
-
-  private static BuiltinResult ctime(List<MooValue> arguments) {
-    long epochSecond =
-        arguments.isEmpty()
-            ? Instant.now().getEpochSecond()
-            : Math.min(((IntegerValue) arguments.getFirst()).value(), CTIME_MAX_SECONDS);
-    try {
-      return Libc.ctime(epochSecond)
-          .map(text -> BuiltinResult.value(StringValue.of(text)))
-          .orElseGet(() -> BuiltinResult.error(ErrorValue.E_INVARG));
-    } catch (NativeCallException failure) {
-      return BuiltinResult.error(ErrorValue.E_INVARG);
-    }
-  }
-
-  private static BuiltinResult ftime(List<MooValue> arguments) {
-    int clockId = CLOCK_REALTIME;
-    if (!arguments.isEmpty()) {
-      clockId =
-          ((IntegerValue) arguments.getFirst()).value() == 2
-              ? CLOCK_MONOTONIC_RAW
-              : CLOCK_MONOTONIC;
-    }
-    try {
-      return BuiltinResult.value(new FloatValue(Libc.clockTime(clockId)));
-    } catch (NativeCallException failure) {
-      return BuiltinResult.error(ErrorValue.E_FLOAT);
-    }
   }
 
   private BuiltinResult randomInteger(List<MooValue> arguments) {
