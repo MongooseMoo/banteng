@@ -42,3 +42,5 @@ The subsequent latest WAIF assignment ancestry merged normally without conflicts
 
 ## Login and layout repair ancestry
 Merged the latest coordinator runtime login-output and pinned-layout-boundary repairs normally, without conflicts or family source adaptations. Family implementations, services, dependencies, extraction mover, authored fixtures and YAML are unchanged. Connection retains its relocated contract types alongside the current runtime publication body. No local tests, CI, migration or repeated review ran for this mechanical integration. Parent owns publication, hosted checks and merge.
+
+The newly merged LoginSwitchOutputTest still imported the removed catalog ListenerControl type. Updated that one import to the existing ConnectionBuiltins.ListenerControl owner; its test body and assertions are unchanged. No test, review or publication was repeated for this mechanical source integration fix.
