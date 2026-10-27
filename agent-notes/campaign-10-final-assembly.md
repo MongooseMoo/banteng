@@ -18,7 +18,7 @@ Normally merge existing family branches in actual dependency order: Binary befor
 
 Mechanical conflicts combined additive mover cases, fixtures and YAML declarations, retained every family's registration group in original order, and preserved both sides' deletions of moved catalog bodies. The twelve family owner files are byte-identical to their respective source branches. Connection was last; MooRuntime, MooVm and VmSnapshot changes against current runtime relocate transport types only. The newer LoginSwitchOutputTest needed its ListenerControl import relocated too. No other worktree was edited, local CI run, review repeated or publication performed.
 
-Final cleanup removes eighteen unused imports and four unused ArgType constants: twenty-two lines. BuiltinCatalog is 214 lines, with forty-six registration-group calls and the retained constructors, host access, manifest/index, lookup, central invocation and protection reload. No implementation body or dispatch framework was added. Read-only diff checks find no whitespace errors. No current compile or hosted CI acceptance is claimed.
+The original aggregate cleanup removed eighteen unused imports and four unused ArgType constants: twenty-two lines. The four constants are now removed in Connection PR137 as its hosted compiler repair, leaving eighteen unused import deletions as this aggregate's unique source cleanup. BuiltinCatalog is 214 lines, with forty-six registration-group calls and the retained constructors, host access, manifest/index, lookup, central invocation and protection reload. No implementation body or dispatch framework was added. Read-only diff checks find no whitespace errors. No current compile or hosted CI acceptance is claimed.
 
 ## Next step
 
@@ -32,7 +32,7 @@ At publication, the latest Binary, Host, Crypto, Regex, SQLite, Object, Property
 
 Title: Finish builtin family assembly and remove dead catalog declarations
 
-Combines the existing twelve family extraction branches with the current callback runtime repairs, preserving their moved owners, extraction recipes and registration order. Removes eighteen unused catalog imports and four unused shape constants after the moves, leaving BuiltinCatalog as a 214-line assembler with its existing lookup, invocation validation and protection reload.
+Combines the existing twelve family extraction branches with the current callback runtime repairs, preserving their moved owners, extraction recipes and registration order. Removes eighteen unused catalog imports after the moves; Connection PR137 already removes the four unused shape constants. BuiltinCatalog remains a 214-line assembler with its existing lookup, invocation validation and protection reload.
 
 This aggregate exercises the final integration through hosted CI while runtime PR138 and the individual family prerequisites complete their required review/checks. It does not replace those milestones. Binary precedes Host/Crypto; Object precedes Property then Verb; Connection relocates the transport contracts against the current runtime last. Existing completed reviews remain reusable for unchanged code. No new behavior, framework, tests or local CI gate is introduced by the assembly cleanup.
 
@@ -43,3 +43,5 @@ Closes #10.
 ## Latest prerequisite ancestry integration
 
 Normally merged the newly published Connection tip carrying the latest family and actual master ancestry. Conflicts were limited to the mover, focused fixture, YAML and catalog. Compared both endpoint sources before resolving: all seventeen fixture methods and all YAML documents match exactly apart from order; mover differences reorder mutually exclusive family blocks and equivalent OR terms; catalog differs only by the reviewed twenty-two dead declarations. Retained the published aggregate source in all four resolutions, with no incoming substantive fix lost. Preserved the pre-existing Claude and coordinator note edits in this merge. No CI, review or publication ran here.
+
+Normally merged the subsequent Connection compiler repair without conflicts. Both sides already delete the four unused catalog constants, so only the incoming Connection note and this scope clarification changed. Source, tests, mover and YAML remain identical to published PR139. The remaining unique cleanup is eighteen catalog imports. No tests, repeated review or publication ran for this ancestry merge.
