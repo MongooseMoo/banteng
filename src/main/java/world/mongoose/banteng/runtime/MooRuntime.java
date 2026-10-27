@@ -1081,6 +1081,15 @@ public final class MooRuntime implements AutoCloseable, SchedulerRuntime {
       long taskPlayer,
       boolean collectAfterCompletion,
       List<VmSnapshot> otherTaskRoots) {
+    if (listenerControl.isEmpty() && taskPlayer < 0) {
+      context.effects.removeIf(effect -> {
+        if (effect.kind() != RuntimeEffectKind.WRITE || effect.connectionId() != taskPlayer) {
+          return false;
+        }
+        effect.lines().forEach(task.effects()::stageOutput);
+        return true;
+      });
+    }
     connectionIo.applyConnectionOptionRequests(context, task);
     connectionIo.applyForcedInputRequests(context, task);
     connectionIo.applyNotificationRequests(context, task, taskPlayer);
