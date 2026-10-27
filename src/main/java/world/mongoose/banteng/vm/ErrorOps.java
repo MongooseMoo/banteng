@@ -121,10 +121,9 @@ final class ErrorOps {
               return;
             }
           }
-          handler
-              .specification
-              .catchVariable()
-              .ifPresent(name -> frame.locals.put(name, boundValue));
+          if (handler.specification.catchSlot() >= 0) {
+            frame.locals[handler.specification.catchSlot()] = boundValue;
+          }
           state.clearPendingError();
           frame.instructionPointer = handler.specification.catchTarget();
           return;
@@ -172,7 +171,9 @@ final class ErrorOps {
   private static ListValue traceback(VmState state, MooValue error) {
     List<MooValue> frames = new ArrayList<>();
     boolean origin = true;
-    for (Frame frame : state.activeFrames()) {
+    List<Frame> active = state.activeFrames();
+    for (int index = 0; index < active.size(); index++) {
+      Frame frame = active.get(index);
       frames.add(tracebackFrame(frame, origin));
       boolean catchesHere =
           frame.handlers.stream()
@@ -184,6 +185,7 @@ final class ErrorOps {
       if (catchesHere) {
         break;
       }
+      if (index + 1 < active.size()) frame.builtinStackFrame(active.get(index + 1), true).ifPresent(frames::add);
       origin = false;
     }
     return new ListValue(frames);
@@ -203,10 +205,10 @@ final class ErrorOps {
     return new ListValue(
         List.of(
             evalFrame ? new ObjectValue(-1) : tracebackReference(frame.receiver),
-            evalFrame ? StringValue.of("") : frame.locals.getOrDefault("verb", StringValue.of("")),
+            evalFrame ? StringValue.of("") : frame.localOrDefault(8, StringValue.of("")),
             evalFrame ? new ObjectValue(-1) : new ObjectValue(frame.programmer),
             evalFrame ? new ObjectValue(-1) : tracebackReference(frame.verbLocation),
-            frame.locals.getOrDefault("player", new ObjectValue(-1)),
+            new ObjectValue(frame.player),
             new IntegerValue(frame.program.instructions().get(instructionIndex).sourceLine())));
   }
 

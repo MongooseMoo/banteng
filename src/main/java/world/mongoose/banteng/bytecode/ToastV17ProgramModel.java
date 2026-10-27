@@ -15,7 +15,20 @@ public final class ToastV17ProgramModel {
   /** The call opcode kind at one serialized continuation boundary. */
   public enum CallKind {
     BUILTIN,
-    VERB
+    VERB,
+    INDEX,
+    INDEX_REF,
+    INDEX_SET;
+
+    public static Optional<CallKind> of(BytecodeProgram.Instruction instruction) {
+      return switch (instruction.opcode()) {
+        case CALL -> Optional.of(BUILTIN);
+        case CALL_VERB -> Optional.of(VERB);
+        case INDEX -> Optional.of(instruction.operand().isPresent() ? INDEX_REF : INDEX);
+        case SET_INDEX, SET_PARENT_INDEX -> Optional.of(INDEX_SET);
+        default -> Optional.empty();
+      };
+    }
   }
 
   /** One exact Toast byte boundary and its stable parser AST identity. */
@@ -213,11 +226,15 @@ public final class ToastV17ProgramModel {
 
   /** One typed structural entry in Toast base-to-top runtime-stack order. */
   public sealed interface StructuralStackEntry
-      permits CatchGroup, ProtectedFinally, FinallyContinuation, CollectionLoop, RangeLoop {
+      permits CatchGroup, ProtectedFinally, FinallyContinuation, CollectionLoop, RangeLoop, IndexContext {
     AstPath ownerPath();
 
     int baseDepth();
   }
+
+  /** Collection retained while evaluating an index or range, with an optional saved parent key. */
+  public record IndexContext(AstPath ownerPath, int baseDepth, OptionalInt keyDepth)
+      implements StructuralStackEntry {}
 
   /** Catch structure, including raw marker placement and Banteng controls for synthesis. */
   public record CatchGroup(

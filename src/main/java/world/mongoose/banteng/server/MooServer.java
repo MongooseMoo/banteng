@@ -1,5 +1,7 @@
 package world.mongoose.banteng.server;
 
+import world.mongoose.banteng.world.DurableTask;
+import world.mongoose.banteng.world.ActiveConnection;
 import java.io.BufferedWriter;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -16,7 +18,6 @@ import java.net.InetSocketAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.net.SocketException;
-import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
@@ -32,20 +33,15 @@ import java.util.concurrent.atomic.AtomicLong;
 import world.mongoose.banteng.builtin.BuiltinCatalog.ListenerDescription;
 import world.mongoose.banteng.builtin.BuiltinCatalog.ListenerControl;
 import world.mongoose.banteng.builtin.BuiltinCatalog.KeepAliveOptions;
-import world.mongoose.banteng.logging.ServerLog;
-import world.mongoose.banteng.persistence.LambdaMooV17Codec;
 import world.mongoose.banteng.runtime.MooRuntime;
 import world.mongoose.banteng.value.MooValue;
 import world.mongoose.banteng.value.MooValue.IntegerValue;
 import world.mongoose.banteng.value.MooValue.MapValue;
 import world.mongoose.banteng.value.MooValue.StringValue;
-import world.mongoose.banteng.value.ValueSemantics;
-import world.mongoose.banteng.world.WorldTxn;
 
 /** The concrete blocking socket server for the first managed vertical slice. */
 public final class MooServer implements AutoCloseable, ListenerControl {
-  private final MooRuntime runtime;
-  private final ConnectionRegistry connectionRegistry = new ConnectionRegistry();
+  private final java.util.function.Supplier<MooRuntime> runtime;
   private final InetAddress listenAddress;
   private final ServerSocket primaryListener;
   private final Listener primary;
@@ -59,164 +55,12 @@ public final class MooServer implements AutoCloseable, ListenerControl {
   private final CountDownLatch closedLatch = new CountDownLatch(1);
   private final AtomicLong nextConnectionId = new AtomicLong(-2);
 
-  /** Binds the configured address and port. Port zero requests an ephemeral test port. */
-  public MooServer(String address, int port, WorldTxn world, Path checkpoint) throws IOException {
-    this(address, port, world, checkpoint, List.of(), List.of());
-  }
-
-  /** Binds the listener and restores delayed fork tasks from the loaded checkpoint. */
+  /** Binds the transport around the application's deferred runtime reference. */
   public MooServer(
-      String address,
-      int port,
-      WorldTxn world,
-      Path checkpoint,
-      List<LambdaMooV17Codec.DurableTask> restoredTasks,
-      List<LambdaMooV17Codec.ActiveConnection> activeConnections)
-      throws IOException {
-    this(
-        address,
-        port,
-        world,
-        Optional.empty(),
-        checkpoint,
-        restoredTasks,
-        activeConnections,
-        ServerLog.stderr(System.Logger.Level.INFO),
-        ValueSemantics.STANDARD);
-  }
-
-  /** Binds the listener with distinct loaded and checkpoint database files. */
-  public MooServer(
-      String address,
-      int port,
-      WorldTxn world,
-      Path database,
-      Path checkpoint,
-      List<LambdaMooV17Codec.DurableTask> restoredTasks,
-      List<LambdaMooV17Codec.ActiveConnection> activeConnections)
-      throws IOException {
-    this(
-        address,
-        port,
-        world,
-        database,
-        checkpoint,
-        restoredTasks,
-        activeConnections,
-        ValueSemantics.STANDARD);
-  }
-
-  /** Binds the listener with distinct files and selected value semantics. */
-  public MooServer(
-      String address,
-      int port,
-      WorldTxn world,
-      Path database,
-      Path checkpoint,
-      List<LambdaMooV17Codec.DurableTask> restoredTasks,
-      List<LambdaMooV17Codec.ActiveConnection> activeConnections,
-      ValueSemantics valueSemantics)
-      throws IOException {
-    this(
-        address,
-        port,
-        world,
-        Optional.of(Objects.requireNonNull(database, "database")),
-        checkpoint,
-        restoredTasks,
-        activeConnections,
-        ServerLog.stderr(System.Logger.Level.INFO),
-        valueSemantics);
-  }
-
-  /** Binds the listener with distinct database files and the shared server log. */
-  public MooServer(
-      String address,
-      int port,
-      WorldTxn world,
-      Path database,
-      Path checkpoint,
-      List<LambdaMooV17Codec.DurableTask> restoredTasks,
-      List<LambdaMooV17Codec.ActiveConnection> activeConnections,
-      ServerLog serverLog)
-      throws IOException {
-    this(
-        address,
-        port,
-        world,
-        Optional.of(Objects.requireNonNull(database, "database")),
-        checkpoint,
-        restoredTasks,
-        activeConnections,
-        serverLog,
-        ValueSemantics.STANDARD);
-  }
-
-  /** Binds the listener with shared logging and selected value semantics. */
-  public MooServer(
-      String address,
-      int port,
-      WorldTxn world,
-      Path database,
-      Path checkpoint,
-      List<LambdaMooV17Codec.DurableTask> restoredTasks,
-      List<LambdaMooV17Codec.ActiveConnection> activeConnections,
-      ServerLog serverLog,
-      ValueSemantics valueSemantics)
-      throws IOException {
-    this(
-        address,
-        port,
-        world,
-        Optional.of(Objects.requireNonNull(database, "database")),
-        checkpoint,
-        restoredTasks,
-        activeConnections,
-        serverLog,
-        valueSemantics);
-  }
-
-  private MooServer(
-      String address,
-      int port,
-      WorldTxn world,
-      Optional<Path> database,
-      Path checkpoint,
-      List<LambdaMooV17Codec.DurableTask> restoredTasks,
-      List<LambdaMooV17Codec.ActiveConnection> activeConnections,
-      ServerLog serverLog,
-      ValueSemantics valueSemantics)
-      throws IOException {
+      String address, int port, java.util.function.Supplier<MooRuntime> runtime) throws IOException {
+    this.runtime = Objects.requireNonNull(runtime, "runtime");
     listenAddress = InetAddress.getByName(address);
     primaryListener = new ServerSocket();
-    WorldTxn runtimeWorld = Objects.requireNonNull(world, "world");
-    Path checkpointPath = Objects.requireNonNull(checkpoint, "checkpoint");
-    List<LambdaMooV17Codec.DurableTask> tasks =
-        Objects.requireNonNull(restoredTasks, "restoredTasks");
-    List<LambdaMooV17Codec.ActiveConnection> connectionsToRestore =
-        Objects.requireNonNull(activeConnections, "activeConnections");
-    ServerLog runtimeLog = Objects.requireNonNull(serverLog, "serverLog");
-    runtime =
-        database.isPresent()
-            ? new MooRuntime(
-                runtimeWorld,
-                this,
-                database.orElseThrow(),
-                checkpointPath,
-                tasks,
-                connectionsToRestore,
-                runtimeLog,
-                valueSemantics,
-                connectionRegistry)
-            : new MooRuntime(
-                runtimeWorld,
-                this,
-                checkpointPath,
-                tasks,
-                connectionsToRestore,
-                runtimeLog,
-                valueSemantics,
-                connectionRegistry);
     try {
       primaryListener.bind(new InetSocketAddress(listenAddress, port));
     } catch (IOException | RuntimeException failure) {
@@ -255,7 +99,7 @@ public final class MooServer implements AutoCloseable, ListenerControl {
       throw new IllegalStateException("server is already serving");
     }
     try {
-      runtime.startServer();
+      runtime.get().startServer();
       ready.run();
       acceptConnections(primary);
     } finally {
@@ -299,7 +143,7 @@ public final class MooServer implements AutoCloseable, ListenerControl {
       ConnectionOutput connectionOutput = new ConnectionOutput(output);
       outputs.put(connectionId, connectionOutput);
       List<String> initialOutput =
-          runtime.acceptConnection(
+          runtime.get().acceptConnection(
               connectionId, listener.handler, listener.printMessages, connectionInfo(socket, false));
       opened = true;
       connectionOutput.writeLines(initialOutput);
@@ -314,7 +158,7 @@ public final class MooServer implements AutoCloseable, ListenerControl {
       while ((inputCount = input.read(inputBuffer)) != -1) {
         if (binaryConnections.containsKey(connectionId)) {
           connectionOutput.writeLines(
-              runtime.receiveLine(
+              runtime.get().receiveLine(
                   connectionId,
                   new String(inputBuffer, 0, inputCount, StringValue.charset())));
           continue;
@@ -338,7 +182,7 @@ public final class MooServer implements AutoCloseable, ListenerControl {
                 }
                 subnegotiation = null;
                 connectionOutput.writeLines(
-                    runtime.executeTransportOutOfBand(connectionId, encodedCommand.toString()));
+                    runtime.get().executeTransportOutOfBand(connectionId, encodedCommand.toString()));
               }
             } else if (inputByte == 0xFF) {
               afterSubnegotiationIac = true;
@@ -349,7 +193,7 @@ public final class MooServer implements AutoCloseable, ListenerControl {
             int completedCommand = negotiationCommand;
             negotiationCommand = -1;
             connectionOutput.writeLines(
-                runtime.executeTransportOutOfBand(
+                runtime.get().executeTransportOutOfBand(
                     connectionId, "~FF~%02X~%02X".formatted(completedCommand, inputByte)));
             continue;
           }
@@ -363,7 +207,7 @@ public final class MooServer implements AutoCloseable, ListenerControl {
               subnegotiation.write(0xFA);
             } else if (inputByte == 0xF1) {
               connectionOutput.writeLines(
-                  runtime.executeTransportOutOfBand(connectionId, "~FF~F1"));
+                  runtime.get().executeTransportOutOfBand(connectionId, "~FF~F1"));
             }
             continue;
           }
@@ -373,7 +217,7 @@ public final class MooServer implements AutoCloseable, ListenerControl {
           }
           if (inputByte == '\r') {
             connectionOutput.writeLines(
-                runtime.receiveLine(connectionId, line.toString(StringValue.charset())));
+                runtime.get().receiveLine(connectionId, line.toString(StringValue.charset())));
             line.reset();
             afterCarriageReturn = true;
             continue;
@@ -384,7 +228,7 @@ public final class MooServer implements AutoCloseable, ListenerControl {
               continue;
             }
             connectionOutput.writeLines(
-                runtime.receiveLine(connectionId, line.toString(StringValue.charset())));
+                runtime.get().receiveLine(connectionId, line.toString(StringValue.charset())));
             line.reset();
             continue;
           }
@@ -396,7 +240,7 @@ public final class MooServer implements AutoCloseable, ListenerControl {
       }
       if (line.size() > 0) {
         connectionOutput.writeLines(
-            runtime.receiveLine(connectionId, line.toString(StringValue.charset())));
+            runtime.get().receiveLine(connectionId, line.toString(StringValue.charset())));
       }
     } catch (IOException error) {
       if (!closed.get() && !socket.isClosed()) {
@@ -404,7 +248,7 @@ public final class MooServer implements AutoCloseable, ListenerControl {
       }
     } finally {
       if (opened) {
-        runtime.closeConnection(connectionId);
+        runtime.get().closeConnection(connectionId);
       }
       outputs.remove(connectionId);
       binaryConnections.remove(connectionId);
@@ -656,7 +500,7 @@ public final class MooServer implements AutoCloseable, ListenerControl {
     if (signal == 2 || signal == 15) {
       gracefulShutdown();
     } else {
-      runtime.handleSignal(signal);
+      runtime.get().handleSignal(signal);
     }
   }
 
@@ -664,7 +508,7 @@ public final class MooServer implements AutoCloseable, ListenerControl {
   public void gracefulShutdown() {
     boolean requested = false;
     if (!closed.get()) {
-      runtime.requestGracefulShutdown();
+      runtime.get().requestGracefulShutdown();
       requested = true;
     }
     try {
@@ -672,9 +516,9 @@ public final class MooServer implements AutoCloseable, ListenerControl {
         throw new IllegalStateException("graceful shutdown did not close the server");
       }
       if (requested) {
-        runtime.close();
+        runtime.get().close();
       }
-      if (!runtime.awaitTermination(30, TimeUnit.SECONDS)) {
+      if (!runtime.get().awaitTermination(30, TimeUnit.SECONDS)) {
         throw new IllegalStateException("graceful shutdown did not terminate VM workers");
       }
     } catch (InterruptedException interrupted) {
@@ -745,7 +589,7 @@ public final class MooServer implements AutoCloseable, ListenerControl {
   @Override
   public synchronized void close() throws IOException {
     Optional<IOException> failure = closeTransport();
-    runtime.close();
+    runtime.get().close();
     if (failure.isPresent()) {
       throw failure.orElseThrow();
     }

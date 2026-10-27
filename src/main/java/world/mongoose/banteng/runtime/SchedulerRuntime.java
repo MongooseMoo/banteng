@@ -13,7 +13,7 @@ import world.mongoose.banteng.world.WorldSnapshot;
 import world.mongoose.banteng.world.WorldTxn;
 
 /** Runtime callbacks used by the deterministic publication scheduler. */
-interface SchedulerRuntime {
+public interface SchedulerRuntime {
   OptionalLong connectionPlayer(long connectionId);
   boolean loginTimeoutIsCurrent(long connectionId, long generation);
   OptionalLong inputTaskPlayer(long connectionId, String line);
@@ -27,6 +27,9 @@ interface SchedulerRuntime {
   VmState startBackgroundTask(MooRuntime.AttemptContext context, VmSnapshot initial);
   MooVm vm();
   BuiltinCatalog builtins();
+  long nanoTime();
+  Optional<MooRuntime.RuntimeStep> startLaggingTask(MooRuntime.AttemptContext context,
+      VmSnapshot initial, VmSnapshot completed, long player, double elapsedSeconds);
   void publishVmState(MooRuntime.AttemptContext context,
       VmState task, long taskPlayer, boolean collectAfterCompletion,
       List<VmSnapshot> otherTaskRoots);

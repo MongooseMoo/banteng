@@ -1,5 +1,6 @@
 package world.mongoose.banteng.persistence;
 
+import world.mongoose.banteng.world.Checkpoint;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -14,10 +15,10 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import world.mongoose.banteng.persistence.LambdaMooV17Codec.QueuedTask;
-import world.mongoose.banteng.persistence.LambdaMooV17Codec.SuspendedActivation;
-import world.mongoose.banteng.persistence.LambdaMooV17Codec.SuspendedStackSlot;
-import world.mongoose.banteng.persistence.LambdaMooV17Codec.SuspendedTask;
+import world.mongoose.banteng.world.QueuedTask;
+import world.mongoose.banteng.world.SuspendedActivation;
+import world.mongoose.banteng.world.SuspendedStackSlot;
+import world.mongoose.banteng.world.SuspendedTask;
 import world.mongoose.banteng.value.MooValue;
 import world.mongoose.banteng.value.MooValue.AnonymousObjectValue;
 import world.mongoose.banteng.value.MooValue.IntegerValue;
@@ -52,9 +53,9 @@ final class QueuedTaskV17CodecTest {
                         "this", Optional.of(new ObjectValue(7)),
                         "unset", Optional.empty()),
                     List.of(
-                        new SuspendedStackSlot(Optional.empty(), 6, 0),
+                        new SuspendedStackSlot(Optional.empty(), SuspendedStackSlot.Kind.NONE, 0),
                         new SuspendedStackSlot(
-                            Optional.of(new IntegerValue(4)), -1, 0)),
+                            Optional.of(new IntegerValue(4)), SuspendedStackSlot.Kind.VALUE, 0)),
                     new ObjectValue(7),
                     new ObjectValue(8),
                     true,
@@ -84,7 +85,7 @@ final class QueuedTaskV17CodecTest {
 
     codec.writeAtomic(checkpoint, emptyWorld(), List.of(task), List.of());
 
-    LambdaMooV17Codec.Checkpoint restored = codec.read(checkpoint);
+    Checkpoint restored = codec.read(checkpoint);
     assertEquals(List.of(task), restored.tasks());
     assertEquals(expectedDatabase(), Files.readString(checkpoint, StringValue.charset()));
   }
@@ -97,7 +98,7 @@ final class QueuedTaskV17CodecTest {
     Path second = temporaryDirectory.resolve("second.db");
     codec.writeAtomic(first, emptyWorld(), List.of(task()), List.of());
 
-    LambdaMooV17Codec.Checkpoint restored = codec.read(first);
+    Checkpoint restored = codec.read(first);
     codec.writeAtomic(
         second, restored.world().snapshot(), restored.tasks(), restored.activeConnections());
 
@@ -117,7 +118,7 @@ final class QueuedTaskV17CodecTest {
     Files.writeString(input, fixture, StringValue.charset());
 
     LambdaMooV17Codec codec = new LambdaMooV17Codec();
-    LambdaMooV17Codec.Checkpoint restored = codec.read(input);
+    Checkpoint restored = codec.read(input);
     QueuedTask task = assertInstanceOf(QueuedTask.class, restored.tasks().getFirst());
     assertEquals(Optional.empty(), task.environment().slots().get("unset"));
     assertFalse(task.initialLocals().containsKey("unset"));
@@ -142,7 +143,7 @@ final class QueuedTaskV17CodecTest {
     Files.write(input, fixture);
 
     LambdaMooV17Codec codec = new LambdaMooV17Codec();
-    LambdaMooV17Codec.Checkpoint restored = codec.read(input);
+    Checkpoint restored = codec.read(input);
     QueuedTask task = assertInstanceOf(QueuedTask.class, restored.tasks().getFirst());
     assertEquals(4, task.firstSourceLine());
     assertEquals("audit_t", task.calledVerb());

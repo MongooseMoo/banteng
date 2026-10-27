@@ -4,17 +4,29 @@ import java.io.BufferedReader;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Arrays;
 import java.util.concurrent.Callable;
 import world.mongoose.banteng.logging.ServerLog;
 import world.mongoose.banteng.persistence.LambdaMooV17Codec;
-import world.mongoose.banteng.persistence.LambdaMooV17Codec.Checkpoint;
+import world.mongoose.banteng.persistence.DbCodec;
+import world.mongoose.banteng.world.Checkpoint;
+import world.mongoose.banteng.runtime.MooRuntime;
+import world.mongoose.banteng.runtime.PublicationScheduler;
+import world.mongoose.banteng.runtime.TaskRegistry;
+import world.mongoose.banteng.server.ConnectionRegistry;
+import world.mongoose.banteng.builtin.BuiltinCatalog;
+import world.mongoose.banteng.builtin.BuiltinHosts;
+import world.mongoose.banteng.vm.MooVm;
 import world.mongoose.banteng.persistence.LambdaMooV4Reader;
 import world.mongoose.banteng.persistence.LambdaMooV5Reader;
 import world.mongoose.banteng.server.MooServer;
 import world.mongoose.banteng.value.MooValue.StringValue;
+import world.mongoose.banteng.value.MooValue;
+import world.mongoose.banteng.value.MooValue.ListValue;
 import world.mongoose.banteng.value.ValueSemantics;
 import org.jspecify.annotations.Nullable;
 import picocli.CommandLine;
@@ -55,7 +67,29 @@ public final class Banteng implements Callable<Integer> {
       description = "Promote integers for mixed numeric operations and float math")
   private boolean promoteNumbers;
 
+  private @Nullable String startLine;
+  private @Nullable Path startScript;
+  private boolean scriptFileFirst;
+
+  @Option(names = "--start-line", arity = "1", paramLabel = "LINE", description = "Pass a line to #0:do_start_script")
+  void startLine(String[] lines) {
+    if (startScript == null) scriptFileFirst = false;
+    startLine = lines[lines.length - 1];
+  }
+
+  @Option(names = "--start-script", arity = "1", paramLabel = "PATH", description = "Pass file lines to #0:do_start_script")
+  void startScript(Path[] paths) {
+    if (startLine == null) scriptFileFirst = true;
+    startScript = paths[paths.length - 1];
+  }
+
   @Spec private @Nullable CommandSpec commandSpec;
+
+  private @Nullable MooRuntime runtime;
+
+  private MooRuntime runtime() {
+    return Objects.requireNonNull(runtime, "runtime has been assembled");
+  }
 
   /** Loads the configured database and blocks while serving connections. */
   @Override
@@ -77,35 +111,41 @@ public final class Banteng implements Callable<Integer> {
     }
 
     try (ServerLog serverLog = ServerLog.open(logLevel, Optional.ofNullable(logFile))) {
-      Checkpoint loaded;
+      DbCodec outputCodec = new LambdaMooV17Codec();
+      DbCodec inputCodec;
       try (BufferedReader input =
           Files.newBufferedReader(databasePath, StringValue.charset())) {
         String header = input.readLine();
-        loaded =
+        inputCodec =
             switch (Objects.requireNonNullElse(header, "")) {
               case "** LambdaMOO Database, Format Version 4 **" ->
-                  new Checkpoint(
-                      new LambdaMooV4Reader().read(databasePath), List.of(), List.of());
+                  new LambdaMooV4Reader(outputCodec);
               case "** LambdaMOO Database, Format Version 5 **" ->
-                  new Checkpoint(
-                      new LambdaMooV5Reader(serverLog).read(databasePath), List.of(), List.of());
+                  new LambdaMooV5Reader(serverLog, outputCodec);
               case "** LambdaMOO Database, Format Version 17 **" ->
-                  new LambdaMooV17Codec().read(databasePath);
+                  outputCodec;
               default -> throw new IOException("unsupported database header: " + header);
             };
       }
+      Checkpoint loaded = inputCodec.read(databasePath);
+      ConnectionRegistry connections = new ConnectionRegistry();
+      TaskRegistry tasks = new TaskRegistry();
+      ValueSemantics semantics = valueSemantics();
+      MooVm vm = new MooVm(semantics);
       try (ProcessSignals signals = new ProcessSignals();
           MooServer server =
-              new MooServer(
-                  listenAddress,
-                  port,
-                  loaded.world(),
-                  databasePath,
-                  checkpointPath,
-                  loaded.tasks(),
-                  loaded.activeConnections(),
-                  serverLog,
-                  valueSemantics())) {
+              new MooServer(listenAddress, port, this::runtime);
+          PublicationScheduler scheduler = new PublicationScheduler(
+              loaded.world(), this::runtime,
+              Math.max(2, Runtime.getRuntime().availableProcessors()), tasks)) {
+        BuiltinCatalog builtins = new BuiltinCatalog(server,
+            BuiltinHosts.builder().valueSemantics(semantics).serverLog(serverLog).build());
+        runtime = new MooRuntime(loaded.world(), semantics, connections, System::nanoTime,
+            MooRuntime::resolveCanonicalConnectionName, Optional.of(server),
+            Optional.of(databasePath), Optional.of(checkpointPath), loaded.activeConnections(),
+            serverLog, vm, tasks, scheduler, builtins, outputCodec);
+        scheduler.restoreTasks(loaded.tasks());
+        for (ListValue script : startupScripts()) runtime().startScript(script);
         server.serve(() -> signals.dispatch(server::handleSignal));
       }
     }
@@ -120,6 +160,21 @@ public final class Banteng implements Callable<Integer> {
 
   ValueSemantics valueSemantics() {
     return new ValueSemantics(promoteNumbers);
+  }
+
+  List<ListValue> startupScripts() throws IOException {
+    List<ListValue> scripts = new ArrayList<>();
+    String line = startLine;
+    if (line != null) scripts.add(new ListValue(List.of(StringValue.of(line))));
+    Path path = startScript;
+    if (path != null) {
+      String content = Files.readString(path, StringValue.charset());
+      List<String> lines = content.isEmpty() ? List.of() : Arrays.asList(content.split("\n", -1));
+      if (content.endsWith("\n")) lines = lines.subList(0, lines.size() - 1);
+      ListValue file = new ListValue(lines.stream().map(StringValue::of).map(MooValue.class::cast).toList());
+      scripts.add(scriptFileFirst ? 0 : scripts.size(), file);
+    }
+    return scripts;
   }
 
 }

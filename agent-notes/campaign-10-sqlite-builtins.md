@@ -2,7 +2,9 @@
 Extract issue 10's SQLite family using the existing stateful-service mover.
 
 ## State
-SQLite service and nine registrations moved using inspected OpenRewrite dry-run output applied through apply_patch. Branch includes the File I/O prerequisite's unused-argument repair. Local implementation complete; nothing published.
+Published as PR128 with completed review. Prepared the normal merge of latest committed campaign/callback-command-locals, preserving its current callback, WAIF and continuation repairs. Catalog and rewrite.yml merged mechanically without conflicts. SqliteBuiltins, FileIoBuiltins, ConfinedFileRoot, MoveFileIoBuiltins and its focused fixture are unchanged from the reviewed SQLite head. Both catalog constructors still create one ConfinedFileRoot shared by File I/O and SQLite, and sqlite.register remains in its existing manifest position. Incoming runtime/VM/persistence/bytecode/app, BuiltinHosts/BuiltinResult and runtime test files are unchanged. No new SQLite implementation/mover delta; no local CI or repeat review was run.
+
+SQLite service and nine registrations were moved using inspected OpenRewrite dry-run output applied through apply_patch. Branch includes the File I/O prerequisite's unused-argument repair.
 
 ## Decisions and why
 Move the existing service intact into family.SqliteBuiltins and place its nine registrations in its instance register method. Preserve the shared ConfinedFileRoot, all connection/lock/cancellation code, WIZARD_ONLY permission, four irrevocable registrations, and query/execute threadMode. Extend MoveFileIoBuiltins with a Sqlite selection rather than introduce another mover. About 407 implementation lines relocate, 72 catalog lines leave, and 25 scaffold/45 incremental recipe lines plus focused coverage are expected.
@@ -15,7 +17,7 @@ The configurable recipe constructor initially accepted null from OpenRewrite's r
 Normal migration command: WSL env JAVA_HOME=/opt/java/25 PATH=/opt/java/25/bin:/usr/bin:/bin scripts/rewrite.sh world.mongoose.banteng.builtin.ExtractSqliteBuiltins. It completed successfully with all ordinary compilation prerequisites, produced only the service relocation and catalog extraction, and retained existing Gradle plugin classpath-lock/configuration-cache diagnostics. No task exclusions or check weakening.
 
 ## Next step
-Parent verifies primary source, independent review and PR CI before publication/merge. Final moved production source has not been compiled locally after migration, following the CI-on-PR rule. The scoped MoveFileIoBuiltinsTest completed successfully after the recipe fixes; the final invocation reused those exact recipe/test outputs. A read-only comparison confirms the moved implementation matches the original after only the declared constructor, method visibility and unused handles argument changes.
+Parent owns publication and required PR CI after runtime lands. Reuse the completed SQLite review because the implementation/mover/shared-root owners are unchanged; this ancestry integration does not require another review. Production compilation/conformance remains on the PR. The original scoped MoveFileIoBuiltinsTest completed successfully after the recipe fixes; a read-only comparison confirmed the moved implementation matches the original after only the declared constructor, method visibility and unused handles argument changes. No publication performed by this worker.
 
 ## Draft PR body
 Moves the existing SQLite owner into family.SqliteBuiltins and places its nine registrations in that owner, replacing BuiltinCatalog's SQLite manifest helpers. Preserves registration order, wizard permissions, selective irrevocable flags, query/execute thread mode and all existing connection state, locking and cancellation bodies. The shared ConfinedFileRoot remains the existing owner.

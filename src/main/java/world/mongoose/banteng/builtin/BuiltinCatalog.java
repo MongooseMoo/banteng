@@ -3,7 +3,6 @@ import world.mongoose.banteng.builtin.family.SqliteBuiltins;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
-import java.math.BigInteger;
 import java.nio.file.Path;
 import java.security.MessageDigest;
 import java.security.SecureRandom;
@@ -16,6 +15,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
+import world.mongoose.banteng.world.SuspendedActivation;
 import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.Random;
@@ -35,12 +35,14 @@ import org.bouncycastle.crypto.generators.Argon2BytesGenerator;
 import org.bouncycastle.crypto.macs.HMac;
 import org.bouncycastle.crypto.params.Argon2Parameters;
 import org.bouncycastle.crypto.params.KeyParameter;
+import world.mongoose.banteng.builtin.family.ConversionBuiltins;
 
 import static world.mongoose.banteng.builtin.ValueLimits.valueBytes;
 import world.mongoose.banteng.builtin.family.JsonBuiltins;
 import world.mongoose.banteng.builtin.family.ListBuiltins;
 import world.mongoose.banteng.builtin.family.MapBuiltins;
 import world.mongoose.banteng.builtin.family.MathBuiltins;
+import world.mongoose.banteng.builtin.family.RandomBuiltins;
 import world.mongoose.banteng.builtin.family.StringBuiltins;
 import world.mongoose.banteng.builtin.family.TimeBuiltins;
 import world.mongoose.banteng.bytecode.MooCompiler;
@@ -53,7 +55,6 @@ import world.mongoose.banteng.syntax.MooParser;
 import world.mongoose.banteng.syntax.MooUnparser;
 import world.mongoose.banteng.value.MooValue;
 import world.mongoose.banteng.value.MooValue.AnonymousObjectValue;
-import world.mongoose.banteng.value.MooValue.BooleanValue;
 import world.mongoose.banteng.value.MooValue.ErrorValue;
 import world.mongoose.banteng.value.MooValue.FloatValue;
 import world.mongoose.banteng.value.MooValue.IntegerValue;
@@ -259,41 +260,7 @@ public final class BuiltinCatalog {
             call -> objectBytes(call.arguments().getFirst(), call.world(), call.programmer())));
     ListBuiltins.registerLength(entries);
     MathBuiltins.register(entries);
-    entries.add(
-        new BuiltinSpec(
-            "random",
-            List.of(new CallShape(List.of(), List.of(INTEGER, INTEGER), Optional.empty())),
-            BuiltinPermissionRule.ANY,
-            true,
-            call -> randomInteger(call.arguments())));
-    entries.add(
-        new BuiltinSpec(
-            "reseed_random",
-            List.of(new CallShape(List.of(), List.of(), Optional.empty())),
-            BuiltinPermissionRule.WIZARD_ONLY,
-            true,
-            call -> {
-              random.setSeed(SECURE_RANDOM.nextLong());
-              return BuiltinResult.value(new IntegerValue(0));
-            }));
-    entries.add(
-        new BuiltinSpec(
-            "frandom",
-            List.of(
-                new CallShape(
-                    List.of(Set.of(ArgType.FLOAT)),
-                    List.of(Set.of(ArgType.FLOAT)),
-                    Optional.empty())),
-            BuiltinPermissionRule.ANY,
-            true,
-            call -> floatingRandom(call.arguments())));
-    entries.add(
-        new BuiltinSpec(
-            "random_bytes",
-            List.of(new CallShape(List.of(INTEGER), List.of(), Optional.empty())),
-            BuiltinPermissionRule.ANY,
-            true,
-            call -> randomBytes(call.arguments(), call.world())));
+    RandomBuiltins.register(entries, () -> random, () -> floatingRandom, SECURE_RANDOM);
     TimeBuiltins.register(entries);
     entries.add(
         new BuiltinSpec(
@@ -713,7 +680,7 @@ public final class BuiltinCatalog {
             List.of(new CallShape(List.of(OBJECT, OBJECT), List.of(INTEGER), Optional.empty())),
             BuiltinPermissionRule.WIZARD_ONLY,
             false,
-            call -> switchPlayer(call.hosts(), call.arguments(), call.world())));
+            this::switchPlayer));
     entries.add(
         new BuiltinSpec(
             "pass",
@@ -1010,49 +977,7 @@ public final class BuiltinCatalog {
             BuiltinPermissionRule.ANY,
             false,
             call -> notifyLine(call.hosts(), call.arguments(), call.world(), call.programmer())));
-    entries.add(
-        new BuiltinSpec(
-            "tostr",
-            List.of(new CallShape(List.of(), List.of(), Optional.of(ANY))),
-            BuiltinPermissionRule.ANY,
-            false,
-            call -> toStringValue(call.arguments())));
-    entries.add(
-        new BuiltinSpec(
-            "tofloat",
-            List.of(new CallShape(List.of(ANY), List.of(), Optional.empty())),
-            BuiltinPermissionRule.ANY,
-            false,
-            call -> toFloat(call.arguments())));
-    entries.add(
-        new BuiltinSpec(
-            "toint",
-            List.of(new CallShape(List.of(ANY), List.of(), Optional.empty())),
-            BuiltinPermissionRule.ANY,
-            false,
-            call -> toInteger(call.arguments())));
-    entries.add(
-        new BuiltinSpec(
-            "toliteral",
-            List.of(new CallShape(List.of(ANY), List.of(), Optional.empty())),
-            BuiltinPermissionRule.ANY,
-            false,
-            call -> toLiteral(call.arguments())));
-    entries.add(
-        new BuiltinSpec(
-            "toobj",
-            List.of(new CallShape(List.of(ANY), List.of(), Optional.empty())),
-            BuiltinPermissionRule.ANY,
-            false,
-            call -> toObject(call.arguments())));
-    entries.add(
-        new BuiltinSpec(
-            "equal",
-            List.of(new CallShape(List.of(ANY, ANY), List.of(), Optional.empty())),
-            BuiltinPermissionRule.ANY,
-            false,
-            call ->
-                equalValues(call.arguments(), call.hosts().valueSemantics())));
+    ConversionBuiltins.registerConversions(entries);
     entries.add(
         new BuiltinSpec(
             "eval",
@@ -1060,13 +985,7 @@ public final class BuiltinCatalog {
             BuiltinPermissionRule.PROGRAMMER_ONLY,
             false,
             call -> dynamicEval(call.arguments())));
-    entries.add(
-        new BuiltinSpec(
-            "typeof",
-            List.of(new CallShape(List.of(ANY), List.of(), Optional.empty())),
-            BuiltinPermissionRule.ANY,
-            false,
-            call -> typeOf(call.arguments())));
+    ConversionBuiltins.registerTypeOf(entries);
     entries.add(
         new BuiltinSpec(
             "server_version",
@@ -1742,11 +1661,22 @@ public final class BuiltinCatalog {
     if (target == null) {
       return BuiltinResult.error(ErrorValue.E_INVARG);
     }
-    return invoke(target, new BuiltinCall(
+    BuiltinResult result = invoke(target, new BuiltinCall(
         arguments.subList(1, arguments.size()), call.world(), call.programmer(),
         call.taskLocal(), call.taskId(), call.remainingTicks(), call.remainingSeconds(),
         call.receiver(), call.callerProgrammer(), call.callers(), call.threadMode(),
         call.stagedBufferedOutputLength(), call.hosts()));
+    return switch (result) {
+      case BuiltinResult.Initialize initialized -> new BuiltinResult.Initialize(initialized.created(),
+          initialized.arguments(), initialized.continuation().map(SuspendedActivation.CallFunctionContinuation::new));
+      case BuiltinResult.DynamicEval evaluated -> new BuiltinResult.DynamicEval(evaluated.program(),
+          new SuspendedActivation.CallFunctionContinuation(evaluated.continuation()));
+      case BuiltinResult.Move moved -> new BuiltinResult.Move(moved.object(), moved.destination(), moved.position(),
+          new SuspendedActivation.CallFunctionContinuation(moved.continuation()));
+      case BuiltinResult.Recycle recycled -> new BuiltinResult.Recycle(recycled.object(),
+          new SuspendedActivation.CallFunctionContinuation(recycled.continuation()));
+      default -> result;
+    };
   }
 
   private static ListValue functionInfoDescription(BuiltinSpec spec) {
@@ -2042,97 +1972,11 @@ public final class BuiltinCatalog {
     return BuiltinResult.value(new IntegerValue(bytes));
   }
 
-  private BuiltinResult floatingRandom(List<MooValue> arguments) {
-    double minimum = arguments.size() == 2 ? ((FloatValue) arguments.get(0)).value() : 0.0;
-    double maximum =
-        ((FloatValue) arguments.get(arguments.size() == 2 ? 1 : 0)).value();
-    double fraction = (floatingRandom.nextInt() >>> 1) / (double) Integer.MAX_VALUE;
-    return BuiltinResult.value(new FloatValue(minimum + fraction * (maximum - minimum)));
-  }
-
-  private static BuiltinResult randomBytes(List<MooValue> arguments, WorldTxn world) {
-    long requested = ((IntegerValue) arguments.getFirst()).value();
-    if (requested < 0 || requested > 10_000) {
-      return BuiltinResult.raised(
-          ErrorValue.E_INVARG, StringValue.of("Invalid count"), arguments.getFirst());
-    }
-    byte[] random = new byte[(int) requested];
-    SECURE_RANDOM.nextBytes(random);
-    ByteArrayOutputStream encoded = new ByteArrayOutputStream(random.length);
-    for (byte current : random) {
-      int value = Byte.toUnsignedInt(current);
-      if (value != '~' && ((value >= 0x21 && value <= 0x7e) || value == ' ')) {
-        encoded.write(value);
-      } else {
-        encoded.write('~');
-        encoded.write(Character.toUpperCase(Character.forDigit(value >>> 4, 16)));
-        encoded.write(Character.toUpperCase(Character.forDigit(value & 0x0f, 16)));
-      }
-    }
-    Optional<BuiltinResult> error = stringLengthError(encoded.size(), world);
-    return error.orElseGet(() -> BuiltinResult.value(StringValue.of(encoded.toByteArray())));
-  }
-
-  /** Checks the configured string limit before the VM allocates a concatenation. */
-  public static Optional<BuiltinResult> stringLengthError(long length, WorldTxn world) {
-    long maximumLength = 64_537_861L;
-    boolean catchable = false;
-    MooValue serverOptions = world.readObjectProperty(0, "server_options").orElse(null);
-    if (serverOptions instanceof ObjectValue options) {
-      if (world.readObjectProperty(options.value(), "max_string_concat").orElse(null)
-          instanceof IntegerValue configured) {
-        maximumLength =
-            configured.value() <= 0
-                ? Long.MAX_VALUE
-                : Math.max(1_021L, Math.min(2_147_482_626L, configured.value()));
-      }
-      catchable =
-          world.readObjectProperty(options.value(), "max_concat_catchable")
-              .map(MooValue::isTruthy)
-              .orElse(false);
-    }
-    if (length > maximumLength) {
-      return Optional.of(catchable
-          ? BuiltinResult.error(ErrorValue.E_QUOTA)
-          : new BuiltinResult.SecondsAbort());
-    }
-    return Optional.empty();
-  }
-
-  private BuiltinResult randomInteger(List<MooValue> arguments) {
-    long lower = 1;
-    long upper = Long.MAX_VALUE;
-    if (arguments.size() == 1) {
-      upper = ((IntegerValue) arguments.getFirst()).value();
-      if (upper <= 0) {
-        return BuiltinResult.error(ErrorValue.E_INVARG);
-      }
-    } else if (arguments.size() == 2) {
-      lower = ((IntegerValue) arguments.get(0)).value();
-      upper = ((IntegerValue) arguments.get(1)).value();
-      if (upper < lower) {
-        return BuiltinResult.error(ErrorValue.E_INVARG);
-      }
-    }
-    if (lower == upper) {
-      return BuiltinResult.value(new IntegerValue(lower));
-    }
-    long width = upper - lower + 1;
-    if (width > 0) {
-      return BuiltinResult.value(new IntegerValue(lower + random.nextLong(width)));
-    }
-    long value;
-    do {
-      value = random.nextLong();
-    } while (value < lower || value > upper);
-    return BuiltinResult.value(new IntegerValue(value));
-  }
-
   private static BuiltinResult raise(List<MooValue> arguments) {
     MooValue code = arguments.getFirst();
     StringValue message =
         arguments.size() >= 2 ? (StringValue) arguments.get(1)
-            : (StringValue) ((BuiltinResult.Value) toStringValue(List.of(code))).value();
+            : (StringValue) ((BuiltinResult.Value) ConversionBuiltins.toStringValue(List.of(code))).value();
     MooValue value = arguments.size() >= 3 ? arguments.get(2) : new IntegerValue(0);
     return BuiltinResult.raised(code, message, value);
   }
@@ -2773,7 +2617,7 @@ public final class BuiltinCatalog {
         return BuiltinResult.error(ErrorValue.E_INVARG);
       }
       return world.verb(created, "initialize", true).isPresent()
-          ? new BuiltinResult.Initialize(created, initializeArguments)
+          ? new BuiltinResult.Initialize(created, initializeArguments, Optional.empty())
           : BuiltinResult.value(created);
     }
     final WorldObject created;
@@ -2784,7 +2628,8 @@ public final class BuiltinCatalog {
     }
     ObjectValue identity = new ObjectValue(created.id());
     return world.verb(created.id(), "initialize", true).isPresent()
-        ? new BuiltinResult.Initialize(identity, initializeArguments)
+        ? new BuiltinResult.Initialize(identity, initializeArguments,
+            Optional.of(new SuspendedActivation.CreateContinuation(false, identity.value())))
         : BuiltinResult.value(identity);
   }
 
@@ -2819,7 +2664,8 @@ public final class BuiltinCatalog {
     }
     ObjectValue identity = new ObjectValue(created.id());
     return world.verb(created.id(), "initialize", true).isPresent()
-        ? new BuiltinResult.Initialize(identity, new ListValue(List.of()))
+        ? new BuiltinResult.Initialize(identity, new ListValue(List.of()),
+            Optional.of(new SuspendedActivation.CreateContinuation(true, identity.value())))
         : BuiltinResult.value(identity);
   }
 
@@ -4121,15 +3967,15 @@ public final class BuiltinCatalog {
     return BuiltinResult.error(ErrorValue.E_TYPE);
   }
 
-  private BuiltinResult switchPlayer(BuiltinHosts invocationHosts, List<MooValue> arguments, WorldTxn world) {
-    long oldPlayer = ((ObjectValue) arguments.getFirst()).value();
-    long newPlayer = ((ObjectValue) arguments.get(1)).value();
+  private BuiltinResult switchPlayer(BuiltinCall call) {
+    long oldPlayer = ((ObjectValue) call.arguments().getFirst()).value();
+    long newPlayer = ((ObjectValue) call.arguments().get(1)).value();
     if (oldPlayer == newPlayer
-        || connections(invocationHosts).connectionId(oldPlayer).isEmpty()
-        || !world.players().contains(newPlayer)) {
+        || connections(call.hosts()).connectionId(oldPlayer).isEmpty()
+        || !call.world().players().contains(newPlayer)) {
       return BuiltinResult.error(ErrorValue.E_INVARG);
     }
-    return new BuiltinResult.SwitchPlayer(newPlayer);
+    return call.hosts().switchPlayer().invoke(call);
   }
 
   private static BuiltinResult setTaskPerms(
@@ -4161,184 +4007,6 @@ public final class BuiltinCatalog {
         connectionId.orElseThrow(), line.text(), noFlush, noNewline);
   }
 
-  private static BuiltinResult toStringValue(List<MooValue> arguments) {
-    StringBuilder text = new StringBuilder();
-    for (MooValue argument : arguments) {
-      text.append(
-          switch (argument) {
-            case StringValue string -> string.text();
-            case IntegerValue integer -> Long.toString(integer.value());
-            case BooleanValue bool -> bool.toLiteral();
-            case FloatValue floating -> floating.toLiteral();
-            case ObjectValue object -> object.toLiteral();
-            case AnonymousObjectValue anonymous -> anonymous.toString();
-            case WaifValue waif -> waif.toString();
-            case ErrorValue error -> errorDescription(error);
-            case ListValue _ -> "{list}";
-            case MapValue _ -> "[map]";
-          });
-    }
-    return BuiltinResult.value(StringValue.of(text.toString()));
-  }
-
-  private static String errorDescription(ErrorValue error) {
-    return error.description();
-  }
-
-  private static BuiltinResult toFloat(List<MooValue> arguments) {
-    MooValue argument = arguments.getFirst();
-    if (argument instanceof FloatValue floating) {
-      return BuiltinResult.value(floating);
-    }
-    if (argument instanceof IntegerValue integer) {
-      return BuiltinResult.value(new FloatValue(integer.value()));
-    }
-    if (argument instanceof ObjectValue object) {
-      return BuiltinResult.value(new FloatValue(object.value()));
-    }
-    if (argument instanceof ErrorValue error) {
-      return BuiltinResult.value(new FloatValue(error.code()));
-    }
-    if (argument instanceof StringValue string) {
-      try {
-        String text = string.text().strip();
-        if (text.matches("[+-]?0[xX][0-9a-fA-F]+(?:\\.[0-9a-fA-F]*)?")) {
-          text += "p0";
-        }
-        double converted = Double.parseDouble(text);
-        return Double.isFinite(converted)
-            ? BuiltinResult.value(new FloatValue(converted))
-            : BuiltinResult.error(ErrorValue.E_INVARG);
-      } catch (NumberFormatException error) {
-        return BuiltinResult.error(ErrorValue.E_INVARG);
-      }
-    }
-    return BuiltinResult.error(ErrorValue.E_TYPE);
-  }
-
-  private static BuiltinResult toInteger(List<MooValue> arguments) {
-    MooValue argument = arguments.getFirst();
-    if (argument instanceof IntegerValue integer) {
-      return BuiltinResult.value(integer);
-    }
-    if (argument instanceof BooleanValue bool) {
-      return BuiltinResult.value(new IntegerValue(bool.value() ? 1 : 0));
-    }
-    if (argument instanceof FloatValue floating) {
-      return Double.isFinite(floating.value())
-          ? BuiltinResult.value(new IntegerValue((long) floating.value()))
-          : BuiltinResult.error(ErrorValue.E_FLOAT);
-    }
-    if (argument instanceof ObjectValue object) {
-      return BuiltinResult.value(new IntegerValue(object.value()));
-    }
-    if (argument instanceof ErrorValue error) {
-      return BuiltinResult.value(new IntegerValue(error.code()));
-    }
-    if (argument instanceof StringValue string) {
-      String text = string.text().strip();
-      try {
-        return BuiltinResult.value(new IntegerValue(Long.parseLong(text)));
-      } catch (NumberFormatException integerError) {
-        try {
-          double converted = Double.parseDouble(text);
-          return Double.isFinite(converted)
-              ? BuiltinResult.value(new IntegerValue((long) converted))
-              : BuiltinResult.value(new IntegerValue(0));
-        } catch (NumberFormatException floatingError) {
-          return BuiltinResult.value(new IntegerValue(0));
-        }
-      }
-    }
-    return BuiltinResult.error(ErrorValue.E_TYPE);
-  }
-
-  private static BuiltinResult toLiteral(List<MooValue> arguments) {
-    return BuiltinResult.value(StringValue.of(arguments.getFirst().toLiteral()));
-  }
-
-  private static BuiltinResult toObject(List<MooValue> arguments) {
-    MooValue argument = arguments.getFirst();
-    if (argument instanceof ObjectValue object) {
-      return BuiltinResult.value(object);
-    }
-    if (argument instanceof IntegerValue integer) {
-      return BuiltinResult.value(new ObjectValue(integer.value()));
-    }
-    if (argument instanceof BooleanValue bool) {
-      return BuiltinResult.value(new ObjectValue(bool.value() ? 1 : 0));
-    }
-    if (argument instanceof FloatValue floating) {
-      return Double.isFinite(floating.value())
-          ? BuiltinResult.value(new ObjectValue((long) floating.value()))
-          : BuiltinResult.error(ErrorValue.E_FLOAT);
-    }
-    if (argument instanceof ErrorValue error) {
-      return BuiltinResult.value(new ObjectValue(error.code()));
-    }
-    if (argument instanceof StringValue string) {
-      return BuiltinResult.value(new ObjectValue(parseToastObjectId(string.text())));
-    }
-    return BuiltinResult.error(ErrorValue.E_TYPE);
-  }
-
-  private static long parseToastObjectId(String text) {
-    int index = 0;
-    while (index < text.length() && text.charAt(index) == ' ') {
-      index++;
-    }
-    if (index < text.length() && text.charAt(index) == '#') {
-      index++;
-    }
-    while (index < text.length() && isAsciiWhitespace(text.charAt(index))) {
-      index++;
-    }
-
-    int numberStart = index;
-    if (index < text.length() && (text.charAt(index) == '+' || text.charAt(index) == '-')) {
-      index++;
-    }
-    int digitStart = index;
-    while (index < text.length() && text.charAt(index) >= '0' && text.charAt(index) <= '9') {
-      index++;
-    }
-    if (index == digitStart) {
-      return 0;
-    }
-    int numberEnd = index;
-    while (index < text.length() && text.charAt(index) == ' ') {
-      index++;
-    }
-    if (index != text.length()) {
-      return 0;
-    }
-
-    BigInteger parsed = new BigInteger(text.substring(numberStart, numberEnd));
-    if (parsed.compareTo(BigInteger.valueOf(Long.MAX_VALUE)) > 0) {
-      return Long.MAX_VALUE;
-    }
-    if (parsed.compareTo(BigInteger.valueOf(Long.MIN_VALUE)) < 0) {
-      return Long.MIN_VALUE;
-    }
-    return parsed.longValue();
-  }
-
-  private static boolean isAsciiWhitespace(char character) {
-    return character == ' '
-        || character == '\t'
-        || character == '\n'
-        || character == '\u000B'
-        || character == '\f'
-        || character == '\r';
-  }
-
-  private static BuiltinResult equalValues(
-      List<MooValue> arguments, ValueSemantics valueSemantics) {
-    return BuiltinResult.value(
-        new IntegerValue(
-            valueSemantics.equal(arguments.get(0), arguments.get(1), true) ? 1 : 0));
-  }
-
   private BuiltinResult dynamicEval(List<MooValue> arguments) {
     if (arguments.stream().anyMatch(argument -> !(argument instanceof StringValue))) {
       return BuiltinResult.error(ErrorValue.E_TYPE);
@@ -4365,10 +4033,6 @@ public final class BuiltinCatalog {
       colors.put(StringValue.of(color), new IntegerValue(0));
     }
     return BuiltinResult.value(new MapValue(colors));
-  }
-
-  private static BuiltinResult typeOf(List<MooValue> arguments) {
-    return BuiltinResult.value(new IntegerValue(arguments.getFirst().type().code()));
   }
 
   /** Concrete host capability required by the MOO listener builtins. */

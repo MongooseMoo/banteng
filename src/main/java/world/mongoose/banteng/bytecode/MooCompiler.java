@@ -246,7 +246,124 @@ public final class MooCompiler {
               ? OptionalInt.of(1)
               : OptionalInt.of(instructions.get(firstImplicitInstruction - 1).sourceLine()));
     }
-    return new BytecodeProgram(instructions, forkVectors, MooUnparser.unparse(program));
+    List<String> names = new ArrayList<>(LayoutCompiler.variableNames(program));
+    List<String> spellings = new ArrayList<>(LayoutCompiler.variableSpellings(program));
+    collectTemporaryNames(instructions, forkVectors, names);
+    spellings.addAll(names.subList(spellings.size(), names.size()));
+    return slotProgram(new BytecodeProgram(instructions, forkVectors, MooUnparser.unparse(program)), names, spellings);
+  }
+
+  private static void collectTemporaryNames(List<Instruction> instructions,
+      List<BytecodeProgram> forks, List<String> names) {
+    for (Instruction instruction : instructions) {
+      instruction.handler().flatMap(HandlerSpec::catchVariable).ifPresent(name -> {
+        if (!names.contains(name)) names.add(name);
+      });
+    }
+    for (BytecodeProgram fork : forks) collectTemporaryNames(fork.instructions(), fork.forkVectors(), names);
+  }
+
+  private static BytecodeProgram slotProgram(BytecodeProgram program, List<String> names,
+      List<String> spellings) {
+    List<Instruction> code = new ArrayList<>();
+    for (Instruction instruction : program.instructions()) {
+      Opcode opcode = instruction.opcode();
+      boolean local = opcode == Opcode.LOAD_LOCAL || opcode == Opcode.STORE_LOCAL;
+      List<Integer> destinations = new ArrayList<>();
+      if (opcode == Opcode.ITERATE || opcode == Opcode.ITERATE_RANGE || opcode == Opcode.SCATTER) {
+        for (String encoded : instruction.text().orElseThrow().split(",", -1)) {
+          String name = encoded.replaceFirst("^[@?$]", "");
+          destinations.add(names.indexOf(name.toLowerCase(java.util.Locale.ROOT)));
+        }
+      }
+      Optional<HandlerSpec> handler = instruction.handler().map(spec -> new HandlerSpec(
+          spec.catchTarget(), spec.catchVariable(), spec.catchesAny(), spec.caughtErrors(),
+          spec.structuredCatchBinding(), spec.finallyTarget(), spec.endTarget(),
+          spec.catchVariable().map(names::indexOf).orElse(-1)));
+      code.add(new Instruction(opcode,
+          local ? java.util.OptionalLong.of(names.indexOf(instruction.text().orElseThrow()
+              .toLowerCase(java.util.Locale.ROOT))) : instruction.operand(),
+          opcode == Opcode.LOAD_LOCAL ? Optional.of(spellings.get(names.indexOf(
+              instruction.text().orElseThrow().toLowerCase(java.util.Locale.ROOT))))
+              : local ? Optional.empty() : instruction.text(), handler, instruction.sourceLine(),
+          instruction.astPath(), local ? Math.toIntExact(instruction.operand().orElse(0)) : 0,
+          destinations));
+    }
+    clearLastReads(code);
+    return new BytecodeProgram(code, program.forkVectors().stream()
+        .map(fork -> slotProgram(fork, names, spellings)).toList(), program.source(), names);
+  }
+
+  /** Toast's reverse basic-block pass: only definite replacement/end makes a read clearable. */
+  private static void clearLastReads(List<Instruction> code) {
+    java.util.SortedSet<Integer> boundaries = new java.util.TreeSet<>();
+    boundaries.add(0);
+    boundaries.add(code.size());
+    for (int index = 0; index < code.size(); index++) {
+      Instruction instruction = code.get(index);
+      switch (instruction.opcode()) {
+        case JUMP, JUMP_IF_FALSE, JUMP_IF_TRUE, ITERATE, ITERATE_RANGE -> {
+          boundaries.add(index + 1);
+          boundaries.add(Math.toIntExact(instruction.operand().orElseThrow()));
+        }
+        case ENTER_HANDLER -> {
+          boundaries.add(index); boundaries.add(index + 1);
+          HandlerSpec handler = instruction.handler().orElseThrow();
+          if (handler.catchTarget() >= 0) boundaries.add(handler.catchTarget());
+          if (handler.finallyTarget() >= 0) boundaries.add(handler.finallyTarget());
+          boundaries.add(handler.endTarget());
+        }
+        case FORK, LEAVE_HANDLER, END_FINALLY, LEAVE_LOOP, SCATTER -> {
+          boundaries.add(index); boundaries.add(index + 1);
+        }
+        default -> {}
+      }
+    }
+    List<Integer> blocks = new ArrayList<>(boundaries);
+    for (int block = 1; block < blocks.size(); block++) {
+      java.util.BitSet unused = new java.util.BitSet();
+      for (int index = blocks.get(block) - 1; index >= blocks.get(block - 1); index--) {
+        Instruction instruction = code.get(index);
+        int slot = switch (instruction.opcode()) {
+          case LOAD_LOCAL, STORE_LOCAL ->
+              Math.toIntExact(instruction.operand().orElseThrow());
+          default -> 0;
+        };
+        switch (instruction.opcode()) {
+          case RETURN -> { if (!insideHandler(code, index)) unused.set(0, 32); }
+          case STORE_LOCAL -> { if (slot < 32 && !insideHandler(code, index)) unused.set(slot); }
+          case LOAD_LOCAL -> {
+            if (slot < 32 && unused.get(slot)) {
+              unused.clear(slot);
+              code.set(index, new Instruction(Opcode.PUSH_CLEAR, instruction.operand(),
+                  instruction.text(), instruction.handler(), instruction.sourceLine(),
+                  instruction.astPath(), instruction.localAux(), instruction.localSlots()));
+            }
+          }
+          case CALL_VERB, INDEX, SET_INDEX, SET_PARENT_INDEX -> { unused.clear(5); unused.clear(10, 16); }
+          // These builtins can inspect the calling environment.
+          case CALL -> {
+            String name = instruction.text().orElseThrow();
+            if (name.equalsIgnoreCase("pass") || name.equalsIgnoreCase("eval")
+                || name.equalsIgnoreCase("call_function")) unused.clear();
+          }
+          default -> {}
+        }
+      }
+    }
+  }
+
+  private static boolean insideHandler(List<Instruction> code, int index) {
+    for (int earlier = 0; earlier < index; earlier++) {
+      Instruction instruction = code.get(earlier);
+      if (instruction.opcode() == Opcode.ENTER_HANDLER) {
+        HandlerSpec handler = instruction.handler().orElseThrow();
+        int protectedEnd = handler.finallyTarget() >= 0 ? handler.finallyTarget() : handler.endTarget();
+        if (handler.catchTarget() >= 0) protectedEnd = Math.min(protectedEnd, handler.catchTarget());
+        if (index < protectedEnd) return true;
+      }
+    }
+    return false;
   }
 
   private AstPath callPath(Ast.Expression call) {
@@ -380,6 +497,7 @@ public final class MooCompiler {
       return;
     }
     if (expression instanceof Ast.IndexAccess index) {
+      controlPaths.put(index, path);
       indexExpression(index.collection(), path.child(0));
       indexExpression(index.index(), path.child(1));
       return;
@@ -419,11 +537,13 @@ public final class MooCompiler {
       return;
     }
     if (target instanceof Ast.IndexTarget index) {
+      controlPaths.put(index, path);
       indexExpression(index.collection(), path.child(0));
       indexExpression(index.index(), path.child(1));
       return;
     }
     if (target instanceof Ast.RangeTarget range) {
+      controlPaths.put(range, path);
       indexExpression(range.collection(), path.child(0));
       indexExpression(range.start(), path.child(1));
       indexExpression(range.end(), path.child(2));
@@ -756,7 +876,7 @@ public final class MooCompiler {
       compileExpression(index.collection(), instructions);
       instructions.add(new Instruction(Opcode.ENTER_INDEX));
       compileExpression(index.index(), instructions);
-      instructions.add(new Instruction(Opcode.INDEX));
+      instructions.add(new Instruction(Opcode.INDEX, controlPath(index)));
       return;
     }
     if (expression instanceof Ast.RangeAccess range) {
@@ -839,11 +959,13 @@ public final class MooCompiler {
       instructions.add(new Instruction(Opcode.SET_PROPERTY));
       return;
     }
-    if (assignment.target() instanceof Ast.IndexTarget index) {
-      List<Ast.Expression> parentIndices = new ArrayList<>();
-      Ast.Expression root = index.collection();
+    if (assignment.target() instanceof Ast.IndexTarget || assignment.target() instanceof Ast.RangeTarget) {
+      Ast.AssignmentTarget target = assignment.target();
+      Ast.Expression root = target instanceof Ast.IndexTarget index ? index.collection()
+          : ((Ast.RangeTarget) target).collection();
+      List<Ast.IndexAccess> parents = new ArrayList<>();
       while (root instanceof Ast.IndexAccess parent) {
-        parentIndices.addFirst(parent.index());
+        parents.addFirst(parent);
         root = parent.collection();
       }
       if (root instanceof Ast.PropertyAccess property) {
@@ -851,80 +973,38 @@ public final class MooCompiler {
         compileExpression(property.property(), instructions);
         instructions.add(new Instruction(Opcode.DUP_PAIR));
         instructions.add(new Instruction(Opcode.GET_PROPERTY));
-        for (Ast.Expression parentIndex : parentIndices) {
-          instructions.add(new Instruction(Opcode.ENTER_INDEX));
-          compileExpression(parentIndex, instructions);
-          instructions.add(new Instruction(Opcode.INDEX, 1));
-        }
-        instructions.add(new Instruction(Opcode.ENTER_INDEX));
-        compileExpression(index.index(), instructions);
-        compileExpression(assignment.value(), instructions);
-        instructions.add(parentIndices.isEmpty()
-            ? new Instruction(Opcode.SET_INDEX_PROPERTY)
-            : new Instruction(Opcode.SET_INDEX_PROPERTY, parentIndices.size()));
-        return;
-      }
-      if (root instanceof Ast.Identifier owner) {
+      } else if (root instanceof Ast.Identifier owner) {
         instructions.add(new Instruction(Opcode.LOAD_LOCAL, owner.name()));
-        for (Ast.Expression parentIndex : parentIndices) {
-          instructions.add(new Instruction(Opcode.ENTER_INDEX));
-          compileExpression(parentIndex, instructions);
-          instructions.add(new Instruction(Opcode.INDEX, 1));
-        }
+      } else {
+        throw new IllegalArgumentException("indexed assignment requires a local or property owner");
+      }
+      for (Ast.IndexAccess parent : parents) {
         instructions.add(new Instruction(Opcode.ENTER_INDEX));
+        compileExpression(parent.index(), instructions);
+        instructions.add(new Instruction(Opcode.INDEX, 1, controlPath(parent)));
+      }
+      instructions.add(new Instruction(Opcode.ENTER_INDEX));
+      if (target instanceof Ast.IndexTarget index) {
         compileExpression(index.index(), instructions);
-        compileExpression(assignment.value(), instructions);
-        instructions.add(
-            parentIndices.isEmpty()
-                ? new Instruction(Opcode.SET_INDEX_LOCAL, owner.name())
-                : new Instruction(Opcode.SET_INDEX_LOCAL, parentIndices.size(), owner.name()));
-        return;
-      }
-      throw new IllegalArgumentException("indexed assignment requires a local owner");
-    }
-    if (assignment.target() instanceof Ast.RangeTarget range) {
-      List<Ast.Expression> parentIndices = new ArrayList<>();
-      Ast.Expression root = range.collection();
-      while (root instanceof Ast.IndexAccess parent) {
-        parentIndices.addFirst(parent.index());
-        root = parent.collection();
-      }
-      if (root instanceof Ast.PropertyAccess property) {
-        compileExpression(property.object(), instructions);
-        compileExpression(property.property(), instructions);
-        instructions.add(new Instruction(Opcode.DUP_PAIR));
-        instructions.add(new Instruction(Opcode.GET_PROPERTY));
-        for (Ast.Expression parentIndex : parentIndices) {
-          instructions.add(new Instruction(Opcode.ENTER_INDEX));
-          compileExpression(parentIndex, instructions);
-          instructions.add(new Instruction(Opcode.INDEX, 1));
-        }
-        instructions.add(new Instruction(Opcode.ENTER_INDEX));
+      } else if (target instanceof Ast.RangeTarget range) {
         compileExpression(range.start(), instructions);
         compileExpression(range.end(), instructions);
-        compileExpression(assignment.value(), instructions);
-        instructions.add(parentIndices.isEmpty()
-            ? new Instruction(Opcode.SET_RANGE_PROPERTY)
-            : new Instruction(Opcode.SET_RANGE_PROPERTY, parentIndices.size()));
-        return;
+      }
+      compileExpression(assignment.value(), instructions);
+      instructions.add(new Instruction(Opcode.PUT_TEMP));
+      instructions.add(target instanceof Ast.IndexTarget
+          ? new Instruction(Opcode.SET_INDEX, controlPath(target)) : new Instruction(Opcode.SET_RANGE));
+      for (int index = parents.size() - 1; index >= 0; index--) {
+        instructions.add(new Instruction(Opcode.SET_PARENT_INDEX, controlPath(parents.get(index))));
       }
       if (root instanceof Ast.Identifier owner) {
-        instructions.add(new Instruction(Opcode.LOAD_LOCAL, owner.name()));
-        for (Ast.Expression parentIndex : parentIndices) {
-          instructions.add(new Instruction(Opcode.ENTER_INDEX));
-          compileExpression(parentIndex, instructions);
-          instructions.add(new Instruction(Opcode.INDEX, 1));
-        }
-        instructions.add(new Instruction(Opcode.ENTER_INDEX));
-        compileExpression(range.start(), instructions);
-        compileExpression(range.end(), instructions);
-        compileExpression(assignment.value(), instructions);
-        instructions.add(parentIndices.isEmpty()
-            ? new Instruction(Opcode.SET_RANGE_LOCAL, owner.name())
-            : new Instruction(Opcode.SET_RANGE_LOCAL, parentIndices.size(), owner.name()));
-        return;
+        instructions.add(new Instruction(Opcode.STORE_LOCAL, owner.name()));
+      } else {
+        instructions.add(new Instruction(Opcode.SET_PROPERTY));
+        instructions.add(new Instruction(Opcode.POP));
       }
-      throw new IllegalArgumentException("range assignment requires a local owner");
+      instructions.add(new Instruction(Opcode.PUSH_TEMP));
+      return;
     }
     if (assignment.target() instanceof Ast.ScatterTarget scatter) {
       compileExpression(assignment.value(), instructions);

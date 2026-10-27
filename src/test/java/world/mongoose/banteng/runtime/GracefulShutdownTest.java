@@ -11,13 +11,14 @@ import java.net.InetSocketAddress;
 import java.net.Socket;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Optional;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 import world.mongoose.banteng.persistence.LambdaMooV17Codec;
 import world.mongoose.banteng.persistence.LambdaMooV4Reader;
 import world.mongoose.banteng.server.MooServer;
-import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.io.TempDir;
 
 final class GracefulShutdownTest {
   private static final Path FIXTURE =
@@ -29,7 +30,7 @@ final class GracefulShutdownTest {
     Path checkpoint = directory.resolve("graceful.db");
     AtomicReference<Throwable> serverFailure = new AtomicReference<>();
     MooServer server =
-        new MooServer("127.0.0.1", 0, new LambdaMooV4Reader().read(FIXTURE), checkpoint);
+        SchedulerTestHarness.server(new LambdaMooV4Reader(new LambdaMooV17Codec()).read(FIXTURE).world(), Optional.empty(), checkpoint, List.of(), List.of());
     Thread serving =
         Thread.ofPlatform()
             .name("banteng-server-test")

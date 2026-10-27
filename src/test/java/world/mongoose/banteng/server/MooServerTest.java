@@ -16,12 +16,16 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import world.mongoose.banteng.persistence.LambdaMooV17Codec;
-import world.mongoose.banteng.persistence.LambdaMooV4Reader;
-import world.mongoose.banteng.value.MooValue.StringValue;
-import world.mongoose.banteng.world.WorldTxn;
+import java.util.Optional;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import world.mongoose.banteng.persistence.LambdaMooV17Codec;
+import world.mongoose.banteng.persistence.LambdaMooV4Reader;
+import world.mongoose.banteng.builtin.ConnectionRegistryAccess;
+import world.mongoose.banteng.runtime.MooRuntime;
+import world.mongoose.banteng.runtime.SchedulerTestHarness;
+import world.mongoose.banteng.value.MooValue.StringValue;
+import world.mongoose.banteng.world.WorldTxn;
 
 final class MooServerTest {
   private static final Path TEST_DATABASE =
@@ -30,10 +34,10 @@ final class MooServerTest {
   private static final String CONNECTION_SUFFIX = "-=!-v-!=-";
 
   @Test
-  void ownsConnectionRegistrySeparatelyFromSocketConnections() throws Exception {
+  void runtimeRegistryIsSeparateFromServerSocketConnections() throws Exception {
     assertEquals(
-        ConnectionRegistry.class,
-        MooServer.class.getDeclaredField("connectionRegistry").getType());
+        ConnectionRegistryAccess.class,
+        MooRuntime.class.getDeclaredField("publishedConnectionRegistry").getType());
     assertEquals(Map.class, MooServer.class.getDeclaredField("connections").getType());
   }
 
@@ -41,14 +45,7 @@ final class MooServerTest {
   void servesTheFirstManagedRowOverRealSockets(@TempDir Path temporaryDirectory) throws Exception {
     Path checkpoint = temporaryDirectory.resolve("Test.db.new");
     MooServer first =
-        new MooServer(
-            "127.0.0.1",
-            0,
-            new LambdaMooV4Reader().read(TEST_DATABASE),
-            TEST_DATABASE,
-            checkpoint,
-            List.of(),
-            List.of());
+        SchedulerTestHarness.server(new LambdaMooV4Reader(new LambdaMooV17Codec()).read(TEST_DATABASE).world(), Optional.of(TEST_DATABASE), checkpoint, List.of(), List.of());
     Thread firstServing = Thread.startVirtualThread(first::serve);
     try (Socket socket = new Socket(InetAddress.getLoopbackAddress(), first.port());
         BufferedReader input =
@@ -99,8 +96,7 @@ final class MooServerTest {
 
     WorldTxn restored = new LambdaMooV17Codec().read(checkpoint).world();
     MooServer restarted =
-        new MooServer(
-            "127.0.0.1", 0, restored, temporaryDirectory.resolve("Test.db.next"));
+        SchedulerTestHarness.server(restored, Optional.empty(), temporaryDirectory.resolve("Test.db.next"), List.of(), List.of());
     Thread restartedServing = Thread.startVirtualThread(restarted::serve);
     try (Socket socket = new Socket(InetAddress.getLoopbackAddress(), restarted.port());
         BufferedReader input =
@@ -126,11 +122,7 @@ final class MooServerTest {
   void filtersUtf8InputBeforeEvaluatingStringsWithoutChangingConstructedBytes(
       @TempDir Path temporaryDirectory) throws Exception {
     MooServer server =
-        new MooServer(
-            "127.0.0.1",
-            0,
-            new LambdaMooV4Reader().read(TEST_DATABASE),
-            temporaryDirectory.resolve("Test.db.new"));
+        SchedulerTestHarness.server(new LambdaMooV4Reader(new LambdaMooV17Codec()).read(TEST_DATABASE).world(), Optional.empty(), temporaryDirectory.resolve("Test.db.new"), List.of(), List.of());
     Thread serving = Thread.startVirtualThread(server::serve);
     try (Socket socket = new Socket(InetAddress.getLoopbackAddress(), server.port());
         BufferedReader input =
@@ -163,11 +155,7 @@ final class MooServerTest {
   void noFlushNotifyQueuesExactBytesUntilTheNextFlushingWrite(@TempDir Path temporaryDirectory)
       throws Exception {
     MooServer server =
-        new MooServer(
-            "127.0.0.1",
-            0,
-            new LambdaMooV4Reader().read(TEST_DATABASE),
-            temporaryDirectory.resolve("Test.db.new"));
+        SchedulerTestHarness.server(new LambdaMooV4Reader(new LambdaMooV17Codec()).read(TEST_DATABASE).world(), Optional.empty(), temporaryDirectory.resolve("Test.db.new"), List.of(), List.of());
     Thread serving = Thread.startVirtualThread(server::serve);
     try (Socket socket = new Socket(InetAddress.getLoopbackAddress(), server.port());
         BufferedReader input =

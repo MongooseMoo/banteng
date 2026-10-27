@@ -9,6 +9,7 @@ import static world.mongoose.banteng.persistence.DbScanner.requiredLine;
 import static world.mongoose.banteng.persistence.ValueTagDecoder.readV5;
 
 import java.io.BufferedReader;
+import java.io.BufferedWriter;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -21,33 +22,36 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import world.mongoose.banteng.logging.ServerLog;
-import world.mongoose.banteng.value.MooValue;
+import world.mongoose.banteng.world.ActiveConnection;
+import world.mongoose.banteng.world.Checkpoint;
+import world.mongoose.banteng.world.DurableTask;
 import world.mongoose.banteng.value.MooValue.ListValue;
 import world.mongoose.banteng.value.MooValue.ObjectValue;
 import world.mongoose.banteng.value.MooValue.StringValue;
+import world.mongoose.banteng.value.MooValue;
 import world.mongoose.banteng.world.PropertyPerms;
 import world.mongoose.banteng.world.WorldObject;
 import world.mongoose.banteng.world.WorldProperty;
+import world.mongoose.banteng.world.WorldSnapshot;
 import world.mongoose.banteng.world.WorldTxn;
 import world.mongoose.banteng.world.WorldVerb;
 
 /** Reader and topology repairer for LambdaMOO's first next-generation database format. */
-public final class LambdaMooV5Reader {
+public final class LambdaMooV5Reader implements DbCodec {
   private static final String HEADER = "** LambdaMOO Database, Format Version 5 **";
   private final ServerLog serverLog;
 
-  /** Creates a reader that emits validation diagnostics to standard error. */
-  public LambdaMooV5Reader() {
-    this(ServerLog.stderr(System.Logger.Level.INFO));
-  }
+  private final DbCodec output;
 
-  /** Creates a reader that emits validation diagnostics through the supplied server log. */
-  public LambdaMooV5Reader(ServerLog serverLog) {
+  /** Receives the shared log and the application's canonical checkpoint output codec. */
+  public LambdaMooV5Reader(ServerLog serverLog, DbCodec output) {
     this.serverLog = Objects.requireNonNull(serverLog, "serverLog");
+    this.output = Objects.requireNonNull(output, "output");
   }
 
   /** Reads a v5 world, applying the same three topology-repair phases as LambdaMOO. */
-  public WorldTxn read(Path database) throws IOException {
+  @Override
+  public Checkpoint read(Path database) throws IOException {
     Objects.requireNonNull(database, "database");
     try (BufferedReader input =
         Files.newBufferedReader(database, StringValue.charset())) {
@@ -75,19 +79,38 @@ public final class LambdaMooV5Reader {
             RawObject object = rawObjects.get(objectId);
             return object == null ? -1 : object.verbs().size();
           });
-      requireExact(input, "0 clocks", "clocks tail");
-      requireExact(input, "0 queued tasks", "queued-tasks tail");
-      requireExact(input, "0 suspended tasks", "suspended-tasks tail");
-      if (input.readLine() != null) {
-        throw malformed("unsupported v5 tail after suspended tasks");
-      }
+      TaskSectionReader.Tail tail = new TaskSectionReader(5,
+          (reader, tag, location) -> ValueTagDecoder.readV5(reader, tag)).read(input);
+      if (input.readLine() != null) throw malformed("unexpected data after task tail");
 
       validatePlayers(players, rawObjects);
       Map<Long, RepairedObject> repaired = repairTopology(rawObjects);
       List<WorldObject> objects = restoreObjects(rawObjects, repaired, programs);
-      return new WorldTxn(
-          players, objects, Map.of(), Map.of(), List.of(), objectSlotCount - 1L);
+      return new Checkpoint(new WorldTxn(
+          players, objects, Map.of(), Map.of(), List.of(), objectSlotCount - 1L),
+          tail.tasks(), tail.connections());
     }
+  }
+
+  @Override
+  public void write(BufferedWriter writer, WorldSnapshot world,
+      List<? extends DurableTask> tasks, List<ActiveConnection> activeConnections)
+      throws IOException {
+    output.write(writer, world, tasks, activeConnections);
+  }
+
+  @Override
+  public void writeAtomic(Path checkpoint, WorldSnapshot world,
+      List<? extends DurableTask> tasks, List<ActiveConnection> activeConnections)
+      throws IOException {
+    output.writeAtomic(checkpoint, world, tasks, activeConnections);
+  }
+
+  @Override
+  public void writePanic(Path checkpoint, WorldSnapshot world,
+      List<? extends DurableTask> tasks, List<ActiveConnection> activeConnections)
+      throws IOException {
+    output.writePanic(checkpoint, world, tasks, activeConnections);
   }
 
   private static Optional<RawObject> readObject(BufferedReader input, long expectedId)
@@ -151,18 +174,37 @@ public final class LambdaMooV5Reader {
   }
 
 
-  private Map<Long, RepairedObject> repairTopology(Map<Long, RawObject> objects) {
+  private Map<Long, RepairedObject> repairTopology(Map<Long, RawObject> objects) throws IOException {
     serverLog.info("VALIDATE: checking object references ...");
     Map<Long, RepairedObject> repaired = new LinkedHashMap<>();
+    boolean broken = false;
     for (RawObject object : objects.values()) {
+      if (!(object.parents() instanceof ObjectValue) && !isObjectList(object.parents())) {
+        serverLog.error("*** VALIDATE: #" + object.id() + ".parents is not an object or list of objects.");
+        broken = true;
+      }
+      if (!isObjectList(object.children())) {
+        serverLog.error("*** VALIDATE: #" + object.id() + ".children is not a list of objects.");
+        broken = true;
+      }
+      if (!(object.location() instanceof ObjectValue)) {
+        serverLog.error("*** VALIDATE: #" + object.id() + ".location is not an object.");
+        broken = true;
+      }
+      if (!isObjectList(object.contents())) {
+        serverLog.error("*** VALIDATE: #" + object.id() + ".contents is not a list of objects.");
+        broken = true;
+      }
+      if (broken) continue;
+      List<Long> parents = repairParents(object, objects);
+      List<Long> children = repairObjectList(object, object.children(), "children", "child", objects);
+      long location = repairLocation(object, objects);
+      List<Long> contents = repairObjectList(object, object.contents(), "contents", "content", objects);
       repaired.put(
           object.id(),
-          new RepairedObject(
-              repairLocation(object, objects),
-              repairObjectList(object, object.contents(), "contents", "content", objects),
-              repairParents(object, objects),
-              repairObjectList(object, object.children(), "children", "child", objects)));
+          new RepairedObject(location, contents, parents, children));
     }
+    if (broken) throw malformed("invalid hierarchy field types");
 
     serverLog.info("VALIDATE: checking inheritance graph for cycles ...");
     Set<Long> parentCycles = new LinkedHashSet<>();
@@ -177,83 +219,53 @@ public final class LambdaMooV5Reader {
         locationCycles.add(objectId);
       }
     }
-    for (long objectId : parentCycles) {
-      RepairedObject object = Objects.requireNonNull(repaired.get(objectId));
-      repaired.put(objectId, object.withParents(List.of()));
+    if (!parentCycles.isEmpty() || !locationCycles.isEmpty()) {
+      throw malformed("cyclic parent or location hierarchy");
     }
-    for (long objectId : locationCycles) {
-      RepairedObject object = Objects.requireNonNull(repaired.get(objectId));
-      repaired.put(objectId, object.withLocation(-1));
-    }
-
-    serverLog.info("VALIDATE: checking object relationships ...");
-    for (long objectId : objects.keySet()) {
-      RepairedObject object = Objects.requireNonNull(repaired.get(objectId));
-      if (object.location() != -1
-          && !Objects.requireNonNull(repaired.get(object.location()))
-              .contents()
-              .contains(objectId)) {
-        serverLog.error(
-            "*** VALIDATE: #"
-                + objectId
-                + " not in it's location's (#"
-                + object.location()
-                + ") contents.");
-        object = object.withLocation(-1);
+    for (Map.Entry<Long, RepairedObject> entry : repaired.entrySet()) {
+      long id = entry.getKey();
+      RepairedObject object = entry.getValue();
+      if (object.location() != -1 && !Objects.requireNonNull(repaired.get(object.location())).contents().contains(id)) {
+        serverLog.error("*** VALIDATE: #" + id + " not in it's location's (#" + object.location() + ") contents.");
+        broken = true;
       }
-      List<Long> retainedParents = new ArrayList<>();
-      for (long parentId : object.parents()) {
-        if (Objects.requireNonNull(repaired.get(parentId)).children().contains(objectId)) {
-          retainedParents.add(parentId);
-        } else {
-          serverLog.error(
-              "*** VALIDATE: #"
-                  + objectId
-                  + " not in it's parent's (#"
-                  + parentId
-                  + ") children.");
+      for (long content : object.contents()) {
+        if (content == -1) continue;
+        if (Objects.requireNonNull(repaired.get(content)).location() != id) {
+          serverLog.error("*** VALIDATE: #" + id + " not in it's content's (#" + content + ") location.");
+          broken = true;
+          break;
         }
       }
-      repaired.put(objectId, object.withParents(retainedParents));
-    }
-    for (long objectId : objects.keySet()) {
-      RepairedObject object = Objects.requireNonNull(repaired.get(objectId));
-      List<Long> retainedChildren = new ArrayList<>();
-      for (long childId : object.children()) {
-        if (Objects.requireNonNull(repaired.get(childId)).parents().contains(objectId)) {
-          retainedChildren.add(childId);
-        } else {
-          serverLog.error(
-              "*** VALIDATE: #"
-                  + objectId
-                  + " not in it's child's (#"
-                  + childId
-                  + ") parents.");
+      for (long parent : object.parents()) {
+        if (parent == -1) continue;
+        if (!Objects.requireNonNull(repaired.get(parent)).children().contains(id)) {
+          serverLog.error("*** VALIDATE: #" + id + " not in it's parent's (#" + parent + ") children.");
+          broken = true;
+          break;
         }
       }
-      List<Long> retainedContents = new ArrayList<>();
-      for (long contentId : object.contents()) {
-        if (Objects.requireNonNull(repaired.get(contentId)).location() == objectId) {
-          retainedContents.add(contentId);
-        } else {
-          serverLog.error(
-              "*** VALIDATE: #"
-                  + objectId
-                  + " not in it's content's (#"
-                  + contentId
-                  + ") location.");
+      for (long child : object.children()) {
+        if (child == -1) continue;
+        if (!Objects.requireNonNull(repaired.get(child)).parents().contains(id)) {
+          serverLog.error("*** VALIDATE: #" + id + " not in it's child's (#" + child + ") parents.");
+          broken = true;
+          break;
         }
       }
-      repaired.put(objectId, object.withChildren(retainedChildren).withContents(retainedContents));
     }
+    if (broken) throw malformed("inconsistent hierarchy relationships");
     return repaired;
   }
 
-  private long repairLocation(RawObject object, Map<Long, RawObject> objects) {
+  private static boolean isObjectList(MooValue value) {
+    return value instanceof ListValue list
+        && list.elements().stream().allMatch(element -> element instanceof ObjectValue);
+  }
+
+  private long repairLocation(RawObject object, Map<Long, RawObject> objects) throws IOException {
     if (!(object.location() instanceof ObjectValue location)) {
-      serverLog.error(
-          "*** VALIDATE: #" + object.id() + ".location is not an object.");
-      return -1;
+      throw malformed("object #" + object.id() + ".location is not an object");
     }
     long objectId = location.value();
     if (objectId != -1 && !objects.containsKey(objectId)) {
@@ -268,7 +280,7 @@ public final class LambdaMooV5Reader {
     return objectId;
   }
 
-  private List<Long> repairParents(RawObject object, Map<Long, RawObject> objects) {
+  private List<Long> repairParents(RawObject object, Map<Long, RawObject> objects) throws IOException {
     if (object.parents() instanceof ObjectValue parent) {
       return parent.value() == -1
           ? List.of()
@@ -276,17 +288,11 @@ public final class LambdaMooV5Reader {
     }
     if (object.parents() instanceof ListValue parents) {
       if (parents.elements().stream().anyMatch(value -> !(value instanceof ObjectValue))) {
-        serverLog.error(
-            "*** VALIDATE: #"
-                + object.id()
-                + ".parents is not an object or list of objects.");
-        return List.of();
+        throw malformed("object #" + object.id() + ".parents is not an object or list of objects");
       }
       return repairReferences(object.id(), parents.elements(), "parent", objects);
     }
-    serverLog.error(
-        "*** VALIDATE: #" + object.id() + ".parents is not an object or list of objects.");
-    return List.of();
+    throw malformed("object #" + object.id() + ".parents is not an object or list of objects");
   }
 
   private List<Long> repairObjectList(
@@ -294,27 +300,25 @@ public final class LambdaMooV5Reader {
       MooValue value,
       String field,
       String member,
-      Map<Long, RawObject> objects) {
+      Map<Long, RawObject> objects) throws IOException {
     if (!(value instanceof ListValue list)) {
-      serverLog.error("*** VALIDATE: #" + object.id() + "." + field + " is not a list of objects.");
-      return List.of();
+      throw malformed("object #" + object.id() + "." + field + " is not a list of objects");
     }
     if (list.elements().stream().anyMatch(element -> !(element instanceof ObjectValue))) {
-      serverLog.error("*** VALIDATE: #" + object.id() + "." + field + " is not a list of objects.");
-      return List.of();
+      throw malformed("object #" + object.id() + "." + field + " is not a list of objects");
     }
     return repairReferences(object.id(), list.elements(), member, objects);
   }
 
   private List<Long> repairReferences(
       long owner, List<MooValue> values, String field, Map<Long, RawObject> objects) {
-    Set<Long> retained = new LinkedHashSet<>();
+    List<Long> retained = new ArrayList<>();
     for (MooValue value : values) {
       if (!(value instanceof ObjectValue reference)) {
         continue;
       }
       long objectId = reference.value();
-      if (!objects.containsKey(objectId)) {
+      if (objectId != -1 && !objects.containsKey(objectId)) {
         serverLog.error(
             "*** VALIDATE: #"
                 + owner
@@ -336,6 +340,7 @@ public final class LambdaMooV5Reader {
       return true;
     }
     for (long parent : Objects.requireNonNull(objects.get(objectId)).parents()) {
+      if (parent == -1) continue;
       if (hasParentCycle(parent, objects, path)) {
         return true;
       }
@@ -360,6 +365,12 @@ public final class LambdaMooV5Reader {
       Map<Long, RawObject> rawObjects,
       Map<Long, RepairedObject> repaired,
       Map<ProgramSlot, String> programs) throws IOException {
+    Map<Long, PropertySlotRestorer.Input> inputs = new LinkedHashMap<>();
+    for (RawObject raw : rawObjects.values()) {
+      inputs.put(raw.id(), new PropertySlotRestorer.Input(raw.id(), Objects.requireNonNull(repaired.get(raw.id())).parents(),
+          raw.propertyNames(), raw.propertySlots()));
+    }
+    Map<Long, List<WorldProperty>> properties = PropertySlotRestorer.restore(inputs);
     List<WorldObject> objects = new ArrayList<>(rawObjects.size());
     for (RawObject raw : rawObjects.values()) {
       List<WorldVerb> verbs = new ArrayList<>(raw.verbs().size());
@@ -380,29 +391,9 @@ public final class LambdaMooV5Reader {
               topology.contents(),
               topology.children(),
               verbs,
-              restoreLocalProperties(raw)));
+              Objects.requireNonNull(properties.get(raw.id()))));
     }
     return List.copyOf(objects);
-  }
-
-  private static List<WorldProperty> restoreLocalProperties(RawObject object) {
-    int localCount = Math.min(object.propertyNames().size(), object.propertySlots().size());
-    List<WorldProperty> properties = new ArrayList<>(localCount);
-    for (int index = 0; index < localCount; index++) {
-      RawPropertySlot slot = object.propertySlots().get(index);
-      if (slot.clear() || slot.value() == null) {
-        continue;
-      }
-      properties.add(
-          new WorldProperty(
-              object.propertyNames().get(index),
-              slot.value(),
-              slot.owner(),
-              new PropertyPerms(slot.permissions()),
-              false,
-              true));
-    }
-    return List.copyOf(properties);
   }
 
   private static void validatePlayers(List<Long> players, Map<Long, RawObject> objects)
@@ -435,20 +426,5 @@ public final class LambdaMooV5Reader {
       children = List.copyOf(children);
     }
 
-    RepairedObject withLocation(long value) {
-      return new RepairedObject(value, contents, parents, children);
-    }
-
-    RepairedObject withContents(List<Long> value) {
-      return new RepairedObject(location, value, parents, children);
-    }
-
-    RepairedObject withParents(List<Long> value) {
-      return new RepairedObject(location, contents, value, children);
-    }
-
-    RepairedObject withChildren(List<Long> value) {
-      return new RepairedObject(location, contents, parents, value);
-    }
   }
 }
