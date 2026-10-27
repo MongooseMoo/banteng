@@ -49,7 +49,6 @@ public record VmSnapshot(
     Optional<MooValue> returnValue,
     Optional<MooValue> pendingError,
     Optional<MooValue> uncaughtError,
-    OptionalLong switchedPlayer,
     Optional<Fork> forkRequest,
     OptionalDouble suspensionDelaySeconds,
     boolean awaitingHostResult,
@@ -144,10 +143,6 @@ public record VmSnapshot(
     size = add(size, optionalValueSize(returnValue));
     size = add(size, optionalValueSize(pendingError));
     size = add(size, optionalValueSize(uncaughtError));
-    size = add(size, Byte.BYTES);
-    if (switchedPlayer.isPresent()) {
-      size = add(size, Long.BYTES);
-    }
     size = add(size, Byte.BYTES);
     if (forkRequest.isPresent()) {
       size = add(size, forkSize(forkRequest.orElseThrow()));

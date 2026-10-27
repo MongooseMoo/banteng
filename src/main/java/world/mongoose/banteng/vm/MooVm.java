@@ -548,10 +548,6 @@ public final class MooVm {
                 notify.connectionId(), notify.line(), notify.noFlush(), notify.noNewline()));
         frame.operandStack.push(new IntegerValue(1));
       }
-      case BuiltinResult.SwitchPlayer switchPlayer -> {
-        state.switchPlayer(switchPlayer.player());
-        frame.operandStack.push(new IntegerValue(0));
-      }
       case BuiltinResult.Programmer programmer -> {
         state.setProgrammer(programmer.programmer());
         frame.operandStack.push(new IntegerValue(0));

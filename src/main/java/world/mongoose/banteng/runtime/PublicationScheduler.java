@@ -241,7 +241,6 @@ public final class PublicationScheduler implements AutoCloseable {
             Optional.empty(),
             Optional.empty(),
             Optional.empty(),
-            OptionalLong.empty(),
             Optional.empty(),
             OptionalDouble.of(0.0),
             false,

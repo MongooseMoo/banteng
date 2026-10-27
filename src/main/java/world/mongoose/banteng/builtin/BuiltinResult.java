@@ -114,9 +114,6 @@ public sealed interface BuiltinResult {
     }
   }
 
-  /** Switches the current player and returns zero. */
-  record SwitchPlayer(long player) implements BuiltinResult {}
-
   /** Changes the current programmer and returns zero. */
   record Programmer(long programmer) implements BuiltinResult {}
 

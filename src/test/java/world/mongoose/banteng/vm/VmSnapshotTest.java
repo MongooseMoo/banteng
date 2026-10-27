@@ -53,7 +53,7 @@ final class VmSnapshotTest {
         List.of(upper), snapshot.output(), snapshot.connectionOptionRequests(), snapshot.bootPlayerTargets(),
         snapshot.forcedInputRequests(), snapshot.notificationRequests(), snapshot.checkpointRequests(),
         snapshot.anonymousCollectionDeferrals(), snapshot.outcome(), snapshot.returnValue(), snapshot.pendingError(),
-        snapshot.uncaughtError(), snapshot.switchedPlayer(), snapshot.forkRequest(), snapshot.suspensionDelaySeconds(),
+        snapshot.uncaughtError(), snapshot.forkRequest(), snapshot.suspensionDelaySeconds(),
         snapshot.awaitingHostResult(), snapshot.pendingBuiltin(), snapshot.taskLocal(), snapshot.remainingTicks(),
         snapshot.elapsedCpuNanos(), snapshot.remainingCpuNanos(), snapshot.maxStackDepth(), snapshot.initialPlayer());
     VmState restored = VmState.restore(saved);
@@ -173,7 +173,6 @@ final class VmSnapshotTest {
     state.effects().stageNotificationRequest(new NotificationRequest(-7, "abc", true, true));
     AnonymousObjectValue deferred = new AnonymousObjectValue();
     state.effects().deferAnonymousCollection(List.of(deferred));
-    state.switchPlayer(53);
     state.setTaskLocal(new ListValue(List.of(new IntegerValue(59))));
     state.setThreadMode(false);
     state.beginError(ErrorValue.E_INVARG);

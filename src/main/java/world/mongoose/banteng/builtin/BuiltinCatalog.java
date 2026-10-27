@@ -679,7 +679,7 @@ public final class BuiltinCatalog {
             List.of(new CallShape(List.of(OBJECT, OBJECT), List.of(INTEGER), Optional.empty())),
             BuiltinPermissionRule.WIZARD_ONLY,
             false,
-            call -> switchPlayer(call.hosts(), call.arguments(), call.world())));
+            this::switchPlayer));
     entries.add(
         new BuiltinSpec(
             "pass",
@@ -4039,15 +4039,15 @@ public final class BuiltinCatalog {
     return BuiltinResult.error(ErrorValue.E_TYPE);
   }
 
-  private BuiltinResult switchPlayer(BuiltinHosts invocationHosts, List<MooValue> arguments, WorldTxn world) {
-    long oldPlayer = ((ObjectValue) arguments.getFirst()).value();
-    long newPlayer = ((ObjectValue) arguments.get(1)).value();
+  private BuiltinResult switchPlayer(BuiltinCall call) {
+    long oldPlayer = ((ObjectValue) call.arguments().getFirst()).value();
+    long newPlayer = ((ObjectValue) call.arguments().get(1)).value();
     if (oldPlayer == newPlayer
-        || connections(invocationHosts).connectionId(oldPlayer).isEmpty()
-        || !world.players().contains(newPlayer)) {
+        || connections(call.hosts()).connectionId(oldPlayer).isEmpty()
+        || !call.world().players().contains(newPlayer)) {
       return BuiltinResult.error(ErrorValue.E_INVARG);
     }
-    return new BuiltinResult.SwitchPlayer(newPlayer);
+    return call.hosts().switchPlayer().invoke(call);
   }
 
   private static BuiltinResult setTaskPerms(
