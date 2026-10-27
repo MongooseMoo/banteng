@@ -172,6 +172,59 @@ final class MoveBuiltinFamilyTest {
   }
 
   @Test
+  void movesRandomStateReadsAndSharedStringLimitToTheirOwners() {
+    var context = new InMemoryExecutionContext(failure -> { throw new AssertionError(failure); });
+    var files = JavaParser.fromJavaVersion().build().parse(context, """
+        package world.mongoose.banteng.builtin;
+        import java.util.List;
+        import java.util.Random;
+        import java.security.SecureRandom;
+        import java.util.Optional;
+        class BuiltinCatalog {
+          private final Random random = new Random();
+          private final Random floatingRandom = new Random();
+          private static final SecureRandom SECURE_RANDOM = new SecureRandom();
+          List<Object> buildManifest() {
+            List<Object> entries = new java.util.ArrayList<>();
+            entries.add(new BuiltinSpec("random", List.of(), BuiltinPermissionRule.ANY, true, call -> randomInteger(call.arguments())));
+            entries.add(new BuiltinSpec("reseed_random", List.of(), BuiltinPermissionRule.WIZARD_ONLY, true, call -> { random.setSeed(SECURE_RANDOM.nextLong()); return null; }));
+            entries.add(new BuiltinSpec("frandom", List.of(), BuiltinPermissionRule.ANY, true, call -> floatingRandom(call.arguments())));
+            entries.add(new BuiltinSpec("random_bytes", List.of(), BuiltinPermissionRule.ANY, true, call -> randomBytes(call.arguments(), call.world())));
+            return entries;
+          }
+          private BuiltinResult randomInteger(List<MooValue> arguments) { return random.nextLong(); }
+          private BuiltinResult floatingRandom(List<MooValue> arguments) { return floatingRandom.nextInt(); }
+          private static BuiltinResult randomBytes(List<MooValue> arguments, WorldTxn world) {
+            SECURE_RANDOM.nextBytes(new byte[1]);
+            return stringLengthError(encoded.size(), world);
+          }
+          public static Optional<BuiltinResult> stringLengthError(long length, WorldTxn world) { return Optional.empty(); }
+        }
+        """, "package world.mongoose.banteng.builtin; public final class ValueLimits {}",
+        "package world.mongoose.banteng.vm; import world.mongoose.banteng.builtin.BuiltinCatalog; class ArithmeticOps { Object checked() { return BuiltinCatalog.stringLengthError(1, null); } }",
+        "package world.mongoose.banteng.vm; import world.mongoose.banteng.builtin.BuiltinCatalog; class IndexOps { Object checked() { return BuiltinCatalog.stringLengthError(1, null); } }").toList();
+    var changes = new MoveBuiltinFamily("RandomBuiltins",
+        Set.of("random", "reseed_random", "frandom", "random_bytes"),
+        Set.of("randomInteger", "floatingRandom", "randomBytes"))
+        .run(new InMemoryLargeSourceSet(files), context).getChangeset().getAllResults();
+    String catalog = changedFile(changes, "BuiltinCatalog.java");
+    String family = changedFile(changes, "RandomBuiltins.java");
+    assertTrue(catalog.contains("RandomBuiltins.register(entries, () -> random, () -> floatingRandom, SECURE_RANDOM)"));
+    assertTrue(catalog.contains("private final Random random"));
+    assertFalse(catalog.contains("stringLengthError"));
+    assertFalse(catalog.contains("private BuiltinResult"));
+    assertTrue(family.contains("randomInteger(call.arguments(), random.get())"));
+    assertTrue(family.contains("floatingRandom(call.arguments(), floatingRandom.get())"));
+    assertTrue(family.contains("random.get().setSeed(secureRandom.nextLong())"));
+    assertTrue(family.contains("secureRandom.nextBytes"));
+    assertTrue(family.contains("ValueLimits.stringLengthError(encoded.size(), world)"));
+    assertTrue(family.contains("private static BuiltinResult randomInteger(List<MooValue> arguments, Random random)"));
+    assertTrue(changedFile(changes, "ValueLimits.java").contains("public static Optional<BuiltinResult> stringLengthError"));
+    assertTrue(changedFile(changes, "ArithmeticOps.java").contains("ValueLimits.stringLengthError(1, null)"));
+    assertTrue(changedFile(changes, "IndexOps.java").contains("ValueLimits.stringLengthError(1, null)"));
+  }
+
+  @Test
   void loadsConfiguredFamilyFromDeclarativeRecipeAndClonesConfiguration() {
     var recipe = Environment.builder().scanRuntimeClasspath().build()
         .activateRecipes("world.mongoose.banteng.builtin.ExtractMapBuiltins");

@@ -4,7 +4,7 @@
 Move the seven conversion registrations and their ten-method closure through the existing OpenRewrite mover, preserving the two manifest groups around eval.
 
 ## State
-Implemented in an isolated worktree based on the Time extraction. Migration output was inspected and applied through apply_patch. The recipe dry run and the authored MoveBuiltinFamilyTest file passed. No push or publication performed; parent owns source verification, Claude review, PR CI and normal merge.
+Published as PR124 with completed Claude review and green initial PR CI. Integrated the independently reviewed Random prerequisite to resolve the shared recipe/YAML conflict, retaining both implementations and their completed reviews. Fresh PR CI checks the integrated result; normal queue merge follows.
 
 ## Decisions and why
 The smallest change moves the existing algorithms unchanged into ConversionBuiltins. Its toStringValue alone is public because raise uses it to construct a default message; raise calls the family directly. Equality retains the invocation host's ValueSemantics dependency. Expected size is about 180 implementation lines and 57 registration lines moved, 35–50 scaffold lines, and 15–25 mover/configuration lines.
