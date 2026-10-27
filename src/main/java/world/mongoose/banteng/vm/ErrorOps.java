@@ -121,10 +121,9 @@ final class ErrorOps {
               return;
             }
           }
-          handler
-              .specification
-              .catchVariable()
-              .ifPresent(name -> frame.locals.put(name, boundValue));
+          if (handler.specification.catchSlot() >= 0) {
+            frame.locals[handler.specification.catchSlot()] = boundValue;
+          }
           state.clearPendingError();
           frame.instructionPointer = handler.specification.catchTarget();
           return;
@@ -203,10 +202,10 @@ final class ErrorOps {
     return new ListValue(
         List.of(
             evalFrame ? new ObjectValue(-1) : tracebackReference(frame.receiver),
-            evalFrame ? StringValue.of("") : frame.locals.getOrDefault("verb", StringValue.of("")),
+            evalFrame ? StringValue.of("") : frame.localOrDefault(8, StringValue.of("")),
             evalFrame ? new ObjectValue(-1) : new ObjectValue(frame.programmer),
             evalFrame ? new ObjectValue(-1) : tracebackReference(frame.verbLocation),
-            frame.locals.getOrDefault("player", new ObjectValue(-1)),
+            frame.localOrDefault(5, new ObjectValue(-1)),
             new IntegerValue(frame.program.instructions().get(instructionIndex).sourceLine())));
   }
 

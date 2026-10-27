@@ -273,8 +273,11 @@ public record VmSnapshot(
       if (instruction.handler().isPresent()) {
         size = add(size, handlerSpecSize(instruction.handler().orElseThrow()));
       }
-      size = add(size, Integer.BYTES);
+      size = add(size, multiply(2, Integer.BYTES));
+      size = add(size, multiply(instruction.localSlots().size(), Integer.BYTES));
     }
+    size = add(size, Integer.BYTES);
+    for (String name : program.variableNames()) size = add(size, textSize(name));
     size = add(size, Integer.BYTES);
     for (BytecodeProgram forkVector : program.forkVectors()) {
       size = add(size, programSize(forkVector));
@@ -283,7 +286,7 @@ public record VmSnapshot(
   }
 
   private static long handlerSpecSize(HandlerSpec handler) {
-    long size = multiply(3, Integer.BYTES);
+    long size = multiply(4, Integer.BYTES);
     size = add(size, Byte.BYTES);
     if (handler.catchVariable().isPresent()) {
       size = add(size, textSize(handler.catchVariable().orElseThrow()));

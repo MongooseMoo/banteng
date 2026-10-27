@@ -137,9 +137,9 @@ final class LoopOps {
       return;
     }
     CollectionElement element = next.orElseThrow();
-    frame.locals.put(PropertyOps.normalize(variables[0]), element.value());
+    frame.locals[instruction.localSlots().get(0)] = element.value();
     if (variables.length == 2) {
-      frame.locals.put(PropertyOps.normalize(variables[1]), element.indexOrKey());
+      frame.locals[instruction.localSlots().get(1)] = element.indexOrKey();
     }
     frame.instructionPointer++;
   }
@@ -216,7 +216,7 @@ final class LoopOps {
     if (variables.length != 1) {
       throw new IllegalStateException("range loop requires exactly one variable");
     }
-    frame.locals.put(PropertyOps.normalize(variables[0]), range.next);
+    frame.locals[instruction.localSlots().get(0)] = range.next;
     if (next < Long.MAX_VALUE) {
       range.next = scalarValue(range.kind, next + 1L);
     } else {
@@ -270,9 +270,7 @@ final class LoopOps {
     int sourceIndex = 0;
     for (int index = 0; index < names.length; index++) {
       String encodedName = names[index];
-      String name = PropertyOps.normalize(encodedName.substring(encodedName.startsWith("@")
-              || encodedName.startsWith("?")
-              || encodedName.startsWith("$") ? 1 : 0));
+      int slot = instruction.localSlots().get(index);
       int requiredAfter = 0;
       for (int later = index + 1; later < names.length; later++) {
         if (!names[later].startsWith("@")
@@ -283,22 +281,21 @@ final class LoopOps {
       }
       if (encodedName.startsWith("@")) {
         int end = list.size() - requiredAfter;
-        frame.locals.put(
-            name, new ListValue(list.elements().subList(sourceIndex, end)));
+        frame.locals[slot] = new ListValue(list.elements().subList(sourceIndex, end));
         sourceIndex = end;
       } else if (encodedName.startsWith("?") || encodedName.startsWith("$")) {
         if (list.size() - sourceIndex > requiredAfter) {
-          frame.locals.put(name, list.elements().get(sourceIndex++));
+          frame.locals[slot] = list.elements().get(sourceIndex++);
         } else if (defaults[index] != null) {
           state.budget().decrementRemainingTicks();
           if (state.budget().remainingTicks() <= 0) {
             state.abortTickExhaustion();
             return;
           }
-          frame.locals.put(name, defaults[index]);
+          frame.locals[slot] = defaults[index];
         }
       } else {
-        frame.locals.put(name, list.elements().get(sourceIndex++));
+        frame.locals[slot] = list.elements().get(sourceIndex++);
       }
     }
     frame.operandStack.push(source);
