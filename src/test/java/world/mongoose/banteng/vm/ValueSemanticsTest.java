@@ -153,7 +153,7 @@ final class ValueSemanticsTest {
 
   private static MooValue execute(String source, Map<String, MooValue> locals) {
     VmState state = new VmState(locals, 0, new ObjectValue(0));
-    new MooVm().execute(new MooCompiler().compile(source), state);
+    new PureVmFixture().execute(new MooCompiler().compile(source), state);
     assertEquals(VmState.Outcome.RETURNED, state.outcome());
     return state.returnValue().orElseThrow();
   }

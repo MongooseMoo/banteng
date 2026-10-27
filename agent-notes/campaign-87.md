@@ -4,7 +4,7 @@
 Centralize MOO equality and ordering in ValueSemantics, following Toast utils.cc:408-492 plus the existing numeric-promotion extension. Preserve Java representation equality/hashCode and constructor behavior.
 
 ## State
-Own isolated branch campaign/87-value-semantics starts at campaign/89-builtin-contract aabe141, with current master integrated at 8d8ade7. Implementation and focused tests are committed locally; no publication by this agent. Other agents own permission changes in separate worktrees.
+PR #108 targets campaign/89-builtin-contract at 09d8fd5. The coordinator integrated PR #109 at eb344dd to preserve its pure-VM fixture move; ValueSemanticsTest now uses PureVmFixture. The prior bc48eaa review confirmed the map repair and identified an unused LoopOps import and stale State text, both corrected here. Current-head review and PR CI remain required. Coordinator owns publication and merges; other agents own separate worktrees.
 
 ## Decisions and why
 Smallest approved change: about 250 added / 300 deleted lines plus focused tests. Add equality/comparison to the existing ValueSemantics record; expose in-order traversal of the existing map lookup tree; delete duplicate semantic comparisons and migrate actual equality/membership/key-order callers. No Java sort with Toast's asymmetric identity comparison, no new storage or comparator framework. Keep natural sorting and relational/NaN boundary policies, and keep all Java equals/hashCode methods unchanged.
