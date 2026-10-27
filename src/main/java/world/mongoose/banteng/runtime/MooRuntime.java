@@ -1641,6 +1641,13 @@ public final class MooRuntime implements AutoCloseable, SchedulerRuntime {
     return publishedConnectionRegistry.connectionPlayer(connectionId);
   }
 
+  @Override
+  public synchronized boolean loginTimeoutIsCurrent(long connectionId, long generation) {
+    ConnectionState connection = publishedConnections.get(connectionId);
+    return connection != null && connection.generation == generation
+        && publishedConnectionRegistry.connectionPlayer(connectionId).orElse(0) < 0;
+  }
+
   synchronized Optional<MapValue> connectionInfo(long objectId) {
     return publishedConnectionRegistry.connectionInfo(objectId);
   }
