@@ -19,6 +19,8 @@ import world.mongoose.banteng.server.ConnectionRegistry;
 import world.mongoose.banteng.value.MooValue.IntegerValue;
 import world.mongoose.banteng.value.MooValue.MapValue;
 import world.mongoose.banteng.value.MooValue.StringValue;
+import world.mongoose.banteng.world.ArgSpec;
+import world.mongoose.banteng.world.VerbPerms;
 import world.mongoose.banteng.world.ObjectFlags;
 import world.mongoose.banteng.world.WorldObject;
 import world.mongoose.banteng.world.WorldTxn;
@@ -445,7 +447,7 @@ final class MooRuntimeTest {
     long player = runtime.connectionPlayer(connectionId).orElseThrow();
     int verbIndex;
     try (WorldTxn transaction = world.begin()) {
-      int verbNumber = transaction.addVerb(player, "auditnoexec", player, 8, -1);
+      int verbNumber = transaction.addVerb(player, "auditnoexec", player, new VerbPerms(8), ArgSpec.NONE, -1, ArgSpec.NONE);
       assertTrue(verbNumber > 0);
       verbIndex = verbNumber - 1;
       assertTrue(
@@ -454,7 +456,7 @@ final class MooRuntimeTest {
               .isOk());
       assertTrue(transaction.commit().isCommitted());
     }
-    assertEquals(8, readVerb(world, player, verbIndex).orElseThrow().permissions());
+    assertEquals(8, readVerb(world, player, verbIndex).orElseThrow().perms().bits());
 
     assertEquals(List.of("EXECUTED"), runtime.executeLine(connectionId, "auditnoexec"));
   }
@@ -755,7 +757,7 @@ final class MooRuntimeTest {
       WorldObject parent = transaction.createObject(requested.parents(), player);
       definingObject = parent.id();
       assertTrue(transaction.changeParents(player, List.of(definingObject)).isOk());
-      assertTrue(transaction.addVerb(definingObject, "inherited_program", player, 6, -1) > 0);
+      assertTrue(transaction.addVerb(definingObject, "inherited_program", player, new VerbPerms(6), ArgSpec.NONE, -1, ArgSpec.NONE) > 0);
       assertTrue(transaction.commit().isCommitted());
     }
 
@@ -789,7 +791,7 @@ final class MooRuntimeTest {
         List.of("\"\" is not a valid object."),
         runtime.executeLine(connectionId, ".program :do_login_command"));
     try (WorldTxn transaction = world.begin()) {
-      assertTrue(transaction.addVerb(0, "locked_program", 0, 0, -1) > 0);
+      assertTrue(transaction.addVerb(0, "locked_program", 0, new VerbPerms(0), ArgSpec.NONE, -1, ArgSpec.NONE) > 0);
       assertTrue(transaction.commit().isCommitted());
     }
     assertEquals(
@@ -840,8 +842,8 @@ final class MooRuntimeTest {
     int targetIndex;
 
     try (WorldTxn transaction = world.begin()) {
-      anchorIndex = transaction.addVerb(player, "program_anchor", player, 2, -1) - 1;
-      targetIndex = transaction.addVerb(player, "program_reordered", player, 6, -1) - 1;
+      anchorIndex = transaction.addVerb(player, "program_anchor", player, new VerbPerms(2), ArgSpec.NONE, -1, ArgSpec.NONE) - 1;
+      targetIndex = transaction.addVerb(player, "program_reordered", player, new VerbPerms(6), ArgSpec.NONE, -1, ArgSpec.NONE) - 1;
       assertTrue(anchorIndex >= 0);
       assertTrue(targetIndex > anchorIndex);
       assertTrue(transaction.commit().isCommitted());
@@ -890,7 +892,7 @@ final class MooRuntimeTest {
     try (WorldTxn transaction = world.begin()) {
       WorldObject object = transaction.createObject(-1, player);
       objectId = object.id();
-      assertTrue(transaction.addVerb(objectId, "vanishing_program", player, 2, -1) > 0);
+      assertTrue(transaction.addVerb(objectId, "vanishing_program", player, new VerbPerms(2), ArgSpec.NONE, -1, ArgSpec.NONE) > 0);
       assertTrue(transaction.commit().isCommitted());
     }
     assertTrue(

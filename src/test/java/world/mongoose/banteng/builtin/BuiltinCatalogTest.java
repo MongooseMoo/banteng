@@ -45,6 +45,9 @@ import world.mongoose.banteng.value.MooValue.ObjectValue;
 import world.mongoose.banteng.value.MooValue.StringValue;
 import world.mongoose.banteng.value.MooValue.WaifValue;
 import world.mongoose.banteng.value.ValueSemantics;
+import world.mongoose.banteng.world.ArgSpec;
+import world.mongoose.banteng.world.PropertyPerms;
+import world.mongoose.banteng.world.VerbPerms;
 import world.mongoose.banteng.world.ObjectFlags;
 import world.mongoose.banteng.world.WorldObject;
 import world.mongoose.banteng.world.WorldProperty;
@@ -357,8 +360,20 @@ final class BuiltinCatalogTest {
             List.of(),
             List.of(),
             List.of(
-                new WorldProperty(":marker", new IntegerValue(0), 1, 0, false, true),
-                new WorldProperty(":inherited", string("not counted"), 1, 0, false, true)));
+                new WorldProperty(
+                    ":marker",
+                    new IntegerValue(0),
+                    1,
+                    new PropertyPerms(0),
+                    false,
+                    true),
+                new WorldProperty(
+                    ":inherited",
+                    string("not counted"),
+                    1,
+                    new PropertyPerms(0),
+                    false,
+                    true)));
     WorldTxn root = new WorldTxn(List.of(), List.of(wizard, waifClass));
     WaifValue waif;
     try (WorldTxn setup = root.begin()) {
@@ -1998,7 +2013,7 @@ final class BuiltinCatalogTest {
     assertSame(BuiltinPermissionRule.ANY, spec.permission());
     assertEquals(false, spec.irrevocable());
     try (WorldTxn transaction = world().begin()) {
-      assertEquals(1, transaction.addVerb(2, "old-name", 2, 3, -1));
+      assertEquals(1, transaction.addVerb(2, "old-name", 2, new VerbPerms(3), ArgSpec.NONE, -1, ArgSpec.NONE));
       BuiltinResult result =
           invoke(
               catalog,
@@ -2014,7 +2029,7 @@ final class BuiltinCatalogTest {
       WorldVerb updated = transaction.verb(2, 0).orElseThrow();
       assertEquals("new-name", updated.names());
       assertEquals(2, updated.owner());
-      assertEquals(13, updated.permissions() & 15);
+      assertEquals(13, updated.perms().bits());
       assertEquals(
           Optional.of(ErrorValue.E_PERM),
           error(invoke(
@@ -2119,7 +2134,7 @@ final class BuiltinCatalogTest {
     assertSame(BuiltinPermissionRule.ANY, spec.permission());
     assertEquals(false, spec.irrevocable());
     try (WorldTxn transaction = world().begin()) {
-      assertEquals(1, transaction.addVerb(2, "target", 2, 3, 7));
+      assertEquals(1, transaction.addVerb(2, "target", 2, new VerbPerms(3), ArgSpec.NONE, 7, ArgSpec.NONE));
       BuiltinResult result =
           invoke(
               catalog,
@@ -2135,7 +2150,9 @@ final class BuiltinCatalogTest {
       WorldVerb updated = transaction.verb(2, 0).orElseThrow();
       assertEquals("target", updated.names());
       assertEquals(2, updated.owner());
-      assertEquals(3 | (2 << 4) | (2 << 6), updated.permissions());
+      assertEquals(new VerbPerms(3), updated.perms());
+      assertEquals(ArgSpec.THIS, updated.dobj());
+      assertEquals(ArgSpec.THIS, updated.iobj());
       assertEquals(-1, updated.preposition());
       assertEquals("", updated.programSource());
 
@@ -2152,7 +2169,9 @@ final class BuiltinCatalogTest {
                   2)
               ));
       updated = transaction.verb(2, 0).orElseThrow();
-      assertEquals(3 | (1 << 4), updated.permissions());
+      assertEquals(new VerbPerms(3), updated.perms());
+      assertEquals(ArgSpec.ANY, updated.dobj());
+      assertEquals(ArgSpec.NONE, updated.iobj());
       assertEquals(0, updated.preposition());
 
       assertEquals(
@@ -2204,7 +2223,7 @@ final class BuiltinCatalogTest {
                   2)
               ));
 
-      assertEquals(2, transaction.addVerb(2, "private", 1, 1, -1));
+      assertEquals(2, transaction.addVerb(2, "private", 1, new VerbPerms(1), ArgSpec.NONE, -1, ArgSpec.NONE));
       assertEquals(
           Optional.of(ErrorValue.E_PERM),
           error(invoke(
@@ -2236,8 +2255,22 @@ final class BuiltinCatalogTest {
   void verbsReturnsLocalNamesInDefinitionOrderWithToastReadAuthority() {
     BuiltinCatalog catalog = new BuiltinCatalog(BuiltinHosts.builder().build());
     BuiltinSpec spec = catalog.spec("verbs").orElseThrow();
-    WorldVerb first = new WorldVerb("first alias", 2, 4, -1, "return 1;");
-    WorldVerb second = new WorldVerb("second", 2, 4, -1, "return 2;");
+    WorldVerb first = new WorldVerb(
+        "first alias",
+        2,
+        new VerbPerms(4),
+        ArgSpec.NONE,
+        -1,
+        ArgSpec.NONE,
+        "return 1;");
+    WorldVerb second = new WorldVerb(
+        "second",
+        2,
+        new VerbPerms(4),
+        ArgSpec.NONE,
+        -1,
+        ArgSpec.NONE,
+        "return 2;");
     WorldObject reader =
         new WorldObject(1, "reader", 0, 1, -1, -1, List.of(), List.of(), List.of(), List.of());
     WorldObject target =
@@ -2302,8 +2335,22 @@ final class BuiltinCatalogTest {
             List.of(),
             List.of(),
             List.of(
-                new WorldVerb("alpha aliases", 2, 15 | (2 << 4) | (1 << 6), 0, "return 1;"),
-                new WorldVerb("private", 1, 0, -1, "return 2;")),
+                new WorldVerb(
+                    "alpha aliases",
+                    2,
+                    new VerbPerms(15),
+                    ArgSpec.THIS,
+                    0,
+                    ArgSpec.ANY,
+                    "return 1;"),
+                new WorldVerb(
+                    "private",
+                    1,
+                    new VerbPerms(0),
+                    ArgSpec.NONE,
+                    -1,
+                    ArgSpec.NONE,
+                    "return 2;")),
             List.of());
     try (WorldTxn transaction =
         new WorldTxn(List.of(), List.of(wizard, programmer, target)).begin()) {
@@ -2396,8 +2443,22 @@ final class BuiltinCatalogTest {
             List.of(),
             List.of(),
             List.of(
-                new WorldVerb("first", 1, 0, -1, "return 1;"),
-                new WorldVerb("second", 1, 0, -1, "return 2;")),
+                new WorldVerb(
+                    "first",
+                    1,
+                    new VerbPerms(0),
+                    ArgSpec.NONE,
+                    -1,
+                    ArgSpec.NONE,
+                    "return 1;"),
+                new WorldVerb(
+                    "second",
+                    1,
+                    new VerbPerms(0),
+                    ArgSpec.NONE,
+                    -1,
+                    ArgSpec.NONE,
+                    "return 2;")),
             List.of());
     WorldObject denied =
         new WorldObject(4, "Denied", 0, 1, -1, -1, List.of(), List.of(), List.of(), List.of());
@@ -2486,7 +2547,7 @@ final class BuiltinCatalogTest {
 
       assertEquals(Optional.of(new IntegerValue(1)), value(result));
       assertEquals(
-          new WorldVerb("foobar", 1, 12 | (2 << 4) | (2 << 6), -1, ""),
+          new WorldVerb("foobar", 1, new VerbPerms(12), ArgSpec.THIS, -1, ArgSpec.THIS, ""),
           transaction.verb(3, 0).orElseThrow());
     }
   }
@@ -2531,7 +2592,7 @@ final class BuiltinCatalogTest {
       assertEquals(
           Optional.of(new IntegerValue(99)),
           transaction.readObjectProperty(3, "foo"));
-      assertEquals(7, transaction.property(3, "foo").orElseThrow().permissions());
+      assertEquals(7, transaction.property(3, "foo").orElseThrow().perms().bits());
     }
   }
 
@@ -2544,9 +2605,9 @@ final class BuiltinCatalogTest {
     assertEquals(false, catalog.spec("delete_property").orElseThrow().irrevocable());
 
     WorldProperty definition =
-        new WorldProperty("test", new IntegerValue(1), 1, 7, false, true);
+        new WorldProperty("test", new IntegerValue(1), 1, new PropertyPerms(7), false, true);
     WorldProperty inherited =
-        new WorldProperty("test", new IntegerValue(1), 1, 7, true, false);
+        new WorldProperty("test", new IntegerValue(1), 1, new PropertyPerms(7), true, false);
     WorldObject wizard =
         new WorldObject(
             1,
@@ -2708,8 +2769,20 @@ final class BuiltinCatalogTest {
             List.of(),
             List.of(),
             List.of(
-                new WorldProperty("CaseProbe", new IntegerValue(42), 1, 3, false, true),
-                new WorldProperty("Private", new IntegerValue(0), 1, 2, false, true)));
+                new WorldProperty(
+                    "CaseProbe",
+                    new IntegerValue(42),
+                    1,
+                    new PropertyPerms(3),
+                    false,
+                    true),
+                new WorldProperty(
+                    "Private",
+                    new IntegerValue(0),
+                    1,
+                    new PropertyPerms(2),
+                    false,
+                    true)));
     try (WorldTxn transaction = new WorldTxn(List.of(), List.of(wizard, target)).begin()) {
       assertEquals(
           Optional.of(new ListValue(List.of(new ObjectValue(1), string("rw")))),
@@ -2885,7 +2958,7 @@ final class BuiltinCatalogTest {
             -1,
             List.of(),
             List.of(),
-            List.of(new WorldVerb("foobar", 1, 0, -1, "")),
+            List.of(new WorldVerb("foobar", 1, new VerbPerms(0), ArgSpec.NONE, -1, ArgSpec.NONE, "")),
             List.of());
     try (WorldTxn transaction = new WorldTxn(List.of(), List.of(wizard, target)).begin()) {
       BuiltinResult result =
@@ -2921,7 +2994,14 @@ final class BuiltinCatalogTest {
             -1,
             List.of(),
             List.of(),
-            List.of(new WorldVerb("server_started", 1, 0, -1, "")),
+            List.of(new WorldVerb(
+                "server_started",
+                1,
+                new VerbPerms(0),
+                ArgSpec.NONE,
+                -1,
+                ArgSpec.NONE,
+                "")),
             List.of());
     List<MooValue> sourceLines =
         List.of(
@@ -2987,8 +3067,10 @@ final class BuiltinCatalogTest {
                 new WorldVerb(
                     "test",
                     2,
-                    0,
+                    new VerbPerms(0),
+                    ArgSpec.NONE,
                     -1,
+                    ArgSpec.NONE,
                     "for i, j in ({})\n  break j;\n  continue i;\nendfor")),
             List.of());
     try (WorldTxn transaction = new WorldTxn(List.of(), List.of(programmer, target)).begin()) {
@@ -3601,7 +3683,14 @@ final class BuiltinCatalogTest {
   void createParsesOwnerAnonymousAndInitializerInEveryAuthorizedPosition() {
     BuiltinCatalog catalog = new BuiltinCatalog(BuiltinHosts.builder().build());
     BuiltinSpec create = catalog.spec("create").orElseThrow();
-    WorldVerb initialize = new WorldVerb("initialize", 1, 4, -1, "return 0;");
+    WorldVerb initialize = new WorldVerb(
+        "initialize",
+        1,
+        new VerbPerms(4),
+        ArgSpec.NONE,
+        -1,
+        ArgSpec.NONE,
+        "return 0;");
     WorldObject programmer =
         new WorldObject(1, "programmer", 0, 1, -1, -1, List.of(), List.of(), List.of(), List.of());
     WorldObject ordinaryParent =
@@ -3729,11 +3818,29 @@ final class BuiltinCatalogTest {
     BuiltinCatalog catalog = new BuiltinCatalog(BuiltinHosts.builder().build());
     BuiltinSpec create = catalog.spec("create").orElseThrow();
     WorldProperty programmerQuota =
-        new WorldProperty("ownership_quota", new IntegerValue(2), 1, 0, false, true);
+        new WorldProperty(
+            "ownership_quota",
+            new IntegerValue(2),
+            1,
+            new PropertyPerms(0),
+            false,
+            true);
     WorldProperty delegatedQuota =
-        new WorldProperty("ownership_quota", new IntegerValue(1), 4, 0, false, true);
+        new WorldProperty(
+            "ownership_quota",
+            new IntegerValue(1),
+            4,
+            new PropertyPerms(0),
+            false,
+            true);
     WorldProperty wizardQuota =
-        new WorldProperty("ownership_quota", new IntegerValue(1), 9, 0, false, true);
+        new WorldProperty(
+            "ownership_quota",
+            new IntegerValue(1),
+            9,
+            new PropertyPerms(0),
+            false,
+            true);
     WorldObject programmer =
         new WorldObject(
             1,
@@ -4316,7 +4423,12 @@ final class BuiltinCatalogTest {
             List.of(),
             List.of(
                 new WorldProperty(
-                    "server_options", new ObjectValue(3), 1, 0, false, true)));
+                    "server_options",
+                    new ObjectValue(3),
+                    1,
+                    new PropertyPerms(0),
+                    false,
+                    true)));
     WorldObject wizard =
         new WorldObject(1, "Wizard", 4, 1, -1, -1, List.of(), List.of(), List.of(), List.of());
     WorldObject catchableOptions =
@@ -4332,9 +4444,19 @@ final class BuiltinCatalogTest {
             List.of(),
             List.of(
                 new WorldProperty(
-                    "max_string_concat", new IntegerValue(1_021), 1, 0, false, true),
+                    "max_string_concat",
+                    new IntegerValue(1_021),
+                    1,
+                    new PropertyPerms(0),
+                    false,
+                    true),
                 new WorldProperty(
-                    "max_concat_catchable", new IntegerValue(1), 1, 0, false, true)));
+                    "max_concat_catchable",
+                    new IntegerValue(1),
+                    1,
+                    new PropertyPerms(0),
+                    false,
+                    true)));
     BuiltinSpec randomBytes = catalog.spec("random_bytes").orElseThrow();
     try (WorldTxn transaction =
         new WorldTxn(List.of(), List.of(system, wizard, catchableOptions)).begin()) {
@@ -4357,9 +4479,19 @@ final class BuiltinCatalogTest {
             List.of(),
             List.of(
                 new WorldProperty(
-                    "max_string_concat", new IntegerValue(1_021), 1, 0, false, true),
+                    "max_string_concat",
+                    new IntegerValue(1_021),
+                    1,
+                    new PropertyPerms(0),
+                    false,
+                    true),
                 new WorldProperty(
-                    "max_concat_catchable", new IntegerValue(0), 1, 0, false, true)));
+                    "max_concat_catchable",
+                    new IntegerValue(0),
+                    1,
+                    new PropertyPerms(0),
+                    false,
+                    true)));
     try (WorldTxn transaction =
         new WorldTxn(List.of(), List.of(system, wizard, uncatchableOptions)).begin()) {
       assertTrue(
@@ -4547,7 +4679,14 @@ final class BuiltinCatalogTest {
             -1,
             List.of(),
             List.of(),
-            List.of(new WorldVerb("foobar", 2, 0, -1, "return \"foobar\"[^..$];")),
+            List.of(new WorldVerb(
+                "foobar",
+                2,
+                new VerbPerms(0),
+                ArgSpec.NONE,
+                -1,
+                ArgSpec.NONE,
+                "return \"foobar\"[^..$];")),
             List.of());
     WorldObject privateTarget =
         new WorldObject(
@@ -4559,7 +4698,14 @@ final class BuiltinCatalogTest {
             -1,
             List.of(),
             List.of(),
-            List.of(new WorldVerb("secret", 1, 0, -1, "return 1;")),
+            List.of(new WorldVerb(
+                "secret",
+                1,
+                new VerbPerms(0),
+                ArgSpec.NONE,
+                -1,
+                ArgSpec.NONE,
+                "return 1;")),
             List.of());
     try (WorldTxn transaction =
         new WorldTxn(List.of(), List.of(wizard, programmer, target, privateTarget)).begin()) {
@@ -4735,7 +4881,14 @@ final class BuiltinCatalogTest {
         List.of(new CallShape(List.of(), List.of(), Optional.empty())), spec.callShapes());
     assertSame(BuiltinPermissionRule.WIZARD_ONLY, spec.permission());
     assertEquals(false, spec.irrevocable());
-    WorldVerb look = new WorldVerb("look", 1, 4, -1, "return 1;");
+    WorldVerb look = new WorldVerb(
+        "look",
+        1,
+        new VerbPerms(4),
+        ArgSpec.NONE,
+        -1,
+        ArgSpec.NONE,
+        "return 1;");
     WorldObject wizard =
         new WorldObject(
             1,
@@ -4795,7 +4948,14 @@ final class BuiltinCatalogTest {
   void logCacheStatsPrintsEveryToastDepthFromTheLiveCache() {
     BuiltinCatalog catalog = new BuiltinCatalog(BuiltinHosts.builder().build());
     BuiltinSpec logSpec = catalog.spec("log_cache_stats").orElseThrow();
-    WorldVerb look = new WorldVerb("look", 1, 4, -1, "return 1;");
+    WorldVerb look = new WorldVerb(
+        "look",
+        1,
+        new VerbPerms(4),
+        ArgSpec.NONE,
+        -1,
+        ArgSpec.NONE,
+        "return 1;");
     WorldObject wizard =
         new WorldObject(
             1,
@@ -5716,7 +5876,12 @@ final class BuiltinCatalogTest {
             List.of(),
             List.of(
                 new WorldProperty(
-                    "server_options", new ObjectValue(3), 1, 0, false, true)));
+                    "server_options",
+                    new ObjectValue(3),
+                    1,
+                    new PropertyPerms(0),
+                    false,
+                    true)));
     WorldObject wizard =
         new WorldObject(1, "Wizard", 4, 1, -1, -1, List.of(), List.of(), List.of(), List.of());
     WorldObject options =
@@ -5732,9 +5897,19 @@ final class BuiltinCatalogTest {
             List.of(),
             List.of(
                 new WorldProperty(
-                    "max_list_value_bytes", new IntegerValue(1_021), 1, 0, false, true),
+                    "max_list_value_bytes",
+                    new IntegerValue(1_021),
+                    1,
+                    new PropertyPerms(0),
+                    false,
+                    true),
                 new WorldProperty(
-                    "max_concat_catchable", new IntegerValue(1), 1, 0, false, true)));
+                    "max_concat_catchable",
+                    new IntegerValue(1),
+                    1,
+                    new PropertyPerms(0),
+                    false,
+                    true)));
     List<MooValue> elements = new ArrayList<>();
     for (int value = 1; value <= 61; value++) {
       elements.add(new IntegerValue(value));

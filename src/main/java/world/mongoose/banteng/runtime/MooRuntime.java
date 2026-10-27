@@ -52,6 +52,8 @@ import world.mongoose.banteng.value.MooValue.ObjectValue;
 import world.mongoose.banteng.value.MooValue.StringValue;
 import world.mongoose.banteng.value.MooValue.WaifValue;
 import world.mongoose.banteng.value.ValueSemantics;
+import world.mongoose.banteng.world.Access;
+import world.mongoose.banteng.world.ArgSpec;
 import world.mongoose.banteng.world.ObjectFlags;
 import world.mongoose.banteng.world.WorldAnonymousObject;
 import world.mongoose.banteng.world.WorldObject;
@@ -65,7 +67,7 @@ import world.mongoose.banteng.vm.VmSnapshot;
 import world.mongoose.banteng.vm.VmState;
 
 /** Concrete session and command owner backed by the sole production publication scheduler. */
-public final class MooRuntime implements AutoCloseable {
+public final class MooRuntime implements AutoCloseable, SchedulerRuntime {
   static final long DEFAULT_FOREGROUND_TICKS = 60_000;
   static final long DEFAULT_FOREGROUND_SECONDS = 5;
   static final long DEFAULT_BACKGROUND_TICKS = 30_000;
@@ -714,7 +716,8 @@ public final class MooRuntime implements AutoCloseable {
     return scheduler.submit(RuntimeRequest.line(connectionId, Objects.requireNonNull(line, "line")), true);
   }
 
-  synchronized OptionalLong inputTaskPlayer(long connectionId, String line) {
+  @Override
+  public synchronized OptionalLong inputTaskPlayer(long connectionId, String line) {
     ConnectionState connection = publishedConnections.get(connectionId);
     if (pendingReads.containsKey(connectionId)
         || (connection != null && !connection.disableOob && line.startsWith("#$#"))) {
@@ -724,7 +727,8 @@ public final class MooRuntime implements AutoCloseable {
     return OptionalLong.of(player >= 0 ? player : connectionId);
   }
 
-  Optional<List<String>> suspendedInputOutput(RuntimeContinuation continuation, VmState state) {
+  @Override
+  public Optional<List<String>> suspendedInputOutput(RuntimeContinuation continuation, VmState state) {
     RuntimeTransition transition = continuation.transition().orElseThrow();
     boolean command = transition == RuntimeTransition.LINE_DO_COMMAND_GATE_THEN_DISPATCH
         || transition == RuntimeTransition.LINE_SELECTED_COMMAND_APPEND_OUTPUT;
@@ -747,7 +751,8 @@ public final class MooRuntime implements AutoCloseable {
     return Optional.of(List.copyOf(output));
   }
 
-  void writeDetachedOutput(long player, List<String> output) {
+  @Override
+  public void writeDetachedOutput(long player, List<String> output) {
     OptionalLong connection;
     synchronized (this) {
       connection = publishedConnectionRegistry.connectionId(player);
@@ -757,7 +762,8 @@ public final class MooRuntime implements AutoCloseable {
     }
   }
 
-  void writeConnectionOutput(long connectionId, List<String> output) {
+  @Override
+  public void writeConnectionOutput(long connectionId, List<String> output) {
     listenerControl.ifPresent(control -> control.writeConnection(connectionId, output));
   }
 
@@ -883,9 +889,7 @@ public final class MooRuntime implements AutoCloseable {
         return RuntimeStep.returned(
             List.of("That object does not have that verb definition."));
       }
-      WorldObject actor = world().object(player).orElse(null);
-      boolean wizard = actor != null && ObjectFlags.isWizard(actor.flags());
-      if (verb.owner() != player && !wizard && (verb.permissions() & 2) == 0) {
+      if (!Access.canWrite(world(), player, verb.owner(), verb.perms())) {
         return RuntimeStep.returned(List.of("Permission denied."));
       }
       connection.programmingObject = object.id();
@@ -1319,14 +1323,14 @@ public final class MooRuntime implements AutoCloseable {
         long thisObject = -1;
         if (playerCommandVerb.isPresent()) {
           WorldVerb candidate = playerCommandVerb.orElseThrow();
-          int directSpecification = (candidate.permissions() >> 4) & 3;
-          int indirectSpecification = (candidate.permissions() >> 6) & 3;
-          int directClassification = directObject == player ? 2 : directObject == -1 ? 0 : 1;
-          int indirectClassification = indirectObject == player ? 2 : indirectObject == -1 ? 0 : 1;
+          ArgSpec directSpecification = candidate.dobj();
+          ArgSpec indirectSpecification = candidate.iobj();
+          ArgSpec directClassification = directObject == player ? ArgSpec.THIS : directObject == -1 ? ArgSpec.NONE : ArgSpec.ANY;
+          ArgSpec indirectClassification = indirectObject == player ? ArgSpec.THIS : indirectObject == -1 ? ArgSpec.NONE : ArgSpec.ANY;
           boolean argumentSpecificationMatches =
-              (directSpecification == 1 || directSpecification == directClassification)
+              (directSpecification == ArgSpec.ANY || directSpecification == directClassification)
                   && (candidate.preposition() == -2 || candidate.preposition() == preposition)
-                  && (indirectSpecification == 1
+                  && (indirectSpecification == ArgSpec.ANY
                       || indirectSpecification == indirectClassification);
           if (argumentSpecificationMatches) {
             selectedVerb = candidate;
@@ -1335,14 +1339,14 @@ public final class MooRuntime implements AutoCloseable {
         }
         if (selectedVerb == null && roomCommandVerb.isPresent()) {
           WorldVerb candidate = roomCommandVerb.orElseThrow();
-          int directSpecification = (candidate.permissions() >> 4) & 3;
-          int indirectSpecification = (candidate.permissions() >> 6) & 3;
-          int directClassification = directObject == room ? 2 : directObject == -1 ? 0 : 1;
-          int indirectClassification = indirectObject == room ? 2 : indirectObject == -1 ? 0 : 1;
+          ArgSpec directSpecification = candidate.dobj();
+          ArgSpec indirectSpecification = candidate.iobj();
+          ArgSpec directClassification = directObject == room ? ArgSpec.THIS : directObject == -1 ? ArgSpec.NONE : ArgSpec.ANY;
+          ArgSpec indirectClassification = indirectObject == room ? ArgSpec.THIS : indirectObject == -1 ? ArgSpec.NONE : ArgSpec.ANY;
           boolean argumentSpecificationMatches =
-              (directSpecification == 1 || directSpecification == directClassification)
+              (directSpecification == ArgSpec.ANY || directSpecification == directClassification)
                   && (candidate.preposition() == -2 || candidate.preposition() == preposition)
-                  && (indirectSpecification == 1
+                  && (indirectSpecification == ArgSpec.ANY
                       || indirectSpecification == indirectClassification);
           if (argumentSpecificationMatches) {
             selectedVerb = candidate;
@@ -1354,15 +1358,15 @@ public final class MooRuntime implements AutoCloseable {
               world().verb(directObject, words.getFirst(), false);
           if (directCommandVerb.isPresent()) {
             WorldVerb candidate = directCommandVerb.orElseThrow();
-            int directSpecification = (candidate.permissions() >> 4) & 3;
-            int indirectSpecification = (candidate.permissions() >> 6) & 3;
-            int directClassification = 2;
-            int indirectClassification =
-                indirectObject == directObject ? 2 : indirectObject == -1 ? 0 : 1;
+            ArgSpec directSpecification = candidate.dobj();
+            ArgSpec indirectSpecification = candidate.iobj();
+            ArgSpec directClassification = ArgSpec.THIS;
+            ArgSpec indirectClassification =
+                indirectObject == directObject ? ArgSpec.THIS : indirectObject == -1 ? ArgSpec.NONE : ArgSpec.ANY;
             boolean argumentSpecificationMatches =
-                (directSpecification == 1 || directSpecification == directClassification)
+                (directSpecification == ArgSpec.ANY || directSpecification == directClassification)
                     && (candidate.preposition() == -2 || candidate.preposition() == preposition)
-                    && (indirectSpecification == 1
+                    && (indirectSpecification == ArgSpec.ANY
                         || indirectSpecification == indirectClassification);
             if (argumentSpecificationMatches) {
               selectedVerb = candidate;
@@ -1375,15 +1379,15 @@ public final class MooRuntime implements AutoCloseable {
               world().verb(indirectObject, words.getFirst(), false);
           if (indirectCommandVerb.isPresent()) {
             WorldVerb candidate = indirectCommandVerb.orElseThrow();
-            int directSpecification = (candidate.permissions() >> 4) & 3;
-            int indirectSpecification = (candidate.permissions() >> 6) & 3;
-            int directClassification =
-                directObject == indirectObject ? 2 : directObject == -1 ? 0 : 1;
-            int indirectClassification = 2;
+            ArgSpec directSpecification = candidate.dobj();
+            ArgSpec indirectSpecification = candidate.iobj();
+            ArgSpec directClassification =
+                directObject == indirectObject ? ArgSpec.THIS : directObject == -1 ? ArgSpec.NONE : ArgSpec.ANY;
+            ArgSpec indirectClassification = ArgSpec.THIS;
             boolean argumentSpecificationMatches =
-                (directSpecification == 1 || directSpecification == directClassification)
+                (directSpecification == ArgSpec.ANY || directSpecification == directClassification)
                     && (candidate.preposition() == -2 || candidate.preposition() == preposition)
-                    && (indirectSpecification == 1
+                    && (indirectSpecification == ArgSpec.ANY
                         || indirectSpecification == indirectClassification);
             if (argumentSpecificationMatches) {
               selectedVerb = candidate;
@@ -2141,7 +2145,7 @@ public final class MooRuntime implements AutoCloseable {
             foregroundTicks,
             foregroundSeconds,
             maxStackDepth,
-            (verb.permissions() & 8) != 0,
+            verb.perms().debug(),
             verbName,
             verb.names());
     long taskPlayer =
@@ -2149,7 +2153,8 @@ public final class MooRuntime implements AutoCloseable {
     return RuntimeStep.vm(program, root.snapshot(), taskPlayer, continuation);
   }
 
-  VmState startBackgroundTask(VmSnapshot initial) {
+  @Override
+  public VmState startBackgroundTask(VmSnapshot initial) {
     long backgroundTicks = DEFAULT_BACKGROUND_TICKS;
     long backgroundSeconds = DEFAULT_BACKGROUND_SECONDS;
     long backgroundMaxStackDepth = DEFAULT_MAX_STACK_DEPTH;
@@ -2172,7 +2177,8 @@ public final class MooRuntime implements AutoCloseable {
         initial, backgroundTicks, backgroundSeconds, backgroundMaxStackDepth);
   }
 
-  void publishVmState(
+  @Override
+  public void publishVmState(
       VmState task,
       long taskPlayer,
       boolean collectAfterCompletion,
@@ -2313,7 +2319,8 @@ public final class MooRuntime implements AutoCloseable {
     world().replacePendingFinalization(remaining);
   }
 
-  void collectAfterAnonymousFinalization(
+  @Override
+  public void collectAfterAnonymousFinalization(
       AnonymousObjectValue target,
       List<VmSnapshot> otherTaskRoots,
       boolean startNextFinalizationWave) {
@@ -2826,7 +2833,7 @@ public final class MooRuntime implements AutoCloseable {
       return BuiltinResult.error(ErrorValue.E_INVARG);
     }
     boolean wizard =
-        world.object(programmer).map(object -> ObjectFlags.isWizard(object.flags())).orElse(false);
+        world.isWizard(programmer);
     if (target != programmer && !wizard) {
       return BuiltinResult.error(ErrorValue.E_PERM);
     }
@@ -2892,7 +2899,7 @@ public final class MooRuntime implements AutoCloseable {
       List<MooValue> arguments, WorldTxn world, long programmer) {
     long target = ((ObjectValue) arguments.getFirst()).value();
     boolean wizard =
-        world.object(programmer).map(object -> ObjectFlags.isWizard(object.flags())).orElse(false);
+        world.isWizard(programmer);
     if (target != programmer && !wizard) {
       return BuiltinResult.error(ErrorValue.E_PERM);
     }
@@ -2925,7 +2932,7 @@ public final class MooRuntime implements AutoCloseable {
     long target = ((ObjectValue) arguments.getFirst()).value();
     long backgroundTasks = taskRegistry.backgroundTaskCount(target);
     boolean wizard =
-        world.object(programmer).map(object -> ObjectFlags.isWizard(object.flags())).orElse(false);
+        world.isWizard(programmer);
     if (!wizard) {
       return BuiltinResult.value(new IntegerValue(backgroundTasks));
     }
@@ -2999,7 +3006,7 @@ public final class MooRuntime implements AutoCloseable {
       List<MooValue> arguments, WorldTxn world, long programmer) {
     long target = ((ObjectValue) arguments.getFirst()).value();
     boolean wizard =
-        world.object(programmer).map(object -> ObjectFlags.isWizard(object.flags())).orElse(false);
+        world.isWizard(programmer);
     if (target != programmer && !wizard) {
       return BuiltinResult.error(ErrorValue.E_PERM);
     }
@@ -3184,7 +3191,8 @@ public final class MooRuntime implements AutoCloseable {
     return locals;
   }
 
-  RuntimeStep execute(
+  @Override
+  public RuntimeStep execute(
       RuntimeContinuation continuation, Optional<world.mongoose.banteng.vm.VmSnapshot> completedVm) {
     RuntimeRequest request = continuation.ingress().orElse(null);
     if (request != null) {
@@ -3364,7 +3372,8 @@ public final class MooRuntime implements AutoCloseable {
     return lines;
   }
 
-  RuntimeStep startUncaughtError(VmState state) {
+  @Override
+  public RuntimeStep startUncaughtError(VmState state) {
     List<String> formatted = formatUncaughtException(state);
     WorldVerb handler = world().verb(0, "handle_uncaught_error").orElse(null);
     if (handler == null
@@ -3397,7 +3406,8 @@ public final class MooRuntime implements AutoCloseable {
             RuntimeTransition.UNCAUGHT_HANDLER_RETURN, 0, "", List.of(), 0, 0, false));
   }
 
-  synchronized AttemptContext openAttempt(WorldTxn transaction, long taskId) {
+  @Override
+  public synchronized AttemptContext openAttempt(WorldTxn transaction, long taskId) {
     Map<Long, ConnectionState> sessions = new LinkedHashMap<>();
     publishedConnections.forEach((id, state) -> sessions.put(id, state.copy()));
     ConnectionRegistryAccess connections = publishedConnectionRegistry.copy();
@@ -3422,21 +3432,25 @@ public final class MooRuntime implements AutoCloseable {
     context.world = transaction;
   }
 
-  AttemptContext finishAttempt() {
+  @Override
+  public AttemptContext finishAttempt() {
     AttemptContext context = requireAttempt();
     ATTEMPT.remove();
     return context;
   }
 
-  void abandonAttempt() {
+  @Override
+  public void abandonAttempt() {
     ATTEMPT.remove();
   }
 
-  synchronized boolean sessionsAreCurrent(AttemptContext context) {
+  @Override
+  public synchronized boolean sessionsAreCurrent(AttemptContext context) {
     return context.baseSessionRevision == sessionRevision;
   }
 
-  synchronized OptionalLong connectionPlayer(long connectionId) {
+  @Override
+  public synchronized OptionalLong connectionPlayer(long connectionId) {
     return publishedConnectionRegistry.connectionPlayer(connectionId);
   }
 
@@ -3519,7 +3533,8 @@ public final class MooRuntime implements AutoCloseable {
     return candidates[0].getCanonicalHostName();
   }
 
-  void publishAttempt(AttemptContext context, WorldSnapshot committedWorld) {
+  @Override
+  public void publishAttempt(AttemptContext context, WorldSnapshot committedWorld) {
     List<RuntimeEffect> publishedEffects;
     List<ReadRegistration> readRegistrations;
     synchronized (this) {
@@ -3570,7 +3585,8 @@ public final class MooRuntime implements AutoCloseable {
     }
   }
 
-  List<RuntimeStep> takeSpawnedSteps(AttemptContext context) {
+  @Override
+  public List<RuntimeStep> takeSpawnedSteps(AttemptContext context) {
     List<RuntimeStep> spawned = List.copyOf(context.spawnedSteps);
     context.spawnedSteps.clear();
     return spawned;
@@ -3726,11 +3742,13 @@ public final class MooRuntime implements AutoCloseable {
     return requireAttempt().spawnedSteps;
   }
 
-  MooVm vm() {
+  @Override
+  public MooVm vm() {
     return vm;
   }
 
-  BuiltinCatalog builtins() {
+  @Override
+  public BuiltinCatalog builtins() {
     return builtins;
   }
 
