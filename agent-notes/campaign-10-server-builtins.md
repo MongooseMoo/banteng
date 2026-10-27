@@ -26,3 +26,6 @@ Parent owns publication of this local PR136 integration and current hosted check
 Move the 15 server and diagnostics registrations, implementation closure and server-version constant into ServerBuiltins while preserving their four manifest positions. Retain the existing catalog for function_info/options reload and its original ServerLog for logging, with db_disk_size continuing to use invocation hosts and value sizing remaining in ValueLimits.
 
 Original validation: focused MoveBuiltinFamilyTest; normal ExtractServerBuiltins migration dry-run with fresh Java25 Gradle process; read-only method/order/owner/import comparisons. Latest integration: clean normal merge, zero Server family/mover/fixture/YAML delta and git diff --check. No repeated CI or unchanged-code review; parent owns publication and hosted checks.
+
+## Login and layout repair ancestry
+Merged the latest coordinator runtime login-output and pinned-layout-boundary repairs normally, without conflicts or family source adaptations. Family implementations, services, dependencies, extraction mover, authored fixtures and YAML are unchanged. No local tests, CI, migration or repeated review ran for this mechanical integration. Parent owns publication, hosted checks and merge.
