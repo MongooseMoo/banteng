@@ -1,8 +1,6 @@
 package world.mongoose.banteng.persistence;
 
 import static world.mongoose.banteng.persistence.DbScanner.malformed;
-import static world.mongoose.banteng.persistence.DbScanner.parseCount;
-import static world.mongoose.banteng.persistence.DbScanner.parseLong;
 import static world.mongoose.banteng.persistence.DbScanner.readCount;
 import static world.mongoose.banteng.persistence.DbScanner.readInt;
 import static world.mongoose.banteng.persistence.DbScanner.readLong;
@@ -56,7 +54,11 @@ public final class LambdaMooV4Reader {
         rawObjects.put(object.id(), object);
       }
 
-      Map<ProgramSlot, String> programs = readPrograms(input, programCount, rawObjects);
+      Map<ProgramSlot, String> programs = ProgramSectionReader.read(input, programCount,
+          objectId -> {
+            RawObject object = rawObjects.get(objectId);
+            return object == null ? -1 : object.verbs().size();
+          });
       requireExact(input, "0 clocks", "clocks tail");
       requireExact(input, "0 queued tasks", "queued-tasks tail");
       requireExact(input, "0 suspended tasks", "suspended-tasks tail");
@@ -116,7 +118,7 @@ public final class LambdaMooV4Reader {
     List<WorldProperty> properties = new ArrayList<>(propertySlotCount);
     for (int index = 0; index < propertySlotCount; index++) {
       int tag = readInt(input, "object #" + slot + " property tag");
-      if (tag != 1) {
+      if (tag != V17Format.ValueTag.OBJECT.code()) {
         throw malformed("unsupported persisted value tag " + tag);
       }
       properties.add(
@@ -144,40 +146,6 @@ public final class LambdaMooV4Reader {
         properties);
   }
 
-  private static Map<ProgramSlot, String> readPrograms(
-      BufferedReader input, int programCount, Map<Long, RawObject> rawObjects) throws IOException {
-    Map<ProgramSlot, String> programs = new HashMap<>();
-    for (int count = 0; count < programCount; count++) {
-      String header = requiredLine(input, "program header");
-      int colon = header.indexOf(':');
-      if (!header.startsWith("#") || colon <= 1 || colon != header.lastIndexOf(':')) {
-        throw malformed("invalid program header " + header);
-      }
-      long objectId = parseLong(header.substring(1, colon), "program object");
-      int verbIndex = parseCount(header.substring(colon + 1), "program verb index");
-      RawObject object = rawObjects.get(objectId);
-      if (object == null) {
-        throw malformed("program references missing object #" + objectId);
-      }
-      if (verbIndex >= object.verbs().size()) {
-        throw malformed("program references missing verb #" + objectId + ":" + verbIndex);
-      }
-
-      StringBuilder source = new StringBuilder();
-      while (true) {
-        String line = requiredLine(input, "program #" + objectId + ":" + verbIndex);
-        if (line.equals(".")) {
-          break;
-        }
-        source.append(line).append('\n');
-      }
-      ProgramSlot slot = new ProgramSlot(objectId, verbIndex);
-      if (programs.putIfAbsent(slot, source.toString()) != null) {
-        throw malformed("duplicate program slot #" + objectId + ":" + verbIndex);
-      }
-    }
-    return programs;
-  }
 
   private static Map<Long, List<Long>> deriveChildren(Map<Long, RawObject> objects)
       throws IOException {

@@ -213,8 +213,8 @@ public final class LambdaMooV17Codec {
     public SuspendedStackSlot {
       Objects.requireNonNull(value, "value");
       if (value.isPresent() == (controlTag >= 0)
-          || (controlTag >= 0 && controlTag != 6 && controlTag != 7 && controlTag != 8)
-          || (controlTag == 6 && controlValue != 0)) {
+          || (controlTag >= 0 && controlTag != V17Format.ValueTag.NONE.code() && controlTag != V17Format.ValueTag.CATCH.code() && controlTag != V17Format.ValueTag.FINALLY.code())
+          || (controlTag == V17Format.ValueTag.NONE.code() && controlValue != 0)) {
         throw new IllegalArgumentException("invalid suspended stack slot");
       }
     }
@@ -470,10 +470,12 @@ public final class LambdaMooV17Codec {
       }
 
       int programCount = readCount(input, "program count");
-      Map<ProgramSlot, String> programs = new LinkedHashMap<>();
-      for (int index = 0; index < programCount; index++) {
-        readProgram(input, objects, programs);
-      }
+      Map<Long, RawObject> programObjects = objects;
+      Map<ProgramSlot, String> programs = ProgramSectionReader.read(input, programCount,
+          objectId -> {
+            RawObject object = programObjects.get(objectId);
+            return object == null ? -1 : object.verbs().size();
+          });
       String trailing;
       while ((trailing = input.readLine()) != null) {
         if (!trailing.isEmpty()) {
@@ -601,11 +603,7 @@ public final class LambdaMooV17Codec {
           continue;
         }
         line(output, "#" + object.id() + ":" + verbIndex);
-        output.write(source);
-        if (!source.isEmpty() && source.charAt(source.length() - 1) != '\n') {
-          output.write('\n');
-        }
-        line(output, ".");
+        writeProgramSource(output, source, "verb program");
       }
     }
     for (AnonymousObjectValue identity : context.anonymousOrder) {
@@ -617,11 +615,7 @@ public final class LambdaMooV17Codec {
           continue;
         }
         line(output, "#" + objectId + ":" + verbIndex);
-        output.write(source);
-        if (!source.isEmpty() && source.charAt(source.length() - 1) != '\n') {
-          output.write('\n');
-        }
-        line(output, ".");
+        writeProgramSource(output, source, "verb program");
       }
     }
   }
@@ -636,30 +630,10 @@ public final class LambdaMooV17Codec {
             + task.scheduledEpochSecond()
             + " "
             + task.taskId());
-    writeValue(output, new IntegerValue(-111), context);
-    MooValue receiver =
-        task.initialLocals().getOrDefault("this", new ObjectValue(-1));
-    writeValue(output, receiver, context);
-    writeValue(output, task.verbLocation(), context);
-    line(output, task.threadMode() ? 1 : 0);
-    long receiverObject = encodedObjectNumber(receiver, context);
-    line(
-        output,
-        receiverObject
-            + " -7 -8 "
-            + task.taskPlayer()
-            + " -9 "
-            + task.programmer()
-            + " "
-            + encodedObjectNumber(task.verbLocation(), context)
-            + " -10 "
-            + (task.debug() ? 1 : 0));
-    line(output, "No");
-    line(output, "More");
-    line(output, "Parse");
-    line(output, "Infos");
-    lineString(output, task.calledVerb(), "queued-task verb");
-    lineString(output, task.fullVerbName(), "queued-task verb names");
+    MooValue receiver = task.initialLocals().getOrDefault("this", new ObjectValue(-1));
+    writeActivationHeader(output, receiver, task.verbLocation(), task.threadMode(),
+        task.taskPlayer(), task.programmer(), task.debug(), task.calledVerb(),
+        task.fullVerbName(), context);
     line(output, task.environment().slots().size() + " variables");
     for (Map.Entry<String, Optional<MooValue>> local : task.environment().slots().entrySet()) {
       lineString(output, local.getKey(), "queued-task variable name");
@@ -673,7 +647,7 @@ public final class LambdaMooV17Codec {
     if (variable.isPresent()) {
       writeValue(output, variable.orElseThrow(), context);
     } else {
-      line(output, 6);
+      line(output, V17Format.ValueTag.NONE.code());
     }
   }
 
@@ -716,40 +690,18 @@ public final class LambdaMooV17Codec {
         writeValue(output, slot.value().orElseThrow(), context);
       } else {
         line(output, slot.controlTag());
-        if (slot.controlTag() != 6) {
+        if (slot.controlTag() != V17Format.ValueTag.NONE.code()) {
           line(output, slot.controlValue());
         }
       }
     }
-    writeValue(output, new IntegerValue(-111), context);
-    writeValue(output, activation.receiver(), context);
-    writeValue(output, activation.verbLocation(), context);
-    line(output, activation.threadMode() ? 1 : 0);
-    long receiverObject =
-        activation.receiver() instanceof ObjectValue object ? object.value() : -1;
-    long verbLocationObject =
-        activation.verbLocation() instanceof ObjectValue object ? object.value() : -1;
-    line(
-        output,
-        receiverObject
-            + " -7 -8 "
-            + activation.taskPlayer()
-            + " -9 "
-            + activation.programmer()
-            + " "
-            + verbLocationObject
-            + " -10 "
-            + (activation.debug() ? 1 : 0));
-    line(output, "No");
-    line(output, "More");
-    line(output, "Parse");
-    line(output, "Infos");
-    lineString(output, activation.verb(), "suspended activation verb");
-    lineString(output, activation.verbNames(), "suspended activation verb names");
+    writeActivationHeader(output, activation.receiver(), activation.verbLocation(),
+        activation.threadMode(), activation.taskPlayer(), activation.programmer(),
+        activation.debug(), activation.verb(), activation.verbNames(), context);
     if (activation.temporary().isPresent()) {
       writeValue(output, activation.temporary().orElseThrow(), context);
     } else {
-      line(output, 6);
+      line(output, V17Format.ValueTag.NONE.code());
     }
     line(
         output,
@@ -774,49 +726,25 @@ public final class LambdaMooV17Codec {
     long scheduledEpochSecond = parseLong(fields[2], "queued-task scheduled epoch second");
     long taskId = parseLong(fields[3], "queued-task id");
 
-    MooValue sentinel = readValue(input, context, "queued task #" + taskId + " sentinel");
-    if (!sentinel.equals(new IntegerValue(-111))) {
-      throw malformed("invalid queued-task activation sentinel");
-    }
-    MooValue receiver = readValue(input, context, "queued task #" + taskId + " receiver");
-    MooValue typedVerbLocation =
-        readValue(input, context, "queued task #" + taskId + " verb location");
+    ActivationHeader activationHeader = readActivationHeader(
+        input, context, "queued-task", "queued task #" + taskId);
+    MooValue receiver = activationHeader.receiver();
+    MooValue typedVerbLocation = activationHeader.verbLocation();
     if (!(typedVerbLocation instanceof ObjectValue)
         && !(typedVerbLocation instanceof AnonymousObjectValue)) {
       throw malformed("queued-task verb location must be an object reference");
     }
-    long encodedThreadMode = readLong(input, "queued-task thread mode");
-    if (encodedThreadMode != 0 && encodedThreadMode != 1) {
-      throw malformed("invalid queued-task thread mode: " + encodedThreadMode);
+    if (!activationHeader.debugText().equals("0") && !activationHeader.debugText().equals("1")) {
+      throw malformed("invalid queued-task compatibility sentinels");
     }
-
-    String compatibility = requiredLine(input, "queued-task compatibility fields");
-    String[] compatibilityFields = compatibility.split(" ", -1);
-    if (compatibilityFields.length != 9) {
-      throw malformed("invalid queued-task compatibility fields: " + compatibility);
-    }
-    long receiverObject = parseLong(compatibilityFields[0], "queued-task receiver");
-    if (!compatibilityFields[1].equals("-7")
-        || !compatibilityFields[2].equals("-8")
-        || !compatibilityFields[4].equals("-9")
-        || !compatibilityFields[7].equals("-10")
-        || (!compatibilityFields[8].equals("0") && !compatibilityFields[8].equals("1"))) {
-      throw malformed("invalid queued-task compatibility sentinels: " + compatibility);
-    }
-    long taskPlayer = parseLong(compatibilityFields[3], "queued-task player");
-    long programmer = parseLong(compatibilityFields[5], "queued-task programmer");
-    long oldVerbLocation =
-        parseLong(compatibilityFields[6], "queued-task compatibility verb location");
-    if (oldVerbLocation != encodedObjectNumber(typedVerbLocation, context)) {
+    if (activationHeader.legacyVerbLocation() != encodedObjectNumber(typedVerbLocation, context)) {
       throw malformed("queued-task verb-location encodings disagree");
     }
-
-    requireExact(input, "No", "queued-task obsolete argstr");
-    requireExact(input, "More", "queued-task obsolete dobjstr");
-    requireExact(input, "Parse", "queued-task obsolete iobjstr");
-    requireExact(input, "Infos", "queued-task obsolete prepstr");
-    String verb = requiredLine(input, "queued-task verb");
-    String verbNames = requiredLine(input, "queued-task verb names");
+    long receiverObject = activationHeader.legacyReceiver();
+    long taskPlayer = activationHeader.player();
+    long programmer = activationHeader.programmer();
+    String verb = activationHeader.verb();
+    String verbNames = activationHeader.verbNames();
 
     int variableCount = readSectionCount(input, " variables", "queued-task variable count");
     Map<String, Optional<MooValue>> locals = new LinkedHashMap<>();
@@ -843,14 +771,80 @@ public final class LambdaMooV17Codec {
         firstLine,
         verb,
         verbNames,
-        readProgramSource(input, "queued-task program"),
+        ProgramSectionReader.readSource(input, "queued-task program"),
         new QueuedEnvironment(locals),
         programmer,
         typedVerbLocation,
         taskPlayer,
-        compatibilityFields[8].equals("1"),
-        encodedThreadMode == 1);
+        activationHeader.debug(),
+        activationHeader.threadMode());
   }
+
+  /** Writes only Toast's common activation header; task-specific tails stay with their callers. */
+  private static void writeActivationHeader(
+      BufferedWriter output, MooValue receiver, MooValue verbLocation, boolean threadMode,
+      long player, long programmer, boolean debug, String verb, String verbNames,
+      WriteContext context) throws IOException {
+    writeValue(output, new IntegerValue(V17Format.ACTIVATION_PLACEHOLDER), context);
+    writeValue(output, receiver, context);
+    writeValue(output, verbLocation, context);
+    line(output, threadMode ? 1 : 0);
+    long legacyReceiver = receiver instanceof ObjectValue object ? object.value() : -1;
+    line(output, legacyReceiver + " " + V17Format.LEGACY_DOBJ + " "
+        + V17Format.LEGACY_IOBJ + " " + player + " " + V17Format.LEGACY_PREPOSITION + " "
+        + programmer + " " + encodedObjectNumber(verbLocation, context) + " "
+        + V17Format.LEGACY_VERB + " " + (debug ? 1 : 0));
+    line(output, "No");
+    line(output, "More");
+    line(output, "Parse");
+    line(output, "Infos");
+    lineString(output, verb, "activation verb");
+    lineString(output, verbNames, "activation verb names");
+  }
+
+  private static ActivationHeader readActivationHeader(
+      BufferedReader input, ReadContext context, String field, String location) throws IOException {
+    MooValue sentinel = readValue(input, context, location + " sentinel");
+    if (!sentinel.equals(new IntegerValue(V17Format.ACTIVATION_PLACEHOLDER))) {
+      throw malformed("invalid " + field + " activation sentinel");
+    }
+    MooValue receiver = readValue(input, context, location + " receiver");
+    MooValue verbLocation = readValue(input, context, location + " verb location");
+    long threadMode = readLong(input, field + " thread mode");
+    if (threadMode != 0 && threadMode != 1) {
+      throw malformed("invalid " + field + " thread mode: " + threadMode);
+    }
+    String compatibility = requiredLine(input, field + " compatibility fields");
+    String[] fields = compatibility.split(" ", -1);
+    if (fields.length != 9
+        || !fields[1].equals(Integer.toString(V17Format.LEGACY_DOBJ))
+        || !fields[2].equals(Integer.toString(V17Format.LEGACY_IOBJ))
+        || !fields[4].equals(Integer.toString(V17Format.LEGACY_PREPOSITION))
+        || !fields[7].equals(Integer.toString(V17Format.LEGACY_VERB))) {
+      throw malformed("invalid " + field + " compatibility fields: " + compatibility);
+    }
+    long legacyReceiver = parseLong(fields[0], field + " receiver");
+    long player = parseLong(fields[3], field + " player");
+    long programmer = parseLong(fields[5], field + " programmer");
+    long legacyVerbLocation = parseLong(fields[6], field + " compatibility verb location");
+    long debug = parseLong(fields[8], field + " debug mode");
+    if (debug != 0 && debug != 1) {
+      throw malformed("invalid " + field + " debug mode: " + debug);
+    }
+    requireExact(input, "No", field + " obsolete argstr");
+    requireExact(input, "More", field + " obsolete dobjstr");
+    requireExact(input, "Parse", field + " obsolete iobjstr");
+    requireExact(input, "Infos", field + " obsolete prepstr");
+    String verb = requiredLine(input, field + " verb");
+    String verbNames = requiredLine(input, field + " verb names");
+    return new ActivationHeader(receiver, verbLocation, threadMode == 1, player, programmer,
+        debug == 1, verb, verbNames, legacyReceiver, legacyVerbLocation, fields[8]);
+  }
+
+  private record ActivationHeader(
+      MooValue receiver, MooValue verbLocation, boolean threadMode, long player, long programmer,
+      boolean debug, String verb, String verbNames, long legacyReceiver, long legacyVerbLocation,
+      String debugText) {}
 
   private static long encodedObjectNumber(MooValue value, WriteContext context) throws IOException {
     if (value instanceof ObjectValue object) {
@@ -971,7 +965,7 @@ public final class LambdaMooV17Codec {
     }
     int languageVersion =
         parseInt(versionLine.substring(versionPrefix.length()), "activation language version");
-    String programSource = readProgramSource(input, "suspended activation program");
+    String programSource = ProgramSectionReader.readSource(input, "suspended activation program");
 
     int variableCount =
         readSectionCount(input, " variables", "suspended activation variable count");
@@ -999,10 +993,10 @@ public final class LambdaMooV17Codec {
     List<SuspendedStackSlot> operandStack = new ArrayList<>(stackCount);
     for (int index = 0; index < stackCount; index++) {
       int stackTag = readInt(input, "suspended activation runtime stack tag");
-      if (stackTag == 6) {
+      if (stackTag == V17Format.ValueTag.NONE.code()) {
         operandStack.add(
             new SuspendedStackSlot(Optional.empty(), stackTag, 0));
-      } else if (stackTag == 7 || stackTag == 8) {
+      } else if (stackTag == V17Format.ValueTag.CATCH.code() || stackTag == V17Format.ValueTag.FINALLY.code()) {
         operandStack.add(
             new SuspendedStackSlot(
                 Optional.empty(),
@@ -1028,72 +1022,25 @@ public final class LambdaMooV17Codec {
     }
     Collections.reverse(operandStack);
 
-    MooValue sentinel =
-        readValue(
-            input,
-            context,
-            "suspended task #" + taskId + " activation " + activationIndex + " sentinel");
-    if (!sentinel.equals(new IntegerValue(-111))) {
-      throw malformed("invalid suspended activation sentinel");
-    }
-    MooValue receiver =
-        readValue(
-            input,
-            context,
-            "suspended task #" + taskId + " activation " + activationIndex + " receiver");
-    MooValue verbLocation =
-        readValue(
-            input,
-            context,
-            "suspended task #"
-                + taskId
-                + " activation "
-                + activationIndex
-                + " verb location");
-    long encodedThreadMode = readLong(input, "suspended activation thread mode");
-    if (encodedThreadMode != 0 && encodedThreadMode != 1) {
-      throw malformed("invalid suspended activation thread mode: " + encodedThreadMode);
-    }
-
-    String compatibility = requiredLine(input, "suspended activation compatibility fields");
-    String[] compatibilityFields = compatibility.split(" ", -1);
-    if (compatibilityFields.length != 9
-        || !compatibilityFields[1].equals("-7")
-        || !compatibilityFields[2].equals("-8")
-        || !compatibilityFields[4].equals("-9")
-        || !compatibilityFields[7].equals("-10")) {
-      throw malformed("invalid suspended activation compatibility fields: " + compatibility);
-    }
-    long encodedReceiver =
-        parseLong(compatibilityFields[0], "suspended activation receiver");
-    long taskPlayer =
-        parseLong(compatibilityFields[3], "suspended activation player");
-    long programmer =
-        parseLong(compatibilityFields[5], "suspended activation programmer");
-    long encodedVerbLocation =
-        parseLong(compatibilityFields[6], "suspended activation verb location");
-    long encodedDebug =
-        parseLong(compatibilityFields[8], "suspended activation debug mode");
-    if (encodedDebug != 0 && encodedDebug != 1) {
-      throw malformed("invalid suspended activation debug mode: " + encodedDebug);
-    }
-    if (receiver instanceof ObjectValue object && object.value() != encodedReceiver) {
+    ActivationHeader activationHeader = readActivationHeader(input, context, "suspended activation",
+        "suspended task #" + taskId + " activation " + activationIndex);
+    MooValue receiver = activationHeader.receiver();
+    MooValue verbLocation = activationHeader.verbLocation();
+    if (receiver instanceof ObjectValue object && object.value() != activationHeader.legacyReceiver()) {
       throw malformed("suspended activation receiver encodings disagree");
     }
-    if (verbLocation instanceof ObjectValue object && object.value() != encodedVerbLocation) {
+    if (verbLocation instanceof ObjectValue object
+        && object.value() != activationHeader.legacyVerbLocation()) {
       throw malformed("suspended activation verb-location encodings disagree");
     }
-
-    requireExact(input, "No", "suspended activation obsolete argstr");
-    requireExact(input, "More", "suspended activation obsolete dobjstr");
-    requireExact(input, "Parse", "suspended activation obsolete iobjstr");
-    requireExact(input, "Infos", "suspended activation obsolete prepstr");
-    String verb = requiredLine(input, "suspended activation verb");
-    String verbNames = requiredLine(input, "suspended activation verb names");
+    long taskPlayer = activationHeader.player();
+    long programmer = activationHeader.programmer();
+    String verb = activationHeader.verb();
+    String verbNames = activationHeader.verbNames();
 
     int temporaryTag = readInt(input, "suspended activation temporary tag");
     Optional<MooValue> temporary =
-        temporaryTag == 6
+        temporaryTag == V17Format.ValueTag.NONE.code()
             ? Optional.empty()
             : Optional.of(
                 readValue(
@@ -1130,10 +1077,10 @@ public final class LambdaMooV17Codec {
         operandStack,
         receiver,
         verbLocation,
-        encodedThreadMode == 1,
+        activationHeader.threadMode(),
         taskPlayer,
         programmer,
-        encodedDebug == 1,
+        activationHeader.debug(),
         verb,
         verbNames,
         temporary,
@@ -1145,7 +1092,7 @@ public final class LambdaMooV17Codec {
   private static Optional<MooValue> readRuntimeVariable(
       BufferedReader input, ReadContext context, String location) throws IOException {
     int tag = readInt(input, location + " tag");
-    return tag == 6
+    return tag == V17Format.ValueTag.NONE.code()
         ? Optional.empty()
         : Optional.of(readValue(input, tag, context, location));
   }
@@ -1165,17 +1112,6 @@ public final class LambdaMooV17Codec {
       output.write('\n');
     }
     line(output, ".");
-  }
-
-  private static String readProgramSource(BufferedReader input, String field) throws IOException {
-    StringBuilder source = new StringBuilder();
-    while (true) {
-      String sourceLine = requiredLine(input, field);
-      if (sourceLine.equals(".")) {
-        return source.toString();
-      }
-      source.append(sourceLine).append('\n');
-    }
   }
 
   private static void writeObject(
@@ -1208,7 +1144,7 @@ public final class LambdaMooV17Codec {
     line(output, object.properties().size());
     for (WorldProperty property : object.properties()) {
       if (property.clear()) {
-        line(output, 5);
+        line(output, V17Format.ValueTag.CLEAR.code());
       } else {
         writeValue(output, property.value(), context);
       }
@@ -1251,7 +1187,7 @@ public final class LambdaMooV17Codec {
     line(output, object.properties().size());
     for (WorldProperty property : object.properties()) {
       if (property.clear()) {
-        line(output, 5);
+        line(output, V17Format.ValueTag.CLEAR.code());
       } else {
         writeValue(output, property.value(), context);
       }
@@ -1278,9 +1214,24 @@ public final class LambdaMooV17Codec {
     }
   }
 
+  private static V17Format.ValueTag valueTag(MooValue value) {
+    return switch (value.type()) {
+      case INTEGER -> V17Format.ValueTag.INTEGER;
+      case BOOLEAN -> V17Format.ValueTag.BOOLEAN;
+      case OBJECT -> V17Format.ValueTag.OBJECT;
+      case STRING -> V17Format.ValueTag.STRING;
+      case ERROR -> V17Format.ValueTag.ERROR;
+      case FLOAT -> V17Format.ValueTag.FLOAT;
+      case LIST -> V17Format.ValueTag.LIST;
+      case MAP -> V17Format.ValueTag.MAP;
+      case ANONYMOUS -> V17Format.ValueTag.ANONYMOUS;
+      case WAIF -> V17Format.ValueTag.WAIF;
+    };
+  }
+
   private static void writeValue(BufferedWriter output, MooValue value, WriteContext context)
       throws IOException {
-    line(output, value.type().code());
+    line(output, valueTag(value).code());
     switch (value) {
       case IntegerValue integer -> line(output, integer.value());
       case BooleanValue booleanValue -> line(output, booleanValue.value() ? 1 : 0);
@@ -1393,14 +1344,14 @@ public final class LambdaMooV17Codec {
         int tag = readInt(input, "property value tag");
         propertySlots.add(
             new RawPropertySlot(
-                tag == 5
+                tag == V17Format.ValueTag.CLEAR.code()
                     ? null
                     : readValue(
                         input,
                         tag,
                         context,
                         "object #" + expectedId + " property slot " + index + " value"),
-                tag == 5,
+                tag == V17Format.ValueTag.CLEAR.code(),
                 readLong(input, "property owner"),
                 readInt(input, "property permissions")));
       } catch (IOException error) {
@@ -1421,36 +1372,6 @@ public final class LambdaMooV17Codec {
         verbs,
         propertyNames,
         propertySlots);
-  }
-
-  private static void readProgram(
-      BufferedReader input,
-      Map<Long, RawObject> objects,
-      Map<ProgramSlot, String> programs)
-      throws IOException {
-    String header = requiredLine(input, "program header");
-    int colon = header.indexOf(':');
-    if (!header.startsWith("#") || colon <= 1 || colon != header.lastIndexOf(':')) {
-      throw malformed("invalid program header: " + header);
-    }
-    long objectId = parseLong(header.substring(1, colon), "program object");
-    int verbIndex = parseCount(header.substring(colon + 1), "program verb index");
-    RawObject object = objects.get(objectId);
-    if (object == null || verbIndex >= object.verbs().size()) {
-      throw malformed("program references missing verb #" + objectId + ":" + verbIndex);
-    }
-    StringBuilder source = new StringBuilder();
-    while (true) {
-      String line = requiredLine(input, "program source");
-      if (line.equals(".")) {
-        break;
-      }
-      source.append(line).append('\n');
-    }
-    ProgramSlot slot = new ProgramSlot(objectId, verbIndex);
-    if (programs.putIfAbsent(slot, source.toString()) != null) {
-      throw malformed("duplicate program #" + objectId + ":" + verbIndex);
-    }
   }
 
   private static List<WorldObject> restoreObjects(
@@ -1895,8 +1816,8 @@ public final class LambdaMooV17Codec {
     if (common.isPresent()) {
       return common.orElseThrow();
     }
-    return switch (tag) {
-      case 10 -> {
+    return switch (V17Format.ValueTag.fromCode(tag)) {
+      case MAP -> {
         int count = readCount(input, "map count");
         List<MooValue> keys = new ArrayList<>(count);
         MapValue values = new MapValue(Map.of());
@@ -1915,7 +1836,7 @@ public final class LambdaMooV17Codec {
         }
         yield values;
       }
-      case 12 -> {
+      case ANONYMOUS -> {
         long objectId = readLong(input, "anonymous object reference");
         if (objectId == -1) {
           yield context.invalidAnonymous;
@@ -1926,9 +1847,9 @@ public final class LambdaMooV17Codec {
         yield context.anonymousById.computeIfAbsent(
             objectId, ignored -> new AnonymousObjectValue());
       }
-      case 13 -> readWaif(input, context, location);
-      case 14 -> BooleanValue.of(readLong(input, "boolean value") != 0);
-      default -> throw malformed("unsupported v17 value tag " + tag + " at " + location);
+      case WAIF -> readWaif(input, context, location);
+      case BOOLEAN -> BooleanValue.of(readLong(input, "boolean value") != 0);
+      case null, default -> throw malformed("unsupported v17 value tag " + tag + " at " + location);
     };
   }
 
@@ -2068,9 +1989,6 @@ public final class LambdaMooV17Codec {
     private final Map<Integer, WaifValue> waifs = new LinkedHashMap<>();
     private final IdentityHashMap<WaifValue, RawWaif> waifBodies = new IdentityHashMap<>();
   }
-
-  private record RawPropertySlot(
-      @Nullable MooValue value, boolean clear, long owner, int permissions) {}
 
   private record RawWaif(int propertyCount, Map<Integer, MooValue> overrides) {
     private RawWaif {
