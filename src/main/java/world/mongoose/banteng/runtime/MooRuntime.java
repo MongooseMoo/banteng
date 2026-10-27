@@ -1,5 +1,8 @@
 package world.mongoose.banteng.runtime;
 
+import world.mongoose.banteng.vm.TaskOrigin;
+import world.mongoose.banteng.vm.TaskBudget;
+
 import com.google.errorprone.annotations.concurrent.GuardedBy;
 import java.io.IOException;
 import java.io.UncheckedIOException;
@@ -741,8 +744,8 @@ public final class MooRuntime implements AutoCloseable, SchedulerRuntime {
     if (connection != null && transition == RuntimeTransition.LINE_DO_COMMAND_GATE_THEN_DISPATCH) {
       connection.prefix.ifPresent(output::add);
     }
-    output.addAll(state.output());
-    state.clearOutput();
+    output.addAll(state.effects().output());
+    state.effects().clearOutput();
     if (connection != null && command) {
       connection.suffix.ifPresent(output::add);
     }
@@ -826,7 +829,7 @@ public final class MooRuntime implements AutoCloseable, SchedulerRuntime {
     Optional<ResolvedVerb> doCommand = world().resolveVerb(connection.listenerHandler, "do_command", true);
     if (completedDoCommand.isPresent()) {
       VmState state = completedDoCommand.orElseThrow();
-      doCommandOutput = state.output();
+      doCommandOutput = state.effects().output();
       handled = state.returnValue().isPresent() && state.returnValue().orElseThrow().isTruthy();
     } else if (doCommand.isPresent()) {
       return startStored(
@@ -1443,7 +1446,7 @@ public final class MooRuntime implements AutoCloseable, SchedulerRuntime {
                     RuntimeTransition.LOGIN_USER_CREATED_THEN_CONNECTED,
                     connectionId,
                     "",
-                    connection.printMessages ? List.of("*** Connected ***") : state.output(),
+                    connection.printMessages ? List.of("*** Connected ***") : state.effects().output(),
                     switchedPlayer,
                     0,
                     false));
@@ -1452,14 +1455,14 @@ public final class MooRuntime implements AutoCloseable, SchedulerRuntime {
         return startConnectedHook(
             connectionId,
             switchedPlayer,
-            connection.printMessages ? List.of("*** Connected ***") : state.output(),
+            connection.printMessages ? List.of("*** Connected ***") : state.effects().output(),
             RuntimeTransition.LOGIN_EXISTING_USER_CONNECTED_THEN_RETURN,
             false);
       }
       return RuntimeStep.returned(
-          connection.printMessages ? List.of("*** Connected ***") : state.output());
+          connection.printMessages ? List.of("*** Connected ***") : state.effects().output());
     }
-    return RuntimeStep.returned(state.output());
+    return RuntimeStep.returned(state.effects().output());
   }
 
   private RuntimeStep associateRedirectedLogin(RuntimeContinuation continuation) {
@@ -1683,9 +1686,8 @@ public final class MooRuntime implements AutoCloseable, SchedulerRuntime {
         maxStackDepth = Math.max(DEFAULT_MAX_STACK_DEPTH, depth.value());
       }
     }
-    VmState root = new VmState(Map.of(), resolution.verb().owner(), resolution.location(),
-        foregroundTicks, foregroundSeconds, maxStackDepth, resolution.verb().perms().debug(),
-        call.verb(), resolution.verb().names());
+    VmState root = new VmState(new TaskOrigin(Map.of(), resolution.verb().owner(), resolution.location(),
+        call.verb(), resolution.verb().names(), resolution.verb().perms().debug()), new TaskBudget(foregroundTicks, foregroundSeconds, maxStackDepth));
     if (!MooVm.callVerb(root, call.receiver(), resolution, call.arguments(), call.verb(),
         MooVm.VerbCallKind.ROOT, Optional.empty(), Optional.empty(), Optional.of(call))) {
       throw new IllegalStateException("root verb exceeds empty task stack");
@@ -1728,7 +1730,7 @@ public final class MooRuntime implements AutoCloseable, SchedulerRuntime {
     applyNotificationRequests(task, taskPlayer);
     applyBootPlayerTargets(task, taskPlayer);
     closeRecycledPlayerConnections();
-    var checkpointRequests = task.drainCheckpointRequests();
+    var checkpointRequests = task.effects().drainCheckpointRequests();
     boolean panicPending = checkpointRequests.stream().anyMatch(CheckpointRequest::panic);
     boolean checkpointPending =
         !checkpointRequests.isEmpty()
@@ -2299,7 +2301,7 @@ public final class MooRuntime implements AutoCloseable, SchedulerRuntime {
   }
 
   private void applyConnectionOptionRequests(VmState task) {
-    for (ConnectionOptionRequest request : task.drainConnectionOptionRequests()) {
+    for (ConnectionOptionRequest request : task.effects().drainConnectionOptionRequests()) {
       applyConnectionOption(request.target(), request.option(), request.value());
     }
   }
@@ -2576,7 +2578,7 @@ public final class MooRuntime implements AutoCloseable, SchedulerRuntime {
   }
 
   private void applyForcedInputRequests(VmState task) {
-    for (ForcedInputRequest request : task.drainForcedInputRequests()) {
+    for (ForcedInputRequest request : task.effects().drainForcedInputRequests()) {
       long connectionId = request.target();
       if (!connections().containsKey(connectionId)) {
         for (Map.Entry<Long, ConnectionState> entry : connections().entrySet()) {
@@ -2595,7 +2597,7 @@ public final class MooRuntime implements AutoCloseable, SchedulerRuntime {
   }
 
   private void applyNotificationRequests(VmState task, long taskPlayer) {
-    for (NotificationRequest request : task.drainNotificationRequests()) {
+    for (NotificationRequest request : task.effects().drainNotificationRequests()) {
       long notificationPlayer =
           connectionRegistry()
               .connectionPlayer(request.connectionId())
@@ -2603,7 +2605,7 @@ public final class MooRuntime implements AutoCloseable, SchedulerRuntime {
       boolean ordinaryCurrentPlayerOutput =
           notificationPlayer == taskPlayer && !request.noFlush() && !request.noNewline();
       if (ordinaryCurrentPlayerOutput || listenerControl.isEmpty()) {
-        task.stageRuntimeOutput(request.line());
+        task.effects().stageOutput(request.line());
       } else {
         effects()
             .add(
@@ -2617,7 +2619,7 @@ public final class MooRuntime implements AutoCloseable, SchedulerRuntime {
   }
 
   private void applyBootPlayerTargets(VmState task, long taskPlayer) {
-    for (long target : task.drainBootPlayerTargets()) {
+    for (long target : task.effects().drainBootPlayerTargets()) {
       long connectionId = target;
       ConnectionState connection = connections().get(connectionId);
       if (connection == null) {
@@ -2638,7 +2640,7 @@ public final class MooRuntime implements AutoCloseable, SchedulerRuntime {
       if (disconnectedPlayer == taskPlayer) {
         long outputConnectionId = connectionId;
         if (listenerControl.isPresent()) {
-          effects().add(RuntimeEffect.write(outputConnectionId, task.output()));
+          effects().add(RuntimeEffect.write(outputConnectionId, task.effects().output()));
         }
       }
       long listenerHandler = connection.listenerHandler;
@@ -2745,7 +2747,7 @@ public final class MooRuntime implements AutoCloseable, SchedulerRuntime {
     if (state.outcome() == VmState.Outcome.ERRORED) {
       finishErroredFinalization(continuation);
       List<String> output = new ArrayList<>(continuation.output());
-      output.addAll(state.output());
+      output.addAll(state.effects().output());
       output.addAll(formatUncaughtException(state));
       if (continuation.transition().orElseThrow()
           == RuntimeTransition.LINE_SELECTED_COMMAND_APPEND_OUTPUT) {
@@ -2764,8 +2766,8 @@ public final class MooRuntime implements AutoCloseable, SchedulerRuntime {
       case SIGNAL_RETURN ->
           state.outcome() != VmState.Outcome.RETURNED
                   || state.returnValue().filter(MooValue::isTruthy).isPresent()
-              ? RuntimeStep.returned(state.output()) : signalDefault(continuation.text());
-      case SERVER_STARTED_RETURN -> RuntimeStep.returned(state.output());
+              ? RuntimeStep.returned(state.effects().output()) : signalDefault(continuation.text());
+      case SERVER_STARTED_RETURN -> RuntimeStep.returned(state.effects().output());
       case CHECKPOINT_USER_DISCONNECTED_RETURN -> RuntimeStep.returned(List.of());
       case CHECKPOINT_STARTED_RETURN -> {
         effects().add(RuntimeEffect.checkpoint(continuation.flag(), continuation.text()));
@@ -2779,21 +2781,21 @@ public final class MooRuntime implements AutoCloseable, SchedulerRuntime {
       }
       case CLOSE_AFTER_USER_CLIENT_DISCONNECTED -> RuntimeStep.returned(List.of());
       case LINE_OOB_RETURN_OUTPUT, TRANSPORT_OOB_RETURN_OUTPUT ->
-          RuntimeStep.returned(state.output());
+          RuntimeStep.returned(state.effects().output());
       case LINE_DO_COMMAND_GATE_THEN_DISPATCH ->
           continueLineAfterDoCommand(continuation.connectionId(), continuation.text(), state);
       case LINE_SELECTED_COMMAND_APPEND_OUTPUT -> {
         List<String> output = new ArrayList<>(continuation.output());
         ConnectionState connection = connections().get(continuation.connectionId());
         if (connection != null) {
-          output.addAll(state.output());
+          output.addAll(state.effects().output());
           connection.suffix.ifPresent(output::add);
         }
         yield RuntimeStep.returned(output);
       }
       case LOGIN_BLANK_TRUTH_GATE ->
           state.returnValue().isEmpty() || !state.returnValue().orElseThrow().isTruthy()
-              ? RuntimeStep.returned(state.output())
+              ? RuntimeStep.returned(state.effects().output())
               : executeLoginAuthentication(continuation.connectionId(), continuation.text());
       case LOGIN_AUTHENTICATE_AND_ASSOCIATE ->
           finishLogin(
@@ -2821,13 +2823,13 @@ public final class MooRuntime implements AutoCloseable, SchedulerRuntime {
       case TASK_TIMEOUT_START ->
           throw new IllegalStateException("timeout start cannot resume completed VM state");
       case TASK_TIMEOUT_RETURN -> {
-        List<String> output = new ArrayList<>(state.output());
+        List<String> output = new ArrayList<>(state.effects().output());
         if (state.returnValue().isEmpty() || !state.returnValue().orElseThrow().isTruthy()) {
           output.addAll(continuation.output());
         }
         yield RuntimeStep.returned(output);
       }
-      case UNCAUGHT_HANDLER_RETURN -> RuntimeStep.returned(state.output());
+      case UNCAUGHT_HANDLER_RETURN -> RuntimeStep.returned(state.effects().output());
     };
   }
 

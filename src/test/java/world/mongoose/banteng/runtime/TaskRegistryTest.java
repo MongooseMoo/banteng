@@ -1,5 +1,8 @@
 package world.mongoose.banteng.runtime;
 
+import world.mongoose.banteng.vm.TaskOrigin;
+import world.mongoose.banteng.vm.TaskBudget;
+
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 
@@ -74,9 +77,11 @@ final class TaskRegistryTest {
   void exposesEveryOtherDurableSnapshotAsAGarbageCollectionRoot() {
     TaskRegistry registry = new TaskRegistry();
     VmSnapshot first =
-        new VmState(Map.of("held", new IntegerValue(1)), 2, new ObjectValue(7)).snapshot();
+        new VmState(new TaskOrigin(Map.of("held", new IntegerValue(1)), 2, new ObjectValue(7),
+        TaskOrigin.calledVerb(Map.of("held", new IntegerValue(1))), TaskOrigin.calledVerb(Map.of("held", new IntegerValue(1))), true), new TaskBudget(60_000, 5, 50)).snapshot();
     VmSnapshot second =
-        new VmState(Map.of("held", new IntegerValue(2)), 2, new ObjectValue(7)).snapshot();
+        new VmState(new TaskOrigin(Map.of("held", new IntegerValue(2)), 2, new ObjectValue(7),
+        TaskOrigin.calledVerb(Map.of("held", new IntegerValue(2))), TaskOrigin.calledVerb(Map.of("held", new IntegerValue(2))), true), new TaskBudget(60_000, 5, 50)).snapshot();
     registry.registerFork(
         17,
         1234,
@@ -130,7 +135,8 @@ final class TaskRegistryTest {
             "this", new ObjectValue(8));
     BytecodeProgram program =
         new MooCompiler().compile("x = 1;\nreturn all_members(\"a\", {\"A\", \"b\"});");
-    VmState state = new VmState(locals, 2, new ObjectValue(7));
+    VmState state = new VmState(new TaskOrigin(locals, 2, new ObjectValue(7),
+        TaskOrigin.calledVerb(locals), TaskOrigin.calledVerb(locals), true), new TaskBudget(60_000, 5, 50));
 
     try (WorldTxn transaction = world().begin()) {
       new MooVm().execute(program, state, transaction, new BuiltinCatalog(BuiltinHosts.builder().build()), 17);
@@ -249,7 +255,8 @@ final class TaskRegistryTest {
             "verb", string("alpha"),
             "this", new ObjectValue(8));
     BytecodeProgram program = new MooCompiler().compile("x = 9;\nsuspend(100);");
-    VmState state = new VmState(locals, 2, new ObjectValue(7));
+    VmState state = new VmState(new TaskOrigin(locals, 2, new ObjectValue(7),
+        TaskOrigin.calledVerb(locals), TaskOrigin.calledVerb(locals), true), new TaskBudget(60_000, 5, 50));
     try (WorldTxn transaction = world().begin()) {
       new MooVm().execute(program, state, transaction, new BuiltinCatalog(BuiltinHosts.builder().build()), 17);
     }
