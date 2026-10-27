@@ -52,16 +52,27 @@ final class MoveBuiltinFamilyTest {
     var files = JavaParser.fromJavaVersion().build().parse(context, """
         package world.mongoose.banteng.builtin;
         import world.mongoose.banteng.world.WorldResult;
+        import world.mongoose.banteng.world.SuspendedActivation;
+        import java.util.Optional;
         class BuiltinCatalog {
           void buildManifest() {
-            entries.add(new BuiltinSpec("create", List.of(OBJECT), BuiltinPermissionRule.ANY, false, call -> create()));
+            entries.add(new BuiltinSpec("create", List.of(OBJECT), BuiltinPermissionRule.ANY, false, call -> create(false)));
+            entries.add(new BuiltinSpec("recreate", List.of(OBJECT), BuiltinPermissionRule.ANY, false, call -> recreate()));
             verb();
             entries.add(new BuiltinSpec("move", List.of(OBJECT), BuiltinPermissionRule.ANY, false, call -> move()));
             diagnostics();
             entries.add(new BuiltinSpec("reset_max_object", List.of(), BuiltinPermissionRule.WIZARD_ONLY, false, call -> reset()));
           }
-          private static int create() { return mutationResult(null, null); }
-          private static int move() { return 2; }
+          private static BuiltinResult create(boolean anonymous) {
+            return anonymous ? new BuiltinResult.Initialize(null, null, Optional.empty())
+                : new BuiltinResult.Initialize(null, null,
+                    Optional.of(new SuspendedActivation.CreateContinuation(false, 1)));
+          }
+          private static BuiltinResult recreate() {
+            return new BuiltinResult.Initialize(null, null,
+                Optional.of(new SuspendedActivation.CreateContinuation(true, 1)));
+          }
+          private static int move() { return mutationResult(null, null); }
           private static int reset() { return 3; }
           private static int property() { return mutationResult(null, null); }
           private static int mutationResult(WorldResult<?> result, Object value) { return 4; }
@@ -69,8 +80,8 @@ final class MoveBuiltinFamilyTest {
         }
         """, "package world.mongoose.banteng.builtin; public sealed interface BuiltinResult {}")
         .toList();
-    var recipe = new MoveBuiltinFamily("ObjectBuiltins", Set.of("create", "move", "reset_max_object"),
-        Set.of("create", "move", "reset"));
+    var recipe = new MoveBuiltinFamily("ObjectBuiltins", Set.of("create", "recreate", "move", "reset_max_object"),
+        Set.of("create", "recreate", "move", "reset"));
     var changes = recipe.run(new InMemoryLargeSourceSet(files), context).getChangeset().getAllResults();
     String catalog = changedFile(changes, "BuiltinCatalog.java");
     String family = changedFile(changes, "ObjectBuiltins.java");
@@ -79,6 +90,11 @@ final class MoveBuiltinFamilyTest {
     assertTrue(catalog.indexOf("diagnostics()") < catalog.indexOf("registerResetMaximum(entries)"));
     assertTrue(family.contains("Set.of(ArgType.OBJECT)"));
     assertTrue(family.contains("private record ParentArgument"));
+    String normalized = family.replaceAll("\\s+", " ");
+    assertTrue(normalized.contains("new BuiltinResult.Initialize(null, null, Optional.empty())"));
+    assertTrue(normalized.contains("new SuspendedActivation.CreateContinuation(false, 1)"));
+    assertTrue(normalized.contains("new SuspendedActivation.CreateContinuation(true, 1)"));
+    assertTrue(family.contains("import world.mongoose.banteng.world.SuspendedActivation;"));
     assertTrue(family.contains("import static world.mongoose.banteng.builtin.BuiltinResult.mutationResult;"));
     assertTrue(catalog.contains("import static world.mongoose.banteng.builtin.BuiltinResult.mutationResult;"));
     assertFalse(catalog.contains("static int mutationResult"));

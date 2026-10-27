@@ -1169,7 +1169,7 @@ public final class LayoutCompiler {
       vector.enterStructure(context);
       emitExpression(index.index(), append(path, 1), vector);
       vector.leaveStructure(context);
-      vector.bytecode();
+      vector.call(astPath(path), CallKind.INDEX);
       vector.pop(1);
       return;
     }
@@ -1329,7 +1329,6 @@ public final class LayoutCompiler {
     List<PendingIndex> indices = new ArrayList<>();
     emitLvalue(target, false, append(path, 0), vector, indices);
     emitExpression(assignment.value(), append(path, 1), vector);
-    for (int index = indices.size() - 1; index >= 0; index--) vector.leaveStructure(indices.get(index));
     if (target instanceof Ast.IndexTarget || target instanceof Ast.RangeTarget) {
       vector.bytecode();
     }
@@ -1337,6 +1336,7 @@ public final class LayoutCompiler {
     boolean indexed = false;
     while (true) {
       if (current instanceof Ast.RangeTarget range) {
+        vector.leaveStructure(indices.removeLast());
         vector.extended();
         vector.pop(3);
         current = targetFor(range.collection());
@@ -1344,7 +1344,9 @@ public final class LayoutCompiler {
         continue;
       }
       if (current instanceof Ast.IndexTarget index) {
-        vector.bytecode();
+        PendingIndex context = indices.removeLast();
+        vector.leaveStructure(context);
+        vector.call(context.ownerPath(), CallKind.INDEX_SET);
         vector.pop(2);
         current = targetFor(index.collection());
         indexed = true;
@@ -1396,7 +1398,7 @@ public final class LayoutCompiler {
         vector.leaveStructure(context);
         context = new PendingIndex(astPath(path), context.baseDepth(), OptionalInt.of(vector.stackDepth() - 1));
         vector.enterStructure(context);
-        vector.bytecode();
+        vector.call(astPath(path), CallKind.INDEX_REF);
         vector.push(1);
       }
       indices.add(context);

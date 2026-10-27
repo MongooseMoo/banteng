@@ -317,12 +317,22 @@ public final class TaskRegistry {
     }
     boolean includeLines = call.arguments().size() >= 2 && call.arguments().get(1).isTruthy();
     boolean includeVariables = call.arguments().size() >= 3 && call.arguments().get(2).isTruthy();
-    return BuiltinResult.value(
-        new ListValue(
-            task.snapshot().orElseThrow().frames().stream()
-                .map(frame -> stackFrame(frame, includeLines, includeVariables))
-                .map(frame -> projectStackFrame(frame, call.world(), call.programmer()))
-                .toList()));
+    return BuiltinResult.value(projectStackFrames(task.snapshot().orElseThrow().frames(),
+        includeLines, includeVariables, call.world(), call.programmer()));
+  }
+
+  static ListValue projectStackFrames(List<VmSnapshot.Frame> frames, boolean includeLines,
+      boolean includeVariables, WorldTxn world, long programmer) {
+    List<MooValue> rows = new ArrayList<>();
+    for (int index = 0; index < frames.size(); index++) {
+      VmSnapshot.Frame frame = frames.get(index);
+      rows.add(projectStackFrame(stackFrame(frame, includeLines, includeVariables), world, programmer));
+      if (index + 1 < frames.size()) {
+        frame.builtinStackFrame(frames.get(index + 1), includeLines, includeVariables)
+            .ifPresent(rows::add);
+      }
+    }
+    return new ListValue(rows);
   }
 
   private static ListValue projectStackFrame(
@@ -355,7 +365,7 @@ public final class TaskRegistry {
     fields.add(StringValue.of(frame.calledVerb()));
     fields.add(new ObjectValue(frame.programmer()));
     fields.add(frame.verbLocation());
-    fields.add(frame.locals().getOrDefault("player", new ObjectValue(-1)));
+    fields.add(new ObjectValue(frame.player()));
     if (includeLines) {
       int instructionCount = frame.program().instructions().size();
       int instruction =

@@ -27,6 +27,7 @@ import static world.mongoose.banteng.value.ValueSemantics.matchesAt;
 
 import world.mongoose.banteng.value.ValueSemantics;
 import world.mongoose.banteng.world.ObjectFlags;
+import world.mongoose.banteng.world.SuspendedActivation;
 import world.mongoose.banteng.world.WorldAnonymousObject;
 import world.mongoose.banteng.world.WorldObject;
 import world.mongoose.banteng.world.WorldResult;
@@ -147,7 +148,7 @@ public final class ObjectBuiltins {
                 return BuiltinResult.error(ErrorValue.E_INVARG);
             }
             return world.verb(created, "initialize", true).isPresent()
-                    ? new BuiltinResult.Initialize(created, initializeArguments)
+                    ? new BuiltinResult.Initialize(created, initializeArguments, Optional.empty())
                     : BuiltinResult.value(created);
         }
         final WorldObject created;
@@ -158,7 +159,8 @@ public final class ObjectBuiltins {
         }
         ObjectValue identity = new ObjectValue(created.id());
         return world.verb(created.id(), "initialize", true).isPresent()
-                ? new BuiltinResult.Initialize(identity, initializeArguments)
+                ? new BuiltinResult.Initialize(identity, initializeArguments,
+                    Optional.of(new SuspendedActivation.CreateContinuation(false, identity.value())))
                 : BuiltinResult.value(identity);
     }
 
@@ -193,7 +195,8 @@ public final class ObjectBuiltins {
         }
         ObjectValue identity = new ObjectValue(created.id());
         return world.verb(created.id(), "initialize", true).isPresent()
-                ? new BuiltinResult.Initialize(identity, new ListValue(List.of()))
+                ? new BuiltinResult.Initialize(identity, new ListValue(List.of()),
+                    Optional.of(new SuspendedActivation.CreateContinuation(true, identity.value())))
                 : BuiltinResult.value(identity);
     }
 

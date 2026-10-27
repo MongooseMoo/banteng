@@ -36,7 +36,7 @@ final class SlotLocalsTest {
         new world.mongoose.banteng.value.MooValue.ObjectValue(-1), "", "", true), new TaskBudget(60000, 5, 50));
     new PureVmFixture().execute(program, state);
     var saved = world.mongoose.banteng.persistence.DurableTaskCodec.durableSuspension(
-        1, 0, state.snapshot(0), 0, new IntegerValue(0)).activations().getFirst();
+        1, 0, state.snapshot(0), new IntegerValue(0)).activations().getFirst();
     Map<String, Optional<world.mongoose.banteng.value.MooValue>> locals = new LinkedHashMap<>();
     locals.put("VALUE", Optional.of(new IntegerValue(9)));
     locals.put("NUM", Optional.of(new IntegerValue(77)));
@@ -65,7 +65,7 @@ final class SlotLocalsTest {
     new PureVmFixture().execute(fork, state);
     assertEquals(VmState.Outcome.SUSPENDED, state.outcome());
     assertDoesNotThrow(() -> world.mongoose.banteng.persistence.DurableTaskCodec.durableSuspension(
-        1, 0, state.snapshot(0), 0, new IntegerValue(0)));
+        1, 0, state.snapshot(0), new IntegerValue(0)));
   }
 
   @Test

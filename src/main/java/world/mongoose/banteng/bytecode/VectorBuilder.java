@@ -132,7 +132,12 @@ final class VectorBuilder {
     if (kind == CallKind.BUILTIN) {
       bytecode();
     }
-    int consumedOperands = kind == CallKind.BUILTIN ? 1 : 3;
+    int consumedOperands = switch (kind) {
+      case BUILTIN -> 1;
+      case VERB, INDEX_SET -> 3;
+      case INDEX -> 2;
+      case INDEX_REF -> 0;
+    };
     int postArgumentDepth = currentStack - consumedOperands;
     if (postArgumentDepth < 0) {
       throw new IllegalStateException("invalid Toast call operand depth");
