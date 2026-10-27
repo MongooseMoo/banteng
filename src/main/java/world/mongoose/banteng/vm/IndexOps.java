@@ -6,8 +6,8 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import world.mongoose.banteng.builtin.BuiltinCatalog;
 import world.mongoose.banteng.builtin.BuiltinResult;
+import world.mongoose.banteng.builtin.ValueLimits;
 import world.mongoose.banteng.value.MooValue;
 import world.mongoose.banteng.value.ValueSemantics;
 import world.mongoose.banteng.value.MooValue.ErrorValue;
@@ -362,7 +362,7 @@ final class IndexOps {
         byte[] original = string.bytes();
         byte[] inserted = replacement.bytes();
         long size = (long) prefix + inserted.length + length - suffix;
-        Optional<BuiltinResult> error = BuiltinCatalog.stringLengthError(size, world);
+        Optional<BuiltinResult> error = ValueLimits.stringLengthError(size, world);
         if (error.isPresent()) {
           if (error.orElseThrow() instanceof BuiltinResult.ErrorResult quota) {
             ErrorOps.raise(state, quota.error(), world);
