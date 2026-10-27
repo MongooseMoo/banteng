@@ -26,3 +26,6 @@ Moves the 23 task builtin registrations and existing implementations into TaskBu
 Extends the existing OpenRewrite family mover and declarative recipe with focused migration coverage.
 
 Validation: WSL JDK 25 scripts/rewrite.sh world.mongoose.banteng.builtin.ExtractTaskBuiltins completed normally, with standard normal prerequisites and the plugin's existing configuration-cache/classpath warnings. :rewrite-recipes:test --tests world.mongoose.banteng.rewrite.MoveBuiltinFamilyTest passed; its invocation after applying generated source was up-to-date. git diff --check passed. No broad local CI steps were run. Full conformance and required checks belong to PR CI.
+
+## Login and layout repair ancestry
+Merged the latest coordinator runtime login-output and pinned-layout-boundary repairs normally, without conflicts or family source adaptations. Family implementations, services, dependencies, extraction mover, authored fixtures and YAML are unchanged. No local tests, CI, migration or repeated review ran for this mechanical integration. Parent owns publication, hosted checks and merge.
