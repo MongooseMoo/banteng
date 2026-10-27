@@ -29,6 +29,7 @@ import world.mongoose.banteng.builtin.family.ListBuiltins;
 import world.mongoose.banteng.builtin.family.MapBuiltins;
 import world.mongoose.banteng.builtin.family.MathBuiltins;
 import world.mongoose.banteng.builtin.family.RandomBuiltins;
+import world.mongoose.banteng.builtin.family.RegexBuiltins;
 import world.mongoose.banteng.builtin.family.StringBuiltins;
 import world.mongoose.banteng.builtin.family.TimeBuiltins;
 import world.mongoose.banteng.bytecode.MooCompiler;
@@ -78,11 +79,9 @@ public final class BuiltinCatalog {
   private final List<BuiltinSpec> manifest;
   private final FileIoBuiltins fileIo;
   private final BuiltinHosts hosts;
-  private final PcreService pcre = new PcreService();
   private final Optional<ListenerControl> listenerControl;
   private final Random random;
   private final SqliteService sqlite;
-  private final ToastRegexService toastRegex = new ToastRegexService();
   private final Random floatingRandom;
   private final Map<String, BuiltinSpec> specs;
   private volatile Set<String> protectedFunctions = Set.of();
@@ -731,20 +730,7 @@ public final class BuiltinCatalog {
             BuiltinPermissionRule.ANY,
             false,
             call -> connectionName(call.hosts(), call.arguments(), call.world(), call.programmer())));
-    entries.add(
-        new BuiltinSpec(
-            "match",
-            List.of(new CallShape(List.of(STRING, STRING), List.of(ANY), Optional.empty())),
-            BuiltinPermissionRule.ANY,
-            false,
-            call -> toastMatch(call.arguments(), false)));
-    entries.add(
-        new BuiltinSpec(
-            "rmatch",
-            List.of(new CallShape(List.of(STRING, STRING), List.of(ANY), Optional.empty())),
-            BuiltinPermissionRule.ANY,
-            false,
-            call -> toastMatch(call.arguments(), true)));
+    RegexBuiltins.registerLegacy(entries);
     entries.add(
         new BuiltinSpec(
             "connection_name_lookup",
@@ -894,29 +880,7 @@ public final class BuiltinCatalog {
             false,
             call -> functionInfo(call.arguments())));
     fileIo.register(entries);
-    entries.add(
-        new BuiltinSpec(
-            "pcre_match",
-            List.of(
-                new CallShape(
-                    List.of(STRING, STRING), List.of(INTEGER, INTEGER), Optional.empty())),
-            BuiltinPermissionRule.ANY,
-            true,
-            call -> pcre.match(call.arguments())));
-    entries.add(
-        new BuiltinSpec(
-            "pcre_replace",
-            List.of(new CallShape(List.of(STRING, STRING), List.of(), Optional.empty())),
-            BuiltinPermissionRule.ANY,
-            false,
-            call -> pcre.replace(call.arguments())));
-    entries.add(
-        new BuiltinSpec(
-            "pcre_cache_stats",
-            List.of(new CallShape(List.of(), List.of(), Optional.empty())),
-            BuiltinPermissionRule.WIZARD_ONLY,
-            false,
-            call -> pcre.cacheStats()));
+    RegexBuiltins.registerPcre(entries);
     addSqliteManifest(entries);
     entries.add(
         new BuiltinSpec(
@@ -1205,14 +1169,6 @@ public final class BuiltinCatalog {
                     address.text(),
                     ip.text(),
                     destination.value())));
-  }
-
-  private BuiltinResult toastMatch(List<MooValue> arguments, boolean reverse) {
-    return toastRegex.match(
-        (StringValue) arguments.get(0),
-        (StringValue) arguments.get(1),
-        arguments.size() == 3 && arguments.get(2).isTruthy(),
-        reverse);
   }
 
   private BuiltinResult connectionNameLookup(BuiltinCall call) {

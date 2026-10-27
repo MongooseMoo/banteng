@@ -217,6 +217,68 @@ final class MoveBuiltinFamilyTest {
   }
 
   @Test
+  void movesRegexGroupsAndServicesWithOneCapturedInstancePerGroup() {
+    var context = new InMemoryExecutionContext(failure -> { throw new AssertionError(failure); });
+    var files = JavaParser.fromJavaVersion().build().parse(context, """
+        package world.mongoose.banteng.builtin;
+        import java.util.List;
+        class BuiltinCatalog {
+          private final PcreService pcre = new PcreService();
+          private final ToastRegexService toastRegex = new ToastRegexService();
+          void buildManifest() {
+            before();
+            entries.add(new BuiltinSpec("match", List.of(), BuiltinPermissionRule.ANY, false, call -> toastMatch(call.arguments(), false)));
+            entries.add(new BuiltinSpec("rmatch", List.of(), BuiltinPermissionRule.ANY, false, call -> toastMatch(call.arguments(), true)));
+            between();
+            entries.add(new BuiltinSpec("pcre_match", List.of(), BuiltinPermissionRule.ANY, true, call -> pcre.match(call.arguments())));
+            entries.add(new BuiltinSpec("pcre_replace", List.of(), BuiltinPermissionRule.ANY, false, call -> pcre.replace(call.arguments())));
+            entries.add(new BuiltinSpec("pcre_cache_stats", List.of(), BuiltinPermissionRule.WIZARD_ONLY, false, call -> pcre.cacheStats()));
+            after();
+          }
+          private BuiltinResult toastMatch(List<MooValue> arguments, boolean reverse) {
+            return toastRegex.match(arguments, reverse);
+          }
+        }
+        """, """
+        package world.mongoose.banteng.builtin;
+        final class PcreService {
+          synchronized BuiltinResult cacheStats() { return null; }
+        }
+        """, """
+        package world.mongoose.banteng.builtin;
+        final class ToastRegexService {
+          BuiltinResult match() { return null; }
+        }
+        """).map(org.openrewrite.java.tree.J.CompilationUnit.class::cast)
+        .map(file -> file.withSourcePath(java.nio.file.Path.of(
+            "src/main/java/world/mongoose/banteng/builtin/" + file.getClasses().getFirst().getSimpleName() + ".java")))
+        .map(SourceFile.class::cast).toList();
+    var recipe = new MoveBuiltinFamily("RegexBuiltins",
+        Set.of("match", "rmatch", "pcre_match", "pcre_replace", "pcre_cache_stats"), Set.of("toastMatch"));
+    var changes = recipe.run(new InMemoryLargeSourceSet(files), context).getChangeset().getAllResults();
+    String catalog = changedFile(changes, "BuiltinCatalog.java");
+    String family = changedFile(changes, "RegexBuiltins.java");
+    assertTrue(catalog.indexOf("registerLegacy(entries)") < catalog.indexOf("between()"));
+    assertTrue(catalog.indexOf("between()") < catalog.indexOf("registerPcre(entries)"));
+    assertFalse(catalog.contains("new PcreService"));
+    assertFalse(catalog.contains("new ToastRegexService"));
+    assertTrue(family.indexOf("new PcreService()") == family.lastIndexOf("new PcreService()"));
+    assertTrue(family.indexOf("new ToastRegexService()") == family.lastIndexOf("new ToastRegexService()"));
+    assertTrue(family.contains("toastMatch(toastRegex, call.arguments(), false)"));
+    assertTrue(family.contains("private static BuiltinResult toastMatch(ToastRegexService toastRegex,"));
+    assertTrue(family.contains(".irrevocable().implementation(call -> pcre.match"));
+    assertTrue(family.contains(".permission(BuiltinPermissionRule.WIZARD_ONLY).implementation(call -> pcre.cacheStats"));
+    for (String service : List.of("PcreService.java", "ToastRegexService.java")) {
+      String moved = changedFile(changes, service);
+      assertTrue(moved.contains("package world.mongoose.banteng.builtin.family;"));
+      assertTrue(moved.contains("import world.mongoose.banteng.builtin.BuiltinResult;"));
+    }
+    assertTrue(changedFile(changes, "PcreService.java").contains("synchronized BuiltinResult cacheStats()"));
+    assertTrue(recipe.clone().run(new InMemoryLargeSourceSet(changes.stream().map(Result::getAfter).toList()), context)
+        .getChangeset().getAllResults().isEmpty());
+  }
+
+  @Test
   void movesStringGroupsWithSharedRandomAndExistingValueSemanticsOwner() {
     var context = new InMemoryExecutionContext(failure -> { throw new AssertionError(failure); });
     var files = JavaParser.fromJavaVersion().build().parse(context, """
