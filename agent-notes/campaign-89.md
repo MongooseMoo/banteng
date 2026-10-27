@@ -4,7 +4,7 @@
 Implement issue 89's five-field BuiltinSpec, one invoke(BuiltinSpec, BuiltinCall), canonical BuiltinCall constructor, and Toast registration argument contracts before family extraction.
 
 ## State
-Branch campaign/89-builtin-contract starts at campaign/92-native-libraries 67ee49a. Parent owns publication; PR 100 must merge first. Implementation is local and unpublished.
+Branch campaign/89-builtin-contract starts at campaign/92-native-libraries 67ee49a. Coordinator opened PR104 against that dependency for isolated review; PR100 must merge before104 targets master. This note records implementation and validation evidence; the PR and central issue-campaign note own live CI/merge state.
 
 ## Decisions and why
 Smallest change: remove unused cost/owner/effect metadata, retain a boolean irrevocable, construct VM calls through one helper preserving captured pending context and live callbacks, migrate callers, audit shapes against Toast register_function, and remove only duplicate checks proven by those shapes. Estimated 500-900 changed lines; no registrar/family extraction and no conformance changes.

@@ -340,7 +340,7 @@ final class TaskRegistryTest {
         5,
         new ObjectValue(programmer),
         programmer,
-        new ListValue(List.of()),
+        _lineNumbers -> new ListValue(List.of()),
         false,
         (_connectionId, queuedBytes) -> queuedBytes);
   }

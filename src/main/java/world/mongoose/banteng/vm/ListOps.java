@@ -5,7 +5,6 @@ import java.util.List;
 import java.util.Map;
 import world.mongoose.banteng.builtin.BuiltinCatalog;
 import world.mongoose.banteng.builtin.BuiltinResult;
-import world.mongoose.banteng.bytecode.BytecodeProgram.Instruction;
 import world.mongoose.banteng.value.MooValue;
 import world.mongoose.banteng.value.MooValue.ErrorValue;
 import world.mongoose.banteng.value.MooValue.ListValue;
@@ -15,38 +14,9 @@ import world.mongoose.banteng.world.WorldTxn;
 
 /** List and map construction operations. */
 final class ListOps {
-  enum Operation {
-    BUILD_LIST,
-    LIST_APPEND,
-    LIST_EXTEND,
-    BUILD_MAP
-  }
-
   private ListOps() {}
 
-  static boolean execute(
-      Operation operation, VmState state, Instruction instruction, Frame frame, WorldTxn world) {
-    return switch (operation) {
-      case BUILD_LIST -> {
-        buildList(frame, Math.toIntExact(instruction.operand().orElseThrow()));
-        yield true;
-      }
-      case LIST_APPEND -> {
-        appendList(frame, state, world);
-        yield true;
-      }
-      case LIST_EXTEND -> {
-        extendList(frame, state, world);
-        yield true;
-      }
-      case BUILD_MAP -> {
-        buildMap(frame, state, world, Math.toIntExact(instruction.operand().orElseThrow()));
-        yield true;
-      }
-    };
-  }
-
-  private static void buildList(Frame frame, int count) {
+  static void buildList(Frame frame, int count) {
     List<MooValue> elements = new ArrayList<>(count);
     for (int index = 0; index < count; index++) {
       elements.addFirst(frame.operandStack.pop());
@@ -55,7 +25,7 @@ final class ListOps {
     frame.instructionPointer++;
   }
 
-  private static void appendList(Frame frame, VmState state, WorldTxn world) {
+  static void appendList(Frame frame, VmState state, WorldTxn world) {
     MooValue value = frame.operandStack.pop();
     MooValue collection = frame.operandStack.pop();
     if (!(collection instanceof ListValue list)) {
@@ -67,7 +37,7 @@ final class ListOps {
     pushCheckedList(frame, state, world, new ListValue(elements));
   }
 
-  private static void extendList(Frame frame, VmState state, WorldTxn world) {
+  static void extendList(Frame frame, VmState state, WorldTxn world) {
     MooValue extension = frame.operandStack.pop();
     MooValue collection = frame.operandStack.pop();
     if (!(collection instanceof ListValue list) || !(extension instanceof ListValue appended)) {
@@ -90,7 +60,7 @@ final class ListOps {
     MooVm.applyBuiltinResult(checked, frame, state, world);
   }
 
-  private static void buildMap(Frame frame, VmState state, WorldTxn world, int count) {
+  static void buildMap(Frame frame, VmState state, WorldTxn world, int count) {
     List<MooValue> keys = new ArrayList<>(count);
     List<MooValue> values = new ArrayList<>(count);
     for (int index = 0; index < count; index++) {

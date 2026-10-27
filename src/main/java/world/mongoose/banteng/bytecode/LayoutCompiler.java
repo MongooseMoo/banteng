@@ -83,7 +83,11 @@ public final class LayoutCompiler {
       int topStackDepth,
       LabelReference bottomLabel,
       int bottomStackDepth,
-      int bantengOperandDepth) {}
+      int bantengOperandDepth) {
+    ActiveLoopTarget {
+      variableNames = LoopNames.normalize(variableNames);
+    }
+  }
 
   sealed interface PendingStructuralEntry
       permits PendingCatchGroup,
