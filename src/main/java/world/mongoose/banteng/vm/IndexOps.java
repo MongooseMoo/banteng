@@ -434,25 +434,16 @@ final class IndexOps {
         return;
       }
       MapValue replaced = new MapValue(Map.of());
-      if (lastPosition < firstPosition) {
-        for (Map.Entry<MooValue, MooValue> entry : entries) {
-          replaced = replaced.with(entry.getKey(), entry.getValue());
-        }
-        for (Map.Entry<MooValue, MooValue> entry : replacement.orderedEntries()) {
-          replaced = replaced.with(entry.getKey(), entry.getValue());
-        }
-      } else {
-        for (int position = 0; position < firstPosition; position++) {
-          Map.Entry<MooValue, MooValue> entry = entries.get(position);
-          replaced = replaced.with(entry.getKey(), entry.getValue());
-        }
-        for (Map.Entry<MooValue, MooValue> entry : replacement.orderedEntries()) {
-          replaced = replaced.with(entry.getKey(), entry.getValue());
-        }
-        for (int position = lastPosition + 1; position < entries.size(); position++) {
-          Map.Entry<MooValue, MooValue> entry = entries.get(position);
-          replaced = replaced.with(entry.getKey(), entry.getValue());
-        }
+      for (int position = 0; position < firstPosition; position++) {
+        Map.Entry<MooValue, MooValue> entry = entries.get(position);
+        replaced = replaced.with(entry.getKey(), entry.getValue());
+      }
+      for (Map.Entry<MooValue, MooValue> entry : replacement.orderedEntries()) {
+        replaced = replaced.with(entry.getKey(), entry.getValue());
+      }
+      for (int position = lastPosition + 1; position < entries.size(); position++) {
+        Map.Entry<MooValue, MooValue> entry = entries.get(position);
+        replaced = replaced.with(entry.getKey(), entry.getValue());
       }
       updatedCollection = replaced;
     } else {

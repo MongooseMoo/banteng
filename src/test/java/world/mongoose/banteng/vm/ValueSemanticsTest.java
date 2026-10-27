@@ -107,6 +107,18 @@ final class ValueSemanticsTest {
         new ListValue(List.of(new IntegerValue(10), new IntegerValue(3))),
         execute("m = [1 -> 1, 2 -> 2, 3 -> 3]; m[2..2] = [1 -> 10, 3 -> 30]; return {m[1], m[3]};",
             Map.of()));
+    assertEquals(new IntegerValue(1),
+        execute(setup + "k3 = chr(196); m[k3] = 3; m[k3..k3] = [k2 -> 20]; return m[k1];",
+            Map.of()));
+    assertEquals(new IntegerValue(2),
+        execute("m = [1 -> 1, 2 -> 2, 3 -> 3]; m[3..1] = [2 -> 20]; return m[2];", Map.of()));
+    ListValue keys = (ListValue) execute("""
+        literal = ["Key" -> 1, "kEY" -> 2];
+        updated = ["First" -> 1]; updated["fIRST"] = 2;
+        return {mapkeys(literal)[1], mapkeys(updated)[1]};
+        """, Map.of());
+    assertEquals(List.of("kEY", "fIRST"),
+        keys.elements().stream().map(key -> ((StringValue) key).text()).toList());
   }
 
   @Test
