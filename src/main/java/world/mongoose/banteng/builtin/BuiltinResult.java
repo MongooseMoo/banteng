@@ -13,6 +13,7 @@ import world.mongoose.banteng.value.MooValue.AnonymousObjectValue;
 import world.mongoose.banteng.value.MooValue.ErrorValue;
 import world.mongoose.banteng.value.MooValue.ListValue;
 import world.mongoose.banteng.value.MooValue.StringValue;
+import world.mongoose.banteng.world.WorldResult;
 
 /** One explicit builtin value, MOO error, dynamic call, or staged effect. */
 public sealed interface BuiltinResult {
@@ -174,6 +175,13 @@ public sealed interface BuiltinResult {
   static BuiltinResult raised(MooValue error, StringValue message, MooValue value) {
     return new RaisedError(
         error, new ListValue(List.of(message, value, new ListValue(List.of()))));
+  }
+
+  public static BuiltinResult mutationResult(WorldResult<?> result, MooValue success) {
+    if (result instanceof WorldResult.Failed<?> failed) {
+      return BuiltinResult.error(failed.reason().value());
+    }
+    return BuiltinResult.value(success);
   }
 
 }
