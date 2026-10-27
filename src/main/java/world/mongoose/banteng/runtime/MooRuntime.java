@@ -79,6 +79,7 @@ public final class MooRuntime implements AutoCloseable, SchedulerRuntime {
   static final long DEFAULT_CONNECT_TIMEOUT_SECONDS = 300;
   private final FinalizationCollector finalizationCollector = new FinalizationCollector(this);
   private final LoginFlow loginFlow;
+  private final ConnectionIo connectionIo;
   private final BuiltinCatalog builtins;
   private final ServerLog serverLog;
   private final Optional<ListenerControl> listenerControl;
@@ -95,9 +96,6 @@ public final class MooRuntime implements AutoCloseable, SchedulerRuntime {
   private final List<ActiveConnection> checkpointedConnections;
   @GuardedBy("this")
   private final Map<Long, ConnectionState> publishedConnections = new LinkedHashMap<>();
-  @GuardedBy("this")
-  private final Map<Long, CompletableFuture<BuiltinResult>> pendingReads =
-      new LinkedHashMap<>();
   private static final ThreadLocal<AttemptContext> ATTEMPT = new ThreadLocal<>();
   private final AtomicLong connectionGenerations = new AtomicLong();
   private volatile boolean checkpointAttempted;
@@ -167,6 +165,7 @@ public final class MooRuntime implements AutoCloseable, SchedulerRuntime {
             committedWorld, this, taskRegistry);
     checkpointedConnections = List.of();
     loginFlow = new LoginFlow(this, scheduler, listenerControl);
+    connectionIo = new ConnectionIo(this, scheduler, listenerControl);
     builtins = new BuiltinCatalog(builtinHosts(configuredSemantics, taskRegistry));
     try (WorldTxn initialOptions = committedWorld.begin()) {
       builtins.reloadProtectedFunctions(initialOptions);
@@ -416,6 +415,7 @@ public final class MooRuntime implements AutoCloseable, SchedulerRuntime {
             workers,
             taskRegistry);
     loginFlow = new LoginFlow(this, scheduler, this.listenerControl);
+    connectionIo = new ConnectionIo(this, scheduler, this.listenerControl);
     builtins =
         new BuiltinCatalog(
             listenerControl, builtinHosts(configuredSemantics, taskRegistry));
@@ -430,21 +430,22 @@ public final class MooRuntime implements AutoCloseable, SchedulerRuntime {
         .valueSemantics(valueSemantics)
         .queuedTasks(taskRegistry::queuedTasks)
         .killTask(taskRegistry::killTask)
-        .read(this::read)
+        .read(call -> connectionIo.read(requireAttempt(), call))
         .threadPool(scheduler::threadPool)
         .threads(taskRegistry::threads)
         .connectionOptions(
-            call -> connectionOptions(call.arguments(), call.world(), call.programmer()))
-        .idleSeconds(call -> connectionSeconds(call, false))
-        .connectedSeconds(call -> connectionSeconds(call, true))
-        .setConnectionOption(this::applyConnectionOption)
+            call -> connectionIo.connectionOptions(requireAttempt(), call.arguments(), call.world(), call.programmer()))
+        .idleSeconds(call -> connectionIo.connectionSeconds(requireAttempt(), call, false))
+        .connectedSeconds(call -> connectionIo.connectionSeconds(requireAttempt(), call, true))
+        .setConnectionOption((target, option, value) ->
+            connectionIo.applyConnectionOption(requireAttempt(), target, option, value))
         .connectionNameLookup(this::connectionNameLookup)
         .dbDiskSize(call -> dbDiskSize())
-        .flushInput(call -> flushInput(call.arguments(), call.world(), call.programmer()))
+        .flushInput(call -> connectionIo.flushInput(requireAttempt(), call.arguments(), call.world(), call.programmer()))
         .outputDelimiters(
-            call -> outputDelimiters(call.arguments(), call.world(), call.programmer()))
+            call -> connectionIo.outputDelimiters(requireAttempt(), call.arguments(), call.world(), call.programmer()))
         .queueInfo(
-            call -> queueInfo(call.arguments(), call.world(), call.programmer(), taskRegistry))
+            call -> connectionIo.queueInfo(requireAttempt(), call.arguments(), call.world(), call.programmer(), taskRegistry))
         .taskStack(taskRegistry::taskStack)
         .resumeTask(scheduler::resumeTask)
         .serverLog(serverLog)
@@ -721,7 +722,7 @@ public final class MooRuntime implements AutoCloseable, SchedulerRuntime {
   @Override
   public synchronized OptionalLong inputTaskPlayer(long connectionId, String line) {
     ConnectionState connection = publishedConnections.get(connectionId);
-    if (pendingReads.containsKey(connectionId)
+    if (connectionIo.hasPendingRead(connectionId)
         || (connection != null && !connection.disableOob && line.startsWith("#$#"))) {
       return OptionalLong.empty();
     }
@@ -784,7 +785,7 @@ public final class MooRuntime implements AutoCloseable, SchedulerRuntime {
     if (!connection.disableOob && line.startsWith("#$\"")) {
       line = line.substring(3);
     }
-    if (hasPendingRead(connectionId)) {
+    if (connectionIo.hasPendingRead(connectionId)) {
       effects().add(RuntimeEffect.input(connectionId, line));
       return RuntimeStep.returned(List.of());
     }
@@ -1321,11 +1322,11 @@ public final class MooRuntime implements AutoCloseable, SchedulerRuntime {
       long taskPlayer,
       boolean collectAfterCompletion,
       List<VmSnapshot> otherTaskRoots) {
-    applyConnectionOptionRequests(task);
-    applyForcedInputRequests(task);
-    applyNotificationRequests(task, taskPlayer);
-    applyBootPlayerTargets(task, taskPlayer);
-    closeRecycledPlayerConnections();
+    connectionIo.applyConnectionOptionRequests(requireAttempt(), task);
+    connectionIo.applyForcedInputRequests(requireAttempt(), task);
+    connectionIo.applyNotificationRequests(requireAttempt(), task, taskPlayer);
+    connectionIo.applyBootPlayerTargets(requireAttempt(), task, taskPlayer);
+    connectionIo.closeRecycledPlayerConnections(requireAttempt());
     var checkpointRequests = task.drainCheckpointRequests();
     boolean panicPending = checkpointRequests.stream().anyMatch(CheckpointRequest::panic);
     boolean checkpointPending =
@@ -1389,285 +1390,9 @@ public final class MooRuntime implements AutoCloseable, SchedulerRuntime {
         requireAttempt(), target, otherTaskRoots, startNextFinalizationWave);
   }
 
-  private BuiltinResult read(BuiltinCall call) {
-    if (call.arguments().isEmpty() && !scheduler.isLastInputTask(call.taskId())) {
-      return BuiltinResult.error(ErrorValue.E_PERM);
-    }
-    long target;
-    if (call.arguments().isEmpty()) {
-      OptionalLong inputPlayer = scheduler.lastInputPlayer(call.taskId());
-      if (inputPlayer.isEmpty()) {
-        return BuiltinResult.error(ErrorValue.E_PERM);
-      }
-      target = inputPlayer.orElseThrow();
-    } else {
-      target = ((ObjectValue) call.arguments().getFirst()).value();
-    }
-    long connectionId = target;
-    ConnectionState connection = connections().get(connectionId);
-    if (connection == null) {
-      for (Map.Entry<Long, ConnectionState> entry : connections().entrySet()) {
-        if (connectionRegistry().connectionPlayer(entry.getKey()).orElse(Long.MIN_VALUE)
-            == target) {
-          connectionId = entry.getKey();
-          connection = entry.getValue();
-          break;
-        }
-      }
-    }
-    if (connection == null) {
-      return BuiltinResult.error(ErrorValue.E_INVARG);
-    }
-    if (!connection.pendingInput.isEmpty()) {
-      return BuiltinResult.value(StringValue.of(connection.pendingInput.removeFirst()));
-    }
-    if (call.arguments().size() == 2 && call.arguments().get(1).isTruthy()) {
-      return BuiltinResult.value(new IntegerValue(0));
-    }
-    CompletableFuture<BuiltinResult> completion = new CompletableFuture<>();
-    requireAttempt().readRegistrations.add(new ReadRegistration(connectionId, completion));
-    long registeredConnectionId = connectionId;
-    return BuiltinResult.hostWork(
-        () -> awaitRead(registeredConnectionId, completion));
-  }
-
-  private BuiltinResult awaitRead(
-      long connectionId, CompletableFuture<BuiltinResult> completion) throws Exception {
-    try {
-      return completion.get();
-    } finally {
-      synchronized (this) {
-        pendingReads.remove(connectionId, completion);
-      }
-    }
-  }
-
-  private synchronized boolean hasPendingRead(long connectionId) {
-    return pendingReads.containsKey(connectionId);
-  }
-
-  private synchronized boolean deliverPendingRead(long connectionId, String line) {
-    CompletableFuture<BuiltinResult> completion = pendingReads.remove(connectionId);
-    if (completion == null) {
-      return false;
-    }
-    completion.complete(BuiltinResult.value(StringValue.of(line)));
-    return true;
-  }
-
-  private void applyConnectionOptionRequests(VmState task) {
-    for (ConnectionOptionRequest request : task.drainConnectionOptionRequests()) {
-      applyConnectionOption(request.target(), request.option(), request.value());
-    }
-  }
-
-  private BuiltinResult applyConnectionOption(
-      long target, ConnectionOption option, MooValue value) {
-    long connectionId = target;
-    ConnectionState connection = connections().get(target);
-    if (connection == null) {
-      for (Map.Entry<Long, ConnectionState> entry : connections().entrySet()) {
-        if (connectionRegistry().connectionPlayer(entry.getKey()).orElse(Long.MIN_VALUE) == target) {
-          connectionId = entry.getKey();
-          connection = entry.getValue();
-          break;
-        }
-      }
-    }
-    if (connection == null) {
-      return BuiltinResult.error(ErrorValue.E_INVARG);
-    }
-    if (option == ConnectionOption.HOLD_INPUT) {
-      boolean release = connection.holdInput && !value.isTruthy();
-      connection.holdInput = value.isTruthy();
-      if (release) {
-        List<String> pendingInput = List.copyOf(connection.pendingInput);
-        connection.pendingInput.clear();
-        for (String line : pendingInput) {
-          effects().add(RuntimeEffect.input(connectionId, line));
-        }
-      }
-    } else if (option == ConnectionOption.DISABLE_OOB) {
-      connection.disableOob = value.isTruthy();
-    } else if (option == ConnectionOption.BINARY) {
-      connection.binary = value.isTruthy();
-      long binaryConnectionId = connectionId;
-      if (listenerControl.isPresent()) {
-        effects().add(RuntimeEffect.binary(binaryConnectionId, connection.binary));
-      }
-    } else if (option == ConnectionOption.KEEP_ALIVE) {
-      connection.keepAlive = connection.keepAlive.with(value);
-      effects().add(RuntimeEffect.keepAlive(connectionId, connection.keepAlive));
-    } else if (option == ConnectionOption.INTRINSIC_COMMANDS) {
-      connectionRegistry().setIntrinsicCommands(connectionId, (ListValue) value);
-    } else if (value instanceof StringValue command && command.length() > 0) {
-      connection.flushCommand = Optional.of(command.text());
-    } else {
-      connection.flushCommand = Optional.empty();
-    }
-    return BuiltinResult.value(new IntegerValue(0));
-  }
-
-  private BuiltinResult connectionOptions(
-      List<MooValue> arguments, WorldTxn world, long programmer) {
-    long target = ((ObjectValue) arguments.getFirst()).value();
-    OptionalLong connectionId = connectionRegistry().connectionId(target);
-    if (connectionId.isEmpty()) {
-      return BuiltinResult.error(ErrorValue.E_INVARG);
-    }
-    ConnectionState connection = connections().get(connectionId.orElseThrow());
-    if (connection == null) {
-      return BuiltinResult.error(ErrorValue.E_INVARG);
-    }
-    boolean wizard =
-        world.isWizard(programmer);
-    if (target != programmer && !wizard) {
-      return BuiltinResult.error(ErrorValue.E_PERM);
-    }
-    if (arguments.size() == 2) {
-      String option =
-          ((StringValue) arguments.get(1)).text()
-              .toLowerCase(java.util.Locale.ROOT);
-      MooValue value =
-          switch (option) {
-            case "binary" -> new IntegerValue(connection.binary ? 1 : 0);
-            case "flush-command" -> StringValue.of(connection.flushCommand.orElse(""));
-            case "hold-input" -> new IntegerValue(connection.holdInput ? 1 : 0);
-            case "disable-oob" -> new IntegerValue(connection.disableOob ? 1 : 0);
-            case "keep-alive" -> connection.keepAlive.toValue();
-            case "intrinsic-commands" ->
-                connectionRegistry()
-                    .intrinsicCommands(target)
-                    .orElseThrow();
-            default -> null;
-          };
-      return value == null
-          ? BuiltinResult.error(ErrorValue.E_INVARG)
-          : BuiltinResult.value(value);
-    }
-    List<MooValue> options = new ArrayList<>();
-    options.add(connectionOptionPair("binary", new IntegerValue(connection.binary ? 1 : 0)));
-    options.add(
-        connectionOptionPair(
-            "flush-command", StringValue.of(connection.flushCommand.orElse(""))));
-    options.add(connectionOptionPair("hold-input", new IntegerValue(connection.holdInput ? 1 : 0)));
-    options.add(connectionOptionPair("disable-oob", new IntegerValue(connection.disableOob ? 1 : 0)));
-    options.add(connectionOptionPair("keep-alive", connection.keepAlive.toValue()));
-    options.add(
-        connectionOptionPair(
-            "intrinsic-commands",
-            connectionRegistry()
-                .intrinsicCommands(target)
-                .orElseThrow()));
-    return BuiltinResult.value(new ListValue(options));
-  }
-
-  private BuiltinResult connectionSeconds(BuiltinCall call, boolean connected) {
-    long target = ((ObjectValue) call.arguments().getFirst()).value();
-    OptionalLong connectionId = connectionRegistry().connectionId(target);
-    if (connectionId.isEmpty()) {
-      return BuiltinResult.error(ErrorValue.E_INVARG);
-    }
-    ConnectionState connection = connections().get(connectionId.orElseThrow());
-    if (connection == null || (connected && connection.connectedNanos.isEmpty())) {
-      return BuiltinResult.error(ErrorValue.E_INVARG);
-    }
-    long since =
-        connected ? connection.connectedNanos.orElseThrow() : connection.lastActivityNanos;
-    return BuiltinResult.value(new IntegerValue(elapsedSeconds(since)));
-  }
-
   long elapsedSeconds(long sinceNanos) {
     long elapsedNanos = nanoTime.getAsLong() - sinceNanos;
     return TimeUnit.NANOSECONDS.toSeconds(Math.max(0L, elapsedNanos));
-  }
-
-  private BuiltinResult outputDelimiters(
-      List<MooValue> arguments, WorldTxn world, long programmer) {
-    long target = ((ObjectValue) arguments.getFirst()).value();
-    boolean wizard =
-        world.isWizard(programmer);
-    if (target != programmer && !wizard) {
-      return BuiltinResult.error(ErrorValue.E_PERM);
-    }
-    OptionalLong connectionId = connectionRegistry().connectionId(target);
-    if (connectionId.isEmpty()) {
-      return BuiltinResult.error(ErrorValue.E_INVARG);
-    }
-    ConnectionState connection = connections().get(connectionId.orElseThrow());
-    if (connection == null) {
-      return BuiltinResult.error(ErrorValue.E_INVARG);
-    }
-    return BuiltinResult.value(
-        new ListValue(
-            List.of(
-                StringValue.of(connection.prefix.orElse("")), StringValue.of(connection.suffix.orElse("")))));
-  }
-
-  private BuiltinResult queueInfo(
-      List<MooValue> arguments, WorldTxn world, long programmer, TaskRegistry taskRegistry) {
-    if (arguments.isEmpty()) {
-      Set<Long> players = new LinkedHashSet<>();
-      for (Map.Entry<Long, ConnectionState> entry : connections().entrySet()) {
-        players.add(connectionRegistry().connectionPlayer(entry.getKey()).orElse(entry.getKey()));
-      }
-      players.addAll(taskRegistry.queuePlayers());
-      return BuiltinResult.value(
-          new ListValue(players.stream().map(ObjectValue::new).map(MooValue.class::cast).toList()));
-    }
-
-    long target = ((ObjectValue) arguments.getFirst()).value();
-    long backgroundTasks = taskRegistry.backgroundTaskCount(target);
-    boolean wizard =
-        world.isWizard(programmer);
-    if (!wizard) {
-      return BuiltinResult.value(new IntegerValue(backgroundTasks));
-    }
-
-    Map.Entry<Long, ConnectionState> selected = null;
-    for (Map.Entry<Long, ConnectionState> entry : connections().entrySet()) {
-      if (entry.getKey() == target
-          || connectionRegistry().connectionPlayer(entry.getKey()).orElse(Long.MIN_VALUE)
-              == target) {
-        selected = entry;
-        break;
-      }
-    }
-    if (selected == null && backgroundTasks == 0) {
-      return BuiltinResult.value(new IntegerValue(0));
-    }
-
-    ConnectionState connection = selected == null ? null : selected.getValue();
-    long player =
-        selected == null
-            ? target
-            : connectionRegistry().connectionPlayer(selected.getKey()).orElse(target);
-    long inputLength =
-        connection == null
-            ? 0
-            : connection.pendingInput.stream().mapToLong(String::length).sum();
-    Map<MooValue, MooValue> values = new LinkedHashMap<>();
-    values.put(StringValue.of("player"), new ObjectValue(player));
-    values.put(
-        StringValue.of("handler"),
-        new ObjectValue(connection == null ? -1 : connection.listenerHandler));
-    values.put(StringValue.of("connected"), BooleanValue.of(connection != null));
-    values.put(StringValue.of("total_input_length"), new IntegerValue(inputLength));
-    values.put(StringValue.of("last_input_task_id"), new IntegerValue(scheduler.lastInputTask(player)));
-    values.put(
-        StringValue.of("input_suspended"),
-        BooleanValue.of(connection != null && connection.holdInput));
-    values.put(StringValue.of("usage"), new IntegerValue(0));
-    values.put(StringValue.of("num_bg_tasks"), new IntegerValue(backgroundTasks));
-    // Toast's queue_info() exposes hold_input from its zero-valued usage field.
-    values.put(StringValue.of("hold_input"), BooleanValue.FALSE);
-    values.put(
-        StringValue.of("disable_oob"),
-        BooleanValue.of(connection != null && connection.disableOob));
-    values.put(StringValue.of("reading"), BooleanValue.FALSE);
-    values.put(StringValue.of("parsing"), BooleanValue.FALSE);
-    values.put(StringValue.of("reading_task_id"), new IntegerValue(0));
-    return BuiltinResult.value(new MapValue(values));
   }
 
   private BuiltinResult dbDiskSize() {
@@ -1686,178 +1411,6 @@ public final class MooRuntime implements AutoCloseable, SchedulerRuntime {
     } catch (IOException error) {
       return BuiltinResult.raised(ErrorValue.E_QUOTA,
           StringValue.of("No database file(s) available"), new IntegerValue(0));
-    }
-  }
-
-  private BuiltinResult flushInput(
-      List<MooValue> arguments, WorldTxn world, long programmer) {
-    long target = ((ObjectValue) arguments.getFirst()).value();
-    boolean wizard =
-        world.isWizard(programmer);
-    if (target != programmer && !wizard) {
-      return BuiltinResult.error(ErrorValue.E_PERM);
-    }
-
-    Map.Entry<Long, ConnectionState> selected = null;
-    for (Map.Entry<Long, ConnectionState> entry : connections().entrySet()) {
-      if (entry.getKey() == target
-          || connectionRegistry().connectionPlayer(entry.getKey()).orElse(Long.MIN_VALUE)
-              == target) {
-        selected = entry;
-        break;
-      }
-    }
-    if (selected == null) {
-      return BuiltinResult.value(new IntegerValue(0));
-    }
-
-    ConnectionState connection = selected.getValue();
-    List<String> pending = List.copyOf(connection.pendingInput);
-    connection.pendingInput.clear();
-    if (arguments.size() == 2 && arguments.get(1).isTruthy()) {
-      List<String> output = new ArrayList<>();
-      if (pending.isEmpty()) {
-        output.add(">> No pending input to flush...");
-      } else {
-        output.add(">> Flushing the following pending input:");
-        pending.forEach(line -> output.add(">>     " + line));
-        output.add(">> (Done flushing)");
-      }
-      effects().add(RuntimeEffect.write(selected.getKey(), output));
-    }
-    return BuiltinResult.value(new IntegerValue(0));
-  }
-
-  private static ListValue connectionOptionPair(String name, MooValue value) {
-    return new ListValue(List.of(StringValue.of(name), value));
-  }
-
-  private void applyForcedInputRequests(VmState task) {
-    for (ForcedInputRequest request : task.drainForcedInputRequests()) {
-      long connectionId = request.target();
-      if (!connections().containsKey(connectionId)) {
-        for (Map.Entry<Long, ConnectionState> entry : connections().entrySet()) {
-          if (connectionRegistry().connectionPlayer(entry.getKey()).orElse(Long.MIN_VALUE)
-              == request.target()) {
-            connectionId = entry.getKey();
-            break;
-          }
-        }
-      }
-      if (!connections().containsKey(connectionId)) {
-        continue;
-      }
-      effects().add(RuntimeEffect.input(connectionId, request.line()));
-    }
-  }
-
-  private void applyNotificationRequests(VmState task, long taskPlayer) {
-    for (NotificationRequest request : task.drainNotificationRequests()) {
-      long notificationPlayer =
-          connectionRegistry()
-              .connectionPlayer(request.connectionId())
-              .orElse(request.connectionId());
-      boolean ordinaryCurrentPlayerOutput =
-          notificationPlayer == taskPlayer && !request.noFlush() && !request.noNewline();
-      if (ordinaryCurrentPlayerOutput || listenerControl.isEmpty()) {
-        task.stageRuntimeOutput(request.line());
-      } else {
-        effects()
-            .add(
-                RuntimeEffect.notify(
-                    request.connectionId(),
-                    request.line(),
-                    request.noFlush(),
-                    request.noNewline()));
-      }
-    }
-  }
-
-  private void applyBootPlayerTargets(VmState task, long taskPlayer) {
-    for (long target : task.drainBootPlayerTargets()) {
-      long connectionId = target;
-      ConnectionState connection = connections().get(connectionId);
-      if (connection == null) {
-        for (Map.Entry<Long, ConnectionState> entry : connections().entrySet()) {
-          if (connectionRegistry().connectionPlayer(entry.getKey()).orElse(Long.MIN_VALUE)
-              == target) {
-            connectionId = entry.getKey();
-            connection = entry.getValue();
-            break;
-          }
-        }
-      }
-      if (connection == null) {
-        continue;
-      }
-
-      long disconnectedPlayer = connectionRegistry().connectionPlayer(connectionId).orElse(target);
-      if (disconnectedPlayer == taskPlayer) {
-        long outputConnectionId = connectionId;
-        if (listenerControl.isPresent()) {
-          effects().add(RuntimeEffect.write(outputConnectionId, task.output()));
-        }
-      }
-      long listenerHandler = connection.listenerHandler;
-      List<String> lines = new ArrayList<>();
-      if (connection.printMessages) {
-        lines.addAll(serverMessage(listenerHandler, "boot_msg", "*** Disconnected ***"));
-      }
-      connections().remove(connectionId);
-      connectionRegistry().closeConnection(connectionId);
-      Optional<ResolvedVerb> disconnected = world().resolveVerb(listenerHandler, "user_disconnected", true);
-      if (disconnected.isPresent()) {
-        spawnedSteps()
-            .add(
-                startStored(
-                    disconnected.orElseThrow(),
-                    new RootVerbCall(
-                        listenerHandler,
-                        disconnectedPlayer,
-                        -1,
-                        "user_disconnected",
-                        new ListValue(List.of(new ObjectValue(disconnectedPlayer))),
-                        ""),
-                    RuntimeContinuation.after(
-                        RuntimeTransition.BOOT_PLAYER_USER_DISCONNECTED_THEN_BOOT,
-                        connectionId,
-                        "",
-                        lines,
-                        0,
-                        0,
-                        false)));
-      } else {
-        finishBootPlayer(connectionId, lines);
-      }
-    }
-  }
-
-  private RuntimeStep finishBootPlayer(long connectionId, List<String> lines) {
-    if (listenerControl.isPresent()) {
-      effects().add(RuntimeEffect.boot(connectionId, lines));
-    }
-    return RuntimeStep.returned(List.of());
-  }
-
-  private void closeRecycledPlayerConnections() {
-    for (Map.Entry<Long, ConnectionState> entry : new ArrayList<>(connections().entrySet())) {
-      long connectionId = entry.getKey();
-      long player = connectionRegistry().connectionPlayer(connectionId).orElse(Long.MIN_VALUE);
-      if (player < 0 || world().object(player).isPresent()) {
-        continue;
-      }
-
-      ConnectionState connection = entry.getValue();
-      connections().remove(connectionId);
-      connectionRegistry().closeConnection(connectionId);
-      List<String> lines = new ArrayList<>();
-      if (connection.printMessages) {
-        lines.addAll(
-            serverMessage(connection.listenerHandler, "recycle_msg", "*** Recycled ***"));
-      }
-      if (listenerControl.isPresent()) {
-        effects().add(RuntimeEffect.boot(connectionId, lines));
-      }
     }
   }
 
@@ -1953,7 +1506,7 @@ public final class MooRuntime implements AutoCloseable, SchedulerRuntime {
               ? RuntimeStep.returned(state.output())
               : loginFlow.executeLoginAuthentication(requireAttempt(), continuation.connectionId(), continuation.text());
       case LOGIN_AUTHENTICATE_AND_ASSOCIATE ->
-          loginFlow.finishLogin(requireAttempt(), 
+          loginFlow.finishLogin(requireAttempt(),
               continuation.connectionId(), continuation.first(), state);
       case LOGIN_RECONNECTED_HOOK_THEN_RETURN,
           LOGIN_NEW_USER_CONNECTED_THEN_RETURN,
@@ -1965,7 +1518,7 @@ public final class MooRuntime implements AutoCloseable, SchedulerRuntime {
       case LOGIN_TIMEOUT_USER_DISCONNECTED_THEN_BOOT ->
           loginFlow.finishLoginTimeout(requireAttempt(), continuation.connectionId(), continuation.output());
       case BOOT_PLAYER_USER_DISCONNECTED_THEN_BOOT ->
-          finishBootPlayer(continuation.connectionId(), continuation.output());
+          connectionIo.finishBootPlayer(requireAttempt(), continuation.connectionId(), continuation.output());
       case ANONYMOUS_FINALIZATION_RETURN -> RuntimeStep.returned(List.of());
       case WAIF_FINALIZATION_RETURN -> {
         finalizationCollector.finishWaifFinalization(requireAttempt(), (WaifValue) continuation.finalizationControl().orElseThrow().target());
@@ -2242,15 +1795,7 @@ public final class MooRuntime implements AutoCloseable, SchedulerRuntime {
       context.baseSessionRevision = sessionRevision;
       readRegistrations = List.copyOf(context.readRegistrations);
       context.readRegistrations.clear();
-      for (ReadRegistration registration : readRegistrations) {
-        if (!publishedConnections.containsKey(registration.connectionId())) {
-          registration.completion().complete(BuiltinResult.error(ErrorValue.E_INVARG));
-        } else if (pendingReads.putIfAbsent(
-                registration.connectionId(), registration.completion())
-            != null) {
-          registration.completion().complete(BuiltinResult.error(ErrorValue.E_INVARG));
-        }
-      }
+      connectionIo.registerReads(readRegistrations, publishedConnections.keySet());
       publishedEffects = List.copyOf(context.effects);
       context.effects.clear();
     }
@@ -2298,7 +1843,7 @@ public final class MooRuntime implements AutoCloseable, SchedulerRuntime {
           listenerControl.ifPresent(
               control -> control.setConnectionKeepAlive(effect.connectionId, effect.keepAlive));
       case INPUT -> {
-        if (!deliverPendingRead(effect.connectionId, effect.text)) {
+        if (!connectionIo.deliverPendingRead(effect.connectionId, effect.text)) {
           scheduler.enqueueDetached(RuntimeRequest.line(effect.connectionId, effect.text));
         }
       }

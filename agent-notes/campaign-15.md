@@ -32,4 +32,6 @@ FinalizationCollector now owns the static tracing closure and the instance final
 
 The collector is committed, and the parent's canonical installed-verb compilation repair is integrated. LoginFlow now owns authentication, redirected association, connected hooks and the unauthenticated timeout monitor. Its attempt methods take AttemptContext; the monitor continues submitting timeout requests to the same scheduler and starts only from committed publication.
 
-Next: commit LoginFlow, extract ConnectionIo while retaining one pending-read owner and lock, then finish dispatch phases and explicit-context plumbing.
+LoginFlow is committed. ConnectionIo now owns read registration/waiting/delivery, options, forced input, notifications, boot requests and recycled-player connections. Its pendingReads map has one owner and retains the runtime monitor used by publication; read registrations still become visible only inside publishAttempt after committed session publication. Attempt methods receive the existing AttemptContext.
+
+Next: commit ConnectionIo, finish the remaining oversized command phases, then thread explicit context through the runtime, scheduler and builtin invocation carrier.
