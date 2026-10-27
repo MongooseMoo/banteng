@@ -10,7 +10,6 @@ import java.util.OptionalLong;
 import world.mongoose.banteng.builtin.BuiltinCatalog;
 import world.mongoose.banteng.builtin.BuiltinResult;
 import world.mongoose.banteng.bytecode.BytecodeProgram;
-import world.mongoose.banteng.bytecode.BytecodeProgram.Instruction;
 import world.mongoose.banteng.bytecode.MooCompiler;
 import world.mongoose.banteng.value.MooValue;
 import world.mongoose.banteng.value.ValueSemantics;
@@ -23,83 +22,15 @@ import world.mongoose.banteng.value.MooValue.StringValue;
 import world.mongoose.banteng.value.MooValue.WaifValue;
 import world.mongoose.banteng.vm.VmState.Frame;
 import world.mongoose.banteng.vm.VmState.IndexContext;
-import world.mongoose.banteng.world.ObjectFlags;
 import world.mongoose.banteng.world.WorldObject;
 import world.mongoose.banteng.world.WorldTxn;
 import world.mongoose.banteng.world.WorldVerb;
 
 /** Indexing, slicing, and indexed-assignment operations. */
 final class IndexOps {
-  enum Operation {
-    ENTER_INDEX,
-    INDEX,
-    RANGE,
-    FIRST,
-    LAST,
-    SET_INDEX_LOCAL,
-    SET_INDEX_PROPERTY,
-    SET_RANGE_LOCAL,
-    SET_RANGE_PROPERTY
-  }
-
   private IndexOps() {}
 
-  static boolean execute(
-      Operation operation, VmState state, Instruction instruction, Frame frame, WorldTxn world) {
-    return switch (operation) {
-      case ENTER_INDEX -> {
-        frame.indexCollections.push(
-            new IndexContext(
-                frame.operandStack.getFirst(), Optional.empty(), frame.operandStack.size()));
-        frame.instructionPointer++;
-        yield true;
-      }
-      case INDEX -> {
-        index(frame, state, world, Math.toIntExact(instruction.operand().orElse(0)));
-        yield true;
-      }
-      case RANGE -> {
-        range(frame, state, world);
-        yield true;
-      }
-      case FIRST -> {
-        boundaryIndex(frame, state, world, false);
-        yield true;
-      }
-      case LAST -> {
-        boundaryIndex(frame, state, world, true);
-        yield true;
-      }
-      case SET_INDEX_LOCAL -> {
-        setIndexedLocal(
-            frame,
-            state,
-            world,
-            instruction.text().orElseThrow(),
-            Math.toIntExact(instruction.operand().orElse(0)));
-        yield true;
-      }
-      case SET_INDEX_PROPERTY -> {
-        setIndexedProperty(frame, state, world);
-        yield true;
-      }
-      case SET_RANGE_LOCAL -> {
-        setRange(
-            frame,
-            state,
-            world,
-            instruction.text(),
-            Math.toIntExact(instruction.operand().orElse(0)));
-        yield true;
-      }
-      case SET_RANGE_PROPERTY -> {
-        setRange(frame, state, world, Optional.empty(), 0);
-        yield true;
-      }
-    };
-  }
-
-  private static void index(Frame frame, VmState state, WorldTxn world, int parentDepth) {
+  static void index(Frame frame, VmState state, WorldTxn world, int parentDepth) {
     IndexContext context = frame.indexCollections.pop();
     MooValue index = frame.operandStack.pop();
     MooValue collection = frame.operandStack.pop();
@@ -167,7 +98,7 @@ final class IndexOps {
     return -1;
   }
 
-  private static void boundaryIndex(
+  static void boundaryIndex(
       Frame frame, VmState state, WorldTxn world, boolean last) {
     MooValue collection = frame.indexCollections.getFirst().collection();
     if (collection instanceof MapValue map) {
@@ -199,7 +130,7 @@ final class IndexOps {
     frame.instructionPointer++;
   }
 
-  private static void range(Frame frame, VmState state, WorldTxn world) {
+  static void range(Frame frame, VmState state, WorldTxn world) {
     frame.indexCollections.pop();
     MooValue end = frame.operandStack.pop();
     MooValue start = frame.operandStack.pop();
@@ -276,7 +207,7 @@ final class IndexOps {
     frame.instructionPointer++;
   }
 
-  private static void setIndexedLocal(
+  static void setIndexedLocal(
       Frame frame, VmState state, WorldTxn world, String owner, int parentDepth) {
     frame.indexCollections.pop();
     MooValue value = frame.operandStack.pop();
@@ -320,8 +251,7 @@ final class IndexOps {
       ErrorOps.raise(state, ErrorValue.E_INVIND, world);
       return;
     }
-    WorldObject classOwner = world.object(waifClass.owner()).orElse(null);
-    if (classOwner == null || !ObjectFlags.isWizard(classOwner.flags())) {
+    if (!world.isWizard(waifClass.owner())) {
       ErrorOps.raise(state, ErrorValue.E_TYPE, world);
       return;
     }
@@ -362,7 +292,7 @@ final class IndexOps {
         OptionalLong.empty(),
         verbName,
         verb.names(),
-        (verb.permissions() & 8) != 0)) {
+        verb.perms().debug())) {
       ErrorOps.raise(state, ErrorValue.E_MAXREC, world, false);
     }
   }
@@ -406,7 +336,7 @@ final class IndexOps {
     return Optional.empty();
   }
 
-  private static void setIndexedProperty(Frame frame, VmState state, WorldTxn world) {
+  static void setIndexedProperty(Frame frame, VmState state, WorldTxn world) {
     frame.indexCollections.pop();
     MooValue value = frame.operandStack.pop();
     MooValue key = frame.operandStack.pop();
@@ -451,7 +381,7 @@ final class IndexOps {
     }
   }
 
-  private static void setRange(
+  static void setRange(
       Frame frame, VmState state, WorldTxn world, Optional<String> owner, int parentDepth) {
     frame.indexCollections.pop();
     MooValue value = frame.operandStack.pop();

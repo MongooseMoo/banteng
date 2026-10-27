@@ -23,87 +23,13 @@ import world.mongoose.banteng.world.WorldTxn;
 
 /** Fork, branch, handler, loop, scatter, and return operations. */
 final class LoopOps {
-  enum Operation {
-    FORK,
-    JUMP,
-    JUMP_IF_FALSE,
-    JUMP_IF_TRUE,
-    ENTER_HANDLER,
-    LEAVE_HANDLER,
-    END_FINALLY,
-    ITERATE,
-    ITERATE_RANGE,
-    LEAVE_LOOP,
-    SCATTER,
-    RETURN
-  }
-
   private LoopOps() {}
-
-  static boolean execute(
-      Operation operation, VmState state, Instruction instruction, Frame frame, WorldTxn world) {
-    return switch (operation) {
-      case FORK -> {
-        fork(instruction, frame, state, world);
-        yield true;
-      }
-      case JUMP -> {
-        frame.instructionPointer = target(instruction);
-        yield true;
-      }
-      case JUMP_IF_FALSE -> {
-        conditionalJump(instruction, frame, false);
-        yield true;
-      }
-      case JUMP_IF_TRUE -> {
-        conditionalJump(instruction, frame, true);
-        yield true;
-      }
-      case ENTER_HANDLER -> {
-        frame.handlers.push(
-            new ActiveHandler(instruction.handler().orElseThrow(), frame.operandStack.size()));
-        frame.instructionPointer++;
-        yield true;
-      }
-      case LEAVE_HANDLER -> {
-        leaveHandler(frame);
-        yield true;
-      }
-      case END_FINALLY -> {
-        endFinally(state, world);
-        yield true;
-      }
-      case ITERATE -> {
-        iterate(instruction, frame, state, world);
-        yield true;
-      }
-      case ITERATE_RANGE -> {
-        iterateRange(instruction, frame, state, world);
-        yield true;
-      }
-      case LEAVE_LOOP -> {
-        frame.loops.remove(Math.toIntExact(instruction.operand().orElseThrow()));
-        frame.instructionPointer++;
-        yield true;
-      }
-      case SCATTER -> {
-        scatter(instruction, frame, state, world);
-        yield true;
-      }
-      case RETURN -> {
-        MooValue value = frame.operandStack.pop();
-        frame.instructionPointer++;
-        routeReturn(state, value, world);
-        yield true;
-      }
-    };
-  }
 
   static void routeReturn(VmState state, MooValue value, WorldTxn world) {
     routeReturnInternal(state, value, world);
   }
 
-  private static void fork(Instruction instruction, Frame frame, VmState state, WorldTxn world) {
+  static void fork(Instruction instruction, Frame frame, VmState state, WorldTxn world) {
     MooValue delay = frame.operandStack.pop();
     double seconds;
     if (delay instanceof IntegerValue integer) {
@@ -124,13 +50,13 @@ final class LoopOps {
     state.requestFork(child, seconds);
   }
 
-  private static void conditionalJump(Instruction instruction, Frame frame, boolean truth) {
+  static void conditionalJump(Instruction instruction, Frame frame, boolean truth) {
     MooValue condition = frame.operandStack.pop();
     frame.instructionPointer =
         condition.isTruthy() == truth ? target(instruction) : frame.instructionPointer + 1;
   }
 
-  private static void leaveHandler(Frame frame) {
+  static void leaveHandler(Frame frame) {
     ActiveHandler handler = frame.handlers.pop();
     if (handler.specification.finallyTarget() >= 0) {
       frame.finallyContinuations.push(
@@ -141,7 +67,7 @@ final class LoopOps {
     }
   }
 
-  private static void endFinally(VmState state, WorldTxn world) {
+  static void endFinally(VmState state, WorldTxn world) {
     Frame frame = state.currentFrame();
     VmSnapshot.FinallyState continuation = frame.finallyContinuations.pop();
     switch (continuation) {
@@ -172,7 +98,7 @@ final class LoopOps {
     }
   }
 
-  private static void iterate(Instruction instruction, Frame frame, VmState state, WorldTxn world) {
+  static void iterate(Instruction instruction, Frame frame, VmState state, WorldTxn world) {
     int instructionIndex = frame.instructionPointer;
     LoopCursor cursor = frame.loops.get(instructionIndex);
     if (cursor == null) {
@@ -257,7 +183,7 @@ final class LoopOps {
     return Optional.of(new CollectionElement(value, new IntegerValue(oneBasedIndex)));
   }
 
-  private static void iterateRange(
+  static void iterateRange(
       Instruction instruction, Frame frame, VmState state, WorldTxn world) {
     int instructionIndex = frame.instructionPointer;
     LoopCursor cursor = frame.loops.get(instructionIndex);
@@ -313,7 +239,7 @@ final class LoopOps {
 
   private record CollectionElement(MooValue value, MooValue indexOrKey) {}
 
-  private static void scatter(Instruction instruction, Frame frame, VmState state, WorldTxn world) {
+  static void scatter(Instruction instruction, Frame frame, VmState state, WorldTxn world) {
     String[] names = instruction.text().orElseThrow().split(",", -1);
     MooValue[] defaults = new MooValue[names.length];
     for (int index = names.length - 1; index >= 0; index--) {
@@ -416,7 +342,7 @@ final class LoopOps {
     state.finishFrame(value);
   }
 
-  private static int target(Instruction instruction) {
+  static int target(Instruction instruction) {
     return Math.toIntExact(instruction.operand().orElseThrow());
   }
 

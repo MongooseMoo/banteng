@@ -1,10 +1,9 @@
 package world.mongoose.banteng.vm;
 
-import java.util.Objects;
 import java.util.Optional;
 import world.mongoose.banteng.builtin.BuiltinCatalog;
 import world.mongoose.banteng.builtin.BuiltinResult;
-import world.mongoose.banteng.bytecode.BytecodeProgram.Instruction;
+import world.mongoose.banteng.bytecode.BytecodeProgram.Opcode;
 import world.mongoose.banteng.value.MooValue;
 import world.mongoose.banteng.value.MooValue.BooleanValue;
 import world.mongoose.banteng.value.MooValue.ErrorValue;
@@ -21,59 +20,6 @@ import world.mongoose.banteng.world.WorldTxn;
 
 /** Numeric, bitwise, equality, ordering, and membership operations. */
 final class ArithmeticOps {
-  enum Operation {
-    NEGATE,
-    NOT,
-    COMPLEMENT,
-    ADD,
-    SUBTRACT,
-    MULTIPLY,
-    DIVIDE,
-    REMAINDER,
-    POWER,
-    BITOR,
-    BITAND,
-    BITXOR,
-    BITSHL,
-    BITSHR,
-    EQUAL,
-    NOT_EQUAL,
-    LESS_THAN,
-    LESS_THAN_OR_EQUAL,
-    GREATER_THAN,
-    GREATER_THAN_OR_EQUAL,
-    IN
-  }
-
-  private enum NumericOperation {
-    ADD,
-    SUBTRACT,
-    MULTIPLY,
-    DIVIDE,
-    REMAINDER,
-    POWER
-  }
-
-  private enum BitwiseOperation {
-    OR,
-    AND,
-    XOR,
-    SHIFT_LEFT,
-    SHIFT_RIGHT
-  }
-
-  private enum EqualityOperation {
-    EQUAL,
-    NOT_EQUAL
-  }
-
-  private enum ComparisonOperation {
-    LESS_THAN,
-    LESS_THAN_OR_EQUAL,
-    GREATER_THAN,
-    GREATER_THAN_OR_EQUAL
-  }
-
   private enum Ordering {
     LESS,
     EQUAL,
@@ -83,110 +29,13 @@ final class ArithmeticOps {
 
   private ArithmeticOps() {}
 
-  static boolean execute(
-      Operation operation,
-      VmState state,
-      Instruction instruction,
-      Frame frame,
-      WorldTxn world,
-      ValueSemantics valueSemantics) {
-    Objects.requireNonNull(instruction, "instruction");
-    return switch (operation) {
-      case NEGATE -> {
-        unaryNegate(frame, state, world);
-        yield true;
-      }
-      case NOT -> {
-        logicalNot(frame);
-        yield true;
-      }
-      case COMPLEMENT -> {
-        bitwiseComplement(frame, state, world);
-        yield true;
-      }
-      case ADD -> {
-        arithmetic(NumericOperation.ADD, frame, state, world, valueSemantics);
-        yield true;
-      }
-      case SUBTRACT -> {
-        arithmetic(NumericOperation.SUBTRACT, frame, state, world, valueSemantics);
-        yield true;
-      }
-      case MULTIPLY -> {
-        arithmetic(NumericOperation.MULTIPLY, frame, state, world, valueSemantics);
-        yield true;
-      }
-      case DIVIDE -> {
-        arithmetic(NumericOperation.DIVIDE, frame, state, world, valueSemantics);
-        yield true;
-      }
-      case REMAINDER -> {
-        arithmetic(NumericOperation.REMAINDER, frame, state, world, valueSemantics);
-        yield true;
-      }
-      case POWER -> {
-        arithmetic(NumericOperation.POWER, frame, state, world, valueSemantics);
-        yield true;
-      }
-      case BITOR -> {
-        bitwise(BitwiseOperation.OR, frame, state, world);
-        yield true;
-      }
-      case BITAND -> {
-        bitwise(BitwiseOperation.AND, frame, state, world);
-        yield true;
-      }
-      case BITXOR -> {
-        bitwise(BitwiseOperation.XOR, frame, state, world);
-        yield true;
-      }
-      case BITSHL -> {
-        bitwise(BitwiseOperation.SHIFT_LEFT, frame, state, world);
-        yield true;
-      }
-      case BITSHR -> {
-        bitwise(BitwiseOperation.SHIFT_RIGHT, frame, state, world);
-        yield true;
-      }
-      case EQUAL -> {
-        equality(EqualityOperation.EQUAL, frame, valueSemantics);
-        yield true;
-      }
-      case NOT_EQUAL -> {
-        equality(EqualityOperation.NOT_EQUAL, frame, valueSemantics);
-        yield true;
-      }
-      case LESS_THAN -> {
-        comparison(ComparisonOperation.LESS_THAN, frame, state, world, valueSemantics);
-        yield true;
-      }
-      case LESS_THAN_OR_EQUAL -> {
-        comparison(ComparisonOperation.LESS_THAN_OR_EQUAL, frame, state, world, valueSemantics);
-        yield true;
-      }
-      case GREATER_THAN -> {
-        comparison(ComparisonOperation.GREATER_THAN, frame, state, world, valueSemantics);
-        yield true;
-      }
-      case GREATER_THAN_OR_EQUAL -> {
-        comparison(
-            ComparisonOperation.GREATER_THAN_OR_EQUAL, frame, state, world, valueSemantics);
-        yield true;
-      }
-      case IN -> {
-        membership(frame, state, world, valueSemantics);
-        yield true;
-      }
-    };
-  }
-
-  private static void logicalNot(Frame frame) {
+  static void logicalNot(Frame frame) {
     MooValue value = frame.operandStack.pop();
     frame.operandStack.push(new IntegerValue(value.isTruthy() ? 0 : 1));
     frame.instructionPointer++;
   }
 
-  private static void membership(
+  static void membership(
       Frame frame, VmState state, WorldTxn world, ValueSemantics valueSemantics) {
     MooValue collection = frame.operandStack.pop();
     MooValue requested = frame.operandStack.pop();
@@ -225,7 +74,7 @@ final class ArithmeticOps {
     frame.instructionPointer++;
   }
 
-  private static void unaryNegate(Frame frame, VmState state, WorldTxn world) {
+  static void unaryNegate(Frame frame, VmState state, WorldTxn world) {
     MooValue operand = frame.operandStack.pop();
     if (operand instanceof IntegerValue integer) {
       frame.operandStack.push(new IntegerValue(-integer.value()));
@@ -245,7 +94,7 @@ final class ArithmeticOps {
     ErrorOps.raise(state, ErrorValue.E_TYPE, world);
   }
 
-  private static void bitwiseComplement(Frame frame, VmState state, WorldTxn world) {
+  static void bitwiseComplement(Frame frame, VmState state, WorldTxn world) {
     MooValue operand = frame.operandStack.pop();
     if (!(operand instanceof IntegerValue integer)) {
       ErrorOps.raise(state, ErrorValue.E_TYPE, world);
@@ -255,8 +104,8 @@ final class ArithmeticOps {
     frame.instructionPointer++;
   }
 
-  private static void bitwise(
-      BitwiseOperation operation, Frame frame, VmState state, WorldTxn world) {
+  static void bitwise(
+      Opcode operation, Frame frame, VmState state, WorldTxn world) {
     MooValue rightValue = frame.operandStack.pop();
     MooValue leftValue = frame.operandStack.pop();
     if (!(leftValue instanceof IntegerValue left)
@@ -264,7 +113,7 @@ final class ArithmeticOps {
       ErrorOps.raise(state, ErrorValue.E_TYPE, world);
       return;
     }
-    if ((operation == BitwiseOperation.SHIFT_LEFT || operation == BitwiseOperation.SHIFT_RIGHT)
+    if ((operation == Opcode.BITSHL || operation == Opcode.BITSHR)
         && (right.value() < 0 || right.value() > Long.SIZE)) {
       ErrorOps.raise(state, ErrorValue.E_INVARG, world, false);
       return;
@@ -274,25 +123,26 @@ final class ArithmeticOps {
     frame.instructionPointer++;
   }
 
-  private static long bitwiseResult(BitwiseOperation operation, long left, long right) {
+  private static long bitwiseResult(Opcode operation, long left, long right) {
     return switch (operation) {
-      case OR -> left | right;
-      case AND -> left & right;
-      case XOR -> left ^ right;
-      case SHIFT_LEFT -> right == Long.SIZE ? 0 : left << right;
-      case SHIFT_RIGHT -> right == Long.SIZE ? 0 : left >>> right;
+      case BITOR -> left | right;
+      case BITAND -> left & right;
+      case BITXOR -> left ^ right;
+      case BITSHL -> right == Long.SIZE ? 0 : left << right;
+      case BITSHR -> right == Long.SIZE ? 0 : left >>> right;
+      default -> throw new IllegalArgumentException("unsupported arithmetic opcode: " + operation);
     };
   }
 
-  private static void arithmetic(
-      NumericOperation operation,
+  static void arithmetic(
+      Opcode operation,
       Frame frame,
       VmState state,
       WorldTxn world,
       ValueSemantics valueSemantics) {
     MooValue rightValue = frame.operandStack.pop();
     MooValue leftValue = frame.operandStack.pop();
-    if (operation == NumericOperation.ADD
+    if (operation == Opcode.ADD
         && leftValue instanceof StringValue left
         && rightValue instanceof StringValue right) {
       Optional<BuiltinResult> error =
@@ -314,14 +164,14 @@ final class ArithmeticOps {
       frame.instructionPointer++;
       return;
     }
-    if (operation == NumericOperation.ADD
+    if (operation == Opcode.ADD
         && leftValue instanceof ListValue left
         && rightValue instanceof ListValue right) {
       frame.operandStack.push(left.concatenate(right));
       frame.instructionPointer++;
       return;
     }
-    if (operation == NumericOperation.ADD && leftValue instanceof ListValue left) {
+    if (operation == Opcode.ADD && leftValue instanceof ListValue left) {
       frame.operandStack.push(left.append(rightValue));
       frame.instructionPointer++;
       return;
@@ -335,7 +185,7 @@ final class ArithmeticOps {
         ErrorOps.raise(state, ErrorValue.E_DIV, world);
         return;
       }
-      if (operation == NumericOperation.POWER && left.value() == 0 && right.value() < 0) {
+      if (operation == Opcode.POWER && left.value() == 0 && right.value() < 0) {
         ErrorOps.raise(state, ErrorValue.E_DIV, world);
         return;
       }
@@ -343,7 +193,7 @@ final class ArithmeticOps {
       frame.instructionPointer++;
       return;
     }
-    if (operation == NumericOperation.POWER
+    if (operation == Opcode.POWER
         && leftValue instanceof FloatValue left
         && rightValue instanceof IntegerValue right) {
       if (left.value() == 0.0 && right.value() < 0) {
@@ -358,26 +208,26 @@ final class ArithmeticOps {
         ErrorOps.raise(state, ErrorValue.E_DIV, world);
         return;
       }
-      if (operation == NumericOperation.POWER && left.value() == 0.0 && right.value() < 0.0) {
+      if (operation == Opcode.POWER && left.value() == 0.0 && right.value() < 0.0) {
         ErrorOps.raise(state, ErrorValue.E_DIV, world);
         return;
       }
       pushFiniteFloat(frame, state, world, floatResult(operation, left.value(), right.value()));
       return;
     }
-    if (operation == NumericOperation.ADD && leftValue instanceof StringValue) {
+    if (operation == Opcode.ADD && leftValue instanceof StringValue) {
       ErrorOps.typeMismatch(state, "string", rightValue, world);
     } else {
       ErrorOps.raise(state, ErrorValue.E_TYPE, world);
     }
   }
 
-  private static boolean dividesByZero(NumericOperation operation, double right) {
-    return (operation == NumericOperation.DIVIDE || operation == NumericOperation.REMAINDER)
+  private static boolean dividesByZero(Opcode operation, double right) {
+    return (operation == Opcode.DIVIDE || operation == Opcode.REMAINDER)
         && right == 0.0;
   }
 
-  private static long integerResult(NumericOperation operation, long left, long right) {
+  private static long integerResult(Opcode operation, long left, long right) {
     return switch (operation) {
       case ADD -> left + right;
       case SUBTRACT -> left - right;
@@ -385,10 +235,11 @@ final class ArithmeticOps {
       case DIVIDE -> left == -Long.MAX_VALUE && right == -1 ? -Long.MAX_VALUE : left / right;
       case REMAINDER -> (left % right + right) % right;
       case POWER -> integerPower(left, right);
+      default -> throw new IllegalArgumentException("unsupported arithmetic opcode: " + operation);
     };
   }
 
-  private static double floatResult(NumericOperation operation, double left, double right) {
+  private static double floatResult(Opcode operation, double left, double right) {
     return switch (operation) {
       case ADD -> left + right;
       case SUBTRACT -> left - right;
@@ -396,6 +247,7 @@ final class ArithmeticOps {
       case DIVIDE -> left / right;
       case REMAINDER -> mooRemainder(left, right);
       case POWER -> Math.pow(left, right);
+      default -> throw new IllegalArgumentException("unsupported arithmetic opcode: " + operation);
     };
   }
 
@@ -434,20 +286,20 @@ final class ArithmeticOps {
     return result;
   }
 
-  private static void equality(
-      EqualityOperation operation, Frame frame, ValueSemantics valueSemantics) {
+  static void equality(
+      Opcode operation, Frame frame, ValueSemantics valueSemantics) {
     MooValue right = frame.operandStack.pop();
     MooValue left = frame.operandStack.pop();
     boolean equal = valueSemantics.equal(left, right, false);
-    if (operation == EqualityOperation.NOT_EQUAL) {
+    if (operation == Opcode.NOT_EQUAL) {
       equal = !equal;
     }
     frame.operandStack.push(new IntegerValue(equal ? 1 : 0));
     frame.instructionPointer++;
   }
 
-  private static void comparison(
-      ComparisonOperation operation,
+  static void comparison(
+      Opcode operation,
       Frame frame,
       VmState state,
       WorldTxn world,
@@ -495,7 +347,7 @@ final class ArithmeticOps {
     return comparison > 0 ? Ordering.GREATER : Ordering.EQUAL;
   }
 
-  private static boolean comparisonResult(ComparisonOperation operation, Ordering comparison) {
+  private static boolean comparisonResult(Opcode operation, Ordering comparison) {
     return switch (operation) {
       case LESS_THAN -> comparison == Ordering.LESS;
       case LESS_THAN_OR_EQUAL ->
@@ -503,6 +355,7 @@ final class ArithmeticOps {
       case GREATER_THAN -> comparison == Ordering.GREATER;
       case GREATER_THAN_OR_EQUAL ->
           comparison == Ordering.GREATER || comparison == Ordering.EQUAL;
+      default -> throw new IllegalArgumentException("unsupported arithmetic opcode: " + operation);
     };
   }
 

@@ -16,6 +16,7 @@ import world.mongoose.banteng.server.ConnectionRegistry;
 import world.mongoose.banteng.value.MooValue.IntegerValue;
 import world.mongoose.banteng.value.MooValue.MapValue;
 import world.mongoose.banteng.value.MooValue.ObjectValue;
+import world.mongoose.banteng.world.PropertyPerms;
 import world.mongoose.banteng.world.WorldProperty;
 import world.mongoose.banteng.world.WorldTxn;
 
@@ -65,8 +66,7 @@ final class SchedulerTestHarness implements AutoCloseable {
               ? transaction.writeObjectProperty(
                       0, "scheduler_counter", new IntegerValue(value))
                   .isOk()
-              : transaction.addProperty(
-                      0, "scheduler_counter", new IntegerValue(value), 0, 3)
+              : transaction.addProperty(0, "scheduler_counter", new IntegerValue(value), 0, new PropertyPerms(3))
                   .isOk();
       assertTrue(written);
       assertTrue(transaction.commit().isCommitted());
@@ -89,8 +89,7 @@ final class SchedulerTestHarness implements AutoCloseable {
               ? transaction.writeObjectProperty(
                       serverOptions.value(), name, new IntegerValue(value))
                   .isOk()
-              : transaction.addProperty(
-                      serverOptions.value(), name, new IntegerValue(value), 0, 3)
+              : transaction.addProperty(serverOptions.value(), name, new IntegerValue(value), 0, new PropertyPerms(3))
                   .isOk();
       assertTrue(written);
       assertTrue(transaction.commit().isCommitted());

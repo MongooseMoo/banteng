@@ -45,7 +45,7 @@ final class VerbCacheTest {
   void mutationBeforeLazyAllocationDoesNotInventAGeneration() {
     WorldTxn root = world();
     try (WorldTxn transaction = root.begin()) {
-      assertTrue(transaction.setVerbArgs(1, 0, 1, -1, 0).isOk());
+      assertTrue(transaction.setVerbArgs(1, 0, ArgSpec.ANY, -1, ArgSpec.NONE).isOk());
       assertTrue(transaction.commit().isCommitted());
     }
 
@@ -62,7 +62,7 @@ final class VerbCacheTest {
     }
 
     try (WorldTxn transaction = root.begin()) {
-      assertTrue(transaction.setVerbInfo(1, 0, "examine", 1, 4).isOk());
+      assertTrue(transaction.setVerbInfo(1, 0, "examine", 1, new VerbPerms(4)).isOk());
       assertTrue(transaction.commit().isCommitted());
     }
 
@@ -96,7 +96,7 @@ final class VerbCacheTest {
         root.verbCacheStats());
 
     try (WorldTxn transaction = root.begin()) {
-      assertTrue(transaction.setVerbArgs(1, 0, 1, -1, 0).isOk());
+      assertTrue(transaction.setVerbArgs(1, 0, ArgSpec.ANY, -1, ArgSpec.NONE).isOk());
       assertTrue(transaction.commit().isCommitted());
     }
     assertTrue(stale.verb(2, "look").isPresent());
@@ -107,7 +107,14 @@ final class VerbCacheTest {
   }
 
   private static WorldTxn world() {
-    WorldVerb look = new WorldVerb("look", 1, 4, -1, "return 1;");
+    WorldVerb look = new WorldVerb(
+        "look",
+        1,
+        new VerbPerms(4),
+        ArgSpec.NONE,
+        -1,
+        ArgSpec.NONE,
+        "return 1;");
     WorldObject parent =
         new WorldObject(
             1,

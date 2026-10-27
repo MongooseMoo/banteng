@@ -7,6 +7,7 @@ import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.List;
+import java.util.ArrayList;
 import java.util.Map;
 import world.mongoose.banteng.builtin.BuiltinCatalog;
 import world.mongoose.banteng.builtin.BuiltinHosts;
@@ -30,6 +31,9 @@ import world.mongoose.banteng.value.MooValue.ObjectValue;
 import world.mongoose.banteng.value.MooValue.StringValue;
 import world.mongoose.banteng.value.MooValue.WaifValue;
 import world.mongoose.banteng.value.ValueSemantics;
+import world.mongoose.banteng.world.ArgSpec;
+import world.mongoose.banteng.world.PropertyPerms;
+import world.mongoose.banteng.world.VerbPerms;
 import world.mongoose.banteng.world.ObjectFlags;
 import world.mongoose.banteng.world.WorldAnonymousObject;
 import world.mongoose.banteng.world.WorldObject;
@@ -70,7 +74,13 @@ final class MooVmTest {
   void calledVerbUsesItsOwnDebugPermission() {
     WorldVerb nonDebug =
         new WorldVerb(
-            "work", 1, 4, -1, "x = 1 + \"wrong\"; return {\"continued\", x};");
+            "work",
+            1,
+            new VerbPerms(4),
+            ArgSpec.NONE,
+            -1,
+            ArgSpec.NONE,
+            "x = 1 + \"wrong\"; return {\"continued\", x};");
     WorldObject subject =
         new WorldObject(
             1, "subject", 1, 1, -1, -1, List.of(), List.of(), List.of(nonDebug), List.of());
@@ -165,7 +175,7 @@ final class MooVmTest {
   }
 
   @Test
-  void intrinsifiedDefaultYinPreservesItsValueAndSuspensionThreshold() {
+  void registeredDefaultYinPreservesItsValueAndSuspensionThreshold() {
     BytecodeProgram program = new MooCompiler().compile(MooParser.parse("return yin();"));
     MooVm vm = new MooVm();
     WorldTxn root = new WorldTxn(List.of(), List.of());
@@ -462,7 +472,12 @@ final class MooVmTest {
             List.of(),
             List.of(
                 new WorldProperty(
-                    "server_options", new ObjectValue(3), 1, 0, false, true)));
+                    "server_options",
+                    new ObjectValue(3),
+                    1,
+                    new PropertyPerms(0),
+                    false,
+                    true)));
     WorldObject options =
         new WorldObject(
             3,
@@ -476,7 +491,12 @@ final class MooVmTest {
             List.of(),
             List.of(
                 new WorldProperty(
-                    "max_string_concat", new IntegerValue(1_021), 1, 0, false, true)));
+                    "max_string_concat",
+                    new IntegerValue(1_021),
+                    1,
+                    new PropertyPerms(0),
+                    false,
+                    true)));
 
     executeAndClose(
         program,
@@ -511,7 +531,12 @@ final class MooVmTest {
             List.of(),
             List.of(
                 new WorldProperty(
-                    "server_options", new ObjectValue(3), 1, 0, false, true)));
+                    "server_options",
+                    new ObjectValue(3),
+                    1,
+                    new PropertyPerms(0),
+                    false,
+                    true)));
     WorldObject options =
         new WorldObject(
             3,
@@ -525,9 +550,19 @@ final class MooVmTest {
             List.of(),
             List.of(
                 new WorldProperty(
-                    "max_list_value_bytes", new IntegerValue(1_488), 1, 0, false, true),
+                    "max_list_value_bytes",
+                    new IntegerValue(1_488),
+                    1,
+                    new PropertyPerms(0),
+                    false,
+                    true),
                 new WorldProperty(
-                    "max_concat_catchable", new IntegerValue(1), 1, 0, false, true)));
+                    "max_concat_catchable",
+                    new IntegerValue(1),
+                    1,
+                    new PropertyPerms(0),
+                    false,
+                    true)));
 
     executeAndClose(
         program,
@@ -2981,7 +3016,7 @@ final class MooVmTest {
             "numbers",
             new ListValue(List.of(new IntegerValue(1), new IntegerValue(2))),
             1,
-            0,
+            new PropertyPerms(0),
             false,
             true);
     WorldObject wizard =
@@ -3979,10 +4014,31 @@ final class MooVmTest {
 
   @Test
   void multipleInheritanceVerbLookupAndPassFollowCanonicalAncestorOrder() {
-    WorldVerb rootVerb = new WorldVerb("which", 1, 4, -1, "return \"root\";");
+    WorldVerb rootVerb = new WorldVerb(
+        "which",
+        1,
+        new VerbPerms(4),
+        ArgSpec.NONE,
+        -1,
+        ArgSpec.NONE,
+        "return \"root\";");
     WorldVerb leftVerb =
-        new WorldVerb("which", 2, 4, -1, "return {\"left\", pass()};");
-    WorldVerb rightVerb = new WorldVerb("which", 3, 4, -1, "return \"right\";");
+        new WorldVerb(
+            "which",
+            2,
+            new VerbPerms(4),
+            ArgSpec.NONE,
+            -1,
+            ArgSpec.NONE,
+            "return {\"left\", pass()};");
+    WorldVerb rightVerb = new WorldVerb(
+        "which",
+        3,
+        new VerbPerms(4),
+        ArgSpec.NONE,
+        -1,
+        ArgSpec.NONE,
+        "return \"right\";");
     WorldObject root =
         new WorldObject(
             1, "root", 0, 1, -1, List.of(), List.of(), List.of(2L, 3L), List.of(rootVerb), List.of());
@@ -4034,8 +4090,22 @@ final class MooVmTest {
 
   @Test
   void passNeverFallsThroughIntoALaterSiblingSubtree() {
-    WorldVerb leftVerb = new WorldVerb("which", 2, 12, -1, "return pass();");
-    WorldVerb rightVerb = new WorldVerb("which", 3, 4, -1, "return \"wrong sibling\";");
+    WorldVerb leftVerb = new WorldVerb(
+        "which",
+        2,
+        new VerbPerms(12),
+        ArgSpec.NONE,
+        -1,
+        ArgSpec.NONE,
+        "return pass();");
+    WorldVerb rightVerb = new WorldVerb(
+        "which",
+        3,
+        new VerbPerms(4),
+        ArgSpec.NONE,
+        -1,
+        ArgSpec.NONE,
+        "return \"wrong sibling\";");
     WorldObject root =
         new WorldObject(
             1, "root", 0, 1, -1, List.of(), List.of(), List.of(2L, 3L), List.of(), List.of());
@@ -4074,7 +4144,14 @@ final class MooVmTest {
 
   @Test
   void passFromALocationWithoutParentsRaisesInvalidIndirection() {
-    WorldVerb verb = new WorldVerb("which", 1, 12, -1, "return pass();");
+    WorldVerb verb = new WorldVerb(
+        "which",
+        1,
+        new VerbPerms(12),
+        ArgSpec.NONE,
+        -1,
+        ArgSpec.NONE,
+        "return pass();");
     WorldObject object =
         new WorldObject(
             1, "root", 0, 1, -1, -1, List.of(), List.of(), List.of(verb), List.of());
@@ -4094,11 +4171,44 @@ final class MooVmTest {
   }
 
   @Test
+  void passAtMaximumDepthReturnsTheErrorAndContinuesWithoutSkippingInstructions() {
+    WorldVerb inherited = new WorldVerb("inspect", 1, new VerbPerms(4), ArgSpec.NONE, -1, ArgSpec.NONE, "return 99;");
+    WorldObject parent = new WorldObject(1, "parent", 0, 1, -1, List.of(), List.of(),
+        List.of(2L), List.of(inherited), List.of());
+    WorldObject child = new WorldObject(2, "child", 0, 2, -1, List.of(1L), List.of(),
+        List.of(), List.of(), List.of());
+    for (String dispatch : List.of("pass()", "call_function(\"pass\")")) {
+      VmState state = new VmState(Map.of("this", new ObjectValue(2),
+          "verb", StringValue.of("inspect")), 2, new ObjectValue(2), 60_000, 5, 1, false);
+      executeAndClose(new MooCompiler().compile("return {" + dispatch + ", 7};"), state,
+          new WorldTxn(List.of(), List.of(parent, child)),
+          new BuiltinCatalog(BuiltinHosts.builder().build()));
+      assertEquals(VmState.Outcome.RETURNED, state.outcome());
+      assertEquals(new ListValue(List.of(ErrorValue.E_MAXREC, new IntegerValue(7))),
+          state.returnValue().orElseThrow(), dispatch);
+    }
+  }
+
+  @Test
   void anonymousVerbCallsAndPassRetainAnonymousReceiverAndLocation() {
     AnonymousObjectValue identity = new AnonymousObjectValue();
-    WorldVerb parentVerb = new WorldVerb("which", 1, 4, -1, "return this;");
+    WorldVerb parentVerb = new WorldVerb(
+        "which",
+        1,
+        new VerbPerms(4),
+        ArgSpec.NONE,
+        -1,
+        ArgSpec.NONE,
+        "return this;");
     WorldVerb anonymousVerb =
-        new WorldVerb("which", 1, 4, -1, "return {this, pass()};");
+        new WorldVerb(
+            "which",
+            1,
+            new VerbPerms(4),
+            ArgSpec.NONE,
+            -1,
+            ArgSpec.NONE,
+            "return {this, pass()};");
     WorldObject parent =
         new WorldObject(
             1, "parent", 0, 1, -1, -1, List.of(), List.of(), List.of(parentVerb), List.of());
@@ -4127,46 +4237,56 @@ final class MooVmTest {
 
   @Test
   void passRetainsAnonymousLocalsCopiedIntoTheParentVerbFrame() {
-    AnonymousObjectValue identity = new AnonymousObjectValue();
-    WorldVerb parentVerb = new WorldVerb("inspect", 1, 4, -1, "return typeof(subject);");
-    WorldVerb childVerb =
-        new WorldVerb("inspect", 2, 4, -1, "subject = args[1]; subject; return pass();");
-    WorldObject parent =
-        new WorldObject(
-            1, "parent", 0, 1, -1, -1, List.of(), List.of(2L), List.of(parentVerb), List.of());
-    WorldObject child =
-        new WorldObject(
-            2,
-            "child",
-            0,
-            2,
-            -1,
-            List.of(1L),
-            List.of(),
-            List.of(),
-            List.of(childVerb),
-            List.of());
-    VmState state =
-        new VmState(
-            Map.of(
-                "player", new ObjectValue(2),
-                "this", new ObjectValue(2),
-                "subject", identity),
-            2);
+    for (String dispatch : List.of("pass()", "call_function(\"pass\")",
+        "call_function(\"call_function\", \"pass\")")) {
+      AnonymousObjectValue identity = new AnonymousObjectValue();
+      WorldVerb parentVerb = new WorldVerb("inspect", 1, new VerbPerms(4), ArgSpec.NONE, -1, ArgSpec.NONE, "return typeof(subject);");
+      WorldVerb childVerb =
+          new WorldVerb("inspect", 2, new VerbPerms(4), ArgSpec.NONE, -1, ArgSpec.NONE, "subject = args[1]; subject; return " + dispatch + ";");
+      WorldObject parent =
+          new WorldObject(
+              1, "parent", 0, 1, -1, -1, List.of(), List.of(2L), List.of(parentVerb), List.of());
+      WorldObject child =
+          new WorldObject(
+              2,
+              "child",
+              0,
+              2,
+              -1,
+              List.of(1L),
+              List.of(),
+              List.of(),
+              List.of(childVerb),
+              List.of());
+      VmState state =
+          new VmState(
+              Map.of(
+                  "player", new ObjectValue(2),
+                  "this", new ObjectValue(2),
+                  "subject", identity),
+              2);
 
-    executeAndClose(
-        new MooCompiler().compile(MooParser.parse("return #2:inspect(subject);")),
-        state,
-        new WorldTxn(List.of(), List.of(parent, child)),
-        new BuiltinCatalog(BuiltinHosts.builder().build()));
+      executeAndClose(
+          new MooCompiler().compile(MooParser.parse("return #2:inspect(subject);")),
+          state,
+          new WorldTxn(List.of(), List.of(parent, child)),
+          new BuiltinCatalog(BuiltinHosts.builder().build()));
 
-    assertEquals(VmState.Outcome.RETURNED, state.outcome());
-    assertEquals(new IntegerValue(12), state.returnValue().orElseThrow());
+      assertEquals(VmState.Outcome.RETURNED, state.outcome());
+      assertEquals(new IntegerValue(12), state.returnValue().orElseThrow());
+    }
   }
 
   @Test
   void primitiveVerbCallsUseSystemPrototypeAndRetainPrimitiveThis() {
-    WorldVerb inspect = new WorldVerb("inspect", 1, 4, -1, "return this;");
+    WorldVerb inspect = new WorldVerb(
+        "inspect",
+        1,
+        new VerbPerms(4),
+        ArgSpec.NONE,
+        -1,
+        ArgSpec.NONE,
+        "return this;");
     WorldObject system =
         new WorldObject(
             0,
@@ -4178,7 +4298,13 @@ final class MooVmTest {
             List.of(),
             List.of(),
             List.of(),
-            List.of(new WorldProperty("list_proto", new ObjectValue(2), 1, 0, false, false)));
+            List.of(new WorldProperty(
+                "list_proto",
+                new ObjectValue(2),
+                1,
+                new PropertyPerms(0),
+                false,
+                false)));
     WorldObject prototype =
         new WorldObject(
             2, "list prototype", 0, 1, -1, -1, List.of(), List.of(), List.of(inspect), List.of());
@@ -4214,7 +4340,13 @@ final class MooVmTest {
             List.of(),
             List.of(),
             List.of(),
-            List.of(new WorldProperty("int_proto", new ObjectValue(2), 1, 0, false, false)));
+            List.of(new WorldProperty(
+                "int_proto",
+                new ObjectValue(2),
+                1,
+                new PropertyPerms(0),
+                false,
+                false)));
     WorldObject prototype =
         new WorldObject(
             2, "integer prototype", 0, 1, -1, -1, List.of(), List.of(), List.of(), List.of());
@@ -4241,8 +4373,22 @@ final class MooVmTest {
 
   @Test
   void passFromPrimitivePrototypeRetainsPrimitiveReceiver() {
-    WorldVerb inherited = new WorldVerb("length", 1, 4, -1, "return length(this);");
-    WorldVerb override = new WorldVerb("length", 1, 4, -1, "return pass();");
+    WorldVerb inherited = new WorldVerb(
+        "length",
+        1,
+        new VerbPerms(4),
+        ArgSpec.NONE,
+        -1,
+        ArgSpec.NONE,
+        "return length(this);");
+    WorldVerb override = new WorldVerb(
+        "length",
+        1,
+        new VerbPerms(4),
+        ArgSpec.NONE,
+        -1,
+        ArgSpec.NONE,
+        "return pass();");
     WorldObject system =
         new WorldObject(
             0,
@@ -4254,7 +4400,13 @@ final class MooVmTest {
             List.of(),
             List.of(),
             List.of(),
-            List.of(new WorldProperty("list_proto", new ObjectValue(3), 1, 0, false, false)));
+            List.of(new WorldProperty(
+                "list_proto",
+                new ObjectValue(3),
+                1,
+                new PropertyPerms(0),
+                false,
+                false)));
     WorldObject base =
         new WorldObject(
             2, "base", 0, 1, -1, -1, List.of(), List.of(3L), List.of(inherited), List.of());
@@ -4277,9 +4429,16 @@ final class MooVmTest {
   @Test
   void createRunsInitializeWithSuppliedArgumentsAndReturnsTheCreatedObject() {
     WorldProperty marker =
-        new WorldProperty("marker", new IntegerValue(0), 1, 0, false, true);
+        new WorldProperty("marker", new IntegerValue(0), 1, new PropertyPerms(0), false, true);
     WorldVerb initialize =
-        new WorldVerb("initialize", 1, 4, -1, "this.marker = args[1]; return 999;");
+        new WorldVerb(
+            "initialize",
+            1,
+            new VerbPerms(4),
+            ArgSpec.NONE,
+            -1,
+            ArgSpec.NONE,
+            "this.marker = args[1]; return 999;");
     WorldObject parent =
         new WorldObject(
             0,
@@ -4318,15 +4477,19 @@ final class MooVmTest {
         new WorldVerb(
             "initialize",
             1,
-            4,
+            new VerbPerms(4),
+            ArgSpec.NONE,
             -1,
+            ArgSpec.NONE,
             "__banteng_create_result = 77; return __banteng_create_result;");
     WorldVerb ordinary =
         new WorldVerb(
             "ordinary",
             1,
-            4,
+            new VerbPerms(4),
+            ArgSpec.NONE,
             -1,
+            ArgSpec.NONE,
             "__banteng_create_result = 88; return __banteng_create_result;");
     WorldObject parent =
         new WorldObject(
@@ -4363,11 +4526,20 @@ final class MooVmTest {
         new WorldVerb(
             "Mi*XeD",
             7,
-            4,
+            new VerbPerms(4),
+            ArgSpec.NONE,
             -1,
+            ArgSpec.NONE,
             "set_task_perms(#9); "
                 + "return {this, player, caller, verb, args, argstr, create(#-1)};");
-    WorldVerb nonExecutable = new WorldVerb("mixed", 8, 8, -1, "return 0;");
+    WorldVerb nonExecutable = new WorldVerb(
+        "mixed",
+        8,
+        new VerbPerms(8),
+        ArgSpec.NONE,
+        -1,
+        ArgSpec.NONE,
+        "return 0;");
     WorldObject parent =
         new WorldObject(
             1, "parent", 0, 1, -1, -1, List.of(), List.of(2L), List.of(executable), List.of());
@@ -4425,8 +4597,10 @@ final class MooVmTest {
         new WorldVerb(
             "mode",
             1,
-            4,
+            new VerbPerms(4),
+            ArgSpec.NONE,
             -1,
+            ArgSpec.NONE,
             "before = set_thread_mode(); "
                 + "evaluated = eval(\"inside = set_thread_mode(); set_thread_mode(1); "
                 + "return {inside, set_thread_mode()};\"); "
@@ -4548,7 +4722,9 @@ final class MooVmTest {
   @Test
   void callersReturnsCallerFramesAndOptionallyAppendsSourceLines() {
     WorldVerb inspect =
-        new WorldVerb("inspect", 1, 4, -1, "return {callers(), callers(1)};");
+        new WorldVerb("inspect", 1, new VerbPerms(4), ArgSpec.NONE, -1, ArgSpec.NONE,
+            "return {callers(), callers(1), call_function(\"callers\", 1), "
+                + "call_function(\"call_function\", \"callers\", 1)};");
     WorldObject object =
         new WorldObject(
             1, "caller object", 4, 1, -1, -1, List.of(), List.of(), List.of(inspect), List.of());
@@ -4557,34 +4733,20 @@ final class MooVmTest {
         new VmState(Map.of("player", new ObjectValue(1), "this", new ObjectValue(1)), 1);
 
     executeAndClose(
-        new MooCompiler().compile(MooParser.parse("return #1:inspect();")),
+        new MooCompiler().compile(MooParser.parse("unused = 1;\nreturn #1:inspect();")),
         state,
         world,
         new BuiltinCatalog(BuiltinHosts.builder().build()));
 
-    ListValue caller =
-        new ListValue(
-            List.of(
-                new ObjectValue(1),
-                StringValue.of(new byte[0]),
-                new ObjectValue(1),
-                new ObjectValue(1),
-                new ObjectValue(1)));
+    List<MooValue> fields =
+        List.of(new ObjectValue(1), StringValue.of(new byte[0]), new ObjectValue(1),
+            new ObjectValue(1), new ObjectValue(1));
+    List<MooValue> numberedFields = new ArrayList<>(fields);
+    numberedFields.add(new IntegerValue(2));
+    ListValue caller = new ListValue(List.of(new ListValue(fields)));
+    ListValue numbered = new ListValue(List.of(new ListValue(numberedFields)));
     assertEquals(VmState.Outcome.RETURNED, state.outcome());
-    assertEquals(
-        new ListValue(
-            List.of(
-                new ListValue(List.of(caller)),
-                new ListValue(
-                    List.of(
-                        new ListValue(
-                            List.of(
-                                new ObjectValue(1),
-                                StringValue.of(new byte[0]),
-                                new ObjectValue(1),
-                                new ObjectValue(1),
-                                new ObjectValue(1),
-                                new IntegerValue(1))))))),
+    assertEquals(new ListValue(List.of(caller, numbered, numbered, numbered)),
         state.returnValue().orElseThrow());
   }
 
@@ -4657,8 +4819,10 @@ final class MooVmTest {
         new WorldVerb(
             "inspect",
             1,
-            4,
+            new VerbPerms(4),
+            ArgSpec.NONE,
             -1,
+            ArgSpec.NONE,
             "return {argstr, dobj, dobjstr, prepstr, iobj, iobjstr};");
     WorldObject object =
         new WorldObject(
@@ -4698,7 +4862,14 @@ final class MooVmTest {
 
   @Test
   void movePositionSurvivesDestinationAcceptVerbContinuation() {
-    WorldVerb accept = new WorldVerb("accept", 1, 4, -1, "return 1;");
+    WorldVerb accept = new WorldVerb(
+        "accept",
+        1,
+        new VerbPerms(4),
+        ArgSpec.NONE,
+        -1,
+        ArgSpec.NONE,
+        "return 1;");
     WorldObject room =
         new WorldObject(
             0, "room", 0, 1, -1, -1, List.of(2L, 3L), List.of(), List.of(accept), List.of());
@@ -4736,8 +4907,10 @@ final class MooVmTest {
         new WorldVerb(
             "new",
             1,
-            4,
+            new VerbPerms(4),
+            ArgSpec.NONE,
             -1,
+            ArgSpec.NONE,
             "set_task_perms(caller_perms()); player = caller_perms(); return new_waif();");
     WorldObject wizard =
         new WorldObject(
@@ -4767,8 +4940,10 @@ final class MooVmTest {
         new WorldVerb(
             "new",
             1,
-            4,
+            new VerbPerms(4),
+            ArgSpec.NONE,
             -1,
+            ArgSpec.NONE,
             "set_task_perms(caller_perms()); player = caller_perms(); return new_waif();");
     WorldObject wizard =
         new WorldObject(
@@ -4784,7 +4959,13 @@ final class MooVmTest {
             List.of(),
             List.of(),
             List.of(constructor),
-            List.of(new WorldProperty(":marker", new IntegerValue(0), 1, 0, false, true)));
+            List.of(new WorldProperty(
+                ":marker",
+                new IntegerValue(0),
+                1,
+                new PropertyPerms(0),
+                false,
+                true)));
     WorldTxn world = new WorldTxn(List.of(1L), List.of(wizard, waifClass));
     VmState state =
         new VmState(Map.of("player", new ObjectValue(1), "this", new ObjectValue(1)), 1);
@@ -4814,8 +4995,10 @@ final class MooVmTest {
         new WorldVerb(
             "new",
             1,
-            4,
+            new VerbPerms(4),
+            ArgSpec.NONE,
             -1,
+            ArgSpec.NONE,
             "set_task_perms(caller_perms()); player = caller_perms(); return new_waif();");
     WorldObject wizard =
         new WorldObject(
@@ -4840,7 +5023,14 @@ final class MooVmTest {
 
   @Test
   void newWaifRejectsAnonymousCallingReceiverWithInvalidArgument() {
-    WorldVerb constructor = new WorldVerb("new", 1, 12, -1, "return new_waif();");
+    WorldVerb constructor = new WorldVerb(
+        "new",
+        1,
+        new VerbPerms(12),
+        ArgSpec.NONE,
+        -1,
+        ArgSpec.NONE,
+        "return new_waif();");
     WorldObject wizard =
         new WorldObject(
             1, "wizard", 4, 1, -1, -1, List.of(), List.of(), List.of(), List.of());
@@ -4966,7 +5156,14 @@ final class MooVmTest {
   @Test
   void caughtErrorTracebackAlwaysInvalidatesAnonymousReceiverAndLocation() {
     AnonymousObjectValue identity = new AnonymousObjectValue();
-    WorldVerb boom = new WorldVerb("boom", 1, 12, -1, "return 1 / 0;");
+    WorldVerb boom = new WorldVerb(
+        "boom",
+        1,
+        new VerbPerms(12),
+        ArgSpec.NONE,
+        -1,
+        ArgSpec.NONE,
+        "return 1 / 0;");
     WorldObject parent =
         new WorldObject(
             0, "parent", 0, 1, -1, -1, List.of(), List.of(), List.of(boom), List.of());
@@ -5010,8 +5207,10 @@ final class MooVmTest {
         new WorldVerb(
             "recycle",
             1,
-            12,
+            new VerbPerms(12),
+            ArgSpec.NONE,
             -1,
+            ArgSpec.NONE,
             "#0.recycle_called = #0.recycle_called + 1; recycle(this);");
     WorldObject parent =
         new WorldObject(
@@ -5026,7 +5225,12 @@ final class MooVmTest {
             List.of(recycle),
             List.of(
                 new WorldProperty(
-                    "recycle_called", new IntegerValue(0), 1, 0, false, true)));
+                    "recycle_called",
+                    new IntegerValue(0),
+                    1,
+                    new PropertyPerms(0),
+                    false,
+                    true)));
     WorldObject programmer =
         new WorldObject(
             1, "programmer", 4, 1, -1, -1, List.of(), List.of(), List.of(), List.of());
@@ -5070,7 +5274,14 @@ final class MooVmTest {
   @Test
   void anonymousRecycleHookCanSaveTheNowInvalidTypedIdentity() {
     AnonymousObjectValue identity = new AnonymousObjectValue();
-    WorldVerb recycle = new WorldVerb("recycle", 1, 4, -1, "#0.keep = this;");
+    WorldVerb recycle = new WorldVerb(
+        "recycle",
+        1,
+        new VerbPerms(4),
+        ArgSpec.NONE,
+        -1,
+        ArgSpec.NONE,
+        "#0.keep = this;");
     WorldObject parent =
         new WorldObject(
             0,
@@ -5082,7 +5293,13 @@ final class MooVmTest {
             List.of(),
             List.of(),
             List.of(recycle),
-            List.of(new WorldProperty("keep", new IntegerValue(0), 1, 0, false, true)));
+            List.of(new WorldProperty(
+                "keep",
+                new IntegerValue(0),
+                1,
+                new PropertyPerms(0),
+                false,
+                true)));
     WorldObject programmer =
         new WorldObject(
             1, "programmer", 4, 1, -1, -1, List.of(), List.of(), List.of(), List.of());

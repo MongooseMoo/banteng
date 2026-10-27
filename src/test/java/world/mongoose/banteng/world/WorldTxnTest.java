@@ -236,7 +236,13 @@ final class WorldTxnTest {
             List.of(),
             List.of(),
             List.of(),
-            List.of(new WorldProperty(":marker", new IntegerValue(0), 1, 0, false, true)));
+            List.of(new WorldProperty(
+                ":marker",
+                new IntegerValue(0),
+                1,
+                new PropertyPerms(0),
+                false,
+                true)));
     WorldTxn root = root(waifClass);
     WaifValue committed;
 
@@ -272,7 +278,7 @@ final class WorldTxnTest {
 
     try (WorldTxn transaction = root.begin()) {
       identity = transaction.createAnonymousObject(0, 0);
-      assertTrue(transaction.addProperty(0, "later", new IntegerValue(17), 0, 1).isOk());
+      assertTrue(transaction.addProperty(0, "later", new IntegerValue(17), 0, new PropertyPerms(1)).isOk());
 
       WorldProperty inherited =
           transaction.anonymousObject(identity).orElseThrow().properties().getFirst();
@@ -337,9 +343,9 @@ final class WorldTxnTest {
   @Test
   void inheritedPropertySlotsOverrideAndClearWithoutLosingTheDefinition() {
     WorldProperty definition =
-        new WorldProperty("test", new IntegerValue(1), 0, 7, false, true);
+        new WorldProperty("test", new IntegerValue(1), 0, new PropertyPerms(7), false, true);
     WorldProperty inherited =
-        new WorldProperty("test", new IntegerValue(1), 0, 7, true, false);
+        new WorldProperty("test", new IntegerValue(1), 0, new PropertyPerms(7), true, false);
     WorldObject parent =
         new WorldObject(
             0,
@@ -409,7 +415,7 @@ final class WorldTxnTest {
             List.of());
 
     try (WorldTxn transaction = root(root, child).begin()) {
-      assertTrue(transaction.addProperty(0, "test", new IntegerValue(1), 0, 7).isOk());
+      assertTrue(transaction.addProperty(0, "test", new IntegerValue(1), 0, new PropertyPerms(7)).isOk());
       WorldProperty definition = transaction.object(0).orElseThrow().properties().getFirst();
       WorldProperty inherited = transaction.object(1).orElseThrow().properties().getFirst();
       assertTrue(definition.defined());
@@ -473,7 +479,7 @@ final class WorldTxnTest {
   @Test
   void mutationsCarrySpecificMooFailureReasons() {
     WorldProperty protectedProperty =
-        new WorldProperty("protected", new IntegerValue(1), 0, 0, false, true);
+        new WorldProperty("protected", new IntegerValue(1), 0, new PropertyPerms(0), false, true);
     WorldObject target =
         new WorldObject(
             0,

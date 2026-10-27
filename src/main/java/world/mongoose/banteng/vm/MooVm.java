@@ -168,16 +168,11 @@ public final class MooVm {
         frame.operandStack.push(ErrorValue.valueOf(instruction.text().orElseThrow()));
         frame.instructionPointer++;
       }
-      case BUILD_LIST ->
-          ListOps.execute(ListOps.Operation.BUILD_LIST, state, instruction, frame, world);
-      case LIST_APPEND ->
-          ListOps.execute(ListOps.Operation.LIST_APPEND, state, instruction, frame, world);
-      case LIST_EXTEND ->
-          ListOps.execute(ListOps.Operation.LIST_EXTEND, state, instruction, frame, world);
-      case BUILD_MAP ->
-          ListOps.execute(ListOps.Operation.BUILD_MAP, state, instruction, frame, world);
-      case LOAD_LOCAL ->
-          PropertyOps.execute(PropertyOps.Operation.LOAD_LOCAL, state, instruction, frame, world);
+      case BUILD_LIST -> ListOps.buildList(frame, Math.toIntExact(instruction.operand().orElseThrow()));
+      case LIST_APPEND -> ListOps.appendList(frame, state, world);
+      case LIST_EXTEND -> ListOps.extendList(frame, state, world);
+      case BUILD_MAP -> ListOps.buildMap(frame, state, world, Math.toIntExact(instruction.operand().orElseThrow()));
+      case LOAD_LOCAL -> PropertyOps.loadLocal(frame, instruction.text().orElseThrow(), state, world);
       case STORE_LOCAL -> {
         frame.locals.put(PropertyOps.normalize(instruction.text().orElseThrow()), frame.operandStack.pop());
         frame.instructionPointer++;
@@ -198,114 +193,24 @@ public final class MooVm {
         frame.operandStack.pop();
         frame.instructionPointer++;
       }
-      case GET_PROPERTY ->
-          PropertyOps.execute(PropertyOps.Operation.GET_PROPERTY, state, instruction, frame, world);
-      case SET_PROPERTY ->
-          PropertyOps.execute(PropertyOps.Operation.SET_PROPERTY, state, instruction, frame, world);
-      case ENTER_INDEX ->
-          IndexOps.execute(IndexOps.Operation.ENTER_INDEX, state, instruction, frame, world);
-      case INDEX ->
-          IndexOps.execute(IndexOps.Operation.INDEX, state, instruction, frame, world);
-      case RANGE ->
-          IndexOps.execute(IndexOps.Operation.RANGE, state, instruction, frame, world);
-      case FIRST ->
-          IndexOps.execute(IndexOps.Operation.FIRST, state, instruction, frame, world);
-      case LAST ->
-          IndexOps.execute(IndexOps.Operation.LAST, state, instruction, frame, world);
-      case SET_INDEX_LOCAL ->
-          IndexOps.execute(IndexOps.Operation.SET_INDEX_LOCAL, state, instruction, frame, world);
-      case SET_INDEX_PROPERTY ->
-          IndexOps.execute(IndexOps.Operation.SET_INDEX_PROPERTY, state, instruction, frame, world);
-      case SET_RANGE_LOCAL ->
-          IndexOps.execute(IndexOps.Operation.SET_RANGE_LOCAL, state, instruction, frame, world);
-      case SET_RANGE_PROPERTY ->
-          IndexOps.execute(IndexOps.Operation.SET_RANGE_PROPERTY, state, instruction, frame, world);
-      case CALL -> {
-        String callName = instruction.text().orElseThrow();
-        if (!callName.equalsIgnoreCase("pass")) {
-          invokeBuiltin(instruction, frame, state, world, builtins, taskId);
-        } else {
-          MooValue argumentValue = frame.operandStack.pop();
-          MooValue thisValue = frame.locals.get("this");
-          MooValue verbValue = frame.locals.get("verb");
-          if (!(argumentValue instanceof ListValue arguments)
-              || thisValue == null
-              || (!(thisValue instanceof ObjectValue)
-                  && !(thisValue instanceof AnonymousObjectValue)
-                  && primitivePrototypeProperty(thisValue).isEmpty())
-              || !(verbValue instanceof StringValue verbNameValue)) {
-            ErrorOps.raise(state, ErrorValue.E_TYPE, world);
-            return;
-          }
-
-          String verbName = verbNameValue.text();
-          MooValue receiver = thisValue;
-          List<Long> directParents;
-          if (frame.verbLocation instanceof ObjectValue currentLocation) {
-            WorldObject location = world.object(currentLocation.value()).orElse(null);
-            if (location == null) {
-              ErrorOps.raise(state, ErrorValue.E_INVIND, world);
-              return;
-            }
-            directParents = location.parents();
-          } else if (frame.verbLocation instanceof AnonymousObjectValue currentLocation) {
-            WorldAnonymousObject location = world.anonymousObject(currentLocation).orElse(null);
-            if (location == null) {
-              ErrorOps.raise(state, ErrorValue.E_INVIND, world);
-              return;
-            }
-            directParents = location.parents();
-          } else {
-            ErrorOps.raise(state, ErrorValue.E_INVIND, world);
-            return;
-          }
-          if (directParents.isEmpty()) {
-            ErrorOps.raise(state, ErrorValue.E_INVIND, world);
-            return;
-          }
-          WorldVerb target = null;
-          long targetLocation = -1;
-          for (long directParent : directParents) {
-            OptionalLong location = world.verbLocation(directParent, verbName, true);
-            if (location.isPresent()) {
-              target = world.verb(directParent, verbName, true).orElseThrow();
-              targetLocation = location.orElseThrow();
-              break;
-            }
-          }
-          if (target == null) {
-            ErrorOps.raise(state, ErrorValue.E_VERBNF, world);
-            return;
-          }
-          BytecodeProgram targetProgram;
-          try {
-            targetProgram = new MooCompiler().compile(target.programSource());
-          } catch (IllegalArgumentException error) {
-            ErrorOps.raise(state, ErrorValue.E_INVARG, world);
-            return;
-          }
-
-          frame.instructionPointer++;
-          Map<String, MooValue> locals = new LinkedHashMap<>(frame.locals);
-          locals.put("caller", receiver);
-          locals.put("args", arguments);
-          if (!state.pushVerbFrame(
-              targetProgram,
-              locals,
-              target.owner(),
-              receiver,
-              new ObjectValue(targetLocation),
-              OptionalLong.empty(),
-              OptionalLong.empty(),
-              OptionalLong.empty(),
-              verbName,
-              target.names(),
-              (target.permissions() & 8) != 0)) {
-            ErrorOps.raise(state, ErrorValue.E_MAXREC, world, false);
-            return;
-          }
-        }
+      case GET_PROPERTY -> PropertyOps.getProperty(frame, state, world);
+      case SET_PROPERTY -> PropertyOps.setProperty(frame, state, world);
+      case ENTER_INDEX -> {
+        frame.indexCollections.push(new VmState.IndexContext(
+            frame.operandStack.getFirst(), Optional.empty(), frame.operandStack.size()));
+        frame.instructionPointer++;
       }
+      case INDEX -> IndexOps.index(frame, state, world, Math.toIntExact(instruction.operand().orElse(0)));
+      case RANGE -> IndexOps.range(frame, state, world);
+      case FIRST -> IndexOps.boundaryIndex(frame, state, world, false);
+      case LAST -> IndexOps.boundaryIndex(frame, state, world, true);
+      case SET_INDEX_LOCAL -> IndexOps.setIndexedLocal(frame, state, world, instruction.text().orElseThrow(),
+              Math.toIntExact(instruction.operand().orElse(0)));
+      case SET_INDEX_PROPERTY -> IndexOps.setIndexedProperty(frame, state, world);
+      case SET_RANGE_LOCAL -> IndexOps.setRange(frame, state, world, instruction.text(),
+              Math.toIntExact(instruction.operand().orElse(0)));
+      case SET_RANGE_PROPERTY -> IndexOps.setRange(frame, state, world, Optional.empty(), 0);
+      case CALL -> invokeBuiltin(instruction, frame, state, world, builtins, taskId);
       case CALL_VERB -> {
         MooValue argumentsValue = frame.operandStack.pop();
         MooValue nameValue = frame.operandStack.pop();
@@ -384,113 +289,45 @@ public final class MooVm {
             OptionalLong.empty(),
             lookupName,
             verb.names(),
-            (verb.permissions() & 8) != 0)) {
+            verb.perms().debug())) {
           ErrorOps.raise(state, ErrorValue.E_MAXREC, world, false);
           return;
         }
       }
-      case NEGATE ->
-          ArithmeticOps.execute(
-              ArithmeticOps.Operation.NEGATE, state, instruction, frame, world, valueSemantics);
-      case NOT ->
-          ArithmeticOps.execute(
-              ArithmeticOps.Operation.NOT, state, instruction, frame, world, valueSemantics);
-      case COMPLEMENT ->
-          ArithmeticOps.execute(
-              ArithmeticOps.Operation.COMPLEMENT, state, instruction, frame, world, valueSemantics);
-      case ADD ->
-          ArithmeticOps.execute(
-              ArithmeticOps.Operation.ADD, state, instruction, frame, world, valueSemantics);
-      case SUBTRACT ->
-          ArithmeticOps.execute(
-              ArithmeticOps.Operation.SUBTRACT, state, instruction, frame, world, valueSemantics);
-      case MULTIPLY ->
-          ArithmeticOps.execute(
-              ArithmeticOps.Operation.MULTIPLY, state, instruction, frame, world, valueSemantics);
-      case DIVIDE ->
-          ArithmeticOps.execute(
-              ArithmeticOps.Operation.DIVIDE, state, instruction, frame, world, valueSemantics);
-      case REMAINDER ->
-          ArithmeticOps.execute(
-              ArithmeticOps.Operation.REMAINDER, state, instruction, frame, world, valueSemantics);
-      case POWER ->
-          ArithmeticOps.execute(
-              ArithmeticOps.Operation.POWER, state, instruction, frame, world, valueSemantics);
-      case BITOR ->
-          ArithmeticOps.execute(
-              ArithmeticOps.Operation.BITOR, state, instruction, frame, world, valueSemantics);
-      case BITAND ->
-          ArithmeticOps.execute(
-              ArithmeticOps.Operation.BITAND, state, instruction, frame, world, valueSemantics);
-      case BITXOR ->
-          ArithmeticOps.execute(
-              ArithmeticOps.Operation.BITXOR, state, instruction, frame, world, valueSemantics);
-      case BITSHL ->
-          ArithmeticOps.execute(
-              ArithmeticOps.Operation.BITSHL, state, instruction, frame, world, valueSemantics);
-      case BITSHR ->
-          ArithmeticOps.execute(
-              ArithmeticOps.Operation.BITSHR, state, instruction, frame, world, valueSemantics);
-      case EQUAL ->
-          ArithmeticOps.execute(
-              ArithmeticOps.Operation.EQUAL, state, instruction, frame, world, valueSemantics);
-      case NOT_EQUAL ->
-          ArithmeticOps.execute(
-              ArithmeticOps.Operation.NOT_EQUAL, state, instruction, frame, world, valueSemantics);
-      case LESS_THAN ->
-          ArithmeticOps.execute(
-              ArithmeticOps.Operation.LESS_THAN, state, instruction, frame, world, valueSemantics);
-      case LESS_THAN_OR_EQUAL ->
-          ArithmeticOps.execute(
-              ArithmeticOps.Operation.LESS_THAN_OR_EQUAL,
-              state,
-              instruction,
-              frame,
-              world,
-              valueSemantics);
-      case GREATER_THAN ->
-          ArithmeticOps.execute(
-              ArithmeticOps.Operation.GREATER_THAN,
-              state,
-              instruction,
-              frame,
-              world,
-              valueSemantics);
-      case GREATER_THAN_OR_EQUAL ->
-          ArithmeticOps.execute(
-              ArithmeticOps.Operation.GREATER_THAN_OR_EQUAL,
-              state,
-              instruction,
-              frame,
-              world,
-              valueSemantics);
-      case IN ->
-          ArithmeticOps.execute(
-              ArithmeticOps.Operation.IN, state, instruction, frame, world, valueSemantics);
-      case FORK ->
-          LoopOps.execute(LoopOps.Operation.FORK, state, instruction, frame, world);
-      case JUMP ->
-          LoopOps.execute(LoopOps.Operation.JUMP, state, instruction, frame, world);
-      case JUMP_IF_FALSE ->
-          LoopOps.execute(LoopOps.Operation.JUMP_IF_FALSE, state, instruction, frame, world);
-      case JUMP_IF_TRUE ->
-          LoopOps.execute(LoopOps.Operation.JUMP_IF_TRUE, state, instruction, frame, world);
-      case ENTER_HANDLER ->
-          LoopOps.execute(LoopOps.Operation.ENTER_HANDLER, state, instruction, frame, world);
-      case LEAVE_HANDLER ->
-          LoopOps.execute(LoopOps.Operation.LEAVE_HANDLER, state, instruction, frame, world);
-      case END_FINALLY ->
-          LoopOps.execute(LoopOps.Operation.END_FINALLY, state, instruction, frame, world);
-      case ITERATE ->
-          LoopOps.execute(LoopOps.Operation.ITERATE, state, instruction, frame, world);
-      case ITERATE_RANGE ->
-          LoopOps.execute(LoopOps.Operation.ITERATE_RANGE, state, instruction, frame, world);
-      case LEAVE_LOOP ->
-          LoopOps.execute(LoopOps.Operation.LEAVE_LOOP, state, instruction, frame, world);
-      case SCATTER ->
-          LoopOps.execute(LoopOps.Operation.SCATTER, state, instruction, frame, world);
-      case RETURN ->
-          LoopOps.execute(LoopOps.Operation.RETURN, state, instruction, frame, world);
+      case NEGATE -> ArithmeticOps.unaryNegate(frame, state, world);
+      case NOT -> ArithmeticOps.logicalNot(frame);
+      case COMPLEMENT -> ArithmeticOps.bitwiseComplement(frame, state, world);
+      case ADD, SUBTRACT, MULTIPLY, DIVIDE, REMAINDER, POWER ->
+          ArithmeticOps.arithmetic(instruction.opcode(), frame, state, world, valueSemantics);
+      case BITOR, BITAND, BITXOR, BITSHL, BITSHR ->
+          ArithmeticOps.bitwise(instruction.opcode(), frame, state, world);
+      case EQUAL, NOT_EQUAL -> ArithmeticOps.equality(instruction.opcode(), frame, valueSemantics);
+      case LESS_THAN, LESS_THAN_OR_EQUAL, GREATER_THAN, GREATER_THAN_OR_EQUAL ->
+          ArithmeticOps.comparison(instruction.opcode(), frame, state, world, valueSemantics);
+      case IN -> ArithmeticOps.membership(frame, state, world, valueSemantics);
+      case FORK -> LoopOps.fork(instruction, frame, state, world);
+      case JUMP -> frame.instructionPointer = LoopOps.target(instruction);
+      case JUMP_IF_FALSE -> LoopOps.conditionalJump(instruction, frame, false);
+      case JUMP_IF_TRUE -> LoopOps.conditionalJump(instruction, frame, true);
+      case ENTER_HANDLER -> {
+        frame.handlers.push(new VmState.ActiveHandler(
+            instruction.handler().orElseThrow(), frame.operandStack.size()));
+        frame.instructionPointer++;
+      }
+      case LEAVE_HANDLER -> LoopOps.leaveHandler(frame);
+      case END_FINALLY -> LoopOps.endFinally(state, world);
+      case ITERATE -> LoopOps.iterate(instruction, frame, state, world);
+      case ITERATE_RANGE -> LoopOps.iterateRange(instruction, frame, state, world);
+      case LEAVE_LOOP -> {
+        frame.loops.remove(Math.toIntExact(instruction.operand().orElseThrow()));
+        frame.instructionPointer++;
+      }
+      case SCATTER -> LoopOps.scatter(instruction, frame, state, world);
+      case RETURN -> {
+        MooValue value = frame.operandStack.pop();
+        frame.instructionPointer++;
+        LoopOps.routeReturn(state, value, world);
+      }
     }
   }
 
@@ -524,15 +361,6 @@ public final class MooVm {
       return;
     }
     String name = instruction.text().orElseThrow();
-    if (name.equalsIgnoreCase("yin") && arguments.elements().isEmpty()) {
-      frame.instructionPointer++;
-      if (state.remainingTicks() < 2_000 || state.remainingSeconds() < 2) {
-        state.suspend(java.util.OptionalDouble.of(0), Optional.empty());
-      } else {
-        frame.operandStack.push(new IntegerValue(0));
-      }
-      return;
-    }
     BuiltinSpec spec = builtins.spec(name).orElse(null);
     if (spec == null) {
       ErrorOps.raise(state, ErrorValue.E_VERBNF, world);
@@ -553,15 +381,9 @@ public final class MooVm {
               state.callers()));
       return;
     }
-    ListValue callerFrames =
-        name.equals("callers")
-                && !arguments.elements().isEmpty()
-                && arguments.elements().getFirst().isTruthy()
-            ? state.callers(true)
-            : state.callers();
     BuiltinResult result =
         builtins.invoke(spec, builtinCall(state, world, taskId, arguments.elements(),
-            frame.receiver, callerFrames, null));
+            frame.receiver, null));
     applyBuiltinResult(result, frame, state, world);
   }
 
@@ -594,20 +416,20 @@ public final class MooVm {
     BuiltinSpec spec = builtins.spec(request.name()).orElseThrow();
     BuiltinResult result =
         builtins.invoke(spec, builtinCall(state, world, taskId, request.arguments(),
-            request.receiver(), request.callers(), request));
+            request.receiver(), request));
     applyBuiltinResult(result, state.currentFrame(), state, world);
   }
 
   private static BuiltinCall builtinCall(
       VmState state, WorldTxn world, long taskId, List<MooValue> arguments,
-      MooValue receiver, ListValue callers, VmSnapshot.@Nullable PendingBuiltin pending) {
+      MooValue receiver, VmSnapshot.@Nullable PendingBuiltin pending) {
     return new BuiltinCall(
         arguments, world,
         pending == null ? state.programmer() : pending.programmer(),
         pending == null ? state.taskLocal() : pending.taskLocal(), taskId,
         pending == null ? state.remainingTicks() : pending.remainingTicks(),
         pending == null ? state.remainingSeconds() : pending.remainingSeconds(), receiver,
-        pending == null ? state.callerProgrammer() : pending.callerProgrammer(), callers,
+        pending == null ? state.callerProgrammer() : pending.callerProgrammer(), state::callers,
         state.threadMode(), state::stagedBufferedOutputLength);
   }
 
@@ -621,6 +443,7 @@ public final class MooVm {
       case BuiltinResult.RaisedError raised ->
           ErrorOps.raise(state, raised.error(), raised.details(), world, false);
       case BuiltinResult.Value value -> frame.operandStack.push(value.value());
+      case BuiltinResult.Pass call -> applyPass(call, frame, state, world);
       case BuiltinResult.ProtectedCall call -> applyProtectedCall(call, frame, state, world);
       case BuiltinResult.TaskLocal local -> {
         state.setTaskLocal(local.value());
@@ -689,6 +512,87 @@ public final class MooVm {
     }
   }
 
+  private static void applyPass(
+      BuiltinResult.Pass call, Frame frame, VmState state, WorldTxn world) {
+    ListValue arguments = call.arguments();
+    MooValue thisValue = frame.locals.get("this");
+    MooValue verbValue = frame.locals.get("verb");
+    if (thisValue == null
+        || (!(thisValue instanceof ObjectValue)
+            && !(thisValue instanceof AnonymousObjectValue)
+            && primitivePrototypeProperty(thisValue).isEmpty())
+        || !(verbValue instanceof StringValue verbNameValue)) {
+      ErrorOps.raise(state, ErrorValue.E_TYPE, world, false);
+      return;
+    }
+
+    String verbName = verbNameValue.text();
+    MooValue receiver = thisValue;
+    List<Long> directParents;
+    if (frame.verbLocation instanceof ObjectValue currentLocation) {
+      WorldObject location = world.object(currentLocation.value()).orElse(null);
+      if (location == null) {
+        ErrorOps.raise(state, ErrorValue.E_INVIND, world, false);
+        return;
+      }
+      directParents = location.parents();
+    } else if (frame.verbLocation instanceof AnonymousObjectValue currentLocation) {
+      WorldAnonymousObject location = world.anonymousObject(currentLocation).orElse(null);
+      if (location == null) {
+        ErrorOps.raise(state, ErrorValue.E_INVIND, world, false);
+        return;
+      }
+      directParents = location.parents();
+    } else {
+      ErrorOps.raise(state, ErrorValue.E_INVIND, world, false);
+      return;
+    }
+    if (directParents.isEmpty()) {
+      ErrorOps.raise(state, ErrorValue.E_INVIND, world, false);
+      return;
+    }
+    WorldVerb target = null;
+    long targetLocation = -1;
+    for (long directParent : directParents) {
+      OptionalLong location = world.verbLocation(directParent, verbName, true);
+      if (location.isPresent()) {
+        target = world.verb(directParent, verbName, true).orElseThrow();
+        targetLocation = location.orElseThrow();
+        break;
+      }
+    }
+    if (target == null) {
+      ErrorOps.raise(state, ErrorValue.E_VERBNF, world, false);
+      return;
+    }
+    BytecodeProgram targetProgram;
+    try {
+      targetProgram = new MooCompiler().compile(target.programSource());
+    } catch (IllegalArgumentException error) {
+      ErrorOps.raise(state, ErrorValue.E_INVARG, world, false);
+      return;
+    }
+
+    Map<String, MooValue> locals = new LinkedHashMap<>(frame.locals);
+    locals.put("caller", receiver);
+    locals.put("args", arguments);
+    if (!state.pushVerbFrame(
+        targetProgram,
+        locals,
+        target.owner(),
+        receiver,
+        new ObjectValue(targetLocation),
+        OptionalLong.empty(),
+        OptionalLong.empty(),
+        OptionalLong.empty(),
+        verbName,
+        target.names(),
+        target.perms().debug())) {
+      ErrorOps.raise(state, ErrorValue.E_MAXREC, world, false);
+      return;
+    }
+  }
+
   private static void applyProtectedCall(
       BuiltinResult.ProtectedCall call, Frame frame, VmState state, WorldTxn world) {
     WorldVerb wrapper = world.verb(0, call.verb(), true).orElseThrow();
@@ -710,7 +614,7 @@ public final class MooVm {
     if (!state.pushVerbFrame(program, locals, wrapper.owner(), system,
         new ObjectValue(world.verbLocation(0, call.verb(), true).orElseThrow()),
         OptionalLong.empty(), OptionalLong.empty(), OptionalLong.empty(),
-        call.verb(), wrapper.names(), (wrapper.permissions() & 8) != 0)) {
+        call.verb(), wrapper.names(), wrapper.perms().debug())) {
       ErrorOps.raise(state, ErrorValue.E_MAXREC, world, false);
     }
   }
@@ -788,7 +692,7 @@ public final class MooVm {
         OptionalLong.empty(),
         name,
         hook.names(),
-        (hook.permissions() & 8) != 0)) {
+        hook.perms().debug())) {
       continueRecycle(recycleTarget, state, world);
     }
   }
@@ -842,7 +746,7 @@ public final class MooVm {
         definingLocation,
         "recycle",
         hook.names(),
-        (hook.permissions() & 8) != 0)) {
+        hook.perms().debug())) {
       ErrorOps.raise(state, ErrorValue.E_MAXREC, world, false);
     }
   }
@@ -890,7 +794,7 @@ public final class MooVm {
         created,
         "initialize",
         initialize.names(),
-        (initialize.permissions() & 8) != 0)) {
+        initialize.perms().debug())) {
       ErrorOps.raise(state, ErrorValue.E_MAXREC, world, false);
     }
   }

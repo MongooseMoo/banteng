@@ -53,6 +53,8 @@ import world.mongoose.banteng.value.MooValue.ObjectValue;
 import world.mongoose.banteng.value.MooValue.StringValue;
 import world.mongoose.banteng.value.MooValue.WaifValue;
 import world.mongoose.banteng.value.ValueSemantics;
+import world.mongoose.banteng.world.Access;
+import world.mongoose.banteng.world.ArgSpec;
 import world.mongoose.banteng.world.ObjectFlags;
 import world.mongoose.banteng.world.WorldAnonymousObject;
 import world.mongoose.banteng.world.WorldObject;
@@ -939,9 +941,7 @@ public final class MooRuntime implements AutoCloseable, SchedulerRuntime {
         return RuntimeStep.returned(
             List.of("That object does not have that verb definition."));
       }
-      WorldObject actor = world().object(player).orElse(null);
-      boolean wizard = actor != null && ObjectFlags.isWizard(actor.flags());
-      if (verb.owner() != player && !wizard && (verb.permissions() & 2) == 0) {
+      if (!Access.canWrite(world(), player, verb.owner(), verb.perms())) {
         return RuntimeStep.returned(List.of("Permission denied."));
       }
       connection.programmingObject = object.id();
@@ -1008,14 +1008,14 @@ public final class MooRuntime implements AutoCloseable, SchedulerRuntime {
         long thisObject = -1;
         if (playerCommandVerb.isPresent()) {
           WorldVerb candidate = playerCommandVerb.orElseThrow();
-          int directSpecification = (candidate.permissions() >> 4) & 3;
-          int indirectSpecification = (candidate.permissions() >> 6) & 3;
-          int directClassification = directObject == player ? 2 : directObject == -1 ? 0 : 1;
-          int indirectClassification = indirectObject == player ? 2 : indirectObject == -1 ? 0 : 1;
+          ArgSpec directSpecification = candidate.dobj();
+          ArgSpec indirectSpecification = candidate.iobj();
+          ArgSpec directClassification = directObject == player ? ArgSpec.THIS : directObject == -1 ? ArgSpec.NONE : ArgSpec.ANY;
+          ArgSpec indirectClassification = indirectObject == player ? ArgSpec.THIS : indirectObject == -1 ? ArgSpec.NONE : ArgSpec.ANY;
           boolean argumentSpecificationMatches =
-              (directSpecification == 1 || directSpecification == directClassification)
+              (directSpecification == ArgSpec.ANY || directSpecification == directClassification)
                   && (candidate.preposition() == -2 || candidate.preposition() == preposition)
-                  && (indirectSpecification == 1
+                  && (indirectSpecification == ArgSpec.ANY
                       || indirectSpecification == indirectClassification);
           if (argumentSpecificationMatches) {
             selectedVerb = candidate;
@@ -1024,14 +1024,14 @@ public final class MooRuntime implements AutoCloseable, SchedulerRuntime {
         }
         if (selectedVerb == null && roomCommandVerb.isPresent()) {
           WorldVerb candidate = roomCommandVerb.orElseThrow();
-          int directSpecification = (candidate.permissions() >> 4) & 3;
-          int indirectSpecification = (candidate.permissions() >> 6) & 3;
-          int directClassification = directObject == room ? 2 : directObject == -1 ? 0 : 1;
-          int indirectClassification = indirectObject == room ? 2 : indirectObject == -1 ? 0 : 1;
+          ArgSpec directSpecification = candidate.dobj();
+          ArgSpec indirectSpecification = candidate.iobj();
+          ArgSpec directClassification = directObject == room ? ArgSpec.THIS : directObject == -1 ? ArgSpec.NONE : ArgSpec.ANY;
+          ArgSpec indirectClassification = indirectObject == room ? ArgSpec.THIS : indirectObject == -1 ? ArgSpec.NONE : ArgSpec.ANY;
           boolean argumentSpecificationMatches =
-              (directSpecification == 1 || directSpecification == directClassification)
+              (directSpecification == ArgSpec.ANY || directSpecification == directClassification)
                   && (candidate.preposition() == -2 || candidate.preposition() == preposition)
-                  && (indirectSpecification == 1
+                  && (indirectSpecification == ArgSpec.ANY
                       || indirectSpecification == indirectClassification);
           if (argumentSpecificationMatches) {
             selectedVerb = candidate;
@@ -1043,15 +1043,15 @@ public final class MooRuntime implements AutoCloseable, SchedulerRuntime {
               world().verb(directObject, words.getFirst(), false);
           if (directCommandVerb.isPresent()) {
             WorldVerb candidate = directCommandVerb.orElseThrow();
-            int directSpecification = (candidate.permissions() >> 4) & 3;
-            int indirectSpecification = (candidate.permissions() >> 6) & 3;
-            int directClassification = 2;
-            int indirectClassification =
-                indirectObject == directObject ? 2 : indirectObject == -1 ? 0 : 1;
+            ArgSpec directSpecification = candidate.dobj();
+            ArgSpec indirectSpecification = candidate.iobj();
+            ArgSpec directClassification = ArgSpec.THIS;
+            ArgSpec indirectClassification =
+                indirectObject == directObject ? ArgSpec.THIS : indirectObject == -1 ? ArgSpec.NONE : ArgSpec.ANY;
             boolean argumentSpecificationMatches =
-                (directSpecification == 1 || directSpecification == directClassification)
+                (directSpecification == ArgSpec.ANY || directSpecification == directClassification)
                     && (candidate.preposition() == -2 || candidate.preposition() == preposition)
-                    && (indirectSpecification == 1
+                    && (indirectSpecification == ArgSpec.ANY
                         || indirectSpecification == indirectClassification);
             if (argumentSpecificationMatches) {
               selectedVerb = candidate;
@@ -1064,15 +1064,15 @@ public final class MooRuntime implements AutoCloseable, SchedulerRuntime {
               world().verb(indirectObject, words.getFirst(), false);
           if (indirectCommandVerb.isPresent()) {
             WorldVerb candidate = indirectCommandVerb.orElseThrow();
-            int directSpecification = (candidate.permissions() >> 4) & 3;
-            int indirectSpecification = (candidate.permissions() >> 6) & 3;
-            int directClassification =
-                directObject == indirectObject ? 2 : directObject == -1 ? 0 : 1;
-            int indirectClassification = 2;
+            ArgSpec directSpecification = candidate.dobj();
+            ArgSpec indirectSpecification = candidate.iobj();
+            ArgSpec directClassification =
+                directObject == indirectObject ? ArgSpec.THIS : directObject == -1 ? ArgSpec.NONE : ArgSpec.ANY;
+            ArgSpec indirectClassification = ArgSpec.THIS;
             boolean argumentSpecificationMatches =
-                (directSpecification == 1 || directSpecification == directClassification)
+                (directSpecification == ArgSpec.ANY || directSpecification == directClassification)
                     && (candidate.preposition() == -2 || candidate.preposition() == preposition)
-                    && (indirectSpecification == 1
+                    && (indirectSpecification == ArgSpec.ANY
                         || indirectSpecification == indirectClassification);
             if (argumentSpecificationMatches) {
               selectedVerb = candidate;
@@ -1729,7 +1729,7 @@ public final class MooRuntime implements AutoCloseable, SchedulerRuntime {
             foregroundTicks,
             foregroundSeconds,
             maxStackDepth,
-            (verb.permissions() & 8) != 0,
+            verb.perms().debug(),
             verbName,
             verb.names());
     long taskPlayer =
@@ -2417,7 +2417,7 @@ public final class MooRuntime implements AutoCloseable, SchedulerRuntime {
       return BuiltinResult.error(ErrorValue.E_INVARG);
     }
     boolean wizard =
-        world.object(programmer).map(object -> ObjectFlags.isWizard(object.flags())).orElse(false);
+        world.isWizard(programmer);
     if (target != programmer && !wizard) {
       return BuiltinResult.error(ErrorValue.E_PERM);
     }
@@ -2483,7 +2483,7 @@ public final class MooRuntime implements AutoCloseable, SchedulerRuntime {
       List<MooValue> arguments, WorldTxn world, long programmer) {
     long target = ((ObjectValue) arguments.getFirst()).value();
     boolean wizard =
-        world.object(programmer).map(object -> ObjectFlags.isWizard(object.flags())).orElse(false);
+        world.isWizard(programmer);
     if (target != programmer && !wizard) {
       return BuiltinResult.error(ErrorValue.E_PERM);
     }
@@ -2516,7 +2516,7 @@ public final class MooRuntime implements AutoCloseable, SchedulerRuntime {
     long target = ((ObjectValue) arguments.getFirst()).value();
     long backgroundTasks = taskRegistry.backgroundTaskCount(target);
     boolean wizard =
-        world.object(programmer).map(object -> ObjectFlags.isWizard(object.flags())).orElse(false);
+        world.isWizard(programmer);
     if (!wizard) {
       return BuiltinResult.value(new IntegerValue(backgroundTasks));
     }
@@ -2590,7 +2590,7 @@ public final class MooRuntime implements AutoCloseable, SchedulerRuntime {
       List<MooValue> arguments, WorldTxn world, long programmer) {
     long target = ((ObjectValue) arguments.getFirst()).value();
     boolean wizard =
-        world.object(programmer).map(object -> ObjectFlags.isWizard(object.flags())).orElse(false);
+        world.isWizard(programmer);
     if (target != programmer && !wizard) {
       return BuiltinResult.error(ErrorValue.E_PERM);
     }
