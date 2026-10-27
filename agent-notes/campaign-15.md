@@ -14,7 +14,7 @@ Use existing BuiltinHosts on BuiltinCall as the invocation carrier. MooRuntime.b
 Primary source: MooRuntime.builtinHosts and ATTEMPT/openAttempt/requireAttempt; PublicationScheduler.executeAttempt/executeSegment; BuiltinCall and BuiltinHosts; BuiltinCatalog constructors and callFunction; ArchitectureTest package boundaries prohibit runtime dependencies from VM/builtin. Existing runtime methods and explicit context can remain runtime-owned; ThreadLocal is confined to the scheduler attempt-entry boundary.
 
 ## Next step
-Commit the fixture-compilation repairs with this note, then return the worktree to the parent for publishing the repairs, changed-code Claude follow-up and PR CI. No local CI or push is authorized for this repair. The authored recipe test result does not establish that the complete runtime change passes PR CI.
+The fixture-compilation repairs are committed. Parent's subsequent PR CI reached the existing architecture assertion that still looked for pendingReads on MooRuntime. The assertion now targets ConnectionIo.pendingReads with its actual runtime guard; all other expected guards remain exactly this, and the private-field assertion is retained. Commit this assertion migration with the note, then return the worktree to the parent for publication, changed-code Claude follow-up and PR CI. No broad local CI or push is authorized for this repair. The authored recipe test result does not establish that the complete runtime change passes PR CI.
 
 ## Checkpoint
 Read issue 15 and the existing extraction recipe; the requested order is collector, login, connection I/O, dispatch phases, then explicit attempt plumbing.

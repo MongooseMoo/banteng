@@ -270,6 +270,7 @@ final class ArchitectureTest {
     assertGuardedFields(
         productionClasses,
         "runtime.PublicationScheduler",
+        "this",
         "ready",
         "completed",
         "ingress",
@@ -287,6 +288,7 @@ final class ArchitectureTest {
     assertGuardedFields(
         productionClasses,
         "runtime.TaskRegistry",
+        "this",
         "tasks",
         "hostWork",
         "cancellationActions",
@@ -296,15 +298,22 @@ final class ArchitectureTest {
     assertGuardedFields(
         productionClasses,
         "world.WorldHistory",
+        "this",
         "revisions", "activeTransactions", "verbCache", "current");
     assertGuardedFields(
         productionClasses,
         "runtime.MooRuntime",
-        "publishedConnections", "pendingReads", "sessionRevision");
+        "this",
+        "publishedConnections", "sessionRevision");
+    assertGuardedFields(
+        productionClasses,
+        "runtime.ConnectionIo",
+        "runtime",
+        "pendingReads");
   }
 
   private static void assertGuardedFields(
-      JavaClasses productionClasses, String owner, String... fieldNames) {
+      JavaClasses productionClasses, String owner, String expectedGuard, String... fieldNames) {
     JavaClass javaClass = productionClasses.get("world.mongoose.banteng." + owner);
     for (String fieldName : fieldNames) {
       var field = javaClass.getField(fieldName);
@@ -312,7 +321,7 @@ final class ArchitectureTest {
       var annotation =
           field
               .getAnnotationOfType("com.google.errorprone.annotations.concurrent.GuardedBy");
-      assertTrue(annotation.get("value").filter("this"::equals).isPresent(), owner + "." + fieldName);
+      assertTrue(annotation.get("value").filter(expectedGuard::equals).isPresent(), owner + "." + fieldName);
     }
   }
 
