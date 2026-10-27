@@ -456,6 +456,8 @@ public final class MoveBuiltinFamily extends ScanningRecipe<MoveBuiltinFamily.Me
                 .stream().noneMatch(method -> method.getId().equals(statement.getId())))
                 .filter(statement -> members.limits.stream().noneMatch(member -> member.getId().equals(statement.getId())))
                 .filter(statement -> members.fields.stream().noneMatch(member -> member.getId().equals(statement.getId())))
+                .filter(statement -> !(family.equals("TaskBuiltins") && statement instanceof J.VariableDeclarations field
+                    && field.getVariables().stream().anyMatch(variable -> variable.getSimpleName().equals("NUMBER"))))
                  .filter(statement -> members.foldAscii == null || !members.foldAscii.getId().equals(statement.getId()))
                  .filter(statement -> members.matchesAt == null || !members.matchesAt.getId().equals(statement.getId()))
                  .filter(statement -> members.stringLengthError == null || !members.stringLengthError.getId().equals(statement.getId()))

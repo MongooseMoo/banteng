@@ -84,7 +84,6 @@ public final class BuiltinCatalog {
   private static final SecureRandom SECURE_RANDOM = new SecureRandom();
   private static final Set<ArgType> ANY = Set.of(ArgType.ANY);
   private static final Set<ArgType> INTEGER = Set.of(ArgType.INTEGER);
-  private static final Set<ArgType> NUMBER = Set.of(ArgType.NUMBER);
   private static final Set<ArgType> STRING = Set.of(ArgType.STRING);
   private static final Set<ArgType> OBJECT = Set.of(ArgType.OBJECT);
   private static final int DEFAULT_MAX_QUEUED_OUTPUT = 65_536;

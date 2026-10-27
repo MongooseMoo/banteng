@@ -21,11 +21,12 @@ final class MoveBuiltinFamilyTest {
         package world.mongoose.banteng.builtin;
         import java.util.List;
         class BuiltinCatalog {
+          private static final Set<ArgType> NUMBER = Set.of(ArgType.NUMBER);
           void buildManifest() {
             BuiltinHandler setThreadMode = call -> setThreadMode(call.arguments(), call.threadMode());
             BuiltinHandler callFunction = this::callFunction;
             entries.add(new BuiltinSpec("call_function", List.of(OBJECT), BuiltinPermissionRule.ANY, true, callFunction));
-            entries.add(new BuiltinSpec("thread_pool", List.of(), BuiltinPermissionRule.WIZARD_ONLY, true, this::configureThreadPool));
+            entries.add(new BuiltinSpec("thread_pool", List.of(NUMBER), BuiltinPermissionRule.WIZARD_ONLY, true, this::configureThreadPool));
             middle();
             entries.add(new BuiltinSpec("set_thread_mode", List.of(), BuiltinPermissionRule.ANY, false, setThreadMode));
             entries.add(new BuiltinSpec("eval", List.of(), BuiltinPermissionRule.PROGRAMMER_ONLY, false, call -> dynamicEval(call.arguments())));
@@ -51,6 +52,8 @@ final class MoveBuiltinFamilyTest {
     assertTrue(catalog.indexOf("TaskBuiltins.registerGroup0(entries, this)") < catalog.indexOf("middle()"));
     assertTrue(catalog.indexOf("middle()") < catalog.indexOf("TaskBuiltins.registerGroup1(entries, this)"));
     assertFalse(catalog.contains("BuiltinHandler"));
+    assertFalse(catalog.contains("Set<ArgType> NUMBER"));
+    assertTrue(family.contains("Set<ArgType> NUMBER"));
     assertFalse(catalog.contains("private BuiltinResult"));
     assertTrue(family.contains("List<BuiltinSpec> entries, BuiltinCatalog catalog"));
     assertTrue(family.contains("import world.mongoose.banteng.builtin.BuiltinCall;"));

@@ -4,6 +4,7 @@
 Move the 23 task registrations and their implementation closure through the existing OpenRewrite family mover, retaining manifest order, invocation hosts and continuation owners.
 
 ## State
+Published as PR132. Initial CI caught the catalog NUMBER constant left unused after its task registrations moved. The existing mover now removes that leftover field while retaining the family's generated constant; generated catalog and authored fixture are corrected. Required hosted CI must pass on the repair.
 The mover, declarative configuration, generated family/catalog migration and focused fixture are complete. The focused MoveBuiltinFamilyTest file passed, including Task dependency imports/constants and idempotency. The corrected migration runner completed normally with explicit WSL JDK 25 and normal prerequisites, and generated the required OBJECT constant and BuiltinCall import. Applied its reviewed patch through apply_patch. No publication is authorized for this worker.
 
 ## Decisions and why
