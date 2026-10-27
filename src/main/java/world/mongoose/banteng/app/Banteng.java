@@ -165,16 +165,25 @@ public final class Banteng implements Callable<Integer> {
   List<ListValue> startupScripts() throws IOException {
     List<ListValue> scripts = new ArrayList<>();
     String line = startLine;
-    if (line != null) scripts.add(new ListValue(List.of(StringValue.of(line))));
+    if (line != null) scripts.add(new ListValue(List.of(StringValue.of(cleanStartupLine(line)))));
     Path path = startScript;
     if (path != null) {
       String content = Files.readString(path, StringValue.charset());
       List<String> lines = content.isEmpty() ? List.of() : Arrays.asList(content.split("\n", -1));
       if (content.endsWith("\n")) lines = lines.subList(0, lines.size() - 1);
-      ListValue file = new ListValue(lines.stream().map(StringValue::of).map(MooValue.class::cast).toList());
+      ListValue file = new ListValue(lines.stream().map(Banteng::cleanStartupLine).map(StringValue::of).map(MooValue.class::cast).toList());
       scripts.add(scriptFileFirst ? 0 : scripts.size(), file);
     }
     return scripts;
+  }
+
+  private static String cleanStartupLine(String line) {
+    StringBuilder cleaned = new StringBuilder(line.length());
+    for (int index = 0; index < line.length(); index++) {
+      char character = line.charAt(index);
+      if (character >= ' ' && character <= '~') cleaned.append(character);
+    }
+    return cleaned.toString();
   }
 
 }
