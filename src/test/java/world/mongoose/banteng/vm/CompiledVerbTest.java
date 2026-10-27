@@ -28,6 +28,27 @@ import org.junit.jupiter.api.Test;
 
 final class CompiledVerbTest {
   @Test
+  void setVerbCodeStoresInstructionLinesFromCanonicalSource() {
+    BuiltinCatalog catalog = new BuiltinCatalog(BuiltinHosts.builder().build());
+    BytecodeProgram install = new MooCompiler().compile(
+        "return set_verb_code(#1, 1, {\"x = 1; return x;\"});");
+    try (WorldTxn transaction = world(verb("work", "return 0;")).begin()) {
+      VmState state = new VmState(Map.of(), 1);
+      new MooVm().execute(install, state, transaction, catalog, 1);
+      assertEquals(VmState.Outcome.RETURNED, state.outcome());
+      assertEquals(new ListValue(List.of()), state.returnValue().orElseThrow());
+      WorldVerb installed = transaction.verb(1, 0).orElseThrow();
+      assertEquals("x = 1;\nreturn x;", installed.programSource());
+      BytecodeProgram reloaded = new MooCompiler().compile(installed.programSource());
+      assertEquals(reloaded.instructions().stream().map(BytecodeProgram.Instruction::sourceLine).toList(),
+          installed.program().instructions().stream().map(BytecodeProgram.Instruction::sourceLine).toList());
+      assertTrue(installed.program().instructions().stream()
+          .anyMatch(instruction -> instruction.opcode() == BytecodeProgram.Opcode.RETURN
+              && instruction.sourceLine() == 2));
+    }
+  }
+
+  @Test
   void codeInstallationReusesValidatedProgramAndMetadataEditsKeepIt() {
     WorldVerb original = verb("work", "  return 1; /* exact spelling */");
     WorldTxn owner = world(original);
