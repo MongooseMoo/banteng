@@ -1,5 +1,7 @@
 package world.mongoose.banteng.rewrite;
 
+import com.fasterxml.jackson.annotation.JsonCreator;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -40,7 +42,10 @@ public final class MoveBuiltinFamily extends ScanningRecipe<MoveBuiltinFamily.Me
             "relativeHeading"));
   }
 
-  public MoveBuiltinFamily(String family, Set<String> builtins, Set<String> methods) {
+  @JsonCreator
+  public MoveBuiltinFamily(@JsonProperty("family") String family,
+      @JsonProperty("builtins") Set<String> builtins,
+      @JsonProperty("methods") Set<String> methods) {
     this.family = family;
     this.builtins = Set.copyOf(builtins);
     this.methods = Set.copyOf(methods);
@@ -128,7 +133,7 @@ public final class MoveBuiltinFamily extends ScanningRecipe<MoveBuiltinFamily.Me
             + "import world.mongoose.banteng.builtin.BuiltinPermissionRule;\n"
             + "import world.mongoose.banteng.builtin.BuiltinResult;\n"
             + "import world.mongoose.banteng.builtin.CallShape;\n"
-            + "/** Owns math builtin registrations and implementations. */\n"
+            + "/** Owns builtin registrations and implementations for this family. */\n"
             + "public final class " + family + " {\n"
             + "  private static final Set<ArgType> ANY = Set.of(ArgType.ANY);\n"
             + "  private static final Set<ArgType> INTEGER = Set.of(ArgType.INTEGER);\n"

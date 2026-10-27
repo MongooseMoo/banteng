@@ -36,6 +36,7 @@ import org.bouncycastle.crypto.generators.Argon2BytesGenerator;
 import org.bouncycastle.crypto.macs.HMac;
 import org.bouncycastle.crypto.params.Argon2Parameters;
 import org.bouncycastle.crypto.params.KeyParameter;
+import world.mongoose.banteng.builtin.family.MapBuiltins;
 import world.mongoose.banteng.builtin.family.MathBuiltins;
 import world.mongoose.banteng.bytecode.MooCompiler;
 import world.mongoose.banteng.host.Aspell;
@@ -379,40 +380,7 @@ public final class BuiltinCatalog {
             BuiltinPermissionRule.ANY,
             false,
             call -> listSet(call.arguments(), call.world())));
-    entries.add(
-        new BuiltinSpec(
-            "mapdelete",
-            List.of(new CallShape(List.of(Set.of(ArgType.MAP), ANY), List.of(), Optional.empty())),
-            BuiltinPermissionRule.ANY,
-            false,
-            call -> mapDelete(call.arguments())));
-    entries.add(
-        new BuiltinSpec(
-            "mapkeys",
-            List.of(
-                new CallShape(
-                    List.of(Set.of(ArgType.MAP)), List.of(), Optional.empty())),
-            BuiltinPermissionRule.ANY,
-            false,
-            call -> mapKeys(call.arguments())));
-    entries.add(
-        new BuiltinSpec(
-            "mapvalues",
-            List.of(
-                new CallShape(
-                    List.of(Set.of(ArgType.MAP)), List.of(), Optional.of(ANY))),
-            BuiltinPermissionRule.ANY,
-            false,
-            call -> mapValues(call.arguments())));
-    entries.add(
-        new BuiltinSpec(
-            "maphaskey",
-            List.of(
-                new CallShape(
-                    List.of(Set.of(ArgType.MAP), ANY), List.of(INTEGER), Optional.empty())),
-            BuiltinPermissionRule.ANY,
-            false,
-            call -> mapHasKey(call.arguments())));
+    MapBuiltins.register(entries);
     entries.add(
         new BuiltinSpec(
             "generate_json",
@@ -2627,89 +2595,6 @@ public final class BuiltinCatalog {
     List<MooValue> replaced = new ArrayList<>(list.elements());
     replaced.set((int) position - 1, arguments.get(1));
     return enforceListValueLimit(new ListValue(replaced), world);
-  }
-
-  private static BuiltinResult mapKeys(List<MooValue> arguments) {
-    MapValue map = (MapValue) arguments.getFirst();
-    return BuiltinResult.value(new ListValue(map.orderedEntries().stream().map(Map.Entry::getKey).toList()));
-  }
-
-  private static BuiltinResult mapValues(List<MooValue> arguments) {
-    MapValue map = (MapValue) arguments.getFirst();
-    List<MooValue> values = new ArrayList<>();
-    if (arguments.size() == 1) {
-      for (Map.Entry<MooValue, MooValue> entry : map.orderedEntries()) {
-        values.add(entry.getValue());
-      }
-      return BuiltinResult.value(new ListValue(values));
-    }
-    for (int index = 1; index < arguments.size(); index++) {
-      final Optional<MooValue> value;
-      try {
-        value = map.get(arguments.get(index), true);
-      } catch (IllegalArgumentException invalidKey) {
-        return BuiltinResult.error(ErrorValue.E_RANGE);
-      }
-      if (value.isEmpty()) {
-        return BuiltinResult.error(ErrorValue.E_RANGE);
-      }
-      values.add(value.orElseThrow());
-    }
-    return BuiltinResult.value(new ListValue(values));
-  }
-
-  private static BuiltinResult mapHasKey(List<MooValue> arguments) {
-    MooValue key = arguments.get(1);
-    if (invalidMapBuiltinKey(key)) {
-      return BuiltinResult.error(ErrorValue.E_TYPE);
-    }
-    MapValue map = (MapValue) arguments.getFirst();
-    boolean caseMatters = arguments.size() == 3 && arguments.get(2).isTruthy();
-    return BuiltinResult.value(new IntegerValue(map.get(key, caseMatters).isPresent() ? 1 : 0));
-  }
-
-  private static BuiltinResult mapDelete(List<MooValue> arguments) {
-    MapValue original = (MapValue) arguments.getFirst();
-    MooValue requested = arguments.get(1);
-    boolean multiple = requested instanceof ListValue;
-    List<MooValue> keys =
-        multiple ? ((ListValue) requested).elements() : List.of(requested);
-    MapValue result = original;
-    for (MooValue key : keys) {
-      if (invalidMapBuiltinKey(key)) {
-        return BuiltinResult.error(ErrorValue.E_TYPE);
-      }
-      Optional<MapValue> deleted = deleteMapKey(result, key);
-      if (deleted.isEmpty()) {
-        return multiple
-            ? BuiltinResult.raised(
-                ErrorValue.E_RANGE,
-                StringValue.of("Key " + key.toLiteral() + " not found in map"),
-                key)
-            : BuiltinResult.error(ErrorValue.E_RANGE);
-      }
-      result = deleted.orElseThrow();
-    }
-    return BuiltinResult.value(result);
-  }
-
-  private static Optional<MapValue> deleteMapKey(MapValue map, MooValue key) {
-    Map<MooValue, MooValue> remaining = new LinkedHashMap<>();
-    boolean found = false;
-    for (Map.Entry<MooValue, MooValue> entry : map.entries().entrySet()) {
-      if (!found && ValueSemantics.STANDARD.compare(entry.getKey(), key, false) == 0) {
-        found = true;
-      } else {
-        remaining.put(entry.getKey(), entry.getValue());
-      }
-    }
-    return found ? Optional.of(new MapValue(remaining)) : Optional.empty();
-  }
-
-  private static boolean invalidMapBuiltinKey(MooValue key) {
-    return key instanceof ListValue
-        || key instanceof MapValue
-        || key instanceof AnonymousObjectValue;
   }
 
   private static BuiltinResult setAdd(

@@ -335,3 +335,13 @@ displayName: Extract math builtins
 description: Moves math registrations and their static implementation closure into a family owner.
 recipeList:
   - world.mongoose.banteng.rewrite.MoveBuiltinFamily
+---
+type: specs.openrewrite.org/v1beta/recipe
+name: world.mongoose.banteng.builtin.ExtractMapBuiltins
+displayName: Extract map builtins
+description: Moves map registrations and their static implementation closure into a family owner.
+recipeList:
+  - world.mongoose.banteng.rewrite.MoveBuiltinFamily:
+      family: MapBuiltins
+      builtins: [mapdelete, mapkeys, mapvalues, maphaskey]
+      methods: [mapKeys, mapValues, mapHasKey, mapDelete, deleteMapKey, invalidMapBuiltinKey]
