@@ -35,3 +35,5 @@ Claude reviewed the fixed two-endpoint diff from the PR138 runtime head to the P
 
 ## Queue prerequisite integration
 Normally merged the published Noise tip and its reviewed prerequisite families. Mover resolution retains Server constant/method selection, serverParameters and logging rewrites alongside all incoming generation branches and shared imports; YAML retains every complete recipe document. Reused fixture/catalog resolutions retain Server's four registration positions and canonical hosts.serverLog dependency, matching final assembly. ServerBuiltins and incoming family owners remain byte-identical. Preserved the pre-existing Claude note edits in this substantive merge. No local tests, repeated review or publication; parent owns hosted validation and merge.
+
+Normally merged the newly published Noise tip carrying the actual merged master ancestry. No conflicts occurred; incoming source changes are only the already-reviewed startup-input fix and focused test, alongside runtime and prerequisite ancestry notes. ServerBuiltins, all other builtin owners, catalog and extraction files remain unchanged. No CI, review or publication ran here.
