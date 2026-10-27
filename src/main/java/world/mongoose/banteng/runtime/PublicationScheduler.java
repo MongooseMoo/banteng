@@ -169,7 +169,7 @@ public final class PublicationScheduler implements AutoCloseable {
     BytecodeProgram program = DurableTaskCodec.restoreQueuedProgram(restored);
     VmState state =
         new VmState(new TaskOrigin(restored.initialLocals(), restored.programmer(), restored.verbLocation(),
-        restored.calledVerb(), restored.fullVerbName(), restored.debug()), new TaskBudget(MooRuntime.DEFAULT_BACKGROUND_TICKS, MooRuntime.DEFAULT_BACKGROUND_SECONDS, MooRuntime.DEFAULT_MAX_STACK_DEPTH));
+        restored.calledVerb(), restored.fullVerbName(), restored.debug(), restored.taskPlayer()), new TaskBudget(MooRuntime.DEFAULT_BACKGROUND_TICKS, MooRuntime.DEFAULT_BACKGROUND_SECONDS, MooRuntime.DEFAULT_MAX_STACK_DEPTH));
     state.ensureRoot(program);
     state.setThreadMode(restored.threadMode());
     VmSnapshot snapshot = state.snapshot();
@@ -241,7 +241,6 @@ public final class PublicationScheduler implements AutoCloseable {
             Optional.empty(),
             Optional.empty(),
             Optional.empty(),
-            OptionalLong.empty(),
             Optional.empty(),
             OptionalDouble.of(0.0),
             false,
@@ -250,7 +249,7 @@ public final class PublicationScheduler implements AutoCloseable {
             MooRuntime.DEFAULT_BACKGROUND_TICKS,
             0,
             TimeUnit.SECONDS.toNanos(MooRuntime.DEFAULT_BACKGROUND_SECONDS),
-            restored.maxStackDepth());
+            restored.maxStackDepth(), root.player());
     SuspendedActivation current = restored.activations().getLast();
     SuspendedWork work =
         new SuspendedWork(
@@ -315,12 +314,11 @@ public final class PublicationScheduler implements AutoCloseable {
             default -> throw new IllegalStateException("invalid durable wake result: " + wake);
           };
       return DurableTaskCodec.durableSuspension(
-          work.taskId(), timed.scheduledEpochMilli(), work.snapshot(), work.taskPlayer(),
+          work.taskId(), timed.scheduledEpochMilli(), work.snapshot(),
           resumeValue);
     }
     return DurableTaskCodec.exportQueuedTask(
-        work.taskId(), timed.scheduledEpochMilli(), work.program(), work.snapshot(),
-        work.taskPlayer());
+        work.taskId(), timed.scheduledEpochMilli(), work.program(), work.snapshot());
   }
 
   BuiltinResult resumeTask(BuiltinCall call) {
@@ -504,7 +502,7 @@ public final class PublicationScheduler implements AutoCloseable {
     try {
       context = runtime.get().openAttempt(transaction, entry.taskId());
       ATTEMPT.set(context);
-      result = executeSegment(entry, transaction, context);
+      result = executeSegment(entry, transaction, context, List.of());
       transaction = context.world;
     } catch (Throwable caught) {
       failure = caught;
@@ -524,7 +522,7 @@ public final class PublicationScheduler implements AutoCloseable {
   }
 
   private SegmentResult executeSegment(
-      Entry start, WorldTxn transaction, MooRuntime.AttemptContext context) {
+      Entry start, WorldTxn transaction, MooRuntime.AttemptContext context, List<VmSnapshot> retainedRoots) {
     var invocationHosts = runtime.get().builtinHosts(context);
     Optional<MooRuntime.RuntimeContinuation> continuation = start.continuation();
     Optional<MooRuntime.FinalizationControl> finalizationControl = start.finalizationControl();
@@ -540,6 +538,12 @@ public final class PublicationScheduler implements AutoCloseable {
     boolean aborted = false;
     Optional<VmSnapshot> timeoutSnapshot = Optional.empty();
 
+    if (snapshot.filter(value -> value.outcome() == VmState.Outcome.SUSPENDED).isPresent()
+        && wakeResult.isEmpty() && !startingBackground) {
+      return SegmentResult.boundary(program.orElseThrow(), snapshot.orElseThrow(), taskPlayer,
+          continuation, finalizationControl, start.suspendedHostWork(), pendingForks, Optional.empty());
+    }
+
     while (true) {
       if (program.isEmpty()) {
         Optional<MooRuntime.FinalizationControl> executingFinalization = finalizationControl;
@@ -554,7 +558,7 @@ public final class PublicationScheduler implements AutoCloseable {
                 executingFinalization.orElseThrow();
             runtime.get().collectAfterAnonymousFinalization(context,
                 (AnonymousObjectValue) anonymousFinalization.target(),
-                taskRegistry.snapshotsExcluding(start.taskId()),
+                taskRoots(start.taskId(), retainedRoots),
                 startsNextAnonymousFinalizationWave(anonymousFinalization));
           }
           return SegmentResult.returned(
@@ -580,6 +584,8 @@ public final class PublicationScheduler implements AutoCloseable {
           startingBackground
               ? runtime.get().startBackgroundTask(context, snapshot.orElseThrow())
               : VmState.restore(snapshot.orElseThrow());
+      VmSnapshot sliceInitial = snapshot.orElseThrow();
+      long sliceStarted = runtime.get().nanoTime();
       if (wakeResult.isPresent()) {
         BuiltinResult completion = wakeResult.orElseThrow();
         if (completion instanceof BuiltinResult.ErrorResult
@@ -604,11 +610,12 @@ public final class PublicationScheduler implements AutoCloseable {
                 runtime.get().builtins(),
                 invocationHosts,
                 start.taskId());
+        long sliceFinished = runtime.get().nanoTime();
         runtime.get().publishVmState(context,
               state,
               taskPlayer,
               finalizationControl.isEmpty(),
-              taskRegistry.snapshotsExcluding(start.taskId()));
+              taskRoots(start.taskId(), retainedRoots));
         if (state.outcome() == VmState.Outcome.FORKED) {
           if (!start.irrevocableAuthorized()) {
             return SegmentResult.irrevocable(pendingForks, finalizationControl);
@@ -620,12 +627,12 @@ public final class PublicationScheduler implements AutoCloseable {
           VmSnapshot.Fork fork = state.continueAfterFork(new IntegerValue(childTaskId));
           VmState child =
               new VmState(new TaskOrigin(fork.locals(), fork.programmer(), fork.verbLocation(),
-        fork.calledVerb(), fork.fullVerbName(), fork.debug()), new TaskBudget(MooRuntime.DEFAULT_BACKGROUND_TICKS, MooRuntime.DEFAULT_BACKGROUND_SECONDS, state.snapshot().maxStackDepth()));
+        fork.calledVerb(), fork.fullVerbName(), fork.debug(), fork.player()), new TaskBudget(MooRuntime.DEFAULT_BACKGROUND_TICKS, MooRuntime.DEFAULT_BACKGROUND_SECONDS, state.snapshot().maxStackDepth()));
           VmSnapshot childState = child.snapshot();
           long scheduledStart = Math.addExact(
               System.currentTimeMillis(), Math.round(fork.delaySeconds() * 1_000.0));
           TimedWork pending = new TimedWork(
-              new SuspendedWork(childTaskId, fork.program(), childState, taskPlayer,
+              new SuspendedWork(childTaskId, fork.program(), childState, fork.player(),
                   Optional.empty(), Optional.empty(), true),
               scheduledStart, Optional.empty(), Optional.empty());
           synchronized (this) {
@@ -650,11 +657,36 @@ public final class PublicationScheduler implements AutoCloseable {
               state,
               taskPlayer,
               finalizationControl.isEmpty(),
-              taskRegistry.snapshotsExcluding(start.taskId()));
+              taskRoots(start.taskId(), retainedRoots));
           continue;
         }
 
         VmSnapshot completed = state.snapshot();
+        Optional<MooRuntime.RuntimeStep> lag = runtime.get().startLaggingTask(context,
+            sliceInitial, completed, taskPlayer, Math.max(0L, sliceFinished - sliceStarted) / 1_000_000_000.0);
+        if (lag.isPresent()) {
+          MooRuntime.RuntimeStep step = lag.orElseThrow();
+          Entry callback = Entry.vm(start.ticket(), start.taskId(), step.program().orElseThrow(),
+              step.snapshot().orElseThrow(), step.taskPlayer(), step.continuation(), Optional.empty(),
+              false, Optional.empty());
+          if (start.irrevocableAuthorized()) {
+            callback = callback.authorizeIrrevocable();
+          }
+          List<VmSnapshot> lagRoots = new ArrayList<>(retainedRoots);
+          lagRoots.add(completed);
+          SegmentResult handled = executeSegment(callback, transaction, context, lagRoots);
+          pendingForks.addAll(handled.pendingForks());
+          if (handled.needsIrrevocable()) {
+            return SegmentResult.irrevocable(pendingForks, finalizationControl);
+          }
+          handled.output().or(handled::inputOutput)
+              .ifPresent(lines -> lines.forEach(state.effects()::stageOutput));
+          if (handled.snapshot().isPresent()) {
+            context.spawnedSteps.add(new MooRuntime.RuntimeStep(handled.program(), handled.snapshot(),
+                handled.taskPlayer(), handled.continuation(), Optional.empty(), Optional.empty(),
+                handled.hostWork()));
+          }
+        }
         if (state.outcome() == VmState.Outcome.KILLED) {
           aborted = true;
         }
@@ -722,7 +754,13 @@ public final class PublicationScheduler implements AutoCloseable {
             state.effects().clearOutput();
           }
           if (inputOutput.isPresent()) {
-            continuation = Optional.empty();
+            continuation = continuation
+                .filter(value -> value.transition().orElseThrow() == MooRuntime.RuntimeTransition.UNCAUGHT_HANDLER_RETURN
+                    || value.transition().orElseThrow() == MooRuntime.RuntimeTransition.LAG_HANDLER_RETURN)
+                .map(value -> value.transition().orElseThrow() == MooRuntime.RuntimeTransition.UNCAUGHT_HANDLER_RETURN
+                    ? MooRuntime.RuntimeContinuation.after(
+                        MooRuntime.RuntimeTransition.UNCAUGHT_HANDLER_RETURN, value.connectionId(), "", List.of(), 0, 0, false)
+                    : value);
             completed = state.snapshot();
           }
           continuation = continuation.filter(
@@ -740,6 +778,12 @@ public final class PublicationScheduler implements AutoCloseable {
         throw new IllegalStateException("VM segment ended without an observable boundary");
       }
     }
+  }
+
+  private List<VmSnapshot> taskRoots(long taskId, List<VmSnapshot> retained) {
+    List<VmSnapshot> roots = new ArrayList<>(taskRegistry.snapshotsExcluding(taskId));
+    roots.addAll(retained);
+    return roots;
   }
 
   private void complete(Attempt attempt) {
@@ -867,7 +911,8 @@ public final class PublicationScheduler implements AutoCloseable {
     if (result.inputOutput().isPresent()) {
       synchronized (this) {
         input = ingress.get(start.taskId());
-        if (input != null && input.socketConnection().isPresent()) {
+        if (input != null && (input.socketConnection().isPresent()
+            || input.operation() == MooRuntime.Operation.START_SCRIPT)) {
           foreground = ingress.remove(start.taskId()).future();
         } else if (input != null) {
           ingress.put(start.taskId(), input.append(result.inputOutput().orElseThrow()));
@@ -887,7 +932,7 @@ public final class PublicationScheduler implements AutoCloseable {
             result.taskPlayer(),
             result.continuation(),
             result.finalizationControl(),
-            false);
+            false, Optional.empty());
     publishVmCompletionOutsideMonitor(
         boundary,
         result.snapshot().orElseThrow(),
@@ -1273,7 +1318,7 @@ public final class PublicationScheduler implements AutoCloseable {
             step.taskPlayer(),
             step.continuation(),
             finalizationControl,
-            false));
+            false, step.suspendedHostWork()));
   }
 
   private synchronized boolean registerActiveFinalization(
@@ -1394,13 +1439,15 @@ public final class PublicationScheduler implements AutoCloseable {
       Optional<MooRuntime.FinalizationControl> finalizationControl,
       Optional<BuiltinResult> wakeResult,
       boolean startingBackground,
-      boolean irrevocableAuthorized) {
+      boolean irrevocableAuthorized,
+      Optional<Callable<BuiltinResult>> suspendedHostWork) {
     Entry {
       Objects.requireNonNull(program, "program");
       Objects.requireNonNull(snapshot, "snapshot");
       Objects.requireNonNull(continuation, "continuation");
       Objects.requireNonNull(finalizationControl, "finalizationControl");
       Objects.requireNonNull(wakeResult, "wakeResult");
+      Objects.requireNonNull(suspendedHostWork, "suspendedHostWork");
       if (kind == EntryKind.VM_SEGMENT && (program.isEmpty() || snapshot.isEmpty())) {
         throw new IllegalArgumentException("VM entry requires program and snapshot values");
       }
@@ -1431,7 +1478,7 @@ public final class PublicationScheduler implements AutoCloseable {
           continuation.finalizationControl(),
           Optional.empty(),
           false,
-          false);
+          false, Optional.empty());
     }
 
     static Entry vm(
@@ -1442,7 +1489,8 @@ public final class PublicationScheduler implements AutoCloseable {
         long taskPlayer,
         Optional<MooRuntime.RuntimeContinuation> continuation,
         Optional<MooRuntime.FinalizationControl> finalizationControl,
-        boolean startingBackground) {
+        boolean startingBackground,
+        Optional<Callable<BuiltinResult>> suspendedHostWork) {
       return new Entry(
           ticket,
           taskId,
@@ -1454,7 +1502,7 @@ public final class PublicationScheduler implements AutoCloseable {
           finalizationControl,
           Optional.empty(),
           startingBackground,
-          false);
+          false, suspendedHostWork);
     }
 
     Entry withWake(BuiltinResult completion) {
@@ -1469,7 +1517,7 @@ public final class PublicationScheduler implements AutoCloseable {
           finalizationControl,
           Optional.of(completion),
           startingBackground,
-          irrevocableAuthorized);
+          irrevocableAuthorized, suspendedHostWork);
     }
 
     Entry authorizeIrrevocable() {
@@ -1487,7 +1535,7 @@ public final class PublicationScheduler implements AutoCloseable {
           finalizationControl,
           wakeResult,
           startingBackground,
-          true);
+          true, suspendedHostWork);
     }
   }
 
@@ -1678,7 +1726,7 @@ public final class PublicationScheduler implements AutoCloseable {
           taskPlayer,
           continuation,
           finalizationControl,
-          startingBackground);
+          startingBackground, Optional.empty());
     }
 
     Entry wake(long ticket, BuiltinResult completion) {

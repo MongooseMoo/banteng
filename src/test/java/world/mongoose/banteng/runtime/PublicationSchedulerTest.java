@@ -1540,9 +1540,9 @@ final class PublicationSchedulerTest {
     try {
       Method method =
           DurableTaskCodec.class.getDeclaredMethod(
-              "exportActivation", VmSnapshot.Frame.class, long.class);
+              "exportActivation", VmSnapshot.Frame.class);
       method.setAccessible(true);
-      return (SuspendedActivation) method.invoke(null, frame, 0L);
+      return (SuspendedActivation) method.invoke(null, frame);
     } catch (InvocationTargetException failure) {
       throw rethrowInvocation(failure);
     } catch (ReflectiveOperationException failure) {
@@ -1562,7 +1562,9 @@ final class PublicationSchedulerTest {
       String source, int callIndex) {
     ToastV17ProgramLayout layout = new ToastV17ProgramLayout();
     ToastV17ProgramModel.CallBoundary boundary =
-        layout.callBoundaries(source, -1).get(callIndex);
+        layout.callBoundaries(source, -1).stream()
+            .filter(candidate -> candidate.kind() == ToastV17ProgramModel.CallKind.BUILTIN
+                || candidate.kind() == ToastV17ProgramModel.CallKind.VERB).toList().get(callIndex);
     return layout.resolveStructuralStack(
         source, -1, new MooCompiler().compile(source), boundary);
   }
@@ -1642,7 +1644,9 @@ final class PublicationSchedulerTest {
   private static SuspendedActivation suspendedActivation(
       String source, int callIndex, List<SuspendedStackSlot> operandStack) {
     ToastV17ProgramModel.CallBoundary boundary =
-        new ToastV17ProgramLayout().callBoundaries(source, -1).get(callIndex);
+        new ToastV17ProgramLayout().callBoundaries(source, -1).stream()
+            .filter(candidate -> candidate.kind() == ToastV17ProgramModel.CallKind.BUILTIN
+                || candidate.kind() == ToastV17ProgramModel.CallKind.VERB).toList().get(callIndex);
     Map<String, Optional<MooValue>> locals =
         Map.of(
             "this", Optional.of(new ObjectValue(0)),

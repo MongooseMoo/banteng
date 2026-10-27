@@ -2,6 +2,8 @@
 Extract issue 10's binary builtins through the existing OpenRewrite family mover.
 
 # State
+Prepared the normal merge of latest committed campaign/callback-command-locals, including the current callback, WAIF indexed-assignment and durable continuation repairs. Git merged the catalog mechanically without conflicts. BinaryBuiltins, MooValue/StringValue shared codecs, the family mover, its fixture and rewrite.yml are unchanged from the reviewed Binary head. Runtime/VM/persistence/bytecode/app, BuiltinHosts/BuiltinResult and runtime test files match the incoming runtime branch. No new Binary implementation or mover delta; no local CI or repeat review was run.
+
 Published as PR126 with completed Claude review. BinaryBuiltins owns the two registration groups and four private implementation methods. StringValue owns both shared codec methods; all five catalog caller sites retarget directly. Integrated merged Random additions in the shared recipe/YAML, preserving both reviewed changes; fresh PR CI checks the integration and the completed review is retained.
 
 # Decisions and why
@@ -22,4 +24,4 @@ Moves decode_binary, encode_binary and chr into BinaryBuiltins while preserving 
 Adds the declarative extraction recipe and focused mover coverage for the two registration groups, shared ownership, direct callers and idempotence. Validation: migration dry run and authored MoveBuiltinFamilyTest; application CI/conformance awaits publication.
 
 # Next step
-Parent to integrate overlapping recipe/YAML changes as needed, review the substantive commit, publish the PR and read its required CI/conformance before merging. No release or deployment performed here.
+Parent owns publication and required PR CI/conformance after runtime lands. Retain the completed Binary review because its implementation/mover/codecs are unchanged; this ancestry integration does not require another review. No publication, release or deployment performed by this worker.

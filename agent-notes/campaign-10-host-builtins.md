@@ -2,6 +2,8 @@
 Extract the five Host builtins for issue 10 using the existing family mover.
 
 # State
+Published as PR130 with completed review. Prepared the normal merge of latest campaign/10-binary-builtins, which includes current runtime/WAIF repairs. The catalog merged mechanically without conflicts. HostBuiltins, the family mover, authored mover fixture and rewrite.yml are unchanged from the reviewed Host head. BinaryBuiltins/shared StringValue codecs and incoming runtime/VM/persistence/bytecode/app, BuiltinHosts/BuiltinResult and runtime tests are preserved unchanged. No Host implementation/mover delta; no local CI or repeat review was run.
+
 Implemented in an isolated tree from Binary with its integrated Random ancestry. HostBuiltins owns five registrations in two groups and all seven private implementation methods. No publication by this agent.
 
 # Decisions and why
@@ -21,4 +23,4 @@ Moves getenv, curl, spellcheck, url_encode and url_decode into HostBuiltins, pre
 Adds the declarative migration and focused mover fixture for separated groups, inline environment behavior, private transfer closure and idempotence. Validation: authored MoveBuiltinFamilyTest and normal migration dry run; application CI/conformance remains for this PR.
 
 # Next step
-Parent to inspect the substantive commit, integrate ancestry and shared recipe changes as needed, obtain Claude review, publish and read required CI/conformance before merge. No release or deployment performed here.
+Parent owns publication and required PR CI/conformance after runtime lands. Preserve the actual Binary dependency: Binary must merge before Host is retargeted to master and merged. Reuse completed Host review because its code and dependencies are unchanged; this ancestry integration does not require another review. No publication, release or deployment performed by this worker.

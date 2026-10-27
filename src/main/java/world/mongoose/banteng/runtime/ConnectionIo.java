@@ -243,6 +243,76 @@ final class ConnectionIo {
     return BuiltinResult.value(new IntegerValue(runtime.elapsedSeconds(since)));
   }
 
+  BuiltinResult switchPlayer(AttemptContext context, BuiltinCall call) {
+    long oldPlayer = ((ObjectValue) call.arguments().getFirst()).value();
+    long newPlayer = ((ObjectValue) call.arguments().get(1)).value();
+    long connectionId = context.connections.connectionId(oldPlayer).orElseThrow();
+    ConnectionState source = runtime.requireConnection(context, connectionId);
+    OptionalLong destinationId = context.connections.connectionId(newPlayer);
+    boolean silent = call.arguments().size() == 3 && call.arguments().get(2).isTruthy();
+    runtime.switchConnectionPlayer(context, connectionId, newPlayer);
+    source.switched = oldPlayer;
+    if (destinationId.isPresent()) {
+      long redirectedId = destinationId.orElseThrow();
+      ConnectionState redirected = context.sessions.remove(redirectedId);
+      context.connections.closeConnection(redirectedId);
+      source.switched = newPlayer;
+      if (!silent && redirected != null && redirected.printMessages) {
+        context.effects.add(RuntimeEffect.write(redirectedId,
+            runtime.serverMessage(context, redirected.listenerHandler, "redirect_from_msg",
+                "*** Redirecting connection to new port ***")));
+      }
+      if (!silent && source.printMessages) {
+        context.effects.add(RuntimeEffect.write(connectionId,
+            runtime.serverMessage(context, source.listenerHandler, "redirect_to_msg",
+                "*** Redirecting old connection to this port ***")));
+      }
+      context.effects.add(RuntimeEffect.boot(redirectedId, List.of()));
+    } else if (!silent && source.printMessages) {
+      context.effects.add(RuntimeEffect.write(connectionId,
+          runtime.serverMessage(context, source.listenerHandler, "connect_msg", "*** Connected ***")));
+    }
+    return BuiltinResult.value(new IntegerValue(0));
+  }
+
+  void publishPlayerSwitches(AttemptContext context) {
+    for (Map.Entry<Long, ConnectionState> entry : context.sessions.entrySet()) {
+      ConnectionState connection = entry.getValue();
+      long oldPlayer = connection.switched;
+      if (oldPlayer == 0 || connection.switchNotifying) continue;
+      long player = context.connections.connectionPlayer(entry.getKey()).orElse(entry.getKey());
+      connection.switchNotifying = true;
+      if (oldPlayer != player && context.world.players().contains(oldPlayer)) {
+        if (playerSwitchNotifier(context, entry.getKey(), connection.listenerHandler,
+            oldPlayer, "user_disconnected", true)) continue;
+      }
+      afterPlayerSwitchNotifier(context, entry.getKey(), true);
+    }
+  }
+
+  void afterPlayerSwitchNotifier(AttemptContext context, long connectionId, boolean disconnected) {
+    ConnectionState connection = context.sessions.get(connectionId);
+    if (connection == null) return;
+    long player = context.connections.connectionPlayer(connectionId).orElse(connectionId);
+    if (disconnected && context.world.players().contains(player)
+        && playerSwitchNotifier(context, connectionId, connection.listenerHandler, player,
+            connection.switched == player ? "user_reconnected" : "user_connected", false)) return;
+    connection.switched = 0;
+    connection.switchNotifying = false;
+  }
+
+  private boolean playerSwitchNotifier(AttemptContext context, long connectionId, long listener,
+      long player, String verb, boolean disconnected) {
+    Optional<ResolvedVerb> resolution = context.world.resolveVerb(listener, verb, true);
+    if (resolution.isEmpty()) return false;
+    context.spawnedSteps.add(runtime.startStored(context, resolution.orElseThrow(),
+            new RootVerbCall(listener, player, -1, verb,
+                new ListValue(List.of(new ObjectValue(player))), ""),
+            RuntimeContinuation.after(RuntimeTransition.SWITCH_PLAYER_NOTIFIER_RETURN,
+                connectionId, "", List.of(), 0, 0, disconnected)));
+    return true;
+  }
+
   BuiltinResult outputDelimiters(AttemptContext context,
       List<MooValue> arguments, WorldTxn world, long programmer) {
     long target = ((ObjectValue) arguments.getFirst()).value();
