@@ -4,7 +4,7 @@
 Move the contiguous Map registrations and private implementations into MapBuiltins through the existing family mover, preserving behavior and registration order. Partial issue10 only.
 
 ## State
-Math PR112 completed Claude review and all PR checks including conformance. Separate next-family worktree starts from that branch while its merge queue runs. Existing mover now accepts declarative Jackson properties; the Map recipe selects only the four registrations and six methods. The authored fixture loads that declarative recipe and executes its clone successfully. Migration dry run completed and generated exactly MapBuiltins.java plus the catalog extraction; applied through apply_patch. Parent publishes and merges after dependency.
+Math PR112 completed Claude review and all PR checks including conformance. Existing mover now accepts declarative Jackson properties; the Map recipe selects only the four registrations and six methods. The authored fixture loads that declarative recipe and executes its clone successfully. Migration dry run completed and generated exactly MapBuiltins.java plus the catalog extraction; applied through apply_patch. Parent published PR114; CI and Claude identified the unused generated NUMBER constant. The mover cause and generated Map instance are corrected locally; parent publishes the repair and reads PR checks.
 
 ## Decisions and why
 Smallest next family is mapdelete, mapkeys, mapvalues and maphaskey: contiguous registrations at BuiltinCatalog 382–420 and six static implementation methods mapKeys, mapValues, mapHasKey, mapDelete, deleteMapKey, invalidMapBuiltinKey at 2632–2713. Parent read these methods and registrations directly. Move bodies unchanged; preserve ValueSemantics.STANDARD and orderedEntries versus entries behavior as currently written. Do not fold independent semantics changes into extraction.
@@ -14,13 +14,16 @@ Reuse MoveBuiltinFamily with its existing configurable constructor. Expose confi
 The researched List family requires noncontiguous registration groups, shared value-limit ownership and semantics callbacks. Map can use the existing mover directly; List remains explicitly outstanding, including sort and polymorphic operations. Final issue10 catalog-size target remains outstanding.
 
 ## Surprises
+PR CI and Claude review identified the generated unused NUMBER field: the mover emitted all three type constants for every family even when only ANY and INTEGER were referenced. Corrected the existing mover first to collect unqualified identifier references from registrations and moved implementations and emit only referenced constants; then removed the unused Map NUMBER field. Math defaults and clone behavior are unchanged. No compiler checks were relaxed, and production verification remains on PR CI.
+
 The first migration invocation left its dotted -Drewrite.activeRecipe argument unquoted in PowerShell, which split it and produced `Task '.activeRecipe=world.mongoose.banteng.builtin.ExtractMapBuiltins' not found`. Quoting that argument corrected invocation. Existing rewrite runner logged the known subproject runtimeClasspath exclusive-lock diagnostics but parsed root sources and completed successfully. The runner was not changed. Migration compilation prerequisites took most of the run; no tests were executed by the migration command.
 
 ## Next step
-The family is committed locally. Parent checks draft/source, opens PR, obtains Claude review and required PR CI, and merges normally after its dependency. No worker publication or broad local CI. The generated production code has not been compiled after application; PR CI owns those checks. Issue 10 remains open for later families and catalog reduction.
+The family and unused-constant repair are committed locally. Parent publishes the repair to PR114, resolves its reviewed finding and obtains required PR CI before normal merge. No worker publication or broad local CI. The corrected generated production code has not been compiled locally; PR CI owns those checks. Issue 10 remains open for later families and catalog reduction.
 
 ## Validation
 WSL JDK 25: `./gradlew :rewrite-recipes:test --tests world.mongoose.banteng.rewrite.MoveBuiltinFamilyTest --console=plain` passed. No broad local CI was run.
+The same authored fixture passed after the unused-constant repair; it verifies referenced ANY/INTEGER fields remain while qualified ArgType.NUMBER does not generate a NUMBER field. `git diff --check` passed after the repair.
 
 WSL JDK 25 with `GRADLE_OPTS=-Dorg.gradle.configuration-cache=false`: `./gradlew :rewriteDryRun --warning-mode summary -Drewrite.activeRecipe=world.mongoose.banteng.builtin.ExtractMapBuiltins --console=plain` completed successfully. Quote the -D argument when invoking from PowerShell. Existing root compilation prerequisites execute as part of this migration program.
 

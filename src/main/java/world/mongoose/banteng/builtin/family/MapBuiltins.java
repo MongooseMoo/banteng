@@ -23,7 +23,6 @@ import world.mongoose.banteng.value.ValueSemantics;
 public final class MapBuiltins {
     private static final Set<ArgType> ANY = Set.of(ArgType.ANY);
     private static final Set<ArgType> INTEGER = Set.of(ArgType.INTEGER);
-    private static final Set<ArgType> NUMBER = Set.of(ArgType.NUMBER);
 
     private MapBuiltins() {
     }
