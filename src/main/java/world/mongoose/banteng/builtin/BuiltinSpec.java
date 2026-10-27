@@ -9,9 +9,7 @@ public record BuiltinSpec(
     String name,
     List<CallShape> callShapes,
     BuiltinPermissionRule permission,
-    BuiltinCostRule tickCost,
-    EffectClass effect,
-    BuiltinOwner owner,
+    boolean irrevocable,
     BuiltinHandler implementation) {
   public BuiltinSpec {
     name = Objects.requireNonNull(name, "name").toLowerCase(Locale.ROOT);
@@ -23,9 +21,6 @@ public record BuiltinSpec(
       throw new IllegalArgumentException("builtin has no call shape: " + name);
     }
     Objects.requireNonNull(permission, "permission");
-    Objects.requireNonNull(tickCost, "tickCost");
-    Objects.requireNonNull(effect, "effect");
-    Objects.requireNonNull(owner, "owner");
     Objects.requireNonNull(implementation, "implementation");
   }
 }

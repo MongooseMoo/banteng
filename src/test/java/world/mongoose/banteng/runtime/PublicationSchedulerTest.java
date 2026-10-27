@@ -1772,7 +1772,8 @@ final class PublicationSchedulerTest {
         new ObjectValue(0),
         0,
         new ListValue(List.of()),
-        false);
+        false,
+        (_connectionId, queuedBytes) -> queuedBytes);
   }
 
   private static final class Harness implements AutoCloseable {

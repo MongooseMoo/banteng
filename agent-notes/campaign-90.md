@@ -4,8 +4,8 @@
 Extract one activation header writer/reader, one program-section reader, shared raw property slots and named v17 wire constants without weakening caller validation.
 
 ## State
-Branch campaign/90-shared-persistence starts at f90c342 (issue11). Prior read-only source packet established current Java and Toast producer/reader behavior. Parent owns publication; no push authorized.
-Merged origin/master 324cc9c. Shared helpers and authored SharedPersistenceTest are implemented. First authored-test invocation passed production/jcstress/JMH compilation but test compilation rejected a nullable error.getMessage().contains assertion; replaced with direct expected-message equality without suppressions. Direct numeric tag lookup replaces the temporary values() scan. Removed forwarding methods made redundant by the shared program reader. Final authored-test invocation passed with source frozen: BUILD SUCCESSFUL in 1m 39s. git diff --check passed.
+Shared helpers and authored SharedPersistenceTest are implemented. Integrated current master cleanly; the merge changed none of this task's persistence source or focused regression. Existing source review can be reused; no review ledger or local CI was refreshed. Parent owns publication; no worker push authorized.
+Prior authored-test validation reported BUILD SUCCESSFUL in 1m 39s with source frozen. Its first invocation had passed production/jcstress/JMH compilation but test compilation rejected a nullable error.getMessage().contains assertion; direct expected-message equality resolved that without suppressions. Direct numeric tag lookup replaced the temporary values() scan, and redundant forwarding methods were removed. This preparation did not rerun tests or claim restart-suite acceptance.
 
 ## Decisions and why
 Smallest change: private activation header helpers in LambdaMooV17Codec reuse its private value/context owners. Both queued/suspended writers use anonymous numeric recv=-1, canonical numeric vloc=existing encoded ID and unchanged typed values; preserve other nonobject behavior. Header reader parses once and returns raw compatibility numbers so queued and suspended callers retain their current distinct checks. No VM/DTO numeric recv field and no claim about native anonymous varargs output. Approximately 250–400 production lines relocated/extracted plus mechanical wire-tag replacements and focused tests.
@@ -16,7 +16,7 @@ Both verb loops call existing writeProgramSource. ProgramSectionReader uses DbSc
 Native numeric recv for primitive calls is not universally reconstructible from typed receiver/vloc; this bounded change preserves current nonobject behavior. Modern Toast uses typed vloc despite its numeric varargs writer defect; own canonical anonymous numeric vloc is the existing encoded ID. Queued anonymous numeric-vloc equality remains, so acceptance of unobserved native anonymous dumps is not claimed.
 
 ## Next step
-Parent handles integration/review/publication after its current PR queue drains. No push or publication performed. Full CI and restart suites were not run locally.
+Parent can publish the prepared branch and existing draft below, reusing any completed review of unchanged persistence code. No merge conflict or integration source resolution remains. Required PR CI and restart-suite results remain to be established on the published branch. No push or publication performed, and no broader local CI or restart suite was run during preparation.
 
 ## Draft PR
 Title: Share persistence activation and program grammars

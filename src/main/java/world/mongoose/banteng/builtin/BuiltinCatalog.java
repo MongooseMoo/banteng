@@ -56,6 +56,7 @@ import world.mongoose.banteng.world.WorldObject;
 import world.mongoose.banteng.world.WorldProperty;
 import world.mongoose.banteng.world.WorldResult;
 import world.mongoose.banteng.world.WorldTxn;
+import world.mongoose.banteng.world.Prepositions;
 import world.mongoose.banteng.world.WorldVerb;
 import org.bouncycastle.crypto.generators.Argon2BytesGenerator;
 import org.bouncycastle.crypto.Digest;
@@ -218,26 +219,20 @@ public final class BuiltinCatalog {
     List<BuiltinSpec> entries = new ArrayList<>();
     entries.add(new BuiltinSpec(
         "task_local", List.of(new CallShape(List.of(), List.of(), Optional.empty())),
-        BuiltinPermissionRule.WIZARD_ONLY, BuiltinCostRule.fixed(0), EffectClass.PURE,
-        BuiltinOwner.VM, call -> BuiltinResult.value(call.taskLocal())));
+        BuiltinPermissionRule.WIZARD_ONLY, false, call -> BuiltinResult.value(call.taskLocal())));
     entries.add(new BuiltinSpec(
         "set_task_local", List.of(new CallShape(List.of(ANY), List.of(), Optional.empty())),
-        BuiltinPermissionRule.WIZARD_ONLY, BuiltinCostRule.fixed(0), EffectClass.PURE,
-        BuiltinOwner.VM, call -> new BuiltinResult.TaskLocal(call.arguments().getFirst())));
+        BuiltinPermissionRule.WIZARD_ONLY, false, call -> new BuiltinResult.TaskLocal(call.arguments().getFirst())));
     entries.add(new BuiltinSpec(
         "getenv", List.of(new CallShape(List.of(STRING), List.of(), Optional.empty())),
-        BuiltinPermissionRule.WIZARD_ONLY, BuiltinCostRule.fixed(0), EffectClass.EXTERNAL_READ,
-        BuiltinOwner.SERVER, call -> {
+        BuiltinPermissionRule.WIZARD_ONLY, false, call -> {
           String value = System.getenv(((StringValue) call.arguments().getFirst()).text());
           return value == null ? BuiltinResult.value(new IntegerValue(0))
               : encodeBinary(List.of(StringValue.of(value)));
         }));
     entries.add(new BuiltinSpec(
         "respond_to", List.of(new CallShape(List.of(ANY, STRING), List.of(), Optional.empty())),
-        BuiltinPermissionRule.ANY, BuiltinCostRule.fixed(0), EffectClass.TRANSACTION_READ,
-        BuiltinOwner.WORLD, call -> respondTo(call.arguments(), call.world(), call.programmer())));
-    Set<ArgType> floatMath =
-        hosts.valueSemantics().promoteNumbers() ? NUMBER : Set.of(ArgType.FLOAT);
+        BuiltinPermissionRule.ANY, false, call -> respondTo(call.arguments(), call.world(), call.programmer())));
     BuiltinHandler setThreadMode =
         call -> setThreadMode(call.arguments(), call.threadMode());
     BuiltinHandler allMembers =
@@ -250,28 +245,13 @@ public final class BuiltinCatalog {
             call.threadMode()
                 ? BuiltinResult.hostWork(() -> sortValues(call.arguments()))
                 : sortValues(call.arguments());
-    BuiltinHandler callFunction =
-        call ->
-            callFunction(
-                call.arguments(),
-                call.world(),
-                call.programmer(),
-                call.taskLocal(),
-                call.taskId(),
-                call.remainingTicks(),
-                call.remainingSeconds(),
-                call.receiver(),
-                call.callerProgrammer(),
-                call.callers(),
-                call.threadMode());
+    BuiltinHandler callFunction = this::callFunction;
     entries.add(
         new BuiltinSpec(
             "value_bytes",
             List.of(new CallShape(List.of(ANY), List.of(), Optional.empty())),
             BuiltinPermissionRule.ANY,
-            BuiltinCostRule.fixed(0),
-            EffectClass.TRANSACTION_READ,
-            BuiltinOwner.WORLD,
+            false,
             call ->
                 BuiltinResult.value(new IntegerValue(valueBytes(call.arguments().getFirst(), call.world())))));
     entries.add(
@@ -279,156 +259,124 @@ public final class BuiltinCatalog {
             "object_bytes",
             List.of(new CallShape(List.of(ANY), List.of(), Optional.empty())),
             BuiltinPermissionRule.ANY,
-            BuiltinCostRule.fixed(0),
-            EffectClass.TRANSACTION_READ,
-            BuiltinOwner.WORLD,
+            false,
             call -> objectBytes(call.arguments().getFirst(), call.world(), call.programmer())));
     entries.add(
         new BuiltinSpec(
             "length",
             List.of(
                 new CallShape(
-                    List.of(Set.of(ArgType.STRING, ArgType.LIST, ArgType.MAP)),
+                    List.of(ANY),
                     List.of(),
                     Optional.empty())),
             BuiltinPermissionRule.ANY,
-            BuiltinCostRule.fixed(0),
-            EffectClass.PURE,
-            BuiltinOwner.VM,
+            false,
             call -> length(call.arguments())));
     entries.add(
         new BuiltinSpec(
             "min",
-            List.of(new CallShape(List.of(NUMBER), List.of(), Optional.of(NUMBER))),
+            List.of(new CallShape(List.of(NUMBER), List.of(), Optional.of(ANY))),
             BuiltinPermissionRule.ANY,
-            BuiltinCostRule.fixed(0),
-            EffectClass.PURE,
-            BuiltinOwner.VM,
+            false,
             call -> minimum(call.arguments())));
     entries.add(
         new BuiltinSpec(
             "max",
-            List.of(new CallShape(List.of(NUMBER), List.of(), Optional.of(NUMBER))),
+            List.of(new CallShape(List.of(NUMBER), List.of(), Optional.of(ANY))),
             BuiltinPermissionRule.ANY,
-            BuiltinCostRule.fixed(0),
-            EffectClass.PURE,
-            BuiltinOwner.VM,
+            false,
             call -> maximum(call.arguments())));
     entries.add(
         new BuiltinSpec(
             "abs",
             List.of(new CallShape(List.of(NUMBER), List.of(), Optional.empty())),
             BuiltinPermissionRule.ANY,
-            BuiltinCostRule.fixed(0),
-            EffectClass.PURE,
-            BuiltinOwner.VM,
+            false,
             call -> absoluteValue(call.arguments())));
     entries.add(
         new BuiltinSpec(
             "acos",
-            List.of(new CallShape(List.of(floatMath), List.of(), Optional.empty())),
+            List.of(new CallShape(List.of(Set.of(ArgType.FLOAT)), List.of(), Optional.empty())),
             BuiltinPermissionRule.ANY,
-            BuiltinCostRule.fixed(0),
-            EffectClass.PURE,
-            BuiltinOwner.VM,
+            false,
             unaryFloatBuiltin(BuiltinCatalog::acos)));
     entries.add(
         new BuiltinSpec(
             "acosh",
-            List.of(new CallShape(List.of(floatMath), List.of(), Optional.empty())),
+            List.of(new CallShape(List.of(Set.of(ArgType.FLOAT)), List.of(), Optional.empty())),
             BuiltinPermissionRule.ANY,
-            BuiltinCostRule.fixed(0),
-            EffectClass.PURE,
-            BuiltinOwner.VM,
+            false,
             unaryFloatBuiltin(BuiltinCatalog::acosh)));
     entries.add(
         new BuiltinSpec(
             "asin",
-            List.of(new CallShape(List.of(floatMath), List.of(), Optional.empty())),
+            List.of(new CallShape(List.of(Set.of(ArgType.FLOAT)), List.of(), Optional.empty())),
             BuiltinPermissionRule.ANY,
-            BuiltinCostRule.fixed(0),
-            EffectClass.PURE,
-            BuiltinOwner.VM,
+            false,
             unaryFloatBuiltin(BuiltinCatalog::asin)));
     entries.add(
         new BuiltinSpec(
             "asinh",
-            List.of(new CallShape(List.of(floatMath), List.of(), Optional.empty())),
+            List.of(new CallShape(List.of(Set.of(ArgType.FLOAT)), List.of(), Optional.empty())),
             BuiltinPermissionRule.ANY,
-            BuiltinCostRule.fixed(0),
-            EffectClass.PURE,
-            BuiltinOwner.VM,
+            false,
             unaryFloatBuiltin(BuiltinCatalog::asinh)));
     entries.add(
         new BuiltinSpec(
             "atan",
             List.of(
                 new CallShape(
-                    List.of(floatMath),
-                    List.of(floatMath),
+                    List.of(Set.of(ArgType.FLOAT)),
+                    List.of(Set.of(ArgType.FLOAT)),
                     Optional.empty())),
             BuiltinPermissionRule.ANY,
-            BuiltinCostRule.fixed(0),
-            EffectClass.PURE,
-            BuiltinOwner.VM,
+            false,
             call -> atan(call.arguments())));
     entries.add(
         new BuiltinSpec(
             "atan2",
             List.of(
                 new CallShape(
-                    List.of(floatMath, floatMath),
+                    List.of(Set.of(ArgType.FLOAT), Set.of(ArgType.FLOAT)),
                     List.of(),
                     Optional.empty())),
             BuiltinPermissionRule.ANY,
-            BuiltinCostRule.fixed(0),
-            EffectClass.PURE,
-            BuiltinOwner.VM,
+            false,
             call -> atan2(call.arguments())));
     entries.add(
         new BuiltinSpec(
             "atanh",
-            List.of(new CallShape(List.of(floatMath), List.of(), Optional.empty())),
+            List.of(new CallShape(List.of(Set.of(ArgType.FLOAT)), List.of(), Optional.empty())),
             BuiltinPermissionRule.ANY,
-            BuiltinCostRule.fixed(0),
-            EffectClass.PURE,
-            BuiltinOwner.VM,
+            false,
             unaryFloatBuiltin(BuiltinCatalog::atanh)));
     entries.add(
         new BuiltinSpec(
             "cbrt",
-            List.of(new CallShape(List.of(floatMath), List.of(), Optional.empty())),
+            List.of(new CallShape(List.of(Set.of(ArgType.FLOAT)), List.of(), Optional.empty())),
             BuiltinPermissionRule.ANY,
-            BuiltinCostRule.fixed(0),
-            EffectClass.PURE,
-            BuiltinOwner.VM,
+            false,
             unaryFloatBuiltin(Math::cbrt)));
     entries.add(
         new BuiltinSpec(
             "ceil",
-            List.of(new CallShape(List.of(floatMath), List.of(), Optional.empty())),
+            List.of(new CallShape(List.of(Set.of(ArgType.FLOAT)), List.of(), Optional.empty())),
             BuiltinPermissionRule.ANY,
-            BuiltinCostRule.fixed(0),
-            EffectClass.PURE,
-            BuiltinOwner.VM,
+            false,
             unaryFloatBuiltin(Math::ceil)));
     entries.add(
         new BuiltinSpec(
             "cos",
-            List.of(new CallShape(List.of(floatMath), List.of(), Optional.empty())),
+            List.of(new CallShape(List.of(Set.of(ArgType.FLOAT)), List.of(), Optional.empty())),
             BuiltinPermissionRule.ANY,
-            BuiltinCostRule.fixed(0),
-            EffectClass.PURE,
-            BuiltinOwner.VM,
+            false,
             unaryFloatBuiltin(BuiltinCatalog::cosine)));
     entries.add(
         new BuiltinSpec(
             "cosh",
-            List.of(new CallShape(List.of(floatMath), List.of(), Optional.empty())),
+            List.of(new CallShape(List.of(Set.of(ArgType.FLOAT)), List.of(), Optional.empty())),
             BuiltinPermissionRule.ANY,
-            BuiltinCostRule.fixed(0),
-            EffectClass.PURE,
-            BuiltinOwner.VM,
+            false,
             unaryFloatBuiltin(Math::cosh)));
     entries.add(
         new BuiltinSpec(
@@ -439,18 +387,14 @@ public final class BuiltinCatalog {
                     List.of(),
                     Optional.empty())),
             BuiltinPermissionRule.ANY,
-            BuiltinCostRule.fixed(0),
-            EffectClass.PURE,
-            BuiltinOwner.VM,
+            false,
             call -> distance(call.arguments())));
     entries.add(
         new BuiltinSpec(
             "exp",
-            List.of(new CallShape(List.of(floatMath), List.of(), Optional.empty())),
+            List.of(new CallShape(List.of(Set.of(ArgType.FLOAT)), List.of(), Optional.empty())),
             BuiltinPermissionRule.ANY,
-            BuiltinCostRule.fixed(0),
-            EffectClass.PURE,
-            BuiltinOwner.VM,
+            false,
             unaryFloatBuiltin(value -> {
               double result = Math.exp(value);
               return result < Double.MIN_NORMAL ? Double.NaN : result;
@@ -464,36 +408,28 @@ public final class BuiltinCatalog {
                     List.of(ANY),
                     Optional.empty())),
             BuiltinPermissionRule.ANY,
-            BuiltinCostRule.fixed(0),
-            EffectClass.PURE,
-            BuiltinOwner.VM,
+            false,
             call -> floatstr(call.arguments())));
     entries.add(
         new BuiltinSpec(
             "floor",
-            List.of(new CallShape(List.of(floatMath), List.of(), Optional.empty())),
+            List.of(new CallShape(List.of(Set.of(ArgType.FLOAT)), List.of(), Optional.empty())),
             BuiltinPermissionRule.ANY,
-            BuiltinCostRule.fixed(0),
-            EffectClass.PURE,
-            BuiltinOwner.VM,
+            false,
             unaryFloatBuiltin(Math::floor)));
     entries.add(
         new BuiltinSpec(
             "log",
-            List.of(new CallShape(List.of(floatMath), List.of(), Optional.empty())),
+            List.of(new CallShape(List.of(Set.of(ArgType.FLOAT)), List.of(), Optional.empty())),
             BuiltinPermissionRule.ANY,
-            BuiltinCostRule.fixed(0),
-            EffectClass.PURE,
-            BuiltinOwner.VM,
+            false,
             unaryFloatBuiltin(BuiltinCatalog::log)));
     entries.add(
         new BuiltinSpec(
             "log10",
-            List.of(new CallShape(List.of(floatMath), List.of(), Optional.empty())),
+            List.of(new CallShape(List.of(Set.of(ArgType.FLOAT)), List.of(), Optional.empty())),
             BuiltinPermissionRule.ANY,
-            BuiltinCostRule.fixed(0),
-            EffectClass.PURE,
-            BuiltinOwner.VM,
+            false,
             unaryFloatBuiltin(BuiltinCatalog::log10)));
     entries.add(
         new BuiltinSpec(
@@ -504,90 +440,70 @@ public final class BuiltinCatalog {
                     List.of(),
                     Optional.empty())),
             BuiltinPermissionRule.ANY,
-            BuiltinCostRule.fixed(0),
-            EffectClass.PURE,
-            BuiltinOwner.VM,
+            false,
             call -> relativeHeading(call.arguments())));
     entries.add(
         new BuiltinSpec(
             "round",
             List.of(new CallShape(List.of(Set.of(ArgType.FLOAT)), List.of(), Optional.empty())),
             BuiltinPermissionRule.ANY,
-            BuiltinCostRule.fixed(0),
-            EffectClass.PURE,
-            BuiltinOwner.VM,
+            false,
             call -> round(call.arguments())));
     entries.add(
         new BuiltinSpec(
             "sin",
-            List.of(new CallShape(List.of(floatMath), List.of(), Optional.empty())),
+            List.of(new CallShape(List.of(Set.of(ArgType.FLOAT)), List.of(), Optional.empty())),
             BuiltinPermissionRule.ANY,
-            BuiltinCostRule.fixed(0),
-            EffectClass.PURE,
-            BuiltinOwner.VM,
+            false,
             unaryFloatBuiltin(BuiltinCatalog::sine)));
     entries.add(
         new BuiltinSpec(
             "sinh",
-            List.of(new CallShape(List.of(floatMath), List.of(), Optional.empty())),
+            List.of(new CallShape(List.of(Set.of(ArgType.FLOAT)), List.of(), Optional.empty())),
             BuiltinPermissionRule.ANY,
-            BuiltinCostRule.fixed(0),
-            EffectClass.PURE,
-            BuiltinOwner.VM,
+            false,
             unaryFloatBuiltin(Math::sinh)));
     entries.add(
         new BuiltinSpec(
             "sqrt",
-            List.of(new CallShape(List.of(floatMath), List.of(), Optional.empty())),
+            List.of(new CallShape(List.of(Set.of(ArgType.FLOAT)), List.of(), Optional.empty())),
             BuiltinPermissionRule.ANY,
-            BuiltinCostRule.fixed(0),
-            EffectClass.PURE,
-            BuiltinOwner.VM,
+            false,
             unaryFloatBuiltin(BuiltinCatalog::sqrt)));
     entries.add(
         new BuiltinSpec(
             "tan",
-            List.of(new CallShape(List.of(floatMath), List.of(), Optional.empty())),
+            List.of(new CallShape(List.of(Set.of(ArgType.FLOAT)), List.of(), Optional.empty())),
             BuiltinPermissionRule.ANY,
-            BuiltinCostRule.fixed(0),
-            EffectClass.PURE,
-            BuiltinOwner.VM,
+            false,
             unaryFloatBuiltin(BuiltinCatalog::tangent)));
     entries.add(
         new BuiltinSpec(
             "tanh",
-            List.of(new CallShape(List.of(floatMath), List.of(), Optional.empty())),
+            List.of(new CallShape(List.of(Set.of(ArgType.FLOAT)), List.of(), Optional.empty())),
             BuiltinPermissionRule.ANY,
-            BuiltinCostRule.fixed(0),
-            EffectClass.PURE,
-            BuiltinOwner.VM,
+            false,
             unaryFloatBuiltin(Math::tanh)));
     entries.add(
         new BuiltinSpec(
             "trunc",
             List.of(new CallShape(List.of(Set.of(ArgType.FLOAT)), List.of(), Optional.empty())),
             BuiltinPermissionRule.ANY,
-            BuiltinCostRule.fixed(0),
-            EffectClass.PURE,
-            BuiltinOwner.VM,
+            false,
             call -> trunc(call.arguments())));
     entries.add(
         new BuiltinSpec(
             "random",
             List.of(new CallShape(List.of(), List.of(INTEGER, INTEGER), Optional.empty())),
             BuiltinPermissionRule.ANY,
-            BuiltinCostRule.fixed(0),
-            EffectClass.IRREVOCABLE,
-            BuiltinOwner.VM,
+            true,
             call -> randomInteger(call.arguments())));
     entries.add(
         new BuiltinSpec(
             "reseed_random",
             List.of(new CallShape(List.of(), List.of(), Optional.empty())),
             BuiltinPermissionRule.WIZARD_ONLY,
-            BuiltinCostRule.fixed(0),
-            EffectClass.IRREVOCABLE,
-            BuiltinOwner.VM,
+            true,
             call -> {
               random.setSeed(SECURE_RANDOM.nextLong());
               return BuiltinResult.value(new IntegerValue(0));
@@ -601,27 +517,21 @@ public final class BuiltinCatalog {
                     List.of(Set.of(ArgType.FLOAT)),
                     Optional.empty())),
             BuiltinPermissionRule.ANY,
-            BuiltinCostRule.fixed(0),
-            EffectClass.IRREVOCABLE,
-            BuiltinOwner.VM,
+            true,
             call -> floatingRandom(call.arguments())));
     entries.add(
         new BuiltinSpec(
             "random_bytes",
             List.of(new CallShape(List.of(INTEGER), List.of(), Optional.empty())),
             BuiltinPermissionRule.ANY,
-            BuiltinCostRule.fixed(0),
-            EffectClass.IRREVOCABLE,
-            BuiltinOwner.VM,
+            true,
             call -> randomBytes(call.arguments(), call.world())));
     entries.add(
         new BuiltinSpec(
             "time",
             List.of(new CallShape(List.of(), List.of(), Optional.empty())),
             BuiltinPermissionRule.ANY,
-            BuiltinCostRule.fixed(0),
-            EffectClass.IRREVOCABLE,
-            BuiltinOwner.VM,
+            true,
             call ->
                 BuiltinResult.value(new IntegerValue(Instant.now().getEpochSecond()))));
     entries.add(
@@ -629,27 +539,21 @@ public final class BuiltinCatalog {
             "ctime",
             List.of(new CallShape(List.of(), List.of(INTEGER), Optional.empty())),
             BuiltinPermissionRule.ANY,
-            BuiltinCostRule.fixed(0),
-            EffectClass.IRREVOCABLE,
-            BuiltinOwner.VM,
+            true,
             call -> ctime(call.arguments())));
     entries.add(
         new BuiltinSpec(
             "ftime",
             List.of(new CallShape(List.of(), List.of(INTEGER), Optional.empty())),
             BuiltinPermissionRule.ANY,
-            BuiltinCostRule.fixed(0),
-            EffectClass.IRREVOCABLE,
-            BuiltinOwner.VM,
+            true,
             call -> ftime(call.arguments())));
     entries.add(
         new BuiltinSpec(
             "raise",
             List.of(new CallShape(List.of(ANY), List.of(STRING, ANY), Optional.empty())),
             BuiltinPermissionRule.ANY,
-            BuiltinCostRule.fixed(0),
-            EffectClass.PURE,
-            BuiltinOwner.VM,
+            false,
             call -> raise(call.arguments())));
     entries.add(
         new BuiltinSpec(
@@ -660,9 +564,7 @@ public final class BuiltinCatalog {
                     List.of(INTEGER),
                     Optional.empty())),
             BuiltinPermissionRule.ANY,
-            BuiltinCostRule.fixed(0),
-            EffectClass.TRANSACTION_READ,
-            BuiltinOwner.WORLD,
+            false,
             call -> listInsert(call.arguments(), true, call.world())));
     entries.add(
         new BuiltinSpec(
@@ -673,9 +575,7 @@ public final class BuiltinCatalog {
                     List.of(INTEGER),
                     Optional.empty())),
             BuiltinPermissionRule.ANY,
-            BuiltinCostRule.fixed(0),
-            EffectClass.TRANSACTION_READ,
-            BuiltinOwner.WORLD,
+            false,
             call -> listInsert(call.arguments(), false, call.world())));
     entries.add(
         new BuiltinSpec(
@@ -684,9 +584,7 @@ public final class BuiltinCatalog {
                 new CallShape(
                     List.of(Set.of(ArgType.LIST), INTEGER), List.of(), Optional.empty())),
             BuiltinPermissionRule.ANY,
-            BuiltinCostRule.fixed(0),
-            EffectClass.TRANSACTION_READ,
-            BuiltinOwner.WORLD,
+            false,
             call -> listDelete(call.arguments(), call.world())));
     entries.add(
         new BuiltinSpec(
@@ -697,18 +595,14 @@ public final class BuiltinCatalog {
                     List.of(),
                     Optional.empty())),
             BuiltinPermissionRule.ANY,
-            BuiltinCostRule.fixed(0),
-            EffectClass.TRANSACTION_READ,
-            BuiltinOwner.WORLD,
+            false,
             call -> listSet(call.arguments(), call.world())));
     entries.add(
         new BuiltinSpec(
             "mapdelete",
             List.of(new CallShape(List.of(Set.of(ArgType.MAP), ANY), List.of(), Optional.empty())),
             BuiltinPermissionRule.ANY,
-            BuiltinCostRule.fixed(0),
-            EffectClass.PURE,
-            BuiltinOwner.VM,
+            false,
             call -> mapDelete(call.arguments())));
     entries.add(
         new BuiltinSpec(
@@ -717,9 +611,7 @@ public final class BuiltinCatalog {
                 new CallShape(
                     List.of(Set.of(ArgType.MAP)), List.of(), Optional.empty())),
             BuiltinPermissionRule.ANY,
-            BuiltinCostRule.fixed(0),
-            EffectClass.PURE,
-            BuiltinOwner.VM,
+            false,
             call -> mapKeys(call.arguments())));
     entries.add(
         new BuiltinSpec(
@@ -728,9 +620,7 @@ public final class BuiltinCatalog {
                 new CallShape(
                     List.of(Set.of(ArgType.MAP)), List.of(), Optional.of(ANY))),
             BuiltinPermissionRule.ANY,
-            BuiltinCostRule.fixed(0),
-            EffectClass.PURE,
-            BuiltinOwner.VM,
+            false,
             call -> mapValues(call.arguments())));
     entries.add(
         new BuiltinSpec(
@@ -739,45 +629,35 @@ public final class BuiltinCatalog {
                 new CallShape(
                     List.of(Set.of(ArgType.MAP), ANY), List.of(INTEGER), Optional.empty())),
             BuiltinPermissionRule.ANY,
-            BuiltinCostRule.fixed(0),
-            EffectClass.PURE,
-            BuiltinOwner.VM,
+            false,
             call -> mapHasKey(call.arguments())));
     entries.add(
         new BuiltinSpec(
             "generate_json",
             List.of(new CallShape(List.of(ANY), List.of(STRING, ANY), Optional.empty())),
             BuiltinPermissionRule.ANY,
-            BuiltinCostRule.fixed(0),
-            EffectClass.PURE,
-            BuiltinOwner.VM,
+            false,
             call -> generateJson(call.arguments())));
     entries.add(
         new BuiltinSpec(
             "parse_json",
             List.of(new CallShape(List.of(STRING), List.of(STRING), Optional.empty())),
             BuiltinPermissionRule.ANY,
-            BuiltinCostRule.fixed(0),
-            EffectClass.PURE,
-            BuiltinOwner.VM,
+            false,
             call -> parseJson(call.arguments())));
     entries.add(
         new BuiltinSpec(
             "setadd",
             List.of(new CallShape(List.of(Set.of(ArgType.LIST), ANY), List.of(), Optional.empty())),
             BuiltinPermissionRule.ANY,
-            BuiltinCostRule.fixed(0),
-            EffectClass.TRANSACTION_READ,
-            BuiltinOwner.WORLD,
+            false,
             call -> setAdd(call.arguments(), call.world())));
     entries.add(
         new BuiltinSpec(
             "setremove",
             List.of(new CallShape(List.of(Set.of(ArgType.LIST), ANY), List.of(), Optional.empty())),
             BuiltinPermissionRule.ANY,
-            BuiltinCostRule.fixed(0),
-            EffectClass.TRANSACTION_READ,
-            BuiltinOwner.WORLD,
+            false,
             call -> setRemove(call.arguments(), call.world())));
     entries.add(
         new BuiltinSpec(
@@ -786,9 +666,7 @@ public final class BuiltinCatalog {
                 new CallShape(
                     List.of(ANY, Set.of(ArgType.LIST)), List.of(), Optional.empty())),
             BuiltinPermissionRule.ANY,
-            BuiltinCostRule.fixed(0),
-            EffectClass.SUSPENDING_HOST,
-            BuiltinOwner.VM,
+            false,
             allMembers));
     entries.add(
         new BuiltinSpec(
@@ -802,124 +680,97 @@ public final class BuiltinCatalog {
                         Set.of(ArgType.INTEGER)),
                     Optional.empty())),
             BuiltinPermissionRule.ANY,
-            BuiltinCostRule.fixed(0),
-            EffectClass.SUSPENDING_HOST,
-            BuiltinOwner.VM,
+            false,
             sort));
     entries.add(
         new BuiltinSpec(
             "explode",
             List.of(new CallShape(List.of(STRING), List.of(STRING, INTEGER), Optional.empty())),
             BuiltinPermissionRule.ANY,
-            BuiltinCostRule.fixed(0),
-            EffectClass.PURE,
-            BuiltinOwner.VM,
+            false,
             call -> explode(call.arguments())));
     entries.add(
         new BuiltinSpec(
             "reverse",
             List.of(new CallShape(List.of(ANY), List.of(), Optional.empty())),
             BuiltinPermissionRule.ANY,
-            BuiltinCostRule.fixed(0),
-            EffectClass.PURE,
-            BuiltinOwner.VM,
+            false,
             call -> reverse(call.arguments())));
     entries.add(
         new BuiltinSpec(
             "strsub",
             List.of(new CallShape(List.of(STRING, STRING, STRING), List.of(ANY), Optional.empty())),
             BuiltinPermissionRule.ANY,
-            BuiltinCostRule.fixed(0),
-            EffectClass.PURE,
-            BuiltinOwner.VM,
+            false,
             call -> stringSubstitute(call.arguments())));
     entries.add(
         new BuiltinSpec(
             "strtr",
             List.of(new CallShape(List.of(STRING, STRING, STRING), List.of(ANY), Optional.empty())),
             BuiltinPermissionRule.ANY,
-            BuiltinCostRule.fixed(0),
-            EffectClass.PURE,
-            BuiltinOwner.VM,
+            false,
             call -> stringTranslate(call.arguments())));
     entries.add(
         new BuiltinSpec(
             "parse_ansi",
             List.of(new CallShape(List.of(STRING), List.of(), Optional.empty())),
             BuiltinPermissionRule.ANY,
-            BuiltinCostRule.fixed(0),
-            EffectClass.IRREVOCABLE,
-            BuiltinOwner.VM,
+            true,
             call -> parseAnsi(call.arguments())));
     entries.add(
         new BuiltinSpec(
             "remove_ansi",
             List.of(new CallShape(List.of(STRING), List.of(), Optional.empty())),
             BuiltinPermissionRule.ANY,
-            BuiltinCostRule.fixed(0),
-            EffectClass.PURE,
-            BuiltinOwner.VM,
+            false,
             call -> removeAnsi(call.arguments())));
     entries.add(
         new BuiltinSpec(
             "simplex_noise",
             List.of(new CallShape(List.of(Set.of(ArgType.LIST)), List.of(), Optional.empty())),
             BuiltinPermissionRule.ANY,
-            BuiltinCostRule.fixed(0),
-            EffectClass.PURE,
-            BuiltinOwner.VM,
+            false,
             call -> simplexNoise(call.arguments())));
     entries.add(
         new BuiltinSpec(
             "index",
             List.of(new CallShape(List.of(STRING, STRING), List.of(ANY, INTEGER), Optional.empty())),
             BuiltinPermissionRule.ANY,
-            BuiltinCostRule.fixed(0),
-            EffectClass.PURE,
-            BuiltinOwner.VM,
+            false,
             call -> stringIndex(call.arguments(), false)));
     entries.add(
         new BuiltinSpec(
             "rindex",
             List.of(new CallShape(List.of(STRING, STRING), List.of(ANY, INTEGER), Optional.empty())),
             BuiltinPermissionRule.ANY,
-            BuiltinCostRule.fixed(0),
-            EffectClass.PURE,
-            BuiltinOwner.VM,
+            false,
             call -> stringIndex(call.arguments(), true)));
     entries.add(
         new BuiltinSpec(
             "strcmp",
             List.of(new CallShape(List.of(STRING, STRING), List.of(), Optional.empty())),
             BuiltinPermissionRule.ANY,
-            BuiltinCostRule.fixed(0),
-            EffectClass.PURE,
-            BuiltinOwner.VM,
+            false,
             call -> stringCompare(call.arguments())));
     entries.add(
         new BuiltinSpec(
             "crypt",
             List.of(new CallShape(List.of(STRING), List.of(STRING), Optional.empty())),
             BuiltinPermissionRule.ANY,
-            BuiltinCostRule.fixed(0),
-            EffectClass.IRREVOCABLE,
-            BuiltinOwner.VM,
+            true,
             call -> crypt(call.arguments(), call.world(), call.programmer())));
     entries.add(new BuiltinSpec("salt",
         List.of(new CallShape(List.of(STRING, STRING), List.of(), Optional.empty())),
-        BuiltinPermissionRule.ANY, BuiltinCostRule.fixed(0), EffectClass.PURE,
-        BuiltinOwner.VM, call -> salt(call.arguments())));
+        BuiltinPermissionRule.ANY, false, call -> salt(call.arguments())));
     for (String input : List.of("string", "binary", "value")) {
       entries.add(new BuiltinSpec(input + "_hash",
           List.of(new CallShape(List.of(input.equals("value") ? ANY : STRING),
               List.of(STRING, ANY), Optional.empty())),
-          BuiltinPermissionRule.ANY, BuiltinCostRule.fixed(0), EffectClass.PURE,
-          BuiltinOwner.VM, call -> hash(input, call.arguments())));
+          BuiltinPermissionRule.ANY, false, call -> hash(input, call.arguments())));
       entries.add(new BuiltinSpec(input + "_hmac",
           List.of(new CallShape(List.of(input.equals("value") ? ANY : STRING, STRING),
               List.of(STRING, ANY), Optional.empty())),
-          BuiltinPermissionRule.ANY, BuiltinCostRule.fixed(0), EffectClass.PURE,
-          BuiltinOwner.VM, call -> hmac(input, call.arguments())));
+          BuiltinPermissionRule.ANY, false, call -> hmac(input, call.arguments())));
     }
     entries.add(
         new BuiltinSpec(
@@ -930,18 +781,14 @@ public final class BuiltinCatalog {
                     List.of(INTEGER, INTEGER, INTEGER),
                     Optional.empty())),
             BuiltinPermissionRule.WIZARD_ONLY,
-            BuiltinCostRule.fixed(0),
-            EffectClass.PURE,
-            BuiltinOwner.VM,
+            false,
             call -> argon2(call.arguments())));
     entries.add(
         new BuiltinSpec(
             "argon2_verify",
             List.of(new CallShape(List.of(STRING, STRING), List.of(), Optional.empty())),
             BuiltinPermissionRule.WIZARD_ONLY,
-            BuiltinCostRule.fixed(0),
-            EffectClass.PURE,
-            BuiltinOwner.VM,
+            false,
             call ->
                 argon2Verify(
                     call.arguments(), hosts.serverLog(), BuiltinCatalog::argon2Hash)));
@@ -950,72 +797,56 @@ public final class BuiltinCatalog {
             "decode_binary",
             List.of(new CallShape(List.of(STRING), List.of(ANY), Optional.empty())),
             BuiltinPermissionRule.ANY,
-            BuiltinCostRule.fixed(0),
-            EffectClass.PURE,
-            BuiltinOwner.VM,
+            false,
             call -> decodeBinary(call.arguments())));
     entries.add(
         new BuiltinSpec(
             "disassemble",
             List.of(new CallShape(List.of(ANY, ANY), List.of(), Optional.empty())),
             BuiltinPermissionRule.ANY,
-            BuiltinCostRule.fixed(0),
-            EffectClass.TRANSACTION_READ,
-            BuiltinOwner.WORLD,
+            false,
             call -> disassemble(call.arguments(), call.world(), call.programmer())));
     entries.add(
         new BuiltinSpec(
             "curl",
             List.of(new CallShape(List.of(STRING), List.of(ANY, INTEGER), Optional.empty())),
             BuiltinPermissionRule.WIZARD_ONLY,
-            BuiltinCostRule.fixed(0),
-            EffectClass.SUSPENDING_HOST,
-            BuiltinOwner.SERVER,
+            false,
             call -> curl(call.arguments(), call.world(), call.threadMode())));
     entries.add(
         new BuiltinSpec(
             "spellcheck",
             List.of(new CallShape(List.of(STRING), List.of(), Optional.empty())),
             BuiltinPermissionRule.ANY,
-            BuiltinCostRule.fixed(0),
-            EffectClass.EXTERNAL_READ,
-            BuiltinOwner.SERVER,
+            false,
             call -> spellcheck((StringValue) call.arguments().getFirst())));
     entries.add(
         new BuiltinSpec(
             "url_encode",
             List.of(new CallShape(List.of(STRING), List.of(), Optional.empty())),
             BuiltinPermissionRule.ANY,
-            BuiltinCostRule.fixed(0),
-            EffectClass.PURE,
-            BuiltinOwner.VM,
+            false,
             call -> urlEncode((StringValue) call.arguments().getFirst())));
     entries.add(
         new BuiltinSpec(
             "url_decode",
             List.of(new CallShape(List.of(STRING), List.of(), Optional.empty())),
             BuiltinPermissionRule.ANY,
-            BuiltinCostRule.fixed(0),
-            EffectClass.PURE,
-            BuiltinOwner.VM,
+            false,
             call -> urlDecode((StringValue) call.arguments().getFirst())));
     entries.add(
         new BuiltinSpec(
             "encode_binary",
             List.of(new CallShape(List.of(), List.of(), Optional.of(ANY))),
             BuiltinPermissionRule.ANY,
-            BuiltinCostRule.fixed(0),
-            EffectClass.PURE,
-            BuiltinOwner.VM,
+            false,
             call -> encodeBinary(call.arguments())));
     entries.add(
         new BuiltinSpec(
             "chr",
             List.of(new CallShape(List.of(), List.of(), Optional.of(ANY))),
             BuiltinPermissionRule.ANY,
-            BuiltinCostRule.fixed(0),
-            EffectClass.PURE,
-            BuiltinOwner.VM,
+            false,
             call -> chr(call.arguments(), call.world(), call.programmer())));
     entries.add(
         new BuiltinSpec(
@@ -1026,63 +857,49 @@ public final class BuiltinCatalog {
                     List.of(),
                     Optional.empty())),
             BuiltinPermissionRule.ANY,
-            BuiltinCostRule.fixed(0),
-            EffectClass.TRANSACTION_WRITE,
-            BuiltinOwner.WORLD,
+            false,
             call -> addProperty(call.arguments(), call.world(), call.programmer())));
     entries.add(
         new BuiltinSpec(
             "properties",
             List.of(new CallShape(List.of(ANY), List.of(), Optional.empty())),
             BuiltinPermissionRule.ANY,
-            BuiltinCostRule.fixed(0),
-            EffectClass.TRANSACTION_READ,
-            BuiltinOwner.WORLD,
+            false,
             call -> properties(call.arguments(), call.world(), call.programmer())));
     entries.add(
         new BuiltinSpec(
             "property_info",
             List.of(new CallShape(List.of(ANY, STRING), List.of(), Optional.empty())),
             BuiltinPermissionRule.ANY,
-            BuiltinCostRule.fixed(0),
-            EffectClass.TRANSACTION_READ,
-            BuiltinOwner.WORLD,
+            false,
             call -> propertyInfo(call.arguments(), call.world(), call.programmer())));
     entries.add(
         new BuiltinSpec(
             "is_clear_property",
             List.of(new CallShape(List.of(ANY, STRING), List.of(), Optional.empty())),
             BuiltinPermissionRule.ANY,
-            BuiltinCostRule.fixed(0),
-            EffectClass.TRANSACTION_READ,
-            BuiltinOwner.WORLD,
+            false,
             call -> isClearProperty(call.arguments(), call.world(), call.programmer())));
     entries.add(
         new BuiltinSpec(
             "clear_property",
             List.of(new CallShape(List.of(ANY, STRING), List.of(), Optional.empty())),
             BuiltinPermissionRule.ANY,
-            BuiltinCostRule.fixed(0),
-            EffectClass.TRANSACTION_WRITE,
-            BuiltinOwner.WORLD,
+            false,
             call -> clearProperty(call.arguments(), call.world(), call.programmer())));
     entries.add(
         new BuiltinSpec(
             "delete_property",
             List.of(new CallShape(List.of(ANY, STRING), List.of(), Optional.empty())),
             BuiltinPermissionRule.ANY,
-            BuiltinCostRule.fixed(0),
-            EffectClass.TRANSACTION_WRITE,
-            BuiltinOwner.WORLD,
+            false,
             call -> deleteProperty(call.arguments(), call.world(), call.programmer())));
     entries.add(
         new BuiltinSpec(
             "delete_verb",
             List.of(new CallShape(List.of(ANY, ANY), List.of(), Optional.empty())),
             BuiltinPermissionRule.ANY,
-            BuiltinCostRule.fixed(0),
-            EffectClass.TRANSACTION_WRITE,
-            BuiltinOwner.WORLD,
+            false,
             call -> deleteVerb(call.arguments(), call.world(), call.programmer())));
     entries.add(
         new BuiltinSpec(
@@ -1093,121 +910,95 @@ public final class BuiltinCatalog {
                     List.of(),
                     Optional.empty())),
             BuiltinPermissionRule.ANY,
-            BuiltinCostRule.fixed(0),
-            EffectClass.TRANSACTION_WRITE,
-            BuiltinOwner.WORLD,
+            false,
             call -> addVerb(call.arguments(), call.world(), call.programmer())));
     entries.add(
         new BuiltinSpec(
             "create",
             List.of(
                 new CallShape(
-                    List.of(Set.of(ArgType.OBJECT, ArgType.LIST)),
+                    List.of(ANY),
                     List.of(ANY, ANY, ANY),
                     Optional.empty())),
             BuiltinPermissionRule.ANY,
-            BuiltinCostRule.fixed(0),
-            EffectClass.TRANSACTION_WRITE,
-            BuiltinOwner.WORLD,
+            false,
             call -> create(call.arguments(), call.world(), call.programmer())));
     entries.add(
         new BuiltinSpec(
             "recreate",
             List.of(new CallShape(List.of(OBJECT, OBJECT), List.of(OBJECT), Optional.empty())),
             BuiltinPermissionRule.ANY,
-            BuiltinCostRule.fixed(0),
-            EffectClass.TRANSACTION_WRITE,
-            BuiltinOwner.WORLD,
+            false,
             call -> recreate(call.arguments(), call.world(), call.programmer())));
     entries.add(
         new BuiltinSpec(
             "parent",
             List.of(new CallShape(List.of(ANY), List.of(), Optional.empty())),
             BuiltinPermissionRule.ANY,
-            BuiltinCostRule.fixed(0),
-            EffectClass.TRANSACTION_READ,
-            BuiltinOwner.WORLD,
+            false,
             call -> parent(call.arguments(), call.world())));
     entries.add(
         new BuiltinSpec(
             "parents",
             List.of(new CallShape(List.of(ANY), List.of(), Optional.empty())),
             BuiltinPermissionRule.ANY,
-            BuiltinCostRule.fixed(0),
-            EffectClass.TRANSACTION_READ,
-            BuiltinOwner.WORLD,
+            false,
             call -> parents(call.arguments(), call.world())));
     entries.add(
         new BuiltinSpec(
             "ancestors",
             List.of(new CallShape(List.of(ANY), List.of(ANY), Optional.empty())),
             BuiltinPermissionRule.ANY,
-            BuiltinCostRule.fixed(0),
-            EffectClass.TRANSACTION_READ,
-            BuiltinOwner.WORLD,
+            false,
             call -> ancestors(call.arguments(), call.world())));
     entries.add(
         new BuiltinSpec(
             "isa",
             List.of(new CallShape(List.of(ANY, ANY), List.of(INTEGER), Optional.empty())),
             BuiltinPermissionRule.ANY,
-            BuiltinCostRule.fixed(0),
-            EffectClass.TRANSACTION_READ,
-            BuiltinOwner.WORLD,
+            false,
             call -> isa(call.arguments(), call.world())));
     entries.add(
         new BuiltinSpec(
             "children",
             List.of(new CallShape(List.of(ANY), List.of(), Optional.empty())),
             BuiltinPermissionRule.ANY,
-            BuiltinCostRule.fixed(0),
-            EffectClass.TRANSACTION_READ,
-            BuiltinOwner.WORLD,
+            false,
             call -> children(call.arguments(), call.world())));
     entries.add(
         new BuiltinSpec(
             "chparent",
             List.of(new CallShape(List.of(ANY, OBJECT), List.of(), Optional.empty())),
             BuiltinPermissionRule.ANY,
-            BuiltinCostRule.fixed(0),
-            EffectClass.TRANSACTION_WRITE,
-            BuiltinOwner.WORLD,
+            false,
             call -> changeParents(call.arguments(), call.world(), call.programmer())));
     entries.add(
         new BuiltinSpec(
             "chparents",
             List.of(new CallShape(List.of(ANY, Set.of(ArgType.LIST)), List.of(), Optional.empty())),
             BuiltinPermissionRule.ANY,
-            BuiltinCostRule.fixed(0),
-            EffectClass.TRANSACTION_WRITE,
-            BuiltinOwner.WORLD,
+            false,
             call -> changeParents(call.arguments(), call.world(), call.programmer())));
     entries.add(
         new BuiltinSpec(
             "is_player",
             List.of(new CallShape(List.of(OBJECT), List.of(), Optional.empty())),
             BuiltinPermissionRule.ANY,
-            BuiltinCostRule.fixed(0),
-            EffectClass.TRANSACTION_READ,
-            BuiltinOwner.WORLD,
+            false,
             call -> isPlayer(call.arguments(), call.world())));
     entries.add(
         new BuiltinSpec(
             "valid",
             List.of(new CallShape(List.of(ANY), List.of(), Optional.empty())),
             BuiltinPermissionRule.ANY,
-            BuiltinCostRule.fixed(0),
-            EffectClass.TRANSACTION_READ,
-            BuiltinOwner.WORLD,
+            false,
             call -> valid(call.arguments(), call.world())));
     entries.add(
         new BuiltinSpec(
             "max_object",
             List.of(new CallShape(List.of(), List.of(), Optional.empty())),
             BuiltinPermissionRule.ANY,
-            BuiltinCostRule.fixed(0),
-            EffectClass.TRANSACTION_READ,
-            BuiltinOwner.WORLD,
+            false,
             call ->
                 BuiltinResult.value(new ObjectValue(call.world().maximumObjectId()))));
     entries.add(
@@ -1215,54 +1006,42 @@ public final class BuiltinCatalog {
             "locate_by_name",
             List.of(new CallShape(List.of(STRING), List.of(INTEGER), Optional.empty())),
             BuiltinPermissionRule.WIZARD_ONLY,
-            BuiltinCostRule.fixed(0),
-            EffectClass.TRANSACTION_READ,
-            BuiltinOwner.WORLD,
+            false,
             call -> locateByName(call.arguments(), call.world())));
     entries.add(
         new BuiltinSpec(
             "locations",
             List.of(new CallShape(List.of(OBJECT), List.of(OBJECT, INTEGER), Optional.empty())),
             BuiltinPermissionRule.ANY,
-            BuiltinCostRule.fixed(0),
-            EffectClass.TRANSACTION_READ,
-            BuiltinOwner.WORLD,
+            false,
             call -> locations(call.arguments(), call.world())));
     entries.add(
         new BuiltinSpec(
             "recycled_objects",
             List.of(new CallShape(List.of(), List.of(), Optional.empty())),
             BuiltinPermissionRule.ANY,
-            BuiltinCostRule.fixed(0),
-            EffectClass.TRANSACTION_READ,
-            BuiltinOwner.WORLD,
+            false,
             call -> recycledObjects(call.world())));
     entries.add(
         new BuiltinSpec(
             "next_recycled_object",
             List.of(new CallShape(List.of(), List.of(OBJECT), Optional.empty())),
             BuiltinPermissionRule.ANY,
-            BuiltinCostRule.fixed(0),
-            EffectClass.TRANSACTION_READ,
-            BuiltinOwner.WORLD,
+            false,
             call -> nextRecycledObject(call.arguments(), call.world())));
     entries.add(
         new BuiltinSpec(
             "owned_objects",
             List.of(new CallShape(List.of(OBJECT), List.of(), Optional.empty())),
             BuiltinPermissionRule.ANY,
-            BuiltinCostRule.fixed(0),
-            EffectClass.TRANSACTION_READ,
-            BuiltinOwner.WORLD,
+            false,
             call -> ownedObjects(call.arguments(), call.world())));
     entries.add(
         new BuiltinSpec(
             "set_player_flag",
             List.of(new CallShape(List.of(OBJECT, ANY), List.of(), Optional.empty())),
             BuiltinPermissionRule.ANY,
-            BuiltinCostRule.fixed(0),
-            EffectClass.TRANSACTION_WRITE,
-            BuiltinOwner.WORLD,
+            false,
             call -> setPlayerFlag(call.arguments(), call.world())));
     entries.add(
         new BuiltinSpec(
@@ -1273,9 +1052,7 @@ public final class BuiltinCatalog {
                     List.of(),
                     Optional.empty())),
             BuiltinPermissionRule.ANY,
-            BuiltinCostRule.fixed(0),
-            EffectClass.TRANSACTION_WRITE,
-            BuiltinOwner.WORLD,
+            false,
             call -> setVerbCode(call.arguments(), call.world(), call.programmer())));
     entries.add(
         new BuiltinSpec(
@@ -1286,9 +1063,7 @@ public final class BuiltinCatalog {
                     List.of(),
                     Optional.empty())),
             BuiltinPermissionRule.ANY,
-            BuiltinCostRule.fixed(0),
-            EffectClass.TRANSACTION_WRITE,
-            BuiltinOwner.WORLD,
+            false,
             call -> setVerbArgs(call.arguments(), call.world(), call.programmer())));
     entries.add(
         new BuiltinSpec(
@@ -1299,72 +1074,56 @@ public final class BuiltinCatalog {
                     List.of(),
                     Optional.empty())),
             BuiltinPermissionRule.ANY,
-            BuiltinCostRule.fixed(0),
-            EffectClass.TRANSACTION_WRITE,
-            BuiltinOwner.WORLD,
+            false,
             call -> setVerbInfo(call.arguments(), call.world(), call.programmer())));
     entries.add(
         new BuiltinSpec(
             "verbs",
             List.of(new CallShape(List.of(ANY), List.of(), Optional.empty())),
             BuiltinPermissionRule.ANY,
-            BuiltinCostRule.fixed(0),
-            EffectClass.TRANSACTION_READ,
-            BuiltinOwner.WORLD,
+            false,
             call -> verbs(call.arguments(), call.world(), call.programmer())));
     entries.add(
         new BuiltinSpec(
             "verb_args",
             List.of(new CallShape(List.of(ANY, ANY), List.of(), Optional.empty())),
             BuiltinPermissionRule.ANY,
-            BuiltinCostRule.fixed(0),
-            EffectClass.TRANSACTION_READ,
-            BuiltinOwner.WORLD,
+            false,
             call -> verbArgs(call.arguments(), call.world(), call.programmer())));
     entries.add(
         new BuiltinSpec(
             "verb_code",
             List.of(new CallShape(List.of(ANY, ANY), List.of(ANY, ANY), Optional.empty())),
             BuiltinPermissionRule.ANY,
-            BuiltinCostRule.fixed(0),
-            EffectClass.TRANSACTION_READ,
-            BuiltinOwner.WORLD,
+            false,
             call -> verbCode(call.arguments(), call.world(), call.programmer())));
     entries.add(
         new BuiltinSpec(
             "verb_info",
             List.of(new CallShape(List.of(ANY, ANY), List.of(), Optional.empty())),
             BuiltinPermissionRule.ANY,
-            BuiltinCostRule.fixed(0),
-            EffectClass.TRANSACTION_READ,
-            BuiltinOwner.WORLD,
+            false,
             call -> verbInfo(call.arguments(), call.world(), call.programmer())));
     entries.add(
         new BuiltinSpec(
             "move",
             List.of(new CallShape(List.of(OBJECT, OBJECT), List.of(INTEGER), Optional.empty())),
             BuiltinPermissionRule.ANY,
-            BuiltinCostRule.fixed(0),
-            EffectClass.TRANSACTION_WRITE,
-            BuiltinOwner.WORLD,
+            false,
             call -> move(call.arguments(), call.world(), call.programmer())));
     entries.add(
         new BuiltinSpec(
             "recycle",
             List.of(new CallShape(List.of(ANY), List.of(), Optional.empty())),
             BuiltinPermissionRule.ANY,
-            BuiltinCostRule.fixed(0),
-            EffectClass.TRANSACTION_WRITE,
-            BuiltinOwner.WORLD,
+            false,
             call -> recycle(call.arguments(), call.world(), call.programmer())));
     entries.add(
         new BuiltinSpec(
             "new_waif",
             List.of(new CallShape(List.of(), List.of(), Optional.empty())),
             BuiltinPermissionRule.ANY,
-            BuiltinCostRule.fixed(0),
-            EffectClass.TRANSACTION_WRITE,
-            BuiltinOwner.WORLD,
+            false,
             call -> {
               if (call.receiver() instanceof AnonymousObjectValue anonymous
                   && call.world().anonymousObject(anonymous).isPresent()) {
@@ -1381,27 +1140,21 @@ public final class BuiltinCatalog {
             "waif_stats",
             List.of(new CallShape(List.of(), List.of(), Optional.empty())),
             BuiltinPermissionRule.ANY,
-            BuiltinCostRule.fixed(0),
-            EffectClass.TRANSACTION_READ,
-            BuiltinOwner.WORLD,
+            false,
             call -> waifStats(call.world())));
     entries.add(
         new BuiltinSpec(
             "switch_player",
             List.of(new CallShape(List.of(OBJECT, OBJECT), List.of(INTEGER), Optional.empty())),
             BuiltinPermissionRule.WIZARD_ONLY,
-            BuiltinCostRule.fixed(0),
-            EffectClass.DEFERRED_COMMIT,
-            BuiltinOwner.CONNECTION,
+            false,
             call -> switchPlayer(call.arguments(), call.world())));
     entries.add(
         new BuiltinSpec(
             "caller_perms",
             List.of(new CallShape(List.of(), List.of(), Optional.empty())),
             BuiltinPermissionRule.ANY,
-            BuiltinCostRule.fixed(0),
-            EffectClass.PURE,
-            BuiltinOwner.VM,
+            false,
             call ->
                 BuiltinResult.value(new ObjectValue(call.callers().size() == 0 ? -1 : call.callerProgrammer()))));
     entries.add(
@@ -1409,54 +1162,42 @@ public final class BuiltinCatalog {
             "callers",
             List.of(new CallShape(List.of(), List.of(ANY), Optional.empty())),
             BuiltinPermissionRule.ANY,
-            BuiltinCostRule.fixed(0),
-            EffectClass.PURE,
-            BuiltinOwner.VM,
+            false,
             call -> callers(call.callers(), call.world(), call.programmer())));
     entries.add(
         new BuiltinSpec(
             "call_function",
             List.of(new CallShape(List.of(STRING), List.of(), Optional.of(ANY))),
             BuiltinPermissionRule.ANY,
-            BuiltinCostRule.fixed(0),
-            EffectClass.IRREVOCABLE,
-            BuiltinOwner.VM,
+            true,
             callFunction));
     entries.add(
         new BuiltinSpec(
             "queue_info",
             List.of(new CallShape(List.of(), List.of(OBJECT), Optional.empty())),
             BuiltinPermissionRule.ANY,
-            BuiltinCostRule.fixed(0),
-            EffectClass.EXTERNAL_READ,
-            BuiltinOwner.TASK,
+            false,
             hosts.queueInfo()));
     entries.add(
         new BuiltinSpec(
             "queued_tasks",
             List.of(new CallShape(List.of(), List.of(INTEGER, INTEGER), Optional.empty())),
             BuiltinPermissionRule.ANY,
-            BuiltinCostRule.fixed(0),
-            EffectClass.IRREVOCABLE,
-            BuiltinOwner.TASK,
+            true,
             hosts.queuedTasks()));
     entries.add(
         new BuiltinSpec(
             "task_stack",
             List.of(new CallShape(List.of(INTEGER), List.of(ANY, ANY), Optional.empty())),
             BuiltinPermissionRule.ANY,
-            BuiltinCostRule.fixed(0),
-            EffectClass.IRREVOCABLE,
-            BuiltinOwner.TASK,
+            true,
             hosts.taskStack()));
     entries.add(
         new BuiltinSpec(
             "kill_task",
             List.of(new CallShape(List.of(INTEGER), List.of(), Optional.empty())),
             BuiltinPermissionRule.ANY,
-            BuiltinCostRule.fixed(0),
-            EffectClass.IRREVOCABLE,
-            BuiltinOwner.TASK,
+            true,
             hosts.killTask()));
     entries.add(
         new BuiltinSpec(
@@ -1465,27 +1206,21 @@ public final class BuiltinCatalog {
                 new CallShape(
                     List.of(STRING, STRING), List.of(INTEGER), Optional.empty())),
             BuiltinPermissionRule.WIZARD_ONLY,
-            BuiltinCostRule.fixed(0),
-            EffectClass.IRREVOCABLE,
-            BuiltinOwner.TASK,
+            true,
             this::configureThreadPool));
     entries.add(
         new BuiltinSpec(
             "threads",
             List.of(new CallShape(List.of(), List.of(), Optional.empty())),
             BuiltinPermissionRule.WIZARD_ONLY,
-            BuiltinCostRule.fixed(0),
-            EffectClass.IRREVOCABLE,
-            BuiltinOwner.TASK,
+            true,
             hosts.threads()));
     entries.add(
         new BuiltinSpec(
             "read",
             List.of(new CallShape(List.of(), List.of(OBJECT, ANY), Optional.empty())),
             BuiltinPermissionRule.ANY,
-            BuiltinCostRule.fixed(0),
-            EffectClass.SUSPENDING_HOST,
-            BuiltinOwner.CONNECTION,
+            false,
             call -> {
               if (call.arguments().isEmpty() && !BuiltinPermissionRule.WIZARD_ONLY.allows(call.world(), call.programmer())) {
                 return BuiltinResult.error(ErrorValue.E_PERM);
@@ -1503,9 +1238,7 @@ public final class BuiltinCatalog {
             "connected_players",
             List.of(new CallShape(List.of(), List.of(ANY), Optional.empty())),
             BuiltinPermissionRule.ANY,
-            BuiltinCostRule.fixed(0),
-            EffectClass.EXTERNAL_READ,
-            BuiltinOwner.CONNECTION,
+            false,
             call ->
                 BuiltinResult.value(
                     new ListValue(
@@ -1522,27 +1255,21 @@ public final class BuiltinCatalog {
             "idle_seconds",
             List.of(new CallShape(List.of(OBJECT), List.of(), Optional.empty())),
             BuiltinPermissionRule.ANY,
-            BuiltinCostRule.fixed(0),
-            EffectClass.EXTERNAL_READ,
-            BuiltinOwner.CONNECTION,
+            false,
             hosts.idleSeconds()));
     entries.add(
         new BuiltinSpec(
             "connected_seconds",
             List.of(new CallShape(List.of(OBJECT), List.of(), Optional.empty())),
             BuiltinPermissionRule.ANY,
-            BuiltinCostRule.fixed(0),
-            EffectClass.EXTERNAL_READ,
-            BuiltinOwner.CONNECTION,
+            false,
             hosts.connectedSeconds()));
     entries.add(
         new BuiltinSpec(
             "buffered_output_length",
             List.of(new CallShape(List.of(), List.of(OBJECT), Optional.empty())),
             BuiltinPermissionRule.ANY,
-            BuiltinCostRule.fixed(0),
-            EffectClass.EXTERNAL_READ,
-            BuiltinOwner.CONNECTION,
+            false,
             call ->
                 bufferedOutputLength(
                     call.arguments(),
@@ -1554,99 +1281,77 @@ public final class BuiltinCatalog {
             "boot_player",
             List.of(new CallShape(List.of(OBJECT), List.of(), Optional.empty())),
             BuiltinPermissionRule.ANY,
-            BuiltinCostRule.fixed(0),
-            EffectClass.DEFERRED_COMMIT,
-            BuiltinOwner.CONNECTION,
+            false,
             call -> bootPlayer(call.arguments(), call.world(), call.programmer())));
     entries.add(
         new BuiltinSpec(
             "connection_info",
             List.of(new CallShape(List.of(OBJECT), List.of(), Optional.empty())),
             BuiltinPermissionRule.ANY,
-            BuiltinCostRule.fixed(0),
-            EffectClass.EXTERNAL_READ,
-            BuiltinOwner.CONNECTION,
+            false,
             call -> connectionInfo(call.arguments(), call.world(), call.programmer())));
     entries.add(
         new BuiltinSpec(
             "connection_name",
             List.of(new CallShape(List.of(OBJECT), List.of(INTEGER), Optional.empty())),
             BuiltinPermissionRule.ANY,
-            BuiltinCostRule.fixed(0),
-            EffectClass.EXTERNAL_READ,
-            BuiltinOwner.CONNECTION,
+            false,
             call -> connectionName(call.arguments(), call.world(), call.programmer())));
     entries.add(
         new BuiltinSpec(
             "match",
             List.of(new CallShape(List.of(STRING, STRING), List.of(ANY), Optional.empty())),
             BuiltinPermissionRule.ANY,
-            BuiltinCostRule.fixed(0),
-            EffectClass.PURE,
-            BuiltinOwner.VM,
+            false,
             call -> toastMatch(call.arguments(), false)));
     entries.add(
         new BuiltinSpec(
             "rmatch",
             List.of(new CallShape(List.of(STRING, STRING), List.of(ANY), Optional.empty())),
             BuiltinPermissionRule.ANY,
-            BuiltinCostRule.fixed(0),
-            EffectClass.PURE,
-            BuiltinOwner.VM,
+            false,
             call -> toastMatch(call.arguments(), true)));
     entries.add(
         new BuiltinSpec(
             "connection_name_lookup",
             List.of(new CallShape(List.of(OBJECT), List.of(ANY), Optional.empty())),
             BuiltinPermissionRule.ANY,
-            BuiltinCostRule.fixed(0),
-            EffectClass.SUSPENDING_HOST,
-            BuiltinOwner.CONNECTION,
+            false,
             this::connectionNameLookup));
     entries.add(
         new BuiltinSpec(
             "connection_options",
             List.of(new CallShape(List.of(OBJECT), List.of(STRING), Optional.empty())),
             BuiltinPermissionRule.ANY,
-            BuiltinCostRule.fixed(0),
-            EffectClass.EXTERNAL_READ,
-            BuiltinOwner.CONNECTION,
+            false,
             hosts.connectionOptions()));
     entries.add(
         new BuiltinSpec(
             "output_delimiters",
             List.of(new CallShape(List.of(OBJECT), List.of(), Optional.empty())),
             BuiltinPermissionRule.ANY,
-            BuiltinCostRule.fixed(0),
-            EffectClass.EXTERNAL_READ,
-            BuiltinOwner.CONNECTION,
+            false,
             hosts.outputDelimiters()));
     entries.add(
         new BuiltinSpec(
             "set_connection_option",
             List.of(new CallShape(List.of(OBJECT, STRING, ANY), List.of(), Optional.empty())),
             BuiltinPermissionRule.ANY,
-            BuiltinCostRule.fixed(0),
-            EffectClass.DEFERRED_COMMIT,
-            BuiltinOwner.CONNECTION,
+            false,
             call -> setConnectionOption(call.arguments(), call.world(), call.programmer())));
     entries.add(
         new BuiltinSpec(
             "flush_input",
             List.of(new CallShape(List.of(OBJECT), List.of(ANY), Optional.empty())),
             BuiltinPermissionRule.ANY,
-            BuiltinCostRule.fixed(0),
-            EffectClass.DEFERRED_COMMIT,
-            BuiltinOwner.CONNECTION,
+            false,
             hosts.flushInput()));
     entries.add(
         new BuiltinSpec(
             "force_input",
             List.of(new CallShape(List.of(OBJECT, STRING), List.of(ANY), Optional.empty())),
             BuiltinPermissionRule.ANY,
-            BuiltinCostRule.fixed(0),
-            EffectClass.DEFERRED_COMMIT,
-            BuiltinOwner.CONNECTION,
+            false,
             call -> forceInput(call.arguments(), call.world(), call.programmer())));
     entries.add(
         new BuiltinSpec(
@@ -1655,27 +1360,21 @@ public final class BuiltinCatalog {
                 new CallShape(
                     List.of(OBJECT, ANY), List.of(Set.of(ArgType.MAP)), Optional.empty())),
             BuiltinPermissionRule.WIZARD_ONLY,
-            BuiltinCostRule.fixed(0),
-            EffectClass.IRREVOCABLE,
-            BuiltinOwner.SERVER,
+            true,
             call -> listen(call.arguments(), call.world())));
     entries.add(
         new BuiltinSpec(
             "listeners",
             List.of(new CallShape(List.of(), List.of(ANY), Optional.empty())),
             BuiltinPermissionRule.ANY,
-            BuiltinCostRule.fixed(0),
-            EffectClass.EXTERNAL_READ,
-            BuiltinOwner.SERVER,
+            false,
             call -> listeners(call.arguments())));
     entries.add(
         new BuiltinSpec(
             "unlisten",
             List.of(new CallShape(List.of(ANY), List.of(ANY), Optional.empty())),
             BuiltinPermissionRule.WIZARD_ONLY,
-            BuiltinCostRule.fixed(0),
-            EffectClass.IRREVOCABLE,
-            BuiltinOwner.SERVER,
+            true,
             call -> unlisten(call.arguments())));
     entries.add(
         new BuiltinSpec(
@@ -1686,163 +1385,127 @@ public final class BuiltinCatalog {
                     List.of(Set.of(ArgType.MAP)),
                     Optional.empty())),
             BuiltinPermissionRule.WIZARD_ONLY,
-            BuiltinCostRule.fixed(0),
-            EffectClass.IRREVOCABLE,
-            BuiltinOwner.CONNECTION,
+            true,
             call -> openNetworkConnection(call.arguments())));
     entries.add(
         new BuiltinSpec(
             "task_perms",
             List.of(new CallShape(List.of(), List.of(), Optional.empty())),
             BuiltinPermissionRule.ANY,
-            BuiltinCostRule.fixed(0),
-            EffectClass.PURE,
-            BuiltinOwner.VM,
+            false,
             call -> BuiltinResult.value(new ObjectValue(call.programmer()))));
     entries.add(
         new BuiltinSpec(
             "task_id",
             List.of(new CallShape(List.of(), List.of(), Optional.empty())),
             BuiltinPermissionRule.ANY,
-            BuiltinCostRule.fixed(0),
-            EffectClass.PURE,
-            BuiltinOwner.VM,
+            false,
             call -> BuiltinResult.value(new IntegerValue(call.taskId()))));
     entries.add(
         new BuiltinSpec(
             "ticks_left",
             List.of(new CallShape(List.of(), List.of(), Optional.empty())),
             BuiltinPermissionRule.ANY,
-            BuiltinCostRule.fixed(0),
-            EffectClass.PURE,
-            BuiltinOwner.VM,
+            false,
             call -> BuiltinResult.value(new IntegerValue(call.remainingTicks()))));
     entries.add(
         new BuiltinSpec(
             "seconds_left",
             List.of(new CallShape(List.of(), List.of(), Optional.empty())),
             BuiltinPermissionRule.ANY,
-            BuiltinCostRule.fixed(0),
-            EffectClass.PURE,
-            BuiltinOwner.VM,
+            false,
             call -> BuiltinResult.value(new IntegerValue(call.remainingSeconds()))));
     entries.add(
         new BuiltinSpec(
             "set_task_perms",
             List.of(new CallShape(List.of(OBJECT), List.of(), Optional.empty())),
             BuiltinPermissionRule.ANY,
-            BuiltinCostRule.fixed(0),
-            EffectClass.DEFERRED_COMMIT,
-            BuiltinOwner.VM,
+            false,
             call -> setTaskPerms(call.arguments(), call.world(), call.programmer())));
     entries.add(
         new BuiltinSpec(
             "set_thread_mode",
             List.of(new CallShape(List.of(), List.of(INTEGER), Optional.empty())),
             BuiltinPermissionRule.ANY,
-            BuiltinCostRule.fixed(0),
-            EffectClass.DEFERRED_COMMIT,
-            BuiltinOwner.VM,
+            false,
             setThreadMode));
     entries.add(
         new BuiltinSpec(
             "notify",
             List.of(new CallShape(List.of(OBJECT, STRING), List.of(ANY, ANY), Optional.empty())),
             BuiltinPermissionRule.ANY,
-            BuiltinCostRule.fixed(0),
-            EffectClass.DEFERRED_COMMIT,
-            BuiltinOwner.CONNECTION,
+            false,
             call -> notifyLine(call.arguments(), call.world(), call.programmer())));
     entries.add(
         new BuiltinSpec(
             "tostr",
             List.of(new CallShape(List.of(), List.of(), Optional.of(ANY))),
             BuiltinPermissionRule.ANY,
-            BuiltinCostRule.fixed(0),
-            EffectClass.PURE,
-            BuiltinOwner.VM,
+            false,
             call -> toStringValue(call.arguments())));
     entries.add(
         new BuiltinSpec(
             "tofloat",
             List.of(new CallShape(List.of(ANY), List.of(), Optional.empty())),
             BuiltinPermissionRule.ANY,
-            BuiltinCostRule.fixed(0),
-            EffectClass.PURE,
-            BuiltinOwner.VM,
+            false,
             call -> toFloat(call.arguments())));
     entries.add(
         new BuiltinSpec(
             "toint",
             List.of(new CallShape(List.of(ANY), List.of(), Optional.empty())),
             BuiltinPermissionRule.ANY,
-            BuiltinCostRule.fixed(0),
-            EffectClass.PURE,
-            BuiltinOwner.VM,
+            false,
             call -> toInteger(call.arguments())));
     entries.add(
         new BuiltinSpec(
             "toliteral",
             List.of(new CallShape(List.of(ANY), List.of(), Optional.empty())),
             BuiltinPermissionRule.ANY,
-            BuiltinCostRule.fixed(0),
-            EffectClass.PURE,
-            BuiltinOwner.VM,
+            false,
             call -> toLiteral(call.arguments())));
     entries.add(
         new BuiltinSpec(
             "toobj",
             List.of(new CallShape(List.of(ANY), List.of(), Optional.empty())),
             BuiltinPermissionRule.ANY,
-            BuiltinCostRule.fixed(0),
-            EffectClass.PURE,
-            BuiltinOwner.VM,
+            false,
             call -> toObject(call.arguments())));
     entries.add(
         new BuiltinSpec(
             "equal",
             List.of(new CallShape(List.of(ANY, ANY), List.of(), Optional.empty())),
             BuiltinPermissionRule.ANY,
-            BuiltinCostRule.fixed(0),
-            EffectClass.PURE,
-            BuiltinOwner.VM,
+            false,
             call ->
                 equalValues(call.arguments(), hosts.valueSemantics())));
     entries.add(
         new BuiltinSpec(
             "eval",
-            List.of(new CallShape(List.of(STRING), List.of(), Optional.of(STRING))),
+            List.of(new CallShape(List.of(STRING), List.of(), Optional.of(ANY))),
             BuiltinPermissionRule.PROGRAMMER_ONLY,
-            BuiltinCostRule.fixed(0),
-            EffectClass.PURE,
-            BuiltinOwner.VM,
+            false,
             call -> dynamicEval(call.arguments())));
     entries.add(
         new BuiltinSpec(
             "typeof",
             List.of(new CallShape(List.of(ANY), List.of(), Optional.empty())),
             BuiltinPermissionRule.ANY,
-            BuiltinCostRule.fixed(0),
-            EffectClass.PURE,
-            BuiltinOwner.VM,
+            false,
             call -> typeOf(call.arguments())));
     entries.add(
         new BuiltinSpec(
             "server_version",
             List.of(new CallShape(List.of(), List.of(ANY), Optional.empty())),
             BuiltinPermissionRule.ANY,
-            BuiltinCostRule.fixed(0),
-            EffectClass.PURE,
-            BuiltinOwner.SERVER,
+            false,
             call -> serverVersion(call.arguments())));
     entries.add(
         new BuiltinSpec(
             "function_info",
             List.of(new CallShape(List.of(), List.of(STRING), Optional.empty())),
             BuiltinPermissionRule.ANY,
-            BuiltinCostRule.fixed(0),
-            EffectClass.PURE,
-            BuiltinOwner.VM,
+            false,
             call -> functionInfo(call.arguments())));
     addFileIoManifest(entries);
     entries.add(
@@ -1852,27 +1515,21 @@ public final class BuiltinCatalog {
                 new CallShape(
                     List.of(STRING, STRING), List.of(INTEGER, INTEGER), Optional.empty())),
             BuiltinPermissionRule.ANY,
-            BuiltinCostRule.fixed(0),
-            EffectClass.IRREVOCABLE,
-            BuiltinOwner.SERVER,
+            true,
             call -> pcre.match(call.arguments())));
     entries.add(
         new BuiltinSpec(
             "pcre_replace",
             List.of(new CallShape(List.of(STRING, STRING), List.of(), Optional.empty())),
             BuiltinPermissionRule.ANY,
-            BuiltinCostRule.fixed(0),
-            EffectClass.PURE,
-            BuiltinOwner.VM,
+            false,
             call -> pcre.replace(call.arguments())));
     entries.add(
         new BuiltinSpec(
             "pcre_cache_stats",
             List.of(new CallShape(List.of(), List.of(), Optional.empty())),
             BuiltinPermissionRule.WIZARD_ONLY,
-            BuiltinCostRule.fixed(0),
-            EffectClass.EXTERNAL_READ,
-            BuiltinOwner.SERVER,
+            false,
             call -> pcre.cacheStats()));
     addSqliteManifest(entries);
     entries.add(
@@ -1880,54 +1537,42 @@ public final class BuiltinCatalog {
             "server_log",
             List.of(new CallShape(List.of(STRING), List.of(ANY), Optional.empty())),
             BuiltinPermissionRule.WIZARD_ONLY,
-            BuiltinCostRule.fixed(0),
-            EffectClass.IRREVOCABLE,
-            BuiltinOwner.SERVER,
+            true,
             call -> serverLog(call.arguments())));
     entries.add(
         new BuiltinSpec(
             "log_cache_stats",
             List.of(new CallShape(List.of(), List.of(), Optional.empty())),
             BuiltinPermissionRule.WIZARD_ONLY,
-            BuiltinCostRule.fixed(0),
-            EffectClass.IRREVOCABLE,
-            BuiltinOwner.SERVER,
+            true,
             call -> logCacheStats(call.world())));
     entries.add(
         new BuiltinSpec(
             "verb_cache_stats",
             List.of(new CallShape(List.of(), List.of(), Optional.empty())),
             BuiltinPermissionRule.WIZARD_ONLY,
-            BuiltinCostRule.fixed(0),
-            EffectClass.EXTERNAL_READ,
-            BuiltinOwner.SERVER,
+            false,
             call -> verbCacheStats(call.world())));
     entries.add(
         new BuiltinSpec(
             "usage",
             List.of(new CallShape(List.of(), List.of(), Optional.empty())),
             BuiltinPermissionRule.WIZARD_ONLY,
-            BuiltinCostRule.fixed(0),
-            EffectClass.EXTERNAL_READ,
-            BuiltinOwner.SERVER,
+            false,
             call -> usage()));
     entries.add(
         new BuiltinSpec(
             "memory_usage",
             List.of(new CallShape(List.of(), List.of(), Optional.empty())),
             BuiltinPermissionRule.ANY,
-            BuiltinCostRule.fixed(0),
-            EffectClass.EXTERNAL_READ,
-            BuiltinOwner.SERVER,
+            false,
             call -> memoryUsage()));
     entries.add(
         new BuiltinSpec(
             "load_server_options",
             List.of(new CallShape(List.of(), List.of(), Optional.empty())),
             BuiltinPermissionRule.WIZARD_ONLY,
-            BuiltinCostRule.fixed(0),
-            EffectClass.IRREVOCABLE,
-            BuiltinOwner.SERVER,
+            true,
             call -> {
               reloadProtectedFunctions(call.world());
               return BuiltinResult.value(new IntegerValue(0));
@@ -1937,27 +1582,21 @@ public final class BuiltinCatalog {
             "run_gc",
             List.of(new CallShape(List.of(), List.of(), Optional.empty())),
             BuiltinPermissionRule.WIZARD_ONLY,
-            BuiltinCostRule.fixed(0),
-            EffectClass.PURE,
-            BuiltinOwner.VM,
+            false,
             call -> BuiltinResult.value(new IntegerValue(0))));
     entries.add(
         new BuiltinSpec(
             "gc_stats",
             List.of(new CallShape(List.of(), List.of(), Optional.empty())),
             BuiltinPermissionRule.WIZARD_ONLY,
-            BuiltinCostRule.fixed(0),
-            EffectClass.PURE,
-            BuiltinOwner.VM,
+            false,
             call -> gcStats()));
     entries.add(
         new BuiltinSpec(
             "reset_max_object",
             List.of(new CallShape(List.of(), List.of(), Optional.empty())),
             BuiltinPermissionRule.WIZARD_ONLY,
-            BuiltinCostRule.fixed(0),
-            EffectClass.TRANSACTION_WRITE,
-            BuiltinOwner.WORLD,
+            false,
             call -> {
               call.world().resetLastUsedObjectId();
               return BuiltinResult.value(new IntegerValue(0));
@@ -1967,18 +1606,14 @@ public final class BuiltinCatalog {
             "suspend",
             List.of(new CallShape(List.of(), List.of(NUMBER), Optional.empty())),
             BuiltinPermissionRule.ANY,
-            BuiltinCostRule.fixed(0),
-            EffectClass.PURE,
-            BuiltinOwner.VM,
+            false,
             call -> suspend(call.arguments())));
     entries.add(
         new BuiltinSpec(
             "resume",
             List.of(new CallShape(List.of(INTEGER), List.of(ANY), Optional.empty())),
             BuiltinPermissionRule.ANY,
-            BuiltinCostRule.fixed(0),
-            EffectClass.IRREVOCABLE,
-            BuiltinOwner.TASK,
+            true,
             hosts.resumeTask()));
     entries.add(
         new BuiltinSpec(
@@ -1987,36 +1622,28 @@ public final class BuiltinCatalog {
                 new CallShape(
                     List.of(), List.of(NUMBER, INTEGER, INTEGER), Optional.empty())),
             BuiltinPermissionRule.ANY,
-            BuiltinCostRule.fixed(0),
-            EffectClass.PURE,
-            BuiltinOwner.VM,
+            false,
             call -> yin(call.arguments(), call.world(), call.remainingTicks(), call.remainingSeconds())));
     entries.add(
         new BuiltinSpec(
             "shutdown",
             List.of(new CallShape(List.of(), List.of(STRING, ANY), Optional.empty())),
             BuiltinPermissionRule.WIZARD_ONLY,
-            BuiltinCostRule.fixed(0),
-            EffectClass.DEFERRED_COMMIT,
-            BuiltinOwner.SERVER,
+            false,
             call -> shutdown(call.arguments())));
     entries.add(
         new BuiltinSpec(
             "db_disk_size",
             List.of(new CallShape(List.of(), List.of(), Optional.empty())),
             BuiltinPermissionRule.ANY,
-            BuiltinCostRule.fixed(0),
-            EffectClass.EXTERNAL_READ,
-            BuiltinOwner.SERVER,
+            false,
             hosts.dbDiskSize()));
     entries.add(
         new BuiltinSpec(
             "dump_database",
             List.of(new CallShape(List.of(), List.of(), Optional.empty())),
             BuiltinPermissionRule.WIZARD_ONLY,
-            BuiltinCostRule.fixed(0),
-            EffectClass.DEFERRED_COMMIT,
-            BuiltinOwner.SERVER,
+            false,
             BuiltinCatalog::dumpDatabase));
     return List.copyOf(entries);
   }
@@ -2059,9 +1686,7 @@ public final class BuiltinCatalog {
         name,
         List.of(shape),
         BuiltinPermissionRule.WIZARD_ONLY,
-        BuiltinCostRule.fixed(0),
-        EffectClass.IRREVOCABLE,
-        BuiltinOwner.SERVER,
+        true,
         call ->
             handler.apply(call.arguments()));
   }
@@ -2071,31 +1696,31 @@ public final class BuiltinCatalog {
         sqliteSpec(
             "sqlite_open",
             new CallShape(List.of(STRING), List.of(INTEGER), Optional.empty()),
-            EffectClass.IRREVOCABLE,
+            true,
             call -> sqlite.open(call.arguments())));
     entries.add(
         sqliteSpec(
             "sqlite_close",
             new CallShape(List.of(INTEGER), List.of(), Optional.empty()),
-            EffectClass.IRREVOCABLE,
+            true,
             call -> sqlite.close(call.arguments())));
     entries.add(
         sqliteSpec(
             "sqlite_handles",
             new CallShape(List.of(), List.of(), Optional.empty()),
-            EffectClass.EXTERNAL_READ,
+            false,
             call -> sqlite.handles(call.arguments())));
     entries.add(
         sqliteSpec(
             "sqlite_info",
             new CallShape(List.of(INTEGER), List.of(), Optional.empty()),
-            EffectClass.EXTERNAL_READ,
+            false,
             call -> sqlite.info(call.arguments())));
     entries.add(
         sqliteSpec(
             "sqlite_query",
             new CallShape(List.of(INTEGER, STRING), List.of(ANY), Optional.empty()),
-            EffectClass.SUSPENDING_HOST,
+            false,
             call -> sqlite.query(call.arguments(), call.threadMode())));
     entries.add(
         sqliteSpec(
@@ -2104,40 +1729,38 @@ public final class BuiltinCatalog {
                 List.of(INTEGER, STRING, Set.of(ArgType.LIST)),
                 List.of(),
                 Optional.empty()),
-            EffectClass.SUSPENDING_HOST,
+            false,
             call -> sqlite.execute(call.arguments(), call.threadMode())));
     entries.add(
         sqliteSpec(
             "sqlite_last_insert_row_id",
             new CallShape(List.of(INTEGER), List.of(), Optional.empty()),
-            EffectClass.EXTERNAL_READ,
+            false,
             call -> sqlite.lastInsertRowId(call.arguments())));
     entries.add(
         sqliteSpec(
             "sqlite_limit",
             new CallShape(List.of(INTEGER, ANY, INTEGER), List.of(), Optional.empty()),
-            EffectClass.IRREVOCABLE,
+            true,
             call -> sqlite.limit(call.arguments())));
     entries.add(
         sqliteSpec(
             "sqlite_interrupt",
             new CallShape(List.of(INTEGER), List.of(), Optional.empty()),
-            EffectClass.IRREVOCABLE,
+            true,
             call -> sqlite.interrupt(call.arguments())));
   }
 
   private static BuiltinSpec sqliteSpec(
       String name,
       CallShape shape,
-      EffectClass effect,
+      boolean irrevocable,
       BuiltinHandler handler) {
     return new BuiltinSpec(
         name,
         List.of(shape),
         BuiltinPermissionRule.WIZARD_ONLY,
-        BuiltinCostRule.fixed(0),
-        effect,
-        BuiltinOwner.SERVER,
+        irrevocable,
         handler);
   }
 
@@ -2518,110 +2141,12 @@ public final class BuiltinCatalog {
     return Optional.ofNullable(specs.get(name.toLowerCase(Locale.ROOT)));
   }
 
-  /** Invokes one named builtin through its manifest entry. */
-  public BuiltinResult invoke(
-      String name,
-      List<MooValue> arguments,
-      WorldTxn world,
-      long programmer,
-      MooValue taskLocal,
-      long taskId,
-      long remainingTicks,
-      long remainingSeconds,
-      MooValue receiver,
-      long callerProgrammer,
-      ListValue callers) {
-    Optional<BuiltinSpec> selected = spec(name);
-    if (selected.isEmpty()) {
-      return BuiltinResult.error(ErrorValue.E_VERBNF);
-    }
-    return invoke(
-        selected.orElseThrow(),
-        arguments,
-        world,
-        programmer,
-        taskLocal,
-        taskId,
-        remainingTicks,
-        remainingSeconds,
-        receiver,
-        callerProgrammer,
-        callers);
-  }
-
   /** Validates and invokes one exact manifest entry. */
-  public BuiltinResult invoke(
-      BuiltinSpec spec,
-      List<MooValue> arguments,
-      WorldTxn world,
-      long programmer,
-      MooValue taskLocal,
-      long taskId,
-      long remainingTicks,
-      long remainingSeconds,
-      MooValue receiver,
-      long callerProgrammer,
-      ListValue callers) {
-    return invoke(
-        spec,
-        arguments,
-        world,
-        programmer,
-        taskLocal,
-        taskId,
-        remainingTicks,
-        remainingSeconds,
-        receiver,
-        callerProgrammer,
-        callers,
-        true);
-  }
-
-  /** Validates and invokes one exact manifest entry for the current activation mode. */
-  public BuiltinResult invoke(
-      BuiltinSpec spec,
-      List<MooValue> arguments,
-      WorldTxn world,
-      long programmer,
-      MooValue taskLocal,
-      long taskId,
-      long remainingTicks,
-      long remainingSeconds,
-      MooValue receiver,
-      long callerProgrammer,
-      ListValue callers,
-      boolean threadMode) {
-    return invoke(
-        spec,
-        arguments,
-        world,
-        programmer,
-        taskLocal,
-        taskId,
-        remainingTicks,
-        remainingSeconds,
-        receiver,
-        callerProgrammer,
-        callers,
-        threadMode,
-        (_connectionId, queuedBytes) -> queuedBytes);
-  }
-
-  /** Validates and invokes one exact manifest entry with attempt-local output projection. */
-  public BuiltinResult invoke(
-      BuiltinSpec spec,
-      List<MooValue> arguments,
-      WorldTxn world,
-      long programmer,
-      MooValue taskLocal,
-      long taskId,
-      long remainingTicks,
-      long remainingSeconds,
-      MooValue receiver,
-      long callerProgrammer,
-      ListValue callers,
-      boolean threadMode,
-      LongBinaryOperator stagedBufferedOutputLength) {
+  public BuiltinResult invoke(BuiltinSpec spec, BuiltinCall call) {
+    List<MooValue> arguments = call.arguments();
+    WorldTxn world = call.world();
+    long programmer = call.programmer();
+    MooValue receiver = call.receiver();
     if (!(receiver instanceof ObjectValue object && object.value() == 0)
         && protectedFunctions.contains(spec.name())) {
       String wrapper = "bf_" + spec.name();
@@ -2639,27 +2164,20 @@ public final class BuiltinCatalog {
           StringValue.of("Incorrect number of arguments (expected " + expected + "; got " + arguments.size() + ")"),
           new IntegerValue(0));
     }
-    if (spec.callShapes().stream().noneMatch(shape -> shape.accepts(arguments))) {
+    boolean promotedFloatMath = hosts.valueSemantics().promoteNumbers()
+        && switch (spec.name()) {
+          case "acos", "acosh", "asin", "asinh", "atan", "atan2", "atanh", "cbrt", "ceil", "cos", "cosh", "exp", "floor", "log", "log10", "sin", "sinh", "sqrt", "tan", "tanh" -> true;
+          default -> false;
+        }
+        && arguments.stream().allMatch(argument -> ArgType.NUMBER.accepts(argument));
+    if (!promotedFloatMath
+        && spec.callShapes().stream().noneMatch(shape -> shape.accepts(arguments))) {
       return BuiltinResult.error(ErrorValue.E_TYPE);
     }
     if (!spec.permission().allows(world, programmer)) {
       return BuiltinResult.error(ErrorValue.E_PERM);
     }
-    return spec.implementation()
-        .invoke(
-            new BuiltinCall(
-                arguments,
-                world,
-                programmer,
-                taskLocal,
-                taskId,
-                remainingTicks,
-                remainingSeconds,
-                receiver,
-                callerProgrammer,
-                callers,
-                threadMode,
-                stagedBufferedOutputLength));
+    return spec.implementation().invoke(call);
   }
 
   /** Loads the builtin protection flags from the published server options. */
@@ -2677,9 +2195,6 @@ public final class BuiltinCatalog {
   }
 
   private BuiltinResult functionInfo(List<MooValue> arguments) {
-    if (arguments.size() > 1) {
-      return BuiltinResult.error(ErrorValue.E_ARGS);
-    }
     if (arguments.isEmpty()) {
       return BuiltinResult.value(
           new ListValue(
@@ -2688,9 +2203,7 @@ public final class BuiltinCatalog {
                   .map(MooValue.class::cast)
                   .toList()));
     }
-    if (!(arguments.getFirst() instanceof StringValue requestedName)) {
-      return BuiltinResult.error(ErrorValue.E_TYPE);
-    }
+    StringValue requestedName = (StringValue) arguments.getFirst();
     BuiltinSpec requested = specs.get(requestedName.text().toLowerCase(Locale.ROOT));
     return requested == null
         ? BuiltinResult.error(ErrorValue.E_INVARG)
@@ -2763,36 +2276,18 @@ public final class BuiltinCatalog {
     }
   }
 
-  private BuiltinResult callFunction(
-      List<MooValue> arguments,
-      WorldTxn world,
-      long programmer,
-      MooValue taskLocal,
-      long taskId,
-      long remainingTicks,
-      long remainingSeconds,
-      MooValue receiver,
-      long callerProgrammer,
-      ListValue callers,
-      boolean threadMode) {
+  private BuiltinResult callFunction(BuiltinCall call) {
+    List<MooValue> arguments = call.arguments();
     String name = ((StringValue) arguments.getFirst()).text().toLowerCase(Locale.ROOT);
     BuiltinSpec target = specs.get(name);
     if (target == null) {
       return BuiltinResult.error(ErrorValue.E_INVARG);
     }
-    return invoke(
-        target,
-        arguments.subList(1, arguments.size()),
-        world,
-        programmer,
-        taskLocal,
-        taskId,
-        remainingTicks,
-        remainingSeconds,
-        receiver,
-        callerProgrammer,
-        callers,
-        threadMode);
+    return invoke(target, new BuiltinCall(
+        arguments.subList(1, arguments.size()), call.world(), call.programmer(),
+        call.taskLocal(), call.taskId(), call.remainingTicks(), call.remainingSeconds(),
+        call.receiver(), call.callerProgrammer(), call.callers(), call.threadMode(),
+        call.stagedBufferedOutputLength()));
   }
 
   private static ListValue functionInfoDescription(BuiltinSpec spec) {
@@ -6082,27 +5577,7 @@ public final class BuiltinCatalog {
           case 2 -> "this";
           default -> throw new IllegalStateException("invalid indirect-object verb specification");
         };
-    String preposition =
-        switch (verb.preposition()) {
-          case -1 -> "none";
-          case -2 -> "any";
-          case 0 -> "with/using";
-          case 1 -> "at/to";
-          case 2 -> "in front of";
-          case 3 -> "in/inside/into";
-          case 4 -> "on top of/on/onto/upon";
-          case 5 -> "out of/from inside/from";
-          case 6 -> "over";
-          case 7 -> "through";
-          case 8 -> "under/underneath/beneath";
-          case 9 -> "behind";
-          case 10 -> "beside";
-          case 11 -> "for/about";
-          case 12 -> "is";
-          case 13 -> "as";
-          case 14 -> "off/off of";
-          default -> throw new IllegalStateException("invalid verb preposition specification");
-        };
+    String preposition = Prepositions.format(verb.preposition());
     return BuiltinResult.value(
         new ListValue(List.of(StringValue.of(direct), StringValue.of(preposition), StringValue.of(indirect))));
   }
@@ -6224,47 +5699,7 @@ public final class BuiltinCatalog {
   }
 
   private static int parsePreposition(String prepositionText) {
-    String normalizedPreposition = prepositionText.toLowerCase(Locale.ROOT);
-    int slash = normalizedPreposition.indexOf('/');
-    if (slash >= 0) {
-      normalizedPreposition = normalizedPreposition.substring(0, slash);
-    }
-    return
-        switch (normalizedPreposition) {
-          case "none" -> -1;
-          case "any" -> -2;
-          case "with", "using" -> 0;
-          case "at", "to" -> 1;
-          case "in front of" -> 2;
-          case "in", "inside", "into" -> 3;
-          case "on top of", "on", "onto", "upon" -> 4;
-          case "out of", "from inside", "from" -> 5;
-          case "over" -> 6;
-          case "through" -> 7;
-          case "under", "underneath", "beneath" -> 8;
-          case "behind" -> 9;
-          case "beside" -> 10;
-          case "for", "about" -> 11;
-          case "is" -> 12;
-          case "as" -> 13;
-          case "off", "off of" -> 14;
-          default -> {
-            String numeric =
-                normalizedPreposition.startsWith("#")
-                    ? normalizedPreposition.substring(1)
-                    : normalizedPreposition;
-            if (numeric.isEmpty()
-                || numeric.chars().anyMatch(character -> character < '0' || character > '9')) {
-              yield Integer.MIN_VALUE;
-            }
-            try {
-              int code = Integer.parseInt(numeric);
-              yield code >= 0 && code <= 14 ? code : Integer.MIN_VALUE;
-            } catch (NumberFormatException ignored) {
-              yield Integer.MIN_VALUE;
-            }
-          }
-        };
+    return Prepositions.parse(prepositionText);
   }
 
   private BuiltinResult setVerbCode(
@@ -6727,6 +6162,9 @@ public final class BuiltinCatalog {
   }
 
   private BuiltinResult dynamicEval(List<MooValue> arguments) {
+    if (arguments.stream().anyMatch(argument -> !(argument instanceof StringValue))) {
+      return BuiltinResult.error(ErrorValue.E_TYPE);
+    }
     String source =
         arguments.stream()
             .map(StringValue.class::cast)

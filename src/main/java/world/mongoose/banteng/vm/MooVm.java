@@ -9,15 +9,15 @@ import java.util.Optional;
 import java.util.OptionalDouble;
 import java.util.OptionalLong;
 import java.util.Set;
+import org.jspecify.annotations.Nullable;
+import world.mongoose.banteng.builtin.BuiltinCall;
 import world.mongoose.banteng.builtin.BuiltinCatalog;
 import world.mongoose.banteng.builtin.BuiltinCatalog.ConnectionOptionRequest;
 import world.mongoose.banteng.builtin.BuiltinCatalog.ForcedInputRequest;
 import world.mongoose.banteng.builtin.BuiltinCatalog.NotificationRequest;
-import world.mongoose.banteng.builtin.BuiltinHosts;
 import world.mongoose.banteng.builtin.BuiltinResult;
 import world.mongoose.banteng.builtin.BuiltinSpec;
 import world.mongoose.banteng.builtin.CheckpointRequest;
-import world.mongoose.banteng.builtin.EffectClass;
 import world.mongoose.banteng.bytecode.BytecodeProgram;
 import world.mongoose.banteng.bytecode.BytecodeProgram.Instruction;
 import world.mongoose.banteng.bytecode.MooCompiler;
@@ -94,23 +94,6 @@ public final class MooVm {
   /** Creates a VM with the selected value semantics. */
   public MooVm(ValueSemantics valueSemantics) {
     this.valueSemantics = Objects.requireNonNull(valueSemantics, "valueSemantics");
-  }
-
-  /** Executes a pure program for package-level VM tests without publishing world state or effects. */
-  void execute(BytecodeProgram program, VmState state) {
-    WorldTxn root = new WorldTxn(List.of(), List.of());
-    try (WorldTxn transaction = root.begin()) {
-      execute(
-          program,
-          state,
-          transaction,
-          new BuiltinCatalog(
-              BuiltinHosts.builder().valueSemantics(valueSemantics).build()),
-          0L);
-      if (state.outcome() == VmState.Outcome.PENDING_BUILTIN) {
-        throw new IllegalStateException("pure VM execution reached an irrevocable builtin");
-      }
-    }
   }
 
   /** Executes with the one concrete world transaction, builtin catalog, and scheduler task ID. */
@@ -556,7 +539,7 @@ public final class MooVm {
       return;
     }
     frame.instructionPointer++;
-    if (spec.effect() == EffectClass.IRREVOCABLE) {
+    if (spec.irrevocable()) {
       state.yieldBuiltin(
           new VmSnapshot.PendingBuiltin(
               spec.name(),
@@ -577,20 +560,8 @@ public final class MooVm {
             ? state.callers(true)
             : state.callers();
     BuiltinResult result =
-        builtins.invoke(
-            spec,
-            arguments.elements(),
-            world,
-            state.programmer(),
-            state.taskLocal(),
-            taskId,
-            state.remainingTicks(),
-            state.remainingSeconds(),
-            frame.receiver,
-            state.callerProgrammer(),
-            callerFrames,
-            state.threadMode(),
-            state::stagedBufferedOutputLength);
+        builtins.invoke(spec, builtinCall(state, world, taskId, arguments.elements(),
+            frame.receiver, callerFrames, null));
     applyBuiltinResult(result, frame, state, world);
   }
 
@@ -622,21 +593,22 @@ public final class MooVm {
     VmSnapshot.PendingBuiltin request = state.authorizePendingBuiltin();
     BuiltinSpec spec = builtins.spec(request.name()).orElseThrow();
     BuiltinResult result =
-        builtins.invoke(
-            spec,
-            request.arguments(),
-            world,
-            request.programmer(),
-            request.taskLocal(),
-            taskId,
-            request.remainingTicks(),
-            request.remainingSeconds(),
-            request.receiver(),
-            request.callerProgrammer(),
-            request.callers(),
-            state.threadMode(),
-            state::stagedBufferedOutputLength);
+        builtins.invoke(spec, builtinCall(state, world, taskId, request.arguments(),
+            request.receiver(), request.callers(), request));
     applyBuiltinResult(result, state.currentFrame(), state, world);
+  }
+
+  private static BuiltinCall builtinCall(
+      VmState state, WorldTxn world, long taskId, List<MooValue> arguments,
+      MooValue receiver, ListValue callers, VmSnapshot.@Nullable PendingBuiltin pending) {
+    return new BuiltinCall(
+        arguments, world,
+        pending == null ? state.programmer() : pending.programmer(),
+        pending == null ? state.taskLocal() : pending.taskLocal(), taskId,
+        pending == null ? state.remainingTicks() : pending.remainingTicks(),
+        pending == null ? state.remainingSeconds() : pending.remainingSeconds(), receiver,
+        pending == null ? state.callerProgrammer() : pending.callerProgrammer(), callers,
+        state.threadMode(), state::stagedBufferedOutputLength);
   }
 
   static void applyBuiltinResult(
