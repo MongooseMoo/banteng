@@ -34,4 +34,6 @@ The collector is committed, and the parent's canonical installed-verb compilatio
 
 LoginFlow is committed. ConnectionIo now owns read registration/waiting/delivery, options, forced input, notifications, boot requests and recycled-player connections. Its pendingReads map has one owner and retains the runtime monitor used by publication; read registrations still become visible only inside publishAttempt after committed session publication. Attempt methods receive the existing AttemptContext.
 
-Next: commit ConnectionIo, finish the remaining oversized command phases, then thread explicit context through the runtime, scheduler and builtin invocation carrier.
+ConnectionIo is committed. Command execution now separates program-input compilation from programming/output control, and command selection shares the existing argument-specification predicate. The command methods are package-private and each command phase is below 100 lines; parsing and OOB continue using the existing parser and transport phase.
+
+Next: commit the dispatch phases, then thread explicit context through the runtime, scheduler and builtin invocation carrier. No broad local CI has been run.

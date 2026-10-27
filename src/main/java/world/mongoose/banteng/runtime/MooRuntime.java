@@ -770,11 +770,11 @@ public final class MooRuntime implements AutoCloseable, SchedulerRuntime {
     listenerControl.ifPresent(control -> control.writeConnection(connectionId, output));
   }
 
-  private RuntimeStep executeLineNow(long connectionId, String line) {
+  RuntimeStep executeLineNow(long connectionId, String line) {
     return executeLineNow(connectionId, line, Optional.empty());
   }
 
-  private RuntimeStep executeLineNow(
+  RuntimeStep executeLineNow(
       long connectionId, String line, Optional<VmState> completedDoCommand) {
     Objects.requireNonNull(line, "line");
     ConnectionState connection = requireConnection(connectionId);
@@ -863,42 +863,10 @@ public final class MooRuntime implements AutoCloseable, SchedulerRuntime {
     return dispatchCommand(connectionId, connection, player, line, output);
   }
 
-  private @Nullable RuntimeStep executeProgrammingOrOutputControl(
+  @Nullable RuntimeStep executeProgrammingOrOutputControl(
       ConnectionState connection, long player, String line) {
     if (connection.programmingObject >= 0) {
-      if (!line.equals(".")) {
-        connection.programmingSource.append(line).append('\n');
-        return RuntimeStep.returned(List.of());
-      }
-      WorldObject definingObject = world().object(connection.programmingObject).orElse(null);
-      if (definingObject == null) {
-        clearProgramming(connection);
-        return RuntimeStep.returned(List.of("That object appears to have disappeared ..."));
-      }
-      WorldVerb verb =
-          world()
-              .verb(connection.programmingObject, connection.programmingVerbName, false)
-              .orElse(null);
-      int verbIndex = verb == null ? -1 : definingObject.verbs().indexOf(verb);
-      if (verbIndex < 0) {
-        clearProgramming(connection);
-        return RuntimeStep.returned(List.of("That verb appears to have disappeared ..."));
-      }
-      String source = connection.programmingSource.toString();
-      MooCompiler.CompilationResult compilation = new MooCompiler().compileResult(source);
-      List<String> output =
-          compilation.diagnostics().stream()
-              .map(MooCompiler.Diagnostic::display)
-              .collect(java.util.stream.Collectors.toCollection(ArrayList::new));
-      output.add(compilation.diagnostics().size() + " error(s).");
-      boolean installed =
-          compilation.program().isPresent()
-              && world()
-                  .setVerbCode(connection.programmingObject, verbIndex, source, compilation.program().orElseThrow())
-                  .isOk();
-      output.add(installed ? "Verb programmed." : "Verb not programmed.");
-      clearProgramming(connection);
-      return RuntimeStep.returned(output);
+      return executeProgramInput(connection, line);
     }
 
     CommandParser.ParsedCommand programmingCommand = CommandParser.parse(line);
@@ -977,7 +945,43 @@ public final class MooRuntime implements AutoCloseable, SchedulerRuntime {
     return null;
   }
 
-  private RuntimeStep dispatchCommand(
+  RuntimeStep executeProgramInput(ConnectionState connection, String line) {
+    if (!line.equals(".")) {
+      connection.programmingSource.append(line).append('\n');
+      return RuntimeStep.returned(List.of());
+    }
+    WorldObject definingObject = world().object(connection.programmingObject).orElse(null);
+    if (definingObject == null) {
+      clearProgramming(connection);
+      return RuntimeStep.returned(List.of("That object appears to have disappeared ..."));
+    }
+    WorldVerb verb =
+        world()
+            .verb(connection.programmingObject, connection.programmingVerbName, false)
+            .orElse(null);
+    int verbIndex = verb == null ? -1 : definingObject.verbs().indexOf(verb);
+    if (verbIndex < 0) {
+      clearProgramming(connection);
+      return RuntimeStep.returned(List.of("That verb appears to have disappeared ..."));
+    }
+    String source = connection.programmingSource.toString();
+    MooCompiler.CompilationResult compilation = new MooCompiler().compileResult(source);
+    List<String> output =
+        compilation.diagnostics().stream()
+            .map(MooCompiler.Diagnostic::display)
+            .collect(java.util.stream.Collectors.toCollection(ArrayList::new));
+    output.add(compilation.diagnostics().size() + " error(s).");
+    boolean installed =
+        compilation.program().isPresent()
+            && world()
+                .setVerbCode(connection.programmingObject, verbIndex, source, compilation.program().orElseThrow())
+                .isOk();
+    output.add(installed ? "Verb programmed." : "Verb not programmed.");
+    clearProgramming(connection);
+    return RuntimeStep.returned(output);
+  }
+
+  RuntimeStep dispatchCommand(
       long connectionId, ConnectionState connection, long player, String line, List<String> output) {
     CommandParser.ParsedCommand parsed = CommandParser.parse(line);
     List<String> words = parsed.words();
@@ -1009,32 +1013,14 @@ public final class MooRuntime implements AutoCloseable, SchedulerRuntime {
         long thisObject = -1;
         if (playerCommandVerb.isPresent()) {
           ResolvedVerb candidate = playerCommandVerb.orElseThrow();
-          ArgSpec directSpecification = candidate.verb().dobj();
-          ArgSpec indirectSpecification = candidate.verb().iobj();
-          ArgSpec directClassification = directObject == player ? ArgSpec.THIS : directObject == -1 ? ArgSpec.NONE : ArgSpec.ANY;
-          ArgSpec indirectClassification = indirectObject == player ? ArgSpec.THIS : indirectObject == -1 ? ArgSpec.NONE : ArgSpec.ANY;
-          boolean argumentSpecificationMatches =
-              (directSpecification == ArgSpec.ANY || directSpecification == directClassification)
-                  && (candidate.verb().preposition() == -2 || candidate.verb().preposition() == preposition)
-                  && (indirectSpecification == ArgSpec.ANY
-                      || indirectSpecification == indirectClassification);
-          if (argumentSpecificationMatches) {
+          if (commandArgumentsMatch(candidate, player, directObject, preposition, indirectObject)) {
             selectedVerb = candidate;
             thisObject = player;
           }
         }
         if (selectedVerb == null && roomCommandVerb.isPresent()) {
           ResolvedVerb candidate = roomCommandVerb.orElseThrow();
-          ArgSpec directSpecification = candidate.verb().dobj();
-          ArgSpec indirectSpecification = candidate.verb().iobj();
-          ArgSpec directClassification = directObject == room ? ArgSpec.THIS : directObject == -1 ? ArgSpec.NONE : ArgSpec.ANY;
-          ArgSpec indirectClassification = indirectObject == room ? ArgSpec.THIS : indirectObject == -1 ? ArgSpec.NONE : ArgSpec.ANY;
-          boolean argumentSpecificationMatches =
-              (directSpecification == ArgSpec.ANY || directSpecification == directClassification)
-                  && (candidate.verb().preposition() == -2 || candidate.verb().preposition() == preposition)
-                  && (indirectSpecification == ArgSpec.ANY
-                      || indirectSpecification == indirectClassification);
-          if (argumentSpecificationMatches) {
+          if (commandArgumentsMatch(candidate, room, directObject, preposition, indirectObject)) {
             selectedVerb = candidate;
             thisObject = room;
           }
@@ -1044,17 +1030,7 @@ public final class MooRuntime implements AutoCloseable, SchedulerRuntime {
               world().resolveVerb(directObject, words.getFirst(), false);
           if (directCommandVerb.isPresent()) {
             ResolvedVerb candidate = directCommandVerb.orElseThrow();
-            ArgSpec directSpecification = candidate.verb().dobj();
-            ArgSpec indirectSpecification = candidate.verb().iobj();
-            ArgSpec directClassification = ArgSpec.THIS;
-            ArgSpec indirectClassification =
-                indirectObject == directObject ? ArgSpec.THIS : indirectObject == -1 ? ArgSpec.NONE : ArgSpec.ANY;
-            boolean argumentSpecificationMatches =
-                (directSpecification == ArgSpec.ANY || directSpecification == directClassification)
-                    && (candidate.verb().preposition() == -2 || candidate.verb().preposition() == preposition)
-                    && (indirectSpecification == ArgSpec.ANY
-                        || indirectSpecification == indirectClassification);
-            if (argumentSpecificationMatches) {
+            if (commandArgumentsMatch(candidate, directObject, directObject, preposition, indirectObject)) {
               selectedVerb = candidate;
               thisObject = directObject;
             }
@@ -1065,17 +1041,7 @@ public final class MooRuntime implements AutoCloseable, SchedulerRuntime {
               world().resolveVerb(indirectObject, words.getFirst(), false);
           if (indirectCommandVerb.isPresent()) {
             ResolvedVerb candidate = indirectCommandVerb.orElseThrow();
-            ArgSpec directSpecification = candidate.verb().dobj();
-            ArgSpec indirectSpecification = candidate.verb().iobj();
-            ArgSpec directClassification =
-                directObject == indirectObject ? ArgSpec.THIS : directObject == -1 ? ArgSpec.NONE : ArgSpec.ANY;
-            ArgSpec indirectClassification = ArgSpec.THIS;
-            boolean argumentSpecificationMatches =
-                (directSpecification == ArgSpec.ANY || directSpecification == directClassification)
-                    && (candidate.verb().preposition() == -2 || candidate.verb().preposition() == preposition)
-                    && (indirectSpecification == ArgSpec.ANY
-                        || indirectSpecification == indirectClassification);
-            if (argumentSpecificationMatches) {
+            if (commandArgumentsMatch(candidate, indirectObject, directObject, preposition, indirectObject)) {
               selectedVerb = candidate;
               thisObject = indirectObject;
             }
@@ -1112,7 +1078,16 @@ public final class MooRuntime implements AutoCloseable, SchedulerRuntime {
     return RuntimeStep.returned(output);
   }
 
-  private RuntimeStep continueLineAfterDoCommand(
+  static boolean commandArgumentsMatch(
+      ResolvedVerb candidate, long receiver, long directObject, int preposition, long indirectObject) {
+    ArgSpec direct = directObject == receiver ? ArgSpec.THIS : directObject == -1 ? ArgSpec.NONE : ArgSpec.ANY;
+    ArgSpec indirect = indirectObject == receiver ? ArgSpec.THIS : indirectObject == -1 ? ArgSpec.NONE : ArgSpec.ANY;
+    return (candidate.verb().dobj() == ArgSpec.ANY || candidate.verb().dobj() == direct)
+        && (candidate.verb().preposition() == -2 || candidate.verb().preposition() == preposition)
+        && (candidate.verb().iobj() == ArgSpec.ANY || candidate.verb().iobj() == indirect);
+  }
+
+  RuntimeStep continueLineAfterDoCommand(
       long connectionId, String line, VmState completedDoCommand) {
     return executeLineNow(connectionId, line, Optional.of(completedDoCommand));
   }
@@ -1123,7 +1098,7 @@ public final class MooRuntime implements AutoCloseable, SchedulerRuntime {
     return scheduler.submit(RuntimeRequest.outOfBand(connectionId, command));
   }
 
-  private RuntimeStep executeTransportOutOfBandNow(long connectionId, String command) {
+  RuntimeStep executeTransportOutOfBandNow(long connectionId, String command) {
     Objects.requireNonNull(command, "command");
     ConnectionState connection = requireConnection(connectionId);
     connection.lastActivityNanos = nanoTime.getAsLong();
