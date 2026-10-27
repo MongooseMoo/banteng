@@ -34,3 +34,6 @@ Validation: the scoped migration dry-run, focused MoveBuiltinFamilyTest file, re
 
 ## Login and layout repair ancestry
 Merged the latest coordinator runtime login-output and pinned-layout-boundary repairs normally, without conflicts or family source adaptations. Family implementations, services, dependencies, extraction mover, authored fixtures and YAML are unchanged. No local tests, CI, migration or repeated review ran for this mechanical integration. Parent owns publication, hosted checks and merge.
+
+## Queue overlap integration
+Normally merging the published, reviewed Binary and SQLite extraction tips so Regex can follow both in the merge queue. Binary overlap in the existing mover, focused fixture and YAML is additive: retain both families' original sections; the catalog merged automatically. RegexBuiltins and its two package-private services remain byte-identical. No local tests or repeated review run for this mechanical integration; parent owns publication and hosted checks.
