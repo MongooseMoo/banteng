@@ -1,6 +1,7 @@
 package world.mongoose.banteng.persistence;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import java.io.IOException;
 import java.nio.file.Path;
@@ -16,17 +17,16 @@ final class LambdaMooV5ReaderTest {
           "..", "moo-conformance-tests", "src", "moo_conformance", "_db", "startup");
 
   @Test
-  void repairsEveryStockV5TopologyFixtureIntoAValidatedWorld() throws IOException {
+  void repairsMissingReferencesButRejectsInvalidHierarchies() throws IOException {
     LambdaMooV5Reader reader = new LambdaMooV5Reader(ServerLog.stderr(System.Logger.Level.INFO), new LambdaMooV17Codec());
-    for (int fixture = 1; fixture <= 5; fixture++) {
-      WorldTxn world = reader.read(STARTUP_DATABASES.resolve("Broken" + fixture + ".db")).world();
-      try (WorldTxn snapshot = world.begin()) {
-        assertEquals(fixture == 2 ? 5 : 4, snapshot.objectCount());
-      }
+    for (int fixture = 2; fixture <= 5; fixture++) {
+      Path database = STARTUP_DATABASES.resolve("Broken" + fixture + ".db");
+      assertThrows(IOException.class, () -> reader.read(database), database.toString());
     }
 
     WorldTxn broken1 = reader.read(STARTUP_DATABASES.resolve("Broken1.db")).world();
     try (WorldTxn snapshot = broken1.begin()) {
+      assertEquals(4, snapshot.objectCount());
       WorldObject system = snapshot.object(0).orElseThrow();
       assertEquals(-1, system.location());
       assertEquals(List.of(1L), system.parents());
@@ -34,10 +34,5 @@ final class LambdaMooV5ReaderTest {
       assertEquals(List.of(), system.children());
     }
 
-    WorldTxn broken5 = reader.read(STARTUP_DATABASES.resolve("Broken5.db")).world();
-    try (WorldTxn snapshot = broken5.begin()) {
-      assertEquals(List.of(), snapshot.object(1).orElseThrow().children());
-      assertEquals(List.of(), snapshot.object(2).orElseThrow().contents());
-    }
   }
 }

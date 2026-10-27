@@ -1,8 +1,8 @@
 package world.mongoose.banteng.vm;
 
 import java.util.Optional;
-import world.mongoose.banteng.builtin.BuiltinCatalog;
 import world.mongoose.banteng.builtin.BuiltinResult;
+import world.mongoose.banteng.builtin.ValueLimits;
 import world.mongoose.banteng.bytecode.BytecodeProgram.Opcode;
 import world.mongoose.banteng.value.MooValue;
 import world.mongoose.banteng.value.MooValue.BooleanValue;
@@ -146,7 +146,7 @@ final class ArithmeticOps {
         && leftValue instanceof StringValue left
         && rightValue instanceof StringValue right) {
       Optional<BuiltinResult> error =
-          BuiltinCatalog.stringLengthError((long) left.length() + right.length(), world);
+          ValueLimits.stringLengthError((long) left.length() + right.length(), world);
       if (error.isPresent()) {
         if (error.orElseThrow() instanceof BuiltinResult.ErrorResult quota) {
           ErrorOps.raise(state, quota.error(), world);

@@ -60,18 +60,13 @@ public final class DurableTaskCodec {
   public static VmSnapshot.Frame importActivation(
       SuspendedActivation activation,
       int vector,
-      boolean rootActivation,
-      ToastV17ProgramLayout layout) {
-    if (activation.languageVersion() != 17) {
+      boolean rootActivation) {
+    if (activation.languageVersion() < 4 || activation.languageVersion() > 17) {
       throw new IllegalArgumentException(
           "unsupported suspended activation language version " + activation.languageVersion());
     }
-    if (activation.builtinFunctionCounter() != 0) {
-      throw new IllegalArgumentException("suspended builtin continuation is unsupported");
-    }
-    if (activation.temporary().isPresent()) {
-      throw new IllegalArgumentException("suspended activation temporary value is unsupported");
-    }
+    ToastV17ProgramLayout layout = new ToastV17ProgramLayout(activation.languageVersion());
+    BuiltinState builtin = importBuiltin(activation, rootActivation);
 
     BytecodeProgram compiled = new MooCompiler().compile(activation.programSource());
     BytecodeProgram selected =
@@ -100,26 +95,58 @@ public final class DurableTaskCodec {
     return new VmSnapshot.Frame(
         site.call().program(),
         imported.operandStack(),
-        List.of(),
+        imported.indices(),
         locals,
         imported.handlers(),
         imported.finallyStates(),
         imported.loops(),
-        rootActivation ? VmSnapshot.ReturnMode.ROOT : VmSnapshot.ReturnMode.VERB,
+        builtin.mode(),
         activation.receiver(),
         activation.verbLocation(),
         activation.verb(),
         activation.verbNames(),
-        Optional.empty(),
-        OptionalLong.empty(),
-        OptionalLong.empty(),
-        OptionalLong.empty(),
-        OptionalLong.empty(),
+        builtin.create(),
+        builtin.recycle(),
+        builtin.move(),
+        builtin.destination(),
+        builtin.position(),
         activation.programmer(),
         activation.debug(),
         activation.threadMode(),
         site.call().resumeInstructionPointer(),
         Optional.empty());
+  }
+
+  private record BuiltinState(VmSnapshot.ReturnMode mode, Optional<MooValue> create,
+      OptionalLong recycle, OptionalLong move, OptionalLong destination, OptionalLong position) {}
+
+  private static BuiltinState importBuiltin(SuspendedActivation activation, boolean root) {
+    VmSnapshot.ReturnMode mode = root ? VmSnapshot.ReturnMode.ROOT : VmSnapshot.ReturnMode.VERB;
+    Optional<MooValue> create = Optional.empty();
+    OptionalLong recycle = OptionalLong.empty(), move = OptionalLong.empty();
+    OptionalLong destination = OptionalLong.empty(), position = OptionalLong.empty();
+    if (activation.builtinFunctionCounter() != 0) {
+      SuspendedActivation.BuiltinContinuation payload = activation.builtinContinuation().orElseThrow();
+      while (payload instanceof SuspendedActivation.CallFunctionContinuation call) payload = call.function();
+      switch (payload) {
+        case SuspendedActivation.EvalContinuation ignored -> mode = VmSnapshot.ReturnMode.EVAL;
+        case SuspendedActivation.CreateContinuation created ->
+            create = Optional.of(new MooValue.ObjectValue(created.object()));
+        case SuspendedActivation.RecycleContinuation recycled -> recycle = OptionalLong.of(recycled.object());
+        case SuspendedActivation.MoveContinuation moved -> {
+          move = OptionalLong.of(moved.object()); destination = OptionalLong.of(moved.destination());
+          position = OptionalLong.of(moved.position());
+          mode = switch (Math.toIntExact(activation.builtinFunctionCounter())) {
+            case 2 -> VmSnapshot.ReturnMode.MOVE_ACCEPT;
+            case 3 -> VmSnapshot.ReturnMode.MOVE_EXIT;
+            case 4 -> VmSnapshot.ReturnMode.MOVE_ENTER;
+            default -> throw new IllegalArgumentException("invalid move continuation counter");
+          };
+        }
+        case SuspendedActivation.CallFunctionContinuation ignored -> throw new AssertionError();
+      }
+    }
+    return new BuiltinState(mode, create, recycle, move, destination, position);
   }
 
   private static ImportedActivationStack importStructuralStack(
@@ -185,6 +212,12 @@ public final class DurableTaskCodec {
             loops.put(
                 loop.control().instructionIndex(),
                 importRangeLoop(loop, baseToTop, consumed));
+        case ToastV17ProgramModel.IndexContext index -> {
+          if (index.keyDepth().isPresent()) {
+            requireValue(baseToTop, consumed, index.baseDepth(), "indexed parent collection");
+            requireValue(baseToTop, consumed, index.keyDepth().getAsInt(), "indexed parent key");
+          }
+        }
       }
     }
 
@@ -219,7 +252,17 @@ public final class DurableTaskCodec {
         ordinary.add(slot.value().orElseThrow());
       }
     }
-    return new ImportedActivationStack(ordinary, handlers, finalizers, loops);
+    List<VmSnapshot.IndexState> indices = new ArrayList<>();
+    for (ToastV17ProgramModel.StructuralStackEntry entry : shape.entriesBaseToTop()) {
+      if (entry instanceof ToastV17ProgramModel.IndexContext index) {
+        indices.addFirst(new VmSnapshot.IndexState(
+            baseToTop.get(index.baseDepth()).value().orElseThrow(),
+            index.keyDepth().isPresent()
+                ? baseToTop.get(index.keyDepth().getAsInt()).value() : Optional.empty(),
+            translatedDepth(consumed, index.baseDepth()) + 1));
+      }
+    }
+    return new ImportedActivationStack(ordinary, handlers, finalizers, loops, indices);
   }
 
   private static void importCatchGroup(
@@ -507,11 +550,22 @@ public final class DurableTaskCodec {
                 ToastV17ProgramModel.StructuralStackEntry::baseDepth)
             .reversed());
     int finallyIndex = 0;
+    int indexContext = 0;
     Map<Integer, VmSnapshot.LoopState> remainingLoops =
         new LinkedHashMap<>(frame.loops());
 
     for (ToastV17ProgramModel.StructuralStackEntry entry : innerToOuter) {
       switch (entry) {
+        case ToastV17ProgramModel.IndexContext index -> {
+          if (indexContext >= frame.indexCollections().size()) {
+            throw new IllegalStateException("missing index context");
+          }
+          VmSnapshot.IndexState saved = frame.indexCollections().get(indexContext++);
+          if (index.keyDepth().isPresent()) {
+            putValue(baseToTop, structural, index.baseDepth(), saved.collection(), "indexed parent collection");
+            putValue(baseToTop, structural, index.keyDepth().getAsInt(), saved.key().orElseThrow(), "indexed parent key");
+          }
+        }
         case ToastV17ProgramModel.CatchGroup group -> {
           if (group.phase() == ToastV17ProgramModel.StructuralPhase.PROTECTED) {
             for (int index = 0; index < group.clauses().size(); index++) {
@@ -826,13 +880,7 @@ public final class DurableTaskCodec {
   }
 
   private static SuspendedActivation exportActivation(VmSnapshot.Frame frame, long taskPlayer) {
-    if (!frame.indexCollections().isEmpty()
-        || frame.createReturnOverride().isPresent()
-        || frame.recycleTarget().isPresent()
-        || frame.anonymousRecycleTarget().isPresent()
-        || frame.moveObject().isPresent()
-        || frame.moveDestination().isPresent()
-        || frame.movePosition().isPresent()) {
+    if (frame.anonymousRecycleTarget().isPresent()) {
       throw new IllegalStateException("VM frame has no direct v17 activation representation");
     }
     int callIndex = Math.subtractExact(frame.instructionPointer(), 1);
@@ -870,6 +918,12 @@ public final class DurableTaskCodec {
         frame.locals().get("verb") instanceof world.mongoose.banteng.value.MooValue.StringValue value
             ? value.text()
             : "";
+    Optional<SuspendedActivation.BuiltinContinuation> builtin = exportBuiltin(frame);
+    long builtinCounter = builtin.isEmpty() ? 0 : switch (frame.returnMode()) {
+      case MOVE_EXIT -> 3;
+      case MOVE_ENTER -> 4;
+      default -> 2;
+    };
     return new SuspendedActivation(
         17,
         frame.program().source(),
@@ -885,15 +939,34 @@ public final class DurableTaskCodec {
         verb,
         Optional.empty(),
         boundary.programCounter(),
-        0,
-        boundary.errorProgramCounter());
+        builtinCounter,
+        boundary.errorProgramCounter(), builtin);
+  }
+
+  private static Optional<SuspendedActivation.BuiltinContinuation> exportBuiltin(VmSnapshot.Frame frame) {
+    if (frame.returnMode() == VmSnapshot.ReturnMode.EVAL) {
+      return Optional.of(new SuspendedActivation.EvalContinuation());
+    }
+    if (frame.createReturnOverride().isPresent()) {
+      MooValue.ObjectValue object = (MooValue.ObjectValue) frame.createReturnOverride().orElseThrow();
+      return Optional.of(new SuspendedActivation.CreateContinuation(false, object.value()));
+    }
+    if (frame.recycleTarget().isPresent()) {
+      return Optional.of(new SuspendedActivation.RecycleContinuation(frame.recycleTarget().orElseThrow()));
+    }
+    if (frame.moveObject().isPresent()) {
+      return Optional.of(new SuspendedActivation.MoveContinuation(frame.moveObject().orElseThrow(),
+          frame.moveDestination().orElseThrow(), frame.movePosition().orElseThrow()));
+    }
+    return Optional.empty();
   }
 
   private record ImportedActivationStack(
       List<MooValue> operandStack,
       List<VmSnapshot.HandlerState> handlers,
       List<VmSnapshot.FinallyState> finallyStates,
-      Map<Integer, VmSnapshot.LoopState> loops) {
+      Map<Integer, VmSnapshot.LoopState> loops,
+      List<VmSnapshot.IndexState> indices) {
     ImportedActivationStack {
       operandStack = List.copyOf(operandStack);
       handlers = List.copyOf(handlers);
