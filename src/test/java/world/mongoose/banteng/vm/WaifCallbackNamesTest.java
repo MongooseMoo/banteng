@@ -22,6 +22,35 @@ import world.mongoose.banteng.world.WorldVerb;
 
 final class WaifCallbackNamesTest {
   @Test
+  void rootWaifRecycleRetainsRawLocalAndActivationNameAcrossResume() {
+    WorldVerb callback = verb(":recycle", "before = verb; suspend(0); return {before, #1:observe(), verb};");
+    try (WorldTxn world = world(List.of(callback)).begin()) {
+      var waif = world.createWaif(7, 1);
+      VmState state = new VmState(new TaskOrigin(Map.of(), 1, new ObjectValue(7),
+          ":recycle", ":recycle", true), new TaskBudget(60000, 5, 50));
+      var context = new MooVm.RootVerbCall(waif, -1, -1, ":recycle", new ListValue(List.of()),
+          "", java.util.Optional.empty());
+      org.junit.jupiter.api.Assertions.assertTrue(MooVm.callVerb(state, waif,
+          new WorldTxn.ResolvedVerb(callback, new ObjectValue(7)), context.arguments(), context.verb(),
+          MooVm.VerbCallKind.ROOT, java.util.Optional.empty(), java.util.Optional.empty(),
+          java.util.Optional.of(context), world));
+      var builtins = new BuiltinCatalog(BuiltinHosts.builder().build());
+      var vm = new MooVm();
+      vm.execute(callback.program(), state, world, builtins, builtins.hosts(), 1);
+      assertEquals(VmState.Outcome.SUSPENDED, state.outcome());
+      assertEquals(StringValue.of(":recycle"), state.snapshot().frames().getFirst().locals().get("verb"));
+      assertEquals(":recycle", state.snapshot().frames().getFirst().calledVerb());
+      state = VmState.restore(state.snapshot());
+      state.resume(new IntegerValue(0));
+      vm.execute(callback.program(), state, world, builtins, builtins.hosts(), 1);
+      assertEquals(VmState.Outcome.RETURNED, state.outcome());
+      assertEquals(new ListValue(List.of(StringValue.of(":recycle"),
+          new ListValue(List.of(StringValue.of(":recycle"), StringValue.of(":recycle"))), StringValue.of(":recycle"))),
+          state.returnValue().orElseThrow());
+    }
+  }
+
+  @Test
   void waifLocalNamesAndActivationNamesSurviveDispatchAndResume() {
     for (String operation : List.of("waif[1]", "(waif[1] = 42)", "waif:probe()", "waif:(\":probe\")()")) {
       String calledName = operation.contains("probe") ? ":probe"

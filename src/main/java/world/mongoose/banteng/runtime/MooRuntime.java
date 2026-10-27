@@ -170,6 +170,7 @@ public final class MooRuntime implements AutoCloseable, SchedulerRuntime {
             call -> connectionIo.outputDelimiters(context, call.arguments(), call.world(), call.programmer()))
         .queueInfo(
             call -> connectionIo.queueInfo(context, call.arguments(), call.world(), call.programmer(), taskRegistry))
+        .switchPlayer(call -> connectionIo.switchPlayer(context, call))
         .taskStack(taskRegistry::taskStack)
         .resumeTask(scheduler::resumeTask)
         .serverLog(serverLog)
@@ -417,9 +418,7 @@ public final class MooRuntime implements AutoCloseable, SchedulerRuntime {
     OptionalLong disconnectedPlayer = context.connections.connectionPlayer(connectionId);
     context.sessions.remove(connectionId);
     context.connections.closeConnection(connectionId);
-    if (connection != null
-        && disconnectedPlayer.isPresent()
-        && disconnectedPlayer.orElseThrow() >= 0) {
+    if (connection != null && disconnectedPlayer.isPresent()) {
       long player = disconnectedPlayer.orElseThrow();
       Optional<ResolvedVerb> disconnected =
           context.world.resolveVerb(connection.listenerHandler, "user_client_disconnected", true);
@@ -471,6 +470,12 @@ public final class MooRuntime implements AutoCloseable, SchedulerRuntime {
   @Override
   public Optional<List<String>> suspendedInputOutput(AttemptContext context, RuntimeContinuation continuation, VmState state) {
     RuntimeTransition transition = continuation.transition().orElseThrow();
+    if (transition == RuntimeTransition.SWITCH_PLAYER_NOTIFIER_RETURN) {
+      connectionIo.afterPlayerSwitchNotifier(context, continuation.connectionId(), continuation.flag());
+      List<String> output = List.copyOf(state.effects().output());
+      state.effects().clearOutput();
+      return Optional.of(output);
+    }
     if (transition == RuntimeTransition.UNCAUGHT_HANDLER_RETURN) {
       List<String> output = uncaughtHandlerOutput(context, continuation, state, false);
       state.effects().clearOutput();
@@ -1081,6 +1086,11 @@ public final class MooRuntime implements AutoCloseable, SchedulerRuntime {
     connectionIo.applyNotificationRequests(context, task, taskPlayer);
     connectionIo.applyBootPlayerTargets(context, task, taskPlayer);
     connectionIo.closeRecycledPlayerConnections(context);
+    if (task.outcome() != VmState.Outcome.RUNNING
+        && task.outcome() != VmState.Outcome.PENDING_BUILTIN
+        && task.outcome() != VmState.Outcome.FORKED) {
+      connectionIo.publishPlayerSwitches(context);
+    }
     var checkpointRequests = task.effects().drainCheckpointRequests();
     boolean panicPending = checkpointRequests.stream().anyMatch(CheckpointRequest::panic);
     boolean checkpointPending =
@@ -1207,6 +1217,9 @@ public final class MooRuntime implements AutoCloseable, SchedulerRuntime {
   }
 
   private RuntimeStep resumeRuntime(AttemptContext context, RuntimeContinuation continuation, VmState state) {
+    if (continuation.transition().orElseThrow() == RuntimeTransition.SWITCH_PLAYER_NOTIFIER_RETURN) {
+      connectionIo.afterPlayerSwitchNotifier(context, continuation.connectionId(), continuation.flag());
+    }
     if (continuation.transition().orElseThrow() == RuntimeTransition.UNCAUGHT_HANDLER_RETURN) {
       boolean fallback = state.outcome() != VmState.Outcome.RETURNED
           || state.returnValue().filter(MooValue::isTruthy).isEmpty();
@@ -1262,6 +1275,7 @@ public final class MooRuntime implements AutoCloseable, SchedulerRuntime {
         yield RuntimeStep.returned(List.of());
       }
       case CLOSE_AFTER_USER_CLIENT_DISCONNECTED -> RuntimeStep.returned(List.of());
+      case SWITCH_PLAYER_NOTIFIER_RETURN -> RuntimeStep.returned(state.effects().output());
       case LINE_OOB_RETURN_OUTPUT, TRANSPORT_OOB_RETURN_OUTPUT ->
           RuntimeStep.returned(state.effects().output());
       case LINE_DO_COMMAND_GATE_THEN_DISPATCH ->
@@ -1740,6 +1754,7 @@ public final class MooRuntime implements AutoCloseable, SchedulerRuntime {
   }
 
   enum RuntimeTransition {
+    SWITCH_PLAYER_NOTIFIER_RETURN,
     START_SCRIPT_RETURN,
     SIGNAL_RETURN,
     SERVER_STARTED_RETURN,
@@ -2010,6 +2025,8 @@ public final class MooRuntime implements AutoCloseable, SchedulerRuntime {
     final long generation;
     long lastActivityNanos;
     OptionalLong connectedNanos = OptionalLong.empty();
+    long switched = 0;
+    boolean switchNotifying;
     boolean holdInput;
     boolean disableOob;
     boolean binary;
@@ -2035,6 +2052,8 @@ public final class MooRuntime implements AutoCloseable, SchedulerRuntime {
           new ConnectionState(listenerHandler, printMessages, generation, lastActivityNanos);
       copy.lastActivityNanos = lastActivityNanos;
       copy.connectedNanos = connectedNanos;
+      copy.switched = switched;
+      copy.switchNotifying = switchNotifying;
       copy.holdInput = holdInput;
       copy.disableOob = disableOob;
       copy.binary = binary;
@@ -2054,6 +2073,8 @@ public final class MooRuntime implements AutoCloseable, SchedulerRuntime {
           && printMessages == other.printMessages
           && generation == other.generation
           && connectedNanos.equals(other.connectedNanos)
+          && switched == other.switched
+          && switchNotifying == other.switchNotifying
           && holdInput == other.holdInput
           && disableOob == other.disableOob
           && binary == other.binary

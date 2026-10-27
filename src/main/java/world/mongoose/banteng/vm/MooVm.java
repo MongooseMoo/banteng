@@ -91,10 +91,7 @@ public final class MooVm {
       locals.put("caller", receiver);
     } else {
       Frame parent = Objects.requireNonNull(caller);
-      boolean recycle = kind == VerbCallKind.HOOK_RECYCLE
-          || kind == VerbCallKind.HOOK_ANONYMOUS_RECYCLE;
-      locals.put("caller", recycle
-          ? parent.localOrDefault(6, new ObjectValue(-1)) : parent.receiver);
+      locals.put("caller", parent.receiver);
       locals.put("argstr", parent.localOrDefault(10, StringValue.of("")));
       for (String field : List.of("dobj", "iobj")) {
         locals.put(field, parent.localOrDefault(verbFieldSlot(field), new ObjectValue(-1)));
@@ -110,7 +107,7 @@ public final class MooVm {
     }
     if (kind != VerbCallKind.PASS) {
       locals.put("this", receiver);
-      locals.put("verb", StringValue.of(name.startsWith(":") ? name.substring(1) : name));
+      locals.put("verb", StringValue.of(kind != VerbCallKind.ROOT && name.startsWith(":") ? name.substring(1) : name));
     }
     locals.put("args", arguments);
     VmState.ReturnMode mode = switch (kind) {
@@ -552,10 +549,6 @@ public final class MooVm {
             new NotificationRequest(
                 notify.connectionId(), notify.line(), notify.noFlush(), notify.noNewline()));
         frame.operandStack.push(new IntegerValue(1));
-      }
-      case BuiltinResult.SwitchPlayer switchPlayer -> {
-        state.switchPlayer(switchPlayer.player());
-        frame.operandStack.push(new IntegerValue(0));
       }
       case BuiltinResult.Programmer programmer -> {
         state.setProgrammer(programmer.programmer());
