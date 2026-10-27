@@ -5,7 +5,7 @@ Remove duplicated operation vocabularies and builtin-name checks from MooVm, pre
 
 ## State
 Created campaign/85-opcode-dispatch from aabe141 and merged current origin/master so issue93's removed source-shape tests stay removed. Read issue85, all five family wrappers, MooVm CALL/invoke/result paths, BuiltinCall/Result, Catalog registrations/call_function/callers/yin, VmState caller renderer and Toast execute.cc:3679–3749.
-Implementation and focused behavior tests passed (direct/indirect callers, yin, pass-local inheritance and maxrec, existing pass error/lookup paths, and BuiltinCall context). Added pass to the existing exact catalog-name inventory; its authored contract test passed too. No broad local suite or CI gate has run. Ready for parent handoff.
+Implementation and focused behavior tests passed (direct/indirect callers, yin, pass-local inheritance and maxrec, existing pass error/lookup paths, and BuiltinCall context). Added pass to the existing exact catalog-name inventory; its authored contract test passed too. PR #105 has merged; merged normalized #106 head e3b68f2 in 5aee34f without conflicts or source changes. PR #107 depends on #106 and #109 landing, and awaits current-head review/CI verification. No broad local suite or CI gate has run; parent owns publication and merge.
 
 ## Decisions and why
 Smallest implementation: delete five Operation wrappers; dispatch directly to existing void helpers, grouping arithmetic/bitwise/comparison cases by existing Opcode. Remove arithmetic's redundant numeric operation enums as their helpers consume Opcode directly; preserve calculations. Approximately 250–400 changed production lines plus relocating the existing pass body.
@@ -18,7 +18,9 @@ Registering pass exposes call_function("pass") as a real caller of the inherited
 MooVm still contains lifecycle verb hook names recycle/initialize/exitfunc. Parent explicitly confirmed these are preserved: issue85 concerns builtin dispatch checks, not moving verb hook ownership for a literal grep. PR claims must distinguish lifecycle verb lookup from builtin selection.
 
 ## Next step
-Parent owns integration/review/publication. Worker source and focused validation are complete. Integrate the independent arithmetic semantics work and typed-permission changes in their owning branches without restoring the removed enums or builtin checks.
+Parent verifies current-head review/CI and lands #106 and #109 before #107. Worker source and focused validation are complete; parent owns publication and merge.
+
+Integration: merged issue86 head 45f206c into issue85 head 2526a73 in a89f711, retaining direct dispatch, typed Pass, callers rendering and typed permission/argument constructors. Git reused prior conflict resolutions in MooVm and MooVmTest; inspected both and migrated the newer callers test constructor that the reused resolution missed. Merged issue91 head eb344dd in 6f2ed86, preserving its runtime/status/JFR removal and PureVmFixture migration. Inspected all MooVmTest execution calls: pure calls use the existing fixture and actual MooVm calls retain explicit transaction/catalog/task context. No production helper was restored. These integrations make #106 and #109 dependencies of the final #107 range; #109 also carries #105. No local CI run; parent owns publication and CI verification.
 
 ## Draft PR
 Title: Dispatch opcodes directly and keep builtin selection in the catalog
@@ -42,4 +44,8 @@ Commands ran under WSL Debian with JAVA_HOME=/opt/java/25, using `bash ./gradlew
 The separate final invocation selected world.mongoose.banteng.builtin.BuiltinCatalogTest.registersEveryReachableBuiltinExactlyOnceWithCompleteContracts. The only production edits after the behavior selections were import cleanup; that final invocation compiled those changes.
 
 ## PR #107 closed-result inventory repair
+Nested-assignment integration: merged #106 head 487e532 in b2e2c06 and #109 head 65cf4e0 in d2cf332. Retained direct dispatch and exposed the repaired setIndexedProperty signature with parentDepth; both property index/range dispatches now pass the existing instruction operand, matching the repair's former wrapper dispatch. The Operation enum/wrapper remains deleted. Repaired parent reconstruction and typed debug accesses remain. No local CI or publication.
+
+Integration CI repair: run 40426160951 job 121932333688 reached test compilation and reported two CommandParserTest constructors passing int instead of PropertyPerms at lines 73/130. The independent parser tests arrived through #109 after the typed-permission migration; I missed these constructors in integration. Replaced their zero masks with new PropertyPerms(0), preserving alias data and assertions. No production changes or local CI; parent owns publication and rerun.
+
 CI run 40421688327, job 121917416385 failed BuiltinResultTest.resultHierarchyIsClosedAndEachEffectCarriesOnlyItsOwnState at line 20. I added the requested BuiltinResult.Pass(ListValue arguments) but omitted Pass from this existing test's exact permitted-name and record-field inventories. Read both the production record and the full test; the smallest repair adds exactly Pass and its sole arguments field to those inventories. The sealed-class assertion and both complete equality checks remain unchanged, so unexpected result variants or state still fail. No production code changed; parent owns publication and PR CI verification.

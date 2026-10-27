@@ -402,11 +402,20 @@ final class PublicationScheduler implements AutoCloseable {
   }
 
   List<String> submit(MooRuntime.RuntimeRequest request, boolean socketInput) {
-    CompletableFuture<List<String>> published = new CompletableFuture<>();
+    return submitPublished(request, socketInput).lines();
+  }
+
+  MooRuntime.LoginTimeoutResult submitLoginTimeout(MooRuntime.RuntimeRequest request) {
+    return submitPublished(request, false).loginTimeout().orElseThrow();
+  }
+
+  private PublishedOutput submitPublished(MooRuntime.RuntimeRequest request, boolean socketInput) {
+    CompletableFuture<PublishedOutput> published = new CompletableFuture<>();
     synchronized (this) {
       if (closed && (request.operation() == MooRuntime.Operation.STARTUP
           || request.operation() == MooRuntime.Operation.TIMEOUT)) {
-        return List.of();
+        return new PublishedOutput(List.of(), request.operation() == MooRuntime.Operation.TIMEOUT
+            ? Optional.of(new MooRuntime.LoginTimeoutResult.Done()) : Optional.empty());
       }
       ensureOpen();
       long taskId = nextTaskId++;
@@ -420,7 +429,7 @@ final class PublicationScheduler implements AutoCloseable {
       }
       ingress.put(taskId, new Ingress(published,
           socketInput ? OptionalLong.of(request.connectionId()) : OptionalLong.empty(),
-          request.operation(), List.of()));
+          request.operation(), List.of(), Optional.empty()));
       ready.add(Entry.runtime(ticket, taskId, MooRuntime.RuntimeContinuation.ingress(request)));
       dispatch();
     }
@@ -568,7 +577,8 @@ final class PublicationScheduler implements AutoCloseable {
               pendingForks,
               aborted,
               timeoutSnapshot,
-              executingFinalization);
+              executingFinalization,
+              step.loginTimeout());
         }
         program = step.program();
         snapshot = step.snapshot();
@@ -701,7 +711,8 @@ final class PublicationScheduler implements AutoCloseable {
                 pendingForks,
                 aborted,
                 timeoutSnapshot,
-                finalizationControl);
+                finalizationControl,
+                Optional.empty());
           }
           program = uncaught.program();
           snapshot = uncaught.snapshot();
@@ -721,7 +732,8 @@ final class PublicationScheduler implements AutoCloseable {
               pendingForks,
               aborted,
               timeoutSnapshot,
-              finalizationControl);
+              finalizationControl,
+              Optional.empty());
         }
         if (state.outcome() == VmState.Outcome.SUSPENDED) {
           Optional<List<String>> inputOutput = continuation.flatMap(
@@ -816,6 +828,10 @@ final class PublicationScheduler implements AutoCloseable {
     Ingress input;
     synchronized (this) {
       input = ingress.get(start.taskId());
+      if (input != null && result.loginTimeout().isPresent()) {
+        input = input.withLoginTimeout(result.loginTimeout().orElseThrow());
+        ingress.put(start.taskId(), input);
+      }
     }
     if (result.timeoutSnapshot().isEmpty() && input != null && input.socketConnection().isPresent()) {
       Optional<List<String>> output = result.output().or(result::inputOutput);
@@ -867,7 +883,7 @@ final class PublicationScheduler implements AutoCloseable {
       }
       return;
     }
-    CompletableFuture<List<String>> foreground = null;
+    CompletableFuture<PublishedOutput> foreground = null;
     boolean retainedIngress = false;
     if (result.inputOutput().isPresent()) {
       synchronized (this) {
@@ -899,7 +915,7 @@ final class PublicationScheduler implements AutoCloseable {
         result.hostWork());
     if (result.inputOutput().isPresent()) {
       if (foreground != null) {
-        foreground.complete(List.of());
+        foreground.complete(new PublishedOutput(List.of(), Optional.empty()));
       } else if (!retainedIngress) {
         runtime.writeDetachedOutput(result.taskPlayer(), result.inputOutput().orElseThrow());
       }
@@ -1224,7 +1240,7 @@ final class PublicationScheduler implements AutoCloseable {
   }
 
   private void cancelWaiting(SuspendedWork work) {
-    CompletableFuture<List<String>> canceledIngress;
+    CompletableFuture<PublishedOutput> canceledIngress;
     synchronized (this) {
       if (!taskRegistry.discardIfCanceled(work.taskId())) {
         return;
@@ -1316,8 +1332,9 @@ final class PublicationScheduler implements AutoCloseable {
     finishActiveFinalization(entry.taskId(), finalizationControl);
     Ingress input = ingress.remove(entry.taskId());
     return input == null ? RootCompletion.none()
-        : RootCompletion.success(input.future(), input.socketConnection().isPresent()
-            ? List.of() : input.append(output).output());
+        : RootCompletion.success(input.future(), new PublishedOutput(
+            input.socketConnection().isPresent() ? List.of() : input.append(output).output(),
+            input.loginTimeout()));
   }
 
   private synchronized RootCompletion finishFailure(Entry entry, Throwable failure) {
@@ -1368,7 +1385,10 @@ final class PublicationScheduler implements AutoCloseable {
     IllegalStateException failure = new IllegalStateException("publication scheduler is closed");
     for (Ingress input : pending) {
       if (input.operation() == MooRuntime.Operation.STARTUP) {
-        input.future().complete(input.output());
+        input.future().complete(new PublishedOutput(input.output(), Optional.empty()));
+      } else if (input.operation() == MooRuntime.Operation.TIMEOUT) {
+        input.future().complete(new PublishedOutput(
+            input.output(), Optional.of(new MooRuntime.LoginTimeoutResult.Done())));
       } else {
         input.future().completeExceptionally(failure);
       }
@@ -1500,12 +1520,17 @@ final class PublicationScheduler implements AutoCloseable {
       Optional<Throwable> failure) {}
 
   private record Ingress(
-      CompletableFuture<List<String>> future, OptionalLong socketConnection,
-      MooRuntime.Operation operation, List<String> output) {
+      CompletableFuture<PublishedOutput> future, OptionalLong socketConnection,
+      MooRuntime.Operation operation, List<String> output,
+      Optional<MooRuntime.LoginTimeoutResult> loginTimeout) {
     Ingress append(List<String> lines) {
       List<String> combined = new ArrayList<>(output);
       combined.addAll(lines);
-      return new Ingress(future, socketConnection, operation, List.copyOf(combined));
+      return new Ingress(future, socketConnection, operation, List.copyOf(combined), loginTimeout);
+    }
+
+    Ingress withLoginTimeout(MooRuntime.LoginTimeoutResult result) {
+      return new Ingress(future, socketConnection, operation, output, Optional.of(result));
     }
   }
 
@@ -1523,11 +1548,13 @@ final class PublicationScheduler implements AutoCloseable {
       Optional<VmSnapshot> timeoutSnapshot,
       boolean needsIrrevocable,
       List<PendingFork> pendingForks,
-      Optional<List<String>> inputOutput) {
+      Optional<List<String>> inputOutput,
+      Optional<MooRuntime.LoginTimeoutResult> loginTimeout) {
     SegmentResult {
       output = output.map(List::copyOf);
       Objects.requireNonNull(finalizationControl, "finalizationControl");
       Objects.requireNonNull(timeoutSnapshot, "timeoutSnapshot");
+      Objects.requireNonNull(loginTimeout, "loginTimeout");
       pendingForks = List.copyOf(pendingForks);
       boolean returned = output.isPresent();
       boolean boundary = program.isPresent() && snapshot.isPresent();
@@ -1553,7 +1580,8 @@ final class PublicationScheduler implements AutoCloseable {
         List<PendingFork> pendingForks,
         boolean aborted,
         Optional<VmSnapshot> timeoutSnapshot,
-        Optional<MooRuntime.FinalizationControl> finalizationControl) {
+        Optional<MooRuntime.FinalizationControl> finalizationControl,
+        Optional<MooRuntime.LoginTimeoutResult> loginTimeout) {
       return new SegmentResult(
           Optional.of(output),
           Optional.empty(),
@@ -1566,7 +1594,8 @@ final class PublicationScheduler implements AutoCloseable {
           timeoutSnapshot,
           false,
           pendingForks,
-          Optional.empty());
+          Optional.empty(),
+          loginTimeout);
     }
 
     static SegmentResult boundary(
@@ -1590,7 +1619,8 @@ final class PublicationScheduler implements AutoCloseable {
           Optional.empty(),
           false,
           pendingForks,
-          inputOutput);
+          inputOutput,
+          Optional.empty());
     }
 
     static SegmentResult irrevocable(
@@ -1608,6 +1638,7 @@ final class PublicationScheduler implements AutoCloseable {
           Optional.empty(),
           true,
           pendingForks,
+          Optional.empty(),
           Optional.empty());
     }
   }
@@ -1687,25 +1718,30 @@ final class PublicationScheduler implements AutoCloseable {
     }
   }
 
-  private record RootCompletion(
-      Optional<CompletableFuture<List<String>>> future,
-      Optional<List<String>> output,
-      Optional<Throwable> failure) {
-    RootCompletion {
-      output = output.map(List::copyOf);
+  private record PublishedOutput(
+      List<String> lines, Optional<MooRuntime.LoginTimeoutResult> loginTimeout) {
+    PublishedOutput {
+      lines = List.copyOf(lines);
+      Objects.requireNonNull(loginTimeout, "loginTimeout");
     }
+  }
+
+  private record RootCompletion(
+      Optional<CompletableFuture<PublishedOutput>> future,
+      Optional<PublishedOutput> output,
+      Optional<Throwable> failure) {
 
     static RootCompletion none() {
       return new RootCompletion(Optional.empty(), Optional.empty(), Optional.empty());
     }
 
     static RootCompletion success(
-        CompletableFuture<List<String>> future, List<String> output) {
+        CompletableFuture<PublishedOutput> future, PublishedOutput output) {
       return new RootCompletion(Optional.of(future), Optional.of(output), Optional.empty());
     }
 
     static RootCompletion failure(
-        CompletableFuture<List<String>> future, Throwable failure) {
+        CompletableFuture<PublishedOutput> future, Throwable failure) {
       return new RootCompletion(Optional.of(future), Optional.empty(), Optional.of(failure));
     }
 

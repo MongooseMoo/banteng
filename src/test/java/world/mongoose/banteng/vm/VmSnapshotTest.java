@@ -126,7 +126,7 @@ final class VmSnapshotTest {
     state.currentFrame().instructionPointer = 2;
 
     VmState restored = VmState.restore(state.snapshot(0));
-    new MooVm().execute(program, restored);
+    new PureVmFixture().execute(program, restored);
 
     assertEquals(new IntegerValue(42), restored.returnValue().orElseThrow());
   }
@@ -342,7 +342,7 @@ final class VmSnapshotTest {
                 Optional.of(text("b"))));
 
     VmState restoredMap = VmState.restore(map.snapshot(0));
-    new MooVm().execute(indexed, restoredMap);
+    new PureVmFixture().execute(indexed, restoredMap);
 
     assertEquals(
         new ListValue(List.of(new IntegerValue(2), text("b"))),
@@ -360,7 +360,7 @@ final class VmSnapshotTest {
                 Optional.of(new IntegerValue(3))));
 
     VmState restoredExhausted = VmState.restore(exhausted.snapshot(0));
-    new MooVm().execute(indexed, restoredExhausted);
+    new PureVmFixture().execute(indexed, restoredExhausted);
 
     assertEquals(new IntegerValue(99), restoredExhausted.returnValue().orElseThrow());
   }
@@ -388,7 +388,7 @@ final class VmSnapshotTest {
                 new ObjectValue(Long.MAX_VALUE)));
 
     VmState restored = VmState.restore(state.snapshot(0));
-    new MooVm().execute(program, restored);
+    new PureVmFixture().execute(program, restored);
 
     assertEquals(new ObjectValue(Long.MAX_VALUE), restored.returnValue().orElseThrow());
     VmSnapshot.RangeLoop afterMaximum =
@@ -406,7 +406,7 @@ final class VmSnapshotTest {
             new VmState.RangeCursor(
                 VmSnapshot.RangeKind.OBJECT, afterMaximum.next(), afterMaximum.end()));
     VmState restoredExhausted = VmState.restore(exhausted.snapshot(0));
-    new MooVm().execute(program, restoredExhausted);
+    new PureVmFixture().execute(program, restoredExhausted);
 
     assertEquals(new IntegerValue(99), restoredExhausted.returnValue().orElseThrow());
   }
@@ -455,7 +455,7 @@ final class VmSnapshotTest {
                 Optional.of(new IntegerValue(2))));
 
     VmState restored = VmState.restore(state.snapshot(0));
-    new MooVm().execute(program, restored);
+    new PureVmFixture().execute(program, restored);
 
     assertEquals(
         new ListValue(List.of(new IntegerValue(1), new IntegerValue(2))),
@@ -487,7 +487,7 @@ final class VmSnapshotTest {
     fallThrough.ensureRoot(fallThroughProgram);
     fallThrough.currentFrame().finallyContinuations.push(new VmSnapshot.FallThrough(1));
     VmState restoredFallThrough = VmState.restore(fallThrough.snapshot(0));
-    new MooVm().execute(fallThroughProgram, restoredFallThrough);
+    new PureVmFixture().execute(fallThroughProgram, restoredFallThrough);
     assertEquals(new IntegerValue(42), restoredFallThrough.returnValue().orElseThrow());
 
     BytecodeProgram terminalProgram =
@@ -496,7 +496,7 @@ final class VmSnapshotTest {
     returned.ensureRoot(terminalProgram);
     returned.currentFrame().finallyContinuations.push(new VmSnapshot.Return(text("done")));
     VmState restoredReturned = VmState.restore(returned.snapshot(0));
-    new MooVm().execute(terminalProgram, restoredReturned);
+    new PureVmFixture().execute(terminalProgram, restoredReturned);
     assertEquals(text("done"), restoredReturned.returnValue().orElseThrow());
 
     VmState raised = new VmState();
@@ -513,7 +513,7 @@ final class VmSnapshotTest {
                         new IntegerValue(17),
                         new ListValue(List.of())))));
     VmState restoredRaised = VmState.restore(raised.snapshot(0));
-    new MooVm().execute(terminalProgram, restoredRaised);
+    new PureVmFixture().execute(terminalProgram, restoredRaised);
     assertEquals(VmState.Outcome.ERRORED, restoredRaised.outcome());
     assertEquals(ErrorValue.E_TYPE, restoredRaised.uncaughtError().orElseThrow());
 
@@ -521,7 +521,7 @@ final class VmSnapshotTest {
     uncaught.ensureRoot(terminalProgram);
     uncaught.currentFrame().finallyContinuations.push(new VmSnapshot.Uncaught(ErrorValue.E_QUOTA));
     VmState restoredUncaught = VmState.restore(uncaught.snapshot(0));
-    new MooVm().execute(terminalProgram, restoredUncaught);
+    new PureVmFixture().execute(terminalProgram, restoredUncaught);
     assertEquals(VmState.Outcome.ERRORED, restoredUncaught.outcome());
     assertEquals(ErrorValue.E_QUOTA, restoredUncaught.uncaughtError().orElseThrow());
   }
@@ -565,7 +565,7 @@ final class VmSnapshotTest {
                 Optional.of(new IntegerValue(2))));
 
     VmState restored = VmState.restore(state.snapshot(0));
-    new MooVm().execute(program, restored);
+    new PureVmFixture().execute(program, restored);
 
     assertEquals(new IntegerValue(42), restored.returnValue().orElseThrow());
     assertEquals(List.of(new IntegerValue(1)), List.copyOf(restored.currentFrame().operandStack));

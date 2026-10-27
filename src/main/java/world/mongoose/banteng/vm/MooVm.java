@@ -15,7 +15,6 @@ import world.mongoose.banteng.builtin.BuiltinCatalog;
 import world.mongoose.banteng.builtin.BuiltinCatalog.ConnectionOptionRequest;
 import world.mongoose.banteng.builtin.BuiltinCatalog.ForcedInputRequest;
 import world.mongoose.banteng.builtin.BuiltinCatalog.NotificationRequest;
-import world.mongoose.banteng.builtin.BuiltinHosts;
 import world.mongoose.banteng.builtin.BuiltinResult;
 import world.mongoose.banteng.builtin.BuiltinSpec;
 import world.mongoose.banteng.builtin.CheckpointRequest;
@@ -182,23 +181,6 @@ public final class MooVm {
     this.valueSemantics = Objects.requireNonNull(valueSemantics, "valueSemantics");
   }
 
-  /** Executes a pure program for package-level VM tests without publishing world state or effects. */
-  void execute(BytecodeProgram program, VmState state) {
-    WorldTxn root = new WorldTxn(List.of(), List.of());
-    try (WorldTxn transaction = root.begin()) {
-      execute(
-          program,
-          state,
-          transaction,
-          new BuiltinCatalog(
-              BuiltinHosts.builder().valueSemantics(valueSemantics).build()),
-          0L);
-      if (state.outcome() == VmState.Outcome.PENDING_BUILTIN) {
-        throw new IllegalStateException("pure VM execution reached an irrevocable builtin");
-      }
-    }
-  }
-
   /** Executes with the one concrete world transaction, builtin catalog, and scheduler task ID. */
   public void execute(
       BytecodeProgram program,
@@ -309,10 +291,12 @@ public final class MooVm {
       case LAST -> IndexOps.boundaryIndex(frame, state, world, true);
       case SET_INDEX_LOCAL -> IndexOps.setIndexedLocal(frame, state, world, instruction.text().orElseThrow(),
               Math.toIntExact(instruction.operand().orElse(0)));
-      case SET_INDEX_PROPERTY -> IndexOps.setIndexedProperty(frame, state, world);
+      case SET_INDEX_PROPERTY -> IndexOps.setIndexedProperty(frame, state, world,
+          Math.toIntExact(instruction.operand().orElse(0)));
       case SET_RANGE_LOCAL -> IndexOps.setRange(frame, state, world, instruction.text(),
               Math.toIntExact(instruction.operand().orElse(0)));
-      case SET_RANGE_PROPERTY -> IndexOps.setRange(frame, state, world, Optional.empty(), 0);
+      case SET_RANGE_PROPERTY -> IndexOps.setRange(frame, state, world, Optional.empty(),
+          Math.toIntExact(instruction.operand().orElse(0)));
       case CALL -> invokeBuiltin(instruction, frame, state, world, builtins, taskId);
       case CALL_VERB -> {
         MooValue argumentsValue = frame.operandStack.pop();
