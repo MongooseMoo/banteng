@@ -35,6 +35,7 @@ import java.util.stream.IntStream;
 import jdk.jfr.Recording;
 import jdk.jfr.consumer.RecordedEvent;
 import world.mongoose.banteng.builtin.BuiltinCall;
+import world.mongoose.banteng.builtin.BuiltinHosts;
 import jdk.jfr.consumer.RecordingFile;
 import world.mongoose.banteng.builtin.BuiltinCatalog.ListenerControl;
 import world.mongoose.banteng.builtin.BuiltinCatalog.ListenerDescription;
@@ -1782,7 +1783,7 @@ final class PublicationSchedulerTest {
         0,
         _lineNumbers -> new ListValue(List.of()),
         false,
-        (_connectionId, queuedBytes) -> queuedBytes, world.mongoose.banteng.builtin.BuiltinHosts.builder().build());
+        (_connectionId, queuedBytes) -> queuedBytes, BuiltinHosts.builder().build());
   }
 
   private static final class Harness implements AutoCloseable {

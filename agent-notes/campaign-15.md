@@ -4,7 +4,7 @@
 Extract FinalizationCollector, LoginFlow and ConnectionIo in the requested order, decompose command execution into named phases, and replace ambient attempt access with explicit context. Preserve behavior and publication ownership.
 
 ## State
-The three owner extractions, command phases and explicit attempt/host context plumbing are implemented and committed. Current compiled-verb ancestry and the task-state owner branch are integrated. Parent inspection found that both constructors assigned the shadowing valueSemantics parameter instead of the new final field; both assignments now use this.valueSemantics. Publication, review and PR CI remain parent-owned.
+The three owner extractions, command phases and explicit attempt/host context plumbing are implemented and committed. Current compiled-verb ancestry and the task-state owner branch are integrated. The constructor field-initialization repair is committed. Parent published PR 115; its test-compilation failures exposed two pending-builtin fixture calls missing invocation hosts and fixture builder expressions whose package qualifier was shadowed by a local world variable. Those callers now pass builtins.hosts(), and builder expressions use the imported or same-package BuiltinHosts type. A source search covered the other pending-builtin callers and matching fixture expressions. Publication, review and PR CI remain parent-owned.
 
 ## Decisions and why
 Smallest change: move the existing approximately 450-line collector, 415-line login flow and 400-line connection plumbing into the named owners, use the existing OpenRewrite subproject for static-member moves, then thread existing AttemptContext explicitly through runtime/scheduler methods and named dispatch phases. Roughly 3,500–5,500 changed lines, chiefly moves and argument plumbing, with one class per substantive commit as the issue requests. Retain one owner of pending reads and existing synchronization/publication.
@@ -14,7 +14,7 @@ Use existing BuiltinHosts on BuiltinCall as the invocation carrier. MooRuntime.b
 Primary source: MooRuntime.builtinHosts and ATTEMPT/openAttempt/requireAttempt; PublicationScheduler.executeAttempt/executeSegment; BuiltinCall and BuiltinHosts; BuiltinCatalog constructors and callFunction; ArchitectureTest package boundaries prohibit runtime dependencies from VM/builtin. Existing runtime methods and explicit context can remain runtime-owned; ThreadLocal is confined to the scheduler attempt-entry boundary.
 
 ## Next step
-Commit the constructor field-initialization repair with this note, then return the worktree to the parent for publication, Claude review, answers to findings, PR CI and normal merging after prerequisites. No local CI is authorized for this repair. The authored recipe test result does not establish that the complete runtime change passes PR CI.
+Commit the fixture-compilation repairs with this note, then return the worktree to the parent for publishing the repairs, changed-code Claude follow-up and PR CI. No local CI or push is authorized for this repair. The authored recipe test result does not establish that the complete runtime change passes PR CI.
 
 ## Checkpoint
 Read issue 15 and the existing extraction recipe; the requested order is collector, login, connection I/O, dispatch phases, then explicit attempt plumbing.

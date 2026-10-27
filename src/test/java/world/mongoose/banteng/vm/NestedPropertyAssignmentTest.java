@@ -128,7 +128,7 @@ final class NestedPropertyAssignmentTest {
     MooVm vm = new MooVm();
     vm.execute(program, state, transaction, builtins, builtins.hosts(), 0);
     while (state.outcome() == VmState.Outcome.PENDING_BUILTIN) {
-      vm.authorizePendingBuiltin(state, transaction, builtins, 0);
+      vm.authorizePendingBuiltin(state, transaction, builtins, builtins.hosts(), 0);
       vm.execute(program, state, transaction, builtins, builtins.hosts(), 0);
     }
     assertEquals(VmState.Outcome.RETURNED, state.outcome(), source);

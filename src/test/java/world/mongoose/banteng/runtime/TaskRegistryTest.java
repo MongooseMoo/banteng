@@ -349,7 +349,7 @@ final class TaskRegistryTest {
         programmer,
         _lineNumbers -> new ListValue(List.of()),
         false,
-        (_connectionId, queuedBytes) -> queuedBytes, world.mongoose.banteng.builtin.BuiltinHosts.builder().build());
+        (_connectionId, queuedBytes) -> queuedBytes, BuiltinHosts.builder().build());
   }
 
   private static MooValue value(BuiltinResult result) {
