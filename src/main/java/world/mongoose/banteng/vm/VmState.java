@@ -227,7 +227,7 @@ public final class VmState {
       if (!current) {
         List<MooValue> fields = new ArrayList<>();
         fields.add(frame.receiver);
-        fields.add(frame.localOrDefault(8, StringValue.of(new byte[0])));
+        fields.add(StringValue.of(frame.calledVerb));
         fields.add(new ObjectValue(frame.programmer));
         fields.add(frame.verbLocation);
         fields.add(frame.localOrDefault(5, new ObjectValue(-1)));

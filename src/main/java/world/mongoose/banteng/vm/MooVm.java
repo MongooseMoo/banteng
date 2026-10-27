@@ -104,7 +104,7 @@ public final class MooVm {
     }
     if (kind != VerbCallKind.PASS) {
       locals.put("this", receiver);
-      locals.put("verb", StringValue.of(name));
+      locals.put("verb", StringValue.of(name.startsWith(":") ? name.substring(1) : name));
     }
     locals.put("args", arguments);
     VmState.ReturnMode mode = switch (kind) {
