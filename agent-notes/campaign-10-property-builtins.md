@@ -15,7 +15,7 @@ Preserve permission checks, object/anonymous/WAIF acceptance differences and Wor
 Runner emitted existing Gradle runtimeClasspath exclusive-lock and configuration-cache compatibility warnings; it nevertheless parsed all sources and generated only PropertyBuiltins, BuiltinCatalog and Access changes. The existing runner session finished successfully during interruption and was inspected on resume; it was not restarted.
 
 ## Next step
-Parent verifies source, integrates sibling recipe/YAML changes as needed, obtains Claude review and publishes for PR CI. Branch remains local only.
+Verb migration's normal compile exposed that generated PropertyBuiltins omitted its normal BuiltinResult import. The mover merged imports solely by owner type name and incorrectly treated the existing static mutationResult import as equivalent. Corrected the existing import comparison to compare the full imported name and staticness, then restored PropertyBuiltins' missing normal import. No behavior changed. Parent verifies source, integrates sibling recipe/YAML changes as needed, obtains Claude review and publishes for PR CI. Branch remains local only.
 
 ## Draft PR body
 

@@ -225,7 +225,9 @@ public final class MoveBuiltinFamily extends ScanningRecipe<MoveBuiltinFamily.Me
     statements.addAll(members.nested);
     List<J.Import> imports = new ArrayList<>(members.source.getImports());
     for (J.Import imported : skeleton.getImports()) {
-      if (imports.stream().noneMatch(existing -> existing.getTypeName().equals(imported.getTypeName()))) {
+      if (imports.stream().noneMatch(existing -> existing.getTypeName().equals(imported.getTypeName())
+          && existing.getQualid().getSimpleName().equals(imported.getQualid().getSimpleName())
+          && existing.isStatic() == imported.isStatic())) {
         imports.add(imported);
       }
     }

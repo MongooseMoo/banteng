@@ -7,6 +7,7 @@ import world.mongoose.banteng.builtin.ArgType;
 import world.mongoose.banteng.builtin.BuiltinRegistrar;
 
 import static world.mongoose.banteng.builtin.BuiltinResult.mutationResult;
+import world.mongoose.banteng.builtin.BuiltinResult;
 import world.mongoose.banteng.builtin.BuiltinSpec;
 import world.mongoose.banteng.builtin.CallShape;
 import world.mongoose.banteng.value.MooValue;
