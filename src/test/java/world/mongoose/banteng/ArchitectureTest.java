@@ -64,18 +64,13 @@ final class ArchitectureTest {
   void serverDiagnosticOwnersAcceptTheSharedLog() {
     classes()
         .that()
-        .haveNameMatching(".*\\.(LambdaMooV5Reader|BuiltinHosts|MooRuntime|MooServer)")
+        .haveNameMatching(".*\\.(LambdaMooV5Reader|BuiltinHosts|MooRuntime)")
         .should(
             new ArchCondition<JavaClass>("accept the shared ServerLog") {
               @Override
               public void check(JavaClass owner, ConditionEvents events) {
                 boolean acceptsLog =
-                    owner.getSimpleName().equals("MooServer")
-                        ? owner.getConstructors().stream()
-                            .filter(constructor -> constructor.getModifiers().contains(JavaModifier.PUBLIC))
-                            .flatMap(constructor -> constructor.getRawParameterTypes().stream())
-                            .anyMatch(type -> type.getName().equals("world.mongoose.banteng.logging.ServerLog"))
-                        : owner.getFields().stream()
+                    owner.getFields().stream()
                             .anyMatch(field -> field.getRawType().getName().equals("world.mongoose.banteng.logging.ServerLog"));
                 events.add(new SimpleConditionEvent(owner, acceptsLog, owner.getName() + " accepts ServerLog"));
               }
@@ -270,6 +265,7 @@ final class ArchitectureTest {
     assertGuardedFields(
         productionClasses,
         "runtime.PublicationScheduler",
+        "this",
         "ready",
         "completed",
         "ingress",
@@ -287,6 +283,7 @@ final class ArchitectureTest {
     assertGuardedFields(
         productionClasses,
         "runtime.TaskRegistry",
+        "this",
         "tasks",
         "hostWork",
         "cancellationActions",
@@ -296,15 +293,18 @@ final class ArchitectureTest {
     assertGuardedFields(
         productionClasses,
         "world.WorldHistory",
+        "this",
         "revisions", "activeTransactions", "verbCache", "current");
     assertGuardedFields(
         productionClasses,
         "runtime.MooRuntime",
-        "publishedConnections", "pendingReads", "sessionRevision");
+        "this",
+        "publishedConnections", "sessionRevision");
+    assertGuardedFields(productionClasses, "runtime.ConnectionIo", "runtime", "pendingReads");
   }
 
   private static void assertGuardedFields(
-      JavaClasses productionClasses, String owner, String... fieldNames) {
+      JavaClasses productionClasses, String owner, String expectedGuard, String... fieldNames) {
     JavaClass javaClass = productionClasses.get("world.mongoose.banteng." + owner);
     for (String fieldName : fieldNames) {
       var field = javaClass.getField(fieldName);
@@ -312,7 +312,7 @@ final class ArchitectureTest {
       var annotation =
           field
               .getAnnotationOfType("com.google.errorprone.annotations.concurrent.GuardedBy");
-      assertTrue(annotation.get("value").filter("this"::equals).isPresent(), owner + "." + fieldName);
+      assertTrue(annotation.get("value").filter(expectedGuard::equals).isPresent(), owner + "." + fieldName);
     }
   }
 

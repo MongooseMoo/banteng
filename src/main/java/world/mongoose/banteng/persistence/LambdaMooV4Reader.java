@@ -8,6 +8,7 @@ import static world.mongoose.banteng.persistence.DbScanner.requireExact;
 import static world.mongoose.banteng.persistence.DbScanner.requiredLine;
 
 import java.io.BufferedReader;
+import java.io.BufferedWriter;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -19,20 +20,32 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import world.mongoose.banteng.world.ActiveConnection;
+import world.mongoose.banteng.world.Checkpoint;
+import world.mongoose.banteng.world.DurableTask;
 import world.mongoose.banteng.value.MooValue.ObjectValue;
 import world.mongoose.banteng.value.MooValue.StringValue;
 import world.mongoose.banteng.world.PropertyPerms;
 import world.mongoose.banteng.world.WorldObject;
 import world.mongoose.banteng.world.WorldProperty;
+import world.mongoose.banteng.world.WorldSnapshot;
 import world.mongoose.banteng.world.WorldTxn;
 import world.mongoose.banteng.world.WorldVerb;
 
 /** A streaming ISO-8859-1 reader for the authoritative LambdaMOO v4 slice. */
-public final class LambdaMooV4Reader {
+public final class LambdaMooV4Reader implements DbCodec {
   private static final String HEADER = "** LambdaMOO Database, Format Version 4 **";
 
+  private final DbCodec output;
+
+  /** Receives the application's canonical checkpoint output codec. */
+  public LambdaMooV4Reader(DbCodec output) {
+    this.output = Objects.requireNonNull(output, "output");
+  }
+
   /** Reads and validates the exact supported v4 database contract. */
-  public WorldTxn read(Path database) throws IOException {
+  @Override
+  public Checkpoint read(Path database) throws IOException {
     Objects.requireNonNull(database, "database");
     try (BufferedReader input = Files.newBufferedReader(database, StringValue.charset())) {
       requireExact(input, HEADER, "v4 header");
@@ -71,8 +84,30 @@ public final class LambdaMooV4Reader {
       Map<Long, List<Long>> children = deriveChildren(rawObjects);
       Map<Long, List<Long>> contents = deriveContents(rawObjects);
       validateRelations(rawObjects, children, contents);
-      return buildWorld(players, rawObjects, programs, children, contents);
+      return new Checkpoint(buildWorld(players, rawObjects, programs, children, contents),
+          List.of(), List.of());
     }
+  }
+
+  @Override
+  public void write(BufferedWriter writer, WorldSnapshot world,
+      List<? extends DurableTask> tasks, List<ActiveConnection> activeConnections)
+      throws IOException {
+    output.write(writer, world, tasks, activeConnections);
+  }
+
+  @Override
+  public void writeAtomic(Path checkpoint, WorldSnapshot world,
+      List<? extends DurableTask> tasks, List<ActiveConnection> activeConnections)
+      throws IOException {
+    output.writeAtomic(checkpoint, world, tasks, activeConnections);
+  }
+
+  @Override
+  public void writePanic(Path checkpoint, WorldSnapshot world,
+      List<? extends DurableTask> tasks, List<ActiveConnection> activeConnections)
+      throws IOException {
+    output.writePanic(checkpoint, world, tasks, activeConnections);
   }
 
   private static RawObject readObject(BufferedReader input, int slot) throws IOException {

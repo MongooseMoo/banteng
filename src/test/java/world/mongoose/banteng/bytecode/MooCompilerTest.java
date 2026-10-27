@@ -12,6 +12,8 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.stream.IntStream;
+import org.junit.jupiter.api.Test;
+import world.mongoose.banteng.persistence.LambdaMooV17Codec;
 import world.mongoose.banteng.persistence.LambdaMooV4Reader;
 import world.mongoose.banteng.syntax.Ast;
 import world.mongoose.banteng.syntax.MooParser;
@@ -19,7 +21,6 @@ import world.mongoose.banteng.value.MooValue.StringValue;
 import world.mongoose.banteng.world.WorldObject;
 import world.mongoose.banteng.world.WorldTxn;
 import world.mongoose.banteng.world.WorldVerb;
-import org.junit.jupiter.api.Test;
 
 final class MooCompilerTest {
   @Test
@@ -680,7 +681,7 @@ final class MooCompilerTest {
   void compilesEveryCompleteStoredVerbIncludingUnexecutedBranches() throws Exception {
     Path fixture =
         Path.of("..", "moo-conformance-tests", "src", "moo_conformance", "_db", "Test.db");
-    WorldTxn root = new LambdaMooV4Reader().read(fixture);
+    WorldTxn root = new LambdaMooV4Reader(new LambdaMooV17Codec()).read(fixture).world();
     MooCompiler compiler = new MooCompiler();
 
     int compiled = 0;

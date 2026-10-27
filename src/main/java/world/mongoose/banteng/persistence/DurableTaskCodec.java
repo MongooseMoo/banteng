@@ -13,10 +13,10 @@ import world.mongoose.banteng.bytecode.BytecodeProgram.Opcode;
 import world.mongoose.banteng.bytecode.MooCompiler;
 import world.mongoose.banteng.bytecode.ToastV17ProgramModel;
 import world.mongoose.banteng.bytecode.ToastV17ProgramModel.ContinuationSite;
-import world.mongoose.banteng.persistence.LambdaMooV17Codec.QueuedTask;
-import world.mongoose.banteng.persistence.LambdaMooV17Codec.SuspendedActivation;
-import world.mongoose.banteng.persistence.LambdaMooV17Codec.SuspendedStackSlot;
-import world.mongoose.banteng.persistence.LambdaMooV17Codec.SuspendedTask;
+import world.mongoose.banteng.world.QueuedTask;
+import world.mongoose.banteng.world.SuspendedActivation;
+import world.mongoose.banteng.world.SuspendedStackSlot;
+import world.mongoose.banteng.world.SuspendedTask;
 import world.mongoose.banteng.value.MooValue;
 import world.mongoose.banteng.value.MooValue.ErrorValue;
 import world.mongoose.banteng.value.MooValue.IntegerValue;
@@ -210,7 +210,7 @@ public final class DurableTaskCodec {
         SuspendedStackSlot slot = topToBase.get(topIndex);
         if (slot.value().isEmpty()) {
           throw new IllegalArgumentException(
-              "unclaimed v17 runtime control tag " + slot.controlTag());
+              "unclaimed v17 runtime control tag " + V17Format.stackTag(slot.kind()));
         }
         ordinary.add(slot.value().orElseThrow());
       }
@@ -339,7 +339,7 @@ public final class DurableTaskCodec {
         requireSlot(baseToTop, consumed, loop.iteratorDepth(), "collection loop iterator");
     VmSnapshot.CollectionKind kind = collectionKind(loop, base);
     Optional<MooValue> next;
-    if (kind == VmSnapshot.CollectionKind.MAP && iterator.controlTag() == V17Format.ValueTag.NONE.code()) {
+    if (kind == VmSnapshot.CollectionKind.MAP && V17Format.stackTag(iterator.kind()) == V17Format.ValueTag.NONE.code()) {
       next = Optional.empty();
     } else if (iterator.value().isPresent()) {
       next = iterator.value();
@@ -393,7 +393,7 @@ public final class DurableTaskCodec {
       long controlValue,
       String description) {
     SuspendedStackSlot actual = requireSlot(baseToTop, consumed, depth, description);
-    if (actual.controlTag() != tag || actual.controlValue() != controlValue) {
+    if (V17Format.stackTag(actual.kind()) != tag || actual.controlValue() != controlValue) {
       throw new IllegalArgumentException(description + " disagrees with structural layout");
     }
   }
@@ -666,7 +666,7 @@ public final class DurableTaskCodec {
       if (!structural[depth]) {
         baseToTop[depth] =
             new SuspendedStackSlot(
-                Optional.of(operandTopToBase.get(operandIndex--)), -1, 0);
+                Optional.of(operandTopToBase.get(operandIndex--)), SuspendedStackSlot.Kind.VALUE, 0);
       }
     }
   }
@@ -681,7 +681,7 @@ public final class DurableTaskCodec {
         baseToTop,
         structural,
         depth,
-        new SuspendedStackSlot(Optional.of(value), -1, 0),
+        new SuspendedStackSlot(Optional.of(value), SuspendedStackSlot.Kind.VALUE, 0),
         description);
   }
 
@@ -696,7 +696,7 @@ public final class DurableTaskCodec {
         baseToTop,
         structural,
         depth,
-        new SuspendedStackSlot(Optional.empty(), tag, value),
+        new SuspendedStackSlot(Optional.empty(), V17Format.stackKind(tag), value),
         description);
   }
 

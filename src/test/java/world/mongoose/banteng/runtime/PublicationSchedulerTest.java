@@ -34,42 +34,42 @@ import java.util.concurrent.TimeUnit;
 import java.util.stream.IntStream;
 import jdk.jfr.Recording;
 import jdk.jfr.consumer.RecordedEvent;
-import world.mongoose.banteng.builtin.BuiltinCall;
-import world.mongoose.banteng.builtin.BuiltinHosts;
 import jdk.jfr.consumer.RecordingFile;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
+import world.mongoose.banteng.builtin.BuiltinCall;
 import world.mongoose.banteng.builtin.BuiltinCatalog.ListenerControl;
 import world.mongoose.banteng.builtin.BuiltinCatalog.ListenerDescription;
+import world.mongoose.banteng.builtin.BuiltinHosts;
 import world.mongoose.banteng.builtin.BuiltinResult;
 import world.mongoose.banteng.bytecode.MooCompiler;
 import world.mongoose.banteng.bytecode.ToastV17ProgramModel;
-import world.mongoose.banteng.persistence.LambdaMooV17Codec;
-import world.mongoose.banteng.persistence.LambdaMooV17Codec.ActiveConnection;
-import world.mongoose.banteng.persistence.LambdaMooV17Codec.QueuedEnvironment;
-import world.mongoose.banteng.persistence.LambdaMooV17Codec.QueuedTask;
 import world.mongoose.banteng.persistence.DurableTaskCodec;
-import world.mongoose.banteng.persistence.LambdaMooV17Codec.SuspendedActivation;
-import world.mongoose.banteng.persistence.LambdaMooV17Codec.SuspendedStackSlot;
-import world.mongoose.banteng.persistence.LambdaMooV17Codec.SuspendedTask;
+import world.mongoose.banteng.world.ActiveConnection;
+import world.mongoose.banteng.world.QueuedEnvironment;
+import world.mongoose.banteng.world.QueuedTask;
+import world.mongoose.banteng.world.SuspendedActivation;
+import world.mongoose.banteng.world.SuspendedStackSlot;
+import world.mongoose.banteng.world.SuspendedTask;
+import world.mongoose.banteng.persistence.LambdaMooV17Codec;
 import world.mongoose.banteng.persistence.LambdaMooV4Reader;
 import world.mongoose.banteng.persistence.ToastV17ProgramLayout;
 import world.mongoose.banteng.server.ConnectionRegistry;
-import world.mongoose.banteng.value.MooValue;
 import world.mongoose.banteng.value.MooValue.ErrorValue;
 import world.mongoose.banteng.value.MooValue.IntegerValue;
 import world.mongoose.banteng.value.MooValue.ListValue;
 import world.mongoose.banteng.value.MooValue.MapValue;
 import world.mongoose.banteng.value.MooValue.ObjectValue;
 import world.mongoose.banteng.value.MooValue.StringValue;
+import world.mongoose.banteng.value.MooValue;
+import world.mongoose.banteng.vm.VmSnapshot;
 import world.mongoose.banteng.world.ArgSpec;
 import world.mongoose.banteng.world.PropertyPerms;
 import world.mongoose.banteng.world.VerbPerms;
 import world.mongoose.banteng.world.WorldObject;
 import world.mongoose.banteng.world.WorldProperty;
 import world.mongoose.banteng.world.WorldTxn;
-import world.mongoose.banteng.vm.VmSnapshot;
 import world.mongoose.banteng.world.WorldVerb;
-import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.io.TempDir;
 
 final class PublicationSchedulerTest {
   private static final Path FIXTURE =
@@ -299,13 +299,9 @@ final class PublicationSchedulerTest {
     SuspendedTask task =
         suspendedTask(900_000_003L, taskSource, new IntegerValue(0), List.of());
     MooRuntime runtime =
-        new MooRuntime(
-            world,
-            new RecordingListener(),
-            Path.of("unused-startup-order.db"),
-            List.of(task),
-            List.of(new ActiveConnection(41, 0), new ActiveConnection(42, 0)),
-            new ConnectionRegistry());
+        SchedulerTestHarness.runtime(
+        world, new ConnectionRegistry(), Math.max(2, Runtime.getRuntime().availableProcessors()), System::nanoTime,
+        MooRuntime::resolveCanonicalConnectionName, Optional.of(new RecordingListener()), Optional.empty(), Optional.of(Path.of("unused-startup-order.db")), List.of(task), List.of(new ActiveConnection(41, 0), new ActiveConnection(42, 0)));
     try {
       runtime.startServer();
       long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(3);
@@ -352,13 +348,9 @@ final class PublicationSchedulerTest {
       harness.close();
 
       MooRuntime restarted =
-          new MooRuntime(
-              harness.root,
-              new RecordingListener(),
-              Path.of("unused-native-restart.db"),
-              List.of(durable),
-              List.of(),
-              new ConnectionRegistry());
+          SchedulerTestHarness.runtime(
+        harness.root, new ConnectionRegistry(), Math.max(2, Runtime.getRuntime().availableProcessors()), System::nanoTime,
+        MooRuntime::resolveCanonicalConnectionName, Optional.of(new RecordingListener()), Optional.empty(), Optional.of(Path.of("unused-native-restart.db")), List.of(durable), List.of());
       try {
         restarted.startServer();
         long completionDeadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(4);
@@ -406,12 +398,14 @@ final class PublicationSchedulerTest {
   @Test
   void writesPanicDatabaseBeforeInvokingAbortCapability(@TempDir Path temporaryDirectory)
       throws Exception {
-    WorldTxn world = new LambdaMooV4Reader().read(FIXTURE);
+    WorldTxn world = new LambdaMooV4Reader(new LambdaMooV17Codec()).read(FIXTURE).world();
     Path checkpoint = temporaryDirectory.resolve("panic.db.new");
     RecordingListener listener = new RecordingListener();
     listener.expectedPanicDump = Optional.of(Path.of(checkpoint.toString() + ".PANIC"));
     MooRuntime runtime =
-        new MooRuntime(world, listener, checkpoint, new ConnectionRegistry());
+        SchedulerTestHarness.runtime(
+        world, new ConnectionRegistry(), Math.max(2, Runtime.getRuntime().availableProcessors()), System::nanoTime,
+        MooRuntime::resolveCanonicalConnectionName, Optional.of(listener), Optional.empty(), Optional.of(checkpoint), List.of(), List.of());
     try {
       runtime.openConnection(CONNECTION_ID, 0, true, new MapValue(Map.of()));
       runtime.executeLine(CONNECTION_ID, "connect Wizard");
@@ -586,7 +580,7 @@ final class PublicationSchedulerTest {
     assertLoopStackRoundTrips(
         mapSource,
         map,
-        new SuspendedStackSlot(Optional.empty(), 6, 0));
+        new SuspendedStackSlot(Optional.empty(), SuspendedStackSlot.Kind.NONE, 0));
 
     String integerRange = "for value in [1..2]\n  suspend();\nendfor\n";
     ToastV17ProgramModel.RangeLoop integerShape =
@@ -669,9 +663,11 @@ final class PublicationSchedulerTest {
 
   @Test
   void usesFixedWorkersAndWorkersTimesFourBoundedQueue() throws Exception {
-    WorldTxn root = new LambdaMooV4Reader().read(FIXTURE);
-    MooRuntime runtime = new MooRuntime(root, new ConnectionRegistry());
-    try (PublicationScheduler scheduler = new PublicationScheduler(root, runtime, 3)) {
+    WorldTxn root = new LambdaMooV4Reader(new LambdaMooV17Codec()).read(FIXTURE).world();
+    MooRuntime runtime = SchedulerTestHarness.runtime(
+        root, new ConnectionRegistry(), Math.max(2, Runtime.getRuntime().availableProcessors()), System::nanoTime,
+        MooRuntime::resolveCanonicalConnectionName, Optional.empty(), Optional.empty(), Optional.empty(), List.of(), List.of());
+    try (PublicationScheduler scheduler = new PublicationScheduler(root, () -> runtime, 3, new TaskRegistry())) {
       ThreadPoolExecutor executor = field(scheduler, "executor", ThreadPoolExecutor.class);
 
       assertEquals(3, scheduler.workers());
@@ -1595,12 +1591,12 @@ final class PublicationSchedulerTest {
                 valueSlot(new IntegerValue(clause.handlerLabelProgramCounter()));
           }
           baseToTop[group.markerDepth().orElseThrow()] =
-              new SuspendedStackSlot(Optional.empty(), 7, group.clauses().size());
+              new SuspendedStackSlot(Optional.empty(), SuspendedStackSlot.Kind.CATCH, group.clauses().size());
         }
         case ToastV17ProgramModel.ProtectedFinally protectedFinally ->
             baseToTop[protectedFinally.markerDepth()] =
                 new SuspendedStackSlot(
-                    Optional.empty(), 8, protectedFinally.handlerLabelProgramCounter());
+                    Optional.empty(), SuspendedStackSlot.Kind.FINALLY, protectedFinally.handlerLabelProgramCounter());
         default -> {
           // The caller supplies typed finally and loop values for the selected case.
         }
@@ -1622,7 +1618,7 @@ final class PublicationSchedulerTest {
   }
 
   private static SuspendedStackSlot valueSlot(MooValue value) {
-    return new SuspendedStackSlot(Optional.of(value), -1, 0);
+    return new SuspendedStackSlot(Optional.of(value), SuspendedStackSlot.Kind.VALUE, 0);
   }
 
   private static SuspendedTask suspendedTask(
@@ -1792,9 +1788,11 @@ final class PublicationSchedulerTest {
     private final PublicationScheduler scheduler;
 
     static Harness open(int workers, ListenerControl listener) throws IOException {
-      WorldTxn root = new LambdaMooV4Reader().read(FIXTURE);
+      WorldTxn root = new LambdaMooV4Reader(new LambdaMooV17Codec()).read(FIXTURE).world();
       MooRuntime runtime =
-          new MooRuntime(root, listener, workers, new ConnectionRegistry());
+          SchedulerTestHarness.runtime(
+        root, new ConnectionRegistry(), workers, System::nanoTime,
+        MooRuntime::resolveCanonicalConnectionName, Optional.of(listener), Optional.empty(), Optional.empty(), List.of(), List.of());
       PublicationScheduler scheduler = scheduler(runtime);
       Harness harness = new Harness(root, runtime, scheduler);
       runtime.openConnection(CONNECTION_ID, 0, true, new MapValue(Map.of()));

@@ -1,4 +1,4 @@
-/** Banteng's command-line entry point and future concrete composition root. */
+/** Banteng's command-line entry point and concrete composition root. */
 @NullMarked
 package world.mongoose.banteng.app;
 

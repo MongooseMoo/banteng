@@ -25,7 +25,7 @@ import world.mongoose.banteng.vm.VmSnapshot;
 import world.mongoose.banteng.world.WorldTxn;
 
 /** The scheduler-owned live registry used by task-management builtins. */
-final class TaskRegistry {
+public final class TaskRegistry {
   private static final long BACKGROUND_TICKS = 30_000;
 
   enum TaskControlDecision {
