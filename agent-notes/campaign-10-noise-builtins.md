@@ -2,6 +2,8 @@
 Extract simplex_noise for issue 10 using the existing family mover, keeping its numeric implementation unchanged.
 
 # State
+Published as PR134. Prepared the normal merge of latest committed campaign/callback-command-locals. The catalog merged mechanically without conflicts. NoiseBuiltins, relocated SimplexNoise, the family mover, authored recipe fixture and rewrite.yml are unchanged from the existing Noise head. Incoming runtime/VM/persistence/bytecode/app, BuiltinHosts/BuiltinResult and runtime tests are preserved unchanged. No actual Noise implementation/mover delta, local CI rerun or repeat review.
+
 Implemented in an isolated Noise tree from origin/master. NoiseBuiltins owns the registration and private wrapper; package-private SimplexNoise is relocated with only its package declaration changed. No publication by this agent.
 
 # Decisions and why
@@ -22,4 +24,4 @@ Moves simplex_noise registration and its private wrapper into NoiseBuiltins at t
 Uses the existing family mover and ChangeType recipe without new migration machinery. Adds focused coverage for manifest position, private ownership, numeric fixture preservation and idempotence. Validation: authored MoveBuiltinFamilyTest and normal migration dry run; application CI/conformance remains for this PR.
 
 # Next step
-Parent to inspect the local substantive commit, integrate shared recipe changes as needed, obtain review and publish/read required CI/conformance before merge. No release or deployment performed here.
+Parent owns publication and required PR CI/conformance after runtime lands. Preserve existing review coverage because Noise extraction/mover code is unchanged; this ancestry integration adds no code to re-review. No publication, release or deployment performed by this worker.

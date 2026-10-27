@@ -27,6 +27,9 @@ public interface SchedulerRuntime {
   VmState startBackgroundTask(MooRuntime.AttemptContext context, VmSnapshot initial);
   MooVm vm();
   BuiltinCatalog builtins();
+  long nanoTime();
+  Optional<MooRuntime.RuntimeStep> startLaggingTask(MooRuntime.AttemptContext context,
+      VmSnapshot initial, VmSnapshot completed, long player, double elapsedSeconds);
   void publishVmState(MooRuntime.AttemptContext context,
       VmState task, long taskPlayer, boolean collectAfterCompletion,
       List<VmSnapshot> otherTaskRoots);
