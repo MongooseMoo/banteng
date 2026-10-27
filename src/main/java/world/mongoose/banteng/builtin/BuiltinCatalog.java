@@ -19,7 +19,7 @@ import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.Random;
 import java.util.Set;
-import java.util.function.Function;
+import world.mongoose.banteng.builtin.family.FileIoBuiltins;
 import java.util.function.LongBinaryOperator;
 import java.util.function.Supplier;
 import org.bouncycastle.crypto.Digest;
@@ -92,7 +92,7 @@ public final class BuiltinCatalog {
   private static final String SERVER_VERSION = "0.1.0-SNAPSHOT";
 
   private final List<BuiltinSpec> manifest;
-  private final FileIoService fileIo;
+  private final FileIoBuiltins fileIo;
   private final BuiltinHosts hosts;
   private final Optional<ListenerControl> listenerControl;
   private final Random random;
@@ -106,7 +106,7 @@ public final class BuiltinCatalog {
     this.hosts = Objects.requireNonNull(hosts, "hosts");
     listenerControl = Optional.empty();
     ConfinedFileRoot files = new ConfinedFileRoot(Path.of("files"));
-    fileIo = new FileIoService(files);
+    fileIo = new FileIoBuiltins(files);
     sqlite = new SqliteService(files);
     random = new Random();
     floatingRandom = new Random();
@@ -119,7 +119,7 @@ public final class BuiltinCatalog {
     this.hosts = Objects.requireNonNull(hosts, "hosts");
     this.listenerControl = Optional.of(Objects.requireNonNull(listenerControl, "listenerControl"));
     ConfinedFileRoot files = new ConfinedFileRoot(Path.of("files"));
-    fileIo = new FileIoService(files);
+    fileIo = new FileIoBuiltins(files);
     sqlite = new SqliteService(files);
     random = new Random();
     floatingRandom = new Random();
@@ -1033,7 +1033,7 @@ public final class BuiltinCatalog {
             BuiltinPermissionRule.ANY,
             false,
             call -> functionInfo(call.arguments())));
-    addFileIoManifest(entries);
+    fileIo.register(entries);
     RegexBuiltins.registerPcre(entries);
     addSqliteManifest(entries);
     entries.add(
@@ -1150,49 +1150,6 @@ public final class BuiltinCatalog {
             false,
             BuiltinCatalog::dumpDatabase));
     return List.copyOf(entries);
-  }
-
-  private void addFileIoManifest(List<BuiltinSpec> entries) {
-    entries.add(fileIoSpec("file_handles", new CallShape(List.of(), List.of(), Optional.empty()), fileIo::handles));
-    entries.add(fileIoSpec("file_open", new CallShape(List.of(STRING, STRING), List.of(), Optional.empty()), fileIo::open));
-    entries.add(fileIoSpec("file_close", new CallShape(List.of(INTEGER), List.of(), Optional.empty()), fileIo::close));
-    entries.add(fileIoSpec("file_name", new CallShape(List.of(INTEGER), List.of(), Optional.empty()), fileIo::name));
-    entries.add(fileIoSpec("file_openmode", new CallShape(List.of(INTEGER), List.of(), Optional.empty()), fileIo::openMode));
-    entries.add(fileIoSpec("file_readline", new CallShape(List.of(INTEGER), List.of(), Optional.empty()), fileIo::readLine));
-    entries.add(fileIoSpec("file_readlines", new CallShape(List.of(INTEGER, INTEGER, INTEGER), List.of(), Optional.empty()), fileIo::readLines));
-    entries.add(fileIoSpec("file_writeline", new CallShape(List.of(INTEGER, STRING), List.of(), Optional.empty()), fileIo::writeLine));
-    entries.add(fileIoSpec("file_grep", new CallShape(List.of(INTEGER, STRING), List.of(INTEGER), Optional.empty()), fileIo::grep));
-    entries.add(fileIoSpec("file_read", new CallShape(List.of(INTEGER, INTEGER), List.of(), Optional.empty()), fileIo::read));
-    entries.add(fileIoSpec("file_write", new CallShape(List.of(INTEGER, STRING), List.of(), Optional.empty()), fileIo::write));
-    entries.add(fileIoSpec("file_flush", new CallShape(List.of(INTEGER), List.of(), Optional.empty()), fileIo::flush));
-    entries.add(fileIoSpec("file_seek", new CallShape(List.of(INTEGER, INTEGER, STRING), List.of(), Optional.empty()), fileIo::seek));
-    entries.add(fileIoSpec("file_tell", new CallShape(List.of(INTEGER), List.of(), Optional.empty()), fileIo::tell));
-    entries.add(fileIoSpec("file_eof", new CallShape(List.of(INTEGER), List.of(), Optional.empty()), fileIo::eof));
-    entries.add(fileIoSpec("file_count_lines", new CallShape(List.of(INTEGER), List.of(), Optional.empty()), fileIo::countLines));
-    entries.add(fileIoSpec("file_list", new CallShape(List.of(STRING), List.of(ANY), Optional.empty()), fileIo::list));
-    entries.add(fileIoSpec("file_mkdir", new CallShape(List.of(STRING), List.of(), Optional.empty()), fileIo::mkdir));
-    entries.add(fileIoSpec("file_rmdir", new CallShape(List.of(STRING), List.of(), Optional.empty()), fileIo::rmdir));
-    entries.add(fileIoSpec("file_remove", new CallShape(List.of(STRING), List.of(), Optional.empty()), fileIo::remove));
-    entries.add(fileIoSpec("file_rename", new CallShape(List.of(STRING, STRING), List.of(), Optional.empty()), fileIo::rename));
-    entries.add(fileIoSpec("file_chmod", new CallShape(List.of(STRING, STRING), List.of(), Optional.empty()), fileIo::chmod));
-    entries.add(fileIoSpec("file_size", new CallShape(List.of(ANY), List.of(), Optional.empty()), fileIo::size));
-    entries.add(fileIoSpec("file_mode", new CallShape(List.of(ANY), List.of(), Optional.empty()), fileIo::mode));
-    entries.add(fileIoSpec("file_type", new CallShape(List.of(ANY), List.of(), Optional.empty()), fileIo::type));
-    entries.add(fileIoSpec("file_last_access", new CallShape(List.of(ANY), List.of(), Optional.empty()), fileIo::lastAccess));
-    entries.add(fileIoSpec("file_last_modify", new CallShape(List.of(ANY), List.of(), Optional.empty()), fileIo::lastModify));
-    entries.add(fileIoSpec("file_last_change", new CallShape(List.of(ANY), List.of(), Optional.empty()), fileIo::lastChange));
-    entries.add(fileIoSpec("file_stat", new CallShape(List.of(ANY), List.of(), Optional.empty()), fileIo::stat));
-  }
-
-  private static BuiltinSpec fileIoSpec(
-      String name, CallShape shape, Function<List<MooValue>, BuiltinResult> handler) {
-    return new BuiltinSpec(
-        name,
-        List.of(shape),
-        BuiltinPermissionRule.WIZARD_ONLY,
-        true,
-        call ->
-            handler.apply(call.arguments()));
   }
 
   private void addSqliteManifest(List<BuiltinSpec> entries) {

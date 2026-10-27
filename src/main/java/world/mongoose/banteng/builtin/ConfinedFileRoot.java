@@ -4,14 +4,14 @@ import java.nio.file.Path;
 import org.jspecify.annotations.Nullable;
 
 /** Shared Toast file-path admission and resolution boundary. */
-final class ConfinedFileRoot {
+public final class ConfinedFileRoot {
   private final Path root;
 
-  ConfinedFileRoot(Path root) {
+  public ConfinedFileRoot(Path root) {
     this.root = root.toAbsolutePath().normalize();
   }
 
-  @Nullable Path resolve(String name) {
+  public @Nullable Path resolve(String name) {
     if (name.startsWith("..") || name.contains("/.")) {
       return null;
     }
