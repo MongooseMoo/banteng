@@ -291,7 +291,7 @@ final class LegacyDatabaseRestorationTest {
     return VmState.restore(new VmSnapshot(root.locals(), root.programmer(), root.verbLocation(),
         root.calledVerb(), root.fullVerbName(), frames, List.of(), List.of(), List.of(), List.of(),
         List.of(), List.of(), List.of(), VmState.Outcome.SUSPENDED, Optional.empty(), Optional.empty(),
-        Optional.empty(), OptionalLong.empty(), Optional.empty(), OptionalDouble.of(0), false,
+        Optional.empty(), Optional.empty(), OptionalDouble.of(0), false,
         Optional.empty(), task.taskLocal(), 10000, 0, 5000000000L, task.maxStackDepth()));
   }
 }

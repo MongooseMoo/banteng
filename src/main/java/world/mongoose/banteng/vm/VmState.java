@@ -38,7 +38,6 @@ public final class VmState {
   private Optional<MooValue> returnValue = Optional.empty();
   private Optional<MooValue> pendingError = Optional.empty();
   private Optional<MooValue> uncaughtError = Optional.empty();
-  private OptionalLong switchedPlayer = OptionalLong.empty();
   private Optional<ForkRequest> forkRequest = Optional.empty();
   private OptionalDouble suspensionDelaySeconds = OptionalDouble.empty();
   private Optional<Callable<BuiltinResult>> hostWork = Optional.empty();
@@ -119,11 +118,6 @@ public final class VmState {
   /** Returns an uncaught MOO error after execution terminates. */
   public Optional<MooValue> uncaughtError() {
     return uncaughtError;
-  }
-
-  /** Returns a connection player switch staged by this execution. */
-  public OptionalLong switchedPlayer() {
-    return switchedPlayer;
   }
 
   /** Returns the current task programmer. */
@@ -303,10 +297,6 @@ public final class VmState {
     outcome = Outcome.ERRORED;
   }
 
-  void switchPlayer(long player) {
-    switchedPlayer = OptionalLong.of(player);
-  }
-
   void setProgrammer(long programmer) {
     currentFrame().programmer = programmer;
   }
@@ -440,7 +430,6 @@ public final class VmState {
         returnValue,
         pendingError,
         uncaughtError,
-        switchedPlayer,
         forkSnapshot,
         suspensionDelaySeconds,
         awaitingHostResult,
@@ -485,7 +474,6 @@ public final class VmState {
     state.returnValue = snapshot.returnValue();
     state.pendingError = snapshot.pendingError();
     state.uncaughtError = snapshot.uncaughtError();
-    state.switchedPlayer = snapshot.switchedPlayer();
     state.forkRequest =
         snapshot
             .forkRequest()
