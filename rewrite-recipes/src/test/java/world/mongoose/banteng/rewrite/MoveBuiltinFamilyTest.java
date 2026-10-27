@@ -66,6 +66,82 @@ final class MoveBuiltinFamilyTest {
   }
 
   @Test
+  void movesTaskGroupsWithExplicitCatalogAndDirectHandlers() {
+    var context = new InMemoryExecutionContext(failure -> { throw new AssertionError(failure); });
+    var files = JavaParser.fromJavaVersion().build().parse(context, """
+        package world.mongoose.banteng.builtin;
+        import java.util.List;
+        import world.mongoose.banteng.world.SuspendedActivation;
+        class BuiltinCatalog {
+          private static final Set<ArgType> NUMBER = Set.of(ArgType.NUMBER);
+          void buildManifest() {
+            BuiltinHandler setThreadMode = call -> setThreadMode(call.arguments(), call.threadMode());
+            BuiltinHandler callFunction = this::callFunction;
+            entries.add(new BuiltinSpec("call_function", List.of(OBJECT), BuiltinPermissionRule.ANY, true, callFunction));
+            entries.add(new BuiltinSpec("thread_pool", List.of(NUMBER), BuiltinPermissionRule.WIZARD_ONLY, true, this::configureThreadPool));
+            middle();
+            entries.add(new BuiltinSpec("set_thread_mode", List.of(), BuiltinPermissionRule.ANY, false, setThreadMode));
+            entries.add(new BuiltinSpec("eval", List.of(), BuiltinPermissionRule.PROGRAMMER_ONLY, false, call -> dynamicEval(call.arguments())));
+          }
+          private BuiltinResult configureThreadPool(BuiltinCall call) { return call.hosts().threadPool().invoke(call); }
+          private BuiltinResult callFunction(BuiltinCall call) {
+            BuiltinSpec target = specs.get(name);
+            BuiltinResult result = invoke(target, call);
+            return switch (result) {
+              case BuiltinResult.Initialize initialized -> new BuiltinResult.Initialize(initialized.created(),
+                  initialized.arguments(), initialized.continuation().map(SuspendedActivation.CallFunctionContinuation::new));
+              case BuiltinResult.DynamicEval evaluated -> new BuiltinResult.DynamicEval(evaluated.program(),
+                  new SuspendedActivation.CallFunctionContinuation(evaluated.continuation()));
+              case BuiltinResult.Move moved -> new BuiltinResult.Move(moved.object(), moved.destination(), moved.position(),
+                  new SuspendedActivation.CallFunctionContinuation(moved.continuation()));
+              case BuiltinResult.Recycle recycled -> new BuiltinResult.Recycle(recycled.object(),
+                  new SuspendedActivation.CallFunctionContinuation(recycled.continuation()));
+              default -> result;
+            };
+          }
+          private BuiltinResult dynamicEval(List<MooValue> arguments) {
+            return compile(name -> spec(name).isPresent());
+          }
+          private static BuiltinResult setThreadMode(List<MooValue> arguments, boolean threadMode) { return null; }
+          private void middle() {}
+        }
+        """).toList();
+    var mover = new MoveBuiltinFamily("TaskBuiltins",
+        Set.of("call_function", "thread_pool", "set_thread_mode", "eval"),
+        Set.of("configureThreadPool", "callFunction", "dynamicEval", "setThreadMode"));
+    var changes = mover.run(new InMemoryLargeSourceSet(files), context).getChangeset().getAllResults();
+    String catalog = changedFile(changes, "BuiltinCatalog.java");
+    String family = changedFile(changes, "TaskBuiltins.java");
+    assertTrue(catalog.indexOf("TaskBuiltins.registerGroup0(entries, this)") < catalog.indexOf("middle()"));
+    assertTrue(catalog.indexOf("middle()") < catalog.indexOf("TaskBuiltins.registerGroup1(entries, this)"));
+    assertFalse(catalog.contains("BuiltinHandler"));
+    assertFalse(catalog.contains("Set<ArgType> NUMBER"));
+    assertTrue(family.contains("Set<ArgType> NUMBER"));
+    assertFalse(catalog.contains("private BuiltinResult"));
+    assertTrue(family.contains("List<BuiltinSpec> entries, BuiltinCatalog catalog"));
+    assertTrue(family.contains("import world.mongoose.banteng.builtin.BuiltinCall;"));
+    assertTrue(family.contains("private static final Set<ArgType> OBJECT"));
+    assertTrue(family.contains("call -> callFunction(call, catalog)"));
+    assertTrue(family.contains("TaskBuiltins::configureThreadPool"));
+    assertTrue(family.contains("call -> setThreadMode(call.arguments(), call.threadMode())"));
+    assertTrue(family.contains("dynamicEval(call.arguments(), catalog)"));
+    assertTrue(family.contains("private static BuiltinResult configureThreadPool"));
+    assertTrue(family.contains("private static BuiltinResult callFunction(BuiltinCall call, BuiltinCatalog catalog)"));
+    assertTrue(family.contains("catalog.spec(name).orElse(null)"));
+    assertTrue(family.contains("BuiltinResult result = catalog.invoke(target, call)"));
+    assertTrue(family.contains("import world.mongoose.banteng.world.SuspendedActivation;"));
+    assertTrue(family.contains("initialized.continuation().map(SuspendedActivation.CallFunctionContinuation::new)"));
+    assertTrue(family.contains("new SuspendedActivation.CallFunctionContinuation(evaluated.continuation())"));
+    assertTrue(family.contains("new SuspendedActivation.CallFunctionContinuation(moved.continuation())"));
+    assertTrue(family.contains("new SuspendedActivation.CallFunctionContinuation(recycled.continuation())"));
+    assertTrue(family.contains("name -> catalog.spec(name).isPresent()"));
+    assertTrue(family.contains(".permission(BuiltinPermissionRule.WIZARD_ONLY).irrevocable()"));
+    assertTrue(family.contains(".permission(BuiltinPermissionRule.PROGRAMMER_ONLY)"));
+    assertTrue(mover.run(new InMemoryLargeSourceSet(changes.stream().map(Result::getAfter).toList()), context)
+        .getChangeset().getAllResults().isEmpty());
+  }
+
+  @Test
   void movesConversionGroupsAndRetargetsTheRealRemainingHelperCaller() {
     var context = new InMemoryExecutionContext(failure -> { throw new AssertionError(failure); });
     var files = JavaParser.fromJavaVersion().build().parse(context, """

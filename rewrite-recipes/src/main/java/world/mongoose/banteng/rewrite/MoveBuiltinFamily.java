@@ -125,7 +125,7 @@ public final class MoveBuiltinFamily extends ScanningRecipe<MoveBuiltinFamily.Me
             if (methods.contains(method.getSimpleName()) && method.getModifiers().stream()
                 .anyMatch(modifier -> modifier.getType() == J.Modifier.Type.Static)
                 || family.equals("StringBuiltins") && method.getSimpleName().equals("parseAnsi")
-                || family.equals("RandomBuiltins") && methods.contains(method.getSimpleName())
+                || Set.of("RandomBuiltins", "TaskBuiltins").contains(family) && methods.contains(method.getSimpleName())
                 || family.equals("CryptoBuiltins") && Set.of("crypt", "nativeCrypt").contains(method.getSimpleName())
                 || family.equals("RegexBuiltins") && method.getSimpleName().equals("toastMatch")
                 || family.equals("VerbBuiltins") && method.getSimpleName().equals("setVerbCode")) {
@@ -143,9 +143,9 @@ public final class MoveBuiltinFamily extends ScanningRecipe<MoveBuiltinFamily.Me
                   members.registrations.add(entry);
                 }
                 previousRegistration = spec != null || cryptoLoop;
-                if (family.equals("ListBuiltins") && entry instanceof J.VariableDeclarations variables
+                if ((family.equals("ListBuiltins") || family.equals("TaskBuiltins")) && entry instanceof J.VariableDeclarations variables
                     && variables.getVariables().stream().anyMatch(variable ->
-                        Set.of("allMembers", "sort").contains(variable.getSimpleName()))) {
+                        Set.of("allMembers", "sort", "setThreadMode", "callFunction").contains(variable.getSimpleName()))) {
                   members.handlers.add(entry);
                 }
               }
@@ -212,6 +212,7 @@ public final class MoveBuiltinFamily extends ScanningRecipe<MoveBuiltinFamily.Me
       body.append("  public static void ").append(registerMethod(group))
           .append("(List<BuiltinSpec> entries" + (stringAnsiGroup(group) ? ", Random random" : verbCodeGroup(group) ? ", BuiltinCatalog catalog" : "")
               + (family.equals("CryptoBuiltins") ? ", SecureRandom secureRandom, Crypt crypt" : "")
+              + (family.equals("TaskBuiltins") ? ", BuiltinCatalog catalog" : "")
               + (family.equals("RandomBuiltins")
                   ? ", java.util.function.Supplier<Random> random, java.util.function.Supplier<Random> floatingRandom, SecureRandom secureRandom" : "") + ") {\n")
           .append("    BuiltinRegistrar registrar = new BuiltinRegistrar(entries);\n");
@@ -219,7 +220,7 @@ public final class MoveBuiltinFamily extends ScanningRecipe<MoveBuiltinFamily.Me
         body.append(group == 0 ? "    ToastRegexService toastRegex = new ToastRegexService();\n"
             : "    PcreService pcre = new PcreService();\n");
       }
-      for (Statement handler : members.handlers) {
+      for (Statement handler : family.equals("TaskBuiltins") ? List.<Statement>of() : members.handlers) {
         String name = ((J.VariableDeclarations) handler).getVariables().getFirst().getSimpleName();
         if (members.groups.get(group).stream().anyMatch(statement ->
             registration(statement).getArguments().get(4) instanceof J.Identifier identifier
@@ -267,7 +268,8 @@ public final class MoveBuiltinFamily extends ScanningRecipe<MoveBuiltinFamily.Me
         .parse(context, "package world.mongoose.banteng.builtin.family;\n"
             + "import java.util.List; import java.util.Set;\n"
             + "import world.mongoose.banteng.builtin.ArgType;\n"
-            + (family.equals("VerbBuiltins") ? "import world.mongoose.banteng.builtin.BuiltinCatalog;\n" : "")
+            + "import world.mongoose.banteng.builtin.BuiltinCatalog;\n"
+            + "import world.mongoose.banteng.builtin.BuiltinCall;\n"
             + "import world.mongoose.banteng.builtin.BuiltinRegistrar;\n"
             + "import world.mongoose.banteng.builtin.BuiltinSpec;\n"
             + "import world.mongoose.banteng.builtin.BuiltinHandler;\n"
@@ -346,6 +348,17 @@ public final class MoveBuiltinFamily extends ScanningRecipe<MoveBuiltinFamily.Me
           .findFirst().orElseThrow()).withSourcePath(generated.getSourcePath());
       generated = stringSharedImports(generated, context);
     }
+    if (family.equals("TaskBuiltins")) {
+      String source = generated.printAll()
+          .replace("private BuiltinResult configureThreadPool(", "private static BuiltinResult configureThreadPool(")
+          .replace("private BuiltinResult callFunction(BuiltinCall call)", "private static BuiltinResult callFunction(BuiltinCall call, BuiltinCatalog catalog)")
+          .replace("BuiltinSpec target = specs.get(name);", "BuiltinSpec target = catalog.spec(name).orElse(null);")
+          .replace(" invoke(target,", " catalog.invoke(target,")
+          .replace("private BuiltinResult dynamicEval(List<MooValue> arguments)", "private static BuiltinResult dynamicEval(List<MooValue> arguments, BuiltinCatalog catalog)")
+          .replace("name -> spec(name).isPresent()", "name -> catalog.spec(name).isPresent()");
+      generated = ((J.CompilationUnit) JavaParser.fromJavaVersion().build().parse(context, source)
+          .findFirst().orElseThrow()).withSourcePath(generated.getSourcePath());
+    }
     if (family.equals("RandomBuiltins")) {
       String source = generated.printAll()
           .replace("private BuiltinResult randomInteger(List<MooValue> arguments)",
@@ -394,6 +407,7 @@ public final class MoveBuiltinFamily extends ScanningRecipe<MoveBuiltinFamily.Me
     if (family.equals("VerbBuiltins")) {
       return List.of("registerRespondTo", "registerDisassemble", "registerDefinitionEdits", "registerMetadataAndCode").get(group);
     }
+    if (family.equals("TaskBuiltins")) { return "registerGroup" + group; }
     if (family.equals("ConversionBuiltins")) {
       return List.of("registerConversions", "registerTypeOf").get(group);
     }
@@ -427,6 +441,14 @@ public final class MoveBuiltinFamily extends ScanningRecipe<MoveBuiltinFamily.Me
           .replace("floatingRandom(call.arguments())", "floatingRandom(call.arguments(), floatingRandom.get())")
           .replace("randomBytes(call.arguments(), call.world())", "randomBytes(call.arguments(), call.world(), secureRandom)")
           .replace("random.setSeed(SECURE_RANDOM.nextLong())", "random.get().setSeed(secureRandom.nextLong())");
+    }
+    if (family.equals("TaskBuiltins")) {
+      result = switch (result) {
+        case "callFunction" -> "call -> callFunction(call, catalog)";
+        case "setThreadMode" -> "call -> setThreadMode(call.arguments(), call.threadMode())";
+        case "this::configureThreadPool" -> "TaskBuiltins::configureThreadPool";
+        default -> result.replace("dynamicEval(call.arguments())", "dynamicEval(call.arguments(), catalog)");
+      };
     }
     return result;
   }
@@ -639,6 +661,8 @@ public final class MoveBuiltinFamily extends ScanningRecipe<MoveBuiltinFamily.Me
                 .filter(statement -> members.regexFields.stream().noneMatch(member -> member.getId().equals(statement.getId())))
                 .filter(statement -> members.limits.stream().noneMatch(member -> member.getId().equals(statement.getId())))
                 .filter(statement -> members.fields.stream().noneMatch(member -> member.getId().equals(statement.getId())))
+                .filter(statement -> !(family.equals("TaskBuiltins") && statement instanceof J.VariableDeclarations field
+                    && field.getVariables().stream().anyMatch(variable -> variable.getSimpleName().equals("NUMBER"))))
                  .filter(statement -> members.foldAscii == null || !members.foldAscii.getId().equals(statement.getId()))
                  .filter(statement -> members.ownershipPreamble == null || !members.ownershipPreamble.getId().equals(statement.getId()))
                  .filter(statement -> members.mutationResult == null || !members.mutationResult.getId().equals(statement.getId()))
@@ -664,6 +688,7 @@ public final class MoveBuiltinFamily extends ScanningRecipe<MoveBuiltinFamily.Me
              .parse(context, "class Replacement { void register() { " + family + "." + registerMethod(group)
                  + "(entries" + (stringAnsiGroup(group) ? ", random" : verbCodeGroup(group) ? ", this" : "")
                  + (family.equals("CryptoBuiltins") ? ", SECURE_RANDOM, hosts.crypt()" : "")
+                 + (family.equals("TaskBuiltins") ? ", this" : "")
                  + (family.equals("RandomBuiltins") ? ", () -> random, () -> floatingRandom, SECURE_RANDOM" : "") + "); } }")
             .findFirst().orElseThrow()).getClasses().getFirst().getBody().getStatements().stream()
             .filter(J.MethodDeclaration.class::isInstance).map(J.MethodDeclaration.class::cast)

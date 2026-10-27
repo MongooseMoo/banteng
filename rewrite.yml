@@ -532,3 +532,13 @@ recipeList:
       family: VerbBuiltins
       builtins: [respond_to, disassemble, delete_verb, add_verb, set_verb_code, set_verb_args, set_verb_info, verbs, verb_args, verb_code, verb_info]
       methods: [respondTo, disassemble, deleteVerb, addVerb, setVerbCode, setVerbArgs, setVerbInfo, verbs, verbArgs, verbCode, verbInfo, parsePreposition]
+---
+type: specs.openrewrite.org/v1beta/recipe
+name: world.mongoose.banteng.builtin.ExtractTaskBuiltins
+displayName: Extract task builtins
+description: Moves task registrations and their implementation closure with explicit catalog dispatch.
+recipeList:
+  - world.mongoose.banteng.rewrite.MoveBuiltinFamily:
+      family: TaskBuiltins
+      builtins: [task_local, set_task_local, raise, pass, caller_perms, callers, call_function, queue_info, queued_tasks, task_stack, kill_task, thread_pool, threads, task_perms, task_id, ticks_left, seconds_left, set_task_perms, set_thread_mode, eval, suspend, resume, yin]
+      methods: [configureThreadPool, callFunction, suspend, yin, raise, setThreadMode, callers, anonymizeTaskReference, setTaskPerms, dynamicEval]
