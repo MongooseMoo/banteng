@@ -42,7 +42,7 @@ public final class FileIoBuiltins {
   private static final Set<ArgType> STRING = Set.of(ArgType.STRING);
   public void register(List<BuiltinSpec> entries) {
     BuiltinRegistrar registrar = new BuiltinRegistrar(entries);
-    registrar.builtin("file_handles", List.of(new CallShape(List.of(), List.of(), Optional.empty()))).permission(BuiltinPermissionRule.WIZARD_ONLY).irrevocable().implementation(call -> handles(call.arguments()));
+    registrar.builtin("file_handles", List.of(new CallShape(List.of(), List.of(), Optional.empty()))).permission(BuiltinPermissionRule.WIZARD_ONLY).irrevocable().implementation(call -> handles());
     registrar.builtin("file_open", List.of(new CallShape(List.of(STRING, STRING), List.of(), Optional.empty()))).permission(BuiltinPermissionRule.WIZARD_ONLY).irrevocable().implementation(call -> open(call.arguments()));
     registrar.builtin("file_close", List.of(new CallShape(List.of(INTEGER), List.of(), Optional.empty()))).permission(BuiltinPermissionRule.WIZARD_ONLY).irrevocable().implementation(call -> close(call.arguments()));
     registrar.builtin("file_name", List.of(new CallShape(List.of(INTEGER), List.of(), Optional.empty()))).permission(BuiltinPermissionRule.WIZARD_ONLY).irrevocable().implementation(call -> name(call.arguments()));
@@ -369,7 +369,7 @@ public final class FileIoBuiltins {
     }
   }
 
-  private synchronized BuiltinResult handles(List<MooValue> arguments) {
+  private synchronized BuiltinResult handles() {
     return BuiltinResult.value(
         new ListValue(
             handles.keySet().stream()

@@ -32,12 +32,13 @@ public final class MoveFileIoBuiltins extends ScanningRecipe<MoveFileIoBuiltins.
             var arguments = ((J.MethodInvocation) ((J.MethodInvocation) statement)
                 .getArguments().getFirst()).getArguments();
             String handler = arguments.get(2).printTrimmed(getCursor());
+            String handlerName = handler.substring(handler.indexOf("::") + 2);
             registrations.append("    registrar.builtin(")
                 .append(arguments.get(0).printTrimmed(getCursor())).append(", List.of(")
                 .append(arguments.get(1).printTrimmed(getCursor()))
                 .append(")).permission(BuiltinPermissionRule.WIZARD_ONLY).irrevocable()")
-                .append(".implementation(call -> ").append(handler.substring(handler.indexOf("::") + 2))
-                .append("(call.arguments()));\n");
+                .append(".implementation(call -> ").append(handlerName)
+                .append(handlerName.equals("handles") ? "());\n" : "(call.arguments()));\n");
           }
           members.registrations = registrations.toString();
         } else if (method.getSimpleName().equals("fileIoSpec")) {
@@ -70,7 +71,8 @@ public final class MoveFileIoBuiltins extends ScanningRecipe<MoveFileIoBuiltins.
                     + "  public void register(List<BuiltinSpec> entries) {\n"
                     + "    BuiltinRegistrar registrar = new BuiltinRegistrar(entries);\n" + members.registrations + "  }\n")
                 .replace("  FileIoService(", "  public FileIoBuiltins(")
-                .replace("  synchronized BuiltinResult ", "  private synchronized BuiltinResult ");
+                .replace("  synchronized BuiltinResult ", "  private synchronized BuiltinResult ")
+                .replace("BuiltinResult handles(List<MooValue> arguments)", "BuiltinResult handles()");
             path = path.getParent().resolve("family/FileIoBuiltins.java");
           }
           case "BuiltinCatalog.java" -> {

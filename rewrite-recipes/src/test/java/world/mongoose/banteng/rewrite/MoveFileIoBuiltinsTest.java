@@ -24,6 +24,7 @@ final class MoveFileIoBuiltinsTest {
           }
           void buildManifest() { before(); addFileIoManifest(entries); after(); }
           private void addFileIoManifest(List<BuiltinSpec> entries) {
+            entries.add(fileIoSpec("file_handles", new CallShape(List.of(), List.of(), Optional.empty()), fileIo::handles));
             entries.add(fileIoSpec("file_grep", new CallShape(List.of(INTEGER, STRING), List.of(INTEGER), Optional.empty()), fileIo::grep));
           }
           private static BuiltinSpec fileIoSpec(String name, CallShape shape, Function handler) { return null; }
@@ -36,6 +37,7 @@ final class MoveFileIoBuiltinsTest {
           private final ConfinedFileRoot root;
           FileIoService(ConfinedFileRoot root) { this.root = root; }
           synchronized BuiltinResult grep(List<MooValue> arguments) { return unchanged(arguments); }
+          synchronized BuiltinResult handles(List<MooValue> arguments) { return inventory(); }
         }
         """, """
         package world.mongoose.banteng.builtin;
@@ -55,6 +57,8 @@ final class MoveFileIoBuiltinsTest {
         assertTrue(source.contains(".permission(BuiltinPermissionRule.WIZARD_ONLY).irrevocable()"));
         assertTrue(source.contains("List.of(INTEGER, STRING), List.of(INTEGER), Optional.empty()"));
         assertTrue(source.contains("private synchronized BuiltinResult grep(List<MooValue> arguments) { return unchanged(arguments); }"));
+        assertTrue(source.contains("private synchronized BuiltinResult handles() { return inventory(); }"));
+        assertTrue(source.contains("implementation(call -> handles())"));
       } else if (name.equals("BuiltinCatalog.java")) {
         assertTrue(source.contains("before(); fileIo.register(entries); after();"));
         assertTrue(source.contains("new FileIoBuiltins(files)"));

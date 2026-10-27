@@ -4,7 +4,7 @@
 Move FileIoService into family.FileIoBuiltins with its 29 registrations, retaining behavior and the shared ConfinedFileRoot instance used by SQLite.
 
 ## State
-Implementation complete in an isolated worktree from Time. Scoped OpenRewrite dry-run output applied through apply_patch. No publication performed; root owns review, PR CI and normal merge.
+Published as PR125. CI found that the newly private handles method retained an unused arguments parameter. Removed that parameter and its call argument in the implementation and existing mover, with focused recipe coverage. Other owner bodies remain unchanged. Initial Claude review targets the original published code; repair publication and bounded review follow.
 
 ## Decisions and why
 Smallest change: relocate the existing service unchanged, make its constructor public and handlers private, move registrations into its instance register method through BuiltinRegistrar. Preserve shapes, order, wizard permission and irrevocable flags. Expose the existing shared root class, constructor and resolve method across packages. About 790 implementation lines relocate, 43 catalog lines leave, and a scoped migration recipe handles the existing service path. No new runtime abstraction.
