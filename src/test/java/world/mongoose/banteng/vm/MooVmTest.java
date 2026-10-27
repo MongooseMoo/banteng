@@ -4633,6 +4633,34 @@ final class MooVmTest {
   }
 
   @Test
+  void nonDebugEvalAtMaximumStackDepthPreservesAssignmentAndContinues() {
+    WorldObject programmer =
+        new WorldObject(
+            7, "programmer", 6, 7, -1, -1, List.of(), List.of(), List.of(), List.of());
+    WorldTxn world = new WorldTxn(List.of(7L), List.of(programmer));
+    VmState state =
+        new VmState(
+            Map.of("player", new ObjectValue(7), "this", new ObjectValue(7)),
+            7,
+            new ObjectValue(7),
+            10_000,
+            5,
+            1,
+            false);
+
+    executeAndClose(
+        new MooCompiler().compile("x = eval(\"return 1;\"); y = 2; return {x, y};"),
+        state,
+        world,
+        new BuiltinCatalog(BuiltinHosts.builder().build()));
+
+    assertEquals(VmState.Outcome.RETURNED, state.outcome());
+    assertEquals(
+        new ListValue(List.of(ErrorValue.E_MAXREC, new IntegerValue(2))),
+        state.returnValue().orElseThrow());
+  }
+
+  @Test
   void evalUsesFreshToastPredefinedVariables() {
     WorldObject programmer =
         new WorldObject(
