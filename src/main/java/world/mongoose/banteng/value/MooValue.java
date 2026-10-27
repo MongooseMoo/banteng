@@ -693,7 +693,6 @@ public sealed interface MooValue
       requireScalarKey(key);
       LinkedHashMap<MooValue, MooValue> replacement = new LinkedHashMap<>();
       boolean inserted = false;
-      boolean replacedExisting = false;
       for (Map.Entry<MooValue, MooValue> entry : entries.entrySet()) {
         int comparison = ValueSemantics.STANDARD.compare(entry.getKey(), key, false);
         if (!inserted && comparison >= 0) {
@@ -702,22 +701,12 @@ public sealed interface MooValue
         }
         if (comparison != 0) {
           replacement.put(entry.getKey(), entry.getValue());
-        } else {
-          replacedExisting = true;
         }
       }
       if (!inserted) {
         replacement.put(key, value);
       }
-      MapNode root;
-      if (replacedExisting) {
-        root = null;
-        for (Map.Entry<MooValue, MooValue> entry : replacement.entrySet()) {
-          root = insertLookupNode(root, entry.getKey(), entry.getValue());
-        }
-      } else {
-        root = insertLookupNode(copyLookupTree(lookupRoot), key, value);
-      }
+      MapNode root = insertLookupNode(copyLookupTree(lookupRoot), key, value);
       return new MapValue(replacement, root);
     }
 
@@ -821,6 +810,7 @@ public sealed interface MooValue
 
         int comparison = ValueSemantics.STANDARD.compare(iterator.key, key, false);
         if (comparison == 0) {
+          iterator.key = key;
           iterator.value = value;
           break;
         }
@@ -861,7 +851,7 @@ public sealed interface MooValue
     }
 
     private static final class MapNode {
-      private final MooValue key;
+      private MooValue key;
       private MooValue value;
       private boolean red = true;
       private @Nullable MapNode left;
