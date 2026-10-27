@@ -25,3 +25,6 @@ Moves the existing SQLite owner into family.SqliteBuiltins and places its nine r
 Extends the existing File I/O mover with SQLite configuration and YAML activation/clone coverage. Removes the now-private handles method's unused argument.
 
 Validation: scoped MoveFileIoBuiltinsTest and the normal ExtractSqliteBuiltins migration runner. PR CI and independent review remain for the parent; depends on the File I/O extraction.
+
+## Login and layout repair ancestry
+Merged the latest coordinator runtime login-output and pinned-layout-boundary repairs normally, without conflicts or family source adaptations. Family implementations, services, dependencies, extraction mover, authored fixtures and YAML are unchanged. No local tests, CI, migration or repeated review ran for this mechanical integration. Parent owns publication, hosted checks and merge.
