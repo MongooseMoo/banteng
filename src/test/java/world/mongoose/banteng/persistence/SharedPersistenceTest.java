@@ -18,6 +18,7 @@ import java.util.Objects;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import world.mongoose.banteng.bytecode.MooCompiler;
 import world.mongoose.banteng.persistence.LambdaMooV17Codec.QueuedTask;
 import world.mongoose.banteng.persistence.LambdaMooV17Codec.SuspendedActivation;
 import world.mongoose.banteng.persistence.LambdaMooV17Codec.SuspendedTask;
@@ -80,7 +81,8 @@ final class SharedPersistenceTest {
     LambdaMooV17Codec codec = new LambdaMooV17Codec();
     for (String source : List.of("return 1;\r\n", "return 1;\n.\n")) {
       WorldVerb verb =
-          new WorldVerb("test", 0, new VerbPerms(4), ArgSpec.NONE, -1, ArgSpec.NONE, source);
+          new WorldVerb("test", 0, new VerbPerms(4), ArgSpec.NONE, -1, ArgSpec.NONE, source,
+              new MooCompiler().compile("return 1;"));
       WorldSnapshot permanent = new WorldTxn(List.of(), List.of(root(List.of(verb)))).snapshot();
       assertThrows(IOException.class, () -> codec.writeAtomic(directory.resolve("permanent.db"),
           permanent, List.of(), List.of()));

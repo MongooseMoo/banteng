@@ -25,9 +25,7 @@ import world.mongoose.banteng.value.MooValue;
 import world.mongoose.banteng.value.MooValue.ListValue;
 import world.mongoose.banteng.value.MooValue.ObjectValue;
 import world.mongoose.banteng.value.MooValue.StringValue;
-import world.mongoose.banteng.world.ArgSpec;
 import world.mongoose.banteng.world.PropertyPerms;
-import world.mongoose.banteng.world.VerbPerms;
 import world.mongoose.banteng.world.WorldObject;
 import world.mongoose.banteng.world.WorldProperty;
 import world.mongoose.banteng.world.WorldTxn;
@@ -361,21 +359,14 @@ public final class LambdaMooV5Reader {
   private static List<WorldObject> restoreObjects(
       Map<Long, RawObject> rawObjects,
       Map<Long, RepairedObject> repaired,
-      Map<ProgramSlot, String> programs) {
+      Map<ProgramSlot, String> programs) throws IOException {
     List<WorldObject> objects = new ArrayList<>(rawObjects.size());
     for (RawObject raw : rawObjects.values()) {
       List<WorldVerb> verbs = new ArrayList<>(raw.verbs().size());
       for (int index = 0; index < raw.verbs().size(); index++) {
         RawVerb verb = raw.verbs().get(index);
         verbs.add(
-            new WorldVerb(
-                verb.names(),
-                verb.owner(),
-                new VerbPerms(verb.permissions() & 15),
-                ArgSpec.fromValue((verb.permissions() >> 4) & 3),
-                verb.preposition(),
-                ArgSpec.fromValue((verb.permissions() >> 6) & 3),
-                programs.getOrDefault(new ProgramSlot(raw.id(), index), "")));
+            verb.compile(programs.getOrDefault(new ProgramSlot(raw.id(), index), "")));
       }
       RepairedObject topology = Objects.requireNonNull(repaired.get(raw.id()));
       objects.add(

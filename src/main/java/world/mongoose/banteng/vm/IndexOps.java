@@ -6,25 +6,20 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.OptionalLong;
 import world.mongoose.banteng.builtin.BuiltinCatalog;
 import world.mongoose.banteng.builtin.BuiltinResult;
-import world.mongoose.banteng.bytecode.BytecodeProgram;
-import world.mongoose.banteng.bytecode.MooCompiler;
 import world.mongoose.banteng.value.MooValue;
 import world.mongoose.banteng.value.ValueSemantics;
 import world.mongoose.banteng.value.MooValue.ErrorValue;
 import world.mongoose.banteng.value.MooValue.IntegerValue;
 import world.mongoose.banteng.value.MooValue.ListValue;
 import world.mongoose.banteng.value.MooValue.MapValue;
-import world.mongoose.banteng.value.MooValue.ObjectValue;
 import world.mongoose.banteng.value.MooValue.StringValue;
 import world.mongoose.banteng.value.MooValue.WaifValue;
 import world.mongoose.banteng.vm.VmState.Frame;
 import world.mongoose.banteng.vm.VmState.IndexContext;
 import world.mongoose.banteng.world.WorldObject;
 import world.mongoose.banteng.world.WorldTxn;
-import world.mongoose.banteng.world.WorldVerb;
 
 /** Indexing, slicing, and indexed-assignment operations. */
 final class IndexOps {
@@ -264,44 +259,15 @@ final class IndexOps {
       ErrorOps.raise(state, ErrorValue.E_TYPE, world);
       return;
     }
-    WorldVerb verb = world.verb(waif.classObject().value(), verbName).orElse(null);
-    OptionalLong location = world.verbLocation(waif.classObject().value(), verbName, true);
-    if (verb == null || location.isEmpty()) {
+    WorldTxn.ResolvedVerb verb =
+        world.resolveVerb(waif.classObject().value(), verbName, true).orElse(null);
+    if (verb == null) {
       ErrorOps.raise(state, ErrorValue.E_TYPE, world);
       return;
     }
-    BytecodeProgram program;
-    try {
-      program = new MooCompiler().compile(verb.programSource());
-    } catch (IllegalArgumentException error) {
-      ErrorOps.raise(state, ErrorValue.E_INVARG, world);
-      return;
-    }
-    Map<String, MooValue> locals = new LinkedHashMap<>();
-    locals.put("this", waif);
-    locals.put("player", frame.locals.getOrDefault("player", new ObjectValue(-1)));
-    locals.put("caller", frame.receiver);
-    locals.put("verb", StringValue.of(verbName));
-    locals.put("args", arguments);
-    locals.put("argstr", frame.locals.getOrDefault("argstr", StringValue.of("")));
-    locals.put("dobj", frame.locals.getOrDefault("dobj", new ObjectValue(-1)));
-    locals.put("dobjstr", frame.locals.getOrDefault("dobjstr", StringValue.of("")));
-    locals.put("prepstr", frame.locals.getOrDefault("prepstr", StringValue.of("")));
-    locals.put("iobj", frame.locals.getOrDefault("iobj", new ObjectValue(-1)));
-    locals.put("iobjstr", frame.locals.getOrDefault("iobjstr", StringValue.of("")));
     frame.instructionPointer++;
-    if (!state.pushVerbFrame(
-        program,
-        locals,
-        verb.owner(),
-        waif,
-        new ObjectValue(location.orElseThrow()),
-        OptionalLong.empty(),
-        OptionalLong.empty(),
-        OptionalLong.empty(),
-        verbName,
-        verb.names(),
-        verb.perms().debug())) {
+    if (!MooVm.callVerb(state, waif, verb, arguments, verbName, MooVm.VerbCallKind.NORMAL,
+        Optional.empty(), Optional.empty(), Optional.empty())) {
       ErrorOps.raise(state, ErrorValue.E_MAXREC, world, false);
     }
   }

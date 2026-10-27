@@ -143,8 +143,10 @@ final class VmSnapshotTest {
     Map<String, world.mongoose.banteng.value.MooValue> collidingLocals =
         Map.of("__banteng_create_result", new IntegerValue(77));
     assertTrue(
-        state.pushCreateInitializeFrame(
-            verbProgram, collidingLocals, 1, created, new ObjectValue(1), created));
+        state.pushFrame(verbProgram, collidingLocals, new VmState.FrameOrigin(
+            VmState.ReturnMode.VERB, 1, created, new ObjectValue(1), "", "", Optional.of(created),
+            OptionalLong.empty(), OptionalLong.empty(), OptionalLong.empty(), OptionalLong.empty(),
+            Optional.empty(), true)));
 
     VmState restored = VmState.restore(state.snapshot(0));
 
@@ -152,15 +154,10 @@ final class VmSnapshotTest {
     restored.finishFrame(new IntegerValue(99));
     assertEquals(created, restored.currentFrame().operandStack.pop());
     assertTrue(
-        restored.pushVerbFrame(
-            verbProgram,
-            collidingLocals,
-            1,
-            new ObjectValue(1),
-            new ObjectValue(1),
-            OptionalLong.empty(),
-            OptionalLong.empty(),
-            OptionalLong.empty()));
+        restored.pushFrame(verbProgram, collidingLocals, new VmState.FrameOrigin(
+            VmState.ReturnMode.VERB, 1, new ObjectValue(1), new ObjectValue(1), "", "",
+            Optional.empty(), OptionalLong.empty(), OptionalLong.empty(), OptionalLong.empty(),
+            OptionalLong.empty(), Optional.empty(), true)));
     assertTrue(restored.currentFrame().createReturnOverride.isEmpty());
     restored.finishFrame(new IntegerValue(99));
     assertEquals(new IntegerValue(99), restored.currentFrame().operandStack.pop());

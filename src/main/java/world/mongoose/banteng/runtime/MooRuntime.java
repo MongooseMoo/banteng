@@ -19,7 +19,6 @@ import java.util.OptionalLong;
 import java.util.Set;
 import java.util.StringTokenizer;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.LongSupplier;
@@ -64,6 +63,9 @@ import world.mongoose.banteng.world.WorldTxn;
 import world.mongoose.banteng.world.WorldVerb;
 import world.mongoose.banteng.world.WorldWaif;
 import world.mongoose.banteng.vm.MooVm;
+import world.mongoose.banteng.vm.MooVm.RootVerbCall;
+import world.mongoose.banteng.vm.MooVm.CommandArguments;
+import world.mongoose.banteng.world.WorldTxn.ResolvedVerb;
 import world.mongoose.banteng.vm.VmSnapshot;
 import world.mongoose.banteng.vm.VmState;
 
@@ -75,7 +77,6 @@ public final class MooRuntime implements AutoCloseable, SchedulerRuntime {
   static final long DEFAULT_BACKGROUND_SECONDS = 3;
   static final long DEFAULT_MAX_STACK_DEPTH = 50;
   static final long DEFAULT_CONNECT_TIMEOUT_SECONDS = 300;
-  private final Map<String, BytecodeProgram> compiledPrograms = new ConcurrentHashMap<>();
   private final BuiltinCatalog builtins;
   private final ServerLog serverLog;
   private final Optional<ListenerControl> listenerControl;
@@ -479,13 +480,13 @@ public final class MooRuntime implements AutoCloseable, SchedulerRuntime {
       return RuntimeStep.returned(List.of());
     }
     String signal = number == 10 ? "SIGUSR1" : "SIGUSR2";
-    WorldVerb handler = world().verb(0, "handle_signal").orElse(null);
+    ResolvedVerb handler = world().resolveVerb(0, "handle_signal", true).orElse(null);
     if (handler == null) {
       return signalDefault(signal);
     }
     return startStored(
         handler,
-        verbLocals(0, -1, -1, "handle_signal",
+        new RootVerbCall(0, -1, -1, "handle_signal",
             new ListValue(List.of(StringValue.of(signal))), ""),
         RuntimeContinuation.after(
             RuntimeTransition.SIGNAL_RETURN, 0, signal, List.of(), 0, 0, false));
@@ -496,7 +497,7 @@ public final class MooRuntime implements AutoCloseable, SchedulerRuntime {
       effects().add(RuntimeEffect.reopenLog());
       return RuntimeStep.returned(List.of());
     }
-    WorldVerb started = world().verb(0, "checkpoint_started").orElse(null);
+    ResolvedVerb started = world().resolveVerb(0, "checkpoint_started", true).orElse(null);
     String reason = signal.equals("SIGALRM") ? "due to timer." : "due to remote request signal.";
     if (started == null) {
       effects().add(RuntimeEffect.checkpoint(false, reason));
@@ -504,7 +505,7 @@ public final class MooRuntime implements AutoCloseable, SchedulerRuntime {
     }
     return startStored(
         started,
-        verbLocals(0, -1, -1, "checkpoint_started", new ListValue(List.of()), ""),
+        new RootVerbCall(0, -1, -1, "checkpoint_started", new ListValue(List.of()), ""),
         RuntimeContinuation.after(
             RuntimeTransition.CHECKPOINT_STARTED_RETURN, 0, reason,
             List.of(), 0, 0, false));
@@ -522,13 +523,13 @@ public final class MooRuntime implements AutoCloseable, SchedulerRuntime {
   }
 
   private RuntimeStep checkpointDisconnectNow(long player, long listener) {
-    WorldVerb disconnected = world().verb(listener, "user_disconnected").orElse(null);
+    ResolvedVerb disconnected = world().resolveVerb(listener, "user_disconnected", true).orElse(null);
     if (disconnected == null) {
       return RuntimeStep.returned(List.of());
     }
     return startStored(
         disconnected,
-        verbLocals(
+        new RootVerbCall(
             listener,
             player,
             -1,
@@ -563,32 +564,27 @@ public final class MooRuntime implements AutoCloseable, SchedulerRuntime {
       if (!(pending instanceof WaifValue waif)) {
         continue;
       }
-      WorldVerb recycle = world().verb(waif.classObject().value(), ":recycle").orElse(null);
+      ResolvedVerb recycle = world().resolveVerb(waif.classObject().value(), ":recycle", true).orElse(null);
       if (recycle == null) {
         continue;
       }
-      Map<String, MooValue> locals = new LinkedHashMap<>();
-      locals.put("this", waif);
-      locals.put("player", new ObjectValue(-1));
-      locals.put("caller", new ObjectValue(-1));
-      locals.put("verb", StringValue.of(":recycle"));
-      locals.put("args", new ListValue(List.of()));
-      locals.put("argstr", StringValue.of(""));
+      RootVerbCall locals = new RootVerbCall(waif, -1, -1, ":recycle",
+          new ListValue(List.of()), "", Optional.empty());
       return startStored(recycle, locals, RuntimeContinuation.waifFinalization(waif));
     }
-    WorldVerb started = world().verb(0, "server_started").orElse(null);
+    ResolvedVerb started = world().resolveVerb(0, "server_started", true).orElse(null);
     if (started == null) {
       return RuntimeStep.returned(List.of());
     }
     return startStored(
         started,
-        verbLocals(0, -1, -1, "server_started", new ListValue(List.of()), ""),
+        new RootVerbCall(0, -1, -1, "server_started", new ListValue(List.of()), ""),
         RuntimeContinuation.after(
             RuntimeTransition.SERVER_STARTED_RETURN, 0, "", List.of(), 0, 0, false));
   }
 
   private RuntimeStep checkpointFinishedNow(boolean success, boolean shutdown) {
-    WorldVerb finished = world().verb(0, "checkpoint_finished").orElse(null);
+    ResolvedVerb finished = world().resolveVerb(0, "checkpoint_finished", true).orElse(null);
     if (finished == null) {
       if (shutdown) {
         effects().add(RuntimeEffect.shutdown());
@@ -599,7 +595,7 @@ public final class MooRuntime implements AutoCloseable, SchedulerRuntime {
         new ListValue(List.of(new IntegerValue(success ? 1 : 0)));
     return startStored(
         finished,
-        verbLocals(0, -1, -1, "checkpoint_finished", arguments, ""),
+        new RootVerbCall(0, -1, -1, "checkpoint_finished", arguments, ""),
         RuntimeContinuation.after(
             RuntimeTransition.CHECKPOINT_FINISHED_RETURN,
             0,
@@ -682,12 +678,12 @@ public final class MooRuntime implements AutoCloseable, SchedulerRuntime {
         && disconnectedPlayer.isPresent()
         && disconnectedPlayer.orElseThrow() >= 0) {
       long player = disconnectedPlayer.orElseThrow();
-      Optional<WorldVerb> disconnected =
-          world().verb(connection.listenerHandler, "user_client_disconnected");
+      Optional<ResolvedVerb> disconnected =
+          world().resolveVerb(connection.listenerHandler, "user_client_disconnected", true);
       if (disconnected.isPresent()) {
         return startStored(
             disconnected.orElseThrow(),
-            verbLocals(
+            new RootVerbCall(
                 connection.listenerHandler,
                 player,
                 -1,
@@ -827,7 +823,7 @@ public final class MooRuntime implements AutoCloseable, SchedulerRuntime {
     }
     List<String> doCommandOutput = List.of();
     boolean handled = false;
-    Optional<WorldVerb> doCommand = world().verb(connection.listenerHandler, "do_command");
+    Optional<ResolvedVerb> doCommand = world().resolveVerb(connection.listenerHandler, "do_command", true);
     if (completedDoCommand.isPresent()) {
       VmState state = completedDoCommand.orElseThrow();
       doCommandOutput = state.output();
@@ -835,7 +831,7 @@ public final class MooRuntime implements AutoCloseable, SchedulerRuntime {
     } else if (doCommand.isPresent()) {
       return startStored(
           doCommand.orElseThrow(),
-          verbLocals(
+          new RootVerbCall(
               connection.listenerHandler,
               player,
               -1,
@@ -893,7 +889,7 @@ public final class MooRuntime implements AutoCloseable, SchedulerRuntime {
       boolean installed =
           compilation.program().isPresent()
               && world()
-                  .setVerbCode(connection.programmingObject, verbIndex, source)
+                  .setVerbCode(connection.programmingObject, verbIndex, source, compilation.program().orElseThrow())
                   .isOk();
       output.add(installed ? "Verb programmed." : "Verb not programmed.");
       clearProgramming(connection);
@@ -982,8 +978,8 @@ public final class MooRuntime implements AutoCloseable, SchedulerRuntime {
     List<String> words = parsed.words();
     if (!words.isEmpty()) {
       long room = world().object(player).orElseThrow().location();
-      Optional<WorldVerb> playerCommandVerb = world().verb(player, words.getFirst(), false);
-      Optional<WorldVerb> roomCommandVerb = world().verb(room, words.getFirst(), false);
+      Optional<ResolvedVerb> playerCommandVerb = world().resolveVerb(player, words.getFirst(), false);
+      Optional<ResolvedVerb> roomCommandVerb = world().resolveVerb(room, words.getFirst(), false);
       long huhReceiver = room;
       MooValue serverOptions = world().readObjectProperty(0, "server_options").orElse(null);
       if (serverOptions instanceof ObjectValue options
@@ -992,7 +988,7 @@ public final class MooRuntime implements AutoCloseable, SchedulerRuntime {
           && playerHuh.value() != 0) {
         huhReceiver = player;
       }
-      Optional<WorldVerb> huhVerb = world().verb(huhReceiver, "huh");
+      Optional<ResolvedVerb> huhVerb = world().resolveVerb(huhReceiver, "huh", true);
       {
         List<MooValue> arguments = new ArrayList<>();
         for (int index = 1; index < words.size(); index++) {
@@ -1004,17 +1000,17 @@ public final class MooRuntime implements AutoCloseable, SchedulerRuntime {
         String indirectObjectString = parsed.iobjstr();
         long directObject = CommandParser.matchObject(player, directObjectString, world());
         long indirectObject = CommandParser.matchObject(player, indirectObjectString, world());
-        WorldVerb selectedVerb = null;
+        ResolvedVerb selectedVerb = null;
         long thisObject = -1;
         if (playerCommandVerb.isPresent()) {
-          WorldVerb candidate = playerCommandVerb.orElseThrow();
-          ArgSpec directSpecification = candidate.dobj();
-          ArgSpec indirectSpecification = candidate.iobj();
+          ResolvedVerb candidate = playerCommandVerb.orElseThrow();
+          ArgSpec directSpecification = candidate.verb().dobj();
+          ArgSpec indirectSpecification = candidate.verb().iobj();
           ArgSpec directClassification = directObject == player ? ArgSpec.THIS : directObject == -1 ? ArgSpec.NONE : ArgSpec.ANY;
           ArgSpec indirectClassification = indirectObject == player ? ArgSpec.THIS : indirectObject == -1 ? ArgSpec.NONE : ArgSpec.ANY;
           boolean argumentSpecificationMatches =
               (directSpecification == ArgSpec.ANY || directSpecification == directClassification)
-                  && (candidate.preposition() == -2 || candidate.preposition() == preposition)
+                  && (candidate.verb().preposition() == -2 || candidate.verb().preposition() == preposition)
                   && (indirectSpecification == ArgSpec.ANY
                       || indirectSpecification == indirectClassification);
           if (argumentSpecificationMatches) {
@@ -1023,14 +1019,14 @@ public final class MooRuntime implements AutoCloseable, SchedulerRuntime {
           }
         }
         if (selectedVerb == null && roomCommandVerb.isPresent()) {
-          WorldVerb candidate = roomCommandVerb.orElseThrow();
-          ArgSpec directSpecification = candidate.dobj();
-          ArgSpec indirectSpecification = candidate.iobj();
+          ResolvedVerb candidate = roomCommandVerb.orElseThrow();
+          ArgSpec directSpecification = candidate.verb().dobj();
+          ArgSpec indirectSpecification = candidate.verb().iobj();
           ArgSpec directClassification = directObject == room ? ArgSpec.THIS : directObject == -1 ? ArgSpec.NONE : ArgSpec.ANY;
           ArgSpec indirectClassification = indirectObject == room ? ArgSpec.THIS : indirectObject == -1 ? ArgSpec.NONE : ArgSpec.ANY;
           boolean argumentSpecificationMatches =
               (directSpecification == ArgSpec.ANY || directSpecification == directClassification)
-                  && (candidate.preposition() == -2 || candidate.preposition() == preposition)
+                  && (candidate.verb().preposition() == -2 || candidate.verb().preposition() == preposition)
                   && (indirectSpecification == ArgSpec.ANY
                       || indirectSpecification == indirectClassification);
           if (argumentSpecificationMatches) {
@@ -1039,18 +1035,18 @@ public final class MooRuntime implements AutoCloseable, SchedulerRuntime {
           }
         }
         if (selectedVerb == null && directObject >= 0) {
-          Optional<WorldVerb> directCommandVerb =
-              world().verb(directObject, words.getFirst(), false);
+          Optional<ResolvedVerb> directCommandVerb =
+              world().resolveVerb(directObject, words.getFirst(), false);
           if (directCommandVerb.isPresent()) {
-            WorldVerb candidate = directCommandVerb.orElseThrow();
-            ArgSpec directSpecification = candidate.dobj();
-            ArgSpec indirectSpecification = candidate.iobj();
+            ResolvedVerb candidate = directCommandVerb.orElseThrow();
+            ArgSpec directSpecification = candidate.verb().dobj();
+            ArgSpec indirectSpecification = candidate.verb().iobj();
             ArgSpec directClassification = ArgSpec.THIS;
             ArgSpec indirectClassification =
                 indirectObject == directObject ? ArgSpec.THIS : indirectObject == -1 ? ArgSpec.NONE : ArgSpec.ANY;
             boolean argumentSpecificationMatches =
                 (directSpecification == ArgSpec.ANY || directSpecification == directClassification)
-                    && (candidate.preposition() == -2 || candidate.preposition() == preposition)
+                    && (candidate.verb().preposition() == -2 || candidate.verb().preposition() == preposition)
                     && (indirectSpecification == ArgSpec.ANY
                         || indirectSpecification == indirectClassification);
             if (argumentSpecificationMatches) {
@@ -1060,18 +1056,18 @@ public final class MooRuntime implements AutoCloseable, SchedulerRuntime {
           }
         }
         if (selectedVerb == null && indirectObject >= 0) {
-          Optional<WorldVerb> indirectCommandVerb =
-              world().verb(indirectObject, words.getFirst(), false);
+          Optional<ResolvedVerb> indirectCommandVerb =
+              world().resolveVerb(indirectObject, words.getFirst(), false);
           if (indirectCommandVerb.isPresent()) {
-            WorldVerb candidate = indirectCommandVerb.orElseThrow();
-            ArgSpec directSpecification = candidate.dobj();
-            ArgSpec indirectSpecification = candidate.iobj();
+            ResolvedVerb candidate = indirectCommandVerb.orElseThrow();
+            ArgSpec directSpecification = candidate.verb().dobj();
+            ArgSpec indirectSpecification = candidate.verb().iobj();
             ArgSpec directClassification =
                 directObject == indirectObject ? ArgSpec.THIS : directObject == -1 ? ArgSpec.NONE : ArgSpec.ANY;
             ArgSpec indirectClassification = ArgSpec.THIS;
             boolean argumentSpecificationMatches =
                 (directSpecification == ArgSpec.ANY || directSpecification == directClassification)
-                    && (candidate.preposition() == -2 || candidate.preposition() == preposition)
+                    && (candidate.verb().preposition() == -2 || candidate.verb().preposition() == preposition)
                     && (indirectSpecification == ArgSpec.ANY
                         || indirectSpecification == indirectClassification);
             if (argumentSpecificationMatches) {
@@ -1090,19 +1086,10 @@ public final class MooRuntime implements AutoCloseable, SchedulerRuntime {
           connection.suffix.ifPresent(output::add);
           return RuntimeStep.returned(output);
         }
-        Map<String, MooValue> locals =
-            verbLocals(
-                thisObject,
-                player,
-                player,
-                words.getFirst(),
-                new ListValue(arguments),
-                parsed.argstr());
-        locals.put("dobjstr", StringValue.of(directObjectString));
-        locals.put("prepstr", StringValue.of(prepositionString));
-        locals.put("iobjstr", StringValue.of(indirectObjectString));
-        locals.put("dobj", new ObjectValue(directObject));
-        locals.put("iobj", new ObjectValue(indirectObject));
+        RootVerbCall locals = new RootVerbCall(new ObjectValue(thisObject), player, player,
+            words.getFirst(), new ListValue(arguments), parsed.argstr(),
+            Optional.of(new CommandArguments(directObject, directObjectString,
+                prepositionString, indirectObject, indirectObjectString)));
         return startStored(
             selectedVerb,
             locals,
@@ -1136,8 +1123,8 @@ public final class MooRuntime implements AutoCloseable, SchedulerRuntime {
     ConnectionState connection = requireConnection(connectionId);
     connection.lastActivityNanos = nanoTime.getAsLong();
     long player = connectionRegistry().connectionPlayer(connectionId).orElseThrow();
-    Optional<WorldVerb> outOfBand =
-        world().verb(connection.listenerHandler, "do_out_of_band_command");
+    Optional<ResolvedVerb> outOfBand =
+        world().resolveVerb(connection.listenerHandler, "do_out_of_band_command", true);
     if (outOfBand.isEmpty()) {
       return RuntimeStep.returned(List.of());
     }
@@ -1147,7 +1134,7 @@ public final class MooRuntime implements AutoCloseable, SchedulerRuntime {
     }
     return startStored(
         outOfBand.orElseThrow(),
-        verbLocals(
+        new RootVerbCall(
             connection.listenerHandler,
             player,
             -1,
@@ -1238,13 +1225,13 @@ public final class MooRuntime implements AutoCloseable, SchedulerRuntime {
       }
     }
     if (trusted && line.isEmpty()) {
-      Optional<WorldVerb> blank = world().verb(connection.listenerHandler, "do_blank_command");
+      Optional<ResolvedVerb> blank = world().resolveVerb(connection.listenerHandler, "do_blank_command", true);
       if (blank.isEmpty()) {
         return RuntimeStep.returned(List.of());
       }
       return startStored(
           blank.orElseThrow(),
-          verbLocals(
+          new RootVerbCall(
               connection.listenerHandler,
             connectionId,
             -1,
@@ -1295,13 +1282,13 @@ public final class MooRuntime implements AutoCloseable, SchedulerRuntime {
         loginLine = "";
       }
     }
-    WorldVerb login = world().verb(connection.listenerHandler, "do_login_command").orElseThrow();
+    ResolvedVerb login = world().resolveVerb(connection.listenerHandler, "do_login_command", true).orElseThrow();
     List<MooValue> arguments = new ArrayList<>();
     for (String word : CommandParser.words(loginLine)) {
       arguments.add(StringValue.of(word));
     }
-    Map<String, MooValue> locals =
-        verbLocals(
+    RootVerbCall locals =
+        new RootVerbCall(
             connection.listenerHandler,
             connectionId,
             -1,
@@ -1387,12 +1374,12 @@ public final class MooRuntime implements AutoCloseable, SchedulerRuntime {
         connectionRegistry().closeConnection(existingConnectionId);
 
         if (sameListener) {
-          Optional<WorldVerb> userReconnected =
-              world().verb(connection.listenerHandler, "user_reconnected");
+          Optional<ResolvedVerb> userReconnected =
+              world().resolveVerb(connection.listenerHandler, "user_reconnected", true);
           if (userReconnected.isPresent()) {
             return startStored(
                 userReconnected.orElseThrow(),
-                verbLocals(
+                new RootVerbCall(
                     connection.listenerHandler,
                     switchedPlayer,
                     -1,
@@ -1410,8 +1397,8 @@ public final class MooRuntime implements AutoCloseable, SchedulerRuntime {
           }
           return RuntimeStep.returned(wroteRedirects ? List.of() : newLines);
         }
-        Optional<WorldVerb> userDisconnected =
-            world().verb(redirectedConnection.listenerHandler, "user_client_disconnected");
+        Optional<ResolvedVerb> userDisconnected =
+            world().resolveVerb(redirectedConnection.listenerHandler, "user_client_disconnected", true);
         RuntimeContinuation association =
             RuntimeContinuation.after(
                 RuntimeTransition.LOGIN_OLD_CLIENT_DISCONNECTED_THEN_ASSOCIATE,
@@ -1424,7 +1411,7 @@ public final class MooRuntime implements AutoCloseable, SchedulerRuntime {
         if (userDisconnected.isPresent()) {
           return startStored(
               userDisconnected.orElseThrow(),
-              verbLocals(
+              new RootVerbCall(
                   redirectedConnection.listenerHandler,
                   switchedPlayer,
                   -1,
@@ -1441,11 +1428,11 @@ public final class MooRuntime implements AutoCloseable, SchedulerRuntime {
       }
       if (returnedPlayerAssociation) {
         if (switchedPlayer > maximumObjectIdBeforeLogin) {
-          Optional<WorldVerb> userCreated = world().verb(connection.listenerHandler, "user_created");
+          Optional<ResolvedVerb> userCreated = world().resolveVerb(connection.listenerHandler, "user_created", true);
           if (userCreated.isPresent()) {
             return startStored(
                 userCreated.orElseThrow(),
-                verbLocals(
+                new RootVerbCall(
                     connection.listenerHandler,
                     switchedPlayer,
                     -1,
@@ -1500,13 +1487,13 @@ public final class MooRuntime implements AutoCloseable, SchedulerRuntime {
       RuntimeTransition transition,
       boolean suppressOutput) {
     ConnectionState connection = requireConnection(connectionId);
-    Optional<WorldVerb> userConnected = world().verb(connection.listenerHandler, "user_connected");
+    Optional<ResolvedVerb> userConnected = world().resolveVerb(connection.listenerHandler, "user_connected", true);
     if (userConnected.isEmpty()) {
       return RuntimeStep.returned(suppressOutput ? List.of() : output);
     }
     return startStored(
         userConnected.orElseThrow(),
-        verbLocals(
+        new RootVerbCall(
             connection.listenerHandler,
             player,
             -1,
@@ -1595,12 +1582,12 @@ public final class MooRuntime implements AutoCloseable, SchedulerRuntime {
     if (connection == null) {
       throw new IllegalStateException("timed-out connection disappeared within attempt");
     }
-    Optional<WorldVerb> disconnected =
-        world().verb(connection.listenerHandler, "user_disconnected");
+    Optional<ResolvedVerb> disconnected =
+        world().resolveVerb(connection.listenerHandler, "user_disconnected", true);
     if (disconnected.isPresent()) {
       return startStored(
           disconnected.orElseThrow(),
-          verbLocals(
+          new RootVerbCall(
               connection.listenerHandler,
               connectionId,
               -1,
@@ -1631,7 +1618,7 @@ public final class MooRuntime implements AutoCloseable, SchedulerRuntime {
   private RuntimeStep startTaskTimeout(RuntimeContinuation continuation) {
     VmSnapshot timedOut = continuation.timeoutSnapshot().orElseThrow();
     String resource = timedOut.outcome() == VmState.Outcome.SECONDS_EXHAUSTED ? "seconds" : "ticks";
-    Optional<WorldVerb> handler = world().verb(0, "handle_task_timeout");
+    Optional<ResolvedVerb> handler = world().resolveVerb(0, "handle_task_timeout", true);
     if (handler.isEmpty()) {
       return RuntimeStep.returned(continuation.output());
     }
@@ -1672,37 +1659,12 @@ public final class MooRuntime implements AutoCloseable, SchedulerRuntime {
         new ListValue(List.of(StringValue.of(resource), new ListValue(stack), traceback));
     return startStored(
         handler.orElseThrow(),
-        verbLocals(0, continuation.first(), -1, "handle_task_timeout", arguments, ""),
+        new RootVerbCall(0, continuation.first(), -1, "handle_task_timeout", arguments, ""),
         RuntimeContinuation.timeoutReturn(continuation.output()));
   }
 
   private RuntimeStep startStored(
-      WorldVerb verb, Map<String, MooValue> locals, RuntimeContinuation continuation) {
-    BytecodeProgram program =
-        compiledPrograms.computeIfAbsent(
-            verb.programSource(), source -> new MooCompiler().compile(source));
-    MooValue receiver = locals.getOrDefault("this", new ObjectValue(-1));
-    String verbName =
-        locals.get("verb") instanceof StringValue name
-            ? name.text()
-            : "";
-    MooValue verbLocation;
-    if (receiver instanceof ObjectValue object) {
-      verbLocation =
-          new ObjectValue(
-              world().verbLocation(object.value(), verbName, true).orElse(object.value()));
-    } else if (receiver instanceof AnonymousObjectValue anonymous) {
-      verbLocation = world().verbLocation(anonymous, verbName, true).orElse(anonymous);
-    } else if (receiver instanceof WaifValue waif) {
-      String lookupName = verbName.startsWith(":") ? verbName : ":" + verbName;
-      verbLocation =
-          new ObjectValue(
-              world()
-                  .verbLocation(waif.classObject().value(), lookupName, true)
-                  .orElse(waif.classObject().value()));
-    } else {
-      verbLocation = new ObjectValue(-1);
-    }
+      ResolvedVerb resolution, RootVerbCall call, RuntimeContinuation continuation) {
     MooValue serverOptions = world().readObjectProperty(0, "server_options").orElse(null);
     long foregroundTicks = DEFAULT_FOREGROUND_TICKS;
     long foregroundSeconds = DEFAULT_FOREGROUND_SECONDS;
@@ -1721,20 +1683,14 @@ public final class MooRuntime implements AutoCloseable, SchedulerRuntime {
         maxStackDepth = Math.max(DEFAULT_MAX_STACK_DEPTH, depth.value());
       }
     }
-    VmState root =
-        new VmState(
-            locals,
-            verb.owner(),
-            verbLocation,
-            foregroundTicks,
-            foregroundSeconds,
-            maxStackDepth,
-            verb.perms().debug(),
-            verbName,
-            verb.names());
-    long taskPlayer =
-        locals.get("player") instanceof ObjectValue player ? player.value() : Long.MIN_VALUE;
-    return RuntimeStep.vm(program, root.snapshot(), taskPlayer, continuation);
+    VmState root = new VmState(Map.of(), resolution.verb().owner(), resolution.location(),
+        foregroundTicks, foregroundSeconds, maxStackDepth, resolution.verb().perms().debug(),
+        call.verb(), resolution.verb().names());
+    if (!MooVm.callVerb(root, call.receiver(), resolution, call.arguments(), call.verb(),
+        MooVm.VerbCallKind.ROOT, Optional.empty(), Optional.empty(), Optional.of(call))) {
+      throw new IllegalStateException("root verb exceeds empty task stack");
+    }
+    return RuntimeStep.vm(resolution.verb().program(), root.snapshot(), call.player(), continuation);
   }
 
   @Override
@@ -1806,7 +1762,7 @@ public final class MooRuntime implements AutoCloseable, SchedulerRuntime {
         effects().add(RuntimeEffect.panic(request.message()));
         continue;
       }
-      WorldVerb started = world().verb(0, "checkpoint_started").orElse(null);
+      ResolvedVerb started = world().resolveVerb(0, "checkpoint_started", true).orElse(null);
       if (started == null) {
         effects().add(RuntimeEffect.checkpoint(request.shutdown()));
       } else {
@@ -1814,7 +1770,7 @@ public final class MooRuntime implements AutoCloseable, SchedulerRuntime {
             .add(
                 startStored(
                     started,
-                    verbLocals(
+                    new RootVerbCall(
                         0, -1, -1, "checkpoint_started", new ListValue(List.of()), ""),
                     RuntimeContinuation.after(
                         RuntimeTransition.CHECKPOINT_STARTED_RETURN,
@@ -1848,19 +1804,14 @@ public final class MooRuntime implements AutoCloseable, SchedulerRuntime {
       }
     }
     for (AnonymousObjectValue anonymous : finalizing) {
-      WorldVerb recycle = world().verb(anonymous, "recycle", true).orElse(null);
+      ResolvedVerb recycle = world().resolveVerb(anonymous, "recycle", true).orElse(null);
       if (recycle == null) {
         world().removeAnonymousObject(anonymous);
         continue;
       }
       remaining.add(anonymous);
-      Map<String, MooValue> locals = new LinkedHashMap<>();
-      locals.put("this", anonymous);
-      locals.put("player", new ObjectValue(-1));
-      locals.put("caller", new ObjectValue(-1));
-      locals.put("verb", StringValue.of("recycle"));
-      locals.put("args", new ListValue(List.of()));
-      locals.put("argstr", StringValue.of(""));
+      RootVerbCall locals = new RootVerbCall(anonymous, -1, -1, "recycle",
+          new ListValue(List.of()), "", Optional.empty());
       spawnedSteps()
           .add(
               startStored(
@@ -1869,19 +1820,14 @@ public final class MooRuntime implements AutoCloseable, SchedulerRuntime {
                   RuntimeContinuation.anonymousFinalization(anonymous)));
     }
     for (WaifValue waif : finalizingWaifs) {
-      WorldVerb recycle = world().verb(waif.classObject().value(), ":recycle").orElse(null);
+      ResolvedVerb recycle = world().resolveVerb(waif.classObject().value(), ":recycle", true).orElse(null);
       if (recycle == null) {
         removeWaifComponent(waif);
         continue;
       }
       remaining.add(waif);
-      Map<String, MooValue> locals = new LinkedHashMap<>();
-      locals.put("this", waif);
-      locals.put("player", new ObjectValue(-1));
-      locals.put("caller", new ObjectValue(-1));
-      locals.put("verb", StringValue.of(":recycle"));
-      locals.put("args", new ListValue(List.of()));
-      locals.put("argstr", StringValue.of(""));
+      RootVerbCall locals = new RootVerbCall(waif, -1, -1, ":recycle",
+          new ListValue(List.of()), "", Optional.empty());
       spawnedSteps()
           .add(
               startStored(
@@ -2702,13 +2648,13 @@ public final class MooRuntime implements AutoCloseable, SchedulerRuntime {
       }
       connections().remove(connectionId);
       connectionRegistry().closeConnection(connectionId);
-      Optional<WorldVerb> disconnected = world().verb(listenerHandler, "user_disconnected");
+      Optional<ResolvedVerb> disconnected = world().resolveVerb(listenerHandler, "user_disconnected", true);
       if (disconnected.isPresent()) {
         spawnedSteps()
             .add(
                 startStored(
                     disconnected.orElseThrow(),
-                    verbLocals(
+                    new RootVerbCall(
                         listenerHandler,
                         disconnectedPlayer,
                         -1,
@@ -2756,23 +2702,6 @@ public final class MooRuntime implements AutoCloseable, SchedulerRuntime {
         effects().add(RuntimeEffect.boot(connectionId, lines));
       }
     }
-  }
-
-  private static Map<String, MooValue> verbLocals(
-      long thisObject,
-      long player,
-      long caller,
-      String verb,
-      ListValue arguments,
-      String argumentString) {
-    Map<String, MooValue> locals = new LinkedHashMap<>();
-    locals.put("this", new ObjectValue(thisObject));
-    locals.put("player", new ObjectValue(player));
-    locals.put("caller", new ObjectValue(caller));
-    locals.put("verb", StringValue.of(verb));
-    locals.put("args", arguments);
-    locals.put("argstr", StringValue.of(argumentString));
-    return locals;
   }
 
   @Override
@@ -2963,7 +2892,7 @@ public final class MooRuntime implements AutoCloseable, SchedulerRuntime {
   @Override
   public RuntimeStep startUncaughtError(VmState state) {
     List<String> formatted = formatUncaughtException(state);
-    WorldVerb handler = world().verb(0, "handle_uncaught_error").orElse(null);
+    ResolvedVerb handler = world().resolveVerb(0, "handle_uncaught_error", true).orElse(null);
     if (handler == null
         || state.returnValue().isEmpty()
         || !(state.returnValue().orElseThrow() instanceof ListValue exception)
@@ -2989,7 +2918,7 @@ public final class MooRuntime implements AutoCloseable, SchedulerRuntime {
             : -1;
     return startStored(
         handler,
-        verbLocals(0, player, -1, "handle_uncaught_error", arguments, ""),
+        new RootVerbCall(0, player, -1, "handle_uncaught_error", arguments, ""),
         RuntimeContinuation.after(
             RuntimeTransition.UNCAUGHT_HANDLER_RETURN, 0, "", List.of(), 0, 0, false));
   }

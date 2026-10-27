@@ -48,9 +48,7 @@ import world.mongoose.banteng.value.MooValue.MapValue;
 import world.mongoose.banteng.value.MooValue.ObjectValue;
 import world.mongoose.banteng.value.MooValue.StringValue;
 import world.mongoose.banteng.value.MooValue.WaifValue;
-import world.mongoose.banteng.world.ArgSpec;
 import world.mongoose.banteng.world.PropertyPerms;
-import world.mongoose.banteng.world.VerbPerms;
 import world.mongoose.banteng.world.WorldObject;
 import world.mongoose.banteng.world.WorldAnonymousObject;
 import world.mongoose.banteng.world.WorldProperty;
@@ -1394,14 +1392,7 @@ public final class LambdaMooV17Codec {
         RawVerb verb = object.verbs().get(index);
         String source = programs.getOrDefault(new ProgramSlot(object.id(), index), "");
         verbs.add(
-            new WorldVerb(
-                verb.names(),
-                verb.owner(),
-                new VerbPerms(verb.permissions() & 15),
-                ArgSpec.fromValue((verb.permissions() >> 4) & 3),
-                verb.preposition(),
-                ArgSpec.fromValue((verb.permissions() >> 6) & 3),
-                source));
+            verb.compile(source));
       }
       restored.add(
           new WorldObject(
@@ -1441,14 +1432,7 @@ public final class LambdaMooV17Codec {
         RawVerb verb = object.verbs().get(index);
         String source = programs.getOrDefault(new ProgramSlot(object.id(), index), "");
         verbs.add(
-            new WorldVerb(
-                verb.names(),
-                verb.owner(),
-                new VerbPerms(verb.permissions() & 15),
-                ArgSpec.fromValue((verb.permissions() >> 4) & 3),
-                verb.preposition(),
-                ArgSpec.fromValue((verb.permissions() >> 6) & 3),
-                source));
+            verb.compile(source));
       }
       restored.put(
           entry.getValue(),

@@ -3760,7 +3760,7 @@ public final class BuiltinCatalog {
     }
     List<MooValue> lines = new ArrayList<>();
     lines.add(StringValue.of("Main code vector:"));
-    new MooCompiler().compile(verb.programSource()).disassemble().lines()
+    verb.program().disassemble().lines()
             .map(StringValue::of)
             .map(MooValue.class::cast)
             .forEach(lines::add);

@@ -1,22 +1,16 @@
 package world.mongoose.banteng.vm;
 
-import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Map;
 import world.mongoose.banteng.builtin.BuiltinResult;
-import world.mongoose.banteng.bytecode.BytecodeProgram;
-import world.mongoose.banteng.bytecode.MooCompiler;
 import world.mongoose.banteng.value.MooValue;
 import world.mongoose.banteng.value.MooValue.ErrorValue;
 import world.mongoose.banteng.value.MooValue.IntegerValue;
 import world.mongoose.banteng.value.MooValue.ListValue;
 import world.mongoose.banteng.value.MooValue.ObjectValue;
-import world.mongoose.banteng.value.MooValue.StringValue;
 import world.mongoose.banteng.vm.VmState.Frame;
 import world.mongoose.banteng.vm.VmState.ReturnMode;
 import world.mongoose.banteng.world.WorldObject;
 import world.mongoose.banteng.world.WorldTxn;
-import world.mongoose.banteng.world.WorldVerb;
 
 /** Resumable accept, exit, and entry hooks for move(). */
 final class MoveOps {
@@ -89,27 +83,19 @@ final class MoveOps {
   private static boolean callHook(
       long receiver, String name, ReturnMode phase, BuiltinResult.Move move,
       VmState state, WorldTxn world) {
-    WorldVerb hook = world.verb(receiver, name).orElse(null);
+    WorldTxn.ResolvedVerb hook = world.resolveVerb(receiver, name, true).orElse(null);
     if (hook == null) {
       return false;
     }
-    BytecodeProgram program;
-    try {
-      program = new MooCompiler().compile(hook.programSource());
-    } catch (IllegalArgumentException error) {
-      ErrorOps.raise(state, ErrorValue.E_INVARG, world, false);
-      return true;
-    }
-    Frame caller = state.currentFrame();
-    Map<String, MooValue> locals = new LinkedHashMap<>();
-    locals.put("this", new ObjectValue(receiver));
-    locals.put("player", caller.locals.getOrDefault("player", new ObjectValue(-1)));
-    locals.put("caller", caller.receiver);
-    locals.put("verb", StringValue.of(name));
-    locals.put("args", new ListValue(List.of(new ObjectValue(move.object()))));
-    locals.put("argstr", StringValue.of(""));
-    long location = world.verbLocation(receiver, name, true).orElse(receiver);
-    if (!state.pushMoveFrame(program, locals, hook, receiver, location, phase, move)) {
+    MooVm.VerbCallKind kind = switch (phase) {
+      case MOVE_ACCEPT -> MooVm.VerbCallKind.HOOK_ACCEPT;
+      case MOVE_EXIT -> MooVm.VerbCallKind.HOOK_EXIT;
+      case MOVE_ENTER -> MooVm.VerbCallKind.HOOK_ENTER;
+      default -> throw new IllegalArgumentException("invalid move hook phase");
+    };
+    if (!MooVm.callVerb(state, new ObjectValue(receiver), hook,
+        new ListValue(List.of(new ObjectValue(move.object()))), name, kind,
+        java.util.Optional.empty(), java.util.Optional.of(move), java.util.Optional.empty())) {
       ErrorOps.raise(state, ErrorValue.E_MAXREC, world, false);
     }
     return true;
