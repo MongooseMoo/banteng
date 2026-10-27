@@ -20,6 +20,7 @@ final class MoveBuiltinFamilyTest {
     var files = JavaParser.fromJavaVersion().build().parse(context, """
         package world.mongoose.banteng.builtin;
         import java.util.List;
+        import world.mongoose.banteng.world.SuspendedActivation;
         class BuiltinCatalog {
           private static final Set<ArgType> NUMBER = Set.of(ArgType.NUMBER);
           void buildManifest() {
@@ -34,7 +35,18 @@ final class MoveBuiltinFamilyTest {
           private BuiltinResult configureThreadPool(BuiltinCall call) { return call.hosts().threadPool().invoke(call); }
           private BuiltinResult callFunction(BuiltinCall call) {
             BuiltinSpec target = specs.get(name);
-            return invoke(target, call);
+            BuiltinResult result = invoke(target, call);
+            return switch (result) {
+              case BuiltinResult.Initialize initialized -> new BuiltinResult.Initialize(initialized.created(),
+                  initialized.arguments(), initialized.continuation().map(SuspendedActivation.CallFunctionContinuation::new));
+              case BuiltinResult.DynamicEval evaluated -> new BuiltinResult.DynamicEval(evaluated.program(),
+                  new SuspendedActivation.CallFunctionContinuation(evaluated.continuation()));
+              case BuiltinResult.Move moved -> new BuiltinResult.Move(moved.object(), moved.destination(), moved.position(),
+                  new SuspendedActivation.CallFunctionContinuation(moved.continuation()));
+              case BuiltinResult.Recycle recycled -> new BuiltinResult.Recycle(recycled.object(),
+                  new SuspendedActivation.CallFunctionContinuation(recycled.continuation()));
+              default -> result;
+            };
           }
           private BuiltinResult dynamicEval(List<MooValue> arguments) {
             return compile(name -> spec(name).isPresent());
@@ -65,7 +77,12 @@ final class MoveBuiltinFamilyTest {
     assertTrue(family.contains("private static BuiltinResult configureThreadPool"));
     assertTrue(family.contains("private static BuiltinResult callFunction(BuiltinCall call, BuiltinCatalog catalog)"));
     assertTrue(family.contains("catalog.spec(name).orElse(null)"));
-    assertTrue(family.contains("catalog.invoke(target, call)"));
+    assertTrue(family.contains("BuiltinResult result = catalog.invoke(target, call)"));
+    assertTrue(family.contains("import world.mongoose.banteng.world.SuspendedActivation;"));
+    assertTrue(family.contains("initialized.continuation().map(SuspendedActivation.CallFunctionContinuation::new)"));
+    assertTrue(family.contains("new SuspendedActivation.CallFunctionContinuation(evaluated.continuation())"));
+    assertTrue(family.contains("new SuspendedActivation.CallFunctionContinuation(moved.continuation())"));
+    assertTrue(family.contains("new SuspendedActivation.CallFunctionContinuation(recycled.continuation())"));
     assertTrue(family.contains("name -> catalog.spec(name).isPresent()"));
     assertTrue(family.contains(".permission(BuiltinPermissionRule.WIZARD_ONLY).irrevocable()"));
     assertTrue(family.contains(".permission(BuiltinPermissionRule.PROGRAMMER_ONLY)"));

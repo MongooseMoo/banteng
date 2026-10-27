@@ -24,6 +24,7 @@ import world.mongoose.banteng.value.MooValue.ObjectValue;
 import world.mongoose.banteng.value.MooValue.StringValue;
 import world.mongoose.banteng.world.WorldAnonymousObject;
 import world.mongoose.banteng.world.WorldTxn;
+import world.mongoose.banteng.world.SuspendedActivation;
 
 /** Owns builtin registrations and implementations for this family. */
 public final class TaskBuiltins {
@@ -117,11 +118,22 @@ public final class TaskBuiltins {
         if (target == null) {
             return BuiltinResult.error(ErrorValue.E_INVARG);
         }
-        return catalog.invoke(target, new BuiltinCall(
+        BuiltinResult result = catalog.invoke(target, new BuiltinCall(
                 arguments.subList(1, arguments.size()), call.world(), call.programmer(),
                 call.taskLocal(), call.taskId(), call.remainingTicks(), call.remainingSeconds(),
                 call.receiver(), call.callerProgrammer(), call.callers(), call.threadMode(),
                 call.stagedBufferedOutputLength(), call.hosts()));
+        return switch (result) {
+            case BuiltinResult.Initialize initialized -> new BuiltinResult.Initialize(initialized.created(),
+                    initialized.arguments(), initialized.continuation().map(SuspendedActivation.CallFunctionContinuation::new));
+            case BuiltinResult.DynamicEval evaluated -> new BuiltinResult.DynamicEval(evaluated.program(),
+                    new SuspendedActivation.CallFunctionContinuation(evaluated.continuation()));
+            case BuiltinResult.Move moved -> new BuiltinResult.Move(moved.object(), moved.destination(), moved.position(),
+                    new SuspendedActivation.CallFunctionContinuation(moved.continuation()));
+            case BuiltinResult.Recycle recycled -> new BuiltinResult.Recycle(recycled.object(),
+                    new SuspendedActivation.CallFunctionContinuation(recycled.continuation()));
+            default -> result;
+        };
     }
 
     private static BuiltinResult suspend(List<MooValue> arguments) {

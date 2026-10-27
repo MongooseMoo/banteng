@@ -251,7 +251,7 @@ public final class MoveBuiltinFamily extends ScanningRecipe<MoveBuiltinFamily.Me
           .replace("private BuiltinResult configureThreadPool(", "private static BuiltinResult configureThreadPool(")
           .replace("private BuiltinResult callFunction(BuiltinCall call)", "private static BuiltinResult callFunction(BuiltinCall call, BuiltinCatalog catalog)")
           .replace("BuiltinSpec target = specs.get(name);", "BuiltinSpec target = catalog.spec(name).orElse(null);")
-          .replace("return invoke(target,", "return catalog.invoke(target,")
+          .replace(" invoke(target,", " catalog.invoke(target,")
           .replace("private BuiltinResult dynamicEval(List<MooValue> arguments)", "private static BuiltinResult dynamicEval(List<MooValue> arguments, BuiltinCatalog catalog)")
           .replace("name -> spec(name).isPresent()", "name -> catalog.spec(name).isPresent()");
       generated = ((J.CompilationUnit) JavaParser.fromJavaVersion().build().parse(context, source)

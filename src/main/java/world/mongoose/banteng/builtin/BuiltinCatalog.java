@@ -14,6 +14,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
+import world.mongoose.banteng.world.SuspendedActivation;
 import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.Random;
@@ -664,7 +665,7 @@ public final class BuiltinCatalog {
             List.of(new CallShape(List.of(OBJECT, OBJECT), List.of(INTEGER), Optional.empty())),
             BuiltinPermissionRule.WIZARD_ONLY,
             false,
-            call -> switchPlayer(call.hosts(), call.arguments(), call.world())));
+            this::switchPlayer));
     TaskBuiltins.registerGroup2(entries, this);
     entries.add(
         new BuiltinSpec(
@@ -2412,7 +2413,7 @@ public final class BuiltinCatalog {
         return BuiltinResult.error(ErrorValue.E_INVARG);
       }
       return world.verb(created, "initialize", true).isPresent()
-          ? new BuiltinResult.Initialize(created, initializeArguments)
+          ? new BuiltinResult.Initialize(created, initializeArguments, Optional.empty())
           : BuiltinResult.value(created);
     }
     final WorldObject created;
@@ -2423,7 +2424,8 @@ public final class BuiltinCatalog {
     }
     ObjectValue identity = new ObjectValue(created.id());
     return world.verb(created.id(), "initialize", true).isPresent()
-        ? new BuiltinResult.Initialize(identity, initializeArguments)
+        ? new BuiltinResult.Initialize(identity, initializeArguments,
+            Optional.of(new SuspendedActivation.CreateContinuation(false, identity.value())))
         : BuiltinResult.value(identity);
   }
 
@@ -2458,7 +2460,8 @@ public final class BuiltinCatalog {
     }
     ObjectValue identity = new ObjectValue(created.id());
     return world.verb(created.id(), "initialize", true).isPresent()
-        ? new BuiltinResult.Initialize(identity, new ListValue(List.of()))
+        ? new BuiltinResult.Initialize(identity, new ListValue(List.of()),
+            Optional.of(new SuspendedActivation.CreateContinuation(true, identity.value())))
         : BuiltinResult.value(identity);
   }
 
@@ -3732,15 +3735,15 @@ public final class BuiltinCatalog {
     return BuiltinResult.error(ErrorValue.E_TYPE);
   }
 
-  private BuiltinResult switchPlayer(BuiltinHosts invocationHosts, List<MooValue> arguments, WorldTxn world) {
-    long oldPlayer = ((ObjectValue) arguments.getFirst()).value();
-    long newPlayer = ((ObjectValue) arguments.get(1)).value();
+  private BuiltinResult switchPlayer(BuiltinCall call) {
+    long oldPlayer = ((ObjectValue) call.arguments().getFirst()).value();
+    long newPlayer = ((ObjectValue) call.arguments().get(1)).value();
     if (oldPlayer == newPlayer
-        || connections(invocationHosts).connectionId(oldPlayer).isEmpty()
-        || !world.players().contains(newPlayer)) {
+        || connections(call.hosts()).connectionId(oldPlayer).isEmpty()
+        || !call.world().players().contains(newPlayer)) {
       return BuiltinResult.error(ErrorValue.E_INVARG);
     }
-    return new BuiltinResult.SwitchPlayer(newPlayer);
+    return call.hosts().switchPlayer().invoke(call);
   }
 
   private BuiltinResult notifyLine(BuiltinHosts invocationHosts,

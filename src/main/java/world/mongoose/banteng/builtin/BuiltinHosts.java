@@ -30,6 +30,7 @@ public record BuiltinHosts(
     BuiltinHandler flushInput,
     BuiltinHandler outputDelimiters,
     BuiltinHandler queueInfo,
+    BuiltinHandler switchPlayer,
     BuiltinHandler taskStack,
     BuiltinHandler resumeTask,
     ServerLog serverLog,
@@ -53,6 +54,7 @@ public record BuiltinHosts(
     Objects.requireNonNull(flushInput, "flushInput");
     Objects.requireNonNull(outputDelimiters, "outputDelimiters");
     Objects.requireNonNull(queueInfo, "queueInfo");
+    Objects.requireNonNull(switchPlayer, "switchPlayer");
     Objects.requireNonNull(taskStack, "taskStack");
     Objects.requireNonNull(resumeTask, "resumeTask");
     Objects.requireNonNull(serverLog, "serverLog");
@@ -93,6 +95,7 @@ public record BuiltinHosts(
     private BuiltinHandler queueInfo =
         call -> BuiltinResult.value(new ListValue(List.of()));
     private BuiltinHandler taskStack = Builder::invalidArgument;
+    private BuiltinHandler switchPlayer = Builder::invalidArgument;
     private BuiltinHandler resumeTask = Builder::invalidArgument;
     private ServerLog serverLog = ServerLog.stderr(System.Logger.Level.INFO);
     private Supplier<ConnectionRegistryAccess> connections =
@@ -182,6 +185,11 @@ public record BuiltinHosts(
       return this;
     }
 
+    public Builder switchPlayer(BuiltinHandler value) {
+      switchPlayer = value;
+      return this;
+    }
+
     public Builder resumeTask(BuiltinHandler value) {
       resumeTask = value;
       return this;
@@ -224,6 +232,7 @@ public record BuiltinHosts(
           flushInput,
           outputDelimiters,
           queueInfo,
+          switchPlayer,
           taskStack,
           resumeTask,
           serverLog,

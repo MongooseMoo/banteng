@@ -114,7 +114,7 @@ public final class DurableTaskCodec {
         activation.debug(),
         activation.threadMode(),
         site.call().resumeInstructionPointer(),
-        Optional.empty());
+        Optional.empty(), activation.builtinContinuation(), activation.taskPlayer());
   }
 
   private record BuiltinState(VmSnapshot.ReturnMode mode, Optional<MooValue> create,
@@ -490,8 +490,7 @@ public final class DurableTaskCodec {
   }
 
   public static QueuedTask exportQueuedTask(
-      long taskId, long scheduledEpochMilli, BytecodeProgram program, VmSnapshot snapshot,
-      long taskPlayer) {
+      long taskId, long scheduledEpochMilli, BytecodeProgram program, VmSnapshot snapshot) {
     if (program.source().isEmpty()) {
       throw new IllegalStateException("queued fork has no durable source");
     }
@@ -505,13 +504,13 @@ public final class DurableTaskCodec {
         snapshot.initialLocals(),
         snapshot.initialProgrammer(),
         snapshot.initialVerbLocation(),
-        taskPlayer,
+        snapshot.initialPlayer(),
         snapshot.frames().isEmpty() || snapshot.frames().getFirst().debug(),
         snapshot.frames().isEmpty() || snapshot.frames().getFirst().threadMode());
   }
 
   public static SuspendedTask durableSuspension(
-      long taskId, long scheduledEpochMilli, VmSnapshot snapshot, long taskPlayer,
+      long taskId, long scheduledEpochMilli, VmSnapshot snapshot,
       MooValue resumeValue) {
     if (!snapshot.anonymousCollectionDeferrals().isEmpty()) {
       throw new IllegalStateException(
@@ -524,7 +523,7 @@ public final class DurableTaskCodec {
     List<VmSnapshot.Frame> frames = new ArrayList<>(snapshot.frames());
     Collections.reverse(frames);
     for (VmSnapshot.Frame frame : frames) {
-      rootToCurrent.add(exportActivation(frame, taskPlayer));
+      rootToCurrent.add(exportActivation(frame));
     }
     return new SuspendedTask(
         taskId,
@@ -879,7 +878,7 @@ public final class DurableTaskCodec {
     putValue(baseToTop, structural, shape.endDepth(), state.end(), "range end");
   }
 
-  private static SuspendedActivation exportActivation(VmSnapshot.Frame frame, long taskPlayer) {
+  private static SuspendedActivation exportActivation(VmSnapshot.Frame frame) {
     if (frame.anonymousRecycleTarget().isPresent()) {
       throw new IllegalStateException("VM frame has no direct v17 activation representation");
     }
@@ -932,7 +931,7 @@ public final class DurableTaskCodec {
         frame.receiver(),
         frame.verbLocation(),
         frame.threadMode(),
-        taskPlayer,
+        frame.player(),
         frame.programmer(),
         true,
         verb,
@@ -944,6 +943,7 @@ public final class DurableTaskCodec {
   }
 
   private static Optional<SuspendedActivation.BuiltinContinuation> exportBuiltin(VmSnapshot.Frame frame) {
+    if (frame.builtinContinuation().isPresent()) return frame.builtinContinuation();
     if (frame.returnMode() == VmSnapshot.ReturnMode.EVAL) {
       return Optional.of(new SuspendedActivation.EvalContinuation());
     }
