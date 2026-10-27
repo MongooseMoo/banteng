@@ -4,7 +4,7 @@
 Implement issue 86's typed verb/property flags, independent verb argument specifications, and shared world access checks. Preserve current semantics, including executable-only verb lookup, debug behavior, property chown inheritance, and owner/programmer restrictions.
 
 ## State
-Implemented typed records and migrated production consumers, model mutations, test constructors and persistence V4/V5/V17 paths. Branch campaign/86-typed-permissions started at 6f43aa0; PR #106 now targets master. PR #104 has merged. PR #105 is the remaining merge dependency, including its integrated nested-assignment repair. Parent published head 487e532 and owns review, CI and merge. Focused TypedPermissionsTest passed; no broader local CI command has run.
+Implemented typed records and migrated production consumers, model mutations, test constructors and persistence V4/V5/V17 paths. Branch campaign/86-typed-permissions started at 6f43aa0; PR #106 targets master. PRs #104 and #105 have merged. Merged current origin/master in 74fa4fc without conflicts or source changes; PR #106 awaits current-head review and CI verification. Parent owns publication and merge. Focused TypedPermissionsTest passed; no broader local CI command has run.
 
 ## Decisions and why
 Smallest change: immutable integer-backed VerbPerms/PropertyPerms, ArgSpec enum, typed WorldVerb/WorldProperty fields, Access helpers using public WorldTxn.isWizard; migrate producers/readers directly, without compatibility overloads. Approximately 350–550 production lines plus mechanical test callsite migration. Only codecs pack/unpack argument bits.
@@ -14,7 +14,7 @@ Assigned worktree did not exist; created it from the assigned commit. No reposit
 The authored-test compiler caught missing imports, reliance on Enum.ordinal(), stale wizard locals, and redundant parentheses introduced during migration. Corrected source rather than suppressing existing checks. ArgSpec now explicitly maps Toast values independently of enum order; builtin parsing produces enum values directly.
 
 ## Next step
-Parent verifies current-head review and CI, merges PR #105 before PR #106, and owns publication and merge. Worker implementation is complete; this note-only correction does not change source or tests.
+Parent verifies current-head review and CI before merging PR #106, and owns publication and merge. Worker implementation is complete; ancestry normalization and this note correction do not change source or tests.
 
 ## PR #106 CI repair
 Claude review cleanup removed only blank import lines introduced by removed imports; the WorldResultTest repair is preserved, and no local tests were run for this cosmetic change.
