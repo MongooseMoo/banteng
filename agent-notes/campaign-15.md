@@ -30,4 +30,6 @@ The collector's instance closure and login timeout/publication boundaries have b
 
 FinalizationCollector now owns the static tracing closure and the instance finalization/queueing methods. Its instance entry points receive AttemptContext explicitly; the existing SchedulerRuntime callback delegates to this owner. The runtime's remaining ambient access is intentionally pending the final context-threading commit. The focused recipe test passes, and the recipe ran against root sources. Generated import delimiters were corrected during the hand extraction; no root test suite was run.
 
-Next: commit the collector, integrate the parent's compiled-verb installation repair, then extract LoginFlow and ConnectionIo without moving publication or timeout decisions.
+The collector is committed, and the parent's canonical installed-verb compilation repair is integrated. LoginFlow now owns authentication, redirected association, connected hooks and the unauthenticated timeout monitor. Its attempt methods take AttemptContext; the monitor continues submitting timeout requests to the same scheduler and starts only from committed publication.
+
+Next: commit LoginFlow, extract ConnectionIo while retaining one pending-read owner and lock, then finish dispatch phases and explicit-context plumbing.

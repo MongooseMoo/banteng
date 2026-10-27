@@ -78,6 +78,7 @@ public final class MooRuntime implements AutoCloseable, SchedulerRuntime {
   static final long DEFAULT_MAX_STACK_DEPTH = 50;
   static final long DEFAULT_CONNECT_TIMEOUT_SECONDS = 300;
   private final FinalizationCollector finalizationCollector = new FinalizationCollector(this);
+  private final LoginFlow loginFlow;
   private final BuiltinCatalog builtins;
   private final ServerLog serverLog;
   private final Optional<ListenerControl> listenerControl;
@@ -165,6 +166,7 @@ public final class MooRuntime implements AutoCloseable, SchedulerRuntime {
         new PublicationScheduler(
             committedWorld, this, taskRegistry);
     checkpointedConnections = List.of();
+    loginFlow = new LoginFlow(this, scheduler, listenerControl);
     builtins = new BuiltinCatalog(builtinHosts(configuredSemantics, taskRegistry));
     try (WorldTxn initialOptions = committedWorld.begin()) {
       builtins.reloadProtectedFunctions(initialOptions);
@@ -413,6 +415,7 @@ public final class MooRuntime implements AutoCloseable, SchedulerRuntime {
             this,
             workers,
             taskRegistry);
+    loginFlow = new LoginFlow(this, scheduler, this.listenerControl);
     builtins =
         new BuiltinCatalog(
             listenerControl, builtinHosts(configuredSemantics, taskRegistry));
@@ -644,7 +647,7 @@ public final class MooRuntime implements AutoCloseable, SchedulerRuntime {
     connections().put(connectionId, connection);
     try {
       effects().add(RuntimeEffect.startTimeout(connectionId, connection.generation));
-      return executeLogin(connectionId, "");
+      return loginFlow.executeLogin(requireAttempt(), connectionId, "");
     } catch (RuntimeException | Error failure) {
       connections().remove(connectionId);
       connectionRegistry().closeConnection(connectionId);
@@ -787,7 +790,7 @@ public final class MooRuntime implements AutoCloseable, SchedulerRuntime {
     }
     long player = connectionRegistry().connectionPlayer(connectionId).orElseThrow();
     if (player < 0) {
-      return executeLogin(connectionId, line);
+      return loginFlow.executeLogin(requireAttempt(), connectionId, line);
     }
 
     if (connection.flushCommand.isPresent()
@@ -1169,7 +1172,7 @@ public final class MooRuntime implements AutoCloseable, SchedulerRuntime {
     connection.programmingSource.setLength(0);
   }
 
-  private List<String> serverMessage(long listenerHandler, String name, String fallback) {
+  List<String> serverMessage(long listenerHandler, String name, String fallback) {
     MooValue listenerOptions =
         world().readObjectProperty(listenerHandler, "server_options").orElse(null);
     MooValue message =
@@ -1200,329 +1203,6 @@ public final class MooRuntime implements AutoCloseable, SchedulerRuntime {
     return List.of();
   }
 
-  private RuntimeStep executeLogin(long connectionId, String line) {
-    ConnectionState connection = requireConnection(connectionId);
-    MooValue serverOptions =
-        world().readObjectProperty(connection.listenerHandler, "server_options").orElse(null);
-    if (serverOptions == null && connection.listenerHandler != 0) {
-      serverOptions = world().readObjectProperty(0, "server_options").orElse(null);
-    }
-    MooValue trustedProxies =
-        serverOptions instanceof ObjectValue options
-            ? world().readObjectProperty(options.value(), "trusted_proxies").orElse(null)
-            : null;
-    MooValue destinationIp =
-        connectionRegistry()
-            .connectionInfo(connectionId)
-            .flatMap(info -> info.get(StringValue.of("destination_ip")))
-            .orElse(null);
-    boolean trusted = false;
-    if (destinationIp instanceof StringValue && trustedProxies instanceof ListValue proxyList) {
-      for (MooValue proxy : proxyList.elements()) {
-        if (proxy instanceof StringValue && proxy.equals(destinationIp)) {
-          trusted = true;
-          break;
-        }
-      }
-    }
-    if (trusted && line.isEmpty()) {
-      Optional<ResolvedVerb> blank = world().resolveVerb(connection.listenerHandler, "do_blank_command", true);
-      if (blank.isEmpty()) {
-        return RuntimeStep.returned(List.of());
-      }
-      return startStored(
-          blank.orElseThrow(),
-          new RootVerbCall(
-              connection.listenerHandler,
-            connectionId,
-            -1,
-            "do_blank_command",
-              new ListValue(List.of()),
-              line),
-          RuntimeContinuation.after(
-              RuntimeTransition.LOGIN_BLANK_TRUTH_GATE,
-              connectionId,
-              line,
-              List.of(),
-              0,
-              0,
-              false));
-    }
-    return executeLoginAuthentication(connectionId, line);
-  }
-
-  private RuntimeStep executeLoginAuthentication(long connectionId, String line) {
-    ConnectionState connection = requireConnection(connectionId);
-    MooValue serverOptions =
-        world().readObjectProperty(connection.listenerHandler, "server_options").orElse(null);
-    if (serverOptions == null && connection.listenerHandler != 0) {
-      serverOptions = world().readObjectProperty(0, "server_options").orElse(null);
-    }
-    MooValue trustedProxies =
-        serverOptions instanceof ObjectValue options
-            ? world().readObjectProperty(options.value(), "trusted_proxies").orElse(null)
-            : null;
-    MooValue destinationIp =
-        connectionRegistry()
-            .connectionInfo(connectionId)
-            .flatMap(info -> info.get(StringValue.of("destination_ip")))
-            .orElse(null);
-    boolean trusted = false;
-    if (destinationIp instanceof StringValue && trustedProxies instanceof ListValue proxyList) {
-      for (MooValue proxy : proxyList.elements()) {
-        if (proxy instanceof StringValue && proxy.equals(destinationIp)) {
-          trusted = true;
-          break;
-        }
-      }
-    }
-    String loginLine = line;
-    if (trusted && line.startsWith("PROXY")) {
-      StringTokenizer proxyFields = new StringTokenizer(line, " ");
-      if (proxyFields.countTokens() == 6) {
-        loginLine = "";
-      }
-    }
-    ResolvedVerb login = world().resolveVerb(connection.listenerHandler, "do_login_command", true).orElseThrow();
-    List<MooValue> arguments = new ArrayList<>();
-    for (String word : CommandParser.words(loginLine)) {
-      arguments.add(StringValue.of(word));
-    }
-    RootVerbCall locals =
-        new RootVerbCall(
-            connection.listenerHandler,
-            connectionId,
-            -1,
-            "do_login_command",
-            new ListValue(arguments),
-            loginLine);
-    long maximumObjectIdBeforeLogin = world().maximumObjectId();
-    return startStored(
-        login,
-        locals,
-        RuntimeContinuation.after(
-            RuntimeTransition.LOGIN_AUTHENTICATE_AND_ASSOCIATE,
-            connectionId,
-            loginLine,
-            List.of(),
-            maximumObjectIdBeforeLogin,
-            0,
-            false));
-  }
-
-  private RuntimeStep finishLogin(
-      long connectionId, long maximumObjectIdBeforeLogin, VmState state) {
-    ConnectionState connection = requireConnection(connectionId);
-    OptionalLong authenticatedPlayer = state.switchedPlayer();
-    boolean returnedPlayerAssociation = false;
-    if (authenticatedPlayer.isEmpty()
-        && state.returnValue().orElse(null) instanceof ObjectValue returnedPlayer
-        && world().players().contains(returnedPlayer.value())) {
-      authenticatedPlayer = OptionalLong.of(returnedPlayer.value());
-      returnedPlayerAssociation = true;
-    }
-    if (authenticatedPlayer.isPresent()) {
-      long switchedPlayer = authenticatedPlayer.orElseThrow();
-      long existingConnectionId = Long.MIN_VALUE;
-      ConnectionState existingConnection = null;
-      if (returnedPlayerAssociation) {
-        for (Map.Entry<Long, ConnectionState> entry : connections().entrySet()) {
-          long candidateConnectionId = entry.getKey();
-          if (candidateConnectionId != connectionId
-              && connectionRegistry()
-                      .connectionPlayer(candidateConnectionId)
-                      .orElse(Long.MIN_VALUE)
-                  == switchedPlayer) {
-            existingConnectionId = candidateConnectionId;
-            existingConnection = entry.getValue();
-            break;
-          }
-        }
-      }
-      if (existingConnection != null) {
-        ConnectionState redirectedConnection = existingConnection;
-        boolean sameListener = redirectedConnection.listenerHandler == connection.listenerHandler;
-        if (sameListener
-            && !switchConnectionPlayer(connectionId, switchedPlayer)) {
-          throw new IllegalStateException("stored login switched to a missing player");
-        }
-        List<String> oldLines = new ArrayList<>();
-        if (redirectedConnection.printMessages) {
-          oldLines.addAll(
-              serverMessage(
-                  redirectedConnection.listenerHandler,
-                  "redirect_from_msg",
-                  "*** Redirecting connection to new port ***"));
-        }
-
-        List<String> newLines = new ArrayList<>();
-        if (connection.printMessages) {
-          newLines.addAll(
-              serverMessage(
-                  connection.listenerHandler,
-                  "redirect_to_msg",
-                  "*** Redirecting old connection to this port ***"));
-        }
-
-        long redirectedConnectionId = existingConnectionId;
-        boolean wroteRedirects = listenerControl.isPresent();
-        if (wroteRedirects) {
-          effects().add(RuntimeEffect.write(redirectedConnectionId, oldLines));
-          effects().add(RuntimeEffect.write(connectionId, newLines));
-          effects().add(RuntimeEffect.boot(redirectedConnectionId, List.of()));
-        }
-        connections().remove(existingConnectionId);
-        connectionRegistry().closeConnection(existingConnectionId);
-
-        if (sameListener) {
-          Optional<ResolvedVerb> userReconnected =
-              world().resolveVerb(connection.listenerHandler, "user_reconnected", true);
-          if (userReconnected.isPresent()) {
-            return startStored(
-                userReconnected.orElseThrow(),
-                new RootVerbCall(
-                    connection.listenerHandler,
-                    switchedPlayer,
-                    -1,
-                    "user_reconnected",
-                    new ListValue(List.of(new ObjectValue(switchedPlayer))),
-                    ""),
-                RuntimeContinuation.after(
-                    RuntimeTransition.LOGIN_RECONNECTED_HOOK_THEN_RETURN,
-                    connectionId,
-                    "",
-                    newLines,
-                    switchedPlayer,
-                    0,
-                    wroteRedirects));
-          }
-          return RuntimeStep.returned(wroteRedirects ? List.of() : newLines);
-        }
-        Optional<ResolvedVerb> userDisconnected =
-            world().resolveVerb(redirectedConnection.listenerHandler, "user_client_disconnected", true);
-        RuntimeContinuation association =
-            RuntimeContinuation.after(
-                RuntimeTransition.LOGIN_OLD_CLIENT_DISCONNECTED_THEN_ASSOCIATE,
-                connectionId,
-                "",
-                newLines,
-                switchedPlayer,
-                0,
-                wroteRedirects);
-        if (userDisconnected.isPresent()) {
-          return startStored(
-              userDisconnected.orElseThrow(),
-              new RootVerbCall(
-                  redirectedConnection.listenerHandler,
-                  switchedPlayer,
-                  -1,
-                  "user_client_disconnected",
-                  new ListValue(List.of(new ObjectValue(switchedPlayer))),
-                  ""),
-              association);
-        }
-        return associateRedirectedLogin(association);
-      }
-
-      if (!switchConnectionPlayer(connectionId, switchedPlayer)) {
-        throw new IllegalStateException("stored login switched to a missing player");
-      }
-      if (returnedPlayerAssociation) {
-        if (switchedPlayer > maximumObjectIdBeforeLogin) {
-          Optional<ResolvedVerb> userCreated = world().resolveVerb(connection.listenerHandler, "user_created", true);
-          if (userCreated.isPresent()) {
-            return startStored(
-                userCreated.orElseThrow(),
-                new RootVerbCall(
-                    connection.listenerHandler,
-                    switchedPlayer,
-                    -1,
-                    "user_created",
-                    new ListValue(List.of(new ObjectValue(switchedPlayer))),
-                    ""),
-                RuntimeContinuation.after(
-                    RuntimeTransition.LOGIN_USER_CREATED_THEN_CONNECTED,
-                    connectionId,
-                    "",
-                    connection.printMessages ? List.of("*** Connected ***") : state.output(),
-                    switchedPlayer,
-                    0,
-                    false));
-          }
-        }
-        return startConnectedHook(
-            connectionId,
-            switchedPlayer,
-            connection.printMessages ? List.of("*** Connected ***") : state.output(),
-            RuntimeTransition.LOGIN_EXISTING_USER_CONNECTED_THEN_RETURN,
-            false);
-      }
-      return RuntimeStep.returned(
-          connection.printMessages ? List.of("*** Connected ***") : state.output());
-    }
-    return RuntimeStep.returned(state.output());
-  }
-
-  private RuntimeStep associateRedirectedLogin(RuntimeContinuation continuation) {
-    long connectionId = continuation.connectionId();
-    long switchedPlayer = continuation.first();
-    if (!switchConnectionPlayer(connectionId, switchedPlayer)) {
-      throw new IllegalStateException("stored login switched to a missing player");
-    }
-    return startConnectedHook(
-        connectionId,
-        switchedPlayer,
-        continuation.output(),
-        RuntimeTransition.LOGIN_NEW_USER_CONNECTED_THEN_RETURN,
-        continuation.flag());
-  }
-
-  private RuntimeStep continueCreatedLogin(RuntimeContinuation continuation) {
-    return RuntimeStep.returned(continuation.output());
-  }
-
-  private RuntimeStep startConnectedHook(
-      long connectionId,
-      long player,
-      List<String> output,
-      RuntimeTransition transition,
-      boolean suppressOutput) {
-    ConnectionState connection = requireConnection(connectionId);
-    Optional<ResolvedVerb> userConnected = world().resolveVerb(connection.listenerHandler, "user_connected", true);
-    if (userConnected.isEmpty()) {
-      return RuntimeStep.returned(suppressOutput ? List.of() : output);
-    }
-    return startStored(
-        userConnected.orElseThrow(),
-        new RootVerbCall(
-            connection.listenerHandler,
-            player,
-            -1,
-            "user_connected",
-            new ListValue(List.of(new ObjectValue(player))),
-            ""),
-        RuntimeContinuation.after(
-            transition, connectionId, "", output, player, 0, suppressOutput));
-  }
-
-  private void monitorUnauthenticatedConnection(
-      long connectionId, ConnectionState openedConnection) {
-    while (true) {
-      try {
-        TimeUnit.MILLISECONDS.sleep(100);
-      } catch (InterruptedException ignored) {
-        Thread.currentThread().interrupt();
-        return;
-      }
-      switch (scheduler.submitLoginTimeout(
-          RuntimeRequest.timeout(connectionId, openedConnection.generation))) {
-        case LoginTimeoutResult.KeepWatching ignored -> { }
-        case LoginTimeoutResult.Done ignored -> { return; }
-        case LoginTimeoutResult.TimedOut ignored -> { return; }
-      }
-    }
-  }
-
   sealed interface LoginTimeoutResult {
     record KeepWatching() implements LoginTimeoutResult {}
     record Done() implements LoginTimeoutResult {}
@@ -1531,89 +1211,6 @@ public final class MooRuntime implements AutoCloseable, SchedulerRuntime {
         lines = List.copyOf(lines);
       }
     }
-  }
-
-  private LoginTimeoutResult checkLoginTimeoutNow(long connectionId, long generation) {
-    ConnectionState connection = connections().get(connectionId);
-    if (connection == null
-        || connection.generation != generation
-        || connectionRegistry().connectionPlayer(connectionId).orElse(0) >= 0) {
-      return new LoginTimeoutResult.Done();
-    }
-    MooValue serverOptions =
-        world().readObjectProperty(connection.listenerHandler, "server_options").orElse(null);
-    if (serverOptions == null && connection.listenerHandler != 0) {
-      serverOptions = world().readObjectProperty(0, "server_options").orElse(null);
-    }
-    MooValue configuredTimeout =
-        serverOptions instanceof ObjectValue options
-            ? world().readObjectProperty(options.value(), "connect_timeout").orElse(null)
-            : null;
-    long timeoutSeconds;
-    if (configuredTimeout == null) {
-      timeoutSeconds = DEFAULT_CONNECT_TIMEOUT_SECONDS;
-    } else if (configuredTimeout instanceof IntegerValue timeout && timeout.value() > 0) {
-      timeoutSeconds = timeout.value();
-    } else {
-      return new LoginTimeoutResult.KeepWatching();
-    }
-    long idleSeconds =
-        elapsedSeconds(connection.lastActivityNanos);
-    if (idleSeconds <= timeoutSeconds) {
-      return new LoginTimeoutResult.KeepWatching();
-    }
-    List<String> lines = new ArrayList<>();
-    if (connection.printMessages) {
-      lines.addAll(
-          serverMessage(
-              connection.listenerHandler,
-              "timeout_msg",
-              "*** Timed-out waiting for login. ***"));
-    }
-    return new LoginTimeoutResult.TimedOut(lines);
-  }
-
-  private RuntimeStep executeLoginTimeout(long connectionId, long generation) {
-    LoginTimeoutResult result = checkLoginTimeoutNow(connectionId, generation);
-    if (!(result instanceof LoginTimeoutResult.TimedOut timedOut)) {
-      return RuntimeStep.loginTimeout(result, List.of());
-    }
-    List<String> lines = timedOut.lines();
-    ConnectionState connection = connections().get(connectionId);
-    if (connection == null) {
-      throw new IllegalStateException("timed-out connection disappeared within attempt");
-    }
-    Optional<ResolvedVerb> disconnected =
-        world().resolveVerb(connection.listenerHandler, "user_disconnected", true);
-    if (disconnected.isPresent()) {
-      return startStored(
-          disconnected.orElseThrow(),
-          new RootVerbCall(
-              connection.listenerHandler,
-              connectionId,
-              -1,
-              "user_disconnected",
-              new ListValue(List.of(new ObjectValue(connectionId))),
-              ""),
-          RuntimeContinuation.after(
-              RuntimeTransition.LOGIN_TIMEOUT_USER_DISCONNECTED_THEN_BOOT,
-              connectionId,
-              "",
-              lines,
-              0,
-              0,
-              false));
-    }
-    return finishLoginTimeout(connectionId, lines);
-  }
-
-  private RuntimeStep finishLoginTimeout(long connectionId, List<String> lines) {
-    if (listenerControl.isPresent()) {
-      effects().add(RuntimeEffect.boot(connectionId, lines));
-    }
-    connections().remove(connectionId);
-    connectionRegistry().closeConnection(connectionId);
-    return RuntimeStep.loginTimeout(new LoginTimeoutResult.TimedOut(lines), List.of());
   }
 
   private RuntimeStep startTaskTimeout(RuntimeContinuation continuation) {
@@ -1980,7 +1577,7 @@ public final class MooRuntime implements AutoCloseable, SchedulerRuntime {
     return BuiltinResult.value(new IntegerValue(elapsedSeconds(since)));
   }
 
-  private long elapsedSeconds(long sinceNanos) {
+  long elapsedSeconds(long sinceNanos) {
     long elapsedNanos = nanoTime.getAsLong() - sinceNanos;
     return TimeUnit.NANOSECONDS.toSeconds(Math.max(0L, elapsedNanos));
   }
@@ -2287,7 +1884,7 @@ public final class MooRuntime implements AutoCloseable, SchedulerRuntime {
         case CLOSE -> closeConnectionNow(request.connectionId);
         case LINE -> executeLineNow(request.connectionId, request.text);
         case OUT_OF_BAND -> executeTransportOutOfBandNow(request.connectionId, request.text);
-        case TIMEOUT -> executeLoginTimeout(request.connectionId, request.generation);
+        case TIMEOUT -> loginFlow.executeLoginTimeout(requireAttempt(), request.connectionId, request.generation);
         case CHECKPOINT_FINISHED -> checkpointFinishedNow(request.printMessages, request.generation != 0);
       };
     }
@@ -2354,19 +1951,19 @@ public final class MooRuntime implements AutoCloseable, SchedulerRuntime {
       case LOGIN_BLANK_TRUTH_GATE ->
           state.returnValue().isEmpty() || !state.returnValue().orElseThrow().isTruthy()
               ? RuntimeStep.returned(state.output())
-              : executeLoginAuthentication(continuation.connectionId(), continuation.text());
+              : loginFlow.executeLoginAuthentication(requireAttempt(), continuation.connectionId(), continuation.text());
       case LOGIN_AUTHENTICATE_AND_ASSOCIATE ->
-          finishLogin(
+          loginFlow.finishLogin(requireAttempt(), 
               continuation.connectionId(), continuation.first(), state);
       case LOGIN_RECONNECTED_HOOK_THEN_RETURN,
           LOGIN_NEW_USER_CONNECTED_THEN_RETURN,
           LOGIN_EXISTING_USER_CONNECTED_THEN_RETURN ->
           RuntimeStep.returned(continuation.flag() ? List.of() : continuation.output());
       case LOGIN_OLD_CLIENT_DISCONNECTED_THEN_ASSOCIATE ->
-          associateRedirectedLogin(continuation);
-      case LOGIN_USER_CREATED_THEN_CONNECTED -> continueCreatedLogin(continuation);
+          loginFlow.associateRedirectedLogin(requireAttempt(), continuation);
+      case LOGIN_USER_CREATED_THEN_CONNECTED -> loginFlow.continueCreatedLogin(requireAttempt(), continuation);
       case LOGIN_TIMEOUT_USER_DISCONNECTED_THEN_BOOT ->
-          finishLoginTimeout(continuation.connectionId(), continuation.output());
+          loginFlow.finishLoginTimeout(requireAttempt(), continuation.connectionId(), continuation.output());
       case BOOT_PLAYER_USER_DISCONNECTED_THEN_BOOT ->
           finishBootPlayer(continuation.connectionId(), continuation.output());
       case ANONYMOUS_FINALIZATION_RETURN -> RuntimeStep.returned(List.of());
@@ -2680,7 +2277,7 @@ public final class MooRuntime implements AutoCloseable, SchedulerRuntime {
         if (connection != null && connection.generation == effect.generation) {
           Thread.ofVirtual()
               .name("moo-connect-timeout-" + effect.connectionId)
-              .start(() -> monitorUnauthenticatedConnection(effect.connectionId, connection));
+              .start(() -> loginFlow.monitorUnauthenticatedConnection(effect.connectionId, connection));
         }
       }
       case WRITE ->
@@ -2798,7 +2395,7 @@ public final class MooRuntime implements AutoCloseable, SchedulerRuntime {
     return requireAttempt().connections;
   }
 
-  private boolean switchConnectionPlayer(long connectionId, long playerId) {
+  boolean switchConnectionPlayer(long connectionId, long playerId) {
     if (world().object(playerId).isEmpty()
         || !connectionRegistry().switchConnectionPlayer(connectionId, playerId)) {
       return false;
@@ -2829,7 +2426,7 @@ public final class MooRuntime implements AutoCloseable, SchedulerRuntime {
     return builtins;
   }
 
-  private ConnectionState requireConnection(long connectionId) {
+  ConnectionState requireConnection(long connectionId) {
     ConnectionState connection = connections().get(connectionId);
     if (connection == null) {
       throw new IllegalArgumentException("unknown connection #" + connectionId);
@@ -3110,24 +2707,24 @@ public final class MooRuntime implements AutoCloseable, SchedulerRuntime {
   }
 
   static final class ConnectionState {
-    private final long listenerHandler;
-    private final boolean printMessages;
-    private final long generation;
-    private long lastActivityNanos;
-    private OptionalLong connectedNanos = OptionalLong.empty();
-    private boolean holdInput;
-    private boolean disableOob;
-    private boolean binary;
-    private KeepAliveOptions keepAlive = KeepAliveOptions.defaults();
-    private Optional<String> flushCommand = Optional.empty();
-    private final List<String> pendingInput = new ArrayList<>();
-    private Optional<String> prefix = Optional.empty();
-    private Optional<String> suffix = Optional.empty();
-    private long programmingObject = -1;
-    private String programmingVerbName = "";
-    private final StringBuilder programmingSource = new StringBuilder();
+    final long listenerHandler;
+    final boolean printMessages;
+    final long generation;
+    long lastActivityNanos;
+    OptionalLong connectedNanos = OptionalLong.empty();
+    boolean holdInput;
+    boolean disableOob;
+    boolean binary;
+    KeepAliveOptions keepAlive = KeepAliveOptions.defaults();
+    Optional<String> flushCommand = Optional.empty();
+    final List<String> pendingInput = new ArrayList<>();
+    Optional<String> prefix = Optional.empty();
+    Optional<String> suffix = Optional.empty();
+    long programmingObject = -1;
+    String programmingVerbName = "";
+    final StringBuilder programmingSource = new StringBuilder();
 
-    private ConnectionState(
+    ConnectionState(
         long listenerHandler, boolean printMessages, long generation, long openedNanos) {
       this.listenerHandler = listenerHandler;
       this.printMessages = printMessages;
@@ -3135,7 +2732,7 @@ public final class MooRuntime implements AutoCloseable, SchedulerRuntime {
       lastActivityNanos = openedNanos;
     }
 
-    private ConnectionState copy() {
+    ConnectionState copy() {
       ConnectionState copy =
           new ConnectionState(listenerHandler, printMessages, generation, lastActivityNanos);
       copy.lastActivityNanos = lastActivityNanos;
@@ -3154,7 +2751,7 @@ public final class MooRuntime implements AutoCloseable, SchedulerRuntime {
       return copy;
     }
 
-    private boolean sameState(ConnectionState other) {
+    boolean sameState(ConnectionState other) {
       return listenerHandler == other.listenerHandler
           && printMessages == other.printMessages
           && generation == other.generation
@@ -3172,7 +2769,7 @@ public final class MooRuntime implements AutoCloseable, SchedulerRuntime {
           && programmingSource.toString().contentEquals(other.programmingSource);
     }
 
-    private void mergeLastActivity(ConnectionState source) {
+    void mergeLastActivity(ConnectionState source) {
       lastActivityNanos = Math.max(lastActivityNanos, source.lastActivityNanos);
     }
   }
