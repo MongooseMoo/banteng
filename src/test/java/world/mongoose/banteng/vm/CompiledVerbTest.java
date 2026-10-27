@@ -33,7 +33,9 @@ final class CompiledVerbTest {
     BytecodeProgram install = new MooCompiler().compile(
         "return set_verb_code(#1, 1, {\"x = 1; return x;\"});");
     try (WorldTxn transaction = world(verb("work", "return 0;")).begin()) {
-      VmState state = new VmState(Map.of(), 1);
+      VmState state = new VmState(
+          new TaskOrigin(Map.of(), 1, new ObjectValue(-1), "", "", true),
+          new TaskBudget(60_000, 5, 50));
       new MooVm().execute(install, state, transaction, catalog, 1);
       assertEquals(VmState.Outcome.RETURNED, state.outcome());
       assertEquals(new ListValue(List.of()), state.returnValue().orElseThrow());
