@@ -28,3 +28,9 @@ Parent owns publication and required PR CI/conformance after runtime lands. Pres
 
 ## Login and layout repair ancestry
 Merged the latest coordinator runtime login-output and pinned-layout-boundary repairs normally, without conflicts or family source adaptations. Family implementations, services, dependencies, extraction mover, authored fixtures and YAML are unchanged. No local tests, CI, migration or repeated review ran for this mechanical integration. Parent owns publication, hosted checks and merge.
+
+## Independent Claude Noise review (limited coverage)
+Claude reviewed only the Noise-specific delta on top of the runtime dependency head: task note, authored mover fixture, rewrite.yml entry, catalog insertion/removal and imports, NoiseBuiltins, and the full relocated SimplexNoise against its original committed source. Result: no findings in two passes. The runtime dependency was not re-reviewed; its coverage stays in the PR138 review ledger. This is not a full current-PR gate or merge approval. The report and ledger were returned to the parent, which saves them. Next: the parent runs the final full-PR gate after runtime lands.
+
+## Queue prerequisite integration
+Normally merged the published Task tip and its reviewed prerequisite families. YAML resolution retains the entire Noise recipe, including SimplexNoise relocation, alongside all incoming recipe documents. Reused fixture/catalog resolutions retain the original Noise fixture and registration position before string search, matching final assembly. NoiseBuiltins, SimplexNoise and incoming family owners remain byte-identical. Preserved the pre-existing limited Claude coverage note in this substantive merge. No local tests, repeated review or publication; parent owns hosted validation and merge.
