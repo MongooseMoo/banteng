@@ -32,3 +32,9 @@ Move the 23 object lifecycle, topology, WAIF and maximum-object registrations in
 Integrate current runtime continuation metadata into the existing extraction: anonymous create retains its empty payload, while permanent create/recreate retain their existing typed CreateContinuation payloads. Preserve the current sealed result definitions, mutationResult owner, extraction recipe and three manifest positions.
 
 Validation: focused MoveBuiltinFamilyTest; original normal ExtractObjectBuiltins rewrite dry-run; current-catalog/moved24-body comparison; git diff --check. Parent owns publication, bounded review of the integration delta and current PR CI.
+
+## Login and layout repair ancestry
+Merged the latest coordinator runtime login-output and pinned-layout-boundary repairs normally, without conflicts or family source adaptations. Family implementations, services, dependencies, extraction mover, authored fixtures and YAML are unchanged. No local tests, CI, migration or repeated review ran for this mechanical integration. Parent owns publication, hosted checks and merge.
+
+## Queue prerequisite integration
+Normally merged the published Crypto tip, including reviewed Host, Regex, Binary and SQLite prerequisites. Mover resolution retains both Object ParentArgument and Crypto nested types, all independent family generation/import branches and members. Fixture and YAML conflicts retain every existing family section. Reused catalog resolution retains the original Object registration positions alongside the prerequisite families and canonical catalog-owned crypt dependency, matching final assembly. ObjectBuiltins and incoming family owners remain byte-identical. No local tests, repeated review or publication; parent owns hosted validation and merge.

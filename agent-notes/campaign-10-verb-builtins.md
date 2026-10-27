@@ -27,3 +27,6 @@ Validation: focused MoveBuiltinFamilyTest; normal ExtractVerbBuiltins migration 
 
 ## Login and layout repair ancestry
 Merged the latest coordinator runtime login-output and pinned-layout-boundary repairs normally, without conflicts or family source adaptations. Family implementations, services, dependencies, extraction mover, authored fixtures and YAML are unchanged. No local tests, CI, migration or repeated review ran for this mechanical integration. Parent owns publication, hosted checks and merge.
+
+## Queue prerequisite integration
+Normally merged the published Property tip and its reviewed prerequisite families. Mover resolution combines Verb's catalog argument and setVerbCode rewrite with Crypto dependencies and Regex capture; YAML retains all complete recipe documents and focused fixtures merged automatically. Catalog resolution preserves Host environment before Verb respond_to, and Crypto/Binary/Verb disassembly/Host transfer/Binary encoding positions, removes implementations already owned by those families, and removes their obsolete imports. These unions match final assembly. VerbBuiltins and incoming family owners remain byte-identical. No local tests, repeated review or publication; parent owns hosted validation and merge.
