@@ -301,23 +301,10 @@ public final class VmState {
   public void ensureRoot(BytecodeProgram program) {
     if (frames.isEmpty()) {
       MooValue receiver = initialLocals.getOrDefault("this", new ObjectValue(-1));
-      frames.push(
-          new Frame(
-              program,
-              initialLocals,
-              ReturnMode.ROOT,
-              initialProgrammer,
-              receiver,
-              initialVerbLocation,
-              initialCalledVerb,
-              initialFullVerbName,
-              Optional.empty(),
-              OptionalLong.empty(),
-              OptionalLong.empty(),
-              OptionalLong.empty(),
-              OptionalLong.empty(),
-              initialDebug,
-              true));
+      pushFrame(program, initialLocals, new FrameOrigin(
+          ReturnMode.ROOT, initialProgrammer, receiver, initialVerbLocation,
+          initialCalledVerb, initialFullVerbName, Optional.empty(), OptionalLong.empty(),
+          OptionalLong.empty(), OptionalLong.empty(), OptionalLong.empty(), Optional.empty(), initialDebug));
     }
   }
 
@@ -343,317 +330,26 @@ public final class VmState {
     return List.copyOf(frames);
   }
 
-  boolean pushEvalFrame(BytecodeProgram program) {
-    if (frames.size() >= maxStackDepth) {
+  /** Named activation metadata and lifecycle continuations for the single frame push. */
+  public record FrameOrigin(
+      ReturnMode returnMode, long programmer, MooValue receiver, MooValue verbLocation,
+      String calledVerb, String fullVerbName, Optional<MooValue> createReturnOverride,
+      OptionalLong recycleTarget, OptionalLong moveObject, OptionalLong moveDestination,
+      OptionalLong movePosition, Optional<AnonymousObjectValue> anonymousRecycleTarget,
+      boolean debug) {}
+
+  boolean pushFrame(BytecodeProgram program, Map<String, MooValue> locals, FrameOrigin origin) {
+    if (origin.returnMode() != ReturnMode.ROOT && frames.size() >= maxStackDepth) {
       return false;
     }
-    Frame caller = currentFrame();
-    Map<String, MooValue> locals = new LinkedHashMap<>();
-    locals.put("player", caller.locals.getOrDefault("player", new ObjectValue(-1)));
-    locals.put("caller", caller.receiver);
-    locals.put("this", new ObjectValue(-1));
-    locals.put("dobj", new ObjectValue(-1));
-    locals.put("iobj", new ObjectValue(-1));
-    locals.put("dobjstr", StringValue.of(new byte[0]));
-    locals.put("iobjstr", StringValue.of(new byte[0]));
-    locals.put("argstr", StringValue.of(new byte[0]));
-    locals.put("prepstr", StringValue.of(new byte[0]));
-    locals.put("verb", StringValue.of(new byte[0]));
-    locals.put("args", new ListValue(List.of()));
-    frames.push(
-        new Frame(
-            program,
-            locals,
-            ReturnMode.EVAL,
-            caller.programmer,
-            new ObjectValue(-1),
-            new ObjectValue(-1),
-            "",
-            "Input to EVAL",
-            Optional.empty(),
-            OptionalLong.empty(),
-            OptionalLong.empty(),
-            OptionalLong.empty(),
-            OptionalLong.empty(),
-            true,
-            true));
-    return true;
-  }
-
-  boolean pushVerbFrame(
-      BytecodeProgram program,
-      Map<String, MooValue> locals,
-      long programmer,
-      MooValue receiver,
-      MooValue verbLocation,
-      OptionalLong recycleTarget,
-      OptionalLong moveObject,
-      OptionalLong moveDestination) {
-    return pushVerbFrame(
-        program,
-        locals,
-        programmer,
-        receiver,
-        verbLocation,
-        recycleTarget,
-        moveObject,
-        moveDestination,
-        calledVerb(locals),
-        calledVerb(locals),
-        true);
-  }
-
-  boolean pushVerbFrame(
-      BytecodeProgram program,
-      Map<String, MooValue> locals,
-      long programmer,
-      MooValue receiver,
-      MooValue verbLocation,
-      OptionalLong recycleTarget,
-      OptionalLong moveObject,
-      OptionalLong moveDestination,
-      String calledVerb,
-      String fullVerbName,
-      boolean debug) {
-    return pushVerbFrame(
-        program,
-        locals,
-        programmer,
-        receiver,
-        verbLocation,
-        recycleTarget,
-        moveObject,
-        moveDestination,
-        OptionalLong.empty(),
-        calledVerb,
-        fullVerbName,
-        debug);
-  }
-
-  boolean pushVerbFrame(
-      BytecodeProgram program,
-      Map<String, MooValue> locals,
-      long programmer,
-      MooValue receiver,
-      MooValue verbLocation,
-      OptionalLong recycleTarget,
-      OptionalLong moveObject,
-      OptionalLong moveDestination,
-      OptionalLong movePosition) {
-    return pushVerbFrame(
-        program,
-        locals,
-        programmer,
-        receiver,
-        verbLocation,
-        recycleTarget,
-        moveObject,
-        moveDestination,
-        movePosition,
-        calledVerb(locals),
-        calledVerb(locals),
-        true);
-  }
-
-  boolean pushVerbFrame(
-      BytecodeProgram program,
-      Map<String, MooValue> locals,
-      long programmer,
-      MooValue receiver,
-      MooValue verbLocation,
-      OptionalLong recycleTarget,
-      OptionalLong moveObject,
-      OptionalLong moveDestination,
-      OptionalLong movePosition,
-      String calledVerb,
-      String fullVerbName,
-      boolean debug) {
-    return pushVerbFrame(
-        program,
-        locals,
-        programmer,
-        receiver,
-        verbLocation,
-        Optional.empty(),
-        recycleTarget,
-        moveObject,
-        moveDestination,
-        movePosition,
-        calledVerb,
-        fullVerbName,
-        debug);
-  }
-
-  boolean pushCreateInitializeFrame(
-      BytecodeProgram program,
-      Map<String, MooValue> locals,
-      long programmer,
-      MooValue receiver,
-      MooValue verbLocation,
-      MooValue created) {
-    return pushCreateInitializeFrame(
-        program,
-        locals,
-        programmer,
-        receiver,
-        verbLocation,
-        created,
-        calledVerb(locals),
-        calledVerb(locals),
-        true);
-  }
-
-  boolean pushCreateInitializeFrame(
-      BytecodeProgram program,
-      Map<String, MooValue> locals,
-      long programmer,
-      MooValue receiver,
-      MooValue verbLocation,
-      MooValue created,
-      String calledVerb,
-      String fullVerbName,
-      boolean debug) {
-    return pushVerbFrame(
-        program,
-        locals,
-        programmer,
-        receiver,
-        verbLocation,
-        Optional.of(created),
-        OptionalLong.empty(),
-        OptionalLong.empty(),
-        OptionalLong.empty(),
-        OptionalLong.empty(),
-        calledVerb,
-        fullVerbName,
-        debug);
-  }
-
-  boolean pushAnonymousRecycleFrame(
-      BytecodeProgram program,
-      Map<String, MooValue> locals,
-      long programmer,
-      AnonymousObjectValue receiver,
-      MooValue verbLocation) {
-    return pushAnonymousRecycleFrame(
-        program,
-        locals,
-        programmer,
-        receiver,
-        verbLocation,
-        calledVerb(locals),
-        calledVerb(locals),
-        true);
-  }
-
-  boolean pushAnonymousRecycleFrame(
-      BytecodeProgram program,
-      Map<String, MooValue> locals,
-      long programmer,
-      AnonymousObjectValue receiver,
-      MooValue verbLocation,
-      String calledVerb,
-      String fullVerbName,
-      boolean debug) {
-    return pushVerbFrame(
-        program,
-        locals,
-        programmer,
-        receiver,
-        verbLocation,
-        Optional.empty(),
-        OptionalLong.empty(),
-        OptionalLong.empty(),
-        OptionalLong.empty(),
-        OptionalLong.empty(),
-        Optional.of(receiver),
-        calledVerb,
-        fullVerbName,
-        debug);
-  }
-
-  private boolean pushVerbFrame(
-      BytecodeProgram program,
-      Map<String, MooValue> locals,
-      long programmer,
-      MooValue receiver,
-      MooValue verbLocation,
-      Optional<MooValue> createReturnOverride,
-      OptionalLong recycleTarget,
-      OptionalLong moveObject,
-      OptionalLong moveDestination,
-      OptionalLong movePosition,
-      String calledVerb,
-      String fullVerbName,
-      boolean debug) {
-    return pushVerbFrame(
-        program,
-        locals,
-        programmer,
-        receiver,
-        verbLocation,
-        createReturnOverride,
-        recycleTarget,
-        moveObject,
-        moveDestination,
-        movePosition,
-        Optional.empty(),
-        calledVerb,
-        fullVerbName,
-        debug);
-  }
-
-  private boolean pushVerbFrame(
-      BytecodeProgram program,
-      Map<String, MooValue> locals,
-      long programmer,
-      MooValue receiver,
-      MooValue verbLocation,
-      Optional<MooValue> createReturnOverride,
-      OptionalLong recycleTarget,
-      OptionalLong moveObject,
-      OptionalLong moveDestination,
-      OptionalLong movePosition,
-      Optional<AnonymousObjectValue> anonymousRecycleTarget,
-      String calledVerb,
-      String fullVerbName,
-      boolean debug) {
-    if (frames.size() >= maxStackDepth) {
-      return false;
+    if (origin.returnMode() == ReturnMode.ROOT) {
+      initialLocals.putAll(locals);
     }
-    frames.push(
-        new Frame(
-            program,
-            locals,
-            ReturnMode.VERB,
-            programmer,
-            receiver,
-            verbLocation,
-            calledVerb,
-            fullVerbName,
-            createReturnOverride,
-            recycleTarget,
-            moveObject,
-            moveDestination,
-            movePosition,
-            anonymousRecycleTarget,
-            debug,
-            true));
-    return true;
-  }
-
-  boolean pushMoveFrame(
-      BytecodeProgram program, Map<String, MooValue> locals,
-      world.mongoose.banteng.world.WorldVerb hook, long receiver, long location,
-      ReturnMode phase, BuiltinResult.Move move) {
-    if (frames.size() >= maxStackDepth) {
-      return false;
-    }
-    frames.push(new Frame(
-        program, locals, phase, hook.owner(), new ObjectValue(receiver), new ObjectValue(location),
-        calledVerb(locals), hook.names(), Optional.empty(), OptionalLong.empty(),
-        OptionalLong.of(move.object()), OptionalLong.of(move.destination()),
-        OptionalLong.of(move.position()), hook.perms().debug(), true));
+    frames.push(new Frame(program, locals, origin.returnMode(), origin.programmer(),
+        origin.receiver(), origin.verbLocation(), origin.calledVerb(), origin.fullVerbName(),
+        origin.createReturnOverride(), origin.recycleTarget(), origin.moveObject(),
+        origin.moveDestination(), origin.movePosition(), origin.anonymousRecycleTarget(),
+        origin.debug(), true));
     return true;
   }
 
@@ -1377,7 +1073,7 @@ public final class VmState {
     }
   }
 
-  enum ReturnMode {
+  public enum ReturnMode {
     ROOT,
     EVAL,
     VERB,

@@ -4429,7 +4429,7 @@ public final class BuiltinCatalog {
     }
     List<MooValue> lines = new ArrayList<>();
     lines.add(StringValue.of("Main code vector:"));
-    new MooCompiler().compile(verb.programSource()).disassemble().lines()
+    verb.program().disassemble().lines()
             .map(StringValue::of)
             .map(MooValue.class::cast)
             .forEach(lines::add);
@@ -5776,8 +5776,8 @@ public final class BuiltinCatalog {
             .collect(java.util.stream.Collectors.joining("\n"));
     WorldResult<Boolean> updated =
         receiver instanceof ObjectValue object
-            ? world.setVerbCode(object.value(), verbIndex, canonicalSource)
-            : world.setVerbCode((AnonymousObjectValue) receiver, verbIndex, canonicalSource);
+            ? world.setVerbCode(object.value(), verbIndex, canonicalSource, compiled.program().orElseThrow())
+            : world.setVerbCode((AnonymousObjectValue) receiver, verbIndex, canonicalSource, compiled.program().orElseThrow());
     return mutationResult(updated, new ListValue(List.of()));
   }
 

@@ -4722,7 +4722,7 @@ final class MooVmTest {
   @Test
   void callersReturnsCallerFramesAndOptionallyAppendsSourceLines() {
     WorldVerb inspect =
-        new WorldVerb("inspect", 1, 4, -1,
+        new WorldVerb("inspect", 1, new VerbPerms(4), ArgSpec.NONE, -1, ArgSpec.NONE,
             "return {callers(), callers(1), call_function(\"callers\", 1), "
                 + "call_function(\"call_function\", \"callers\", 1)};");
     WorldObject object =

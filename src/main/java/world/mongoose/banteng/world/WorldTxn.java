@@ -16,6 +16,8 @@ import java.util.OptionalLong;
 import java.util.Set;
 import java.util.StringTokenizer;
 import world.mongoose.banteng.value.MooValue;
+import world.mongoose.banteng.bytecode.BytecodeProgram;
+import world.mongoose.banteng.bytecode.MooCompiler;
 import world.mongoose.banteng.value.MooValue.AnonymousObjectValue;
 import world.mongoose.banteng.value.MooValue.ErrorValue;
 import world.mongoose.banteng.value.MooValue.IntegerValue;
@@ -251,6 +253,40 @@ public final class WorldTxn implements AutoCloseable {
   /** Finds a named verb, optionally requiring its executable permission. */
   public Optional<WorldVerb> verb(long objectId, String verbName, boolean requireExecutable) {
     return verbFor(objectId, verbName, requireExecutable);
+  }
+
+  /** One verb and its defining location from the current transaction. */
+  public record ResolvedVerb(WorldVerb verb, MooValue location) {}
+
+  /** Resolves a permanent receiver without separately repeating the location lookup. */
+  public Optional<ResolvedVerb> resolveVerb(long receiver, String name, boolean requireExecutable) {
+    return resolveVerbFor(receiver, name, requireExecutable);
+  }
+
+  /** Resolves a permanent or anonymous receiver using the existing lookup read dependencies. */
+  public Optional<ResolvedVerb> resolveVerb(
+      MooValue receiver, String name, boolean requireExecutable) {
+    if (receiver instanceof ObjectValue object) {
+      return resolveVerbFor(object.value(), name, requireExecutable);
+    }
+    if (receiver instanceof AnonymousObjectValue anonymous) {
+      return resolveVerbFor(anonymous, name, requireExecutable);
+    }
+    return Optional.empty();
+  }
+
+  private Optional<ResolvedVerb> resolveVerbFor(
+      Object receiver, String name, boolean requireExecutable) {
+    Objects.requireNonNull(name, "name");
+    if (requireExecutable) {
+      VerbCache.Resolution resolution = history.findCallableVerb(this, receiver, name);
+      return resolvedCallableVerb(resolution).map(verb -> new ResolvedVerb(verb,
+          resolution.location() instanceof Long object
+              ? new ObjectValue(object) : (AnonymousObjectValue) Objects.requireNonNull(resolution.location())));
+    }
+    return locatedVerb(receiver, name).map(located -> new ResolvedVerb(located.verb(),
+        located.location() instanceof Long object
+            ? new ObjectValue(object) : (AnonymousObjectValue) located.location()));
   }
 
   /** Returns the defining object selected by ordered verb lookup. */
@@ -1529,18 +1565,33 @@ public final class WorldTxn implements AutoCloseable {
   /** Replaces the source of one resolved zero-based local verb. */
   public WorldResult<Boolean> setVerbCode(
       long objectId, int verbIndex, String programSource) {
-    return setVerbCodeFor(objectId, verbIndex, programSource);
+    return setVerbCode(objectId, verbIndex, programSource, new MooCompiler().compile(programSource));
   }
 
   /** Replaces the source of one zero-based local verb on an anonymous object. */
   public WorldResult<Boolean> setVerbCode(
       AnonymousObjectValue identity, int verbIndex, String programSource) {
     return setVerbCodeFor(
-        Objects.requireNonNull(identity, "identity"), verbIndex, programSource);
+        Objects.requireNonNull(identity, "identity"), verbIndex, programSource,
+        new MooCompiler().compile(programSource));
+  }
+
+  /** Installs already validated source and its compiled program. */
+  public WorldResult<Boolean> setVerbCode(
+      long objectId, int verbIndex, String source, BytecodeProgram program) {
+    return setVerbCodeFor(objectId, verbIndex, source, program);
+  }
+
+  /** Installs already validated source and its compiled program on an anonymous object. */
+  public WorldResult<Boolean> setVerbCode(
+      AnonymousObjectValue identity, int verbIndex, String source,
+      BytecodeProgram program) {
+    return setVerbCodeFor(Objects.requireNonNull(identity, "identity"), verbIndex, source, program);
   }
 
   private WorldResult<Boolean> setVerbCodeFor(
-      Object identity, int verbIndex, String programSource) {
+      Object identity, int verbIndex, String programSource,
+      BytecodeProgram program) {
     Objects.requireNonNull(programSource, "programSource");
     PropertyHolder holder = propertyHolder(identity).orElse(null);
     if (holder == null || verbIndex < 0 || verbIndex >= holder.verbs().size()) {
@@ -1557,7 +1608,7 @@ public final class WorldTxn implements AutoCloseable {
             verb.dobj(),
             verb.preposition(),
             verb.iobj(),
-            programSource));
+            programSource, program));
     replacePropertyHolder(
         identity,
         copyPropertyHolder(holder, holder.name(), holder.owner(), verbs, holder.properties()));
@@ -1583,7 +1634,7 @@ public final class WorldTxn implements AutoCloseable {
             verb.dobj(),
             verb.preposition(),
             verb.iobj(),
-            verb.programSource()));
+            verb.programSource(), verb.program()));
     replaceObject(
         new WorldObject(
             object.id(),
@@ -1618,7 +1669,7 @@ public final class WorldTxn implements AutoCloseable {
             direct,
             preposition,
             indirect,
-            verb.programSource()));
+            verb.programSource(), verb.program()));
     replaceObject(
         new WorldObject(
             object.id(),
