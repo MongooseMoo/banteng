@@ -34,3 +34,5 @@ Claude reviewed only the Noise-specific delta on top of the runtime dependency h
 
 ## Queue prerequisite integration
 Normally merged the published Task tip and its reviewed prerequisite families. YAML resolution retains the entire Noise recipe, including SimplexNoise relocation, alongside all incoming recipe documents. Reused fixture/catalog resolutions retain the original Noise fixture and registration position before string search, matching final assembly. NoiseBuiltins, SimplexNoise and incoming family owners remain byte-identical. Preserved the pre-existing limited Claude coverage note in this substantive merge. No local tests, repeated review or publication; parent owns hosted validation and merge.
+
+Normally merged the newly published Task tip carrying the actual merged master ancestry. No conflicts occurred; incoming source changes are only the already-reviewed startup-input cleaning fix and focused test, with their runtime notes and prerequisite ancestry notes. NoiseBuiltins, SimplexNoise, all other builtin owners, catalog and extraction files remain unchanged. No CI, review or publication ran here.
