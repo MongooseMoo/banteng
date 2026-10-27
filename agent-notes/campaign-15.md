@@ -4,7 +4,7 @@
 Extract FinalizationCollector, LoginFlow and ConnectionIo in the requested order, decompose command execution into named phases, and replace ambient attempt access with explicit context. Preserve behavior and publication ownership.
 
 ## State
-Implementation authorized by the campaign go-ahead. Based on the prepared compiled-verb branch; its PR and the semantics dependency must merge before this change. Source investigation settled the context boundary; implementation has not started.
+The three owner extractions, command phases and explicit attempt/host context plumbing are implemented and committed. Current compiled-verb ancestry and the task-state owner branch are integrated. Parent inspection found that both constructors assigned the shadowing valueSemantics parameter instead of the new final field; both assignments now use this.valueSemantics. Publication, review and PR CI remain parent-owned.
 
 ## Decisions and why
 Smallest change: move the existing approximately 450-line collector, 415-line login flow and 400-line connection plumbing into the named owners, use the existing OpenRewrite subproject for static-member moves, then thread existing AttemptContext explicitly through runtime/scheduler methods and named dispatch phases. Roughly 3,500–5,500 changed lines, chiefly moves and argument plumbing, with one class per substantive commit as the issue requests. Retain one owner of pending reads and existing synchronization/publication.
@@ -14,7 +14,7 @@ Use existing BuiltinHosts on BuiltinCall as the invocation carrier. MooRuntime.b
 Primary source: MooRuntime.builtinHosts and ATTEMPT/openAttempt/requireAttempt; PublicationScheduler.executeAttempt/executeSegment; BuiltinCall and BuiltinHosts; BuiltinCatalog constructors and callFunction; ArchitectureTest package boundaries prohibit runtime dependencies from VM/builtin. Existing runtime methods and explicit context can remain runtime-owned; ThreadLocal is confined to the scheduler attempt-entry boundary.
 
 ## Next step
-Implement only the requested decomposition in this isolated worktree, keeping the existing task note current and preserving later dependency fixes. Parent owns publication, Claude review, PR CI and normal merging. Run only an actively authored focused test; do not run broad local CI or add new guards. The issue is not complete until all requested extractions and explicit-context threading work together.
+Commit the constructor field-initialization repair with this note, then return the worktree to the parent for publication, Claude review, answers to findings, PR CI and normal merging after prerequisites. No local CI is authorized for this repair. The authored recipe test result does not establish that the complete runtime change passes PR CI.
 
 ## Checkpoint
 Read issue 15 and the existing extraction recipe; the requested order is collector, login, connection I/O, dispatch phases, then explicit attempt plumbing.
@@ -42,4 +42,4 @@ Source showed MooServer.openNetworkConnection re-entering runtime.registerOutbou
 
 Context plumbing is committed. Current compiled-verb ancestry is integrated. The task-state owner branch is now integrated: moved LoginFlow/ConnectionIo/runtime effect callers use EffectOutbox, VM metering uses TaskBudget, and conflicting constructor fixtures retain TaskOrigin/TaskBudget plus invocation hosts. Snapshot values and the single catalog remain unchanged by this integration.
 
-No broad local CI has been run. The authored static-move recipe test passed; root-source recipe execution completed; source inspection found no remaining ambient attempt lookup or unresolved conflict markers. Parent owns publication, Claude review, answers to findings, PR CI and normal merge after the task-state prerequisite. Next: commit the resolved integration and hand off the complete implementation for that workflow.
+No broad local CI has been run. The authored static-move recipe test passed; root-source recipe execution completed; source inspection found no remaining ambient attempt lookup or unresolved conflict markers. The integration is committed. Parent inspection subsequently found the constructor field-initialization defect described in State; the source repair is included with this note update. Parent owns publication, Claude review, answers to findings, PR CI and normal merge after the task-state prerequisite.

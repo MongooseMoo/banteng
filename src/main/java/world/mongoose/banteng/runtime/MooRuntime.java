@@ -158,7 +158,7 @@ public final class MooRuntime implements AutoCloseable, SchedulerRuntime {
         Objects.requireNonNull(connectionNameResolver, "connectionNameResolver");
     ValueSemantics configuredSemantics =
         Objects.requireNonNull(valueSemantics, "valueSemantics");
-    valueSemantics = configuredSemantics;
+    this.valueSemantics = configuredSemantics;
     vm = new MooVm(configuredSemantics);
     listenerControl = Optional.empty();
     database = Optional.empty();
@@ -405,7 +405,7 @@ public final class MooRuntime implements AutoCloseable, SchedulerRuntime {
     connectionNameResolver = MooRuntime::resolveCanonicalConnectionName;
     ValueSemantics configuredSemantics =
         Objects.requireNonNull(valueSemantics, "valueSemantics");
-    valueSemantics = configuredSemantics;
+    this.valueSemantics = configuredSemantics;
     vm = new MooVm(configuredSemantics);
     this.listenerControl = Optional.of(Objects.requireNonNull(listenerControl, "listenerControl"));
     this.database = Objects.requireNonNull(database, "database");
