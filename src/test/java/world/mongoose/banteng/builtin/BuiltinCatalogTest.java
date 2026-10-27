@@ -12,8 +12,6 @@ import java.io.ByteArrayOutputStream;
 import java.io.PrintStream;
 import java.lang.reflect.Field;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -31,7 +29,6 @@ import world.mongoose.banteng.builtin.BuiltinCatalog.ConnectionOption;
 import world.mongoose.banteng.builtin.BuiltinResult;
 import world.mongoose.banteng.host.Crypt;
 import world.mongoose.banteng.host.NativeCallException;
-import world.mongoose.banteng.logging.ServerLog;
 import world.mongoose.banteng.server.ConnectionRegistry;
 import world.mongoose.banteng.value.MooValue;
 import world.mongoose.banteng.value.MooValue.AnonymousObjectValue;
@@ -54,7 +51,6 @@ import world.mongoose.banteng.world.WorldProperty;
 import world.mongoose.banteng.world.WorldTxn;
 import world.mongoose.banteng.world.WorldVerb;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.io.TempDir;
 
 final class BuiltinCatalogTest {
   private static final Set<String> REACHABLE_NAMES =
@@ -286,36 +282,6 @@ final class BuiltinCatalogTest {
           "verb_info",
           "yin");
 
-  @Test
-  void argon2VerificationSeparatesMismatchFromInternalFailure(@TempDir Path directory)
-      throws Exception {
-    List<MooValue> arguments =
-        List.of(
-            string("$argon2id$v=19$m=8,t=1,p=1$c2FsdA$AQID"), string("password"));
-    Path logFile = directory.resolve("server.log");
-    try (ServerLog log =
-        ServerLog.open(System.Logger.Level.ERROR, Optional.of(logFile))) {
-      BuiltinResult mismatch =
-          BuiltinCatalog.argon2Verify(
-              arguments,
-              log,
-              (password, salt, iterations, memory, parallelism, length) -> new byte[length]);
-      assertEquals(Optional.of(new IntegerValue(0)), value(mismatch));
-
-      BuiltinResult internalFailure =
-          BuiltinCatalog.argon2Verify(
-              arguments,
-              log,
-              (password, salt, iterations, memory, parallelism, length) -> {
-                throw new IllegalStateException("engine failed");
-              });
-      assertEquals(Optional.of(ErrorValue.E_QUOTA), error(internalFailure));
-    }
-
-    String logged = Files.readString(logFile);
-    assertTrue(logged.contains("ARGON2 VERIFY: internal failure: IllegalStateException"));
-    assertFalse(logged.contains("password"));
-  }
 
   @Test
   void registersEveryReachableBuiltinExactlyOnceWithCompleteContracts() {

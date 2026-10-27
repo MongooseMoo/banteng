@@ -1,5 +1,6 @@
 package world.mongoose.banteng.value;
 
+import java.io.ByteArrayOutputStream;
 import java.math.BigDecimal;
 import java.nio.ByteBuffer;
 import java.nio.charset.CharacterCodingException;
@@ -196,6 +197,46 @@ public sealed interface MooValue
 
   /** An immutable binary MOO string represented as owned Latin-1 bytes. */
   final class StringValue implements MooValue {
+    /** Decodes Toast binary escapes, rejecting malformed escape sequences. */
+    public Optional<byte[]> binaryBytes() {
+      byte[] binary = bytes();
+      ByteArrayOutputStream raw = new ByteArrayOutputStream(binary.length);
+      for (int index = 0; index < binary.length; index++) {
+        int value = Byte.toUnsignedInt(binary[index]);
+        if (value != '~') {
+          raw.write(value);
+          continue;
+        }
+        if (index + 2 >= binary.length) {
+          return Optional.empty();
+        }
+        int high = Character.digit((char) Byte.toUnsignedInt(binary[++index]), 16);
+        int low = Character.digit((char) Byte.toUnsignedInt(binary[++index]), 16);
+        if (high < 0 || low < 0) {
+          return Optional.empty();
+        }
+        raw.write((high << 4) | low);
+      }
+
+      return Optional.of(raw.toByteArray());
+    }
+
+    /** Escapes this string as Toast binary input. */
+    public StringValue encodeBinary() {
+      ByteArrayOutputStream encoded = new ByteArrayOutputStream(bytes.length);
+      for (byte current : bytes) {
+        int value = Byte.toUnsignedInt(current);
+        if (value != '~' && ((value >= 0x21 && value <= 0x7e) || value == ' ')) {
+          encoded.write(value);
+        } else {
+          encoded.write('~');
+          encoded.write(Character.toUpperCase(Character.forDigit(value >>> 4, 16)));
+          encoded.write(Character.toUpperCase(Character.forDigit(value & 0x0f, 16)));
+        }
+      }
+      return StringValue.of(encoded.toByteArray());
+    }
+
     private static final Charset CHARSET = StandardCharsets.ISO_8859_1;
     private final byte[] bytes;
 

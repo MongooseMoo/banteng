@@ -1,4 +1,14 @@
-package world.mongoose.banteng.builtin;
+package world.mongoose.banteng.builtin.family;
+import java.util.Optional;
+import java.util.Set;
+import world.mongoose.banteng.builtin.ArgType;
+import world.mongoose.banteng.builtin.BuiltinRegistrar;
+import world.mongoose.banteng.builtin.BuiltinPermissionRule;
+import world.mongoose.banteng.builtin.BuiltinResult;
+import world.mongoose.banteng.builtin.BuiltinSpec;
+import world.mongoose.banteng.builtin.CallShape;
+import world.mongoose.banteng.builtin.ConfinedFileRoot;
+
 
 import java.nio.file.Path;
 import java.sql.Connection;
@@ -29,7 +39,26 @@ import org.sqlite.SQLiteLimits;
 import org.sqlite.SQLiteException;
 
 /** Catalog-scoped owner of Toast-compatible transient SQLite connections. */
-final class SqliteService {
+public final class SqliteBuiltins {
+  private static final Set<ArgType> ANY = Set.of(ArgType.ANY);
+  private static final Set<ArgType> INTEGER = Set.of(ArgType.INTEGER);
+  private static final Set<ArgType> STRING = Set.of(ArgType.STRING);
+  public void register(List<BuiltinSpec> entries) {
+    BuiltinRegistrar registrar = new BuiltinRegistrar(entries);
+    registrar.builtin("sqlite_open", List.of(new CallShape(List.of(STRING), List.of(INTEGER), Optional.empty()))).permission(BuiltinPermissionRule.WIZARD_ONLY).irrevocable().implementation(call -> open(call.arguments()));
+    registrar.builtin("sqlite_close", List.of(new CallShape(List.of(INTEGER), List.of(), Optional.empty()))).permission(BuiltinPermissionRule.WIZARD_ONLY).irrevocable().implementation(call -> close(call.arguments()));
+    registrar.builtin("sqlite_handles", List.of(new CallShape(List.of(), List.of(), Optional.empty()))).permission(BuiltinPermissionRule.WIZARD_ONLY).implementation(call -> handles());
+    registrar.builtin("sqlite_info", List.of(new CallShape(List.of(INTEGER), List.of(), Optional.empty()))).permission(BuiltinPermissionRule.WIZARD_ONLY).implementation(call -> info(call.arguments()));
+    registrar.builtin("sqlite_query", List.of(new CallShape(List.of(INTEGER, STRING), List.of(ANY), Optional.empty()))).permission(BuiltinPermissionRule.WIZARD_ONLY).implementation(call -> query(call.arguments(), call.threadMode()));
+    registrar.builtin("sqlite_execute", List.of(new CallShape(
+    List.of(INTEGER, STRING, Set.of(ArgType.LIST)),
+    List.of(),
+    Optional.empty()))).permission(BuiltinPermissionRule.WIZARD_ONLY).implementation(call -> execute(call.arguments(), call.threadMode()));
+    registrar.builtin("sqlite_last_insert_row_id", List.of(new CallShape(List.of(INTEGER), List.of(), Optional.empty()))).permission(BuiltinPermissionRule.WIZARD_ONLY).implementation(call -> lastInsertRowId(call.arguments()));
+    registrar.builtin("sqlite_limit", List.of(new CallShape(List.of(INTEGER, ANY, INTEGER), List.of(), Optional.empty()))).permission(BuiltinPermissionRule.WIZARD_ONLY).irrevocable().implementation(call -> limit(call.arguments()));
+    registrar.builtin("sqlite_interrupt", List.of(new CallShape(List.of(INTEGER), List.of(), Optional.empty()))).permission(BuiltinPermissionRule.WIZARD_ONLY).irrevocable().implementation(call -> interrupt(call.arguments()));
+  }
+
   private static final int MAX_HANDLES = 20;
   private static final int PARSE_TYPES = 2;
   private static final int PARSE_OBJECTS = 4;
@@ -40,11 +69,11 @@ final class SqliteService {
   private final ConfinedFileRoot files;
   private long nextHandle = 1;
 
-  SqliteService(ConfinedFileRoot files) {
+  public SqliteBuiltins(ConfinedFileRoot files) {
     this.files = files;
   }
 
-  synchronized BuiltinResult open(List<MooValue> arguments) {
+  private synchronized BuiltinResult open(List<MooValue> arguments) {
     if (databases.size() >= MAX_HANDLES) {
       return BuiltinResult.error(ErrorValue.E_QUOTA);
     }
@@ -91,7 +120,7 @@ final class SqliteService {
     }
   }
 
-  synchronized BuiltinResult close(List<MooValue> arguments) {
+  private synchronized BuiltinResult close(List<MooValue> arguments) {
     long handle = integer(arguments.get(0));
     Database database = databases.get(handle);
     if (database == null) {
@@ -112,7 +141,7 @@ final class SqliteService {
     }
   }
 
-  synchronized BuiltinResult handles(List<MooValue> arguments) {
+  private synchronized BuiltinResult handles() {
     return BuiltinResult.value(
         new ListValue(
             databases.keySet().stream()
@@ -122,7 +151,7 @@ final class SqliteService {
                 .toList()));
   }
 
-  synchronized BuiltinResult info(List<MooValue> arguments) {
+  private synchronized BuiltinResult info(List<MooValue> arguments) {
     Database database = databases.get(integer(arguments.get(0)));
     if (database == null) {
       return BuiltinResult.error(ErrorValue.E_INVARG);
@@ -136,7 +165,7 @@ final class SqliteService {
     return BuiltinResult.value(new MapValue(values));
   }
 
-  synchronized BuiltinResult query(List<MooValue> arguments, boolean threaded) {
+  private synchronized BuiltinResult query(List<MooValue> arguments, boolean threaded) {
     Database database = databases.get(integer(arguments.get(0)));
     if (database == null) {
       return BuiltinResult.value(ErrorValue.E_INVARG);
@@ -149,7 +178,7 @@ final class SqliteService {
         : run(database, () -> executeQuery(database, sql, headers));
   }
 
-  synchronized BuiltinResult execute(List<MooValue> arguments, boolean threaded) {
+  private synchronized BuiltinResult execute(List<MooValue> arguments, boolean threaded) {
     Database database = databases.get(integer(arguments.get(0)));
     if (database == null) {
       return BuiltinResult.value(ErrorValue.E_INVARG);
@@ -162,7 +191,7 @@ final class SqliteService {
         : run(database, () -> executePrepared(database, sql, parameters));
   }
 
-  BuiltinResult lastInsertRowId(List<MooValue> arguments) {
+  private BuiltinResult lastInsertRowId(List<MooValue> arguments) {
     Database database = database(integer(arguments.get(0)));
     if (database == null) {
       return BuiltinResult.error(ErrorValue.E_INVARG);
@@ -177,7 +206,7 @@ final class SqliteService {
     }
   }
 
-  BuiltinResult limit(List<MooValue> arguments) {
+  private BuiltinResult limit(List<MooValue> arguments) {
     Database database = database(integer(arguments.get(0)));
     if (database == null) {
       return BuiltinResult.error(ErrorValue.E_INVARG);
@@ -198,7 +227,7 @@ final class SqliteService {
     }
   }
 
-  BuiltinResult interrupt(List<MooValue> arguments) {
+  private BuiltinResult interrupt(List<MooValue> arguments) {
     Database database = database(integer(arguments.get(0)));
     if (database == null) {
       return BuiltinResult.error(ErrorValue.E_INVARG);

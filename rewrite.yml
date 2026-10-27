@@ -1,5 +1,13 @@
 ---
 type: specs.openrewrite.org/v1beta/recipe
+name: world.mongoose.banteng.builtin.ExtractSqliteBuiltins
+displayName: Extract SQLite builtin family
+description: Relocates the existing SQLite handle owner and its registrations.
+recipeList:
+  - world.mongoose.banteng.rewrite.MoveFileIoBuiltins:
+      family: Sqlite
+---
+type: specs.openrewrite.org/v1beta/recipe
 name: world.mongoose.banteng.builtin.ExtractFileIoBuiltins
 displayName: Extract File I/O builtin family
 description: Relocates the existing file handle owner and its registrations.
@@ -55,10 +63,10 @@ recipeList:
       methodPattern: world.mongoose.banteng.builtin.family.FileIoBuiltins mooString(java.lang.String)
       fullyQualifiedTargetTypeName: world.mongoose.banteng.value.MooValue.StringValue
   - org.openrewrite.java.ChangeMethodTargetToStatic:
-      methodPattern: world.mongoose.banteng.builtin.PcreService string(java.lang.String)
+      methodPattern: world.mongoose.banteng.builtin.family.PcreService string(java.lang.String)
       fullyQualifiedTargetTypeName: world.mongoose.banteng.value.MooValue.StringValue
   - org.openrewrite.java.ChangeMethodTargetToStatic:
-      methodPattern: world.mongoose.banteng.builtin.SqliteService string(java.lang.String)
+      methodPattern: world.mongoose.banteng.builtin.family.SqliteBuiltins string(java.lang.String)
       fullyQualifiedTargetTypeName: world.mongoose.banteng.value.MooValue.StringValue
   - org.openrewrite.java.ChangeMethodName:
       methodPattern: world.mongoose.banteng.value.MooValue.StringValue encode(java.lang.String)
@@ -464,3 +472,96 @@ recipeList:
       family: ServerBuiltins
       builtins: [value_bytes, object_bytes, server_version, function_info, server_log, log_cache_stats, verb_cache_stats, usage, memory_usage, load_server_options, run_gc, gc_stats, shutdown, db_disk_size, dump_database]
       methods: [functionInfo, serverVersion, serverVersionMetadata, versionPair, versionPath, functionInfoDescription, typeCode, dumpDatabase, serverLog, logCacheStats, verbCacheStats, memoryUsage, usage, shutdown, objectBytes, gcStats]
+---
+type: specs.openrewrite.org/v1beta/recipe
+name: world.mongoose.banteng.builtin.ExtractNoiseBuiltins
+displayName: Extract noise builtins
+description: Moves simplex noise registration and wrapper beside its package-private numeric implementation.
+recipeList:
+  - world.mongoose.banteng.rewrite.MoveBuiltinFamily:
+      family: NoiseBuiltins
+      builtins: [simplex_noise]
+      methods: [simplexNoise]
+  - org.openrewrite.java.ChangeType:
+      oldFullyQualifiedTypeName: world.mongoose.banteng.builtin.SimplexNoise
+      newFullyQualifiedTypeName: world.mongoose.banteng.builtin.family.SimplexNoise
+---
+type: specs.openrewrite.org/v1beta/recipe
+name: world.mongoose.banteng.builtin.ExtractTaskBuiltins
+displayName: Extract task builtins
+description: Moves task registrations and their implementation closure with explicit catalog dispatch.
+recipeList:
+  - world.mongoose.banteng.rewrite.MoveBuiltinFamily:
+      family: TaskBuiltins
+      builtins: [task_local, set_task_local, raise, pass, caller_perms, callers, call_function, queue_info, queued_tasks, task_stack, kill_task, thread_pool, threads, task_perms, task_id, ticks_left, seconds_left, set_task_perms, set_thread_mode, eval, suspend, resume, yin]
+      methods: [configureThreadPool, callFunction, suspend, yin, raise, setThreadMode, callers, anonymizeTaskReference, setTaskPerms, dynamicEval]
+---
+type: specs.openrewrite.org/v1beta/recipe
+name: world.mongoose.banteng.builtin.ExtractObjectBuiltins
+displayName: Extract object builtins
+description: Moves object registrations and implementation closure while preserving existing result ownership.
+recipeList:
+  - world.mongoose.banteng.rewrite.MoveBuiltinFamily:
+      family: ObjectBuiltins
+      builtins: [create, recreate, parent, parents, ancestors, isa, children, chparent, chparents, is_player, valid, max_object, locate_by_name, locations, recycled_objects, next_recycled_object, owned_objects, set_player_flag, move, recycle, new_waif, waif_stats, reset_max_object]
+      methods: [create, recreate, decrementOwnershipQuota, parent, parents, ancestors, isa, isA, children, changeParents, parentsAllowed, parentArgument, objectList, locateByName, locations, nextRecycledObject, recycledObjects, waifStats, ownedObjects, isPlayer, valid, setPlayerFlag, move, recycle]
+---
+type: specs.openrewrite.org/v1beta/recipe
+name: world.mongoose.banteng.builtin.ExtractPropertyBuiltins
+displayName: Extract property builtins
+description: Moves property registrations and implementations and shared ownership validation into existing Access.
+recipeList:
+  - world.mongoose.banteng.rewrite.MoveBuiltinFamily:
+      family: PropertyBuiltins
+      builtins: [add_property, properties, property_info, is_clear_property, clear_property, delete_property]
+      methods: [addProperty, properties, propertyInfo, isClearProperty, clearProperty, deleteProperty]
+---
+type: specs.openrewrite.org/v1beta/recipe
+name: world.mongoose.banteng.builtin.ExtractVerbBuiltins
+displayName: Extract verb builtins
+description: Moves verb registrations and implementations with explicit existing catalog lookup.
+recipeList:
+  - world.mongoose.banteng.rewrite.MoveBuiltinFamily:
+      family: VerbBuiltins
+      builtins: [respond_to, disassemble, delete_verb, add_verb, set_verb_code, set_verb_args, set_verb_info, verbs, verb_args, verb_code, verb_info]
+      methods: [respondTo, disassemble, deleteVerb, addVerb, setVerbCode, setVerbArgs, setVerbInfo, verbs, verbArgs, verbCode, verbInfo, parsePreposition]
+---
+type: specs.openrewrite.org/v1beta/recipe
+name: world.mongoose.banteng.builtin.ExtractRegexBuiltins
+displayName: Extract regex builtins
+description: Moves legacy and PCRE registrations beside their package-private services.
+recipeList:
+  - world.mongoose.banteng.rewrite.MoveBuiltinFamily:
+      family: RegexBuiltins
+      builtins: [match, rmatch, pcre_match, pcre_replace, pcre_cache_stats]
+      methods: [toastMatch]
+---
+type: specs.openrewrite.org/v1beta/recipe
+name: world.mongoose.banteng.builtin.ExtractBinaryBuiltins
+displayName: Extract binary builtins
+description: Moves binary registrations and flattening to their family and shared escaping to StringValue.
+recipeList:
+  - world.mongoose.banteng.rewrite.MoveBuiltinFamily:
+      family: BinaryBuiltins
+      builtins: [decode_binary, encode_binary, chr]
+      methods: [decodeBinary, encodeBinary, chr, appendBinaryBytes]
+---
+type: specs.openrewrite.org/v1beta/recipe
+name: world.mongoose.banteng.builtin.ExtractHostBuiltins
+displayName: Extract host builtins
+description: Moves environment, transfer, spelling and URL registrations into their family owner.
+recipeList:
+  - world.mongoose.banteng.rewrite.MoveBuiltinFamily:
+      family: HostBuiltins
+      builtins: [getenv, curl, spellcheck, url_encode, url_decode]
+      methods: [curl, serverIntegerOption, curlTransfer, curlError, spellcheck, urlEncode, urlDecode]
+---
+type: specs.openrewrite.org/v1beta/recipe
+name: world.mongoose.banteng.builtin.ExtractCryptoBuiltins
+displayName: Extract crypto builtins
+description: Moves crypto registrations and implementation closure into their family owner.
+recipeList:
+  - world.mongoose.banteng.rewrite.MoveBuiltinFamily:
+      family: CryptoBuiltins
+      builtins: [crypt, salt, string_hash, string_hmac, binary_hash, binary_hmac, value_hash, value_hmac, argon2, argon2_verify]
+      methods: [crypt, salt, cryptStrength, isRecognizedBcrypt, nativeCrypt, argon2, argon2Settings, argon2Verify, argon2Hash, optionalPositiveInt, cStringBytes, hashInput, hash, hmac, digestResult]
