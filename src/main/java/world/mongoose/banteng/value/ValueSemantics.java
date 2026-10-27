@@ -110,10 +110,14 @@ public record ValueSemantics(boolean promoteNumbers) {
       int lhs = index < left.length() ? left.unsignedByteAt(index) : 0;
       int rhs = index < right.length() ? right.unsignedByteAt(index) : 0;
       if (!caseMatters) {
-        if (lhs >= 'A' && lhs <= 'Z') lhs += 'a' - 'A';
-        if (rhs >= 'A' && rhs <= 'Z') rhs += 'a' - 'A';
+        lhs = foldAscii(lhs);
+        rhs = foldAscii(rhs);
       }
       if (lhs != rhs || lhs == 0) return lhs - rhs;
     }
+  }
+
+  public static int foldAscii(int value) {
+    return value >= 'A' && value <= 'Z' ? value + ('a' - 'A') : value;
   }
 }

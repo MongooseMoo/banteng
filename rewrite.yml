@@ -345,3 +345,13 @@ recipeList:
       family: MapBuiltins
       builtins: [mapdelete, mapkeys, mapvalues, maphaskey]
       methods: [mapKeys, mapValues, mapHasKey, mapDelete, deleteMapKey, invalidMapBuiltinKey]
+---
+type: specs.openrewrite.org/v1beta/recipe
+name: world.mongoose.banteng.builtin.ExtractListBuiltins
+displayName: Extract list builtins
+description: Moves list registration groups, implementations and shared value limits to their owners.
+recipeList:
+  - world.mongoose.banteng.rewrite.MoveBuiltinFamily:
+      family: ListBuiltins
+      builtins: [length, listappend, listinsert, listdelete, listset, setadd, setremove, all_members, sort, reverse]
+      methods: [length, listInsert, listDelete, listSet, setAdd, setRemove, allMembers, sortValues, sortableType, compareSortValues, compareNaturallyIgnoringCase, compareLeftAlignedDigits, compareRightAlignedDigits, cStringByte, isAsciiDigit, isAsciiSpace, reverse]
