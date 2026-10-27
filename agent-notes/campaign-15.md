@@ -36,4 +36,8 @@ LoginFlow is committed. ConnectionIo now owns read registration/waiting/delivery
 
 ConnectionIo is committed. Command execution now separates program-input compilation from programming/output control, and command selection shares the existing argument-specification predicate. The command methods are package-private and each command phase is below 100 lines; parsing and OOB continue using the existing parser and transport phase.
 
-Next: commit the dispatch phases, then thread explicit context through the runtime, scheduler and builtin invocation carrier. No broad local CI has been run.
+The dispatch phases are committed. Runtime attempt methods and all extracted owners now receive AttemptContext explicitly. The sole ThreadLocal is at PublicationScheduler.executeAttempt and is removed in finally; downstream ambient accessors are deleted. Scheduler execution passes per-attempt BuiltinHosts through both normal and authorized VM builtin paths into BuiltinCall, including call_function reconstruction. Manifest callbacks select call.hosts rather than eagerly capturing runtime callbacks. The single catalog and its file/SQLite/RNG/regex instances are retained.
+
+Source showed MooServer.openNetworkConnection re-entering runtime.registerOutboundConnection on the attempt thread. The existing listener call now takes an OutboundConnectionRegistrar bound by invocation hosts to that same context; server registration and cleanup order are preserved. Existing listener and direct VM/builtin fixtures were updated for these explicit parameters.
+
+No broad local CI has been run. Next: commit context plumbing, integrate the parent's task-state extraction branch, resolve its moved effect/budget/origin callsites, then hand the complete issue to parent publication and PR CI.

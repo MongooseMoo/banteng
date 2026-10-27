@@ -134,8 +134,13 @@ public final class BuiltinCatalog {
     return () -> EmptyConnectionRegistry.INSTANCE;
   }
 
-  private ConnectionRegistryAccess connections() {
-    return Objects.requireNonNull(hosts.connections().get(), "hosts.connections().get()");
+  private static ConnectionRegistryAccess connections(BuiltinHosts invocationHosts) {
+    return Objects.requireNonNull(invocationHosts.connections().get(), "hosts.connections().get()");
+  }
+
+  /** Returns the standalone invocation composition retained by this catalog. */
+  public BuiltinHosts hosts() {
+    return hosts;
   }
 
   private enum EmptyConnectionRegistry implements ConnectionRegistryAccess {
@@ -241,8 +246,8 @@ public final class BuiltinCatalog {
     BuiltinHandler allMembers =
         call ->
             call.threadMode()
-                ? BuiltinResult.hostWork(() -> allMembers(call.arguments(), hosts.valueSemantics()))
-                : allMembers(call.arguments(), hosts.valueSemantics());
+                ? BuiltinResult.hostWork(() -> allMembers(call.arguments(), call.hosts().valueSemantics()))
+                : allMembers(call.arguments(), call.hosts().valueSemantics());
     BuiltinHandler sort =
         call ->
             call.threadMode()
@@ -654,14 +659,14 @@ public final class BuiltinCatalog {
             List.of(new CallShape(List.of(Set.of(ArgType.LIST), ANY), List.of(), Optional.empty())),
             BuiltinPermissionRule.ANY,
             false,
-            call -> setAdd(call.arguments(), call.world(), hosts.valueSemantics())));
+            call -> setAdd(call.arguments(), call.world(), call.hosts().valueSemantics())));
     entries.add(
         new BuiltinSpec(
             "setremove",
             List.of(new CallShape(List.of(Set.of(ArgType.LIST), ANY), List.of(), Optional.empty())),
             BuiltinPermissionRule.ANY,
             false,
-            call -> setRemove(call.arguments(), call.world(), hosts.valueSemantics())));
+            call -> setRemove(call.arguments(), call.world(), call.hosts().valueSemantics())));
     entries.add(
         new BuiltinSpec(
             "all_members",
@@ -794,7 +799,7 @@ public final class BuiltinCatalog {
             false,
             call ->
                 argon2Verify(
-                    call.arguments(), hosts.serverLog(), BuiltinCatalog::argon2Hash)));
+                    call.arguments(), call.hosts().serverLog(), BuiltinCatalog::argon2Hash)));
     entries.add(
         new BuiltinSpec(
             "decode_binary",
@@ -1151,7 +1156,7 @@ public final class BuiltinCatalog {
             List.of(new CallShape(List.of(OBJECT, OBJECT), List.of(INTEGER), Optional.empty())),
             BuiltinPermissionRule.WIZARD_ONLY,
             false,
-            call -> switchPlayer(call.arguments(), call.world())));
+            call -> switchPlayer(call.hosts(), call.arguments(), call.world())));
     entries.add(
         new BuiltinSpec(
             "pass",
@@ -1189,28 +1194,28 @@ public final class BuiltinCatalog {
             List.of(new CallShape(List.of(), List.of(OBJECT), Optional.empty())),
             BuiltinPermissionRule.ANY,
             false,
-            hosts.queueInfo()));
+            call -> call.hosts().queueInfo().invoke(call)));
     entries.add(
         new BuiltinSpec(
             "queued_tasks",
             List.of(new CallShape(List.of(), List.of(INTEGER, INTEGER), Optional.empty())),
             BuiltinPermissionRule.ANY,
             true,
-            hosts.queuedTasks()));
+            call -> call.hosts().queuedTasks().invoke(call)));
     entries.add(
         new BuiltinSpec(
             "task_stack",
             List.of(new CallShape(List.of(INTEGER), List.of(ANY, ANY), Optional.empty())),
             BuiltinPermissionRule.ANY,
             true,
-            hosts.taskStack()));
+            call -> call.hosts().taskStack().invoke(call)));
     entries.add(
         new BuiltinSpec(
             "kill_task",
             List.of(new CallShape(List.of(INTEGER), List.of(), Optional.empty())),
             BuiltinPermissionRule.ANY,
             true,
-            hosts.killTask()));
+            call -> call.hosts().killTask().invoke(call)));
     entries.add(
         new BuiltinSpec(
             "thread_pool",
@@ -1226,7 +1231,7 @@ public final class BuiltinCatalog {
             List.of(new CallShape(List.of(), List.of(), Optional.empty())),
             BuiltinPermissionRule.WIZARD_ONLY,
             true,
-            hosts.threads()));
+            call -> call.hosts().threads().invoke(call)));
     entries.add(
         new BuiltinSpec(
             "read",
@@ -1243,7 +1248,7 @@ public final class BuiltinCatalog {
                   return BuiltinResult.error(ErrorValue.E_PERM);
                 }
               }
-              return hosts.read().invoke(call);
+              return call.hosts().read().invoke(call);
             }));
     entries.add(
         new BuiltinSpec(
@@ -1254,7 +1259,7 @@ public final class BuiltinCatalog {
             call ->
                 BuiltinResult.value(
                     new ListValue(
-                        connections()
+                        connections(call.hosts())
                             .connectedPlayers(
                                 !call.arguments().isEmpty()
                                     && call.arguments().getFirst().isTruthy())
@@ -1268,14 +1273,14 @@ public final class BuiltinCatalog {
             List.of(new CallShape(List.of(OBJECT), List.of(), Optional.empty())),
             BuiltinPermissionRule.ANY,
             false,
-            hosts.idleSeconds()));
+            call -> call.hosts().idleSeconds().invoke(call)));
     entries.add(
         new BuiltinSpec(
             "connected_seconds",
             List.of(new CallShape(List.of(OBJECT), List.of(), Optional.empty())),
             BuiltinPermissionRule.ANY,
             false,
-            hosts.connectedSeconds()));
+            call -> call.hosts().connectedSeconds().invoke(call)));
     entries.add(
         new BuiltinSpec(
             "buffered_output_length",
@@ -1283,7 +1288,7 @@ public final class BuiltinCatalog {
             BuiltinPermissionRule.ANY,
             false,
             call ->
-                bufferedOutputLength(
+                bufferedOutputLength(call.hosts(),
                     call.arguments(),
                     call.world(),
                     call.programmer(),
@@ -1301,14 +1306,14 @@ public final class BuiltinCatalog {
             List.of(new CallShape(List.of(OBJECT), List.of(), Optional.empty())),
             BuiltinPermissionRule.ANY,
             false,
-            call -> connectionInfo(call.arguments(), call.world(), call.programmer())));
+            call -> connectionInfo(call.hosts(), call.arguments(), call.world(), call.programmer())));
     entries.add(
         new BuiltinSpec(
             "connection_name",
             List.of(new CallShape(List.of(OBJECT), List.of(INTEGER), Optional.empty())),
             BuiltinPermissionRule.ANY,
             false,
-            call -> connectionName(call.arguments(), call.world(), call.programmer())));
+            call -> connectionName(call.hosts(), call.arguments(), call.world(), call.programmer())));
     entries.add(
         new BuiltinSpec(
             "match",
@@ -1336,28 +1341,28 @@ public final class BuiltinCatalog {
             List.of(new CallShape(List.of(OBJECT), List.of(STRING), Optional.empty())),
             BuiltinPermissionRule.ANY,
             false,
-            hosts.connectionOptions()));
+            call -> call.hosts().connectionOptions().invoke(call)));
     entries.add(
         new BuiltinSpec(
             "output_delimiters",
             List.of(new CallShape(List.of(OBJECT), List.of(), Optional.empty())),
             BuiltinPermissionRule.ANY,
             false,
-            hosts.outputDelimiters()));
+            call -> call.hosts().outputDelimiters().invoke(call)));
     entries.add(
         new BuiltinSpec(
             "set_connection_option",
             List.of(new CallShape(List.of(OBJECT, STRING, ANY), List.of(), Optional.empty())),
             BuiltinPermissionRule.ANY,
             false,
-            call -> setConnectionOption(call.arguments(), call.world(), call.programmer())));
+            call -> setConnectionOption(call.hosts(), call.arguments(), call.world(), call.programmer())));
     entries.add(
         new BuiltinSpec(
             "flush_input",
             List.of(new CallShape(List.of(OBJECT), List.of(ANY), Optional.empty())),
             BuiltinPermissionRule.ANY,
             false,
-            hosts.flushInput()));
+            call -> call.hosts().flushInput().invoke(call)));
     entries.add(
         new BuiltinSpec(
             "force_input",
@@ -1398,7 +1403,7 @@ public final class BuiltinCatalog {
                     Optional.empty())),
             BuiltinPermissionRule.WIZARD_ONLY,
             true,
-            call -> openNetworkConnection(call.arguments())));
+            this::openNetworkConnection));
     entries.add(
         new BuiltinSpec(
             "task_perms",
@@ -1447,7 +1452,7 @@ public final class BuiltinCatalog {
             List.of(new CallShape(List.of(OBJECT, STRING), List.of(ANY, ANY), Optional.empty())),
             BuiltinPermissionRule.ANY,
             false,
-            call -> notifyLine(call.arguments(), call.world(), call.programmer())));
+            call -> notifyLine(call.hosts(), call.arguments(), call.world(), call.programmer())));
     entries.add(
         new BuiltinSpec(
             "tostr",
@@ -1490,7 +1495,7 @@ public final class BuiltinCatalog {
             BuiltinPermissionRule.ANY,
             false,
             call ->
-                equalValues(call.arguments(), hosts.valueSemantics())));
+                equalValues(call.arguments(), call.hosts().valueSemantics())));
     entries.add(
         new BuiltinSpec(
             "eval",
@@ -1626,7 +1631,7 @@ public final class BuiltinCatalog {
             List.of(new CallShape(List.of(INTEGER), List.of(ANY), Optional.empty())),
             BuiltinPermissionRule.ANY,
             true,
-            hosts.resumeTask()));
+            call -> call.hosts().resumeTask().invoke(call)));
     entries.add(
         new BuiltinSpec(
             "yin",
@@ -1649,7 +1654,7 @@ public final class BuiltinCatalog {
             List.of(new CallShape(List.of(), List.of(), Optional.empty())),
             BuiltinPermissionRule.ANY,
             false,
-            hosts.dbDiskSize()));
+            call -> call.hosts().dbDiskSize().invoke(call)));
     entries.add(
         new BuiltinSpec(
             "dump_database",
@@ -1793,13 +1798,13 @@ public final class BuiltinCatalog {
           StringValue.of("Invalid number of threads"),
           new IntegerValue(requested));
     }
-    return hosts.threadPool().invoke(call);
+    return call.hosts().threadPool().invoke(call);
   }
 
-  private BuiltinResult connectionInfo(
+  private BuiltinResult connectionInfo(BuiltinHosts invocationHosts,
       List<MooValue> arguments, WorldTxn world, long programmer) {
     long target = ((ObjectValue) arguments.getFirst()).value();
-    Optional<MapValue> info = connections().connectionInfo(target);
+    Optional<MapValue> info = connections(invocationHosts).connectionInfo(target);
     if (info.isEmpty()) {
       return BuiltinResult.error(ErrorValue.E_INVARG);
     }
@@ -1809,7 +1814,7 @@ public final class BuiltinCatalog {
     return BuiltinResult.value(info.orElseThrow());
   }
 
-  private BuiltinResult bufferedOutputLength(
+  private BuiltinResult bufferedOutputLength(BuiltinHosts invocationHosts,
       List<MooValue> arguments,
       WorldTxn world,
       long programmer,
@@ -1818,7 +1823,7 @@ public final class BuiltinCatalog {
       return BuiltinResult.value(new IntegerValue(DEFAULT_MAX_QUEUED_OUTPUT));
     }
     long target = ((ObjectValue) arguments.getFirst()).value();
-    OptionalLong connectionId = connections().connectionId(target);
+    OptionalLong connectionId = connections(invocationHosts).connectionId(target);
     if (connectionId.isEmpty()) {
       return BuiltinResult.error(ErrorValue.E_INVARG);
     }
@@ -1835,13 +1840,13 @@ public final class BuiltinCatalog {
                 connectionId.orElseThrow(), queuedBytes)));
   }
 
-  private BuiltinResult connectionName(
+  private BuiltinResult connectionName(BuiltinHosts invocationHosts,
       List<MooValue> arguments, WorldTxn world, long programmer) {
     long target = ((ObjectValue) arguments.getFirst()).value();
     if (target != programmer && !world.isWizard(programmer)) {
       return BuiltinResult.error(ErrorValue.E_PERM);
     }
-    MapValue info = connections().connectionInfo(target).orElse(null);
+    MapValue info = connections(invocationHosts).connectionInfo(target).orElse(null);
     if (info == null) {
       return BuiltinResult.error(ErrorValue.E_INVARG);
     }
@@ -1890,10 +1895,10 @@ public final class BuiltinCatalog {
         && !BuiltinPermissionRule.WIZARD_ONLY.allows(call.world(), call.programmer())) {
       return BuiltinResult.error(ErrorValue.E_PERM);
     }
-    if (connections().connectionInfo(target).isEmpty()) {
+    if (connections(call.hosts()).connectionInfo(target).isEmpty()) {
       return BuiltinResult.error(ErrorValue.E_INVARG);
     }
-    return hosts.connectionNameLookup().invoke(call);
+    return call.hosts().connectionNameLookup().invoke(call);
   }
 
   private static BuiltinResult bootPlayer(
@@ -1905,13 +1910,13 @@ public final class BuiltinCatalog {
     return new BuiltinResult.BootPlayer(target);
   }
 
-  private BuiltinResult setConnectionOption(
+  private BuiltinResult setConnectionOption(BuiltinHosts invocationHosts,
       List<MooValue> arguments, WorldTxn world, long programmer) {
     long target = ((ObjectValue) arguments.get(0)).value();
     if (target != programmer && !world.isWizard(programmer)) {
       return BuiltinResult.error(ErrorValue.E_PERM);
     }
-    if (connections().connectionInfo(target).isEmpty()) {
+    if (connections(invocationHosts).connectionInfo(target).isEmpty()) {
       return BuiltinResult.error(ErrorValue.E_INVARG);
     }
     ConnectionOption option =
@@ -1938,9 +1943,9 @@ public final class BuiltinCatalog {
         return BuiltinResult.error(ErrorValue.E_INVARG);
       }
       value = normalized.orElseThrow();
-      connections().setIntrinsicCommands(target, (ListValue) value);
+      connections(invocationHosts).setIntrinsicCommands(target, (ListValue) value);
     }
-    return hosts.setConnectionOption().set(target, option, value);
+    return invocationHosts.setConnectionOption().set(target, option, value);
   }
 
   private static Optional<ListValue> normalizeIntrinsicCommands(MooValue value) {
@@ -2095,7 +2100,8 @@ public final class BuiltinCatalog {
     }
   }
 
-  private BuiltinResult openNetworkConnection(List<MooValue> arguments) {
+  private BuiltinResult openNetworkConnection(BuiltinCall call) {
+    List<MooValue> arguments = call.arguments();
     if (listenerControl.isEmpty()) {
       return BuiltinResult.error(ErrorValue.E_INVARG);
     }
@@ -2125,7 +2131,7 @@ public final class BuiltinCatalog {
           new ObjectValue(
               listenerControl
                   .orElseThrow()
-                  .openNetworkConnection(host, port, ipv6, listenerHandler)));
+                  .openNetworkConnection(host, port, ipv6, listenerHandler, call.hosts().registerOutboundConnection())));
     } catch (IllegalArgumentException invalid) {
       return BuiltinResult.error(ErrorValue.E_INVARG);
     } catch (IOException unavailable) {
@@ -2176,7 +2182,7 @@ public final class BuiltinCatalog {
           StringValue.of("Incorrect number of arguments (expected " + expected + "; got " + arguments.size() + ")"),
           new IntegerValue(0));
     }
-    boolean promotedFloatMath = hosts.valueSemantics().promoteNumbers()
+    boolean promotedFloatMath = call.hosts().valueSemantics().promoteNumbers()
         && switch (spec.name()) {
           case "acos", "acosh", "asin", "asinh", "atan", "atan2", "atanh", "cbrt", "ceil", "cos", "cosh", "exp", "floor", "log", "log10", "sin", "sinh", "sqrt", "tan", "tanh" -> true;
           default -> false;
@@ -2299,7 +2305,7 @@ public final class BuiltinCatalog {
         arguments.subList(1, arguments.size()), call.world(), call.programmer(),
         call.taskLocal(), call.taskId(), call.remainingTicks(), call.remainingSeconds(),
         call.receiver(), call.callerProgrammer(), call.callers(), call.threadMode(),
-        call.stagedBufferedOutputLength()));
+        call.stagedBufferedOutputLength(), call.hosts()));
   }
 
   private static ListValue functionInfoDescription(BuiltinSpec spec) {
@@ -5713,11 +5719,11 @@ public final class BuiltinCatalog {
     return BuiltinResult.error(ErrorValue.E_TYPE);
   }
 
-  private BuiltinResult switchPlayer(List<MooValue> arguments, WorldTxn world) {
+  private BuiltinResult switchPlayer(BuiltinHosts invocationHosts, List<MooValue> arguments, WorldTxn world) {
     long oldPlayer = ((ObjectValue) arguments.getFirst()).value();
     long newPlayer = ((ObjectValue) arguments.get(1)).value();
     if (oldPlayer == newPlayer
-        || connections().connectionId(oldPlayer).isEmpty()
+        || connections(invocationHosts).connectionId(oldPlayer).isEmpty()
         || !world.players().contains(newPlayer)) {
       return BuiltinResult.error(ErrorValue.E_INVARG);
     }
@@ -5733,7 +5739,7 @@ public final class BuiltinCatalog {
     return new BuiltinResult.Programmer(requested.value());
   }
 
-  private BuiltinResult notifyLine(
+  private BuiltinResult notifyLine(BuiltinHosts invocationHosts,
       List<MooValue> arguments, WorldTxn world, long programmer) {
     long target = ((ObjectValue) arguments.getFirst()).value();
     if (target != programmer && !world.isWizard(programmer)) {
@@ -5745,7 +5751,7 @@ public final class BuiltinCatalog {
     if (target == programmer && !noFlush && !noNewline) {
       return new BuiltinResult.Output(line.text());
     }
-    OptionalLong connectionId = connections().connectionId(target);
+    OptionalLong connectionId = connections(invocationHosts).connectionId(target);
     if (connectionId.isEmpty()) {
       return BuiltinResult.value(new IntegerValue(1));
     }
@@ -5977,7 +5983,9 @@ public final class BuiltinCatalog {
     boolean unlisten(int description, boolean ipv6);
 
     /** Opens and registers one outbound network connection. */
-    long openNetworkConnection(String host, int port, boolean ipv6, long listenerHandler)
+    long openNetworkConnection(
+        String host, int port, boolean ipv6, long listenerHandler,
+        BuiltinHosts.OutboundConnectionRegistrar registration)
         throws IOException;
 
     /** Writes ordered lines to one accepted connection selected by runtime ID. */

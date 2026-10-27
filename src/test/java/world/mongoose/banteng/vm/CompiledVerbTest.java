@@ -34,7 +34,7 @@ final class CompiledVerbTest {
         "return set_verb_code(#1, 1, {\"x = 1; return x;\"});");
     try (WorldTxn transaction = world(verb("work", "return 0;")).begin()) {
       VmState state = new VmState(Map.of(), 1);
-      new MooVm().execute(install, state, transaction, catalog, 1);
+      new MooVm().execute(install, state, transaction, catalog, catalog.hosts(), 1);
       assertEquals(VmState.Outcome.RETURNED, state.outcome());
       assertEquals(new ListValue(List.of()), state.returnValue().orElseThrow());
       WorldVerb installed = transaction.verb(1, 0).orElseThrow();
@@ -176,7 +176,7 @@ final class CompiledVerbTest {
     assertEquals(1234, state.remainingTicks());
     try (WorldTxn transaction = world(target).begin()) {
       new MooVm().execute(target.program(), state, transaction,
-          new BuiltinCatalog(BuiltinHosts.builder().build()), 1);
+          new BuiltinCatalog(BuiltinHosts.builder().build()), BuiltinHosts.builder().build(), 1);
     }
     assertEquals(VmState.Outcome.RETURNED, state.outcome());
     assertEquals(new ListValue(List.of(new ObjectValue(3), new ObjectValue(4), new ObjectValue(5),

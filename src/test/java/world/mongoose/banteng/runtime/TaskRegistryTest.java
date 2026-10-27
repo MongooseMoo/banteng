@@ -133,7 +133,7 @@ final class TaskRegistryTest {
     VmState state = new VmState(locals, 2, new ObjectValue(7));
 
     try (WorldTxn transaction = world().begin()) {
-      new MooVm().execute(program, state, transaction, new BuiltinCatalog(BuiltinHosts.builder().build()), 17);
+      new MooVm().execute(program, state, transaction, new BuiltinCatalog(BuiltinHosts.builder().build()), BuiltinHosts.builder().build(), 17);
     }
     VmSnapshot snapshot = state.snapshot();
     FutureTask<BuiltinResult> submitted =
@@ -251,7 +251,7 @@ final class TaskRegistryTest {
     BytecodeProgram program = new MooCompiler().compile("x = 9;\nsuspend(100);");
     VmState state = new VmState(locals, 2, new ObjectValue(7));
     try (WorldTxn transaction = world().begin()) {
-      new MooVm().execute(program, state, transaction, new BuiltinCatalog(BuiltinHosts.builder().build()), 17);
+      new MooVm().execute(program, state, transaction, new BuiltinCatalog(BuiltinHosts.builder().build()), BuiltinHosts.builder().build(), 17);
     }
     VmSnapshot snapshot = state.snapshot();
     registry.updateSuspended(99, 1234, snapshot);
@@ -342,7 +342,7 @@ final class TaskRegistryTest {
         programmer,
         _lineNumbers -> new ListValue(List.of()),
         false,
-        (_connectionId, queuedBytes) -> queuedBytes);
+        (_connectionId, queuedBytes) -> queuedBytes, world.mongoose.banteng.builtin.BuiltinHosts.builder().build());
   }
 
   private static MooValue value(BuiltinResult result) {

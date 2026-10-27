@@ -443,7 +443,7 @@ final class ConnectionIo {
       long listenerHandler = connection.listenerHandler;
       List<String> lines = new ArrayList<>();
       if (connection.printMessages) {
-        lines.addAll(runtime.serverMessage(listenerHandler, "boot_msg", "*** Disconnected ***"));
+        lines.addAll(runtime.serverMessage(context, listenerHandler, "boot_msg", "*** Disconnected ***"));
       }
       context.sessions.remove(connectionId);
       context.connections.closeConnection(connectionId);
@@ -451,7 +451,7 @@ final class ConnectionIo {
       if (disconnected.isPresent()) {
         context.spawnedSteps
             .add(
-                runtime.startStored(
+                runtime.startStored(context,
                     disconnected.orElseThrow(),
                     new RootVerbCall(
                         listenerHandler,
@@ -495,7 +495,7 @@ final class ConnectionIo {
       List<String> lines = new ArrayList<>();
       if (connection.printMessages) {
         lines.addAll(
-            runtime.serverMessage(connection.listenerHandler, "recycle_msg", "*** Recycled ***"));
+            runtime.serverMessage(context, connection.listenerHandler, "recycle_msg", "*** Recycled ***"));
       }
       if (listenerControl.isPresent()) {
         context.effects.add(RuntimeEffect.boot(connectionId, lines));

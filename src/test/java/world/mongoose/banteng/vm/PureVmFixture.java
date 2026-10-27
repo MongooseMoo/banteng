@@ -24,7 +24,7 @@ final class PureVmFixture {
     WorldTxn root = new WorldTxn(List.of(), List.of());
     try (WorldTxn transaction = root.begin()) {
       new MooVm(valueSemantics).execute(program, state, transaction,
-          new BuiltinCatalog(BuiltinHosts.builder().valueSemantics(valueSemantics).build()), 0L);
+          new BuiltinCatalog(BuiltinHosts.builder().valueSemantics(valueSemantics).build()), BuiltinHosts.builder().valueSemantics(valueSemantics).build(), 0L);
       if (state.outcome() == VmState.Outcome.PENDING_BUILTIN) {
         throw new IllegalStateException("pure VM execution reached an irrevocable builtin");
       }

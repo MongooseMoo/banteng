@@ -183,7 +183,7 @@ final class ValueSemanticsTest {
     try (WorldTxn world = new WorldTxn(List.of(), List.of()).begin()) {
       BuiltinCall call = new BuiltinCall(arguments, world, 0, new IntegerValue(0), 1, 60_000, 5,
           new ObjectValue(0), 0, _lineNumbers -> new ListValue(List.of()), false,
-          (_connection, bytes) -> bytes);
+          (_connection, bytes) -> bytes, catalog.hosts());
       BuiltinResult result = catalog.invoke(catalog.spec(name).orElseThrow(), call);
       return ((BuiltinResult.Value) result).value();
     }

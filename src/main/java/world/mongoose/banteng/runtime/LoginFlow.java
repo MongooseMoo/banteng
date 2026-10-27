@@ -39,7 +39,7 @@ final class LoginFlow {
   }
 
   RuntimeStep executeLogin(AttemptContext context, long connectionId, String line) {
-    ConnectionState connection = runtime.requireConnection(connectionId);
+    ConnectionState connection = runtime.requireConnection(context, connectionId);
     MooValue serverOptions =
         context.world.readObjectProperty(connection.listenerHandler, "server_options").orElse(null);
     if (serverOptions == null && connection.listenerHandler != 0) {
@@ -68,7 +68,7 @@ final class LoginFlow {
       if (blank.isEmpty()) {
         return RuntimeStep.returned(List.of());
       }
-      return runtime.startStored(
+      return runtime.startStored(context,
           blank.orElseThrow(),
           new RootVerbCall(
               connection.listenerHandler,
@@ -91,7 +91,7 @@ final class LoginFlow {
 
 
   RuntimeStep executeLoginAuthentication(AttemptContext context, long connectionId, String line) {
-    ConnectionState connection = runtime.requireConnection(connectionId);
+    ConnectionState connection = runtime.requireConnection(context, connectionId);
     MooValue serverOptions =
         context.world.readObjectProperty(connection.listenerHandler, "server_options").orElse(null);
     if (serverOptions == null && connection.listenerHandler != 0) {
@@ -136,7 +136,7 @@ final class LoginFlow {
             new ListValue(arguments),
             loginLine);
     long maximumObjectIdBeforeLogin = context.world.maximumObjectId();
-    return runtime.startStored(
+    return runtime.startStored(context,
         login,
         locals,
         RuntimeContinuation.after(
@@ -150,9 +150,9 @@ final class LoginFlow {
   }
 
 
-  RuntimeStep finishLogin(AttemptContext context, 
+  RuntimeStep finishLogin(AttemptContext context,
       long connectionId, long maximumObjectIdBeforeLogin, VmState state) {
-    ConnectionState connection = runtime.requireConnection(connectionId);
+    ConnectionState connection = runtime.requireConnection(context, connectionId);
     OptionalLong authenticatedPlayer = state.switchedPlayer();
     boolean returnedPlayerAssociation = false;
     if (authenticatedPlayer.isEmpty()
@@ -183,13 +183,13 @@ final class LoginFlow {
         ConnectionState redirectedConnection = existingConnection;
         boolean sameListener = redirectedConnection.listenerHandler == connection.listenerHandler;
         if (sameListener
-            && !runtime.switchConnectionPlayer(connectionId, switchedPlayer)) {
+            && !runtime.switchConnectionPlayer(context, connectionId, switchedPlayer)) {
           throw new IllegalStateException("stored login switched to a missing player");
         }
         List<String> oldLines = new ArrayList<>();
         if (redirectedConnection.printMessages) {
           oldLines.addAll(
-              runtime.serverMessage(
+              runtime.serverMessage(context,
                   redirectedConnection.listenerHandler,
                   "redirect_from_msg",
                   "*** Redirecting connection to new port ***"));
@@ -198,7 +198,7 @@ final class LoginFlow {
         List<String> newLines = new ArrayList<>();
         if (connection.printMessages) {
           newLines.addAll(
-              runtime.serverMessage(
+              runtime.serverMessage(context,
                   connection.listenerHandler,
                   "redirect_to_msg",
                   "*** Redirecting old connection to this port ***"));
@@ -218,7 +218,7 @@ final class LoginFlow {
           Optional<ResolvedVerb> userReconnected =
               context.world.resolveVerb(connection.listenerHandler, "user_reconnected", true);
           if (userReconnected.isPresent()) {
-            return runtime.startStored(
+            return runtime.startStored(context,
                 userReconnected.orElseThrow(),
                 new RootVerbCall(
                     connection.listenerHandler,
@@ -250,7 +250,7 @@ final class LoginFlow {
                 0,
                 wroteRedirects);
         if (userDisconnected.isPresent()) {
-          return runtime.startStored(
+          return runtime.startStored(context,
               userDisconnected.orElseThrow(),
               new RootVerbCall(
                   redirectedConnection.listenerHandler,
@@ -264,14 +264,14 @@ final class LoginFlow {
         return associateRedirectedLogin(context, association);
       }
 
-      if (!runtime.switchConnectionPlayer(connectionId, switchedPlayer)) {
+      if (!runtime.switchConnectionPlayer(context, connectionId, switchedPlayer)) {
         throw new IllegalStateException("stored login switched to a missing player");
       }
       if (returnedPlayerAssociation) {
         if (switchedPlayer > maximumObjectIdBeforeLogin) {
           Optional<ResolvedVerb> userCreated = context.world.resolveVerb(connection.listenerHandler, "user_created", true);
           if (userCreated.isPresent()) {
-            return runtime.startStored(
+            return runtime.startStored(context,
                 userCreated.orElseThrow(),
                 new RootVerbCall(
                     connection.listenerHandler,
@@ -290,7 +290,7 @@ final class LoginFlow {
                     false));
           }
         }
-        return startConnectedHook(context, 
+        return startConnectedHook(context,
             connectionId,
             switchedPlayer,
             connection.printMessages ? List.of("*** Connected ***") : state.output(),
@@ -307,10 +307,10 @@ final class LoginFlow {
   RuntimeStep associateRedirectedLogin(AttemptContext context, RuntimeContinuation continuation) {
     long connectionId = continuation.connectionId();
     long switchedPlayer = continuation.first();
-    if (!runtime.switchConnectionPlayer(connectionId, switchedPlayer)) {
+    if (!runtime.switchConnectionPlayer(context, connectionId, switchedPlayer)) {
       throw new IllegalStateException("stored login switched to a missing player");
     }
-    return startConnectedHook(context, 
+    return startConnectedHook(context,
         connectionId,
         switchedPlayer,
         continuation.output(),
@@ -324,18 +324,18 @@ final class LoginFlow {
   }
 
 
-  RuntimeStep startConnectedHook(AttemptContext context, 
+  RuntimeStep startConnectedHook(AttemptContext context,
       long connectionId,
       long player,
       List<String> output,
       RuntimeTransition transition,
       boolean suppressOutput) {
-    ConnectionState connection = runtime.requireConnection(connectionId);
+    ConnectionState connection = runtime.requireConnection(context, connectionId);
     Optional<ResolvedVerb> userConnected = context.world.resolveVerb(connection.listenerHandler, "user_connected", true);
     if (userConnected.isEmpty()) {
       return RuntimeStep.returned(suppressOutput ? List.of() : output);
     }
-    return runtime.startStored(
+    return runtime.startStored(context,
         userConnected.orElseThrow(),
         new RootVerbCall(
             connection.listenerHandler,
@@ -400,7 +400,7 @@ final class LoginFlow {
     List<String> lines = new ArrayList<>();
     if (connection.printMessages) {
       lines.addAll(
-          runtime.serverMessage(
+          runtime.serverMessage(context,
               connection.listenerHandler,
               "timeout_msg",
               "*** Timed-out waiting for login. ***"));
@@ -422,7 +422,7 @@ final class LoginFlow {
     Optional<ResolvedVerb> disconnected =
         context.world.resolveVerb(connection.listenerHandler, "user_disconnected", true);
     if (disconnected.isPresent()) {
-      return runtime.startStored(
+      return runtime.startStored(context,
           disconnected.orElseThrow(),
           new RootVerbCall(
               connection.listenerHandler,

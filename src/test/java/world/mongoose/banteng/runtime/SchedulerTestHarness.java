@@ -139,7 +139,9 @@ final class SchedulerTestHarness implements AutoCloseable {
     }
 
     @Override
-    public long openNetworkConnection(String host, int port, boolean ipv6, long listenerHandler) {
+    public long openNetworkConnection(
+        String host, int port, boolean ipv6, long listenerHandler,
+        world.mongoose.banteng.builtin.BuiltinHosts.OutboundConnectionRegistrar registration) {
       return -77;
     }
 

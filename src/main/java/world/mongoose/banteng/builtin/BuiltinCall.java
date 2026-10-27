@@ -21,7 +21,8 @@ public record BuiltinCall(
     long callerProgrammer,
     Function<Boolean, ListValue> callers,
     boolean threadMode,
-    LongBinaryOperator stagedBufferedOutputLength) {
+    LongBinaryOperator stagedBufferedOutputLength,
+    BuiltinHosts hosts) {
   /** Takes immutable ownership of the invocation context. */
   public BuiltinCall {
     arguments = List.copyOf(arguments);
@@ -30,5 +31,6 @@ public record BuiltinCall(
     Objects.requireNonNull(receiver, "receiver");
     Objects.requireNonNull(callers, "callers");
     Objects.requireNonNull(stagedBufferedOutputLength, "stagedBufferedOutputLength");
+    Objects.requireNonNull(hosts, "hosts");
   }
 }

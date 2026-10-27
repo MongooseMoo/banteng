@@ -1782,7 +1782,7 @@ final class PublicationSchedulerTest {
         0,
         _lineNumbers -> new ListValue(List.of()),
         false,
-        (_connectionId, queuedBytes) -> queuedBytes);
+        (_connectionId, queuedBytes) -> queuedBytes, world.mongoose.banteng.builtin.BuiltinHosts.builder().build());
   }
 
   private static final class Harness implements AutoCloseable {
@@ -1875,7 +1875,9 @@ final class PublicationSchedulerTest {
     }
 
     @Override
-    public long openNetworkConnection(String host, int port, boolean ipv6, long listenerHandler) {
+    public long openNetworkConnection(
+        String host, int port, boolean ipv6, long listenerHandler,
+        world.mongoose.banteng.builtin.BuiltinHosts.OutboundConnectionRegistrar registration) {
       return -77;
     }
 

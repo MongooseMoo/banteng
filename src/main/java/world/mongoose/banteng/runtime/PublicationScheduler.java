@@ -500,6 +500,8 @@ final class PublicationScheduler implements AutoCloseable {
     return executor.getActiveCount() < workers || executor.getQueue().remainingCapacity() > 0;
   }
 
+  private static final ThreadLocal<MooRuntime.AttemptContext> ATTEMPT = new ThreadLocal<>();
+
   private void executeAttempt(Entry entry) {
     synchronized (this) {
       TimedWork pending = checkpointingWork.get(entry.taskId());
@@ -520,12 +522,13 @@ final class PublicationScheduler implements AutoCloseable {
     Throwable failure = null;
     try {
       context = runtime.openAttempt(transaction, entry.taskId());
-      result = executeSegment(entry, transaction);
-      context = runtime.finishAttempt();
+      ATTEMPT.set(context);
+      result = executeSegment(entry, transaction, context);
       transaction = context.world;
     } catch (Throwable caught) {
       failure = caught;
-      runtime.abandonAttempt();
+    } finally {
+      ATTEMPT.remove();
     }
     if (segment != null) {
       segment.commit();
@@ -539,7 +542,9 @@ final class PublicationScheduler implements AutoCloseable {
             Optional.ofNullable(failure)));
   }
 
-  private SegmentResult executeSegment(Entry start, WorldTxn transaction) {
+  private SegmentResult executeSegment(
+      Entry start, WorldTxn transaction, MooRuntime.AttemptContext context) {
+    var invocationHosts = runtime.builtinHosts(context);
     Optional<MooRuntime.RuntimeContinuation> continuation = start.continuation();
     Optional<MooRuntime.FinalizationControl> finalizationControl = start.finalizationControl();
     Optional<VmSnapshot> completedVm =
@@ -558,7 +563,7 @@ final class PublicationScheduler implements AutoCloseable {
       if (program.isEmpty()) {
         Optional<MooRuntime.FinalizationControl> executingFinalization = finalizationControl;
         MooRuntime.RuntimeStep step =
-            runtime.execute(continuation.orElseThrow(), completedVm);
+            runtime.execute(context, continuation.orElseThrow(), completedVm);
         if (step.output().isPresent()) {
           if (executingFinalization
               .filter(
@@ -566,7 +571,7 @@ final class PublicationScheduler implements AutoCloseable {
               .isPresent()) {
             MooRuntime.FinalizationControl anonymousFinalization =
                 executingFinalization.orElseThrow();
-            runtime.collectAfterAnonymousFinalization(
+            runtime.collectAfterAnonymousFinalization(context,
                 (AnonymousObjectValue) anonymousFinalization.target(),
                 taskRegistry.snapshotsExcluding(start.taskId()),
                 startsNextAnonymousFinalizationWave(anonymousFinalization));
@@ -592,7 +597,7 @@ final class PublicationScheduler implements AutoCloseable {
 
       VmState state =
           startingBackground
-              ? runtime.startBackgroundTask(snapshot.orElseThrow())
+              ? runtime.startBackgroundTask(context, snapshot.orElseThrow())
               : VmState.restore(snapshot.orElseThrow());
       if (wakeResult.isPresent()) {
         BuiltinResult completion = wakeResult.orElseThrow();
@@ -616,8 +621,9 @@ final class PublicationScheduler implements AutoCloseable {
                 state,
                 transaction,
                 runtime.builtins(),
+                invocationHosts,
                 start.taskId());
-        runtime.publishVmState(
+        runtime.publishVmState(context,
               state,
               taskPlayer,
               finalizationControl.isEmpty(),
@@ -666,8 +672,8 @@ final class PublicationScheduler implements AutoCloseable {
           runtime
               .vm()
               .authorizePendingBuiltin(
-                  state, transaction, runtime.builtins(), start.taskId());
-          runtime.publishVmState(
+                  state, transaction, runtime.builtins(), invocationHosts, start.taskId());
+          runtime.publishVmState(context,
               state,
               taskPlayer,
               finalizationControl.isEmpty(),
@@ -703,7 +709,7 @@ final class PublicationScheduler implements AutoCloseable {
           break;
         }
         if (state.outcome() == VmState.Outcome.ERRORED) {
-          MooRuntime.RuntimeStep uncaught = runtime.startUncaughtError(state);
+          MooRuntime.RuntimeStep uncaught = runtime.startUncaughtError(context, state);
           if (uncaught.output().isPresent()) {
             return SegmentResult.returned(
                 uncaught.output().orElseThrow(),
@@ -737,7 +743,7 @@ final class PublicationScheduler implements AutoCloseable {
         }
         if (state.outcome() == VmState.Outcome.SUSPENDED) {
           Optional<List<String>> inputOutput = continuation.flatMap(
-              value -> runtime.suspendedInputOutput(value, state));
+              value -> runtime.suspendedInputOutput(context, value, state));
           if (inputOutput.isEmpty() && continuation.isEmpty() && !state.output().isEmpty()) {
             inputOutput = Optional.of(state.output());
             state.clearOutput();

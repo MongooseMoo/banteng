@@ -63,7 +63,7 @@ final class FinalizationCollector {
           new ListValue(List.of()), "", Optional.empty());
       context.spawnedSteps
           .add(
-              runtime.startStored(
+              runtime.startStored(context,
                   recycle,
                   locals,
                   RuntimeContinuation.anonymousFinalization(anonymous)));
@@ -79,7 +79,7 @@ final class FinalizationCollector {
           new ListValue(List.of()), "", Optional.empty());
       context.spawnedSteps
           .add(
-              runtime.startStored(
+              runtime.startStored(context,
                   recycle,
                   locals,
                   RuntimeContinuation.backgroundWaifFinalization(waif)));
