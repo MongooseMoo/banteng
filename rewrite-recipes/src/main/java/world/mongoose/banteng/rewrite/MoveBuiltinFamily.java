@@ -127,7 +127,8 @@ public final class MoveBuiltinFamily extends ScanningRecipe<MoveBuiltinFamily.Me
                 || family.equals("StringBuiltins") && method.getSimpleName().equals("parseAnsi")
                 || family.equals("RandomBuiltins") && methods.contains(method.getSimpleName())
                 || family.equals("CryptoBuiltins") && Set.of("crypt", "nativeCrypt").contains(method.getSimpleName())
-                || family.equals("RegexBuiltins") && method.getSimpleName().equals("toastMatch")) {
+                || family.equals("RegexBuiltins") && method.getSimpleName().equals("toastMatch")
+                || family.equals("VerbBuiltins") && method.getSimpleName().equals("setVerbCode")) {
               members.implementations.add(method);
             }
             if (method.getSimpleName().equals("buildManifest") && method.getBody() != null) {
@@ -209,7 +210,7 @@ public final class MoveBuiltinFamily extends ScanningRecipe<MoveBuiltinFamily.Me
     StringBuilder body = new StringBuilder();
     for (int group = 0; group < members.groups.size(); group++) {
       body.append("  public static void ").append(registerMethod(group))
-          .append("(List<BuiltinSpec> entries" + (stringAnsiGroup(group) ? ", Random random" : "")
+          .append("(List<BuiltinSpec> entries" + (stringAnsiGroup(group) ? ", Random random" : verbCodeGroup(group) ? ", BuiltinCatalog catalog" : "")
               + (family.equals("CryptoBuiltins") ? ", SecureRandom secureRandom, Crypt crypt" : "")
               + (family.equals("RandomBuiltins")
                   ? ", java.util.function.Supplier<Random> random, java.util.function.Supplier<Random> floatingRandom, SecureRandom secureRandom" : "") + ") {\n")
@@ -254,7 +255,10 @@ public final class MoveBuiltinFamily extends ScanningRecipe<MoveBuiltinFamily.Me
       if (!arguments.get(3).printTrimmed(new Cursor(null, members.source)).equals("false")) { body.append(".irrevocable()"); }
       body.append(".implementation(")
            .append(registrationImplementation(arguments.get(4).printTrimmed(new Cursor(null, members.source)))
-               .replace("toastMatch(call.arguments(),", "toastMatch(toastRegex, call.arguments(),"))
+               .replace("toastMatch(call.arguments(),", "toastMatch(toastRegex, call.arguments(),")
+               .replace("setVerbCode(call.arguments(), call.world(), call.programmer())",
+                   family.equals("VerbBuiltins") ? "setVerbCode(catalog, call.arguments(), call.world(), call.programmer())"
+                       : "setVerbCode(call.arguments(), call.world(), call.programmer())"))
           .append(");\n");
       }
       body.append("  }\n");
@@ -263,6 +267,7 @@ public final class MoveBuiltinFamily extends ScanningRecipe<MoveBuiltinFamily.Me
         .parse(context, "package world.mongoose.banteng.builtin.family;\n"
             + "import java.util.List; import java.util.Set;\n"
             + "import world.mongoose.banteng.builtin.ArgType;\n"
+            + (family.equals("VerbBuiltins") ? "import world.mongoose.banteng.builtin.BuiltinCatalog;\n" : "")
             + "import world.mongoose.banteng.builtin.BuiltinRegistrar;\n"
             + "import world.mongoose.banteng.builtin.BuiltinSpec;\n"
             + "import world.mongoose.banteng.builtin.BuiltinHandler;\n"
@@ -317,6 +322,14 @@ public final class MoveBuiltinFamily extends ScanningRecipe<MoveBuiltinFamily.Me
           + "return BuiltinResult.value(StringValue.of(raw.toByteArray()).encodeBinary());"
           + source.substring(end);
       source = binaryCalls(source);
+      generated = ((J.CompilationUnit) JavaParser.fromJavaVersion().build().parse(context, source)
+          .findFirst().orElseThrow()).withSourcePath(generated.getSourcePath());
+    }
+    if (family.equals("VerbBuiltins")) {
+      String source = generated.printAll()
+          .replace("private BuiltinResult setVerbCode(", "private static BuiltinResult setVerbCode(")
+          .replaceAll("(private static BuiltinResult setVerbCode\\(\\s*)List", "$1BuiltinCatalog catalog, List")
+          .replace("name -> spec(name).isPresent()", "name -> catalog.spec(name).isPresent()");
       generated = ((J.CompilationUnit) JavaParser.fromJavaVersion().build().parse(context, source)
           .findFirst().orElseThrow()).withSourcePath(generated.getSourcePath());
     }
@@ -378,6 +391,9 @@ public final class MoveBuiltinFamily extends ScanningRecipe<MoveBuiltinFamily.Me
   }
 
   private String registerMethod(int group) {
+    if (family.equals("VerbBuiltins")) {
+      return List.of("registerRespondTo", "registerDisassemble", "registerDefinitionEdits", "registerMetadataAndCode").get(group);
+    }
     if (family.equals("ConversionBuiltins")) {
       return List.of("registerConversions", "registerTypeOf").get(group);
     }
@@ -397,6 +413,10 @@ public final class MoveBuiltinFamily extends ScanningRecipe<MoveBuiltinFamily.Me
     return family.equals("ListBuiltins")
         ? List.of("registerLength", "registerListEdits", "registerSetsAndSort", "registerReverse").get(group)
         : "register";
+  }
+
+  private boolean verbCodeGroup(int group) {
+    return family.equals("VerbBuiltins") && group == 3;
   }
 
   private String registrationImplementation(String implementation) {
@@ -642,7 +662,7 @@ public final class MoveBuiltinFamily extends ScanningRecipe<MoveBuiltinFamily.Me
           if (group >= 0) {
             Statement replacement = ((J.CompilationUnit) JavaParser.fromJavaVersion().build()
              .parse(context, "class Replacement { void register() { " + family + "." + registerMethod(group)
-                 + "(entries" + (stringAnsiGroup(group) ? ", random" : "")
+                 + "(entries" + (stringAnsiGroup(group) ? ", random" : verbCodeGroup(group) ? ", this" : "")
                  + (family.equals("CryptoBuiltins") ? ", SECURE_RANDOM, hosts.crypt()" : "")
                  + (family.equals("RandomBuiltins") ? ", () -> random, () -> floatingRandom, SECURE_RANDOM" : "") + "); } }")
             .findFirst().orElseThrow()).getClasses().getFirst().getBody().getStatements().stream()
