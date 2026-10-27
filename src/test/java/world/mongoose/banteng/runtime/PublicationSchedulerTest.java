@@ -28,6 +28,7 @@ import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.FutureTask;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.IntStream;
@@ -44,6 +45,7 @@ import world.mongoose.banteng.persistence.LambdaMooV17Codec;
 import world.mongoose.banteng.persistence.LambdaMooV17Codec.ActiveConnection;
 import world.mongoose.banteng.persistence.LambdaMooV17Codec.QueuedEnvironment;
 import world.mongoose.banteng.persistence.LambdaMooV17Codec.QueuedTask;
+import world.mongoose.banteng.persistence.DurableTaskCodec;
 import world.mongoose.banteng.persistence.LambdaMooV17Codec.SuspendedActivation;
 import world.mongoose.banteng.persistence.LambdaMooV17Codec.SuspendedStackSlot;
 import world.mongoose.banteng.persistence.LambdaMooV17Codec.SuspendedTask;
@@ -972,35 +974,41 @@ final class PublicationSchedulerTest {
   @Test
   void mapsRejectedHostSubmissionToCatchableQuotaError() throws Exception {
     try (Harness harness = Harness.open(1, new RecordingListener())) {
-      try (WorldTxn transaction = harness.root.begin()) {
-        ObjectValue serverOptions =
-            (ObjectValue) transaction.readObjectProperty(0, "server_options").orElseThrow();
-        boolean configured =
-            transaction.property(serverOptions.value(), "fg_ticks").isPresent()
-                ? transaction.writeObjectProperty(
-                        serverOptions.value(), "fg_ticks", new IntegerValue(20_000_000))
-                    .isOk()
-                : transaction.addProperty(
-                        serverOptions.value(), "fg_ticks", new IntegerValue(20_000_000), 0, 3)
-                    .isOk();
-        assertTrue(configured);
-        assertTrue(transaction.commit().isCommitted());
-      }
-      ThreadPoolExecutor executor =
+      ThreadPoolExecutor original =
           field(harness.scheduler, "executor", ThreadPoolExecutor.class);
+      original.shutdown();
+      assertTrue(original.awaitTermination(3, TimeUnit.SECONDS));
       CountDownLatch release = new CountDownLatch(1);
-      long ticket = harness.scheduler.nextTicket();
+      ThreadPoolExecutor executor =
+          new ThreadPoolExecutor(
+              1, 1, 0, TimeUnit.MILLISECONDS,
+              new ArrayBlockingQueue<>(original.getQueue().remainingCapacity()),
+              Thread.ofPlatform().name("moo-vm-rejection-test-", 0).factory(),
+              original.getRejectedExecutionHandler()) {
+            @Override
+            public void execute(Runnable command) {
+              if (command instanceof FutureTask<?>) {
+                // Host work is submitted by the active VM worker. Saturate its queue
+                // here so ingress and irrevocable reruns cannot race the setup.
+                synchronized (harness.scheduler) {
+                  assertEquals(1, getActiveCount());
+                  while (getQueue().remainingCapacity() > 0) {
+                    super.execute(() -> awaitRelease(release));
+                  }
+                  super.execute(command);
+                }
+                return;
+              }
+              super.execute(command);
+            }
+          };
+      Field executorField = PublicationScheduler.class.getDeclaredField("executor");
+      executorField.setAccessible(true);
+      executorField.set(harness.scheduler, executor);
       CompletableFuture<List<String>> result =
           harness.lineAsync(
-              "; i = 0; while (i < 2000000) i = i + 1; endwhile "
-                  + "try return all_members(1, {1}); "
+              "; try return all_members(1, {1}); "
                   + "except (E_QUOTA) return \"quota\"; endtry");
-      while (harness.scheduler.nextTicket() == ticket || executor.getActiveCount() == 0) {
-        Thread.onSpinWait();
-      }
-      for (int queued = 0; queued < 4; queued++) {
-        executor.execute(() -> awaitRelease(release));
-      }
 
       try {
         long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(3);
@@ -1519,28 +1527,13 @@ final class PublicationSchedulerTest {
   }
 
   private static VmSnapshot.Frame importActivation(SuspendedActivation activation) {
-    try {
-      Method method =
-          PublicationScheduler.class.getDeclaredMethod(
-              "importActivation",
-              SuspendedActivation.class,
-              int.class,
-              boolean.class,
-              ToastV17ProgramLayout.class);
-      method.setAccessible(true);
-      return (VmSnapshot.Frame)
-          method.invoke(null, activation, -1, true, new ToastV17ProgramLayout());
-    } catch (InvocationTargetException failure) {
-      throw rethrowInvocation(failure);
-    } catch (ReflectiveOperationException failure) {
-      throw new LinkageError(failure.getMessage(), failure);
-    }
+    return DurableTaskCodec.importActivation(activation, -1, true, new ToastV17ProgramLayout());
   }
 
   private static SuspendedActivation exportActivation(VmSnapshot.Frame frame) {
     try {
       Method method =
-          PublicationScheduler.class.getDeclaredMethod(
+          DurableTaskCodec.class.getDeclaredMethod(
               "exportActivation", VmSnapshot.Frame.class, long.class);
       method.setAccessible(true);
       return (SuspendedActivation) method.invoke(null, frame, 0L);
