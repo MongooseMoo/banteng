@@ -4,6 +4,10 @@
 Implement issue 88 using Toast's tokenizer and object matcher and one world preposition table.
 
 ## State
+PR #105 shortcut repair complete: intrinsic `.program` detection now uses `CommandParser.parse(line).verb()` and its decoded words, matching Toast tasks.cc:772 after parse_cmd.cc:138–185 expands leading quote/colon/semicolon shortcuts. The previous words-only detector decoded `".program" here:eval` to `.program` and wrongly entered programming instead of say. Smallest repair is three production-line changes plus a focused runtime regression; raw do_command token production stays unchanged. No publication authorized.
+
+Focused validation: WSL Debian/root Java25 `bash ./gradlew --no-daemon --max-workers=2 :test --tests world.mongoose.banteng.runtime.MooRuntimeTest.quotedDotProgramUsesSayShortcut --tests world.mongoose.banteng.runtime.MooRuntimeTest.dotProgramUsesDecodedWordsForDescriptors` passed (`BUILD SUCCESSFUL in 38s`). The regression installs a say handler, verifies the exact quoted command reaches it, then verifies a subsequent eval executes instead of becoming programming source. Existing decoded descriptor/arity expectations pass unchanged. Three initial runs exposed my fixture mistakes: `here` is not an eval variable (E_VARNF), eval returns `{1, result}`, and ordinary say notifications have no eval delimiters; corrected to player.location and existing fixture output conventions. Production source was unchanged across those reruns; all source stayed stable during each compilation. No broader local CI/conformance run; parent owns PR validation and publication.
+
 Implementation complete; focused CommandParserTest passed. This note records the worker handoff and source evidence. The coordinator owns PR publication and live CI/merge state in the central issue-campaign note; the worker has no publication authority.
 
 ## Decisions and why
