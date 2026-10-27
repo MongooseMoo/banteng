@@ -334,7 +334,7 @@ final class MooRuntimeTest {
         List.of(
             CONNECTION_PREFIX,
             "{2, {E_PERM, \"Permission denied\", 0, "
-                + "{{#-1, \"\", #-1, #-1, #9, 1}, {#2, \"eval\", #9, #2, #9, 5}}}}",
+                + "{{#-1, \"\", #-1, #-1, #9, 1}, {#-1, \"eval\", #-1, #-1, #9, 2}, {#2, \"eval\", #9, #2, #9, 5}}}}",
             CONNECTION_SUFFIX),
         runtime.executeLine(programmerConnection, "; return flush_input(#0);"));
   }
@@ -366,7 +366,7 @@ final class MooRuntimeTest {
             "PRE",
             CONNECTION_PREFIX,
             "{2, {E_PERM, \"Permission denied\", 0, "
-                + "{{#-1, \"\", #-1, #-1, #8, 1}, {#2, \"eval\", #8, #2, #8, 5}}}}",
+                + "{{#-1, \"\", #-1, #-1, #8, 1}, {#-1, \"eval\", #-1, #-1, #8, 2}, {#2, \"eval\", #8, #2, #8, 5}}}}",
             CONNECTION_SUFFIX,
             "POST"),
         runtime.executeLine(programmerConnection, "; return output_delimiters(#0);"));
@@ -378,7 +378,7 @@ final class MooRuntimeTest {
         List.of(
             CONNECTION_PREFIX,
             "{2, {E_INVARG, \"Invalid argument\", 0, "
-                + "{{#-1, \"\", #-1, #-1, #9, 1}, {#2, \"eval\", #9, #2, #9, 5}}}}",
+                + "{{#-1, \"\", #-1, #-1, #9, 1}, {#-1, \"eval\", #-1, #-1, #9, 2}, {#2, \"eval\", #9, #2, #9, 5}}}}",
             CONNECTION_SUFFIX),
         runtime.executeLine(wizardConnection, "; return output_delimiters(#999999);"));
   }
@@ -526,7 +526,7 @@ final class MooRuntimeTest {
             CONNECTION_PREFIX,
             CONNECTION_PREFIX,
             "{2, {E_TYPE, \"Type mismatch\", 0, "
-                + "{{#-1, \"\", #-1, #-1, #8, 1}, {#2, \"eval\", #8, #2, #8, 5}}}}",
+                + "{{#-1, \"\", #-1, #-1, #8, 1}, {#-1, \"eval\", #-1, #-1, #8, 2}, {#2, \"eval\", #8, #2, #8, 5}}}}",
             CONNECTION_SUFFIX,
             CONNECTION_SUFFIX),
         runtime.executeLine(connectionId, "; return 1.0 + 1;"));

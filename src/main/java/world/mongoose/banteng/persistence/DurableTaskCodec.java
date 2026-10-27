@@ -114,7 +114,7 @@ public final class DurableTaskCodec {
         activation.debug(),
         activation.threadMode(),
         site.call().resumeInstructionPointer(),
-        Optional.empty());
+        Optional.empty(), activation.builtinContinuation(), activation.taskPlayer(), activation.temporary());
   }
 
   private record BuiltinState(VmSnapshot.ReturnMode mode, Optional<MooValue> create,
@@ -490,8 +490,7 @@ public final class DurableTaskCodec {
   }
 
   public static QueuedTask exportQueuedTask(
-      long taskId, long scheduledEpochMilli, BytecodeProgram program, VmSnapshot snapshot,
-      long taskPlayer) {
+      long taskId, long scheduledEpochMilli, BytecodeProgram program, VmSnapshot snapshot) {
     if (program.source().isEmpty()) {
       throw new IllegalStateException("queued fork has no durable source");
     }
@@ -505,13 +504,13 @@ public final class DurableTaskCodec {
         snapshot.initialLocals(),
         snapshot.initialProgrammer(),
         snapshot.initialVerbLocation(),
-        taskPlayer,
+        snapshot.initialPlayer(),
         snapshot.frames().isEmpty() || snapshot.frames().getFirst().debug(),
         snapshot.frames().isEmpty() || snapshot.frames().getFirst().threadMode());
   }
 
   public static SuspendedTask durableSuspension(
-      long taskId, long scheduledEpochMilli, VmSnapshot snapshot, long taskPlayer,
+      long taskId, long scheduledEpochMilli, VmSnapshot snapshot,
       MooValue resumeValue) {
     if (!snapshot.anonymousCollectionDeferrals().isEmpty()) {
       throw new IllegalStateException(
@@ -524,7 +523,7 @@ public final class DurableTaskCodec {
     List<VmSnapshot.Frame> frames = new ArrayList<>(snapshot.frames());
     Collections.reverse(frames);
     for (VmSnapshot.Frame frame : frames) {
-      rootToCurrent.add(exportActivation(frame, taskPlayer));
+      rootToCurrent.add(exportActivation(frame));
     }
     return new SuspendedTask(
         taskId,
@@ -879,13 +878,13 @@ public final class DurableTaskCodec {
     putValue(baseToTop, structural, shape.endDepth(), state.end(), "range end");
   }
 
-  private static SuspendedActivation exportActivation(VmSnapshot.Frame frame, long taskPlayer) {
+  private static SuspendedActivation exportActivation(VmSnapshot.Frame frame) {
     if (frame.anonymousRecycleTarget().isPresent()) {
       throw new IllegalStateException("VM frame has no direct v17 activation representation");
     }
     int callIndex = Math.subtractExact(frame.instructionPointer(), 1);
     Instruction call = frame.program().instructions().get(callIndex);
-    if ((call.opcode() != Opcode.CALL && call.opcode() != Opcode.CALL_VERB)
+    if (world.mongoose.banteng.bytecode.ToastV17ProgramModel.CallKind.of(call).isEmpty()
         || call.astPath().isEmpty()) {
       throw new IllegalStateException("suspended VM is not positioned after a structural call");
     }
@@ -900,7 +899,9 @@ public final class DurableTaskCodec {
     ToastV17ProgramLayout layout = new ToastV17ProgramLayout();
     List<ToastV17ProgramModel.CallBoundary> boundaries =
         layout.callBoundaries(frame.program().source(), -1).stream()
-            .filter(boundary -> boundary.astPath().equals(canonicalCall.astPath().orElseThrow()))
+            .filter(boundary -> boundary.astPath().equals(canonicalCall.astPath().orElseThrow())
+                && world.mongoose.banteng.bytecode.ToastV17ProgramModel.CallKind.of(canonicalCall)
+                    .filter(boundary.kind()::equals).isPresent())
             .toList();
     if (boundaries.size() != 1) {
       throw new IllegalStateException(
@@ -914,10 +915,6 @@ public final class DurableTaskCodec {
     for (String name : frame.program().variableNames()) {
       locals.put(name, Optional.ofNullable(frame.locals().get(name)));
     }
-    String verb =
-        frame.locals().get("verb") instanceof world.mongoose.banteng.value.MooValue.StringValue value
-            ? value.text()
-            : "";
     Optional<SuspendedActivation.BuiltinContinuation> builtin = exportBuiltin(frame);
     long builtinCounter = builtin.isEmpty() ? 0 : switch (frame.returnMode()) {
       case MOVE_EXIT -> 3;
@@ -932,18 +929,19 @@ public final class DurableTaskCodec {
         frame.receiver(),
         frame.verbLocation(),
         frame.threadMode(),
-        taskPlayer,
+        frame.player(),
         frame.programmer(),
         true,
-        verb,
-        verb,
-        Optional.empty(),
+        frame.calledVerb(),
+        frame.fullVerbName(),
+        frame.temporary(),
         boundary.programCounter(),
         builtinCounter,
         boundary.errorProgramCounter(), builtin);
   }
 
   private static Optional<SuspendedActivation.BuiltinContinuation> exportBuiltin(VmSnapshot.Frame frame) {
+    if (frame.builtinContinuation().isPresent()) return frame.builtinContinuation();
     if (frame.returnMode() == VmSnapshot.ReturnMode.EVAL) {
       return Optional.of(new SuspendedActivation.EvalContinuation());
     }
