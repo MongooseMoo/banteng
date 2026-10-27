@@ -23,7 +23,7 @@ import org.openrewrite.java.tree.Expression;
 import org.openrewrite.java.tree.J;
 import org.openrewrite.java.tree.Statement;
 
-/** Moves one contiguous registration block and its declared static method closure. */
+/** Moves registration groups and their declared static method closure. */
 public final class MoveBuiltinFamily extends ScanningRecipe<MoveBuiltinFamily.Members> {
   private static final String SOURCE = "world.mongoose.banteng.builtin.BuiltinCatalog";
   private final String family;
@@ -76,16 +76,40 @@ public final class MoveBuiltinFamily extends ScanningRecipe<MoveBuiltinFamily.Me
         members.source = getCursor().firstEnclosingOrThrow(J.CompilationUnit.class);
         members.owner = type.getId();
         for (Statement statement : type.getBody().getStatements()) {
+          if (family.equals("ListBuiltins") && statement instanceof J.VariableDeclarations field
+              && field.getVariables().stream().anyMatch(variable -> Set.of(
+                  "DEFAULT_MAX_LIST_VALUE_BYTES", "MIN_LIST_VALUE_BYTES_LIMIT",
+                  "MAX_LIST_VALUE_BYTES_LIMIT").contains(variable.getSimpleName()))) {
+            members.limits.add(field);
+          }
           if (statement instanceof J.MethodDeclaration method) {
+            if (family.equals("ListBuiltins")) {
+              if (Set.of("valueBytes", "enforceListValueLimit").contains(method.getSimpleName())) {
+                members.limits.add(method);
+              } else if (method.getSimpleName().equals("foldAscii")) {
+                members.foldAscii = method;
+              }
+            }
             if (methods.contains(method.getSimpleName()) && method.getModifiers().stream()
                 .anyMatch(modifier -> modifier.getType() == J.Modifier.Type.Static)) {
               members.implementations.add(method);
             }
             if (method.getSimpleName().equals("buildManifest") && method.getBody() != null) {
               members.manifest = method.getId();
+              boolean previousRegistration = false;
               for (Statement entry : method.getBody().getStatements()) {
                 J.NewClass spec = registration(entry);
-                if (spec != null) { members.registrations.add(entry); }
+                if (spec != null) {
+                  if (!previousRegistration) { members.groups.add(new ArrayList<>()); }
+                  members.groups.getLast().add(entry);
+                  members.registrations.add(entry);
+                }
+                previousRegistration = spec != null;
+                if (family.equals("ListBuiltins") && entry instanceof J.VariableDeclarations variables
+                    && variables.getVariables().stream().anyMatch(variable ->
+                        Set.of("allMembers", "sort").contains(variable.getSimpleName()))) {
+                  members.handlers.add(entry);
+                }
               }
             }
           }
@@ -129,7 +153,19 @@ public final class MoveBuiltinFamily extends ScanningRecipe<MoveBuiltinFamily.Me
       }
     }
     StringBuilder body = new StringBuilder();
-    for (Statement statement : members.registrations) {
+    for (int group = 0; group < members.groups.size(); group++) {
+      body.append("  public static void ").append(registerMethod(group))
+          .append("(List<BuiltinSpec> entries) {\n")
+          .append("    BuiltinRegistrar registrar = new BuiltinRegistrar(entries);\n");
+      for (Statement handler : members.handlers) {
+        String name = ((J.VariableDeclarations) handler).getVariables().getFirst().getSimpleName();
+        if (members.groups.get(group).stream().anyMatch(statement ->
+            registration(statement).getArguments().get(4) instanceof J.Identifier identifier
+                && identifier.getSimpleName().equals(name))) {
+          body.append(handler.printTrimmed(new Cursor(null, members.source))).append(";\n");
+        }
+      }
+      for (Statement statement : members.groups.get(group)) {
       List<Expression> arguments = registration(statement).getArguments();
       body.append("    registrar.builtin(").append(arguments.get(0).printTrimmed(new Cursor(null, members.source)))
           .append(", ").append(arguments.get(1).printTrimmed(new Cursor(null, members.source))).append(')');
@@ -141,6 +177,8 @@ public final class MoveBuiltinFamily extends ScanningRecipe<MoveBuiltinFamily.Me
       body.append(".implementation(")
           .append(arguments.get(4).printTrimmed(new Cursor(null, members.source)).replace("BuiltinCatalog::", family + "::"))
           .append(");\n");
+      }
+      body.append("  }\n");
     }
     J.CompilationUnit skeleton = (J.CompilationUnit) JavaParser.fromJavaVersion().build()
         .parse(context, "package world.mongoose.banteng.builtin.family;\n"
@@ -156,8 +194,7 @@ public final class MoveBuiltinFamily extends ScanningRecipe<MoveBuiltinFamily.Me
             + "public final class " + family + " {\n"
             + constants
             + "  private " + family + "() {}\n"
-            + "  public static void register(List<BuiltinSpec> entries) {\n"
-            + "    BuiltinRegistrar registrar = new BuiltinRegistrar(entries);\n" + body + "  }\n}")
+            + body + "}\n")
         .findFirst().orElseThrow();
     J.ClassDeclaration type = skeleton.getClasses().getFirst();
     List<Statement> statements = new ArrayList<>(type.getBody().getStatements());
@@ -173,7 +210,51 @@ public final class MoveBuiltinFamily extends ScanningRecipe<MoveBuiltinFamily.Me
         .withSourcePath(Path.of("src/main/java/world/mongoose/banteng/builtin/family/" + family + ".java"));
     generated = (J.CompilationUnit) new RandomizeIdVisitor<ExecutionContext>().visitNonNull(generated, context);
     generated = (J.CompilationUnit) new AutoFormatVisitor<ExecutionContext>(null).visitNonNull(generated, context);
-    return List.of(usedImports(generated, context));
+    List<SourceFile> generatedFiles = new ArrayList<>();
+    if (family.equals("ListBuiltins")) {
+      generated = addSharedImports(generated, context);
+      J.CompilationUnit limits = (J.CompilationUnit) JavaParser.fromJavaVersion().build()
+          .parse(context, "package world.mongoose.banteng.builtin; public final class ValueLimits {"
+              + "private ValueLimits() {} }").findFirst().orElseThrow();
+      J.ClassDeclaration limitsType = limits.getClasses().getFirst();
+      List<Statement> limitsBody = new ArrayList<>(limitsType.getBody().getStatements());
+      for (Statement member : members.limits) {
+        if (member instanceof J.MethodDeclaration method) { member = publicMethod(method); }
+        limitsBody.add(member);
+      }
+      limits = limits.withImports(members.source.getImports())
+          .withClasses(List.of(limitsType.withBody(limitsType.getBody().withStatements(limitsBody))))
+          .withSourcePath(Path.of("src/main/java/world/mongoose/banteng/builtin/ValueLimits.java"));
+      limits = (J.CompilationUnit) new RandomizeIdVisitor<ExecutionContext>().visitNonNull(limits, context);
+      limits = (J.CompilationUnit) new AutoFormatVisitor<ExecutionContext>(null).visitNonNull(limits, context);
+      generatedFiles.add(usedImports(limits, context));
+    }
+    generatedFiles.add(usedImports(generated, context));
+    return generatedFiles;
+  }
+
+  private String registerMethod(int group) {
+    return family.equals("ListBuiltins")
+        ? List.of("registerLength", "registerListEdits", "registerSetsAndSort", "registerReverse").get(group)
+        : "register";
+  }
+
+  private static J.MethodDeclaration publicMethod(J.MethodDeclaration method) {
+    return method.withModifiers(method.getModifiers().stream().map(modifier ->
+        modifier.getType() == J.Modifier.Type.Private
+            ? modifier.withType(J.Modifier.Type.Public) : modifier).toList());
+  }
+
+  private static J.CompilationUnit addSharedImports(J.CompilationUnit unit, ExecutionContext context) {
+    return (J.CompilationUnit) new JavaIsoVisitor<ExecutionContext>() {
+      @Override public J.CompilationUnit visitCompilationUnit(J.CompilationUnit source,
+          ExecutionContext unused) {
+        maybeAddImport("world.mongoose.banteng.builtin.ValueLimits", "valueBytes", false);
+        maybeAddImport("world.mongoose.banteng.builtin.ValueLimits", "enforceListValueLimit", false);
+        maybeAddImport("world.mongoose.banteng.value.ValueSemantics", "foldAscii", false);
+        return super.visitCompilationUnit(source, unused);
+      }
+    }.visitNonNull(unit, context);
   }
 
   private static J.CompilationUnit usedImports(J.CompilationUnit unit, ExecutionContext context) {
@@ -196,30 +277,72 @@ public final class MoveBuiltinFamily extends ScanningRecipe<MoveBuiltinFamily.Me
     return new JavaIsoVisitor<ExecutionContext>() {
       @Override public J.CompilationUnit visitCompilationUnit(J.CompilationUnit unit,
           ExecutionContext context) {
+        if (family.equals("ListBuiltins")) {
+          if (unit.getSourcePath().endsWith("value/ValueSemantics.java")) {
+            J.ClassDeclaration type = unit.getClasses().getFirst();
+            List<Statement> body = new ArrayList<>(type.getBody().getStatements());
+            body.add(publicMethod(members.foldAscii));
+            String source = unit.withClasses(List.of(type.withBody(type.getBody().withStatements(body))))
+                .printAll()
+                .replace("if (lhs >= 'A' && lhs <= 'Z') lhs += 'a' - 'A';", "lhs = foldAscii(lhs);")
+                .replace("if (rhs >= 'A' && rhs <= 'Z') rhs += 'a' - 'A';", "rhs = foldAscii(rhs);");
+            return ((J.CompilationUnit) JavaParser.fromJavaVersion().build().parse(context, source)
+                .findFirst().orElseThrow()).withId(unit.getId()).withSourcePath(unit.getSourcePath());
+          }
+          if (unit.getSourcePath().endsWith("vm/ListOps.java")) {
+            maybeRemoveImport(SOURCE);
+            maybeAddImport("world.mongoose.banteng.builtin.ValueLimits", false);
+            return super.visitCompilationUnit(unit, context);
+          }
+        }
         if (!unit.getId().equals(members.source.getId())) { return unit; }
         maybeAddImport("world.mongoose.banteng.builtin.family." + family, false);
-        return usedImports(super.visitCompilationUnit(unit, context), context);
+        J.CompilationUnit changed = super.visitCompilationUnit(unit, context);
+        if (family.equals("ListBuiltins")) { changed = addSharedImports(changed, context); }
+        return usedImports(changed, context);
+      }
+      @Override public J.MethodInvocation visitMethodInvocation(J.MethodInvocation invocation,
+          ExecutionContext context) {
+        J.MethodInvocation changed = super.visitMethodInvocation(invocation, context);
+        if (family.equals("ListBuiltins") && changed.getSimpleName().equals("enforceListValueLimit")
+            && changed.getSelect() instanceof J.Identifier identifier
+            && identifier.getSimpleName().equals("BuiltinCatalog")) {
+          return changed.withSelect(identifier.withSimpleName("ValueLimits").withType(null));
+        }
+        return changed;
       }
       @Override public J.ClassDeclaration visitClassDeclaration(J.ClassDeclaration type,
           ExecutionContext context) {
-        if (!type.getId().equals(members.owner)) { return type; }
+        if (!type.getId().equals(members.owner)) {
+          return super.visitClassDeclaration(type, context);
+        }
         return super.visitClassDeclaration(type.withBody(type.getBody().withStatements(
             type.getBody().getStatements().stream().filter(statement -> members.implementations
-                .stream().noneMatch(method -> method.getId().equals(statement.getId()))).toList())), context);
+                .stream().noneMatch(method -> method.getId().equals(statement.getId())))
+                .filter(statement -> members.limits.stream().noneMatch(member -> member.getId().equals(statement.getId())))
+                .filter(statement -> members.foldAscii == null || !members.foldAscii.getId().equals(statement.getId()))
+                .toList())), context);
       }
       @Override public J.MethodDeclaration visitMethodDeclaration(J.MethodDeclaration method,
           ExecutionContext context) {
-        if (!method.getId().equals(members.manifest) || method.getBody() == null) { return method; }
-        Statement replacement = ((J.CompilationUnit) JavaParser.fromJavaVersion().build()
-            .parse(context, "class Replacement { void register() { " + family + ".register(entries); } }")
+        if (!method.getId().equals(members.manifest) || method.getBody() == null) {
+          return super.visitMethodDeclaration(method, context);
+        }
+        List<Statement> retained = new ArrayList<>();
+        for (Statement statement : method.getBody().getStatements()) {
+          int group = -1;
+          for (int index = 0; index < members.groups.size(); index++) {
+            if (statement.getId().equals(members.groups.get(index).getFirst().getId())) { group = index; }
+          }
+          if (group >= 0) {
+            Statement replacement = ((J.CompilationUnit) JavaParser.fromJavaVersion().build()
+            .parse(context, "class Replacement { void register() { " + family + "." + registerMethod(group) + "(entries); } }")
             .findFirst().orElseThrow()).getClasses().getFirst().getBody().getStatements().stream()
             .filter(J.MethodDeclaration.class::isInstance).map(J.MethodDeclaration.class::cast)
             .findFirst().orElseThrow().getBody().getStatements().getFirst();
-        List<Statement> retained = new ArrayList<>();
-        for (Statement statement : method.getBody().getStatements()) {
-          if (statement.getId().equals(members.registrations.getFirst().getId())) {
             retained.add(replacement.withPrefix(statement.getPrefix()));
-          } else if (members.registrations.stream().noneMatch(entry -> entry.getId().equals(statement.getId()))) {
+          } else if (members.registrations.stream().noneMatch(entry -> entry.getId().equals(statement.getId()))
+              && members.handlers.stream().noneMatch(entry -> entry.getId().equals(statement.getId()))) {
             retained.add(statement);
           }
         }
@@ -235,6 +358,10 @@ public final class MoveBuiltinFamily extends ScanningRecipe<MoveBuiltinFamily.Me
     private boolean collision;
     private final List<J.MethodDeclaration> implementations = new ArrayList<>();
     private final List<Statement> registrations = new ArrayList<>();
+    private final List<List<Statement>> groups = new ArrayList<>();
+    private final List<Statement> handlers = new ArrayList<>();
+    private final List<Statement> limits = new ArrayList<>();
+    private J.MethodDeclaration foldAscii;
     private boolean ready() {
       return !collision && source != null && registrations.size() == builtins.size()
           && implementations.size() == methods.size();

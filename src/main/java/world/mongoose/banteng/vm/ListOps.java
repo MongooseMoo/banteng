@@ -3,8 +3,8 @@ package world.mongoose.banteng.vm;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import world.mongoose.banteng.builtin.BuiltinCatalog;
 import world.mongoose.banteng.builtin.BuiltinResult;
+import world.mongoose.banteng.builtin.ValueLimits;
 import world.mongoose.banteng.value.MooValue;
 import world.mongoose.banteng.value.MooValue.ErrorValue;
 import world.mongoose.banteng.value.MooValue.ListValue;
@@ -51,7 +51,7 @@ final class ListOps {
 
   private static void pushCheckedList(
       Frame frame, VmState state, WorldTxn world, ListValue value) {
-    BuiltinResult checked = BuiltinCatalog.enforceListValueLimit(value, world);
+    BuiltinResult checked = ValueLimits.enforceListValueLimit(value, world);
     if (checked instanceof BuiltinResult.Value checkedValue) {
       frame.operandStack.push(checkedValue.value());
       frame.instructionPointer++;
