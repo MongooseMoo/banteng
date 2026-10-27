@@ -25,7 +25,6 @@ import world.mongoose.banteng.bytecode.BytecodeProgram;
 import world.mongoose.banteng.bytecode.BytecodeProgram.HandlerSpec;
 import world.mongoose.banteng.value.MooValue;
 import world.mongoose.banteng.value.MooValue.AnonymousObjectValue;
-import world.mongoose.banteng.value.MooValue.ErrorValue;
 import world.mongoose.banteng.value.MooValue.IntegerValue;
 import world.mongoose.banteng.value.MooValue.ListValue;
 import world.mongoose.banteng.value.MooValue.MapValue;
@@ -654,7 +653,7 @@ public final class VmState {
         program, locals, phase, hook.owner(), new ObjectValue(receiver), new ObjectValue(location),
         calledVerb(locals), hook.names(), Optional.empty(), OptionalLong.empty(),
         OptionalLong.of(move.object()), OptionalLong.of(move.destination()),
-        OptionalLong.of(move.position()), (hook.permissions() & 8) != 0, true));
+        OptionalLong.of(move.position()), hook.perms().debug(), true));
     return true;
   }
 

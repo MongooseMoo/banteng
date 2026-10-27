@@ -25,6 +25,9 @@ import world.mongoose.banteng.value.MooValue;
 import world.mongoose.banteng.value.MooValue.ListValue;
 import world.mongoose.banteng.value.MooValue.ObjectValue;
 import world.mongoose.banteng.value.MooValue.StringValue;
+import world.mongoose.banteng.world.ArgSpec;
+import world.mongoose.banteng.world.PropertyPerms;
+import world.mongoose.banteng.world.VerbPerms;
 import world.mongoose.banteng.world.WorldObject;
 import world.mongoose.banteng.world.WorldProperty;
 import world.mongoose.banteng.world.WorldTxn;
@@ -368,8 +371,10 @@ public final class LambdaMooV5Reader {
             new WorldVerb(
                 verb.names(),
                 verb.owner(),
-                verb.permissions(),
+                new VerbPerms(verb.permissions() & 15),
+                ArgSpec.fromValue((verb.permissions() >> 4) & 3),
                 verb.preposition(),
+                ArgSpec.fromValue((verb.permissions() >> 6) & 3),
                 programs.getOrDefault(new ProgramSlot(raw.id(), index), "")));
       }
       RepairedObject topology = Objects.requireNonNull(repaired.get(raw.id()));
@@ -402,7 +407,7 @@ public final class LambdaMooV5Reader {
               object.propertyNames().get(index),
               slot.value(),
               slot.owner(),
-              slot.permissions(),
+              new PropertyPerms(slot.permissions()),
               false,
               true));
     }

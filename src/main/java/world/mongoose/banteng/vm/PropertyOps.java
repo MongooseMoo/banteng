@@ -21,9 +21,8 @@ import world.mongoose.banteng.value.MooValue.ObjectValue;
 import world.mongoose.banteng.value.MooValue.StringValue;
 import world.mongoose.banteng.value.MooValue.WaifValue;
 import world.mongoose.banteng.vm.VmState.Frame;
-import world.mongoose.banteng.world.ObjectFlags;
+import world.mongoose.banteng.world.Access;
 import world.mongoose.banteng.world.WorldAnonymousObject;
-import world.mongoose.banteng.world.WorldObject;
 import world.mongoose.banteng.world.WorldProperty;
 import world.mongoose.banteng.world.WorldResult;
 import world.mongoose.banteng.world.WorldTxn;
@@ -231,10 +230,7 @@ final class PropertyOps {
       WorldProperty property = world.waifProperty(waif, nameText).orElse(null);
       if (property != null) {
         long programmer = state.programmer();
-        WorldObject programmerObject = world.object(programmer).orElse(null);
-        boolean wizard =
-            programmerObject != null && ObjectFlags.isWizard(programmerObject.flags());
-        if (property.owner() != programmer && !wizard && (property.permissions() & 1) == 0) {
+        if (!Access.canRead(world, programmer, property.owner(), property.perms())) {
           ErrorOps.raise(state, ErrorValue.E_PERM, world);
           return;
         }
@@ -267,10 +263,7 @@ final class PropertyOps {
       WorldProperty property = world.property(anonymous, nameText).orElse(null);
       if (property != null) {
         long programmer = state.programmer();
-        WorldObject programmerObject = world.object(programmer).orElse(null);
-        boolean wizard =
-            programmerObject != null && ObjectFlags.isWizard(programmerObject.flags());
-        if (property.owner() != programmer && !wizard && (property.permissions() & 1) == 0) {
+        if (!Access.canRead(world, programmer, property.owner(), property.perms())) {
           ErrorOps.raise(state, ErrorValue.E_PERM, world);
           return;
         }
@@ -291,10 +284,7 @@ final class PropertyOps {
     WorldProperty property = world.property(object.value(), nameText).orElse(null);
     if (property != null) {
       long programmer = state.programmer();
-      WorldObject programmerObject = world.object(programmer).orElse(null);
-      boolean wizard =
-          programmerObject != null && ObjectFlags.isWizard(programmerObject.flags());
-      if (property.owner() != programmer && !wizard && (property.permissions() & 1) == 0) {
+      if (!Access.canRead(world, programmer, property.owner(), property.perms())) {
         ErrorOps.raise(state, ErrorValue.E_PERM, world);
         return;
       }

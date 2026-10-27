@@ -14,7 +14,6 @@ import world.mongoose.banteng.value.MooValue.ObjectValue;
 import world.mongoose.banteng.value.MooValue.StringValue;
 import world.mongoose.banteng.vm.VmState.Frame;
 import world.mongoose.banteng.vm.VmState.ReturnMode;
-import world.mongoose.banteng.world.ObjectFlags;
 import world.mongoose.banteng.world.WorldObject;
 import world.mongoose.banteng.world.WorldTxn;
 import world.mongoose.banteng.world.WorldVerb;
@@ -47,8 +46,7 @@ final class MoveOps {
 
   private static void accepted(
       BuiltinResult.Move move, boolean accepts, VmState state, WorldTxn world) {
-    boolean wizard = world.object(state.currentFrame().programmer)
-        .map(actor -> ObjectFlags.isWizard(actor.flags())).orElse(false);
+    boolean wizard = world.isWizard(state.currentFrame().programmer);
     if (!accepts && !wizard) {
       ErrorOps.raise(state, ErrorValue.E_NACC, world, false);
       return;

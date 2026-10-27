@@ -8,12 +8,13 @@ public record WorldProperty(
     String name,
     MooValue value,
     long owner,
-    int permissions,
+    PropertyPerms perms,
     boolean clear,
     boolean defined) {
   /** Creates a property slot with its exact persisted metadata. */
   public WorldProperty {
     Objects.requireNonNull(name, "name");
     Objects.requireNonNull(value, "value");
+    Objects.requireNonNull(perms, "perms");
   }
 }

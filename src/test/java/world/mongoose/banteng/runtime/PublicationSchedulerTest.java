@@ -59,6 +59,9 @@ import world.mongoose.banteng.value.MooValue.ListValue;
 import world.mongoose.banteng.value.MooValue.MapValue;
 import world.mongoose.banteng.value.MooValue.ObjectValue;
 import world.mongoose.banteng.value.MooValue.StringValue;
+import world.mongoose.banteng.world.ArgSpec;
+import world.mongoose.banteng.world.PropertyPerms;
+import world.mongoose.banteng.world.VerbPerms;
 import world.mongoose.banteng.world.WorldObject;
 import world.mongoose.banteng.world.WorldProperty;
 import world.mongoose.banteng.world.WorldTxn;
@@ -269,18 +272,27 @@ final class PublicationSchedulerTest {
                 new WorldVerb(
                     "user_disconnected",
                     0,
-                    4,
+                    new VerbPerms(4),
+                    ArgSpec.NONE,
                     -1,
+                    ArgSpec.NONE,
                     "this.order = {@this.order, args[1]}; return 0;"),
                 new WorldVerb(
                     "server_started",
                     0,
-                    4,
+                    new VerbPerms(4),
+                    ArgSpec.NONE,
                     -1,
+                    ArgSpec.NONE,
                     "this.order = {@this.order, 999}; return 0;")),
             List.of(
                 new WorldProperty(
-                    "order", new ListValue(List.of()), 0, 3, false, true)));
+                    "order",
+                    new ListValue(List.of()),
+                    0,
+                    new PropertyPerms(3),
+                    false,
+                    true)));
     WorldTxn world = new WorldTxn(List.of(), List.of(system));
     String taskSource = "suspend(); #0.order = {@#0.order, 777}; return 0;\n";
     SuspendedTask task =
@@ -1181,8 +1193,7 @@ final class PublicationSchedulerTest {
                 ? transaction.writeObjectProperty(
                         serverOptions.value(), "fg_ticks", new IntegerValue(100))
                     .isOk()
-                : transaction.addProperty(
-                        serverOptions.value(), "fg_ticks", new IntegerValue(100), 0, 3)
+                : transaction.addProperty(serverOptions.value(), "fg_ticks", new IntegerValue(100), 0, new PropertyPerms(3))
                     .isOk();
         assertTrue(configured);
         assertTrue(transaction.commit().isCommitted());
@@ -1218,8 +1229,7 @@ final class PublicationSchedulerTest {
                 ? transaction.writeObjectProperty(
                         serverOptions.value(), "bg_ticks", new IntegerValue(100))
                     .isOk()
-                : transaction.addProperty(
-                        serverOptions.value(), "bg_ticks", new IntegerValue(100), 0, 3)
+                : transaction.addProperty(serverOptions.value(), "bg_ticks", new IntegerValue(100), 0, new PropertyPerms(3))
                     .isOk();
         assertTrue(configured);
         WorldObject system = transaction.object(0).orElseThrow();
@@ -1431,8 +1441,7 @@ final class PublicationSchedulerTest {
               ? transaction.writeObjectProperty(
                       serverOptions.value(), "fg_ticks", new IntegerValue(20_000_000))
                   .isOk()
-              : transaction.addProperty(
-                      serverOptions.value(), "fg_ticks", new IntegerValue(20_000_000), 0, 3)
+              : transaction.addProperty(serverOptions.value(), "fg_ticks", new IntegerValue(20_000_000), 0, new PropertyPerms(3))
                   .isOk();
       assertTrue(configured);
       assertTrue(transaction.commit().isCommitted());
@@ -1820,8 +1829,7 @@ final class PublicationSchedulerTest {
                 ? transaction.writeObjectProperty(
                         0, "scheduler_counter", new IntegerValue(0))
                     .isOk()
-                : transaction.addProperty(
-                        0, "scheduler_counter", new IntegerValue(0), 0, 3)
+                : transaction.addProperty(0, "scheduler_counter", new IntegerValue(0), 0, new PropertyPerms(3))
                     .isOk();
         assertTrue(written);
         assertTrue(transaction.commit().isCommitted());
