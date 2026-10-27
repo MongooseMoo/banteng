@@ -39,3 +39,6 @@ Focused integration validation passed after source freeze: `wsl env JAVA_HOME=/o
 Draft PR body amendment: preserves the integrated runtime callback repairs, including the current switch_player host delegation and saved activation metadata, while moving only the existing Connection family and its seven contracts. Validation remains the authored mover fixture and the original normal migration; production CI remains PR-owned.
 
 The subsequent latest WAIF assignment ancestry merged normally without conflicts. Its new runtime/test files required no additional Connection API adaptation; all seven relocated contract references remain current, with no old catalog contract references or removed switch channel. No local test or review was repeated for that ancestry-only merge. No unresolved merge conflicts remain.
+
+## Login and layout repair ancestry
+Merged the latest coordinator runtime login-output and pinned-layout-boundary repairs normally, without conflicts or family source adaptations. Family implementations, services, dependencies, extraction mover, authored fixtures and YAML are unchanged. Connection retains its relocated contract types alongside the current runtime publication body. No local tests, CI, migration or repeated review ran for this mechanical integration. Parent owns publication, hosted checks and merge.
