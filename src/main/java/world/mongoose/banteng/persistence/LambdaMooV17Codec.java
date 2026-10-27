@@ -37,6 +37,7 @@ import java.util.Optional;
 import java.util.Set;
 import jdk.jfr.FlightRecorder;
 import world.mongoose.banteng.value.MooValue;
+import world.mongoose.banteng.value.ValueSemantics;
 import world.mongoose.banteng.value.MooValue.AnonymousObjectValue;
 import world.mongoose.banteng.value.MooValue.BooleanValue;
 import world.mongoose.banteng.value.MooValue.ErrorValue;
@@ -1847,7 +1848,7 @@ public final class LambdaMooV17Codec {
           MooValue value =
               readValue(input, context, location + " map entry " + (index + 1) + " value");
           for (MooValue existing : keys) {
-            if (MapValue.compareKeys(existing, key) == 0) {
+            if (ValueSemantics.STANDARD.compare(existing, key, false) == 0) {
               throw malformed("duplicate map key in v17 value");
             }
           }

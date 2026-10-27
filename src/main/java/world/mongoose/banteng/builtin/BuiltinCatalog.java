@@ -241,8 +241,8 @@ public final class BuiltinCatalog {
     BuiltinHandler allMembers =
         call ->
             call.threadMode()
-                ? BuiltinResult.hostWork(() -> allMembers(call.arguments()))
-                : allMembers(call.arguments());
+                ? BuiltinResult.hostWork(() -> allMembers(call.arguments(), hosts.valueSemantics()))
+                : allMembers(call.arguments(), hosts.valueSemantics());
     BuiltinHandler sort =
         call ->
             call.threadMode()
@@ -654,14 +654,14 @@ public final class BuiltinCatalog {
             List.of(new CallShape(List.of(Set.of(ArgType.LIST), ANY), List.of(), Optional.empty())),
             BuiltinPermissionRule.ANY,
             false,
-            call -> setAdd(call.arguments(), call.world())));
+            call -> setAdd(call.arguments(), call.world(), hosts.valueSemantics())));
     entries.add(
         new BuiltinSpec(
             "setremove",
             List.of(new CallShape(List.of(Set.of(ArgType.LIST), ANY), List.of(), Optional.empty())),
             BuiltinPermissionRule.ANY,
             false,
-            call -> setRemove(call.arguments(), call.world())));
+            call -> setRemove(call.arguments(), call.world(), hosts.valueSemantics())));
     entries.add(
         new BuiltinSpec(
             "all_members",
@@ -3130,69 +3130,15 @@ public final class BuiltinCatalog {
 
   private static BuiltinResult mapKeys(List<MooValue> arguments) {
     MapValue map = (MapValue) arguments.getFirst();
-    return BuiltinResult.value(new ListValue(sortedMapKeys(map)));
-  }
-
-  private static List<MooValue> sortedMapKeys(MapValue map) {
-    List<MooValue> keys = new ArrayList<>(map.entries().keySet());
-    keys.sort(
-        (left, right) -> {
-          int leftRank =
-              switch (left.type()) {
-                case INTEGER -> 0;
-                case OBJECT -> 1;
-                case ERROR -> 2;
-                case FLOAT -> 3;
-                case BOOLEAN -> 4;
-                case STRING -> 5;
-                case ANONYMOUS -> 6;
-                case WAIF -> 7;
-                case LIST, MAP -> throw new IllegalArgumentException("collection map key");
-              };
-          int rightRank =
-              switch (right.type()) {
-                case INTEGER -> 0;
-                case OBJECT -> 1;
-                case ERROR -> 2;
-                case FLOAT -> 3;
-                case BOOLEAN -> 4;
-                case STRING -> 5;
-                case ANONYMOUS -> 6;
-                case WAIF -> 7;
-                case LIST, MAP -> throw new IllegalArgumentException("collection map key");
-              };
-          if (leftRank != rightRank) {
-            return Integer.compare(leftRank, rightRank);
-          }
-          return switch (left) {
-            case IntegerValue integer ->
-                Long.compare(integer.value(), ((IntegerValue) right).value());
-            case ObjectValue object ->
-                Long.compare(object.value(), ((ObjectValue) right).value());
-            case ErrorValue error ->
-                Integer.compare(error.code(), ((ErrorValue) right).code());
-            case FloatValue floating -> {
-              double leftValue = floating.value();
-              double rightValue = ((FloatValue) right).value();
-              yield leftValue == rightValue ? 0 : (leftValue - rightValue < 0.0 ? -1 : 1);
-            }
-            case BooleanValue _ -> 0;
-            case StringValue string -> string.compareIgnoringCase((StringValue) right);
-            case AnonymousObjectValue _ -> left == right ? 0 : 1;
-            case WaifValue _ -> 0;
-            case ListValue _ -> throw new IllegalArgumentException("list map key");
-            case MapValue _ -> throw new IllegalArgumentException("map map key");
-          };
-        });
-    return keys;
+    return BuiltinResult.value(new ListValue(map.orderedEntries().stream().map(Map.Entry::getKey).toList()));
   }
 
   private static BuiltinResult mapValues(List<MooValue> arguments) {
     MapValue map = (MapValue) arguments.getFirst();
     List<MooValue> values = new ArrayList<>();
     if (arguments.size() == 1) {
-      for (MooValue key : sortedMapKeys(map)) {
-        values.add(map.get(key, true).orElseThrow());
+      for (Map.Entry<MooValue, MooValue> entry : map.orderedEntries()) {
+        values.add(entry.getValue());
       }
       return BuiltinResult.value(new ListValue(values));
     }
@@ -3250,7 +3196,7 @@ public final class BuiltinCatalog {
     Map<MooValue, MooValue> remaining = new LinkedHashMap<>();
     boolean found = false;
     for (Map.Entry<MooValue, MooValue> entry : map.entries().entrySet()) {
-      if (!found && MapValue.compareKeys(entry.getKey(), key) == 0) {
+      if (!found && ValueSemantics.STANDARD.compare(entry.getKey(), key, false) == 0) {
         found = true;
       } else {
         remaining.put(entry.getKey(), entry.getValue());
@@ -3265,110 +3211,26 @@ public final class BuiltinCatalog {
         || key instanceof AnonymousObjectValue;
   }
 
-  private static BuiltinResult setAdd(List<MooValue> arguments, WorldTxn world) {
+  private static BuiltinResult setAdd(
+      List<MooValue> arguments, WorldTxn world, ValueSemantics semantics) {
     ListValue list = (ListValue) arguments.get(0);
     MooValue value = arguments.get(1);
-    return enforceListValueLimit(list.elements().contains(value) ? list : list.append(value), world);
+    boolean present = list.elements().stream().anyMatch(element -> semantics.equal(element, value, false));
+    return enforceListValueLimit(present ? list : list.append(value), world);
   }
 
-  private static BuiltinResult setRemove(List<MooValue> arguments, WorldTxn world) {
-    return enforceListValueLimit(setRemoveValue(arguments), world);
-  }
-
-  private static ListValue setRemoveValue(List<MooValue> arguments) {
+  private static BuiltinResult setRemove(
+      List<MooValue> arguments, WorldTxn world, ValueSemantics semantics) {
     ListValue list = (ListValue) arguments.get(0);
     MooValue value = arguments.get(1);
     for (int index = 0; index < list.size(); index++) {
-      List<MooValue> pendingLeft = new ArrayList<>();
-      List<MooValue> pendingRight = new ArrayList<>();
-      pendingLeft.add(list.elements().get(index));
-      pendingRight.add(value);
-      boolean equal = true;
-      while (!pendingLeft.isEmpty()) {
-        int last = pendingLeft.size() - 1;
-        MooValue left = pendingLeft.remove(last);
-        MooValue right = pendingRight.remove(last);
-        if (left instanceof BooleanValue bool && right instanceof IntegerValue integer) {
-          if (integer.value() != (bool.value() ? 1 : 0)) {
-            equal = false;
-            break;
-          }
-          continue;
-        }
-        if (left instanceof IntegerValue integer && right instanceof BooleanValue bool) {
-          if (integer.value() != (bool.value() ? 1 : 0)) {
-            equal = false;
-            break;
-          }
-          continue;
-        }
-        if (left instanceof ListValue leftList) {
-          if (!(right instanceof ListValue rightList) || leftList.size() != rightList.size()) {
-            equal = false;
-            break;
-          }
-          for (int nested = 0; nested < leftList.size(); nested++) {
-            pendingLeft.add(leftList.elements().get(nested));
-            pendingRight.add(rightList.elements().get(nested));
-          }
-          continue;
-        }
-        if (left instanceof MapValue leftMap) {
-          if (!(right instanceof MapValue rightMap) || leftMap.size() != rightMap.size()) {
-            equal = false;
-            break;
-          }
-          List<Map.Entry<MooValue, MooValue>> rightEntries =
-              new ArrayList<>(rightMap.entries().entrySet());
-          boolean[] matched = new boolean[rightEntries.size()];
-          for (Map.Entry<MooValue, MooValue> leftEntry : leftMap.entries().entrySet()) {
-            int matching = -1;
-            for (int candidate = 0; candidate < rightEntries.size(); candidate++) {
-              if (matched[candidate]) {
-                continue;
-              }
-              MooValue leftKey = leftEntry.getKey();
-              MooValue rightKey = rightEntries.get(candidate).getKey();
-              boolean keysEqual;
-              if (leftKey instanceof BooleanValue bool
-                  && rightKey instanceof IntegerValue integer) {
-                keysEqual = integer.value() == (bool.value() ? 1 : 0);
-              } else if (leftKey instanceof IntegerValue integer
-                  && rightKey instanceof BooleanValue bool) {
-                keysEqual = integer.value() == (bool.value() ? 1 : 0);
-              } else {
-                keysEqual = leftKey.equals(rightKey);
-              }
-              if (keysEqual) {
-                matching = candidate;
-                break;
-              }
-            }
-            if (matching < 0) {
-              equal = false;
-              break;
-            }
-            matched[matching] = true;
-            pendingLeft.add(leftEntry.getValue());
-            pendingRight.add(rightEntries.get(matching).getValue());
-          }
-          if (!equal) {
-            break;
-          }
-          continue;
-        }
-        if (!left.equals(right)) {
-          equal = false;
-          break;
-        }
-      }
-      if (equal) {
+      if (semantics.equal(list.elements().get(index), value, false)) {
         List<MooValue> remaining = new ArrayList<>(list.elements());
         remaining.remove(index);
-        return new ListValue(remaining);
+        return enforceListValueLimit(new ListValue(remaining), world);
       }
     }
-    return list;
+    return enforceListValueLimit(list, world);
   }
 
   /** Applies Toast's checked-list producer limit to a newly constructed value. */
@@ -3398,7 +3260,7 @@ public final class BuiltinCatalog {
         : new BuiltinResult.SecondsAbort();
   }
 
-  private static BuiltinResult allMembers(List<MooValue> arguments) {
+  private static BuiltinResult allMembers(List<MooValue> arguments, ValueSemantics semantics) {
     MooValue value = arguments.get(0);
     ListValue list = (ListValue) arguments.get(1);
     List<MooValue> positions = new ArrayList<>();
@@ -3406,12 +3268,7 @@ public final class BuiltinCatalog {
       if (Thread.currentThread().isInterrupted()) {
         throw new CancellationException("all_members host work was canceled");
       }
-      ListValue removed =
-          setRemoveValue(
-              List.of(
-                  new ListValue(List.of(list.elements().get(index))),
-                  value));
-      if (removed.size() == 0) {
+      if (semantics.equal(list.elements().get(index), value, false)) {
         positions.add(new IntegerValue(index + 1L));
       }
     }
@@ -3474,43 +3331,16 @@ public final class BuiltinCatalog {
   }
 
   private static int compareSortValues(MooValue left, MooValue right, boolean natural) {
-    return switch (left) {
-      case IntegerValue integer -> Long.compare(integer.value(), ((IntegerValue) right).value());
-      case ObjectValue object -> Long.compare(object.value(), ((ObjectValue) right).value());
-      case ErrorValue error -> Integer.compare(error.code(), ((ErrorValue) right).code());
-      case FloatValue floating -> {
-        double leftValue = floating.value();
-        double rightValue = ((FloatValue) right).value();
-        yield leftValue < rightValue ? -1 : (leftValue > rightValue ? 1 : 0);
-      }
-      case BooleanValue _ -> 0;
-      case StringValue string ->
-          natural
-              ? compareNaturallyIgnoringCase(string, (StringValue) right)
-              : compareCStringIgnoringCase(string, (StringValue) right);
-      case ListValue _ -> throw new IllegalArgumentException("list sort key");
-      case MapValue _ -> throw new IllegalArgumentException("map sort key");
-      case AnonymousObjectValue _ ->
-          throw new IllegalArgumentException("anonymous sort key");
-      case WaifValue _ -> throw new IllegalArgumentException("waif sort key");
-    };
-  }
-
-  private static int compareCStringIgnoringCase(StringValue left, StringValue right) {
-    byte[] leftBytes = left.bytes();
-    byte[] rightBytes = right.bytes();
-    int index = 0;
-    while (true) {
-      int leftByte = foldAscii(cStringByte(leftBytes, index));
-      int rightByte = foldAscii(cStringByte(rightBytes, index));
-      if (leftByte != rightByte) {
-        return Integer.compare(leftByte, rightByte);
-      }
-      if (leftByte == 0) {
-        return 0;
-      }
-      index++;
+    if (natural && left instanceof StringValue string) {
+      return compareNaturallyIgnoringCase(string, (StringValue) right);
     }
+    // Toast sort uses a strict-less predicate: booleans and NaNs compare neither way.
+    if (left instanceof BooleanValue
+        || (left instanceof FloatValue floating
+            && (Double.isNaN(floating.value()) || Double.isNaN(((FloatValue) right).value())))) {
+      return 0;
+    }
+    return ValueSemantics.STANDARD.compare(left, right, false);
   }
 
   private static int compareNaturallyIgnoringCase(StringValue left, StringValue right) {
@@ -4886,7 +4716,7 @@ public final class BuiltinCatalog {
         break;
       }
       MooValue located = new ObjectValue(location);
-      if (!result.contains(located)) {
+      if (result.stream().noneMatch(value -> ValueSemantics.STANDARD.equal(value, located, false))) {
         result.add(located);
       }
       location = world.object(location).orElseThrow().location();
@@ -6098,54 +5928,7 @@ public final class BuiltinCatalog {
       List<MooValue> arguments, ValueSemantics valueSemantics) {
     return BuiltinResult.value(
         new IntegerValue(
-            exactlyEqual(arguments.get(0), arguments.get(1), valueSemantics) ? 1 : 0));
-  }
-
-  private static boolean exactlyEqual(
-      MooValue left, MooValue right, ValueSemantics valueSemantics) {
-    if (left instanceof BooleanValue bool && right instanceof IntegerValue integer) {
-      return integer.value() == (bool.value() ? 1 : 0);
-    }
-    if (left instanceof IntegerValue integer && right instanceof BooleanValue bool) {
-      return integer.value() == (bool.value() ? 1 : 0);
-    }
-    if (valueSemantics.promoteNumbers()
-        && ((left instanceof IntegerValue && right instanceof FloatValue)
-            || (left instanceof FloatValue && right instanceof IntegerValue))) {
-      return numericDouble(left) == numericDouble(right);
-    }
-    if (left instanceof StringValue leftString && right instanceof StringValue rightString) {
-      return Arrays.equals(leftString.bytes(), rightString.bytes());
-    }
-    if (left instanceof ListValue leftList && right instanceof ListValue rightList) {
-      if (leftList.size() != rightList.size()) {
-        return false;
-      }
-      for (int index = 0; index < leftList.size(); index++) {
-        if (!exactlyEqual(
-            leftList.elements().get(index), rightList.elements().get(index), valueSemantics)) {
-          return false;
-        }
-      }
-      return true;
-    }
-    if (left instanceof MapValue leftMap && right instanceof MapValue rightMap) {
-      if (leftMap.size() != rightMap.size()) {
-        return false;
-      }
-      var leftEntries = leftMap.entries().entrySet().iterator();
-      var rightEntries = rightMap.entries().entrySet().iterator();
-      while (leftEntries.hasNext()) {
-        Map.Entry<MooValue, MooValue> leftEntry = leftEntries.next();
-        Map.Entry<MooValue, MooValue> rightEntry = rightEntries.next();
-        if (!exactlyEqual(leftEntry.getKey(), rightEntry.getKey(), valueSemantics)
-            || !exactlyEqual(leftEntry.getValue(), rightEntry.getValue(), valueSemantics)) {
-          return false;
-        }
-      }
-      return true;
-    }
-    return left.equals(right);
+            valueSemantics.equal(arguments.get(0), arguments.get(1), true) ? 1 : 0));
   }
 
   private BuiltinResult dynamicEval(List<MooValue> arguments) {

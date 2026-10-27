@@ -12,6 +12,7 @@ import world.mongoose.banteng.builtin.BuiltinResult;
 import world.mongoose.banteng.bytecode.BytecodeProgram;
 import world.mongoose.banteng.bytecode.MooCompiler;
 import world.mongoose.banteng.value.MooValue;
+import world.mongoose.banteng.value.ValueSemantics;
 import world.mongoose.banteng.value.MooValue.ErrorValue;
 import world.mongoose.banteng.value.MooValue.IntegerValue;
 import world.mongoose.banteng.value.MooValue.ListValue;
@@ -90,11 +91,19 @@ final class IndexOps {
     ErrorOps.raise(state, ErrorValue.E_TYPE, world);
   }
 
+  private static int mapKeyPosition(
+      List<Map.Entry<MooValue, MooValue>> entries, MooValue requested) {
+    for (int index = 0; index < entries.size(); index++) {
+      if (ValueSemantics.STANDARD.compare(entries.get(index).getKey(), requested, false) == 0) return index;
+    }
+    return -1;
+  }
+
   static void boundaryIndex(
       Frame frame, VmState state, WorldTxn world, boolean last) {
     MooValue collection = frame.indexCollections.getFirst().collection();
     if (collection instanceof MapValue map) {
-      var keys = map.entries().keySet().iterator();
+      var keys = map.orderedEntries().stream().map(Map.Entry::getKey).iterator();
       if (!keys.hasNext()) {
         ErrorOps.raise(state, ErrorValue.E_RANGE, world);
         return;
@@ -162,19 +171,19 @@ final class IndexOps {
         frame.instructionPointer++;
         return;
       }
-      List<MooValue> keys = new ArrayList<>(map.entries().keySet());
-      int firstPosition = keys.indexOf(start);
-      int lastPosition = keys.indexOf(end);
+      List<Map.Entry<MooValue, MooValue>> entries = map.orderedEntries();
+      int firstPosition = mapKeyPosition(entries, start);
+      int lastPosition = mapKeyPosition(entries, end);
       if (firstPosition < 0 || lastPosition < 0) {
         ErrorOps.raise(state, ErrorValue.E_RANGE, world);
         return;
       }
-      Map<MooValue, MooValue> selected = new LinkedHashMap<>();
+      MapValue selected = new MapValue(Map.of());
       for (int position = firstPosition; position <= lastPosition; position++) {
-        MooValue key = keys.get(position);
-        selected.put(key, map.entries().get(key));
+        Map.Entry<MooValue, MooValue> entry = entries.get(position);
+        selected = selected.with(entry.getKey(), entry.getValue());
       }
-      frame.operandStack.push(new MapValue(selected));
+      frame.operandStack.push(selected);
       frame.instructionPointer++;
       return;
     }
@@ -417,29 +426,26 @@ final class IndexOps {
         ErrorOps.raise(state, ErrorValue.E_TYPE, world);
         return;
       }
-      List<MooValue> keys = new ArrayList<>(map.entries().keySet());
-      int firstPosition = keys.indexOf(start);
-      int lastPosition = keys.indexOf(end);
+      List<Map.Entry<MooValue, MooValue>> entries = map.orderedEntries();
+      int firstPosition = mapKeyPosition(entries, start);
+      int lastPosition = mapKeyPosition(entries, end);
       if (firstPosition < 0 || lastPosition < 0) {
         ErrorOps.raise(state, ErrorValue.E_RANGE, world);
         return;
       }
-      Map<MooValue, MooValue> replaced = new LinkedHashMap<>();
-      if (lastPosition < firstPosition) {
-        replaced.putAll(map.entries());
-        replaced.putAll(replacement.entries());
-      } else {
-        for (int position = 0; position < firstPosition; position++) {
-          MooValue key = keys.get(position);
-          replaced.put(key, map.entries().get(key));
-        }
-        replaced.putAll(replacement.entries());
-        for (int position = lastPosition + 1; position < keys.size(); position++) {
-          MooValue key = keys.get(position);
-          replaced.put(key, map.entries().get(key));
-        }
+      MapValue replaced = new MapValue(Map.of());
+      for (int position = 0; position < firstPosition; position++) {
+        Map.Entry<MooValue, MooValue> entry = entries.get(position);
+        replaced = replaced.with(entry.getKey(), entry.getValue());
       }
-      updatedCollection = new MapValue(replaced);
+      for (Map.Entry<MooValue, MooValue> entry : replacement.orderedEntries()) {
+        replaced = replaced.with(entry.getKey(), entry.getValue());
+      }
+      for (int position = lastPosition + 1; position < entries.size(); position++) {
+        Map.Entry<MooValue, MooValue> entry = entries.get(position);
+        replaced = replaced.with(entry.getKey(), entry.getValue());
+      }
+      updatedCollection = replaced;
     } else {
       ErrorOps.raise(state, ErrorValue.E_TYPE, world);
       return;

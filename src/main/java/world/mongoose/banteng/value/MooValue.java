@@ -224,6 +224,11 @@ public sealed interface MooValue
       return Arrays.copyOf(bytes, bytes.length);
     }
 
+    /** Reads one unsigned byte without copying or exposing the owned contents. */
+    int unsignedByteAt(int index) {
+      return Byte.toUnsignedInt(bytes[index]);
+    }
+
     /** Decodes the binary string as Latin-1 text without losing any byte values. */
     public String text() {
       return new String(bytes, CHARSET);
@@ -232,34 +237,6 @@ public sealed interface MooValue
     /** Returns the byte length of this string. */
     public int length() {
       return bytes.length;
-    }
-
-    /** Compares two strings by their case-folded unsigned byte contents. */
-    public int compareIgnoringCase(StringValue other) {
-      int commonLength = Math.min(bytes.length, other.bytes.length);
-      for (int index = 0; index < commonLength; index++) {
-        int comparison =
-            Integer.compare(
-                Byte.toUnsignedInt(foldAscii(bytes[index])),
-                Byte.toUnsignedInt(foldAscii(other.bytes[index])));
-        if (comparison != 0) {
-          return comparison;
-        }
-      }
-      return Integer.compare(bytes.length, other.bytes.length);
-    }
-
-    /** Compares two strings by their exact unsigned byte contents. */
-    public int compareCaseSensitively(StringValue other) {
-      int commonLength = Math.min(bytes.length, other.bytes.length);
-      for (int index = 0; index < commonLength; index++) {
-        int comparison =
-            Integer.compare(Byte.toUnsignedInt(bytes[index]), Byte.toUnsignedInt(other.bytes[index]));
-        if (comparison != 0) {
-          return comparison;
-        }
-      }
-      return Integer.compare(bytes.length, other.bytes.length);
     }
 
     /** Returns the zero-based case-insensitive byte position of {@code needle}, or -1. */
@@ -659,6 +636,23 @@ public sealed interface MooValue
       return entries;
     }
 
+    /** Returns the existing lookup tree's in-order entry traversal, as Toast mapforeach does. */
+    public List<Map.Entry<MooValue, MooValue>> orderedEntries() {
+      List<Map.Entry<MooValue, MooValue>> ordered = new ArrayList<>();
+      List<MapNode> pending = new ArrayList<>();
+      MapNode current = lookupRoot;
+      while (current != null || !pending.isEmpty()) {
+        while (current != null) {
+          pending.add(current);
+          current = current.left;
+        }
+        MapNode node = pending.removeLast();
+        ordered.add(Map.entry(node.key, node.value));
+        current = node.right;
+      }
+      return List.copyOf(ordered);
+    }
+
     /** Returns the number of entries. */
     public int size() {
       return entries.size();
@@ -674,7 +668,7 @@ public sealed interface MooValue
       requireScalarKey(key);
       if (key instanceof AnonymousObjectValue || key instanceof WaifValue) {
         for (Map.Entry<MooValue, MooValue> entry : entries.entrySet()) {
-          if (sameIdentityKey(entry.getKey(), key)) {
+          if (ValueSemantics.STANDARD.equal(entry.getKey(), key, false)) {
             return Optional.of(entry.getValue());
           }
         }
@@ -682,26 +676,16 @@ public sealed interface MooValue
       }
       MapNode current = lookupRoot;
       while (current != null) {
-        int comparison = lookupComparison(current.key, key, caseMatters);
+        int comparison = ValueSemantics.STANDARD.compare(current.key, key, caseMatters);
         if (comparison == 0) {
           return Optional.of(current.value);
         }
         if (caseMatters) {
-          comparison = compareKeys(current.key, key);
+          comparison = ValueSemantics.STANDARD.compare(current.key, key, false);
         }
         current = comparison < 0 ? current.right : current.left;
       }
       return Optional.empty();
-    }
-
-    private static boolean sameIdentityKey(MooValue stored, MooValue requested) {
-      return switch (requested) {
-        case AnonymousObjectValue anonymous ->
-            stored instanceof AnonymousObjectValue storedAnonymous
-                && storedAnonymous == anonymous;
-        case WaifValue waif -> stored instanceof WaifValue storedWaif && storedWaif == waif;
-        default -> false;
-      };
     }
 
     /** Returns an immutable map with {@code key} bound to {@code value}. */
@@ -709,31 +693,20 @@ public sealed interface MooValue
       requireScalarKey(key);
       LinkedHashMap<MooValue, MooValue> replacement = new LinkedHashMap<>();
       boolean inserted = false;
-      boolean replacedExisting = false;
       for (Map.Entry<MooValue, MooValue> entry : entries.entrySet()) {
-        int comparison = compareKeys(entry.getKey(), key);
+        int comparison = ValueSemantics.STANDARD.compare(entry.getKey(), key, false);
         if (!inserted && comparison >= 0) {
           replacement.put(key, value);
           inserted = true;
         }
         if (comparison != 0) {
           replacement.put(entry.getKey(), entry.getValue());
-        } else {
-          replacedExisting = true;
         }
       }
       if (!inserted) {
         replacement.put(key, value);
       }
-      MapNode root;
-      if (replacedExisting) {
-        root = null;
-        for (Map.Entry<MooValue, MooValue> entry : replacement.entrySet()) {
-          root = insertLookupNode(root, entry.getKey(), entry.getValue());
-        }
-      } else {
-        root = insertLookupNode(copyLookupTree(lookupRoot), key, value);
-      }
+      MapNode root = insertLookupNode(copyLookupTree(lookupRoot), key, value);
       return new MapValue(replacement, root);
     }
 
@@ -782,15 +755,6 @@ public sealed interface MooValue
       if (key instanceof ListValue || key instanceof MapValue) {
         throw new IllegalArgumentException("MOO map keys must be scalar");
       }
-    }
-
-    private static int lookupComparison(MooValue stored, MooValue requested, boolean caseMatters) {
-      if (caseMatters
-          && stored instanceof StringValue storedString
-          && requested instanceof StringValue requestedString) {
-        return storedString.compareCaseSensitively(requestedString);
-      }
-      return compareKeys(stored, requested);
     }
 
     private static @Nullable MapNode copyLookupTree(@Nullable MapNode node) {
@@ -844,8 +808,9 @@ public sealed interface MooValue
           }
         }
 
-        int comparison = compareKeys(iterator.key, key);
+        int comparison = ValueSemantics.STANDARD.compare(iterator.key, key, false);
         if (comparison == 0) {
+          iterator.key = key;
           iterator.value = value;
           break;
         }
@@ -886,7 +851,7 @@ public sealed interface MooValue
     }
 
     private static final class MapNode {
-      private final MooValue key;
+      private MooValue key;
       private MooValue value;
       private boolean red = true;
       private @Nullable MapNode left;
@@ -910,52 +875,5 @@ public sealed interface MooValue
       }
     }
 
-    /** Compares two scalar keys using the map lookup and replacement relation. */
-    public static int compareKeys(MooValue left, MooValue right) {
-      int leftRank =
-          switch (left.type()) {
-            case INTEGER -> 0;
-            case OBJECT -> 1;
-            case ERROR -> 2;
-            case FLOAT -> 3;
-            case BOOLEAN -> 4;
-            case STRING -> 5;
-            case ANONYMOUS -> 6;
-            case WAIF -> 7;
-            case LIST, MAP -> throw new IllegalArgumentException("collection map key");
-          };
-      int rightRank =
-          switch (right.type()) {
-            case INTEGER -> 0;
-            case OBJECT -> 1;
-            case ERROR -> 2;
-            case FLOAT -> 3;
-            case BOOLEAN -> 4;
-            case STRING -> 5;
-            case ANONYMOUS -> 6;
-            case WAIF -> 7;
-            case LIST, MAP -> throw new IllegalArgumentException("collection map key");
-          };
-      if (leftRank != rightRank) {
-        return Integer.compare(leftRank, rightRank);
-      }
-      return switch (left) {
-        case IntegerValue integer ->
-            Long.compare(integer.value(), ((IntegerValue) right).value());
-        case ObjectValue object -> Long.compare(object.value(), ((ObjectValue) right).value());
-        case ErrorValue error -> Integer.compare(error.code(), ((ErrorValue) right).code());
-        case FloatValue floating -> {
-          double leftValue = floating.value();
-          double rightValue = ((FloatValue) right).value();
-          yield leftValue == rightValue ? 0 : (leftValue - rightValue < 0.0 ? -1 : 1);
-        }
-        case BooleanValue bool -> bool == right ? 0 : 1;
-        case StringValue string -> string.compareIgnoringCase((StringValue) right);
-        case AnonymousObjectValue anonymous -> anonymous == right ? 0 : 1;
-        case WaifValue waif -> waif == right ? 0 : 1;
-        case ListValue ignored -> throw new IllegalArgumentException("list map key");
-        case MapValue ignored -> throw new IllegalArgumentException("map map key");
-      };
-    }
   }
 }
