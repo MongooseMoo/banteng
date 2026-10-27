@@ -41,6 +41,7 @@ import world.mongoose.banteng.builtin.family.JsonBuiltins;
 import world.mongoose.banteng.builtin.family.ListBuiltins;
 import world.mongoose.banteng.builtin.family.MapBuiltins;
 import world.mongoose.banteng.builtin.family.MathBuiltins;
+import world.mongoose.banteng.builtin.family.RandomBuiltins;
 import world.mongoose.banteng.builtin.family.StringBuiltins;
 import world.mongoose.banteng.builtin.family.TimeBuiltins;
 import world.mongoose.banteng.bytecode.MooCompiler;
@@ -259,41 +260,7 @@ public final class BuiltinCatalog {
             call -> objectBytes(call.arguments().getFirst(), call.world(), call.programmer())));
     ListBuiltins.registerLength(entries);
     MathBuiltins.register(entries);
-    entries.add(
-        new BuiltinSpec(
-            "random",
-            List.of(new CallShape(List.of(), List.of(INTEGER, INTEGER), Optional.empty())),
-            BuiltinPermissionRule.ANY,
-            true,
-            call -> randomInteger(call.arguments())));
-    entries.add(
-        new BuiltinSpec(
-            "reseed_random",
-            List.of(new CallShape(List.of(), List.of(), Optional.empty())),
-            BuiltinPermissionRule.WIZARD_ONLY,
-            true,
-            call -> {
-              random.setSeed(SECURE_RANDOM.nextLong());
-              return BuiltinResult.value(new IntegerValue(0));
-            }));
-    entries.add(
-        new BuiltinSpec(
-            "frandom",
-            List.of(
-                new CallShape(
-                    List.of(Set.of(ArgType.FLOAT)),
-                    List.of(Set.of(ArgType.FLOAT)),
-                    Optional.empty())),
-            BuiltinPermissionRule.ANY,
-            true,
-            call -> floatingRandom(call.arguments())));
-    entries.add(
-        new BuiltinSpec(
-            "random_bytes",
-            List.of(new CallShape(List.of(INTEGER), List.of(), Optional.empty())),
-            BuiltinPermissionRule.ANY,
-            true,
-            call -> randomBytes(call.arguments(), call.world())));
+    RandomBuiltins.register(entries, () -> random, () -> floatingRandom, SECURE_RANDOM);
     TimeBuiltins.register(entries);
     entries.add(
         new BuiltinSpec(
@@ -2137,92 +2104,6 @@ public final class BuiltinCatalog {
       bytes += 16L + (property.clear() ? 16 : valueBytes(property.value(), world));
     }
     return BuiltinResult.value(new IntegerValue(bytes));
-  }
-
-  private BuiltinResult floatingRandom(List<MooValue> arguments) {
-    double minimum = arguments.size() == 2 ? ((FloatValue) arguments.get(0)).value() : 0.0;
-    double maximum =
-        ((FloatValue) arguments.get(arguments.size() == 2 ? 1 : 0)).value();
-    double fraction = (floatingRandom.nextInt() >>> 1) / (double) Integer.MAX_VALUE;
-    return BuiltinResult.value(new FloatValue(minimum + fraction * (maximum - minimum)));
-  }
-
-  private static BuiltinResult randomBytes(List<MooValue> arguments, WorldTxn world) {
-    long requested = ((IntegerValue) arguments.getFirst()).value();
-    if (requested < 0 || requested > 10_000) {
-      return BuiltinResult.raised(
-          ErrorValue.E_INVARG, StringValue.of("Invalid count"), arguments.getFirst());
-    }
-    byte[] random = new byte[(int) requested];
-    SECURE_RANDOM.nextBytes(random);
-    ByteArrayOutputStream encoded = new ByteArrayOutputStream(random.length);
-    for (byte current : random) {
-      int value = Byte.toUnsignedInt(current);
-      if (value != '~' && ((value >= 0x21 && value <= 0x7e) || value == ' ')) {
-        encoded.write(value);
-      } else {
-        encoded.write('~');
-        encoded.write(Character.toUpperCase(Character.forDigit(value >>> 4, 16)));
-        encoded.write(Character.toUpperCase(Character.forDigit(value & 0x0f, 16)));
-      }
-    }
-    Optional<BuiltinResult> error = stringLengthError(encoded.size(), world);
-    return error.orElseGet(() -> BuiltinResult.value(StringValue.of(encoded.toByteArray())));
-  }
-
-  /** Checks the configured string limit before the VM allocates a concatenation. */
-  public static Optional<BuiltinResult> stringLengthError(long length, WorldTxn world) {
-    long maximumLength = 64_537_861L;
-    boolean catchable = false;
-    MooValue serverOptions = world.readObjectProperty(0, "server_options").orElse(null);
-    if (serverOptions instanceof ObjectValue options) {
-      if (world.readObjectProperty(options.value(), "max_string_concat").orElse(null)
-          instanceof IntegerValue configured) {
-        maximumLength =
-            configured.value() <= 0
-                ? Long.MAX_VALUE
-                : Math.max(1_021L, Math.min(2_147_482_626L, configured.value()));
-      }
-      catchable =
-          world.readObjectProperty(options.value(), "max_concat_catchable")
-              .map(MooValue::isTruthy)
-              .orElse(false);
-    }
-    if (length > maximumLength) {
-      return Optional.of(catchable
-          ? BuiltinResult.error(ErrorValue.E_QUOTA)
-          : new BuiltinResult.SecondsAbort());
-    }
-    return Optional.empty();
-  }
-
-  private BuiltinResult randomInteger(List<MooValue> arguments) {
-    long lower = 1;
-    long upper = Long.MAX_VALUE;
-    if (arguments.size() == 1) {
-      upper = ((IntegerValue) arguments.getFirst()).value();
-      if (upper <= 0) {
-        return BuiltinResult.error(ErrorValue.E_INVARG);
-      }
-    } else if (arguments.size() == 2) {
-      lower = ((IntegerValue) arguments.get(0)).value();
-      upper = ((IntegerValue) arguments.get(1)).value();
-      if (upper < lower) {
-        return BuiltinResult.error(ErrorValue.E_INVARG);
-      }
-    }
-    if (lower == upper) {
-      return BuiltinResult.value(new IntegerValue(lower));
-    }
-    long width = upper - lower + 1;
-    if (width > 0) {
-      return BuiltinResult.value(new IntegerValue(lower + random.nextLong(width)));
-    }
-    long value;
-    do {
-      value = random.nextLong();
-    } while (value < lower || value > upper);
-    return BuiltinResult.value(new IntegerValue(value));
   }
 
   private static BuiltinResult raise(List<MooValue> arguments) {

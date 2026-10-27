@@ -1,5 +1,6 @@
 package world.mongoose.banteng.builtin;
 import java.util.Map;
+import java.util.Optional;
 import world.mongoose.banteng.value.MooValue;
 import world.mongoose.banteng.value.MooValue.AnonymousObjectValue;
 import world.mongoose.banteng.value.MooValue.BooleanValue;
@@ -14,7 +15,7 @@ import world.mongoose.banteng.value.MooValue.WaifValue;
 import world.mongoose.banteng.world.WorldProperty;
 import world.mongoose.banteng.world.WorldTxn;
 
- public final class ValueLimits {
+public final class ValueLimits {
     private ValueLimits() {
     }
     private static final long DEFAULT_MAX_LIST_VALUE_BYTES = 64_537_861L;
@@ -87,4 +88,30 @@ import world.mongoose.banteng.world.WorldTxn;
                 ? BuiltinResult.error(ErrorValue.E_QUOTA)
                 : new BuiltinResult.SecondsAbort();
     }
+
+  /** Checks the configured string limit before the VM allocates a concatenation. */
+  public static Optional<BuiltinResult> stringLengthError(long length, WorldTxn world) {
+    long maximumLength = 64_537_861L;
+    boolean catchable = false;
+    MooValue serverOptions = world.readObjectProperty(0, "server_options").orElse(null);
+    if (serverOptions instanceof ObjectValue options) {
+      if (world.readObjectProperty(options.value(), "max_string_concat").orElse(null)
+          instanceof IntegerValue configured) {
+        maximumLength =
+            configured.value() <= 0
+                ? Long.MAX_VALUE
+                : Math.max(1_021L, Math.min(2_147_482_626L, configured.value()));
+      }
+      catchable =
+          world.readObjectProperty(options.value(), "max_concat_catchable")
+              .map(MooValue::isTruthy)
+              .orElse(false);
+    }
+    if (length > maximumLength) {
+      return Optional.of(catchable
+          ? BuiltinResult.error(ErrorValue.E_QUOTA)
+          : new BuiltinResult.SecondsAbort());
+    }
+    return Optional.empty();
+  }
 }

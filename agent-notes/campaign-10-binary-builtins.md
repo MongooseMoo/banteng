@@ -2,7 +2,7 @@
 Extract issue 10's binary builtins through the existing OpenRewrite family mover.
 
 # State
-Implemented in an isolated Binary branch from current origin/master. No publication by this agent. BinaryBuiltins owns the two registration groups and four private implementation methods. StringValue owns both shared codec methods; all five catalog caller sites retarget directly.
+Published as PR126 with completed Claude review. BinaryBuiltins owns the two registration groups and four private implementation methods. StringValue owns both shared codec methods; all five catalog caller sites retarget directly. Integrated merged Random additions in the shared recipe/YAML, preserving both reviewed changes; fresh PR CI checks the integration and the completed review is retained.
 
 # Decisions and why
 Smallest change: move the three registrations in their two existing groups and their four-method closure, around 120 implementation lines, into BinaryBuiltins. Put the shared escape decoder and encoder loop in existing StringValue, and retarget salt/hash/HMAC/getenv/curl directly. Preserve the exact loops, tab distinctions, integer validation versus string bypass and first-NUL chr truncation. No facade or new state.
