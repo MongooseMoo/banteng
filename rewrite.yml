@@ -454,3 +454,13 @@ recipeList:
       family: ConversionBuiltins
       builtins: [tostr, tofloat, toint, toliteral, toobj, equal, typeof]
       methods: [toStringValue, errorDescription, toFloat, toInteger, toLiteral, toObject, parseToastObjectId, isAsciiWhitespace, equalValues, typeOf]
+---
+type: specs.openrewrite.org/v1beta/recipe
+name: world.mongoose.banteng.builtin.ExtractBinaryBuiltins
+displayName: Extract binary builtins
+description: Moves binary registrations and flattening to their family and shared escaping to StringValue.
+recipeList:
+  - world.mongoose.banteng.rewrite.MoveBuiltinFamily:
+      family: BinaryBuiltins
+      builtins: [decode_binary, encode_binary, chr]
+      methods: [decodeBinary, encodeBinary, chr, appendBinaryBytes]

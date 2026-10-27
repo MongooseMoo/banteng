@@ -35,6 +35,7 @@ import org.bouncycastle.crypto.macs.HMac;
 import org.bouncycastle.crypto.params.Argon2Parameters;
 import org.bouncycastle.crypto.params.KeyParameter;
 import world.mongoose.banteng.builtin.family.ConversionBuiltins;
+import world.mongoose.banteng.builtin.family.BinaryBuiltins;
 
 import static world.mongoose.banteng.builtin.ValueLimits.valueBytes;
 import world.mongoose.banteng.builtin.family.JsonBuiltins;
@@ -234,7 +235,7 @@ public final class BuiltinCatalog {
         BuiltinPermissionRule.WIZARD_ONLY, false, call -> {
           String value = System.getenv(((StringValue) call.arguments().getFirst()).text());
           return value == null ? BuiltinResult.value(new IntegerValue(0))
-              : encodeBinary(List.of(StringValue.of(value)));
+              : BuiltinResult.value(StringValue.of(value).encodeBinary());
         }));
     entries.add(new BuiltinSpec(
         "respond_to", List.of(new CallShape(List.of(ANY, STRING), List.of(), Optional.empty())),
@@ -323,13 +324,7 @@ public final class BuiltinCatalog {
             call ->
                 argon2Verify(
                     call.arguments(), call.hosts().serverLog(), BuiltinCatalog::argon2Hash)));
-    entries.add(
-        new BuiltinSpec(
-            "decode_binary",
-            List.of(new CallShape(List.of(STRING), List.of(ANY), Optional.empty())),
-            BuiltinPermissionRule.ANY,
-            false,
-            call -> decodeBinary(call.arguments())));
+    BinaryBuiltins.registerDecode(entries);
     entries.add(
         new BuiltinSpec(
             "disassemble",
@@ -365,20 +360,7 @@ public final class BuiltinCatalog {
             BuiltinPermissionRule.ANY,
             false,
             call -> urlDecode((StringValue) call.arguments().getFirst())));
-    entries.add(
-        new BuiltinSpec(
-            "encode_binary",
-            List.of(new CallShape(List.of(), List.of(), Optional.of(ANY))),
-            BuiltinPermissionRule.ANY,
-            false,
-            call -> encodeBinary(call.arguments())));
-    entries.add(
-        new BuiltinSpec(
-            "chr",
-            List.of(new CallShape(List.of(), List.of(), Optional.of(ANY))),
-            BuiltinPermissionRule.ANY,
-            false,
-            call -> chr(call.arguments(), call.world(), call.programmer())));
+    BinaryBuiltins.registerEncodeAndChr(entries);
     entries.add(
         new BuiltinSpec(
             "add_property",
@@ -1960,7 +1942,7 @@ public final class BuiltinCatalog {
   private static BuiltinResult curlTransfer(String url, boolean headers, long timeout, long maximumBytes) {
     try {
       NativeCurl.Result result = NativeCurl.get(url, headers, timeout, maximumBytes);
-      if (result.status() == 0) return encodeBinary(List.of(StringValue.of(result.body())));
+      if (result.status() == 0) return BuiltinResult.value(StringValue.of(result.body()).encodeBinary());
       return curlError(result.overflowed() || result.status() == -1 ? ErrorValue.E_QUOTA : ErrorValue.E_INVARG,
           result.overflowed() ? "Response exceeded the maximum allowed size" : result.message());
     } catch (IllegalStateException | LinkageError failure) {
@@ -2150,7 +2132,7 @@ public final class BuiltinCatalog {
       return BuiltinResult.raised(ErrorValue.E_INVARG, StringValue.of("Invalid prefix"),
           arguments.getFirst());
     }
-    Optional<byte[]> decoded = binaryBytes((StringValue) arguments.get(1));
+    Optional<byte[]> decoded = ((StringValue) arguments.get(1)).binaryBytes();
     if (decoded.isEmpty()) {
       return BuiltinResult.raised(ErrorValue.E_INVARG, StringValue.of("Invalid binary input"),
           arguments.get(1));
@@ -2405,32 +2387,9 @@ public final class BuiltinCatalog {
     return Arrays.copyOf(bytes, length);
   }
 
-  private static Optional<byte[]> binaryBytes(StringValue encoded) {
-    byte[] binary = encoded.bytes();
-    ByteArrayOutputStream raw = new ByteArrayOutputStream(binary.length);
-    for (int index = 0; index < binary.length; index++) {
-      int value = Byte.toUnsignedInt(binary[index]);
-      if (value != '~') {
-        raw.write(value);
-        continue;
-      }
-      if (index + 2 >= binary.length) {
-        return Optional.empty();
-      }
-      int high = Character.digit((char) Byte.toUnsignedInt(binary[++index]), 16);
-      int low = Character.digit((char) Byte.toUnsignedInt(binary[++index]), 16);
-      if (high < 0 || low < 0) {
-        return Optional.empty();
-      }
-      raw.write((high << 4) | low);
-    }
-
-    return Optional.of(raw.toByteArray());
-  }
-
   private static Optional<byte[]> hashInput(String input, MooValue value) {
     return switch (input) {
-      case "binary" -> binaryBytes((StringValue) value);
+      case "binary" -> ((StringValue) value).binaryBytes();
       case "value" -> Optional.of(StringValue.of(value.toLiteral()).bytes());
       default -> Optional.of(((StringValue) value).bytes());
     };
@@ -2468,7 +2427,7 @@ public final class BuiltinCatalog {
       case "sha256" -> new HMac(new SHA256Digest());
       default -> null;
     };
-    Optional<byte[]> key = binaryBytes((StringValue) arguments.get(1));
+    Optional<byte[]> key = ((StringValue) arguments.get(1)).binaryBytes();
     Optional<byte[]> message = hashInput(input, arguments.getFirst());
     if (mac == null || key.isEmpty() || message.isEmpty()) {
       return BuiltinResult.error(ErrorValue.E_INVARG);
@@ -2492,80 +2451,6 @@ public final class BuiltinCatalog {
       result.append("0123456789ABCDEF".charAt(value & 15));
     }
     return BuiltinResult.value(StringValue.of(result.toString()));
-  }
-
-  private static BuiltinResult decodeBinary(List<MooValue> arguments) {
-    Optional<byte[]> bytes = binaryBytes((StringValue) arguments.getFirst());
-    if (bytes.isEmpty()) {
-      return BuiltinResult.error(ErrorValue.E_INVARG);
-    }
-    byte[] decoded = bytes.orElseThrow();
-    if (arguments.size() == 2 && arguments.get(1).isTruthy()) {
-      return BuiltinResult.value(
-          new ListValue(
-              java.util.stream.IntStream.range(0, decoded.length)
-                  .mapToObj(index -> new IntegerValue(Byte.toUnsignedInt(decoded[index])))
-                  .map(MooValue.class::cast)
-                  .toList()));
-    }
-
-    List<MooValue> values = new ArrayList<>();
-    ByteArrayOutputStream printable = new ByteArrayOutputStream();
-    for (byte current : decoded) {
-      int value = Byte.toUnsignedInt(current);
-      if ((value >= 0x21 && value <= 0x7e) || value == ' ' || value == '\t') {
-        printable.write(value);
-      } else {
-        if (printable.size() != 0) {
-          values.add(StringValue.of(printable.toByteArray()));
-          printable.reset();
-        }
-        values.add(new IntegerValue(value));
-      }
-    }
-    if (printable.size() != 0) {
-      values.add(StringValue.of(printable.toByteArray()));
-    }
-    return BuiltinResult.value(new ListValue(values));
-  }
-
-  private static BuiltinResult encodeBinary(List<MooValue> arguments) {
-    ByteArrayOutputStream raw = new ByteArrayOutputStream();
-    for (MooValue argument : arguments) {
-      if (!appendBinaryBytes(raw, argument, 0, 255)) {
-        return BuiltinResult.error(ErrorValue.E_INVARG);
-      }
-    }
-
-    ByteArrayOutputStream encoded = new ByteArrayOutputStream(raw.size());
-    for (byte current : raw.toByteArray()) {
-      int value = Byte.toUnsignedInt(current);
-      if (value != '~' && ((value >= 0x21 && value <= 0x7e) || value == ' ')) {
-        encoded.write(value);
-      } else {
-        encoded.write('~');
-        encoded.write(Character.toUpperCase(Character.forDigit(value >>> 4, 16)));
-        encoded.write(Character.toUpperCase(Character.forDigit(value & 0x0f, 16)));
-      }
-    }
-    return BuiltinResult.value(StringValue.of(encoded.toByteArray()));
-  }
-
-  private static BuiltinResult chr(List<MooValue> arguments, WorldTxn world, long programmer) {
-    int minimum = world.isWizard(programmer) ? 0 : 32;
-    int maximum = world.isWizard(programmer) ? 255 : 254;
-    ByteArrayOutputStream raw = new ByteArrayOutputStream();
-    for (MooValue argument : arguments) {
-      if (!appendBinaryBytes(raw, argument, minimum, maximum)) {
-        return BuiltinResult.error(ErrorValue.E_INVARG);
-      }
-    }
-    byte[] bytes = raw.toByteArray();
-    int length = 0;
-    while (length < bytes.length && bytes[length] != 0) {
-      length++;
-    }
-    return BuiltinResult.value(StringValue.of(Arrays.copyOf(bytes, length)));
   }
 
   private static BuiltinResult disassemble(
@@ -2611,30 +2496,6 @@ public final class BuiltinCatalog {
             .map(MooValue.class::cast)
             .forEach(lines::add);
     return BuiltinResult.value(new ListValue(lines));
-  }
-
-  private static boolean appendBinaryBytes(
-      ByteArrayOutputStream output, MooValue value, int minimum, int maximum) {
-    if (value instanceof StringValue string) {
-      output.writeBytes(string.bytes());
-      return true;
-    }
-    if (value instanceof IntegerValue integer) {
-      if (integer.value() < minimum || integer.value() > maximum) {
-        return false;
-      }
-      output.write((int) integer.value());
-      return true;
-    }
-    if (value instanceof ListValue list) {
-      for (MooValue element : list.elements()) {
-        if (!appendBinaryBytes(output, element, minimum, maximum)) {
-          return false;
-        }
-      }
-      return true;
-    }
-    return false;
   }
 
   private static BuiltinResult create(List<MooValue> arguments, WorldTxn world, long programmer) {
