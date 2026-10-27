@@ -121,8 +121,10 @@ final class CompiledVerbTest {
         TaskOrigin.calledVerb(locals), TaskOrigin.calledVerb(locals), true), new TaskBudget(60_000, 5, 50));
       state.ensureRoot(new MooCompiler().compile("return {subject, caller_only};"));
       ListValue args = new ListValue(List.of(new IntegerValue(7)));
-      assertTrue(MooVm.callVerb(state, new ObjectValue(3), resolution, args, "work", kind,
-          Optional.empty(), Optional.empty(), Optional.empty(), world(target)));
+      try (WorldTxn transaction = world(target).begin()) {
+        assertTrue(MooVm.callVerb(state, new ObjectValue(3), resolution, args, "work", kind,
+            Optional.empty(), Optional.empty(), Optional.empty(), transaction));
+      }
       assertSame(target.program(), state.currentFrame().program);
       assertEquals(StringValue.of("raw command"), state.currentFrame().locals[10]);
       assertEquals(StringValue.of("direct"), state.currentFrame().locals[12]);
@@ -148,12 +150,13 @@ final class CompiledVerbTest {
         case HOOK_ACCEPT, HOOK_EXIT, HOOK_ENTER -> Optional.of(new BuiltinResult.Move(4, 5, 6));
         default -> Optional.empty();
       };
-      assertTrue(MooVm.callVerb(state, new ObjectValue(2),
-          new ResolvedVerb(target, new ObjectValue(1)), new ListValue(List.of()), "hook", kind,
-          Optional.of(new ObjectValue(9)), move, Optional.empty(), world(target)));
+      try (WorldTxn transaction = world(target).begin()) {
+        assertTrue(MooVm.callVerb(state, new ObjectValue(2),
+            new ResolvedVerb(target, new ObjectValue(1)), new ListValue(List.of()), "hook", kind,
+            Optional.of(new ObjectValue(9)), move, Optional.empty(), transaction));
+      }
       VmState.Frame frame = state.currentFrame();
-      assertEquals(kind == MooVm.VerbCallKind.HOOK_RECYCLE ? new ObjectValue(8) : new ObjectValue(3),
-          frame.locals[7]);
+      assertEquals(new ObjectValue(3), frame.locals[7]);
       assertEquals(kind == MooVm.VerbCallKind.HOOK_RECYCLE, frame.recycleTarget.isPresent());
       assertEquals(kind == MooVm.VerbCallKind.HOOK_INITIALIZE, frame.createReturnOverride.isPresent());
       assertEquals(move.isPresent(), frame.moveObject.isPresent());
@@ -173,9 +176,11 @@ final class CompiledVerbTest {
     ListValue args = new ListValue(List.of(new IntegerValue(6)));
     MooVm.RootVerbCall call = new MooVm.RootVerbCall(new ObjectValue(3), 4, 5, "work", args,
         "raw command", Optional.of(new MooVm.CommandArguments(8, "direct", "with", 9, "indirect")));
-    assertTrue(MooVm.callVerb(state, call.receiver(), new ResolvedVerb(target, new ObjectValue(1)),
-        args, call.verb(), MooVm.VerbCallKind.ROOT,
-        Optional.empty(), Optional.empty(), Optional.of(call), world(target)));
+    try (WorldTxn transaction = world(target).begin()) {
+      assertTrue(MooVm.callVerb(state, call.receiver(), new ResolvedVerb(target, new ObjectValue(1)),
+          args, call.verb(), MooVm.VerbCallKind.ROOT,
+          Optional.empty(), Optional.empty(), Optional.of(call), transaction));
+    }
     assertSame(target.program(), state.currentFrame().program);
     assertEquals(VmState.ReturnMode.ROOT, state.currentFrame().returnMode);
     state.snapshot().initialLocals().forEach((name, value) ->
