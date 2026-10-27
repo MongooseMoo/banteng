@@ -1,6 +1,6 @@
 package world.mongoose.banteng.builtin;
+import world.mongoose.banteng.builtin.family.SqliteBuiltins;
 
-import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.security.SecureRandom;
@@ -24,19 +24,19 @@ import world.mongoose.banteng.builtin.family.ConversionBuiltins;
 
 import static world.mongoose.banteng.builtin.ValueLimits.valueBytes;
 import world.mongoose.banteng.builtin.family.BinaryBuiltins;
+import world.mongoose.banteng.builtin.family.HostBuiltins;
 import world.mongoose.banteng.builtin.family.CryptoBuiltins;
 import world.mongoose.banteng.builtin.family.JsonBuiltins;
 import world.mongoose.banteng.builtin.family.ListBuiltins;
 import world.mongoose.banteng.builtin.family.MapBuiltins;
 import world.mongoose.banteng.builtin.family.MathBuiltins;
 import world.mongoose.banteng.builtin.family.RandomBuiltins;
+import world.mongoose.banteng.builtin.family.RegexBuiltins;
 import world.mongoose.banteng.builtin.family.StringBuiltins;
 import world.mongoose.banteng.builtin.family.TimeBuiltins;
 import world.mongoose.banteng.bytecode.MooCompiler;
-import world.mongoose.banteng.host.Aspell;
 import world.mongoose.banteng.host.Libc;
 import world.mongoose.banteng.host.NativeCallException;
-import world.mongoose.banteng.host.NativeCurl;
 import world.mongoose.banteng.syntax.MooParser;
 import world.mongoose.banteng.syntax.MooUnparser;
 import world.mongoose.banteng.value.MooValue;
@@ -80,11 +80,9 @@ public final class BuiltinCatalog {
   private final List<BuiltinSpec> manifest;
   private final FileIoBuiltins fileIo;
   private final BuiltinHosts hosts;
-  private final PcreService pcre = new PcreService();
   private final Optional<ListenerControl> listenerControl;
   private final Random random;
-  private final SqliteService sqlite;
-  private final ToastRegexService toastRegex = new ToastRegexService();
+  private final SqliteBuiltins sqlite;
   private final Random floatingRandom;
   private final Map<String, BuiltinSpec> specs;
   private volatile Set<String> protectedFunctions = Set.of();
@@ -95,7 +93,7 @@ public final class BuiltinCatalog {
     listenerControl = Optional.empty();
     ConfinedFileRoot files = new ConfinedFileRoot(Path.of("files"));
     fileIo = new FileIoBuiltins(files);
-    sqlite = new SqliteService(files);
+    sqlite = new SqliteBuiltins(files);
     random = new Random();
     floatingRandom = new Random();
     manifest = buildManifest();
@@ -108,7 +106,7 @@ public final class BuiltinCatalog {
     this.listenerControl = Optional.of(Objects.requireNonNull(listenerControl, "listenerControl"));
     ConfinedFileRoot files = new ConfinedFileRoot(Path.of("files"));
     fileIo = new FileIoBuiltins(files);
-    sqlite = new SqliteService(files);
+    sqlite = new SqliteBuiltins(files);
     random = new Random();
     floatingRandom = new Random();
     manifest = buildManifest();
@@ -216,13 +214,7 @@ public final class BuiltinCatalog {
     entries.add(new BuiltinSpec(
         "set_task_local", List.of(new CallShape(List.of(ANY), List.of(), Optional.empty())),
         BuiltinPermissionRule.WIZARD_ONLY, false, call -> new BuiltinResult.TaskLocal(call.arguments().getFirst())));
-    entries.add(new BuiltinSpec(
-        "getenv", List.of(new CallShape(List.of(STRING), List.of(), Optional.empty())),
-        BuiltinPermissionRule.WIZARD_ONLY, false, call -> {
-          String value = System.getenv(((StringValue) call.arguments().getFirst()).text());
-          return value == null ? BuiltinResult.value(new IntegerValue(0))
-              : BuiltinResult.value(StringValue.of(value).encodeBinary());
-        }));
+    HostBuiltins.registerEnvironment(entries);
     entries.add(new BuiltinSpec(
         "respond_to", List.of(new CallShape(List.of(ANY, STRING), List.of(), Optional.empty())),
         BuiltinPermissionRule.ANY, false, call -> respondTo(call.arguments(), call.world(), call.programmer())));
@@ -279,34 +271,7 @@ public final class BuiltinCatalog {
             BuiltinPermissionRule.ANY,
             false,
             call -> disassemble(call.arguments(), call.world(), call.programmer())));
-    entries.add(
-        new BuiltinSpec(
-            "curl",
-            List.of(new CallShape(List.of(STRING), List.of(ANY, INTEGER), Optional.empty())),
-            BuiltinPermissionRule.WIZARD_ONLY,
-            false,
-            call -> curl(call.arguments(), call.world(), call.threadMode())));
-    entries.add(
-        new BuiltinSpec(
-            "spellcheck",
-            List.of(new CallShape(List.of(STRING), List.of(), Optional.empty())),
-            BuiltinPermissionRule.ANY,
-            false,
-            call -> spellcheck((StringValue) call.arguments().getFirst())));
-    entries.add(
-        new BuiltinSpec(
-            "url_encode",
-            List.of(new CallShape(List.of(STRING), List.of(), Optional.empty())),
-            BuiltinPermissionRule.ANY,
-            false,
-            call -> urlEncode((StringValue) call.arguments().getFirst())));
-    entries.add(
-        new BuiltinSpec(
-            "url_decode",
-            List.of(new CallShape(List.of(STRING), List.of(), Optional.empty())),
-            BuiltinPermissionRule.ANY,
-            false,
-            call -> urlDecode((StringValue) call.arguments().getFirst())));
+    HostBuiltins.registerTransferAndText(entries);
     BinaryBuiltins.registerEncodeAndChr(entries);
     entries.add(
         new BuiltinSpec(
@@ -766,20 +731,7 @@ public final class BuiltinCatalog {
             BuiltinPermissionRule.ANY,
             false,
             call -> connectionName(call.hosts(), call.arguments(), call.world(), call.programmer())));
-    entries.add(
-        new BuiltinSpec(
-            "match",
-            List.of(new CallShape(List.of(STRING, STRING), List.of(ANY), Optional.empty())),
-            BuiltinPermissionRule.ANY,
-            false,
-            call -> toastMatch(call.arguments(), false)));
-    entries.add(
-        new BuiltinSpec(
-            "rmatch",
-            List.of(new CallShape(List.of(STRING, STRING), List.of(ANY), Optional.empty())),
-            BuiltinPermissionRule.ANY,
-            false,
-            call -> toastMatch(call.arguments(), true)));
+    RegexBuiltins.registerLegacy(entries);
     entries.add(
         new BuiltinSpec(
             "connection_name_lookup",
@@ -929,30 +881,8 @@ public final class BuiltinCatalog {
             false,
             call -> functionInfo(call.arguments())));
     fileIo.register(entries);
-    entries.add(
-        new BuiltinSpec(
-            "pcre_match",
-            List.of(
-                new CallShape(
-                    List.of(STRING, STRING), List.of(INTEGER, INTEGER), Optional.empty())),
-            BuiltinPermissionRule.ANY,
-            true,
-            call -> pcre.match(call.arguments())));
-    entries.add(
-        new BuiltinSpec(
-            "pcre_replace",
-            List.of(new CallShape(List.of(STRING, STRING), List.of(), Optional.empty())),
-            BuiltinPermissionRule.ANY,
-            false,
-            call -> pcre.replace(call.arguments())));
-    entries.add(
-        new BuiltinSpec(
-            "pcre_cache_stats",
-            List.of(new CallShape(List.of(), List.of(), Optional.empty())),
-            BuiltinPermissionRule.WIZARD_ONLY,
-            false,
-            call -> pcre.cacheStats()));
-    addSqliteManifest(entries);
+    RegexBuiltins.registerPcre(entries);
+    sqlite.register(entries);
     entries.add(
         new BuiltinSpec(
             "server_log",
@@ -1069,79 +999,6 @@ public final class BuiltinCatalog {
     return List.copyOf(entries);
   }
 
-  private void addSqliteManifest(List<BuiltinSpec> entries) {
-    entries.add(
-        sqliteSpec(
-            "sqlite_open",
-            new CallShape(List.of(STRING), List.of(INTEGER), Optional.empty()),
-            true,
-            call -> sqlite.open(call.arguments())));
-    entries.add(
-        sqliteSpec(
-            "sqlite_close",
-            new CallShape(List.of(INTEGER), List.of(), Optional.empty()),
-            true,
-            call -> sqlite.close(call.arguments())));
-    entries.add(
-        sqliteSpec(
-            "sqlite_handles",
-            new CallShape(List.of(), List.of(), Optional.empty()),
-            false,
-            call -> sqlite.handles(call.arguments())));
-    entries.add(
-        sqliteSpec(
-            "sqlite_info",
-            new CallShape(List.of(INTEGER), List.of(), Optional.empty()),
-            false,
-            call -> sqlite.info(call.arguments())));
-    entries.add(
-        sqliteSpec(
-            "sqlite_query",
-            new CallShape(List.of(INTEGER, STRING), List.of(ANY), Optional.empty()),
-            false,
-            call -> sqlite.query(call.arguments(), call.threadMode())));
-    entries.add(
-        sqliteSpec(
-            "sqlite_execute",
-            new CallShape(
-                List.of(INTEGER, STRING, Set.of(ArgType.LIST)),
-                List.of(),
-                Optional.empty()),
-            false,
-            call -> sqlite.execute(call.arguments(), call.threadMode())));
-    entries.add(
-        sqliteSpec(
-            "sqlite_last_insert_row_id",
-            new CallShape(List.of(INTEGER), List.of(), Optional.empty()),
-            false,
-            call -> sqlite.lastInsertRowId(call.arguments())));
-    entries.add(
-        sqliteSpec(
-            "sqlite_limit",
-            new CallShape(List.of(INTEGER, ANY, INTEGER), List.of(), Optional.empty()),
-            true,
-            call -> sqlite.limit(call.arguments())));
-    entries.add(
-        sqliteSpec(
-            "sqlite_interrupt",
-            new CallShape(List.of(INTEGER), List.of(), Optional.empty()),
-            true,
-            call -> sqlite.interrupt(call.arguments())));
-  }
-
-  private static BuiltinSpec sqliteSpec(
-      String name,
-      CallShape shape,
-      boolean irrevocable,
-      BuiltinHandler handler) {
-    return new BuiltinSpec(
-        name,
-        List.of(shape),
-        BuiltinPermissionRule.WIZARD_ONLY,
-        irrevocable,
-        handler);
-  }
-
   private BuiltinResult configureThreadPool(BuiltinCall call) {
     StringValue function = (StringValue) call.arguments().get(0);
     StringValue pool = (StringValue) call.arguments().get(1);
@@ -1240,14 +1097,6 @@ public final class BuiltinCatalog {
                     address.text(),
                     ip.text(),
                     destination.value())));
-  }
-
-  private BuiltinResult toastMatch(List<MooValue> arguments, boolean reverse) {
-    return toastRegex.match(
-        (StringValue) arguments.get(0),
-        (StringValue) arguments.get(1),
-        arguments.size() == 3 && arguments.get(2).isTruthy(),
-        reverse);
   }
 
   private BuiltinResult connectionNameLookup(BuiltinCall call) {
@@ -1858,94 +1707,6 @@ public final class BuiltinCatalog {
       return new BuiltinResult.Panic(((StringValue) arguments.getFirst()).text());
     }
     return new BuiltinResult.Shutdown();
-  }
-
-  private static BuiltinResult curl(List<MooValue> arguments, WorldTxn world, boolean threadMode) {
-    long maximumTimeout = Math.max(1, serverIntegerOption(world, "curl_max_timeout", 300));
-    long defaultTimeout = Math.clamp(serverIntegerOption(world, "curl_timeout", 60), 1, maximumTimeout);
-    long requestedTimeout = arguments.size() > 2 ? ((IntegerValue) arguments.get(2)).value() : defaultTimeout;
-    if (requestedTimeout < 1 || requestedTimeout > maximumTimeout) {
-      return BuiltinResult.raised(ErrorValue.E_INVARG,
-          StringValue.of("Timeout must be between 1 and $server_options.curl_max_timeout seconds"),
-          new IntegerValue(requestedTimeout));
-    }
-    long configuredBytes = serverIntegerOption(world, "curl_max_response_bytes", 10 * 1024 * 1024);
-    long maximumBytes = configuredBytes < 1 ? 10 * 1024 * 1024 : Math.min(configuredBytes, 256 * 1024 * 1024);
-    String url = ((StringValue) arguments.getFirst()).text();
-    boolean includeHeaders = arguments.size() > 1 && arguments.get(1).isTruthy();
-    return threadMode
-        ? BuiltinResult.hostWork(() -> curlTransfer(url, includeHeaders, requestedTimeout, maximumBytes))
-        : curlTransfer(url, includeHeaders, requestedTimeout, maximumBytes);
-  }
-
-  private static long serverIntegerOption(WorldTxn world, String name, long fallback) {
-    if (world.readObjectProperty(0, "server_options").orElse(null) instanceof ObjectValue options
-        && world.readObjectProperty(options.value(), name).orElse(null) instanceof IntegerValue integer) {
-      return integer.value();
-    }
-    return fallback;
-  }
-
-  private static BuiltinResult curlTransfer(String url, boolean headers, long timeout, long maximumBytes) {
-    try {
-      NativeCurl.Result result = NativeCurl.get(url, headers, timeout, maximumBytes);
-      if (result.status() == 0) return BuiltinResult.value(StringValue.of(result.body()).encodeBinary());
-      return curlError(result.overflowed() || result.status() == -1 ? ErrorValue.E_QUOTA : ErrorValue.E_INVARG,
-          result.overflowed() ? "Response exceeded the maximum allowed size" : result.message());
-    } catch (IllegalStateException | LinkageError failure) {
-      return curlError(ErrorValue.E_INVARG, "Could not perform curl transfer");
-    }
-  }
-
-  private static BuiltinResult curlError(ErrorValue error, String message) {
-    return BuiltinResult.value(new MapValue(Map.of(
-        StringValue.of("error"), error, StringValue.of("message"), StringValue.of(message))));
-  }
-
-  private static BuiltinResult spellcheck(StringValue value) {
-    try {
-      Aspell.Result result = Aspell.check(value.bytes());
-      return BuiltinResult.value(result.correct() != 0
-          ? new IntegerValue(result.correct())
-          : new ListValue(result.suggestions().stream().map(StringValue::of).map(MooValue.class::cast).toList()));
-    } catch (IllegalStateException | LinkageError failure) {
-      return BuiltinResult.error(ErrorValue.E_INVARG);
-    }
-  }
-
-  private static BuiltinResult urlEncode(StringValue value) {
-    StringBuilder encoded = new StringBuilder();
-    String digits = "0123456789ABCDEF";
-    for (byte raw : value.bytes()) {
-      int b = Byte.toUnsignedInt(raw);
-      if (b == 0) break;
-      if ((b >= 'a' && b <= 'z') || (b >= 'A' && b <= 'Z')
-          || (b >= '0' && b <= '9') || b == '-' || b == '_' || b == '.' || b == '~') {
-        encoded.append((char) b);
-      } else {
-        encoded.append('%').append(digits.charAt(b >>> 4)).append(digits.charAt(b & 15));
-      }
-    }
-    return BuiltinResult.value(StringValue.of(encoded.toString()));
-  }
-
-  private static BuiltinResult urlDecode(StringValue value) {
-    byte[] input = value.bytes();
-    ByteArrayOutputStream decoded = new ByteArrayOutputStream(input.length);
-    for (int i = 0; i < input.length; i++) {
-      int b = Byte.toUnsignedInt(input[i]);
-      if (b == '%' && i + 2 < input.length) {
-        int high = Character.digit((char) Byte.toUnsignedInt(input[i + 1]), 16);
-        int low = Character.digit((char) Byte.toUnsignedInt(input[i + 2]), 16);
-        if (high >= 0 && low >= 0) {
-          b = high * 16 + low;
-          i += 2;
-        }
-      }
-      if (b == 0) break;
-      decoded.write(b);
-    }
-    return BuiltinResult.value(StringValue.of(decoded.toByteArray()));
   }
 
   private static BuiltinResult objectBytes(MooValue target, WorldTxn world, long programmer) {

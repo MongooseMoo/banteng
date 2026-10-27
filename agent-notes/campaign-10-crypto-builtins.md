@@ -38,3 +38,6 @@ No local CI/test/migration or repeated review was run for unchanged code/ancestr
 
 ## Login and layout repair ancestry
 Merged the latest coordinator runtime login-output and pinned-layout-boundary repairs normally, without conflicts or family source adaptations. Family implementations, services, dependencies, extraction mover, authored fixtures and YAML are unchanged. No local tests, CI, migration or repeated review ran for this mechanical integration. Parent owns publication, hosted checks and merge.
+
+## Queue prerequisite integration
+Normally merged the published Host tip, including reviewed Regex, Binary and SQLite prerequisites. Additive mover resolution retains both Crypto instance methods and the Regex toastMatch method; fixture resolution retains all family methods unchanged. Reused catalog/YAML resolutions retain the combined family registrations and original catalog-owned hosts.crypt dependency; removed the unused ServerLog import left by the combined catalog imports. These resolutions follow final assembly. CryptoBuiltins and its focused family test remain byte-identical. No local tests, repeated review or publication; parent owns hosted validation and merge.
