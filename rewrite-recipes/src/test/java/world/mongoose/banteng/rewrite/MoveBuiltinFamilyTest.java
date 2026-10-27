@@ -15,6 +15,61 @@ import org.openrewrite.java.JavaParser;
 
 final class MoveBuiltinFamilyTest {
   @Test
+  void movesCryptoLoopInstanceDependenciesAndNestedTypes() {
+    var context = new InMemoryExecutionContext(failure -> { throw new AssertionError(failure); });
+    var files = JavaParser.fromJavaVersion().build().parse(context, """
+        package world.mongoose.banteng.builtin;
+        import java.security.SecureRandom;
+        import java.util.List;
+        class BuiltinCatalog {
+          void buildManifest() {
+            before();
+            entries.add(new BuiltinSpec("crypt", List.of(STRING), BuiltinPermissionRule.ANY, true, call -> crypt(call.arguments(), call.world(), call.programmer())));
+            for (String input : List.of("string", "binary", "value")) {
+              entries.add(new BuiltinSpec(input + "_hash", List.of(STRING), BuiltinPermissionRule.ANY, false, call -> hash(input, call.arguments())));
+              entries.add(new BuiltinSpec(input + "_hmac", List.of(STRING), BuiltinPermissionRule.ANY, false, call -> hmac(input, call.arguments())));
+            }
+            entries.add(new BuiltinSpec("argon2_verify", List.of(STRING), BuiltinPermissionRule.WIZARD_ONLY, false, call -> argon2Verify(call.arguments(), call.hosts().serverLog(), BuiltinCatalog::argon2Hash)));
+            after();
+          }
+          private BuiltinResult crypt(List<MooValue> arguments, WorldTxn world, long programmer) {
+            SECURE_RANDOM.nextInt(2);
+            return nativeCrypt(password, StringValue.of(salt).bytes());
+          }
+          private String nativeCrypt(byte[] password, byte[] salt) { return hosts.crypt().hash(password, salt); }
+          private static Object hash(String input, Object args) { return null; }
+          private static Object hmac(String input, Object args) { return null; }
+          static Object argon2Verify(Object args, Object log, Argon2Hasher hasher) { return null; }
+          private static byte[] argon2Hash() { return null; }
+          private record Argon2Settings(int iterations) {}
+          interface Argon2Hasher { byte[] hash(); }
+        }
+        """).toList();
+    var recipe = new MoveBuiltinFamily("CryptoBuiltins",
+        Set.of("crypt", "string_hash", "string_hmac", "binary_hash", "binary_hmac", "value_hash", "value_hmac", "argon2_verify"),
+        Set.of("crypt", "nativeCrypt", "hash", "hmac", "argon2Verify", "argon2Hash"));
+    var changes = recipe.run(new InMemoryLargeSourceSet(files), context).getChangeset().getAllResults();
+    String catalog = changedFile(changes, "BuiltinCatalog.java");
+    String family = changedFile(changes, "CryptoBuiltins.java");
+    assertTrue(catalog.indexOf("before()") < catalog.indexOf("CryptoBuiltins.register(entries, SECURE_RANDOM)"));
+    assertTrue(catalog.indexOf("CryptoBuiltins.register(entries, SECURE_RANDOM)") < catalog.indexOf("after()"));
+    assertFalse(catalog.contains("Argon2Hasher"));
+    assertFalse(catalog.contains("private BuiltinResult crypt"));
+    assertTrue(family.contains("for (String input : List.of(\"string\", \"binary\", \"value\"))"));
+    assertTrue(family.indexOf("input + \"_hash\"") < family.indexOf("input + \"_hmac\""));
+    assertTrue(family.contains("secureRandom, call.hosts().crypt()"));
+    assertTrue(family.contains("private static String nativeCrypt(byte[] password, byte[] salt, Crypt crypt)"));
+    assertTrue(family.contains("crypt.hash(password, salt)"));
+    assertTrue(family.contains("record Argon2Settings"));
+    assertTrue(family.contains("interface Argon2Hasher"));
+    assertTrue(family.contains("CryptoBuiltins::argon2Hash"));
+    assertTrue(family.contains(".irrevocable()"));
+    assertTrue(family.contains(".permission(BuiltinPermissionRule.WIZARD_ONLY)"));
+    assertTrue(recipe.run(new InMemoryLargeSourceSet(changes.stream().map(Result::getAfter).toList()), context)
+        .getChangeset().getAllResults().isEmpty());
+  }
+
+  @Test
   void movesBinaryGroupsAndRetargetsSharedCodecCallers() {
     var context = new InMemoryExecutionContext(failure -> { throw new AssertionError(failure); });
     var files = JavaParser.fromJavaVersion().build().parse(context, """

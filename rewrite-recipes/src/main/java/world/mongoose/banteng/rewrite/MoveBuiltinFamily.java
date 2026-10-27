@@ -82,8 +82,9 @@ public final class MoveBuiltinFamily extends ScanningRecipe<MoveBuiltinFamily.Me
                   "CTIME_MAX_SECONDS").contains(variable.getSimpleName()))) {
             members.fields.add(field);
           }
-          if (family.equals("StringBuiltins") && statement instanceof J.ClassDeclaration nested
-              && nested.getSimpleName().equals("AnsiReplacement")) {
+          if (statement instanceof J.ClassDeclaration nested
+              && (family.equals("StringBuiltins") && nested.getSimpleName().equals("AnsiReplacement")
+                  || family.equals("CryptoBuiltins") && Set.of("Argon2Settings", "Argon2Hasher").contains(nested.getSimpleName()))) {
             members.nested.add(nested);
           }
           if (family.equals("ListBuiltins") && statement instanceof J.VariableDeclarations field
@@ -108,7 +109,8 @@ public final class MoveBuiltinFamily extends ScanningRecipe<MoveBuiltinFamily.Me
             }
             if (methods.contains(method.getSimpleName()) && method.getModifiers().stream()
                 .anyMatch(modifier -> modifier.getType() == J.Modifier.Type.Static)
-                || family.equals("StringBuiltins") && method.getSimpleName().equals("parseAnsi")) {
+                || family.equals("StringBuiltins") && method.getSimpleName().equals("parseAnsi")
+                || family.equals("CryptoBuiltins") && Set.of("crypt", "nativeCrypt").contains(method.getSimpleName())) {
               members.implementations.add(method);
             }
             if (method.getSimpleName().equals("buildManifest") && method.getBody() != null) {
@@ -116,12 +118,13 @@ public final class MoveBuiltinFamily extends ScanningRecipe<MoveBuiltinFamily.Me
               boolean previousRegistration = false;
               for (Statement entry : method.getBody().getStatements()) {
                 J.NewClass spec = registration(entry);
-                if (spec != null) {
+                boolean cryptoLoop = cryptoLoop(entry);
+                if (spec != null || cryptoLoop) {
                   if (!previousRegistration) { members.groups.add(new ArrayList<>()); }
                   members.groups.getLast().add(entry);
                   members.registrations.add(entry);
                 }
-                previousRegistration = spec != null;
+                previousRegistration = spec != null || cryptoLoop;
                 if (family.equals("ListBuiltins") && entry instanceof J.VariableDeclarations variables
                     && variables.getVariables().stream().anyMatch(variable ->
                         Set.of("allMembers", "sort").contains(variable.getSimpleName()))) {
@@ -148,6 +151,23 @@ public final class MoveBuiltinFamily extends ScanningRecipe<MoveBuiltinFamily.Me
     return null;
   }
 
+  private boolean cryptoLoop(Statement statement) {
+    return family.equals("CryptoBuiltins") && statement instanceof J.ForEachLoop loop
+        && loop.getControl().getVariable() instanceof J.VariableDeclarations variable
+        && variable.getVariables().getFirst().getSimpleName().equals("input")
+        && loop.getBody() instanceof J.Block block && block.getStatements().size() == 2
+        && loopRegistration(block.getStatements().getFirst(), "_hash")
+        && loopRegistration(block.getStatements().getLast(), "_hmac");
+  }
+
+  private static boolean loopRegistration(Statement statement, String suffix) {
+    return statement instanceof J.MethodInvocation add && add.getSimpleName().equals("add")
+        && add.getArguments().size() == 1 && add.getArguments().getFirst() instanceof J.NewClass spec
+        && spec.getArguments().size() == 5 && spec.getArguments().getFirst() instanceof J.Binary name
+        && name.getLeft() instanceof J.Identifier input && input.getSimpleName().equals("input")
+        && name.getRight() instanceof J.Literal literal && suffix.equals(literal.getValue());
+  }
+
   @Override public Collection<SourceFile> generate(Members members, ExecutionContext context) {
     if (!members.ready()) { return List.of(); }
     Set<String> referencedNames = new HashSet<>();
@@ -172,7 +192,8 @@ public final class MoveBuiltinFamily extends ScanningRecipe<MoveBuiltinFamily.Me
     StringBuilder body = new StringBuilder();
     for (int group = 0; group < members.groups.size(); group++) {
       body.append("  public static void ").append(registerMethod(group))
-          .append("(List<BuiltinSpec> entries" + (stringAnsiGroup(group) ? ", Random random" : "") + ") {\n")
+          .append("(List<BuiltinSpec> entries" + (stringAnsiGroup(group) ? ", Random random" : "")
+              + (family.equals("CryptoBuiltins") ? ", SecureRandom secureRandom" : "") + ") {\n")
           .append("    BuiltinRegistrar registrar = new BuiltinRegistrar(entries);\n");
       for (Statement handler : members.handlers) {
         String name = ((J.VariableDeclarations) handler).getVariables().getFirst().getSimpleName();
@@ -183,6 +204,23 @@ public final class MoveBuiltinFamily extends ScanningRecipe<MoveBuiltinFamily.Me
         }
       }
       for (Statement statement : members.groups.get(group)) {
+      if (cryptoLoop(statement)) {
+        J.ForEachLoop loop = (J.ForEachLoop) statement;
+        body.append("    for (")
+            .append(loop.getControl().getVariable().printTrimmed(new Cursor(null, members.source)))
+            .append(" : ").append(loop.getControl().getIterable().printTrimmed(new Cursor(null, members.source)))
+            .append(") {\n");
+        for (Statement entry : ((J.Block) loop.getBody()).getStatements()) {
+          J.NewClass spec = (J.NewClass) ((J.MethodInvocation) entry).getArguments().getFirst();
+          List<Expression> args = spec.getArguments();
+          body.append("      registrar.builtin(").append(args.get(0).printTrimmed(new Cursor(null, members.source)))
+              .append(", ").append(args.get(1).printTrimmed(new Cursor(null, members.source)))
+              .append(").implementation(").append(args.get(4).printTrimmed(new Cursor(null, members.source)))
+              .append(");\n");
+        }
+        body.append("    }\n");
+        continue;
+      }
       List<Expression> arguments = registration(statement).getArguments();
       body.append("    registrar.builtin(").append(arguments.get(0).printTrimmed(new Cursor(null, members.source)))
           .append(", ").append(arguments.get(1).printTrimmed(new Cursor(null, members.source))).append(')');
@@ -208,6 +246,7 @@ public final class MoveBuiltinFamily extends ScanningRecipe<MoveBuiltinFamily.Me
             + "import world.mongoose.banteng.builtin.BuiltinPermissionRule;\n"
             + "import world.mongoose.banteng.builtin.BuiltinResult;\n"
             + "import world.mongoose.banteng.builtin.CallShape;\n"
+            + (family.equals("CryptoBuiltins") ? "import world.mongoose.banteng.host.Crypt;\n" : "")
             + "/** Owns builtin registrations and implementations for this family. */\n"
             + "public final class " + family + " {\n"
             + constants
@@ -230,6 +269,16 @@ public final class MoveBuiltinFamily extends ScanningRecipe<MoveBuiltinFamily.Me
         .withSourcePath(Path.of("src/main/java/world/mongoose/banteng/builtin/family/" + family + ".java"));
     generated = (J.CompilationUnit) new RandomizeIdVisitor<ExecutionContext>().visitNonNull(generated, context);
     generated = (J.CompilationUnit) new AutoFormatVisitor<ExecutionContext>(null).visitNonNull(generated, context);
+    if (family.equals("CryptoBuiltins")) {
+      String source = generated.printAll()
+          .replace("crypt(call.arguments(), call.world(), call.programmer())", "crypt(call.arguments(), call.world(), call.programmer(), secureRandom, call.hosts().crypt())")
+          .replace("private BuiltinResult crypt(List<MooValue> arguments, WorldTxn world, long programmer)", "private static BuiltinResult crypt(List<MooValue> arguments, WorldTxn world, long programmer, SecureRandom secureRandom, Crypt crypt)")
+          .replace("SECURE_RANDOM.nextInt", "secureRandom.nextInt")
+          .replace("nativeCrypt(password, StringValue.of(salt).bytes())", "nativeCrypt(password, StringValue.of(salt).bytes(), crypt)")
+          .replace("private String nativeCrypt(byte[] password, byte[] salt)", "private static String nativeCrypt(byte[] password, byte[] salt, Crypt crypt)")
+          .replace("hosts.crypt().hash(password, salt)", "crypt.hash(password, salt)");
+      generated = reparse(generated, source, context);
+    }
     if (family.equals("BinaryBuiltins")) {
       String source = generated.printAll();
       int start = source.indexOf("ByteArrayOutputStream encoded =", source.indexOf("private static BuiltinResult encodeBinary"));
@@ -439,7 +488,8 @@ public final class MoveBuiltinFamily extends ScanningRecipe<MoveBuiltinFamily.Me
           if (group >= 0) {
             Statement replacement = ((J.CompilationUnit) JavaParser.fromJavaVersion().build()
              .parse(context, "class Replacement { void register() { " + family + "." + registerMethod(group)
-                 + "(entries" + (stringAnsiGroup(group) ? ", random" : "") + "); } }")
+                 + "(entries" + (stringAnsiGroup(group) ? ", random" : "")
+                 + (family.equals("CryptoBuiltins") ? ", SECURE_RANDOM" : "") + "); } }")
             .findFirst().orElseThrow()).getClasses().getFirst().getBody().getStatements().stream()
             .filter(J.MethodDeclaration.class::isInstance).map(J.MethodDeclaration.class::cast)
             .findFirst().orElseThrow().getBody().getStatements().getFirst();
@@ -470,7 +520,7 @@ public final class MoveBuiltinFamily extends ScanningRecipe<MoveBuiltinFamily.Me
     private J.MethodDeclaration binaryBytes;
     private final List<Statement> nested = new ArrayList<>();
     private boolean ready() {
-      return !collision && source != null && registrations.size() == builtins.size()
+      return !collision && source != null && registrations.size() == builtins.size() - (family.equals("CryptoBuiltins") ? 5 : 0)
           && implementations.size() == methods.size();
     }
   }
