@@ -76,6 +76,11 @@ public final class MoveBuiltinFamily extends ScanningRecipe<MoveBuiltinFamily.Me
         members.source = getCursor().firstEnclosingOrThrow(J.CompilationUnit.class);
         members.owner = type.getId();
         for (Statement statement : type.getBody().getStatements()) {
+          if (family.equals("RegexBuiltins") && statement instanceof J.VariableDeclarations field
+              && field.getVariables().stream().anyMatch(variable ->
+                  Set.of("pcre", "toastRegex").contains(variable.getSimpleName()))) {
+            members.regexFields.add(field);
+          }
           if (family.equals("TimeBuiltins") && statement instanceof J.VariableDeclarations field
               && field.getVariables().stream().anyMatch(variable -> Set.of(
                   "CLOCK_REALTIME", "CLOCK_MONOTONIC", "CLOCK_MONOTONIC_RAW",
@@ -105,7 +110,8 @@ public final class MoveBuiltinFamily extends ScanningRecipe<MoveBuiltinFamily.Me
             }
             if (methods.contains(method.getSimpleName()) && method.getModifiers().stream()
                 .anyMatch(modifier -> modifier.getType() == J.Modifier.Type.Static)
-                || family.equals("StringBuiltins") && method.getSimpleName().equals("parseAnsi")) {
+                || family.equals("StringBuiltins") && method.getSimpleName().equals("parseAnsi")
+                || family.equals("RegexBuiltins") && method.getSimpleName().equals("toastMatch")) {
               members.implementations.add(method);
             }
             if (method.getSimpleName().equals("buildManifest") && method.getBody() != null) {
@@ -171,6 +177,10 @@ public final class MoveBuiltinFamily extends ScanningRecipe<MoveBuiltinFamily.Me
       body.append("  public static void ").append(registerMethod(group))
           .append("(List<BuiltinSpec> entries" + (stringAnsiGroup(group) ? ", Random random" : "") + ") {\n")
           .append("    BuiltinRegistrar registrar = new BuiltinRegistrar(entries);\n");
+      if (family.equals("RegexBuiltins")) {
+        body.append(group == 0 ? "    ToastRegexService toastRegex = new ToastRegexService();\n"
+            : "    PcreService pcre = new PcreService();\n");
+      }
       for (Statement handler : members.handlers) {
         String name = ((J.VariableDeclarations) handler).getVariables().getFirst().getSimpleName();
         if (members.groups.get(group).stream().anyMatch(statement ->
@@ -190,7 +200,8 @@ public final class MoveBuiltinFamily extends ScanningRecipe<MoveBuiltinFamily.Me
       if (!arguments.get(3).printTrimmed(new Cursor(null, members.source)).equals("false")) { body.append(".irrevocable()"); }
       body.append(".implementation(")
            .append(arguments.get(4).printTrimmed(new Cursor(null, members.source)).replace("BuiltinCatalog::", family + "::")
-               .replace("parseAnsi(call.arguments())", "parseAnsi(call.arguments(), random)"))
+               .replace("parseAnsi(call.arguments())", "parseAnsi(call.arguments(), random)")
+               .replace("toastMatch(call.arguments(),", "toastMatch(toastRegex, call.arguments(),"))
           .append(");\n");
       }
       body.append("  }\n");
@@ -234,6 +245,13 @@ public final class MoveBuiltinFamily extends ScanningRecipe<MoveBuiltinFamily.Me
           .findFirst().orElseThrow()).withSourcePath(generated.getSourcePath());
       generated = stringSharedImports(generated, context);
     }
+    if (family.equals("RegexBuiltins")) {
+      String source = generated.printAll().replace(
+          "private BuiltinResult toastMatch(List<MooValue> arguments, boolean reverse)",
+          "private static BuiltinResult toastMatch(ToastRegexService toastRegex, List<MooValue> arguments, boolean reverse)");
+      generated = ((J.CompilationUnit) JavaParser.fromJavaVersion().build().parse(context, source)
+          .findFirst().orElseThrow()).withSourcePath(generated.getSourcePath());
+    }
     List<SourceFile> generatedFiles = new ArrayList<>();
     if (family.equals("ListBuiltins")) {
       generated = addSharedImports(generated, context);
@@ -258,6 +276,7 @@ public final class MoveBuiltinFamily extends ScanningRecipe<MoveBuiltinFamily.Me
   }
 
   private String registerMethod(int group) {
+    if (family.equals("RegexBuiltins")) { return group == 0 ? "registerLegacy" : "registerPcre"; }
     if (family.equals("StringBuiltins")) {
       return List.of("registerExplode", "registerSubstitutionAndAnsi", "registerSearchAndCompare").get(group);
     }
@@ -318,6 +337,15 @@ public final class MoveBuiltinFamily extends ScanningRecipe<MoveBuiltinFamily.Me
     return new JavaIsoVisitor<ExecutionContext>() {
       @Override public J.CompilationUnit visitCompilationUnit(J.CompilationUnit unit,
           ExecutionContext context) {
+        if (family.equals("RegexBuiltins") && (unit.getSourcePath().endsWith("builtin/PcreService.java")
+            || unit.getSourcePath().endsWith("builtin/ToastRegexService.java"))) {
+          String source = unit.printAll().replace("package world.mongoose.banteng.builtin;",
+              "package world.mongoose.banteng.builtin.family;\n\n"
+                  + "import world.mongoose.banteng.builtin.BuiltinResult;");
+          return ((J.CompilationUnit) JavaParser.fromJavaVersion().build().parse(context, source)
+              .findFirst().orElseThrow()).withId(unit.getId()).withFileAttributes(unit.getFileAttributes()).withSourcePath(
+                  unit.getSourcePath().getParent().resolve("family").resolve(unit.getSourcePath().getFileName()));
+        }
         if (family.equals("StringBuiltins") && unit.getSourcePath().endsWith("value/ValueSemantics.java")) {
           J.ClassDeclaration type = unit.getClasses().getFirst();
           List<Statement> body = new ArrayList<>(type.getBody().getStatements());
@@ -367,6 +395,7 @@ public final class MoveBuiltinFamily extends ScanningRecipe<MoveBuiltinFamily.Me
         return super.visitClassDeclaration(type.withBody(type.getBody().withStatements(
             type.getBody().getStatements().stream().filter(statement -> members.implementations
                 .stream().noneMatch(method -> method.getId().equals(statement.getId())))
+                .filter(statement -> members.regexFields.stream().noneMatch(member -> member.getId().equals(statement.getId())))
                 .filter(statement -> members.limits.stream().noneMatch(member -> member.getId().equals(statement.getId())))
                 .filter(statement -> members.fields.stream().noneMatch(member -> member.getId().equals(statement.getId())))
                  .filter(statement -> members.foldAscii == null || !members.foldAscii.getId().equals(statement.getId()))
@@ -413,6 +442,7 @@ public final class MoveBuiltinFamily extends ScanningRecipe<MoveBuiltinFamily.Me
     private final List<List<Statement>> groups = new ArrayList<>();
     private final List<Statement> handlers = new ArrayList<>();
     private final List<Statement> limits = new ArrayList<>();
+    private final List<Statement> regexFields = new ArrayList<>();
     private final List<Statement> fields = new ArrayList<>();
     private J.MethodDeclaration foldAscii;
     private J.MethodDeclaration matchesAt;

@@ -48,7 +48,7 @@ recipeList:
       methodPattern: world.mongoose.banteng.builtin.FileIoService mooString(java.lang.String)
       fullyQualifiedTargetTypeName: world.mongoose.banteng.value.MooValue.StringValue
   - org.openrewrite.java.ChangeMethodTargetToStatic:
-      methodPattern: world.mongoose.banteng.builtin.PcreService string(java.lang.String)
+      methodPattern: world.mongoose.banteng.builtin.family.PcreService string(java.lang.String)
       fullyQualifiedTargetTypeName: world.mongoose.banteng.value.MooValue.StringValue
   - org.openrewrite.java.ChangeMethodTargetToStatic:
       methodPattern: world.mongoose.banteng.builtin.SqliteService string(java.lang.String)
@@ -427,3 +427,13 @@ recipeList:
       family: TimeBuiltins
       builtins: [time, ctime, ftime]
       methods: [ctime, ftime]
+---
+type: specs.openrewrite.org/v1beta/recipe
+name: world.mongoose.banteng.builtin.ExtractRegexBuiltins
+displayName: Extract regex builtins
+description: Moves legacy and PCRE registrations beside their package-private services.
+recipeList:
+  - world.mongoose.banteng.rewrite.MoveBuiltinFamily:
+      family: RegexBuiltins
+      builtins: [match, rmatch, pcre_match, pcre_replace, pcre_cache_stats]
+      methods: [toastMatch]
