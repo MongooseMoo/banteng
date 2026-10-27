@@ -24,3 +24,6 @@ Parent owns initial Claude review, publication and required PR CI. Property must
 Move the 11 verb registrations and their existing implementation closure into VerbBuiltins, preserving four manifest positions and object/anonymous-object checks. Pass the existing catalog explicitly to setVerbCode for its builtin-name predicate and reuse Access.resolveOwnershipPreamble and BuiltinResult.mutationResult.
 
 Validation: focused MoveBuiltinFamilyTest; normal ExtractVerbBuiltins migration dry-run with a fresh Gradle process and normal prerequisites; read-only original/moved body, import and registration-order comparisons; git diff --check. Required Claude review and PR CI remain pending.
+
+## Login and layout repair ancestry
+Merged the latest coordinator runtime login-output and pinned-layout-boundary repairs normally, without conflicts or family source adaptations. Family implementations, services, dependencies, extraction mover, authored fixtures and YAML are unchanged. No local tests, CI, migration or repeated review ran for this mechanical integration. Parent owns publication, hosted checks and merge.

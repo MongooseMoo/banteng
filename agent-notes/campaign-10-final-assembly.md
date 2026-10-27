@@ -23,3 +23,17 @@ Final cleanup removes eighteen unused imports and four unused ArgType constants:
 ## Next step
 
 Parent can inspect and integrate this local assembly after the required runtime/family milestones. Remaining uncertainty is integration compilation and behavior under hosted CI; no substantive source ambiguity was found. Existing completed family reviews remain reusable for unchanged owners; assembly conflict resolution and the new fixture import are the actual integration delta.
+
+The latest published Binary, Host, Crypto, Regex, SQLite, Object, Property and Verb tips are now retained through normal merges. Each merge was conflict-free and added only its existing three-line family-note update; no source, fixture, recipe or YAML changed. All twelve current family tips are ancestors. Catalog remains 214 lines. No local CI or review was repeated. Parent may publish the aggregate CI PR while prerequisite runtime review/checks continue; prerequisite merge requirements remain intact.
+
+## Draft aggregate CI PR
+
+Title: Assemble all builtin families and finish the catalog split
+
+Combines the existing twelve family extraction branches with the current callback runtime repairs, preserving their moved owners, extraction recipes and registration order. Removes eighteen unused catalog imports and four unused shape constants after the moves, leaving BuiltinCatalog as a 214-line assembler with its existing lookup, invocation validation and protection reload.
+
+This aggregate exercises the final integration through hosted CI while runtime PR138 and the individual family prerequisites complete their required review/checks. It does not replace those milestones. Binary precedes Host/Crypto; Object precedes Property then Verb; Connection relocates the transport contracts against the current runtime last. Existing completed reviews remain reusable for unchanged code. No new behavior, framework, tests or local CI gate is introduced by the assembly cleanup.
+
+Validation: family owner comparisons match the existing branches; latest family ancestry merges changed only notes. No local CI or review was run for this assembly. Hosted integration checks are pending parent publication; no passing aggregate CI result is claimed.
+
+Closes #10.
