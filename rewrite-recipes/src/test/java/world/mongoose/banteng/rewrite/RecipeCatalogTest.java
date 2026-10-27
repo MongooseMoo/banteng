@@ -18,6 +18,7 @@ final class RecipeCatalogTest {
           "world.mongoose.banteng.persistence.ShareDbReaderInfrastructure",
           "world.mongoose.banteng.builtin.ConsolidateUnaryFloatHandlers",
           "world.mongoose.banteng.persistence.DecomposeToastV17ProgramLayout",
+          "world.mongoose.banteng.persistence.ExtractDurableTaskCodec",
           "world.mongoose.banteng.world.DecomposeWorldTxn",
           "world.mongoose.banteng.ChangePackage");
 

@@ -321,3 +321,10 @@ recipeList:
       newPackageName: world.mongoose.banteng
       recursive: true
   - world.mongoose.banteng.rewrite.RetargetSingleSegmentPackageReferences
+---
+type: specs.openrewrite.org/v1beta/recipe
+name: world.mongoose.banteng.persistence.ExtractDurableTaskCodec
+displayName: Extract durable task codec
+description: Moves the scheduler durable conversion closure into persistence.
+recipeList:
+  - world.mongoose.banteng.rewrite.MoveDurableTaskCodec
