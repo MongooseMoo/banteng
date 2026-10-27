@@ -51,14 +51,8 @@ final class MooVmTest {
                 "try x = 1 + \"wrong\"; except (ANY) return \"caught\"; endtry "
                     + "return {x, raise(E_PERM), 7};");
     VmState state =
-        new VmState(
-            Map.of("this", new ObjectValue(-1), "player", new ObjectValue(8)),
-            8,
-            new ObjectValue(-1),
-            10_000,
-            5,
-            64,
-            false);
+        new VmState(new TaskOrigin(Map.of("this", new ObjectValue(-1), "player", new ObjectValue(8)), 8, new ObjectValue(-1),
+        TaskOrigin.calledVerb(Map.of("this", new ObjectValue(-1), "player", new ObjectValue(8))), TaskOrigin.calledVerb(Map.of("this", new ObjectValue(-1), "player", new ObjectValue(8))), false), new TaskBudget(10_000, 5, 64));
 
     try (WorldTxn transaction = new WorldTxn(List.of(), List.of()).begin()) {
       new MooVm().execute(program, state, transaction, new BuiltinCatalog(BuiltinHosts.builder().build()), 1);
@@ -86,10 +80,8 @@ final class MooVmTest {
             1, "subject", 1, 1, -1, -1, List.of(), List.of(), List.of(nonDebug), List.of());
     WorldTxn world = new WorldTxn(List.of(), List.of(subject));
     VmState state =
-        new VmState(
-            Map.of("subject", new ObjectValue(1), "this", new ObjectValue(1)),
-            1,
-            new ObjectValue(1));
+        new VmState(new TaskOrigin(Map.of("subject", new ObjectValue(1), "this", new ObjectValue(1)), 1, new ObjectValue(1),
+        TaskOrigin.calledVerb(Map.of("subject", new ObjectValue(1), "this", new ObjectValue(1))), TaskOrigin.calledVerb(Map.of("subject", new ObjectValue(1), "this", new ObjectValue(1))), true), new TaskBudget(60_000, 5, 50));
 
     executeAndClose(
         new MooCompiler().compile("return subject:work();"),
@@ -113,10 +105,8 @@ final class MooVmTest {
                         + "return {length(e), e[1], e[2], e[3], length(e[4]), "
                         + "length(e[4][1]), e[4][1][6]}; endtry"));
     VmState state =
-        new VmState(
-            Map.of("this", new ObjectValue(-1), "player", new ObjectValue(8)),
-            8,
-            new ObjectValue(-1));
+        new VmState(new TaskOrigin(Map.of("this", new ObjectValue(-1), "player", new ObjectValue(8)), 8, new ObjectValue(-1),
+        TaskOrigin.calledVerb(Map.of("this", new ObjectValue(-1), "player", new ObjectValue(8))), TaskOrigin.calledVerb(Map.of("this", new ObjectValue(-1), "player", new ObjectValue(8))), true), new TaskBudget(60_000, 5, 50));
 
     try (WorldTxn transaction = new WorldTxn(List.of(), List.of()).begin()) {
       new MooVm().execute(program, state, transaction, new BuiltinCatalog(BuiltinHosts.builder().build()), 1);
@@ -162,7 +152,8 @@ final class MooVmTest {
                           + property
                           + " = 1; return E_NONE; except error (ANY) return error[1]; endtry"));
       VmState state =
-          new VmState(Map.of("player", new ObjectValue(1)), 1, new ObjectValue(1));
+          new VmState(new TaskOrigin(Map.of("player", new ObjectValue(1)), 1, new ObjectValue(1),
+        TaskOrigin.calledVerb(Map.of("player", new ObjectValue(1))), TaskOrigin.calledVerb(Map.of("player", new ObjectValue(1))), true), new TaskBudget(60_000, 5, 50));
 
       try (WorldTxn transaction = root.begin()) {
         vm.execute(program, state, transaction, new BuiltinCatalog(BuiltinHosts.builder().build()), 1);
@@ -181,12 +172,14 @@ final class MooVmTest {
     WorldTxn root = new WorldTxn(List.of(), List.of());
 
     try (WorldTxn transaction = root.begin()) {
-      VmState noYield = new VmState(Map.of(), -1, new ObjectValue(-1), 2_001, 5);
+      VmState noYield = new VmState(new TaskOrigin(Map.of(), -1, new ObjectValue(-1),
+        "", "", true), new TaskBudget(2_001, 5, 50));
       vm.execute(program, noYield, transaction, new BuiltinCatalog(BuiltinHosts.builder().build()), 1);
       assertEquals(VmState.Outcome.RETURNED, noYield.outcome());
       assertEquals(new IntegerValue(0), noYield.returnValue().orElseThrow());
 
-      VmState yielded = new VmState(Map.of(), -1, new ObjectValue(-1), 2_000, 5);
+      VmState yielded = new VmState(new TaskOrigin(Map.of(), -1, new ObjectValue(-1),
+        "", "", true), new TaskBudget(2_000, 5, 50));
       vm.execute(program, yielded, transaction, new BuiltinCatalog(BuiltinHosts.builder().build()), 1);
       assertEquals(VmState.Outcome.SUSPENDED, yielded.outcome());
       assertEquals(0.0, yielded.suspensionDelaySeconds().orElseThrow());
@@ -266,7 +259,8 @@ final class MooVmTest {
     AnonymousObjectValue anonymous = new AnonymousObjectValue();
     BytecodeProgram program =
         new MooCompiler().compile("preserved = subject; suspend(60); preserved = subject;");
-    VmState state = new VmState(Map.of("subject", anonymous), 3, new ObjectValue(0));
+    VmState state = new VmState(new TaskOrigin(Map.of("subject", anonymous), 3, new ObjectValue(0),
+        TaskOrigin.calledVerb(Map.of("subject", anonymous)), TaskOrigin.calledVerb(Map.of("subject", anonymous)), true), new TaskBudget(60_000, 5, 50));
 
     executeAndClose(program, state, new WorldTxn(List.of(), List.of()), new BuiltinCatalog(BuiltinHosts.builder().build()));
 
@@ -284,7 +278,8 @@ final class MooVmTest {
                 MooParser.parse(
                     "try return all_members(1, {1}); "
                         + "except error (E_INVARG) return error; endtry"));
-    VmState state = new VmState();
+    VmState state = new VmState(new TaskOrigin(java.util.Map.of(), 0, new world.mongoose.banteng.value.MooValue.ObjectValue(-1),
+        "", "", true), new TaskBudget(60_000, 5, 50));
     MooVm vm = new MooVm();
     WorldTxn root = new WorldTxn(List.of(), List.of());
     StringValue message =
@@ -334,7 +329,8 @@ final class MooVmTest {
     assertEquals(new Ast.SourceSpan(7, 12, 1, 8), addition.span().orElseThrow());
 
     BytecodeProgram program = new MooCompiler().compile(syntax);
-    VmState state = new VmState();
+    VmState state = new VmState(new TaskOrigin(java.util.Map.of(), 0, new world.mongoose.banteng.value.MooValue.ObjectValue(-1),
+        "", "", true), new TaskBudget(60_000, 5, 50));
 
     assertEquals("0 PUSH_INTEGER 1\n1 PUSH_INTEGER 1\n2 ADD\n3 RETURN", program.disassemble());
     assertEquals(0, state.instructionPointer());
@@ -360,7 +356,8 @@ final class MooVmTest {
                         + "`1 &. 1.0 ! E_TYPE => E_TYPE', "
                         + "`1 << -1 ! E_INVARG => E_INVARG', "
                         + "`1 >> 65 ! E_INVARG => E_INVARG'};"));
-    VmState state = new VmState();
+    VmState state = new VmState(new TaskOrigin(java.util.Map.of(), 0, new world.mongoose.banteng.value.MooValue.ObjectValue(-1),
+        "", "", true), new TaskBudget(60_000, 5, 50));
 
     new PureVmFixture().execute(program, state);
 
@@ -396,7 +393,8 @@ final class MooVmTest {
                     "values = [#0 -> \"small\", #4294967296 -> \"large\"]; "
                         + "return {#0 < #4294967296, #4294967296 > #0, "
                         + "length(values), values[#0], values[#4294967296]};"));
-    VmState state = new VmState();
+    VmState state = new VmState(new TaskOrigin(java.util.Map.of(), 0, new world.mongoose.banteng.value.MooValue.ObjectValue(-1),
+        "", "", true), new TaskBudget(60_000, 5, 50));
 
     executeAndClose(
         program, state, new WorldTxn(List.of(), List.of()), new BuiltinCatalog(BuiltinHosts.builder().build()));
@@ -417,7 +415,8 @@ final class MooVmTest {
   @Test
   void abortsAtZeroBeforeDispatchingTheCountedInstruction() {
     BytecodeProgram program = new MooCompiler().compile(MooParser.parse("x = 1; return x;"));
-    VmState state = new VmState(Map.of(), -1, new ObjectValue(-1), 1);
+    VmState state = new VmState(new TaskOrigin(Map.of(), -1, new ObjectValue(-1),
+        "", "", true), new TaskBudget(1, 0, 50));
 
     assertEquals(
         "0 PUSH_INTEGER 1\n1 DUP\n2 STORE_LOCAL x\n3 POP\n4 LOAD_LOCAL x\n5 RETURN",
@@ -427,9 +426,9 @@ final class MooVmTest {
 
     assertEquals(VmState.Outcome.ABORTED, state.outcome());
     assertEquals(2, state.instructionPointer());
-    assertEquals(0, state.remainingTicks());
+    assertEquals(0, state.budget().remainingTicks());
     assertTrue(state.returnValue().isEmpty());
-    assertEquals(List.of("Task ran out of ticks"), state.output());
+    assertEquals(List.of("Task ran out of ticks"), state.effects().output());
   }
 
   @Test
@@ -440,14 +439,15 @@ final class MooVmTest {
                 MooParser.parse(
                     "try i = 0; while (1) i = i + 1; endwhile "
                         + "except (ANY) return \"caught\"; endtry return \"completed\";"));
-    VmState state = new VmState(Map.of(), -1, new ObjectValue(-1), 3);
+    VmState state = new VmState(new TaskOrigin(Map.of(), -1, new ObjectValue(-1),
+        "", "", true), new TaskBudget(3, 0, 50));
 
     new PureVmFixture().execute(program, state);
 
     assertEquals(VmState.Outcome.ABORTED, state.outcome());
-    assertEquals(0, state.remainingTicks());
+    assertEquals(0, state.budget().remainingTicks());
     assertTrue(state.returnValue().isEmpty());
-    assertEquals(List.of("Task ran out of ticks"), state.output());
+    assertEquals(List.of("Task ran out of ticks"), state.effects().output());
   }
 
   @Test
@@ -458,7 +458,8 @@ final class MooVmTest {
                 MooParser.parse(
                     "try return random_bytes(10000); "
                         + "except (ANY) return \"caught\"; endtry"));
-    VmState state = new VmState();
+    VmState state = new VmState(new TaskOrigin(java.util.Map.of(), 0, new world.mongoose.banteng.value.MooValue.ObjectValue(-1),
+        "", "", true), new TaskBudget(60_000, 5, 50));
     WorldObject system =
         new WorldObject(
             0,
@@ -506,7 +507,7 @@ final class MooVmTest {
 
     assertEquals(VmState.Outcome.SECONDS_EXHAUSTED, state.outcome());
     assertTrue(state.returnValue().isEmpty());
-    assertEquals(List.of("Task ran out of seconds"), state.output());
+    assertEquals(List.of("Task ran out of seconds"), state.effects().output());
   }
 
   @Test
@@ -517,7 +518,8 @@ final class MooVmTest {
                 MooParser.parse(
                     "try x = {}; for i in [1..90] x = setadd(x, i); endfor "
                         + "return E_NONE; except error (E_QUOTA) return error[1]; endtry"));
-    VmState state = new VmState();
+    VmState state = new VmState(new TaskOrigin(java.util.Map.of(), 0, new world.mongoose.banteng.value.MooValue.ObjectValue(-1),
+        "", "", true), new TaskBudget(60_000, 5, 50));
     WorldObject system =
         new WorldObject(
             0,
@@ -589,7 +591,8 @@ final class MooVmTest {
     assertEquals(
         "0 PUSH_ERROR E_NONE\n1 PUSH_ERROR E_TYPE\n2 LESS_THAN\n3 RETURN",
         program.disassemble());
-    VmState state = new VmState();
+    VmState state = new VmState(new TaskOrigin(java.util.Map.of(), 0, new world.mongoose.banteng.value.MooValue.ObjectValue(-1),
+        "", "", true), new TaskBudget(60_000, 5, 50));
 
     new PureVmFixture().execute(program, state);
 
@@ -599,7 +602,8 @@ final class MooVmTest {
 
   @Test
   void comparesTwoBooleansRelationallyAsTheSameDefaultZeroValue() {
-    VmState state = new VmState();
+    VmState state = new VmState(new TaskOrigin(java.util.Map.of(), 0, new world.mongoose.banteng.value.MooValue.ObjectValue(-1),
+        "", "", true), new TaskBudget(60_000, 5, 50));
     BytecodeProgram program =
         new MooCompiler()
             .compile(
@@ -626,7 +630,8 @@ final class MooVmTest {
 
   @Test
   void chrProducesTheRequestedLatin1ByteThroughBuiltinDispatch() {
-    VmState state = new VmState();
+    VmState state = new VmState(new TaskOrigin(java.util.Map.of(), 0, new world.mongoose.banteng.value.MooValue.ObjectValue(-1),
+        "", "", true), new TaskBudget(60_000, 5, 50));
 
     executeAndClose(
         new MooCompiler().compile(MooParser.parse("return encode_binary(chr(200));")),
@@ -642,7 +647,8 @@ final class MooVmTest {
 
   @Test
   void objectMapKeysUseToastComparatorIdentityThroughBuiltinDispatch() {
-    VmState state = new VmState();
+    VmState state = new VmState(new TaskOrigin(java.util.Map.of(), 0, new world.mongoose.banteng.value.MooValue.ObjectValue(-1),
+        "", "", true), new TaskBudget(60_000, 5, 50));
 
     executeAndClose(
         new MooCompiler()
@@ -685,7 +691,8 @@ final class MooVmTest {
         5 PUSH_INTEGER 0
         6 RETURN""",
         program.disassemble());
-    VmState state = new VmState();
+    VmState state = new VmState(new TaskOrigin(java.util.Map.of(), 0, new world.mongoose.banteng.value.MooValue.ObjectValue(-1),
+        "", "", true), new TaskBudget(60_000, 5, 50));
 
     new PureVmFixture().execute(program, state);
 
@@ -714,7 +721,8 @@ final class MooVmTest {
         4 PUSH_INTEGER 3
         5 RETURN""",
         program.disassemble());
-    VmState state = new VmState();
+    VmState state = new VmState(new TaskOrigin(java.util.Map.of(), 0, new world.mongoose.banteng.value.MooValue.ObjectValue(-1),
+        "", "", true), new TaskBudget(60_000, 5, 50));
 
     new PureVmFixture().execute(program, state);
 
@@ -744,7 +752,8 @@ final class MooVmTest {
     assertEquals("loop", whileStatement.loopVariable().orElseThrow());
     assertEquals(StringValue.of(source).text(), MooUnparser.unparse(syntax));
 
-    VmState state = new VmState();
+    VmState state = new VmState(new TaskOrigin(java.util.Map.of(), 0, new world.mongoose.banteng.value.MooValue.ObjectValue(-1),
+        "", "", true), new TaskBudget(60_000, 5, 50));
     new PureVmFixture().execute(new MooCompiler().compile(syntax), state);
 
     assertEquals(VmState.Outcome.RETURNED, state.outcome());
@@ -775,7 +784,8 @@ final class MooVmTest {
     assertTrue(whileStatement.loopVariable().isEmpty());
     assertEquals(StringValue.of(source).text(), MooUnparser.unparse(syntax));
 
-    VmState state = new VmState();
+    VmState state = new VmState(new TaskOrigin(java.util.Map.of(), 0, new world.mongoose.banteng.value.MooValue.ObjectValue(-1),
+        "", "", true), new TaskBudget(60_000, 5, 50));
     new PureVmFixture().execute(new MooCompiler().compile(syntax), state);
 
     assertEquals(VmState.Outcome.RETURNED, state.outcome());
@@ -829,7 +839,8 @@ final class MooVmTest {
         16 LOAD_LOCAL x
         17 RETURN""",
         program.disassemble());
-    VmState state = new VmState();
+    VmState state = new VmState(new TaskOrigin(java.util.Map.of(), 0, new world.mongoose.banteng.value.MooValue.ObjectValue(-1),
+        "", "", true), new TaskBudget(60_000, 5, 50));
 
     new PureVmFixture().execute(program, state);
 
@@ -868,7 +879,8 @@ final class MooVmTest {
     assertEquals(new Ast.IntegerLiteral(5), ascending.rangeEnd().orElseThrow());
     assertEquals(StringValue.of(source).text(), MooUnparser.unparse(syntax));
 
-    VmState state = new VmState();
+    VmState state = new VmState(new TaskOrigin(java.util.Map.of(), 0, new world.mongoose.banteng.value.MooValue.ObjectValue(-1),
+        "", "", true), new TaskBudget(60_000, 5, 50));
     new PureVmFixture().execute(new MooCompiler().compile(syntax), state);
 
     assertEquals(VmState.Outcome.RETURNED, state.outcome());
@@ -928,7 +940,8 @@ final class MooVmTest {
         20 LOAD_LOCAL x
         21 RETURN""",
         program.disassemble());
-    VmState state = new VmState();
+    VmState state = new VmState(new TaskOrigin(java.util.Map.of(), 0, new world.mongoose.banteng.value.MooValue.ObjectValue(-1),
+        "", "", true), new TaskBudget(60_000, 5, 50));
 
     new PureVmFixture().execute(program, state);
 
@@ -993,7 +1006,8 @@ final class MooVmTest {
         20 LOAD_LOCAL x
         21 RETURN""",
         program.disassemble());
-    VmState state = new VmState();
+    VmState state = new VmState(new TaskOrigin(java.util.Map.of(), 0, new world.mongoose.banteng.value.MooValue.ObjectValue(-1),
+        "", "", true), new TaskBudget(60_000, 5, 50));
 
     new PureVmFixture().execute(program, state);
 
@@ -1057,7 +1071,8 @@ final class MooVmTest {
         24 LOAD_LOCAL x
         25 RETURN""",
         program.disassemble());
-    VmState state = new VmState();
+    VmState state = new VmState(new TaskOrigin(java.util.Map.of(), 0, new world.mongoose.banteng.value.MooValue.ObjectValue(-1),
+        "", "", true), new TaskBudget(60_000, 5, 50));
 
     new PureVmFixture().execute(program, state);
 
@@ -1135,7 +1150,8 @@ final class MooVmTest {
         28 LOAD_LOCAL x
         29 RETURN""",
         program.disassemble());
-    VmState state = new VmState();
+    VmState state = new VmState(new TaskOrigin(java.util.Map.of(), 0, new world.mongoose.banteng.value.MooValue.ObjectValue(-1),
+        "", "", true), new TaskBudget(60_000, 5, 50));
 
     new PureVmFixture().execute(program, state);
 
@@ -1213,7 +1229,8 @@ final class MooVmTest {
         32 LOAD_LOCAL x
         33 RETURN""",
         program.disassemble());
-    VmState state = new VmState();
+    VmState state = new VmState(new TaskOrigin(java.util.Map.of(), 0, new world.mongoose.banteng.value.MooValue.ObjectValue(-1),
+        "", "", true), new TaskBudget(60_000, 5, 50));
 
     new PureVmFixture().execute(program, state);
 
@@ -1293,7 +1310,8 @@ final class MooVmTest {
         32 LOAD_LOCAL x
         33 RETURN""",
         program.disassemble());
-    VmState state = new VmState();
+    VmState state = new VmState(new TaskOrigin(java.util.Map.of(), 0, new world.mongoose.banteng.value.MooValue.ObjectValue(-1),
+        "", "", true), new TaskBudget(60_000, 5, 50));
 
     new PureVmFixture().execute(program, state);
 
@@ -1316,7 +1334,8 @@ final class MooVmTest {
 
     BytecodeProgram program = new MooCompiler().compile(syntax);
     assertEquals("0 PUSH_STRING a\n1 PUSH_STRING B\n2 LESS_THAN\n3 RETURN", program.disassemble());
-    VmState state = new VmState();
+    VmState state = new VmState(new TaskOrigin(java.util.Map.of(), 0, new world.mongoose.banteng.value.MooValue.ObjectValue(-1),
+        "", "", true), new TaskBudget(60_000, 5, 50));
 
     new PureVmFixture().execute(program, state);
 
@@ -1351,7 +1370,8 @@ final class MooVmTest {
         10 ADD
         11 RETURN""",
         program.disassemble());
-    VmState state = new VmState();
+    VmState state = new VmState(new TaskOrigin(java.util.Map.of(), 0, new world.mongoose.banteng.value.MooValue.ObjectValue(-1),
+        "", "", true), new TaskBudget(60_000, 5, 50));
 
     new PureVmFixture().execute(program, state);
 
@@ -1389,7 +1409,8 @@ final class MooVmTest {
         6 ADD
         7 RETURN""",
         program.disassemble());
-    VmState state = new VmState();
+    VmState state = new VmState(new TaskOrigin(java.util.Map.of(), 0, new world.mongoose.banteng.value.MooValue.ObjectValue(-1),
+        "", "", true), new TaskBudget(60_000, 5, 50));
 
     new PureVmFixture().execute(program, state);
 
@@ -1411,7 +1432,8 @@ final class MooVmTest {
     assertInstanceOf(Ast.ScatterTarget.class, assignment.target());
 
     BytecodeProgram program = new MooCompiler().compile(syntax);
-    VmState state = new VmState();
+    VmState state = new VmState(new TaskOrigin(java.util.Map.of(), 0, new world.mongoose.banteng.value.MooValue.ObjectValue(-1),
+        "", "", true), new TaskBudget(60_000, 5, 50));
 
     new PureVmFixture().execute(program, state);
 
@@ -1441,7 +1463,8 @@ final class MooVmTest {
     assertInstanceOf(Ast.ScatterTarget.class, assignment.target());
 
     BytecodeProgram program = new MooCompiler().compile(syntax);
-    VmState state = new VmState();
+    VmState state = new VmState(new TaskOrigin(java.util.Map.of(), 0, new world.mongoose.banteng.value.MooValue.ObjectValue(-1),
+        "", "", true), new TaskBudget(60_000, 5, 50));
 
     new PureVmFixture().execute(program, state);
 
@@ -1464,7 +1487,8 @@ final class MooVmTest {
     assertInstanceOf(Ast.ScatterTarget.class, assignment.target());
 
     BytecodeProgram program = new MooCompiler().compile(syntax);
-    VmState state = new VmState();
+    VmState state = new VmState(new TaskOrigin(java.util.Map.of(), 0, new world.mongoose.banteng.value.MooValue.ObjectValue(-1),
+        "", "", true), new TaskBudget(60_000, 5, 50));
 
     new PureVmFixture().execute(program, state);
 
@@ -1510,7 +1534,8 @@ final class MooVmTest {
         14 LOAD_LOCAL trace
         15 RETURN""",
         program.disassemble());
-    VmState state = new VmState();
+    VmState state = new VmState(new TaskOrigin(java.util.Map.of(), 0, new world.mongoose.banteng.value.MooValue.ObjectValue(-1),
+        "", "", true), new TaskBudget(60_000, 5, 50));
 
     new PureVmFixture().execute(program, state);
 
@@ -1546,7 +1571,8 @@ final class MooVmTest {
         8 IN
         9 RETURN""",
         program.disassemble());
-    VmState state = new VmState();
+    VmState state = new VmState(new TaskOrigin(java.util.Map.of(), 0, new world.mongoose.banteng.value.MooValue.ObjectValue(-1),
+        "", "", true), new TaskBudget(60_000, 5, 50));
 
     new PureVmFixture().execute(program, state);
 
@@ -1590,7 +1616,8 @@ final class MooVmTest {
         10 RANGE
         11 RETURN""",
         program.disassemble());
-    VmState state = new VmState();
+    VmState state = new VmState(new TaskOrigin(java.util.Map.of(), 0, new world.mongoose.banteng.value.MooValue.ObjectValue(-1),
+        "", "", true), new TaskBudget(60_000, 5, 50));
 
     new PureVmFixture().execute(program, state);
 
@@ -1634,7 +1661,8 @@ final class MooVmTest {
         10 RANGE
         11 RETURN""",
         program.disassemble());
-    VmState state = new VmState();
+    VmState state = new VmState(new TaskOrigin(java.util.Map.of(), 0, new world.mongoose.banteng.value.MooValue.ObjectValue(-1),
+        "", "", true), new TaskBudget(60_000, 5, 50));
 
     new PureVmFixture().execute(program, state);
 
@@ -1653,7 +1681,8 @@ final class MooVmTest {
             "return {7}[^..$];", new ListValue(List.of(new IntegerValue(7))),
             "return \"x\"[^..$];", StringValue.of("x"));
     for (Map.Entry<String, MooValue> test : ranges.entrySet()) {
-      VmState state = new VmState();
+      VmState state = new VmState(new TaskOrigin(java.util.Map.of(), 0, new world.mongoose.banteng.value.MooValue.ObjectValue(-1),
+        "", "", true), new TaskBudget(60_000, 5, 50));
 
       new PureVmFixture().execute(new MooCompiler().compile(parse(test.getKey())), state);
 
@@ -1669,7 +1698,8 @@ final class MooVmTest {
             "return \"\"[$];",
             "return [][^];",
             "return [][$];")) {
-      VmState state = new VmState();
+      VmState state = new VmState(new TaskOrigin(java.util.Map.of(), 0, new world.mongoose.banteng.value.MooValue.ObjectValue(-1),
+        "", "", true), new TaskBudget(60_000, 5, 50));
 
       new PureVmFixture().execute(new MooCompiler().compile(parse(source)), state);
 
@@ -1738,7 +1768,8 @@ final class MooVmTest {
         25 LOAD_LOCAL l
         26 RETURN""",
         program.disassemble());
-    VmState state = new VmState();
+    VmState state = new VmState(new TaskOrigin(java.util.Map.of(), 0, new world.mongoose.banteng.value.MooValue.ObjectValue(-1),
+        "", "", true), new TaskBudget(60_000, 5, 50));
 
     new PureVmFixture().execute(program, state);
 
@@ -1815,7 +1846,8 @@ final class MooVmTest {
         25 LOAD_LOCAL l
         26 RETURN""",
         program.disassemble());
-    VmState state = new VmState();
+    VmState state = new VmState(new TaskOrigin(java.util.Map.of(), 0, new world.mongoose.banteng.value.MooValue.ObjectValue(-1),
+        "", "", true), new TaskBudget(60_000, 5, 50));
 
     new PureVmFixture().execute(program, state);
 
@@ -1906,7 +1938,8 @@ final class MooVmTest {
         28 LOAD_LOCAL l
         29 RETURN""",
         program.disassemble());
-    VmState state = new VmState();
+    VmState state = new VmState(new TaskOrigin(java.util.Map.of(), 0, new world.mongoose.banteng.value.MooValue.ObjectValue(-1),
+        "", "", true), new TaskBudget(60_000, 5, 50));
 
     new PureVmFixture().execute(program, state);
 
@@ -1975,7 +2008,8 @@ final class MooVmTest {
         25 LOAD_LOCAL l
         26 RETURN""",
         program.disassemble());
-    VmState state = new VmState();
+    VmState state = new VmState(new TaskOrigin(java.util.Map.of(), 0, new world.mongoose.banteng.value.MooValue.ObjectValue(-1),
+        "", "", true), new TaskBudget(60_000, 5, 50));
 
     new PureVmFixture().execute(program, state);
 
@@ -1996,7 +2030,8 @@ final class MooVmTest {
             .compile(
                 MooParser.parse(
                     "x = [1 -> { [1 -> 1] }]; y = x; x[1][1][1] = 9; return {x, y};"));
-    VmState state = new VmState();
+    VmState state = new VmState(new TaskOrigin(java.util.Map.of(), 0, new world.mongoose.banteng.value.MooValue.ObjectValue(-1),
+        "", "", true), new TaskBudget(60_000, 5, 50));
 
     new PureVmFixture().execute(program, state);
 
@@ -2092,7 +2127,8 @@ final class MooVmTest {
         31 LOAD_LOCAL t
         32 RETURN""",
         program.disassemble());
-    VmState state = new VmState();
+    VmState state = new VmState(new TaskOrigin(java.util.Map.of(), 0, new world.mongoose.banteng.value.MooValue.ObjectValue(-1),
+        "", "", true), new TaskBudget(60_000, 5, 50));
 
     new PureVmFixture().execute(program, state);
 
@@ -2171,7 +2207,8 @@ final class MooVmTest {
         11 LOAD_LOCAL s
         12 RETURN""",
         program.disassemble());
-    VmState state = new VmState();
+    VmState state = new VmState(new TaskOrigin(java.util.Map.of(), 0, new world.mongoose.banteng.value.MooValue.ObjectValue(-1),
+        "", "", true), new TaskBudget(60_000, 5, 50));
 
     new PureVmFixture().execute(program, state);
 
@@ -2234,7 +2271,8 @@ final class MooVmTest {
         11 LOAD_LOCAL s
         12 RETURN""",
         program.disassemble());
-    VmState state = new VmState();
+    VmState state = new VmState(new TaskOrigin(java.util.Map.of(), 0, new world.mongoose.banteng.value.MooValue.ObjectValue(-1),
+        "", "", true), new TaskBudget(60_000, 5, 50));
 
     new PureVmFixture().execute(program, state);
 
@@ -2297,7 +2335,8 @@ final class MooVmTest {
         11 LOAD_LOCAL s
         12 RETURN""",
         program.disassemble());
-    VmState state = new VmState();
+    VmState state = new VmState(new TaskOrigin(java.util.Map.of(), 0, new world.mongoose.banteng.value.MooValue.ObjectValue(-1),
+        "", "", true), new TaskBudget(60_000, 5, 50));
 
     new PureVmFixture().execute(program, state);
 
@@ -2335,7 +2374,8 @@ final class MooVmTest {
         4 RANGE
         5 RETURN""",
         program.disassemble());
-    VmState state = new VmState();
+    VmState state = new VmState(new TaskOrigin(java.util.Map.of(), 0, new world.mongoose.banteng.value.MooValue.ObjectValue(-1),
+        "", "", true), new TaskBudget(60_000, 5, 50));
 
     new PureVmFixture().execute(program, state);
 
@@ -2372,7 +2412,8 @@ final class MooVmTest {
         4 RANGE
         5 RETURN""",
         program.disassemble());
-    VmState state = new VmState();
+    VmState state = new VmState(new TaskOrigin(java.util.Map.of(), 0, new world.mongoose.banteng.value.MooValue.ObjectValue(-1),
+        "", "", true), new TaskBudget(60_000, 5, 50));
 
     new PureVmFixture().execute(program, state);
 
@@ -2425,7 +2466,8 @@ final class MooVmTest {
         18 RANGE
         19 RETURN""",
         program.disassemble());
-    VmState state = new VmState();
+    VmState state = new VmState(new TaskOrigin(java.util.Map.of(), 0, new world.mongoose.banteng.value.MooValue.ObjectValue(-1),
+        "", "", true), new TaskBudget(60_000, 5, 50));
 
     new PureVmFixture().execute(program, state);
 
@@ -2480,7 +2522,8 @@ final class MooVmTest {
         14 RANGE
         15 RETURN""",
         program.disassemble());
-    VmState state = new VmState();
+    VmState state = new VmState(new TaskOrigin(java.util.Map.of(), 0, new world.mongoose.banteng.value.MooValue.ObjectValue(-1),
+        "", "", true), new TaskBudget(60_000, 5, 50));
 
     new PureVmFixture().execute(program, state);
 
@@ -2557,7 +2600,8 @@ final class MooVmTest {
         31 LOAD_LOCAL t
         32 RETURN""",
         program.disassemble());
-    VmState state = new VmState();
+    VmState state = new VmState(new TaskOrigin(java.util.Map.of(), 0, new world.mongoose.banteng.value.MooValue.ObjectValue(-1),
+        "", "", true), new TaskBudget(60_000, 5, 50));
 
     new PureVmFixture().execute(program, state);
 
@@ -2624,7 +2668,8 @@ final class MooVmTest {
         15 LOAD_LOCAL t
         16 RETURN""",
         program.disassemble());
-    VmState state = new VmState();
+    VmState state = new VmState(new TaskOrigin(java.util.Map.of(), 0, new world.mongoose.banteng.value.MooValue.ObjectValue(-1),
+        "", "", true), new TaskBudget(60_000, 5, 50));
 
     new PureVmFixture().execute(program, state);
 
@@ -2701,7 +2746,8 @@ final class MooVmTest {
         31 LOAD_LOCAL t
         32 RETURN""",
         program.disassemble());
-    VmState state = new VmState();
+    VmState state = new VmState(new TaskOrigin(java.util.Map.of(), 0, new world.mongoose.banteng.value.MooValue.ObjectValue(-1),
+        "", "", true), new TaskBudget(60_000, 5, 50));
 
     new PureVmFixture().execute(program, state);
 
@@ -2758,7 +2804,8 @@ final class MooVmTest {
         6 RANGE
         7 RETURN""",
         program.disassemble());
-    VmState state = new VmState();
+    VmState state = new VmState(new TaskOrigin(java.util.Map.of(), 0, new world.mongoose.banteng.value.MooValue.ObjectValue(-1),
+        "", "", true), new TaskBudget(60_000, 5, 50));
 
     new PureVmFixture().execute(program, state);
 
@@ -2793,7 +2840,8 @@ final class MooVmTest {
         5 INDEX
         6 RETURN""",
         program.disassemble());
-    VmState state = new VmState();
+    VmState state = new VmState(new TaskOrigin(java.util.Map.of(), 0, new world.mongoose.banteng.value.MooValue.ObjectValue(-1),
+        "", "", true), new TaskBudget(60_000, 5, 50));
 
     new PureVmFixture().execute(program, state);
 
@@ -2843,7 +2891,8 @@ final class MooVmTest {
         17 INDEX
         18 RETURN""",
         program.disassemble());
-    VmState state = new VmState();
+    VmState state = new VmState(new TaskOrigin(java.util.Map.of(), 0, new world.mongoose.banteng.value.MooValue.ObjectValue(-1),
+        "", "", true), new TaskBudget(60_000, 5, 50));
 
     new PureVmFixture().execute(program, state);
 
@@ -2882,7 +2931,8 @@ final class MooVmTest {
         9 INDEX
         10 RETURN""",
         program.disassemble());
-    VmState state = new VmState();
+    VmState state = new VmState(new TaskOrigin(java.util.Map.of(), 0, new world.mongoose.banteng.value.MooValue.ObjectValue(-1),
+        "", "", true), new TaskBudget(60_000, 5, 50));
 
     new PureVmFixture().execute(program, state);
 
@@ -2930,7 +2980,8 @@ final class MooVmTest {
         17 INDEX
         18 RETURN""",
         program.disassemble());
-    VmState state = new VmState();
+    VmState state = new VmState(new TaskOrigin(java.util.Map.of(), 0, new world.mongoose.banteng.value.MooValue.ObjectValue(-1),
+        "", "", true), new TaskBudget(60_000, 5, 50));
 
     new PureVmFixture().execute(program, state);
 
@@ -2963,7 +3014,8 @@ final class MooVmTest {
         3 INDEX
         4 RETURN""",
         program.disassemble());
-    VmState state = new VmState();
+    VmState state = new VmState(new TaskOrigin(java.util.Map.of(), 0, new world.mongoose.banteng.value.MooValue.ObjectValue(-1),
+        "", "", true), new TaskBudget(60_000, 5, 50));
 
     new PureVmFixture().execute(program, state);
 
@@ -2999,7 +3051,8 @@ final class MooVmTest {
         3 INDEX
         4 RETURN""",
         program.disassemble());
-    VmState state = new VmState();
+    VmState state = new VmState(new TaskOrigin(java.util.Map.of(), 0, new world.mongoose.banteng.value.MooValue.ObjectValue(-1),
+        "", "", true), new TaskBudget(60_000, 5, 50));
 
     new PureVmFixture().execute(program, state);
 
@@ -3033,7 +3086,8 @@ final class MooVmTest {
             List.of(numbers));
     WorldTxn world = new WorldTxn(List.of(1L), List.of(wizard));
     VmState state =
-        new VmState(Map.of("player", new ObjectValue(1), "this", new ObjectValue(1)), 1);
+        new VmState(new TaskOrigin(Map.of("player", new ObjectValue(1), "this", new ObjectValue(1)), 1, TaskOrigin.inferVerbLocation(Map.of("player", new ObjectValue(1), "this", new ObjectValue(1))),
+        TaskOrigin.calledVerb(Map.of("player", new ObjectValue(1), "this", new ObjectValue(1))), TaskOrigin.calledVerb(Map.of("player", new ObjectValue(1), "this", new ObjectValue(1))), true), new TaskBudget(60_000, 5, 50));
 
     executeAndCommit(
         new MooCompiler()
@@ -3090,7 +3144,8 @@ final class MooVmTest {
         10 LOAD_LOCAL s
         11 RETURN""",
         program.disassemble());
-    VmState state = new VmState();
+    VmState state = new VmState(new TaskOrigin(java.util.Map.of(), 0, new world.mongoose.banteng.value.MooValue.ObjectValue(-1),
+        "", "", true), new TaskBudget(60_000, 5, 50));
 
     new PureVmFixture().execute(program, state);
 
@@ -3143,7 +3198,8 @@ final class MooVmTest {
         16 LOAD_LOCAL t
         17 RETURN""",
         program.disassemble());
-    VmState state = new VmState();
+    VmState state = new VmState(new TaskOrigin(java.util.Map.of(), 0, new world.mongoose.banteng.value.MooValue.ObjectValue(-1),
+        "", "", true), new TaskBudget(60_000, 5, 50));
 
     new PureVmFixture().execute(program, state);
 
@@ -3165,7 +3221,8 @@ final class MooVmTest {
     assertEquals(new Ast.SourceSpan(7, 15, 1, 8), errorLiteral.span().orElseThrow());
 
     BytecodeProgram program = new MooCompiler().compile(syntax);
-    VmState state = new VmState();
+    VmState state = new VmState(new TaskOrigin(java.util.Map.of(), 0, new world.mongoose.banteng.value.MooValue.ObjectValue(-1),
+        "", "", true), new TaskBudget(60_000, 5, 50));
 
     assertEquals("0 PUSH_ERROR E_INTRPT\n1 RETURN", program.disassemble());
 
@@ -3192,7 +3249,8 @@ final class MooVmTest {
 
     BytecodeProgram program = new MooCompiler().compile(syntax);
     assertEquals("0 PUSH_INTEGER 42\n1 RETURN", program.disassemble());
-    VmState state = new VmState();
+    VmState state = new VmState(new TaskOrigin(java.util.Map.of(), 0, new world.mongoose.banteng.value.MooValue.ObjectValue(-1),
+        "", "", true), new TaskBudget(60_000, 5, 50));
 
     new PureVmFixture().execute(program, state);
 
@@ -3217,7 +3275,8 @@ final class MooVmTest {
     BytecodeProgram program = new MooCompiler().compile(syntax);
     assertEquals(
         "0 PUSH_INTEGER -9223372036854775808\n1 RETURN", program.disassemble());
-    VmState state = new VmState();
+    VmState state = new VmState(new TaskOrigin(java.util.Map.of(), 0, new world.mongoose.banteng.value.MooValue.ObjectValue(-1),
+        "", "", true), new TaskBudget(60_000, 5, 50));
 
     new PureVmFixture().execute(program, state);
 
@@ -3243,7 +3302,8 @@ final class MooVmTest {
     assertEquals(
         "0 PUSH_FLOAT " + Double.doubleToRawLongBits(3.5) + "\n1 RETURN",
         program.disassemble());
-    VmState state = new VmState();
+    VmState state = new VmState(new TaskOrigin(java.util.Map.of(), 0, new world.mongoose.banteng.value.MooValue.ObjectValue(-1),
+        "", "", true), new TaskBudget(60_000, 5, 50));
 
     new PureVmFixture().execute(program, state);
 
@@ -3267,7 +3327,8 @@ final class MooVmTest {
 
     BytecodeProgram program = new MooCompiler().compile(syntax);
     assertEquals("0 PUSH_OBJECT 2\n1 RETURN", program.disassemble());
-    VmState state = new VmState();
+    VmState state = new VmState(new TaskOrigin(java.util.Map.of(), 0, new world.mongoose.banteng.value.MooValue.ObjectValue(-1),
+        "", "", true), new TaskBudget(60_000, 5, 50));
 
     new PureVmFixture().execute(program, state);
 
@@ -3292,7 +3353,8 @@ final class MooVmTest {
     BytecodeProgram program = new MooCompiler().compile(syntax);
     assertEquals(
         "0 PUSH_OBJECT -9223372036854775808\n1 RETURN", program.disassemble());
-    VmState state = new VmState();
+    VmState state = new VmState(new TaskOrigin(java.util.Map.of(), 0, new world.mongoose.banteng.value.MooValue.ObjectValue(-1),
+        "", "", true), new TaskBudget(60_000, 5, 50));
 
     new PureVmFixture().execute(program, state);
 
@@ -3316,7 +3378,8 @@ final class MooVmTest {
 
     BytecodeProgram program = new MooCompiler().compile(syntax);
     assertEquals("0 PUSH_STRING é\n1 RETURN", program.disassemble());
-    VmState state = new VmState();
+    VmState state = new VmState(new TaskOrigin(java.util.Map.of(), 0, new world.mongoose.banteng.value.MooValue.ObjectValue(-1),
+        "", "", true), new TaskBudget(60_000, 5, 50));
 
     new PureVmFixture().execute(program, state);
 
@@ -3341,7 +3404,8 @@ final class MooVmTest {
 
     BytecodeProgram program = new MooCompiler().compile(syntax);
     assertEquals("0 BUILD_LIST 0\n1 RETURN", program.disassemble());
-    VmState state = new VmState();
+    VmState state = new VmState(new TaskOrigin(java.util.Map.of(), 0, new world.mongoose.banteng.value.MooValue.ObjectValue(-1),
+        "", "", true), new TaskBudget(60_000, 5, 50));
 
     new PureVmFixture().execute(program, state);
 
@@ -3366,7 +3430,8 @@ final class MooVmTest {
 
     BytecodeProgram program = new MooCompiler().compile(syntax);
     assertEquals("0 BUILD_MAP 0\n1 RETURN", program.disassemble());
-    VmState state = new VmState();
+    VmState state = new VmState(new TaskOrigin(java.util.Map.of(), 0, new world.mongoose.banteng.value.MooValue.ObjectValue(-1),
+        "", "", true), new TaskBudget(60_000, 5, 50));
 
     new PureVmFixture().execute(program, state);
 
@@ -3394,7 +3459,8 @@ final class MooVmTest {
 
     BytecodeProgram program = new MooCompiler().compile(syntax);
     assertEquals("0 PUSH_INTEGER 0\n1 NOT\n2 RETURN", program.disassemble());
-    VmState state = new VmState();
+    VmState state = new VmState(new TaskOrigin(java.util.Map.of(), 0, new world.mongoose.banteng.value.MooValue.ObjectValue(-1),
+        "", "", true), new TaskBudget(60_000, 5, 50));
 
     new PureVmFixture().execute(program, state);
 
@@ -3426,7 +3492,8 @@ final class MooVmTest {
     assertEquals(
         "0 PUSH_INTEGER 7\n1 DUP\n2 STORE_LOCAL x\n3 POP\n4 LOAD_LOCAL x\n5 RETURN",
         program.disassemble());
-    VmState state = new VmState();
+    VmState state = new VmState(new TaskOrigin(java.util.Map.of(), 0, new world.mongoose.banteng.value.MooValue.ObjectValue(-1),
+        "", "", true), new TaskBudget(60_000, 5, 50));
 
     new PureVmFixture().execute(program, state);
 
@@ -3439,7 +3506,8 @@ final class MooVmTest {
   void evaluatesExactSqliteTypePrerequisiteExpression() {
     BytecodeProgram program =
         new MooCompiler().compile(MooParser.parse("return typeof({}) == LIST;"));
-    VmState state = new VmState();
+    VmState state = new VmState(new TaskOrigin(java.util.Map.of(), 0, new world.mongoose.banteng.value.MooValue.ObjectValue(-1),
+        "", "", true), new TaskBudget(60_000, 5, 50));
 
     new PureVmFixture().execute(program, state);
 
@@ -3452,7 +3520,8 @@ final class MooVmTest {
     BytecodeProgram program =
         new MooCompiler()
             .compile(MooParser.parse("return {typeof(1) == INT, typeof(\"x\") == STR};"));
-    VmState state = new VmState();
+    VmState state = new VmState(new TaskOrigin(java.util.Map.of(), 0, new world.mongoose.banteng.value.MooValue.ObjectValue(-1),
+        "", "", true), new TaskBudget(60_000, 5, 50));
 
     new PureVmFixture().execute(program, state);
 
@@ -3466,7 +3535,8 @@ final class MooVmTest {
   void resolvesFloatTypeConstantAfterLocalLookup() {
     BytecodeProgram program =
         new MooCompiler().compile(MooParser.parse("return typeof(1.0) == FLOAT;"));
-    VmState state = new VmState();
+    VmState state = new VmState(new TaskOrigin(java.util.Map.of(), 0, new world.mongoose.banteng.value.MooValue.ObjectValue(-1),
+        "", "", true), new TaskBudget(60_000, 5, 50));
 
     executeAndClose(program, state, new WorldTxn(List.of(), List.of()), new BuiltinCatalog(BuiltinHosts.builder().build()));
 
@@ -3478,7 +3548,8 @@ final class MooVmTest {
   void resolvesObjectTypeConstantAfterLocalLookup() {
     BytecodeProgram program =
         new MooCompiler().compile(MooParser.parse("return typeof(#0) == OBJ;"));
-    VmState state = new VmState();
+    VmState state = new VmState(new TaskOrigin(java.util.Map.of(), 0, new world.mongoose.banteng.value.MooValue.ObjectValue(-1),
+        "", "", true), new TaskBudget(60_000, 5, 50));
 
     executeAndClose(program, state, new WorldTxn(List.of(), List.of()), new BuiltinCatalog(BuiltinHosts.builder().build()));
 
@@ -3496,7 +3567,8 @@ final class MooVmTest {
                         + "true == 1, false == 0, true == false, !true, !false, "
                         + "toint(true), toint(false), toobj(true), toobj(false), "
                         + "tostr(true), tostr(false), toliteral(true), toliteral(false)};"));
-    VmState state = new VmState();
+    VmState state = new VmState(new TaskOrigin(java.util.Map.of(), 0, new world.mongoose.banteng.value.MooValue.ObjectValue(-1),
+        "", "", true), new TaskBudget(60_000, 5, 50));
 
     new PureVmFixture().execute(program, state);
 
@@ -3529,7 +3601,8 @@ final class MooVmTest {
 
     BytecodeProgram values =
         new MooCompiler().compile(MooParser.parse("return {true, false};"));
-    VmState valuesState = new VmState();
+    VmState valuesState = new VmState(new TaskOrigin(java.util.Map.of(), 0, new world.mongoose.banteng.value.MooValue.ObjectValue(-1),
+        "", "", true), new TaskBudget(60_000, 5, 50));
     new PureVmFixture().execute(values, valuesState);
     assertEquals(
         new ListValue(List.of(BooleanValue.TRUE, BooleanValue.FALSE)),
@@ -3540,7 +3613,8 @@ final class MooVmTest {
   void appliesToastBooleanTruthAndRejectsBooleanToFloatConversion() {
     BytecodeProgram truth =
         new MooCompiler().compile(MooParser.parse("return {true && 7 || 9, false && 7 || 9};"));
-    VmState truthState = new VmState();
+    VmState truthState = new VmState(new TaskOrigin(java.util.Map.of(), 0, new world.mongoose.banteng.value.MooValue.ObjectValue(-1),
+        "", "", true), new TaskBudget(60_000, 5, 50));
 
     new PureVmFixture().execute(truth, truthState);
 
@@ -3550,14 +3624,16 @@ final class MooVmTest {
 
     BytecodeProgram conversion =
         new MooCompiler().compile(MooParser.parse("return `tofloat(true) ! ANY';"));
-    VmState conversionState = new VmState();
+    VmState conversionState = new VmState(new TaskOrigin(java.util.Map.of(), 0, new world.mongoose.banteng.value.MooValue.ObjectValue(-1),
+        "", "", true), new TaskBudget(60_000, 5, 50));
     new PureVmFixture().execute(conversion, conversionState);
     assertEquals(ErrorValue.E_TYPE, conversionState.returnValue().orElseThrow());
   }
 
   @Test
   void evaluatesToastAndOrWithSharedLeftAssociativePrecedence() {
-    VmState state = new VmState();
+    VmState state = new VmState(new TaskOrigin(java.util.Map.of(), 0, new world.mongoose.banteng.value.MooValue.ObjectValue(-1),
+        "", "", true), new TaskBudget(60_000, 5, 50));
 
     new PureVmFixture()
         .execute(new MooCompiler().compile(MooParser.parse("return 1 || 1 && 0;")), state);
@@ -3569,7 +3645,8 @@ final class MooVmTest {
   @Test
   void integerZeroRaisedToNegativeExponentRaisesDivisionError() {
     BytecodeProgram program = new MooCompiler().compile(MooParser.parse("return 0 ^ -1;"));
-    VmState state = new VmState();
+    VmState state = new VmState(new TaskOrigin(java.util.Map.of(), 0, new world.mongoose.banteng.value.MooValue.ObjectValue(-1),
+        "", "", true), new TaskBudget(60_000, 5, 50));
 
     new PureVmFixture().execute(program, state);
 
@@ -3584,7 +3661,8 @@ final class MooVmTest {
             .compile(
                 MooParser.parse(
                     "return {{1, {2}} in {{0}, {1, {2}}}, " + "{1, {3}} in {{0}, {1, {2}}}};"));
-    VmState state = new VmState();
+    VmState state = new VmState(new TaskOrigin(java.util.Map.of(), 0, new world.mongoose.banteng.value.MooValue.ObjectValue(-1),
+        "", "", true), new TaskBudget(60_000, 5, 50));
 
     new PureVmFixture().execute(program, state);
 
@@ -3594,7 +3672,8 @@ final class MooVmTest {
         state.returnValue().orElseThrow());
 
     BytecodeProgram invalid = new MooCompiler().compile(MooParser.parse("return 1 in 1;"));
-    VmState invalidState = new VmState();
+    VmState invalidState = new VmState(new TaskOrigin(java.util.Map.of(), 0, new world.mongoose.banteng.value.MooValue.ObjectValue(-1),
+        "", "", true), new TaskBudget(60_000, 5, 50));
 
     new PureVmFixture().execute(invalid, invalidState);
 
@@ -3610,7 +3689,8 @@ final class MooVmTest {
                 MooParser.parse(
                     "return {\"bar\" in \"foobar\", \"BAR\" in \"foobar\", "
                         + "\"\" in \"foobar\", \"xyz\" in \"foobar\"};"));
-    VmState state = new VmState();
+    VmState state = new VmState(new TaskOrigin(java.util.Map.of(), 0, new world.mongoose.banteng.value.MooValue.ObjectValue(-1),
+        "", "", true), new TaskBudget(60_000, 5, 50));
 
     new PureVmFixture().execute(program, state);
 
@@ -3634,7 +3714,8 @@ final class MooVmTest {
                 StringValue.of("captured")));
     BytecodeProgram program =
         new MooCompiler().compile(MooParser.parse("fork (1) return marker; endfork return 99;"));
-    VmState state = new VmState(Map.of("marker", captured), 8);
+    VmState state = new VmState(new TaskOrigin(Map.of("marker", captured), 8, TaskOrigin.inferVerbLocation(Map.of("marker", captured)),
+        TaskOrigin.calledVerb(Map.of("marker", captured)), TaskOrigin.calledVerb(Map.of("marker", captured)), true), new TaskBudget(60_000, 5, 50));
 
     new PureVmFixture().execute(program, state);
 
@@ -3651,7 +3732,8 @@ final class MooVmTest {
     assertEquals(VmState.Outcome.RETURNED, state.outcome());
     assertEquals(new IntegerValue(99), state.returnValue().orElseThrow());
 
-    VmState child = new VmState(request.locals(), request.programmer());
+    VmState child = new VmState(new TaskOrigin(request.locals(), request.programmer(), TaskOrigin.inferVerbLocation(request.locals()),
+        TaskOrigin.calledVerb(request.locals()), TaskOrigin.calledVerb(request.locals()), true), new TaskBudget(60_000, 5, 50));
     new PureVmFixture().execute(request.program(), child);
     assertEquals(VmState.Outcome.RETURNED, child.outcome());
     assertEquals(captured, child.returnValue().orElseThrow());
@@ -3660,7 +3742,8 @@ final class MooVmTest {
   @Test
   void subtractsTwoFloatsWithoutNumericPromotion() {
     BytecodeProgram program = new MooCompiler().compile(MooParser.parse("return 11.0 - 5.5;"));
-    VmState state = new VmState();
+    VmState state = new VmState(new TaskOrigin(java.util.Map.of(), 0, new world.mongoose.banteng.value.MooValue.ObjectValue(-1),
+        "", "", true), new TaskBudget(60_000, 5, 50));
 
     new PureVmFixture().execute(program, state);
 
@@ -3672,7 +3755,8 @@ final class MooVmTest {
   void rejectsMixedFloatIntegerArithmeticAndOrdering() {
     for (String source : new String[] {"return 1.0 + 1;", "return 5.5 > 5;"}) {
       BytecodeProgram program = new MooCompiler().compile(parse(source));
-      VmState state = new VmState();
+      VmState state = new VmState(new TaskOrigin(java.util.Map.of(), 0, new world.mongoose.banteng.value.MooValue.ObjectValue(-1),
+        "", "", true), new TaskBudget(60_000, 5, 50));
 
       new PureVmFixture().execute(program, state);
 
@@ -3701,7 +3785,8 @@ final class MooVmTest {
 
     for (Map.Entry<String, MooValue> test : cases.entrySet()) {
       BytecodeProgram program = new MooCompiler().compile(MooParser.parse(test.getKey()));
-      VmState state = new VmState();
+      VmState state = new VmState(new TaskOrigin(java.util.Map.of(), 0, new world.mongoose.banteng.value.MooValue.ObjectValue(-1),
+        "", "", true), new TaskBudget(60_000, 5, 50));
 
       vm.execute(program, state);
 
@@ -3736,7 +3821,8 @@ final class MooVmTest {
                         Opcode.PUSH_FLOAT, Double.doubleToRawLongBits(operands[1])),
                     new Instruction(test.getKey()),
                     new Instruction(Opcode.RETURN)));
-        VmState state = new VmState();
+        VmState state = new VmState(new TaskOrigin(java.util.Map.of(), 0, new world.mongoose.banteng.value.MooValue.ObjectValue(-1),
+        "", "", true), new TaskBudget(60_000, 5, 50));
 
         new PureVmFixture().execute(program, state);
 
@@ -3750,7 +3836,8 @@ final class MooVmTest {
   void floatDivisionAndModuloByZeroRaiseDivisionError() {
     for (String source : new String[] {"return 1.0 / 0.0;", "return 1.0 % -0.0;"}) {
       BytecodeProgram program = new MooCompiler().compile(parse(source));
-      VmState state = new VmState();
+      VmState state = new VmState(new TaskOrigin(java.util.Map.of(), 0, new world.mongoose.banteng.value.MooValue.ObjectValue(-1),
+        "", "", true), new TaskBudget(60_000, 5, 50));
 
       new PureVmFixture().execute(program, state);
 
@@ -3763,7 +3850,8 @@ final class MooVmTest {
   void floatModuloUsesDivisorSign() {
     for (String source : new String[] {"return -15.0 % 4.0;", "return 15.0 % -4.0;"}) {
       BytecodeProgram program = new MooCompiler().compile(parse(source));
-      VmState state = new VmState();
+      VmState state = new VmState(new TaskOrigin(java.util.Map.of(), 0, new world.mongoose.banteng.value.MooValue.ObjectValue(-1),
+        "", "", true), new TaskBudget(60_000, 5, 50));
 
       new PureVmFixture().execute(program, state);
 
@@ -3784,7 +3872,8 @@ final class MooVmTest {
                 "return 15 % 4;", 3L)
             .entrySet()) {
       BytecodeProgram program = new MooCompiler().compile(MooParser.parse(test.getKey()));
-      VmState state = new VmState();
+      VmState state = new VmState(new TaskOrigin(java.util.Map.of(), 0, new world.mongoose.banteng.value.MooValue.ObjectValue(-1),
+        "", "", true), new TaskBudget(60_000, 5, 50));
 
       new PureVmFixture().execute(program, state);
 
@@ -3797,7 +3886,8 @@ final class MooVmTest {
   @Test
   void floatBaseIntegerPowerUsesFloatErrorBoundaries() {
     BytecodeProgram finite = new MooCompiler().compile(MooParser.parse("return 2.0 ^ 3;"));
-    VmState finiteState = new VmState();
+    VmState finiteState = new VmState(new TaskOrigin(java.util.Map.of(), 0, new world.mongoose.banteng.value.MooValue.ObjectValue(-1),
+        "", "", true), new TaskBudget(60_000, 5, 50));
 
     new PureVmFixture().execute(finite, finiteState);
 
@@ -3808,7 +3898,8 @@ final class MooVmTest {
     ErrorValue[] errors = {ErrorValue.E_DIV, ErrorValue.E_FLOAT, ErrorValue.E_TYPE};
     for (int index = 0; index < sources.length; index++) {
       BytecodeProgram program = new MooCompiler().compile(MooParser.parse(sources[index]));
-      VmState state = new VmState();
+      VmState state = new VmState(new TaskOrigin(java.util.Map.of(), 0, new world.mongoose.banteng.value.MooValue.ObjectValue(-1),
+        "", "", true), new TaskBudget(60_000, 5, 50));
 
       new PureVmFixture().execute(program, state);
 
@@ -3820,7 +3911,8 @@ final class MooVmTest {
   @Test
   void catchExpressionStillBindsBareErrorValue() {
     BytecodeProgram program = new MooCompiler().compile(MooParser.parse("return `1.0 + 1 ! ANY';"));
-    VmState state = new VmState();
+    VmState state = new VmState(new TaskOrigin(java.util.Map.of(), 0, new world.mongoose.banteng.value.MooValue.ObjectValue(-1),
+        "", "", true), new TaskBudget(60_000, 5, 50));
 
     new PureVmFixture().execute(program, state);
 
@@ -3837,7 +3929,8 @@ final class MooVmTest {
     assertEquals("error", tryStatement.exceptClauses().getFirst().variable().orElseThrow());
 
     BytecodeProgram program = new MooCompiler().compile(syntax);
-    VmState state = new VmState();
+    VmState state = new VmState(new TaskOrigin(java.util.Map.of(), 0, new world.mongoose.banteng.value.MooValue.ObjectValue(-1),
+        "", "", true), new TaskBudget(60_000, 5, 50));
 
     new PureVmFixture().execute(program, state);
 
@@ -3849,7 +3942,8 @@ final class MooVmTest {
   void concatenatesOwnedStringBytesBeforeEquality() {
     BytecodeProgram program =
         new MooCompiler().compile(MooParser.parse("return \"10\" == \"1\" + \"0\";"));
-    VmState state = new VmState();
+    VmState state = new VmState(new TaskOrigin(java.util.Map.of(), 0, new world.mongoose.banteng.value.MooValue.ObjectValue(-1),
+        "", "", true), new TaskBudget(60_000, 5, 50));
 
     new PureVmFixture().execute(program, state);
 
@@ -3865,7 +3959,8 @@ final class MooVmTest {
                 MooParser.parse(
                     "x = {1, 2.0}; y = {#3, \"four\"}; "
                         + "return {1, 2.0, #3, \"four\"} == {@x, @y};"));
-    VmState state = new VmState();
+    VmState state = new VmState(new TaskOrigin(java.util.Map.of(), 0, new world.mongoose.banteng.value.MooValue.ObjectValue(-1),
+        "", "", true), new TaskBudget(60_000, 5, 50));
 
     new PureVmFixture().execute(program, state);
 
@@ -3881,7 +3976,8 @@ final class MooVmTest {
                 MooParser.parse(
                     "x = []; x[1] = 2.0; x[#3] = \"four\"; "
                         + "return [1 -> 2.0, #3 -> \"four\"] == x;"));
-    VmState state = new VmState();
+    VmState state = new VmState(new TaskOrigin(java.util.Map.of(), 0, new world.mongoose.banteng.value.MooValue.ObjectValue(-1),
+        "", "", true), new TaskBudget(60_000, 5, 50));
 
     new PureVmFixture().execute(program, state);
 
@@ -3892,7 +3988,8 @@ final class MooVmTest {
   @Test
   void keepsMapsAndListsUnequal() {
     BytecodeProgram program = new MooCompiler().compile(MooParser.parse("return [] == {};"));
-    VmState state = new VmState();
+    VmState state = new VmState(new TaskOrigin(java.util.Map.of(), 0, new world.mongoose.banteng.value.MooValue.ObjectValue(-1),
+        "", "", true), new TaskBudget(60_000, 5, 50));
 
     new PureVmFixture().execute(program, state);
 
@@ -3908,7 +4005,8 @@ final class MooVmTest {
                 MooParser.parse(
                     "return {{1, [\"Key\" -> {\"Alpha\"}]} "
                         + "== {1, [\"key\" -> {\"alpha\"}]}, {1, {2}} == {1, {3}}};"));
-    VmState state = new VmState();
+    VmState state = new VmState(new TaskOrigin(java.util.Map.of(), 0, new world.mongoose.banteng.value.MooValue.ObjectValue(-1),
+        "", "", true), new TaskBudget(60_000, 5, 50));
 
     new PureVmFixture().execute(program, state);
 
@@ -3927,7 +4025,8 @@ final class MooVmTest {
           "map = []; return `map[{}] = 1 ! ANY';"
         }) {
       BytecodeProgram program = new MooCompiler().compile(parse(source));
-      VmState state = new VmState();
+      VmState state = new VmState(new TaskOrigin(java.util.Map.of(), 0, new world.mongoose.banteng.value.MooValue.ObjectValue(-1),
+        "", "", true), new TaskBudget(60_000, 5, 50));
 
       new PureVmFixture().execute(program, state);
 
@@ -3946,7 +4045,8 @@ final class MooVmTest {
         new MooCompiler()
             .compile(
                 MooParser.parse("name = \"name\"; return {#0.(name), #0.(\"name\") == #0.name};"));
-    VmState state = new VmState();
+    VmState state = new VmState(new TaskOrigin(java.util.Map.of(), 0, new world.mongoose.banteng.value.MooValue.ObjectValue(-1),
+        "", "", true), new TaskBudget(60_000, 5, 50));
 
     executeAndClose(program, state, world, new BuiltinCatalog(BuiltinHosts.builder().build()));
 
@@ -3970,7 +4070,8 @@ final class MooVmTest {
     for (int index = 0; index < sources.length; index++) {
       WorldTxn world = new WorldTxn(List.of(0L), List.of(systemObject));
       BytecodeProgram program = new MooCompiler().compile(MooParser.parse(sources[index]));
-      VmState state = new VmState();
+      VmState state = new VmState(new TaskOrigin(java.util.Map.of(), 0, new world.mongoose.banteng.value.MooValue.ObjectValue(-1),
+        "", "", true), new TaskBudget(60_000, 5, 50));
 
       executeAndClose(program, state, world, new BuiltinCatalog(BuiltinHosts.builder().build()));
 
@@ -3989,7 +4090,8 @@ final class MooVmTest {
           {1, @`max(@5) ! E_TYPE => {2, 3}', 4}
         };
         """;
-    VmState state = new VmState();
+    VmState state = new VmState(new TaskOrigin(java.util.Map.of(), 0, new world.mongoose.banteng.value.MooValue.ObjectValue(-1),
+        "", "", true), new TaskBudget(60_000, 5, 50));
 
     executeAndClose(
         new MooCompiler().compile(parse(source)),
@@ -4071,7 +4173,8 @@ final class MooVmTest {
             List.of());
     WorldTxn world = new WorldTxn(List.of(), List.of(root, left, right, child));
     VmState state =
-        new VmState(Map.of("player", new ObjectValue(4), "this", new ObjectValue(4)), 4);
+        new VmState(new TaskOrigin(Map.of("player", new ObjectValue(4), "this", new ObjectValue(4)), 4, TaskOrigin.inferVerbLocation(Map.of("player", new ObjectValue(4), "this", new ObjectValue(4))),
+        TaskOrigin.calledVerb(Map.of("player", new ObjectValue(4), "this", new ObjectValue(4))), TaskOrigin.calledVerb(Map.of("player", new ObjectValue(4), "this", new ObjectValue(4))), true), new TaskBudget(60_000, 5, 50));
 
     executeAndClose(
         new MooCompiler().compile(MooParser.parse("return #4:which();")),
@@ -4128,7 +4231,8 @@ final class MooVmTest {
         new WorldObject(
             4, "child", 0, 4, -1, List.of(2L, 3L), List.of(), List.of(), List.of(), List.of());
     VmState state =
-        new VmState(Map.of("player", new ObjectValue(4), "this", new ObjectValue(4)), 4);
+        new VmState(new TaskOrigin(Map.of("player", new ObjectValue(4), "this", new ObjectValue(4)), 4, TaskOrigin.inferVerbLocation(Map.of("player", new ObjectValue(4), "this", new ObjectValue(4))),
+        TaskOrigin.calledVerb(Map.of("player", new ObjectValue(4), "this", new ObjectValue(4))), TaskOrigin.calledVerb(Map.of("player", new ObjectValue(4), "this", new ObjectValue(4))), true), new TaskBudget(60_000, 5, 50));
 
     executeAndClose(
         new MooCompiler()
@@ -4156,7 +4260,8 @@ final class MooVmTest {
         new WorldObject(
             1, "root", 0, 1, -1, -1, List.of(), List.of(), List.of(verb), List.of());
     VmState state =
-        new VmState(Map.of("player", new ObjectValue(1), "this", new ObjectValue(1)), 1);
+        new VmState(new TaskOrigin(Map.of("player", new ObjectValue(1), "this", new ObjectValue(1)), 1, TaskOrigin.inferVerbLocation(Map.of("player", new ObjectValue(1), "this", new ObjectValue(1))),
+        TaskOrigin.calledVerb(Map.of("player", new ObjectValue(1), "this", new ObjectValue(1))), TaskOrigin.calledVerb(Map.of("player", new ObjectValue(1), "this", new ObjectValue(1))), true), new TaskBudget(60_000, 5, 50));
 
     executeAndClose(
         new MooCompiler()
@@ -4178,8 +4283,11 @@ final class MooVmTest {
     WorldObject child = new WorldObject(2, "child", 0, 2, -1, List.of(1L), List.of(),
         List.of(), List.of(), List.of());
     for (String dispatch : List.of("pass()", "call_function(\"pass\")")) {
-      VmState state = new VmState(Map.of("this", new ObjectValue(2),
-          "verb", StringValue.of("inspect")), 2, new ObjectValue(2), 60_000, 5, 1, false);
+      VmState state = new VmState(new TaskOrigin(Map.of("this", new ObjectValue(2),
+          "verb", StringValue.of("inspect")), 2, new ObjectValue(2),
+        TaskOrigin.calledVerb(Map.of("this", new ObjectValue(2),
+          "verb", StringValue.of("inspect"))), TaskOrigin.calledVerb(Map.of("this", new ObjectValue(2),
+          "verb", StringValue.of("inspect"))), false), new TaskBudget(60_000, 5, 1));
       executeAndClose(new MooCompiler().compile("return {" + dispatch + ", 7};"), state,
           new WorldTxn(List.of(), List.of(parent, child)),
           new BuiltinCatalog(BuiltinHosts.builder().build()));
@@ -4215,9 +4323,8 @@ final class MooVmTest {
     WorldAnonymousObject anonymous =
         new WorldAnonymousObject("anonymous", 0, 1, List.of(1L), List.of(anonymousVerb), List.of());
     VmState state =
-        new VmState(
-            Map.of("player", new ObjectValue(1), "this", new ObjectValue(1), "anon", identity),
-            1);
+        new VmState(new TaskOrigin(Map.of("player", new ObjectValue(1), "this", new ObjectValue(1), "anon", identity), 1, TaskOrigin.inferVerbLocation(Map.of("player", new ObjectValue(1), "this", new ObjectValue(1), "anon", identity)),
+        TaskOrigin.calledVerb(Map.of("player", new ObjectValue(1), "this", new ObjectValue(1), "anon", identity)), TaskOrigin.calledVerb(Map.of("player", new ObjectValue(1), "this", new ObjectValue(1), "anon", identity)), true), new TaskBudget(60_000, 5, 50));
 
     executeAndClose(
         new MooCompiler().compile(MooParser.parse("return anon:which();")),
@@ -4259,12 +4366,20 @@ final class MooVmTest {
               List.of(childVerb),
               List.of());
       VmState state =
-          new VmState(
-              Map.of(
+          new VmState(new TaskOrigin(Map.of(
                   "player", new ObjectValue(2),
                   "this", new ObjectValue(2),
-                  "subject", identity),
-              2);
+                  "subject", identity), 2, TaskOrigin.inferVerbLocation(Map.of(
+                  "player", new ObjectValue(2),
+                  "this", new ObjectValue(2),
+                  "subject", identity)),
+        TaskOrigin.calledVerb(Map.of(
+                  "player", new ObjectValue(2),
+                  "this", new ObjectValue(2),
+                  "subject", identity)), TaskOrigin.calledVerb(Map.of(
+                  "player", new ObjectValue(2),
+                  "this", new ObjectValue(2),
+                  "subject", identity)), true), new TaskBudget(60_000, 5, 50));
 
       executeAndClose(
           new MooCompiler().compile(MooParser.parse("return #2:inspect(subject);")),
@@ -4310,9 +4425,8 @@ final class MooVmTest {
             2, "list prototype", 0, 1, -1, -1, List.of(), List.of(), List.of(inspect), List.of());
     ListValue receiver = new ListValue(List.of(new IntegerValue(7), new IntegerValue(8)));
     VmState state =
-        new VmState(
-            Map.of("player", new ObjectValue(1), "this", new ObjectValue(1), "value", receiver),
-            1);
+        new VmState(new TaskOrigin(Map.of("player", new ObjectValue(1), "this", new ObjectValue(1), "value", receiver), 1, TaskOrigin.inferVerbLocation(Map.of("player", new ObjectValue(1), "this", new ObjectValue(1), "value", receiver)),
+        TaskOrigin.calledVerb(Map.of("player", new ObjectValue(1), "this", new ObjectValue(1), "value", receiver)), TaskOrigin.calledVerb(Map.of("player", new ObjectValue(1), "this", new ObjectValue(1), "value", receiver)), true), new TaskBudget(60_000, 5, 50));
 
     executeAndClose(
         new MooCompiler().compile(MooParser.parse("return value:inspect();")),
@@ -4359,7 +4473,8 @@ final class MooVmTest {
     for (int index = 0; index < worlds.size(); index++) {
       WorldTxn world = worlds.get(index);
       VmState state =
-          new VmState(Map.of("player", new ObjectValue(1), "this", new ObjectValue(1)), 1);
+          new VmState(new TaskOrigin(Map.of("player", new ObjectValue(1), "this", new ObjectValue(1)), 1, TaskOrigin.inferVerbLocation(Map.of("player", new ObjectValue(1), "this", new ObjectValue(1))),
+        TaskOrigin.calledVerb(Map.of("player", new ObjectValue(1), "this", new ObjectValue(1))), TaskOrigin.calledVerb(Map.of("player", new ObjectValue(1), "this", new ObjectValue(1))), true), new TaskBudget(60_000, 5, 50));
       executeAndClose(
           new MooCompiler().compile(MooParser.parse("return 123:missing();")),
           state,
@@ -4414,7 +4529,8 @@ final class MooVmTest {
         new WorldObject(
             3, "list prototype", 0, 1, -1, 2, List.of(), List.of(), List.of(override), List.of());
     VmState state =
-        new VmState(Map.of("player", new ObjectValue(1), "this", new ObjectValue(1)), 1);
+        new VmState(new TaskOrigin(Map.of("player", new ObjectValue(1), "this", new ObjectValue(1)), 1, TaskOrigin.inferVerbLocation(Map.of("player", new ObjectValue(1), "this", new ObjectValue(1))),
+        TaskOrigin.calledVerb(Map.of("player", new ObjectValue(1), "this", new ObjectValue(1))), TaskOrigin.calledVerb(Map.of("player", new ObjectValue(1), "this", new ObjectValue(1))), true), new TaskBudget(60_000, 5, 50));
 
     executeAndClose(
         new MooCompiler().compile(MooParser.parse("return {1, 2, 3}:length();")),
@@ -4455,7 +4571,8 @@ final class MooVmTest {
         new WorldObject(1, "wizard", 4, 1, -1, -1, List.of(), List.of(), List.of(), List.of());
     WorldTxn world = new WorldTxn(List.of(1L), List.of(parent, wizard));
     VmState state =
-        new VmState(Map.of("player", new ObjectValue(1), "this", new ObjectValue(1)), 1);
+        new VmState(new TaskOrigin(Map.of("player", new ObjectValue(1), "this", new ObjectValue(1)), 1, TaskOrigin.inferVerbLocation(Map.of("player", new ObjectValue(1), "this", new ObjectValue(1))),
+        TaskOrigin.calledVerb(Map.of("player", new ObjectValue(1), "this", new ObjectValue(1))), TaskOrigin.calledVerb(Map.of("player", new ObjectValue(1), "this", new ObjectValue(1))), true), new TaskBudget(60_000, 5, 50));
 
     executeAndCommit(
         new MooCompiler()
@@ -4506,7 +4623,8 @@ final class MooVmTest {
     WorldObject wizard =
         new WorldObject(1, "wizard", 4, 1, -1, -1, List.of(), List.of(), List.of(), List.of());
     VmState state =
-        new VmState(Map.of("player", new ObjectValue(1), "this", new ObjectValue(1)), 1);
+        new VmState(new TaskOrigin(Map.of("player", new ObjectValue(1), "this", new ObjectValue(1)), 1, TaskOrigin.inferVerbLocation(Map.of("player", new ObjectValue(1), "this", new ObjectValue(1))),
+        TaskOrigin.calledVerb(Map.of("player", new ObjectValue(1), "this", new ObjectValue(1))), TaskOrigin.calledVerb(Map.of("player", new ObjectValue(1), "this", new ObjectValue(1))), true), new TaskBudget(60_000, 5, 50));
 
     executeAndClose(
         new MooCompiler()
@@ -4558,7 +4676,8 @@ final class MooVmTest {
         new WorldTxn(
             List.of(), List.of(parent, child, player, caller, verbOwner, delegatedProgrammer));
     VmState state =
-        new VmState(Map.of("player", new ObjectValue(3), "this", new ObjectValue(4)), 3);
+        new VmState(new TaskOrigin(Map.of("player", new ObjectValue(3), "this", new ObjectValue(4)), 3, TaskOrigin.inferVerbLocation(Map.of("player", new ObjectValue(3), "this", new ObjectValue(4))),
+        TaskOrigin.calledVerb(Map.of("player", new ObjectValue(3), "this", new ObjectValue(4))), TaskOrigin.calledVerb(Map.of("player", new ObjectValue(3), "this", new ObjectValue(4))), true), new TaskBudget(60_000, 5, 50));
 
     executeAndCommit(
         new MooCompiler()
@@ -4611,7 +4730,8 @@ final class MooVmTest {
             1, "mode object", 6, 1, -1, -1, List.of(), List.of(), List.of(mode), List.of());
     WorldTxn world = new WorldTxn(List.of(1L), List.of(object));
     VmState state =
-        new VmState(Map.of("player", new ObjectValue(1), "this", new ObjectValue(1)), 1);
+        new VmState(new TaskOrigin(Map.of("player", new ObjectValue(1), "this", new ObjectValue(1)), 1, TaskOrigin.inferVerbLocation(Map.of("player", new ObjectValue(1), "this", new ObjectValue(1))),
+        TaskOrigin.calledVerb(Map.of("player", new ObjectValue(1), "this", new ObjectValue(1))), TaskOrigin.calledVerb(Map.of("player", new ObjectValue(1), "this", new ObjectValue(1))), true), new TaskBudget(60_000, 5, 50));
 
     executeAndClose(
         new MooCompiler()
@@ -4648,14 +4768,8 @@ final class MooVmTest {
             7, "programmer", 6, 7, -1, -1, List.of(), List.of(), List.of(), List.of());
     WorldTxn world = new WorldTxn(List.of(7L), List.of(programmer));
     VmState state =
-        new VmState(
-            Map.of("player", new ObjectValue(7), "this", new ObjectValue(7)),
-            7,
-            new ObjectValue(7),
-            10_000,
-            5,
-            1,
-            false);
+        new VmState(new TaskOrigin(Map.of("player", new ObjectValue(7), "this", new ObjectValue(7)), 7, new ObjectValue(7),
+        TaskOrigin.calledVerb(Map.of("player", new ObjectValue(7), "this", new ObjectValue(7))), TaskOrigin.calledVerb(Map.of("player", new ObjectValue(7), "this", new ObjectValue(7))), false), new TaskBudget(10_000, 5, 1));
 
     executeAndClose(
         new MooCompiler().compile("x = eval(\"return 1;\"); y = 2; return {x, y};"),
@@ -4677,15 +4791,32 @@ final class MooVmTest {
     WorldTxn world = new WorldTxn(List.of(7L), List.of(programmer));
     MooValue source = StringValue.of("source");
     VmState state =
-        new VmState(
-            Map.of(
+        new VmState(new TaskOrigin(Map.of(
                 "player", new ObjectValue(3),
                 "this", new ObjectValue(7),
                 "caller", new ObjectValue(5),
                 "verb", StringValue.of("outer"),
                 "args", new ListValue(List.of(source)),
-                "argstr", source),
-            7);
+                "argstr", source), 7, TaskOrigin.inferVerbLocation(Map.of(
+                "player", new ObjectValue(3),
+                "this", new ObjectValue(7),
+                "caller", new ObjectValue(5),
+                "verb", StringValue.of("outer"),
+                "args", new ListValue(List.of(source)),
+                "argstr", source)),
+        TaskOrigin.calledVerb(Map.of(
+                "player", new ObjectValue(3),
+                "this", new ObjectValue(7),
+                "caller", new ObjectValue(5),
+                "verb", StringValue.of("outer"),
+                "args", new ListValue(List.of(source)),
+                "argstr", source)), TaskOrigin.calledVerb(Map.of(
+                "player", new ObjectValue(3),
+                "this", new ObjectValue(7),
+                "caller", new ObjectValue(5),
+                "verb", StringValue.of("outer"),
+                "args", new ListValue(List.of(source)),
+                "argstr", source)), true), new TaskBudget(60_000, 5, 50));
 
     executeAndClose(
         new MooCompiler()
@@ -4730,7 +4861,8 @@ final class MooVmTest {
             1, "caller object", 4, 1, -1, -1, List.of(), List.of(), List.of(inspect), List.of());
     WorldTxn world = new WorldTxn(List.of(1L), List.of(object));
     VmState state =
-        new VmState(Map.of("player", new ObjectValue(1), "this", new ObjectValue(1)), 1);
+        new VmState(new TaskOrigin(Map.of("player", new ObjectValue(1), "this", new ObjectValue(1)), 1, TaskOrigin.inferVerbLocation(Map.of("player", new ObjectValue(1), "this", new ObjectValue(1))),
+        TaskOrigin.calledVerb(Map.of("player", new ObjectValue(1), "this", new ObjectValue(1))), TaskOrigin.calledVerb(Map.of("player", new ObjectValue(1), "this", new ObjectValue(1))), true), new TaskBudget(60_000, 5, 50));
 
     executeAndClose(
         new MooCompiler().compile(MooParser.parse("unused = 1;\nreturn #1:inspect();")),
@@ -4757,7 +4889,8 @@ final class MooVmTest {
             1, "wizard", 6, 1, -1, -1, List.of(), List.of(), List.of(), List.of());
     WorldTxn world = new WorldTxn(List.of(1L), List.of(wizard));
     VmState state =
-        new VmState(Map.of("player", new ObjectValue(1), "this", new ObjectValue(1)), 1);
+        new VmState(new TaskOrigin(Map.of("player", new ObjectValue(1), "this", new ObjectValue(1)), 1, TaskOrigin.inferVerbLocation(Map.of("player", new ObjectValue(1), "this", new ObjectValue(1))),
+        TaskOrigin.calledVerb(Map.of("player", new ObjectValue(1), "this", new ObjectValue(1))), TaskOrigin.calledVerb(Map.of("player", new ObjectValue(1), "this", new ObjectValue(1))), true), new TaskBudget(60_000, 5, 50));
 
     executeAndClose(
         new MooCompiler()
@@ -4829,8 +4962,7 @@ final class MooVmTest {
             1, "object", 4, 1, -1, -1, List.of(), List.of(), List.of(inspect), List.of());
     WorldTxn world = new WorldTxn(List.of(1L), List.of(object));
     VmState state =
-        new VmState(
-            Map.of(
+        new VmState(new TaskOrigin(Map.of(
                 "player", new ObjectValue(1),
                 "this", new ObjectValue(1),
                 "argstr", text("widget in box"),
@@ -4838,8 +4970,32 @@ final class MooVmTest {
                 "dobjstr", text("widget"),
                 "prepstr", text("in"),
                 "iobj", new ObjectValue(3),
-                "iobjstr", text("box")),
-            1);
+                "iobjstr", text("box")), 1, TaskOrigin.inferVerbLocation(Map.of(
+                "player", new ObjectValue(1),
+                "this", new ObjectValue(1),
+                "argstr", text("widget in box"),
+                "dobj", new ObjectValue(2),
+                "dobjstr", text("widget"),
+                "prepstr", text("in"),
+                "iobj", new ObjectValue(3),
+                "iobjstr", text("box"))),
+        TaskOrigin.calledVerb(Map.of(
+                "player", new ObjectValue(1),
+                "this", new ObjectValue(1),
+                "argstr", text("widget in box"),
+                "dobj", new ObjectValue(2),
+                "dobjstr", text("widget"),
+                "prepstr", text("in"),
+                "iobj", new ObjectValue(3),
+                "iobjstr", text("box"))), TaskOrigin.calledVerb(Map.of(
+                "player", new ObjectValue(1),
+                "this", new ObjectValue(1),
+                "argstr", text("widget in box"),
+                "dobj", new ObjectValue(2),
+                "dobjstr", text("widget"),
+                "prepstr", text("in"),
+                "iobj", new ObjectValue(3),
+                "iobjstr", text("box"))), true), new TaskBudget(60_000, 5, 50));
 
     executeAndClose(
         new MooCompiler().compile(MooParser.parse("return #1:inspect();")),
@@ -4884,7 +5040,8 @@ final class MooVmTest {
             3, "second", 0, 1, 0, -1, List.of(), List.of(), List.of(), List.of());
     WorldTxn world = new WorldTxn(List.of(1L), List.of(room, wizard, first, second));
     VmState state =
-        new VmState(Map.of("player", new ObjectValue(1), "this", new ObjectValue(1)), 1);
+        new VmState(new TaskOrigin(Map.of("player", new ObjectValue(1), "this", new ObjectValue(1)), 1, TaskOrigin.inferVerbLocation(Map.of("player", new ObjectValue(1), "this", new ObjectValue(1))),
+        TaskOrigin.calledVerb(Map.of("player", new ObjectValue(1), "this", new ObjectValue(1))), TaskOrigin.calledVerb(Map.of("player", new ObjectValue(1), "this", new ObjectValue(1))), true), new TaskBudget(60_000, 5, 50));
 
     executeAndCommit(
         new MooCompiler().compile(MooParser.parse("move(#3, #0, 1); return #0.contents;")),
@@ -4920,7 +5077,8 @@ final class MooVmTest {
             7, "waif class", 0, 1, -1, -1, List.of(), List.of(), List.of(constructor), List.of());
     WorldTxn world = new WorldTxn(List.of(1L), List.of(wizard, waifClass));
     VmState state =
-        new VmState(Map.of("player", new ObjectValue(1), "this", new ObjectValue(1)), 1);
+        new VmState(new TaskOrigin(Map.of("player", new ObjectValue(1), "this", new ObjectValue(1)), 1, TaskOrigin.inferVerbLocation(Map.of("player", new ObjectValue(1), "this", new ObjectValue(1))),
+        TaskOrigin.calledVerb(Map.of("player", new ObjectValue(1), "this", new ObjectValue(1))), TaskOrigin.calledVerb(Map.of("player", new ObjectValue(1), "this", new ObjectValue(1))), true), new TaskBudget(60_000, 5, 50));
 
     executeAndClose(
         new MooCompiler().compile(MooParser.parse("return #7:new();")),
@@ -4968,7 +5126,8 @@ final class MooVmTest {
                 true)));
     WorldTxn world = new WorldTxn(List.of(1L), List.of(wizard, waifClass));
     VmState state =
-        new VmState(Map.of("player", new ObjectValue(1), "this", new ObjectValue(1)), 1);
+        new VmState(new TaskOrigin(Map.of("player", new ObjectValue(1), "this", new ObjectValue(1)), 1, TaskOrigin.inferVerbLocation(Map.of("player", new ObjectValue(1), "this", new ObjectValue(1))),
+        TaskOrigin.calledVerb(Map.of("player", new ObjectValue(1), "this", new ObjectValue(1))), TaskOrigin.calledVerb(Map.of("player", new ObjectValue(1), "this", new ObjectValue(1))), true), new TaskBudget(60_000, 5, 50));
 
     executeAndCommit(
         new MooCompiler()
@@ -5008,7 +5167,8 @@ final class MooVmTest {
             7, "waif class", 0, 1, -1, -1, List.of(), List.of(), List.of(constructor), List.of());
     WorldTxn world = new WorldTxn(List.of(1L), List.of(wizard, waifClass));
     VmState state =
-        new VmState(Map.of("player", new ObjectValue(1), "this", new ObjectValue(1)), 1);
+        new VmState(new TaskOrigin(Map.of("player", new ObjectValue(1), "this", new ObjectValue(1)), 1, TaskOrigin.inferVerbLocation(Map.of("player", new ObjectValue(1), "this", new ObjectValue(1))),
+        TaskOrigin.calledVerb(Map.of("player", new ObjectValue(1), "this", new ObjectValue(1))), TaskOrigin.calledVerb(Map.of("player", new ObjectValue(1), "this", new ObjectValue(1))), true), new TaskBudget(60_000, 5, 50));
 
     executeAndCommit(
         new MooCompiler()
@@ -5039,7 +5199,8 @@ final class MooVmTest {
             7, "parent", 0, 1, -1, -1, List.of(), List.of(), List.of(constructor), List.of());
     WorldTxn world = new WorldTxn(List.of(1L), List.of(wizard, parent));
     VmState state =
-        new VmState(Map.of("player", new ObjectValue(1), "this", new ObjectValue(1)), 1);
+        new VmState(new TaskOrigin(Map.of("player", new ObjectValue(1), "this", new ObjectValue(1)), 1, TaskOrigin.inferVerbLocation(Map.of("player", new ObjectValue(1), "this", new ObjectValue(1))),
+        TaskOrigin.calledVerb(Map.of("player", new ObjectValue(1), "this", new ObjectValue(1))), TaskOrigin.calledVerb(Map.of("player", new ObjectValue(1), "this", new ObjectValue(1))), true), new TaskBudget(60_000, 5, 50));
 
     executeAndClose(
         new MooCompiler()
@@ -5062,7 +5223,8 @@ final class MooVmTest {
             1, "programmer", 4, 1, -1, -1, List.of(), List.of(), List.of(), List.of());
     WorldTxn world = new WorldTxn(List.of(1L), List.of(parent, programmer));
     VmState state =
-        new VmState(Map.of("player", new ObjectValue(1), "this", new ObjectValue(1)), 1);
+        new VmState(new TaskOrigin(Map.of("player", new ObjectValue(1), "this", new ObjectValue(1)), 1, TaskOrigin.inferVerbLocation(Map.of("player", new ObjectValue(1), "this", new ObjectValue(1))),
+        TaskOrigin.calledVerb(Map.of("player", new ObjectValue(1), "this", new ObjectValue(1))), TaskOrigin.calledVerb(Map.of("player", new ObjectValue(1), "this", new ObjectValue(1))), true), new TaskBudget(60_000, 5, 50));
 
     executeAndCommit(
         new MooCompiler().compile(MooParser.parse("return create(#0, 1);")),
@@ -5105,7 +5267,8 @@ final class MooVmTest {
             3);
 
     VmState wizardWrite =
-        new VmState(Map.of("subject", identity, "this", new ObjectValue(1)), 1);
+        new VmState(new TaskOrigin(Map.of("subject", identity, "this", new ObjectValue(1)), 1, TaskOrigin.inferVerbLocation(Map.of("subject", identity, "this", new ObjectValue(1))),
+        TaskOrigin.calledVerb(Map.of("subject", identity, "this", new ObjectValue(1))), TaskOrigin.calledVerb(Map.of("subject", identity, "this", new ObjectValue(1))), true), new TaskBudget(60_000, 5, 50));
     executeAndCommit(
         new MooCompiler().compile("subject.owner = #3; return subject.owner;"),
         wizardWrite,
@@ -5117,7 +5280,8 @@ final class MooVmTest {
     }
 
     VmState programmerWrite =
-        new VmState(Map.of("subject", identity, "this", new ObjectValue(2)), 2);
+        new VmState(new TaskOrigin(Map.of("subject", identity, "this", new ObjectValue(2)), 2, TaskOrigin.inferVerbLocation(Map.of("subject", identity, "this", new ObjectValue(2))),
+        TaskOrigin.calledVerb(Map.of("subject", identity, "this", new ObjectValue(2))), TaskOrigin.calledVerb(Map.of("subject", identity, "this", new ObjectValue(2))), true), new TaskBudget(60_000, 5, 50));
     executeAndClose(
         new MooCompiler().compile("subject.owner = #2;"),
         programmerWrite,
@@ -5126,7 +5290,8 @@ final class MooVmTest {
     assertEquals(ErrorValue.E_PERM, programmerWrite.uncaughtError().orElseThrow());
 
     VmState wrongType =
-        new VmState(Map.of("subject", identity, "this", new ObjectValue(1)), 1);
+        new VmState(new TaskOrigin(Map.of("subject", identity, "this", new ObjectValue(1)), 1, TaskOrigin.inferVerbLocation(Map.of("subject", identity, "this", new ObjectValue(1))),
+        TaskOrigin.calledVerb(Map.of("subject", identity, "this", new ObjectValue(1))), TaskOrigin.calledVerb(Map.of("subject", identity, "this", new ObjectValue(1))), true), new TaskBudget(60_000, 5, 50));
     executeAndClose(
         new MooCompiler().compile("subject.owner = 1;"),
         wrongType,
@@ -5135,7 +5300,8 @@ final class MooVmTest {
     assertEquals(ErrorValue.E_TYPE, wrongType.uncaughtError().orElseThrow());
 
     VmState programmerFlag =
-        new VmState(Map.of("subject", identity, "this", new ObjectValue(2)), 2);
+        new VmState(new TaskOrigin(Map.of("subject", identity, "this", new ObjectValue(2)), 2, TaskOrigin.inferVerbLocation(Map.of("subject", identity, "this", new ObjectValue(2))),
+        TaskOrigin.calledVerb(Map.of("subject", identity, "this", new ObjectValue(2))), TaskOrigin.calledVerb(Map.of("subject", identity, "this", new ObjectValue(2))), true), new TaskBudget(60_000, 5, 50));
     executeAndClose(
         new MooCompiler().compile("subject.wizard = 0;"),
         programmerFlag,
@@ -5144,7 +5310,8 @@ final class MooVmTest {
     assertEquals(ErrorValue.E_PERM, programmerFlag.uncaughtError().orElseThrow());
 
     VmState wizardFlag =
-        new VmState(Map.of("subject", identity, "this", new ObjectValue(1)), 1);
+        new VmState(new TaskOrigin(Map.of("subject", identity, "this", new ObjectValue(1)), 1, TaskOrigin.inferVerbLocation(Map.of("subject", identity, "this", new ObjectValue(1))),
+        TaskOrigin.calledVerb(Map.of("subject", identity, "this", new ObjectValue(1))), TaskOrigin.calledVerb(Map.of("subject", identity, "this", new ObjectValue(1))), true), new TaskBudget(60_000, 5, 50));
     executeAndClose(
         new MooCompiler().compile("subject.wizard = 0;"),
         wizardFlag,
@@ -5180,9 +5347,8 @@ final class MooVmTest {
             List.of(),
             1);
     VmState state =
-        new VmState(
-            Map.of("subject", identity, "player", new ObjectValue(1), "this", new ObjectValue(1)),
-            1);
+        new VmState(new TaskOrigin(Map.of("subject", identity, "player", new ObjectValue(1), "this", new ObjectValue(1)), 1, TaskOrigin.inferVerbLocation(Map.of("subject", identity, "player", new ObjectValue(1), "this", new ObjectValue(1))),
+        TaskOrigin.calledVerb(Map.of("subject", identity, "player", new ObjectValue(1), "this", new ObjectValue(1))), TaskOrigin.calledVerb(Map.of("subject", identity, "player", new ObjectValue(1), "this", new ObjectValue(1))), true), new TaskBudget(60_000, 5, 50));
 
     executeAndClose(
         new MooCompiler()
@@ -5245,12 +5411,20 @@ final class MooVmTest {
             List.of(),
             1);
     VmState state =
-        new VmState(
-            Map.of(
+        new VmState(new TaskOrigin(Map.of(
                 "player", new ObjectValue(1),
                 "this", new ObjectValue(1),
-                "subject", identity),
-            1);
+                "subject", identity), 1, TaskOrigin.inferVerbLocation(Map.of(
+                "player", new ObjectValue(1),
+                "this", new ObjectValue(1),
+                "subject", identity)),
+        TaskOrigin.calledVerb(Map.of(
+                "player", new ObjectValue(1),
+                "this", new ObjectValue(1),
+                "subject", identity)), TaskOrigin.calledVerb(Map.of(
+                "player", new ObjectValue(1),
+                "this", new ObjectValue(1),
+                "subject", identity)), true), new TaskBudget(60_000, 5, 50));
 
     executeAndCommit(
         new MooCompiler()
@@ -5314,12 +5488,20 @@ final class MooVmTest {
             List.of(),
             1);
     VmState state =
-        new VmState(
-            Map.of(
+        new VmState(new TaskOrigin(Map.of(
                 "player", new ObjectValue(1),
                 "this", new ObjectValue(1),
-                "subject", identity),
-            1);
+                "subject", identity), 1, TaskOrigin.inferVerbLocation(Map.of(
+                "player", new ObjectValue(1),
+                "this", new ObjectValue(1),
+                "subject", identity)),
+        TaskOrigin.calledVerb(Map.of(
+                "player", new ObjectValue(1),
+                "this", new ObjectValue(1),
+                "subject", identity)), TaskOrigin.calledVerb(Map.of(
+                "player", new ObjectValue(1),
+                "this", new ObjectValue(1),
+                "subject", identity)), true), new TaskBudget(60_000, 5, 50));
 
     executeAndCommit(
         new MooCompiler()
@@ -5415,7 +5597,8 @@ final class MooVmTest {
 
   private static Map<String, MooValue> suspendedLocalsAfterRead(String name, MooValue value) {
     BytecodeProgram program = new MooCompiler().compile("preserved = " + name + "; suspend(60);");
-    VmState state = new VmState(Map.of(name, value), 3, new ObjectValue(0));
+    VmState state = new VmState(new TaskOrigin(Map.of(name, value), 3, new ObjectValue(0),
+        TaskOrigin.calledVerb(Map.of(name, value)), TaskOrigin.calledVerb(Map.of(name, value)), true), new TaskBudget(60_000, 5, 50));
 
     executeAndClose(program, state, new WorldTxn(List.of(), List.of()), new BuiltinCatalog(BuiltinHosts.builder().build()));
 

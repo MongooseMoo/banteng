@@ -1,7 +1,5 @@
 package world.mongoose.banteng.vm;
 
-import java.lang.management.ManagementFactory;
-import java.lang.management.ThreadMXBean;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -15,12 +13,7 @@ import java.util.Optional;
 import java.util.OptionalDouble;
 import java.util.OptionalLong;
 import java.util.concurrent.Callable;
-import java.util.concurrent.TimeUnit;
 import world.mongoose.banteng.builtin.BuiltinResult;
-import world.mongoose.banteng.builtin.BuiltinCatalog.ConnectionOptionRequest;
-import world.mongoose.banteng.builtin.BuiltinCatalog.ForcedInputRequest;
-import world.mongoose.banteng.builtin.BuiltinCatalog.NotificationRequest;
-import world.mongoose.banteng.builtin.CheckpointRequest;
 import world.mongoose.banteng.bytecode.BytecodeProgram;
 import world.mongoose.banteng.bytecode.BytecodeProgram.HandlerSpec;
 import world.mongoose.banteng.value.MooValue;
@@ -39,20 +32,7 @@ import world.mongoose.banteng.value.MooValue.StringValue;
  * between workers or accessed concurrently.
  */
 public final class VmState {
-  private static final long DEFAULT_FOREGROUND_TICKS = 60_000;
-  private static final long DEFAULT_FOREGROUND_SECONDS = 5;
-  private static final long DEFAULT_MAX_STACK_DEPTH = 50;
-  private static final ThreadMXBean THREAD_CPU = ManagementFactory.getThreadMXBean();
-
   private final Deque<Frame> frames = new ArrayDeque<>();
-  private final Map<String, MooValue> initialLocals;
-  private final List<String> output = new ArrayList<>();
-  private final List<ConnectionOptionRequest> connectionOptionRequests = new ArrayList<>();
-  private final List<Long> bootPlayerTargets = new ArrayList<>();
-  private final List<ForcedInputRequest> forcedInputRequests = new ArrayList<>();
-  private final List<NotificationRequest> notificationRequests = new ArrayList<>();
-  private final List<CheckpointRequest> checkpointRequests = new ArrayList<>();
-  private final List<AnonymousObjectValue> anonymousCollectionDeferrals = new ArrayList<>();
   private Outcome outcome = Outcome.RUNNING;
   private Optional<MooValue> returnValue = Optional.empty();
   private Optional<MooValue> pendingError = Optional.empty();
@@ -64,111 +44,19 @@ public final class VmState {
   private boolean awaitingHostResult;
   private Optional<VmSnapshot.PendingBuiltin> pendingBuiltin = Optional.empty();
   private MooValue taskLocal = new MapValue(Map.of());
-  private long remainingTicks;
-  private long elapsedCpuNanos;
-  private long remainingCpuNanos;
-  private final long maxStackDepth;
-  private long segmentCpuAnchorNanos = -1;
-  private final long initialProgrammer;
-  private final MooValue initialVerbLocation;
-  private final String initialCalledVerb;
-  private final String initialFullVerbName;
-  private final boolean initialDebug;
+  private TaskOrigin origin;
+  private final TaskBudget budget;
+  private final EffectOutbox effects = new EffectOutbox();
 
-  /** Creates an empty state for a pure root program. */
-  public VmState() {
-    this(Map.of(), 0, new ObjectValue(-1));
+  /** Creates a task from immutable origin metadata and its owned resource budget. */
+  public VmState(TaskOrigin origin, TaskBudget budget) {
+    this.origin = Objects.requireNonNull(origin, "origin");
+    this.budget = Objects.requireNonNull(budget, "budget");
   }
 
-  /** Creates a state with explicit verb locals and task permissions. */
-  public VmState(Map<String, MooValue> locals, long programmer) {
-    this(
-        locals,
-        programmer,
-        normalizedLocals(locals).get("this") instanceof ObjectValue object
-            ? object
-            : new ObjectValue(-1),
-        DEFAULT_FOREGROUND_TICKS,
-        DEFAULT_FOREGROUND_SECONDS);
-  }
+  public TaskBudget budget() { return budget; }
 
-  /** Creates a state with explicit root verb metadata. */
-  public VmState(Map<String, MooValue> locals, long programmer, MooValue verbLocation) {
-    this(locals, programmer, verbLocation, DEFAULT_FOREGROUND_TICKS, DEFAULT_FOREGROUND_SECONDS);
-  }
-
-  /** Creates a state with explicit root metadata and remaining ticks. */
-  public VmState(
-      Map<String, MooValue> locals,
-      long programmer,
-      MooValue verbLocation,
-      long remainingTicks) {
-    this(locals, programmer, verbLocation, remainingTicks, 0);
-  }
-
-  /** Creates a state with explicit root metadata and execution limits. */
-  public VmState(
-      Map<String, MooValue> locals,
-      long programmer,
-      MooValue verbLocation,
-      long remainingTicks,
-      long secondsLimit) {
-    this(locals, programmer, verbLocation, remainingTicks, secondsLimit, DEFAULT_MAX_STACK_DEPTH);
-  }
-
-  /** Creates a state with explicit root metadata and all execution limits. */
-  public VmState(
-      Map<String, MooValue> locals,
-      long programmer,
-      MooValue verbLocation,
-      long remainingTicks,
-      long secondsLimit,
-      long maxStackDepth) {
-    this(locals, programmer, verbLocation, remainingTicks, secondsLimit, maxStackDepth, true);
-  }
-
-  /** Creates a state with explicit root metadata, execution limits, and verb debug mode. */
-  public VmState(
-      Map<String, MooValue> locals,
-      long programmer,
-      MooValue verbLocation,
-      long remainingTicks,
-      long secondsLimit,
-      long maxStackDepth,
-      boolean debug) {
-    this(
-        locals,
-        programmer,
-        verbLocation,
-        remainingTicks,
-        secondsLimit,
-        maxStackDepth,
-        debug,
-        calledVerb(locals),
-        calledVerb(locals));
-  }
-
-  /** Creates a state with explicit root activation dispatch metadata. */
-  public VmState(
-      Map<String, MooValue> locals,
-      long programmer,
-      MooValue verbLocation,
-      long remainingTicks,
-      long secondsLimit,
-      long maxStackDepth,
-      boolean debug,
-      String calledVerb,
-      String fullVerbName) {
-    initialLocals = normalizedLocals(locals);
-    initialProgrammer = programmer;
-    initialVerbLocation = verbLocation;
-    initialCalledVerb = Objects.requireNonNull(calledVerb, "calledVerb");
-    initialFullVerbName = Objects.requireNonNull(fullVerbName, "fullVerbName");
-    initialDebug = debug;
-    this.remainingTicks = remainingTicks;
-    remainingCpuNanos = Math.max(0L, TimeUnit.SECONDS.toNanos(secondsLimit));
-    this.maxStackDepth = maxStackDepth;
-  }
+  public EffectOutbox effects() { return effects; }
 
   /** Returns the next instruction index in the active frame. */
   public int instructionPointer() {
@@ -232,16 +120,6 @@ public final class VmState {
     return uncaughtError;
   }
 
-  /** Returns ordered output staged by this execution. */
-  public List<String> output() {
-    return List.copyOf(output);
-  }
-
-  /** Clears output already delivered when the foreground input task suspended. */
-  public void clearOutput() {
-    output.clear();
-  }
-
   /** Returns a connection player switch staged by this execution. */
   public OptionalLong switchedPlayer() {
     return switchedPlayer;
@@ -250,7 +128,7 @@ public final class VmState {
   /** Returns the current task programmer. */
   public long programmer() {
     Frame frame = frames.peekFirst();
-    return frame == null ? initialProgrammer : frame.programmer;
+    return frame == null ? origin.programmer() : frame.programmer;
   }
 
   MooValue taskLocal() {
@@ -261,36 +139,16 @@ public final class VmState {
     taskLocal = value;
   }
 
-  long remainingTicks() {
-    return remainingTicks;
-  }
-
-  long remainingSeconds() {
-    long elapsedNanos = segmentElapsedCpuNanos(currentThreadCpuNanos());
-    long remainingNanos =
-        Math.max(0L, remainingCpuNanos - Math.min(remainingCpuNanos, elapsedNanos));
-    return TimeUnit.NANOSECONDS.toSeconds(remainingNanos);
-  }
-
-  void decrementRemainingTicks() {
-    remainingTicks--;
-  }
-
   void abortTickExhaustion() {
     pendingError = Optional.empty();
-    output.add("Task ran out of ticks");
+    effects.stageOutput("Task ran out of ticks");
     outcome = Outcome.ABORTED;
   }
 
   void abortSecondsExhaustion() {
     pendingError = Optional.empty();
-    output.add("Task ran out of seconds");
+    effects.stageOutput("Task ran out of seconds");
     outcome = Outcome.SECONDS_EXHAUSTED;
-  }
-
-  boolean secondsExhausted() {
-    return (remainingCpuNanos != 0 || elapsedCpuNanos != 0)
-        && Math.max(0L, currentThreadCpuNanos() - segmentCpuAnchorNanos) >= remainingCpuNanos;
   }
 
   void abortKilled() {
@@ -300,21 +158,11 @@ public final class VmState {
 
   public void ensureRoot(BytecodeProgram program) {
     if (frames.isEmpty()) {
-      MooValue receiver = initialLocals.getOrDefault("this", new ObjectValue(-1));
-      pushFrame(program, initialLocals, new FrameOrigin(
-          ReturnMode.ROOT, initialProgrammer, receiver, initialVerbLocation,
-          initialCalledVerb, initialFullVerbName, Optional.empty(), OptionalLong.empty(),
-          OptionalLong.empty(), OptionalLong.empty(), OptionalLong.empty(), Optional.empty(), initialDebug));
-    }
-  }
-
-  void beginSegment() {
-    beginSegment(currentThreadCpuNanos());
-  }
-
-  void beginSegment(long currentThreadCpuNanos) {
-    if (segmentCpuAnchorNanos < 0) {
-      segmentCpuAnchorNanos = currentThreadCpuNanos;
+      MooValue receiver = origin.locals().getOrDefault("this", new ObjectValue(-1));
+      pushFrame(program, origin.locals(), new FrameOrigin(
+          ReturnMode.ROOT, origin.programmer(), receiver, origin.verbLocation(),
+          origin.calledVerb(), origin.fullVerbName(), Optional.empty(), OptionalLong.empty(),
+          OptionalLong.empty(), OptionalLong.empty(), OptionalLong.empty(), Optional.empty(), origin.debug()));
     }
   }
 
@@ -339,11 +187,14 @@ public final class VmState {
       boolean debug) {}
 
   boolean pushFrame(BytecodeProgram program, Map<String, MooValue> locals, FrameOrigin origin) {
-    if (origin.returnMode() != ReturnMode.ROOT && frames.size() >= maxStackDepth) {
+    if (origin.returnMode() != ReturnMode.ROOT && frames.size() >= budget.maxStackDepth()) {
       return false;
     }
     if (origin.returnMode() == ReturnMode.ROOT) {
-      initialLocals.putAll(locals);
+      Map<String, MooValue> merged = new LinkedHashMap<>(this.origin.locals());
+      merged.putAll(locals);
+      this.origin = new TaskOrigin(merged, this.origin.programmer(), this.origin.verbLocation(),
+          this.origin.calledVerb(), this.origin.fullVerbName(), this.origin.debug());
     }
     frames.push(new Frame(program, locals, origin.returnMode(), origin.programmer(),
         origin.receiver(), origin.verbLocation(), origin.calledVerb(), origin.fullVerbName(),
@@ -460,98 +311,6 @@ public final class VmState {
     outcome = Outcome.ERRORED;
   }
 
-  void stageOutput(String line) {
-    output.add(line);
-  }
-
-  /** Retains output when the runtime is exercised without an attached transport. */
-  public void stageRuntimeOutput(String line) {
-    stageOutput(line);
-  }
-
-  void stageConnectionOptionRequest(ConnectionOptionRequest request) {
-    connectionOptionRequests.add(request);
-  }
-
-  /** Removes and returns connection-option requests in their task execution order. */
-  public List<ConnectionOptionRequest> drainConnectionOptionRequests() {
-    List<ConnectionOptionRequest> requests = List.copyOf(connectionOptionRequests);
-    connectionOptionRequests.clear();
-    return requests;
-  }
-
-  void stageBootPlayerTarget(long target) {
-    bootPlayerTargets.add(target);
-  }
-
-  /** Removes and returns boot-player targets in their task execution order. */
-  public List<Long> drainBootPlayerTargets() {
-    List<Long> targets = List.copyOf(bootPlayerTargets);
-    bootPlayerTargets.clear();
-    return targets;
-  }
-
-  void stageForcedInputRequest(ForcedInputRequest request) {
-    forcedInputRequests.add(request);
-  }
-
-  /** Removes and returns forced-input requests in their task execution order. */
-  public List<ForcedInputRequest> drainForcedInputRequests() {
-    List<ForcedInputRequest> requests = List.copyOf(forcedInputRequests);
-    forcedInputRequests.clear();
-    return requests;
-  }
-
-  void stageNotificationRequest(NotificationRequest request) {
-    notificationRequests.add(request);
-  }
-
-  /** Removes and returns connection notifications in their task execution order. */
-  public List<NotificationRequest> drainNotificationRequests() {
-    List<NotificationRequest> requests = List.copyOf(notificationRequests);
-    notificationRequests.clear();
-    return requests;
-  }
-
-  /** Projects this attempt's staged notification sequence over live queued bytes. */
-  public long stagedBufferedOutputLength(long connectionId, long liveQueuedBytes) {
-    long queuedBytes = liveQueuedBytes;
-    for (NotificationRequest request : notificationRequests) {
-      if (request.connectionId() != connectionId) {
-        continue;
-      }
-      queuedBytes =
-          Math.addExact(
-              queuedBytes,
-              request.line().length() + (request.noNewline() ? 0L : 2L));
-    }
-    return queuedBytes;
-  }
-
-  void stageCheckpointRequest(CheckpointRequest request) {
-    checkpointRequests.add(request);
-  }
-
-  /** Removes and returns checkpoint requests in task execution order. */
-  public List<CheckpointRequest> drainCheckpointRequests() {
-    List<CheckpointRequest> requests = List.copyOf(checkpointRequests);
-    checkpointRequests.clear();
-    return requests;
-  }
-
-  void deferAnonymousCollection(List<AnonymousObjectValue> identities) {
-    for (AnonymousObjectValue identity : identities) {
-      if (!anonymousCollectionDeferrals.contains(identity)) {
-        anonymousCollectionDeferrals.add(identity);
-      }
-    }
-  }
-
-  /** Returns anonymous identities excluded from collection for this task's publication. */
-  public List<AnonymousObjectValue> anonymousCollectionDeferrals() {
-    return List.copyOf(anonymousCollectionDeferrals);
-  }
-
   void switchPlayer(long player) {
     switchedPlayer = OptionalLong.of(player);
   }
@@ -649,14 +408,11 @@ public final class VmState {
 
   /** Captures this task as value-only state for retry or checkpoint storage. */
   public VmSnapshot snapshot() {
-    return snapshot(currentThreadCpuNanos());
+    return snapshot(TaskBudget.currentThreadCpuNanos());
   }
 
   VmSnapshot snapshot(long currentThreadCpuNanos) {
-    long segmentElapsedCpuNanos = segmentElapsedCpuNanos(currentThreadCpuNanos);
-    long chargedCpuNanos = Math.min(remainingCpuNanos, segmentElapsedCpuNanos);
-    long capturedRemainingCpuNanos = remainingCpuNanos - chargedCpuNanos;
-    long capturedElapsedCpuNanos = saturatedAdd(elapsedCpuNanos, chargedCpuNanos);
+    TaskBudget.Capture captured = budget.capture(currentThreadCpuNanos);
 
     List<VmSnapshot.Frame> frameSnapshots = new ArrayList<>(frames.size());
     for (Frame frame : frames) {
@@ -675,19 +431,19 @@ public final class VmState {
                     request.debug(),
                     request.delaySeconds()));
     return new VmSnapshot(
-        initialLocals,
-        initialProgrammer,
-        initialVerbLocation,
-        initialCalledVerb,
-        initialFullVerbName,
+        origin.locals(),
+        origin.programmer(),
+        origin.verbLocation(),
+        origin.calledVerb(),
+        origin.fullVerbName(),
         frameSnapshots,
-        output,
-        connectionOptionRequests,
-        bootPlayerTargets,
-        forcedInputRequests,
-        notificationRequests,
-        checkpointRequests,
-        anonymousCollectionDeferrals,
+        List.copyOf(effects.output),
+        List.copyOf(effects.connectionOptionRequests),
+        List.copyOf(effects.bootPlayerTargets),
+        List.copyOf(effects.forcedInputRequests),
+        List.copyOf(effects.notificationRequests),
+        List.copyOf(effects.checkpointRequests),
+        List.copyOf(effects.anonymousCollectionDeferrals),
         outcome,
         returnValue,
         pendingError,
@@ -698,60 +454,41 @@ public final class VmState {
         awaitingHostResult,
         pendingBuiltin,
         taskLocal,
-        remainingTicks,
-        capturedElapsedCpuNanos,
-        capturedRemainingCpuNanos,
-        maxStackDepth);
+        captured.remainingTicks(),
+        captured.elapsedCpuNanos(),
+        captured.remainingCpuNanos(),
+        captured.maxStackDepth());
   }
 
   /** Restores a task from a value-only retry or checkpoint snapshot. */
   public static VmState restore(VmSnapshot snapshot) {
-    return restore(
-        snapshot,
-        snapshot.remainingTicks(),
-        snapshot.elapsedCpuNanos(),
-        snapshot.remainingCpuNanos(),
-        snapshot.maxStackDepth());
+    return restore(snapshot, TaskBudget.restore(
+        snapshot.remainingTicks(), snapshot.elapsedCpuNanos(),
+        snapshot.remainingCpuNanos(), snapshot.maxStackDepth()));
   }
 
   /** Restores a suspended task with a fresh background execution budget. */
   public static VmState restoreBackground(
       VmSnapshot snapshot, long remainingTicks, long secondsLimit, long maxStackDepth) {
-    return restore(
-        snapshot,
-        remainingTicks,
-        0,
-        Math.max(0L, TimeUnit.SECONDS.toNanos(secondsLimit)),
-        maxStackDepth);
+    return restore(snapshot, new TaskBudget(remainingTicks, secondsLimit, maxStackDepth));
   }
 
-  private static VmState restore(
-      VmSnapshot snapshot,
-      long remainingTicks,
-      long elapsedCpuNanos,
-      long remainingCpuNanos,
-      long maxStackDepth) {
-    VmState state =
-        new VmState(
-            snapshot.initialLocals(),
-            snapshot.initialProgrammer(),
-            snapshot.initialVerbLocation(),
-            remainingTicks,
-            0,
-            maxStackDepth,
-            snapshot.frames().isEmpty() || snapshot.frames().getLast().debug(),
-            snapshot.initialCalledVerb(),
-            snapshot.initialFullVerbName());
+  private static VmState restore(VmSnapshot snapshot, TaskBudget budget) {
+    VmState state = new VmState(
+        new TaskOrigin(snapshot.initialLocals(), snapshot.initialProgrammer(),
+            snapshot.initialVerbLocation(), snapshot.initialCalledVerb(), snapshot.initialFullVerbName(),
+            snapshot.frames().isEmpty() || snapshot.frames().getLast().debug()),
+        budget);
     for (VmSnapshot.Frame frame : snapshot.frames()) {
       state.frames.addLast(restore(frame));
     }
-    state.output.addAll(snapshot.output());
-    state.connectionOptionRequests.addAll(snapshot.connectionOptionRequests());
-    state.bootPlayerTargets.addAll(snapshot.bootPlayerTargets());
-    state.forcedInputRequests.addAll(snapshot.forcedInputRequests());
-    state.notificationRequests.addAll(snapshot.notificationRequests());
-    state.checkpointRequests.addAll(snapshot.checkpointRequests());
-    state.anonymousCollectionDeferrals.addAll(snapshot.anonymousCollectionDeferrals());
+    state.effects.output.addAll(snapshot.output());
+    state.effects.connectionOptionRequests.addAll(snapshot.connectionOptionRequests());
+    state.effects.bootPlayerTargets.addAll(snapshot.bootPlayerTargets());
+    state.effects.forcedInputRequests.addAll(snapshot.forcedInputRequests());
+    state.effects.notificationRequests.addAll(snapshot.notificationRequests());
+    state.effects.checkpointRequests.addAll(snapshot.checkpointRequests());
+    state.effects.anonymousCollectionDeferrals.addAll(snapshot.anonymousCollectionDeferrals());
     state.outcome = snapshot.outcome();
     state.returnValue = snapshot.returnValue();
     state.pendingError = snapshot.pendingError();
@@ -776,9 +513,6 @@ public final class VmState {
     state.hostWork = Optional.empty();
     state.pendingBuiltin = snapshot.pendingBuiltin();
     state.taskLocal = snapshot.taskLocal();
-    state.elapsedCpuNanos = elapsedCpuNanos;
-    state.remainingCpuNanos = remainingCpuNanos;
-    state.segmentCpuAnchorNanos = -1;
     return state;
   }
 
@@ -878,35 +612,10 @@ public final class VmState {
     return frame;
   }
 
-  private long segmentElapsedCpuNanos(long currentThreadCpuNanos) {
-    return segmentCpuAnchorNanos < 0
-        ? 0
-        : Math.max(0L, currentThreadCpuNanos - segmentCpuAnchorNanos);
-  }
-
-  private static long currentThreadCpuNanos() {
-    long nanos = THREAD_CPU.getCurrentThreadCpuTime();
-    if (nanos < 0) {
-      throw new IllegalStateException("current-thread CPU time is unavailable");
-    }
-    return nanos;
-  }
-
-  private static long saturatedAdd(long left, long right) {
-    return Long.MAX_VALUE - left < right ? Long.MAX_VALUE : left + right;
-  }
-
   private static Map<String, MooValue> normalizedLocals(Map<String, MooValue> locals) {
     Map<String, MooValue> normalized = new LinkedHashMap<>();
     locals.forEach((name, value) -> normalized.put(name.toLowerCase(Locale.ROOT), value));
     return normalized;
-  }
-
-  private static String calledVerb(Map<String, MooValue> locals) {
-    MooValue verb = locals.get("verb");
-    return verb instanceof StringValue string
-        ? string.text()
-        : "";
   }
 
   static final class Frame {

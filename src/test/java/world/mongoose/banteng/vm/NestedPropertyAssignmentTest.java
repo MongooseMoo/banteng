@@ -122,8 +122,8 @@ final class NestedPropertyAssignmentTest {
 
   private static MooValue execute(String source, long permissions, WorldTxn transaction) {
     BytecodeProgram program = new MooCompiler().compileResult(source).program().orElseThrow();
-    VmState state = new VmState(
-        Map.of("player", new ObjectValue(permissions), "this", new ObjectValue(1)), permissions);
+    VmState state = new VmState(new TaskOrigin(Map.of("player", new ObjectValue(permissions), "this", new ObjectValue(1)), permissions, TaskOrigin.inferVerbLocation(Map.of("player", new ObjectValue(permissions), "this", new ObjectValue(1))),
+        TaskOrigin.calledVerb(Map.of("player", new ObjectValue(permissions), "this", new ObjectValue(1))), TaskOrigin.calledVerb(Map.of("player", new ObjectValue(permissions), "this", new ObjectValue(1))), true), new TaskBudget(60_000, 5, 50));
     BuiltinCatalog builtins = new BuiltinCatalog(BuiltinHosts.builder().build());
     MooVm vm = new MooVm();
     vm.execute(program, state, transaction, builtins, 0);

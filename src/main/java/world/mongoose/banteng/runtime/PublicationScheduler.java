@@ -1,5 +1,8 @@
 package world.mongoose.banteng.runtime;
 
+import world.mongoose.banteng.vm.TaskOrigin;
+import world.mongoose.banteng.vm.TaskBudget;
+
 import com.google.errorprone.annotations.concurrent.GuardedBy;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
@@ -184,16 +187,8 @@ final class PublicationScheduler implements AutoCloseable {
   private TimedWork restoreQueuedTask(QueuedTask restored) {
     BytecodeProgram program = DurableTaskCodec.restoreQueuedProgram(restored);
     VmState state =
-        new VmState(
-            restored.initialLocals(),
-            restored.programmer(),
-            restored.verbLocation(),
-            MooRuntime.DEFAULT_BACKGROUND_TICKS,
-            MooRuntime.DEFAULT_BACKGROUND_SECONDS,
-            MooRuntime.DEFAULT_MAX_STACK_DEPTH,
-            restored.debug(),
-            restored.calledVerb(),
-            restored.fullVerbName());
+        new VmState(new TaskOrigin(restored.initialLocals(), restored.programmer(), restored.verbLocation(),
+        restored.calledVerb(), restored.fullVerbName(), restored.debug()), new TaskBudget(MooRuntime.DEFAULT_BACKGROUND_TICKS, MooRuntime.DEFAULT_BACKGROUND_SECONDS, MooRuntime.DEFAULT_MAX_STACK_DEPTH));
     state.ensureRoot(program);
     state.setThreadMode(restored.threadMode());
     VmSnapshot snapshot = state.snapshot();
@@ -632,16 +627,8 @@ final class PublicationScheduler implements AutoCloseable {
           }
           VmSnapshot.Fork fork = state.continueAfterFork(new IntegerValue(childTaskId));
           VmState child =
-              new VmState(
-                  fork.locals(),
-                  fork.programmer(),
-                  fork.verbLocation(),
-                  MooRuntime.DEFAULT_BACKGROUND_TICKS,
-                  MooRuntime.DEFAULT_BACKGROUND_SECONDS,
-                  state.snapshot().maxStackDepth(),
-                  fork.debug(),
-                  fork.calledVerb(),
-                  fork.fullVerbName());
+              new VmState(new TaskOrigin(fork.locals(), fork.programmer(), fork.verbLocation(),
+        fork.calledVerb(), fork.fullVerbName(), fork.debug()), new TaskBudget(MooRuntime.DEFAULT_BACKGROUND_TICKS, MooRuntime.DEFAULT_BACKGROUND_SECONDS, state.snapshot().maxStackDepth()));
           VmSnapshot childState = child.snapshot();
           long scheduledStart = Math.addExact(
               System.currentTimeMillis(), Math.round(fork.delaySeconds() * 1_000.0));
@@ -738,9 +725,9 @@ final class PublicationScheduler implements AutoCloseable {
         if (state.outcome() == VmState.Outcome.SUSPENDED) {
           Optional<List<String>> inputOutput = continuation.flatMap(
               value -> runtime.suspendedInputOutput(value, state));
-          if (inputOutput.isEmpty() && continuation.isEmpty() && !state.output().isEmpty()) {
-            inputOutput = Optional.of(state.output());
-            state.clearOutput();
+          if (inputOutput.isEmpty() && continuation.isEmpty() && !state.effects().output().isEmpty()) {
+            inputOutput = Optional.of(state.effects().output());
+            state.effects().clearOutput();
           }
           if (inputOutput.isPresent()) {
             continuation = Optional.empty();
