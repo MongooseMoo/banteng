@@ -7,6 +7,7 @@ import org.junit.jupiter.api.Test;
 import world.mongoose.banteng.value.MooValue.ListValue;
 import world.mongoose.banteng.value.MooValue.StringValue;
 import world.mongoose.banteng.world.Prepositions;
+import world.mongoose.banteng.world.PropertyPerms;
 import world.mongoose.banteng.world.WorldObject;
 import world.mongoose.banteng.world.WorldProperty;
 import world.mongoose.banteng.world.WorldTxn;
@@ -70,7 +71,7 @@ final class CommandParserTest {
     WorldObject room = object(0, "room", -1, List.of(1L, 3L), List.of());
     WorldObject player = object(1, "player", 0, List.of(2L), List.of());
     WorldProperty aliases = new WorldProperty("aliases",
-        new ListValue(List.of(StringValue.of("box"), StringValue.of("box"))), 1, 0, false, true);
+        new ListValue(List.of(StringValue.of("box"), StringValue.of("box"))), 1, new PropertyPerms(0), false, true);
     WorldObject box = object(2, "box", 1, List.of(), List.of(aliases));
     WorldObject other = object(3, "boxcar", 0, List.of(), List.of());
     WorldTxn owner = new WorldTxn(List.of(1L), List.of(room, player, box, other));
@@ -127,7 +128,7 @@ final class CommandParserTest {
   void aliasesUseAsciiBytePrefixesAndKeepDuplicateMatchesOnOneIdentity() {
     StringValue alias = StringValue.of(new byte[] {(byte) 0xC9, 'B', 'O', 'X'});
     WorldProperty aliases = new WorldProperty("aliases",
-        new ListValue(List.of(alias, alias)), 1, 0, false, true);
+        new ListValue(List.of(alias, alias)), 1, new PropertyPerms(0), false, true);
     WorldObject room = object(0, "room", -1, List.of(1L, 2L), List.of());
     WorldObject player = object(1, "player", 0, List.of(), List.of());
     WorldTxn owner = new WorldTxn(List.of(1L), List.of(room, player,
