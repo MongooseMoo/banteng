@@ -681,6 +681,31 @@ final class MooRuntimeTest {
   }
 
   @Test
+  void quotedDotProgramUsesSayShortcut() throws Exception {
+    WorldTxn world = new LambdaMooV4Reader().read(FIXTURE);
+    MooRuntime runtime = runtimeFor(world);
+    long connectionId = -47;
+    assertEquals(List.of(), runtime.openConnection(connectionId));
+    assertEquals(List.of("*** Connected ***"), runtime.executeLine(connectionId, "connect Wizard"));
+    assertEquals(
+        List.of(CONNECTION_PREFIX, "{1, 0}", CONNECTION_SUFFIX),
+        runtime.executeLine(
+            connectionId,
+            """
+            ; add_verb(player.location, {player, "xd", "say"}, {"any", "none", "any"});
+            set_verb_code(player.location, "say", {"notify(player, \\\"say:\\\" + argstr);"});
+            return 0;
+            """));
+
+    assertEquals(
+        List.of("say:.program\" here:eval"),
+        runtime.executeLine(connectionId, "\".program\" here:eval"));
+    assertEquals(
+        List.of(CONNECTION_PREFIX, "{1, 42}", CONNECTION_SUFFIX),
+        runtime.executeLine(connectionId, "; return 42;"));
+  }
+
+  @Test
   void dotProgramUsesDecodedWordsForDescriptors() throws Exception {
     WorldTxn world = new LambdaMooV4Reader().read(FIXTURE);
     MooRuntime runtime = runtimeFor(world);
