@@ -34,6 +34,37 @@ import org.junit.jupiter.api.Test;
 
 final class VmSnapshotTest {
   @Test
+  void restoreNormalizesSavedNamesWithoutRefillingMissingSlots() {
+    BytecodeProgram program = new world.mongoose.banteng.bytecode.MooCompiler().compile("return {Value, INT};");
+    VmState state = new VmState(new TaskOrigin(Map.of(), 0, new ObjectValue(-1), "", "", true),
+        new TaskBudget(60000, 5, 50));
+    state.ensureRoot(program);
+    VmSnapshot snapshot = state.snapshot(0);
+    VmSnapshot.Frame frame = snapshot.frames().getFirst();
+    VmSnapshot.Frame upper = new VmSnapshot.Frame(frame.program(), frame.operandStack(),
+        frame.indexCollections(), Map.of("VALUE", new IntegerValue(9), "INT", new IntegerValue(77)),
+        frame.handlers(), frame.finallyStates(), frame.loops(), frame.returnMode(), frame.receiver(),
+        frame.verbLocation(), frame.calledVerb(), frame.fullVerbName(), frame.createReturnOverride(),
+        frame.recycleTarget(), frame.moveObject(), frame.moveDestination(), frame.movePosition(),
+        frame.programmer(), frame.debug(), frame.threadMode(), frame.instructionPointer(),
+        frame.anonymousRecycleTarget());
+    VmSnapshot saved = new VmSnapshot(snapshot.initialLocals(), snapshot.initialProgrammer(),
+        snapshot.initialVerbLocation(), snapshot.initialCalledVerb(), snapshot.initialFullVerbName(),
+        List.of(upper), snapshot.output(), snapshot.connectionOptionRequests(), snapshot.bootPlayerTargets(),
+        snapshot.forcedInputRequests(), snapshot.notificationRequests(), snapshot.checkpointRequests(),
+        snapshot.anonymousCollectionDeferrals(), snapshot.outcome(), snapshot.returnValue(), snapshot.pendingError(),
+        snapshot.uncaughtError(), snapshot.switchedPlayer(), snapshot.forkRequest(), snapshot.suspensionDelaySeconds(),
+        snapshot.awaitingHostResult(), snapshot.pendingBuiltin(), snapshot.taskLocal(), snapshot.remainingTicks(),
+        snapshot.elapsedCpuNanos(), snapshot.remainingCpuNanos(), snapshot.maxStackDepth());
+    VmState restored = VmState.restore(saved);
+    assertEquals(new IntegerValue(77), restored.currentFrame().locals[16]);
+    assertFalse(restored.currentFrame().namedLocals().containsKey("float"));
+    new PureVmFixture().execute(program, restored);
+    assertEquals(new ListValue(List.of(new IntegerValue(9), new IntegerValue(77))),
+        restored.returnValue().orElseThrow());
+  }
+
+  @Test
   void taskOriginOwnsCopiedNormalizedLocalsAndRootMergePreservesMetadata() {
     Map<String, world.mongoose.banteng.value.MooValue> locals = new LinkedHashMap<>();
     locals.put("SEED", new IntegerValue(7));
@@ -43,7 +74,7 @@ final class VmSnapshotTest {
     assertThrows(UnsupportedOperationException.class,
         () -> origin.locals().put("other", new IntegerValue(8)));
     VmState state = new VmState(origin, new TaskBudget(321, 0, 64));
-    BytecodeProgram program = new BytecodeProgram(List.of(new Instruction(Opcode.RETURN)));
+    BytecodeProgram program = snapshotProgram(List.of(new Instruction(Opcode.RETURN)));
     state.pushFrame(program, Map.of("VERB", text("entered")), new VmState.FrameOrigin(
         VmState.ReturnMode.ROOT, 23, new ObjectValue(29), new ObjectValue(31), "entered",
         "entered full", Optional.empty(), OptionalLong.empty(), OptionalLong.empty(),
@@ -102,9 +133,9 @@ final class VmSnapshotTest {
   @Test
   void roundTripsEveryExplicitFrameAndPendingTaskValue() {
     BytecodeProgram program =
-        new BytecodeProgram(List.of(new Instruction(Opcode.PUSH_INTEGER, 7), new Instruction(Opcode.RETURN)));
+        snapshotProgram(List.of(new Instruction(Opcode.PUSH_INTEGER, 7), new Instruction(Opcode.RETURN)));
     BytecodeProgram forkProgram =
-        new BytecodeProgram(List.of(new Instruction(Opcode.PUSH_INTEGER, 9), new Instruction(Opcode.RETURN)));
+        snapshotProgram(List.of(new Instruction(Opcode.PUSH_INTEGER, 9), new Instruction(Opcode.RETURN)));
     VmState state =
         new VmState(new TaskOrigin(Map.of("THIS", new ObjectValue(5), "seed", new IntegerValue(11)), 17, new ObjectValue(19),
         TaskOrigin.calledVerb(Map.of("THIS", new ObjectValue(5), "seed", new IntegerValue(11))), TaskOrigin.calledVerb(Map.of("THIS", new ObjectValue(5), "seed", new IntegerValue(11))), true), new TaskBudget(321, 10, 64));
@@ -175,7 +206,7 @@ final class VmSnapshotTest {
   @Test
   void restoredInstructionBoundaryContinuesThroughTheSameProgram() {
     BytecodeProgram program =
-        new BytecodeProgram(
+        snapshotProgram(
             List.of(
                 new Instruction(Opcode.PUSH_INTEGER, 40),
                 new Instruction(Opcode.PUSH_INTEGER, 2),
@@ -197,9 +228,9 @@ final class VmSnapshotTest {
   @Test
   void createInitializeReturnOverrideIsTypedDurableAndAbsentFromOrdinaryFrames() {
     BytecodeProgram rootProgram =
-        new BytecodeProgram(List.of(new Instruction(Opcode.RETURN)));
+        snapshotProgram(List.of(new Instruction(Opcode.RETURN)));
     BytecodeProgram verbProgram =
-        new BytecodeProgram(List.of(new Instruction(Opcode.RETURN)));
+        snapshotProgram(List.of(new Instruction(Opcode.RETURN)));
     VmState state = new VmState(new TaskOrigin(java.util.Map.of(), 0, new world.mongoose.banteng.value.MooValue.ObjectValue(-1),
         "", "", true), new TaskBudget(60_000, 5, 50));
     state.ensureRoot(rootProgram);
@@ -230,7 +261,7 @@ final class VmSnapshotTest {
   @Test
   void hostSuspensionCapturesOnlyItsDurablePendingOutcome() {
     BytecodeProgram program =
-        new BytecodeProgram(List.of(new Instruction(Opcode.PUSH_INTEGER, 0), new Instruction(Opcode.RETURN)));
+        snapshotProgram(List.of(new Instruction(Opcode.PUSH_INTEGER, 0), new Instruction(Opcode.RETURN)));
     VmState state = new VmState(new TaskOrigin(java.util.Map.of(), 0, new world.mongoose.banteng.value.MooValue.ObjectValue(-1),
         "", "", true), new TaskBudget(60_000, 5, 50));
     state.ensureRoot(program);
@@ -252,7 +283,7 @@ final class VmSnapshotTest {
   @Test
   void byteSizeCountsRecursiveBinaryPayloadRatherThanInstructionPointerOrTextRendering() {
     BytecodeProgram program =
-        new BytecodeProgram(List.of(new Instruction(Opcode.RETURN)));
+        snapshotProgram(List.of(new Instruction(Opcode.RETURN)));
     VmState smaller = new VmState(new TaskOrigin(java.util.Map.of(), 0, new world.mongoose.banteng.value.MooValue.ObjectValue(-1),
         "", "", true), new TaskBudget(60_000, 5, 50));
     smaller.ensureRoot(program);
@@ -294,7 +325,7 @@ final class VmSnapshotTest {
   @Test
   void byteSizeCountsAnonymousObjectIdentityPayload() {
     BytecodeProgram program =
-        new BytecodeProgram(List.of(new Instruction(Opcode.RETURN)));
+        snapshotProgram(List.of(new Instruction(Opcode.RETURN)));
     VmState withoutAnonymous = new VmState(new TaskOrigin(java.util.Map.of(), 0, new world.mongoose.banteng.value.MooValue.ObjectValue(-1),
         "", "", true), new TaskBudget(60_000, 5, 50));
     withoutAnonymous.ensureRoot(program);
@@ -311,7 +342,7 @@ final class VmSnapshotTest {
   @Test
   void roundTripsEveryTypedFinallyReasonAndMultipleTypedLoopCursors() {
     BytecodeProgram program =
-        new BytecodeProgram(List.of(new Instruction(Opcode.RETURN)));
+        snapshotProgram(List.of(new Instruction(Opcode.RETURN)));
     VmState state = new VmState(new TaskOrigin(java.util.Map.of(), 0, new world.mongoose.banteng.value.MooValue.ObjectValue(-1),
         "", "", true), new TaskBudget(60_000, 5, 50));
     state.ensureRoot(program);
@@ -386,13 +417,13 @@ final class VmSnapshotTest {
   @Test
   void restoredCollectionCursorsResumeAtExactNextElementOrExhaustion() {
     BytecodeProgram indexed =
-        new BytecodeProgram(
+        snapshotProgram(
             List.of(
-                new Instruction(Opcode.ITERATE, 7, "value,index"),
+                loopInstruction(Opcode.ITERATE, 7, "value,index", List.of(25, 26)),
                 new Instruction(Opcode.BUILD_LIST, 0),
-                new Instruction(Opcode.LOAD_LOCAL, "value"),
+                new Instruction(Opcode.LOAD_LOCAL, 25),
                 new Instruction(Opcode.LIST_APPEND),
-                new Instruction(Opcode.LOAD_LOCAL, "index"),
+                new Instruction(Opcode.LOAD_LOCAL, 26),
                 new Instruction(Opcode.LIST_APPEND),
                 new Instruction(Opcode.RETURN),
                 new Instruction(Opcode.PUSH_INTEGER, 99),
@@ -440,10 +471,10 @@ final class VmSnapshotTest {
   @Test
   void restoredObjectRangePreservesMaximumEdgeAndThenExhausts() {
     BytecodeProgram program =
-        new BytecodeProgram(
+        snapshotProgram(
             List.of(
-                new Instruction(Opcode.ITERATE_RANGE, 4, "object"),
-                new Instruction(Opcode.LOAD_LOCAL, "object"),
+                loopInstruction(Opcode.ITERATE_RANGE, 4, "object", List.of(27)),
+                new Instruction(Opcode.LOAD_LOCAL, 27),
                 new Instruction(Opcode.RETURN),
                 new Instruction(Opcode.JUMP, 0),
                 new Instruction(Opcode.PUSH_INTEGER, 99),
@@ -488,14 +519,14 @@ final class VmSnapshotTest {
   @Test
   void restoredNestedLoopCursorsRemainIndependent() {
     BytecodeProgram program =
-        new BytecodeProgram(
+        snapshotProgram(
             List.of(
-                new Instruction(Opcode.ITERATE, 12, "outer"),
-                new Instruction(Opcode.ITERATE, 9, "inner"),
+                loopInstruction(Opcode.ITERATE, 12, "outer", List.of(28)),
+                loopInstruction(Opcode.ITERATE, 9, "inner", List.of(29)),
                 new Instruction(Opcode.BUILD_LIST, 0),
-                new Instruction(Opcode.LOAD_LOCAL, "outer"),
+                new Instruction(Opcode.LOAD_LOCAL, 28),
                 new Instruction(Opcode.LIST_APPEND),
-                new Instruction(Opcode.LOAD_LOCAL, "inner"),
+                new Instruction(Opcode.LOAD_LOCAL, 29),
                 new Instruction(Opcode.LIST_APPEND),
                 new Instruction(Opcode.RETURN),
                 new Instruction(Opcode.JUMP, 1),
@@ -552,7 +583,7 @@ final class VmSnapshotTest {
   @Test
   void executesEveryRestoredTypedFinallyReason() {
     BytecodeProgram fallThroughProgram =
-        new BytecodeProgram(
+        snapshotProgram(
             List.of(
                 new Instruction(Opcode.END_FINALLY),
                 new Instruction(Opcode.PUSH_INTEGER, 42),
@@ -566,7 +597,7 @@ final class VmSnapshotTest {
     assertEquals(new IntegerValue(42), restoredFallThrough.returnValue().orElseThrow());
 
     BytecodeProgram terminalProgram =
-        new BytecodeProgram(List.of(new Instruction(Opcode.END_FINALLY)));
+        snapshotProgram(List.of(new Instruction(Opcode.END_FINALLY)));
     VmState returned = new VmState(new TaskOrigin(java.util.Map.of(), 0, new world.mongoose.banteng.value.MooValue.ObjectValue(-1),
         "", "", true), new TaskBudget(60_000, 5, 50));
     returned.ensureRoot(terminalProgram);
@@ -607,11 +638,11 @@ final class VmSnapshotTest {
   @Test
   void restoredFinallyExitTrimsOperandsAndRemovesExitedNestedLoops() {
     BytecodeProgram program =
-        new BytecodeProgram(
+        snapshotProgram(
             List.of(
                 new Instruction(Opcode.END_FINALLY),
-                new Instruction(Opcode.ITERATE, 5, "outer"),
-                new Instruction(Opcode.ITERATE, 7, "inner"),
+                loopInstruction(Opcode.ITERATE, 5, "outer", List.of(28)),
+                loopInstruction(Opcode.ITERATE, 7, "inner", List.of(29)),
                 new Instruction(Opcode.PUSH_INTEGER, -1),
                 new Instruction(Opcode.RETURN),
                 new Instruction(Opcode.PUSH_INTEGER, -2),
@@ -649,6 +680,19 @@ final class VmSnapshotTest {
     assertEquals(new IntegerValue(42), restored.returnValue().orElseThrow());
     assertEquals(List.of(new IntegerValue(1)), List.copyOf(restored.currentFrame().operandStack));
     assertTrue(restored.currentFrame().loops.isEmpty());
+  }
+
+  private static BytecodeProgram snapshotProgram(List<Instruction> instructions) {
+    return new BytecodeProgram(instructions, List.of(), "", List.of(
+        "num", "obj", "str", "list", "err", "player", "this", "caller", "verb", "args", "argstr",
+        "dobj", "dobjstr", "prepstr", "iobj", "iobjstr", "int", "float", "map", "anon", "waif",
+        "bool", "true", "false", "seed", "value", "index", "object", "outer", "inner", "caught",
+        "__banteng_create_result"));
+  }
+
+  private static Instruction loopInstruction(Opcode opcode, int target, String names, List<Integer> slots) {
+    return new Instruction(opcode, OptionalLong.of(target), Optional.of(names), Optional.empty(),
+        0, Optional.empty(), 0, slots);
   }
 
   private static StringValue text(String value) {

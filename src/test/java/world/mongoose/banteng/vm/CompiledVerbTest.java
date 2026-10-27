@@ -110,26 +110,27 @@ final class CompiledVerbTest {
 
   @Test
   void normalAndPassKeepTheirDifferentLocalPolicies() {
-    WorldVerb target = verb("work", "return {this, player, caller, args, argstr, dobjstr};");
+    WorldVerb target = verb("work", "return {this, player, caller, args, argstr, dobjstr, subject};");
     ResolvedVerb resolution = new ResolvedVerb(target, new ObjectValue(1));
     Map<String, MooValue> locals = Map.of(
         "this", new ObjectValue(3), "player", new ObjectValue(4),
         "verb", StringValue.of("work"), "argstr", StringValue.of("raw command"),
-        "dobjstr", StringValue.of("direct"), "subject", new IntegerValue(99));
+        "dobjstr", StringValue.of("direct"), "subject", new IntegerValue(99), "caller_only", new IntegerValue(42));
     for (MooVm.VerbCallKind kind : List.of(MooVm.VerbCallKind.NORMAL, MooVm.VerbCallKind.PASS)) {
       VmState state = new VmState(new TaskOrigin(locals, 3, TaskOrigin.inferVerbLocation(locals),
         TaskOrigin.calledVerb(locals), TaskOrigin.calledVerb(locals), true), new TaskBudget(60_000, 5, 50));
-      state.ensureRoot(new MooCompiler().compile("return 0;"));
+      state.ensureRoot(new MooCompiler().compile("return {subject, caller_only};"));
       ListValue args = new ListValue(List.of(new IntegerValue(7)));
       assertTrue(MooVm.callVerb(state, new ObjectValue(3), resolution, args, "work", kind,
           Optional.empty(), Optional.empty(), Optional.empty()));
       assertSame(target.program(), state.currentFrame().program);
-      assertEquals(StringValue.of("raw command"), state.currentFrame().locals.get("argstr"));
-      assertEquals(StringValue.of("direct"), state.currentFrame().locals.get("dobjstr"));
+      assertEquals(StringValue.of("raw command"), state.currentFrame().locals[10]);
+      assertEquals(StringValue.of("direct"), state.currentFrame().locals[12]);
       assertEquals(kind == MooVm.VerbCallKind.PASS,
-          state.currentFrame().locals.containsKey("subject"));
-      assertEquals(new ObjectValue(3), state.currentFrame().locals.get("caller"));
-      assertEquals(args, state.currentFrame().locals.get("args"));
+          state.currentFrame().namedLocals().containsKey("subject"));
+      assertEquals(new ObjectValue(3), state.currentFrame().locals[7]);
+      assertEquals(args, state.currentFrame().locals[9]);
+      assertFalse(state.currentFrame().namedLocals().containsKey("caller_only"));
     }
   }
 
@@ -142,7 +143,7 @@ final class CompiledVerbTest {
       VmState state = new VmState(new TaskOrigin(Map.of("this", new ObjectValue(3)), 3, TaskOrigin.inferVerbLocation(Map.of("this", new ObjectValue(3))),
         TaskOrigin.calledVerb(Map.of("this", new ObjectValue(3))), TaskOrigin.calledVerb(Map.of("this", new ObjectValue(3))), true), new TaskBudget(60_000, 5, 50));
       state.ensureRoot(new MooCompiler().compile("return 0;"));
-      state.currentFrame().locals.put("this", new ObjectValue(8));
+      state.currentFrame().locals[6] = new ObjectValue(8);
       Optional<BuiltinResult.Move> move = switch (kind) {
         case HOOK_ACCEPT, HOOK_EXIT, HOOK_ENTER -> Optional.of(new BuiltinResult.Move(4, 5, 6));
         default -> Optional.empty();
@@ -152,7 +153,7 @@ final class CompiledVerbTest {
           Optional.of(new ObjectValue(9)), move, Optional.empty()));
       VmState.Frame frame = state.currentFrame();
       assertEquals(kind == MooVm.VerbCallKind.HOOK_RECYCLE ? new ObjectValue(8) : new ObjectValue(3),
-          frame.locals.get("caller"));
+          frame.locals[7]);
       assertEquals(kind == MooVm.VerbCallKind.HOOK_RECYCLE, frame.recycleTarget.isPresent());
       assertEquals(kind == MooVm.VerbCallKind.HOOK_INITIALIZE, frame.createReturnOverride.isPresent());
       assertEquals(move.isPresent(), frame.moveObject.isPresent());
@@ -177,7 +178,8 @@ final class CompiledVerbTest {
         Optional.empty(), Optional.empty(), Optional.of(call)));
     assertSame(target.program(), state.currentFrame().program);
     assertEquals(VmState.ReturnMode.ROOT, state.currentFrame().returnMode);
-    assertEquals(state.currentFrame().locals, state.snapshot().initialLocals());
+    state.snapshot().initialLocals().forEach((name, value) ->
+        assertEquals(value, state.currentFrame().namedLocals().get(name)));
     assertEquals(1234, state.budget().remainingTicks());
     try (WorldTxn transaction = world(target).begin()) {
       new MooVm().execute(target.program(), state, transaction,
