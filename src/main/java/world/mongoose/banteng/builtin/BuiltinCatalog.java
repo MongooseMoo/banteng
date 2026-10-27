@@ -1,4 +1,6 @@
 package world.mongoose.banteng.builtin;
+import world.mongoose.banteng.builtin.family.SqliteBuiltins;
+
 import java.io.IOException;
 import java.nio.file.Path;
 import java.security.MessageDigest;
@@ -42,6 +44,7 @@ import world.mongoose.banteng.builtin.family.ListBuiltins;
 import world.mongoose.banteng.builtin.family.MapBuiltins;
 import world.mongoose.banteng.builtin.family.MathBuiltins;
 import world.mongoose.banteng.builtin.family.RandomBuiltins;
+import world.mongoose.banteng.builtin.family.RegexBuiltins;
 import world.mongoose.banteng.builtin.family.StringBuiltins;
 import world.mongoose.banteng.builtin.family.TimeBuiltins;
 import world.mongoose.banteng.bytecode.MooCompiler;
@@ -91,11 +94,9 @@ public final class BuiltinCatalog {
   private final List<BuiltinSpec> manifest;
   private final FileIoBuiltins fileIo;
   private final BuiltinHosts hosts;
-  private final PcreService pcre = new PcreService();
   private final Optional<ListenerControl> listenerControl;
   private final Random random;
-  private final SqliteService sqlite;
-  private final ToastRegexService toastRegex = new ToastRegexService();
+  private final SqliteBuiltins sqlite;
   private final Random floatingRandom;
   private final Map<String, BuiltinSpec> specs;
   private volatile Set<String> protectedFunctions = Set.of();
@@ -106,7 +107,7 @@ public final class BuiltinCatalog {
     listenerControl = Optional.empty();
     ConfinedFileRoot files = new ConfinedFileRoot(Path.of("files"));
     fileIo = new FileIoBuiltins(files);
-    sqlite = new SqliteService(files);
+    sqlite = new SqliteBuiltins(files);
     random = new Random();
     floatingRandom = new Random();
     manifest = buildManifest();
@@ -119,7 +120,7 @@ public final class BuiltinCatalog {
     this.listenerControl = Optional.of(Objects.requireNonNull(listenerControl, "listenerControl"));
     ConfinedFileRoot files = new ConfinedFileRoot(Path.of("files"));
     fileIo = new FileIoBuiltins(files);
-    sqlite = new SqliteService(files);
+    sqlite = new SqliteBuiltins(files);
     random = new Random();
     floatingRandom = new Random();
     manifest = buildManifest();
@@ -783,20 +784,7 @@ public final class BuiltinCatalog {
             BuiltinPermissionRule.ANY,
             false,
             call -> connectionName(call.hosts(), call.arguments(), call.world(), call.programmer())));
-    entries.add(
-        new BuiltinSpec(
-            "match",
-            List.of(new CallShape(List.of(STRING, STRING), List.of(ANY), Optional.empty())),
-            BuiltinPermissionRule.ANY,
-            false,
-            call -> toastMatch(call.arguments(), false)));
-    entries.add(
-        new BuiltinSpec(
-            "rmatch",
-            List.of(new CallShape(List.of(STRING, STRING), List.of(ANY), Optional.empty())),
-            BuiltinPermissionRule.ANY,
-            false,
-            call -> toastMatch(call.arguments(), true)));
+    RegexBuiltins.registerLegacy(entries);
     entries.add(
         new BuiltinSpec(
             "connection_name_lookup",
@@ -946,30 +934,8 @@ public final class BuiltinCatalog {
             false,
             call -> functionInfo(call.arguments())));
     fileIo.register(entries);
-    entries.add(
-        new BuiltinSpec(
-            "pcre_match",
-            List.of(
-                new CallShape(
-                    List.of(STRING, STRING), List.of(INTEGER, INTEGER), Optional.empty())),
-            BuiltinPermissionRule.ANY,
-            true,
-            call -> pcre.match(call.arguments())));
-    entries.add(
-        new BuiltinSpec(
-            "pcre_replace",
-            List.of(new CallShape(List.of(STRING, STRING), List.of(), Optional.empty())),
-            BuiltinPermissionRule.ANY,
-            false,
-            call -> pcre.replace(call.arguments())));
-    entries.add(
-        new BuiltinSpec(
-            "pcre_cache_stats",
-            List.of(new CallShape(List.of(), List.of(), Optional.empty())),
-            BuiltinPermissionRule.WIZARD_ONLY,
-            false,
-            call -> pcre.cacheStats()));
-    addSqliteManifest(entries);
+    RegexBuiltins.registerPcre(entries);
+    sqlite.register(entries);
     entries.add(
         new BuiltinSpec(
             "server_log",
@@ -1086,79 +1052,6 @@ public final class BuiltinCatalog {
     return List.copyOf(entries);
   }
 
-  private void addSqliteManifest(List<BuiltinSpec> entries) {
-    entries.add(
-        sqliteSpec(
-            "sqlite_open",
-            new CallShape(List.of(STRING), List.of(INTEGER), Optional.empty()),
-            true,
-            call -> sqlite.open(call.arguments())));
-    entries.add(
-        sqliteSpec(
-            "sqlite_close",
-            new CallShape(List.of(INTEGER), List.of(), Optional.empty()),
-            true,
-            call -> sqlite.close(call.arguments())));
-    entries.add(
-        sqliteSpec(
-            "sqlite_handles",
-            new CallShape(List.of(), List.of(), Optional.empty()),
-            false,
-            call -> sqlite.handles(call.arguments())));
-    entries.add(
-        sqliteSpec(
-            "sqlite_info",
-            new CallShape(List.of(INTEGER), List.of(), Optional.empty()),
-            false,
-            call -> sqlite.info(call.arguments())));
-    entries.add(
-        sqliteSpec(
-            "sqlite_query",
-            new CallShape(List.of(INTEGER, STRING), List.of(ANY), Optional.empty()),
-            false,
-            call -> sqlite.query(call.arguments(), call.threadMode())));
-    entries.add(
-        sqliteSpec(
-            "sqlite_execute",
-            new CallShape(
-                List.of(INTEGER, STRING, Set.of(ArgType.LIST)),
-                List.of(),
-                Optional.empty()),
-            false,
-            call -> sqlite.execute(call.arguments(), call.threadMode())));
-    entries.add(
-        sqliteSpec(
-            "sqlite_last_insert_row_id",
-            new CallShape(List.of(INTEGER), List.of(), Optional.empty()),
-            false,
-            call -> sqlite.lastInsertRowId(call.arguments())));
-    entries.add(
-        sqliteSpec(
-            "sqlite_limit",
-            new CallShape(List.of(INTEGER, ANY, INTEGER), List.of(), Optional.empty()),
-            true,
-            call -> sqlite.limit(call.arguments())));
-    entries.add(
-        sqliteSpec(
-            "sqlite_interrupt",
-            new CallShape(List.of(INTEGER), List.of(), Optional.empty()),
-            true,
-            call -> sqlite.interrupt(call.arguments())));
-  }
-
-  private static BuiltinSpec sqliteSpec(
-      String name,
-      CallShape shape,
-      boolean irrevocable,
-      BuiltinHandler handler) {
-    return new BuiltinSpec(
-        name,
-        List.of(shape),
-        BuiltinPermissionRule.WIZARD_ONLY,
-        irrevocable,
-        handler);
-  }
-
   private BuiltinResult configureThreadPool(BuiltinCall call) {
     StringValue function = (StringValue) call.arguments().get(0);
     StringValue pool = (StringValue) call.arguments().get(1);
@@ -1257,14 +1150,6 @@ public final class BuiltinCatalog {
                     address.text(),
                     ip.text(),
                     destination.value())));
-  }
-
-  private BuiltinResult toastMatch(List<MooValue> arguments, boolean reverse) {
-    return toastRegex.match(
-        (StringValue) arguments.get(0),
-        (StringValue) arguments.get(1),
-        arguments.size() == 3 && arguments.get(2).isTruthy(),
-        reverse);
   }
 
   private BuiltinResult connectionNameLookup(BuiltinCall call) {

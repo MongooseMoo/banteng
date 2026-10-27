@@ -25,3 +25,6 @@ Adds the declarative extraction recipe and focused mover coverage for the two re
 
 # Next step
 Parent owns publication and required PR CI/conformance after runtime lands. Retain the completed Binary review because its implementation/mover/codecs are unchanged; this ancestry integration does not require another review. No publication, release or deployment performed by this worker.
+
+## Login and layout repair ancestry
+Merged the latest coordinator runtime login-output and pinned-layout-boundary repairs normally, without conflicts or family source adaptations. Family implementations, services, dependencies, extraction mover, authored fixtures and YAML are unchanged. No local tests, CI, migration or repeated review ran for this mechanical integration. Parent owns publication, hosted checks and merge.
