@@ -63,10 +63,6 @@ import world.mongoose.banteng.world.WorldVerb;
 /** The explicit builtin catalog required by the first managed runtime path. */
 public final class BuiltinCatalog {
   private static final SecureRandom SECURE_RANDOM = new SecureRandom();
-  private static final Set<ArgType> ANY = Set.of(ArgType.ANY);
-  private static final Set<ArgType> INTEGER = Set.of(ArgType.INTEGER);
-  private static final Set<ArgType> STRING = Set.of(ArgType.STRING);
-  private static final Set<ArgType> OBJECT = Set.of(ArgType.OBJECT);
 
   private final List<BuiltinSpec> manifest;
   private final FileIoBuiltins fileIo;
