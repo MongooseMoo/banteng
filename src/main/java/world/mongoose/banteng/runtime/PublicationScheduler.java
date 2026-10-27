@@ -867,7 +867,8 @@ public final class PublicationScheduler implements AutoCloseable {
     if (result.inputOutput().isPresent()) {
       synchronized (this) {
         input = ingress.get(start.taskId());
-        if (input != null && input.socketConnection().isPresent()) {
+        if (input != null && (input.socketConnection().isPresent()
+            || input.operation() == MooRuntime.Operation.START_SCRIPT)) {
           foreground = ingress.remove(start.taskId()).future();
         } else if (input != null) {
           ingress.put(start.taskId(), input.append(result.inputOutput().orElseThrow()));

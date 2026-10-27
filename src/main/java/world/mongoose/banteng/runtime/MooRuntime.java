@@ -185,6 +185,11 @@ public final class MooRuntime implements AutoCloseable, SchedulerRuntime {
     scheduler.activateRestoredTasks();
   }
 
+  /** Passes raw startup arguments to the database hook without evaluating them. */
+  public void startScript(ListValue arguments) {
+    scheduler.submit(RuntimeRequest.startScript(arguments));
+  }
+
   /** Publishes the final shutdown checkpoint without checkpoint notification hooks. */
   public void requestGracefulShutdown() {
     scheduler.submit(RuntimeRequest.gracefulShutdown());
@@ -276,6 +281,14 @@ public final class MooRuntime implements AutoCloseable, SchedulerRuntime {
 
   private RuntimeStep startServerNow(AttemptContext context) {
     return continueStartupAfterPendingWaifFinalization(context);
+  }
+
+  private RuntimeStep startScriptNow(AttemptContext context, ListValue arguments) {
+    ResolvedVerb hook = context.world.resolveVerb(0, "do_start_script", true).orElse(null);
+    if (hook == null) return RuntimeStep.returned(List.of());
+    return startStored(context, hook,
+        new RootVerbCall(0, -1, -1, "do_start_script", arguments, ""),
+        RuntimeContinuation.after(RuntimeTransition.START_SCRIPT_RETURN, 0, "", List.of(), 0, 0, false));
   }
 
   private RuntimeStep gracefulShutdownNow(AttemptContext context) {
@@ -456,6 +469,11 @@ public final class MooRuntime implements AutoCloseable, SchedulerRuntime {
   @Override
   public Optional<List<String>> suspendedInputOutput(AttemptContext context, RuntimeContinuation continuation, VmState state) {
     RuntimeTransition transition = continuation.transition().orElseThrow();
+    if (transition == RuntimeTransition.START_SCRIPT_RETURN) {
+      List<String> output = List.copyOf(state.effects().output());
+      state.effects().clearOutput();
+      return Optional.of(output);
+    }
     boolean command = transition == RuntimeTransition.LINE_DO_COMMAND_GATE_THEN_DISPATCH
         || transition == RuntimeTransition.LINE_SELECTED_COMMAND_APPEND_OUTPUT;
     if (!command && transition != RuntimeTransition.LOGIN_AUTHENTICATE_AND_ASSOCIATE
@@ -1121,6 +1139,7 @@ public final class MooRuntime implements AutoCloseable, SchedulerRuntime {
       }
       return switch (request.operation) {
         case STARTUP -> startServerNow(context);
+        case START_SCRIPT -> startScriptNow(context, request.arguments);
         case GRACEFUL_SHUTDOWN -> gracefulShutdownNow(context);
         case SIGNAL -> signalNow(context, Math.toIntExact(request.generation));
         case CHECKPOINT_DISCONNECT ->
@@ -1173,6 +1192,7 @@ public final class MooRuntime implements AutoCloseable, SchedulerRuntime {
                   || state.returnValue().filter(MooValue::isTruthy).isPresent()
               ? RuntimeStep.returned(state.effects().output()) : signalDefault(context, continuation.text());
       case SERVER_STARTED_RETURN -> RuntimeStep.returned(state.effects().output());
+      case START_SCRIPT_RETURN -> RuntimeStep.returned(state.effects().output());
       case CHECKPOINT_USER_DISCONNECTED_RETURN -> RuntimeStep.returned(List.of());
       case CHECKPOINT_STARTED_RETURN -> {
         context.effects.add(RuntimeEffect.checkpoint(continuation.flag(), continuation.text()));
@@ -1643,6 +1663,7 @@ public final class MooRuntime implements AutoCloseable, SchedulerRuntime {
   }
 
   enum RuntimeTransition {
+    START_SCRIPT_RETURN,
     SIGNAL_RETURN,
     SERVER_STARTED_RETURN,
     CHECKPOINT_USER_DISCONNECTED_RETURN,
@@ -1972,6 +1993,7 @@ public final class MooRuntime implements AutoCloseable, SchedulerRuntime {
   }
 
   enum Operation {
+    START_SCRIPT,
     SIGNAL,
     STARTUP,
     GRACEFUL_SHUTDOWN,
@@ -1991,20 +2013,24 @@ public final class MooRuntime implements AutoCloseable, SchedulerRuntime {
       boolean printMessages,
       MapValue connectionInfo,
       String text,
-      long generation) {
+      long generation,
+      ListValue arguments) {
+    static RuntimeRequest startScript(ListValue arguments) {
+      return new RuntimeRequest(Operation.START_SCRIPT, 0, 0, false, new MapValue(Map.of()), "", 0, arguments);
+    }
     static RuntimeRequest startup() {
       return new RuntimeRequest(
-          Operation.STARTUP, 0, 0, false, new MapValue(Map.of()), "", 0);
+          Operation.STARTUP, 0, 0, false, new MapValue(Map.of()), "", 0, new ListValue(List.of()));
     }
 
     static RuntimeRequest signal(int signal) {
       return new RuntimeRequest(
-          Operation.SIGNAL, 0, 0, false, new MapValue(Map.of()), "", signal);
+          Operation.SIGNAL, 0, 0, false, new MapValue(Map.of()), "", signal, new ListValue(List.of()));
     }
 
     static RuntimeRequest gracefulShutdown() {
       return new RuntimeRequest(
-          Operation.GRACEFUL_SHUTDOWN, 0, 0, false, new MapValue(Map.of()), "", 0);
+          Operation.GRACEFUL_SHUTDOWN, 0, 0, false, new MapValue(Map.of()), "", 0, new ListValue(List.of()));
     }
 
     static RuntimeRequest checkpointDisconnect(ActiveConnection connection) {
@@ -2015,33 +2041,33 @@ public final class MooRuntime implements AutoCloseable, SchedulerRuntime {
           false,
           new MapValue(Map.of()),
           "",
-          0);
+          0, new ListValue(List.of()));
     }
 
     static RuntimeRequest open(
         long connectionId, long listenerHandler, boolean printMessages, MapValue connectionInfo) {
       return new RuntimeRequest(
-          Operation.OPEN, connectionId, listenerHandler, printMessages, connectionInfo, "", 0);
+          Operation.OPEN, connectionId, listenerHandler, printMessages, connectionInfo, "", 0, new ListValue(List.of()));
     }
 
     static RuntimeRequest close(long connectionId) {
       return new RuntimeRequest(
-          Operation.CLOSE, connectionId, 0, false, new MapValue(Map.of()), "", 0);
+          Operation.CLOSE, connectionId, 0, false, new MapValue(Map.of()), "", 0, new ListValue(List.of()));
     }
 
     static RuntimeRequest line(long connectionId, String line) {
       return new RuntimeRequest(
-          Operation.LINE, connectionId, 0, false, new MapValue(Map.of()), line, 0);
+          Operation.LINE, connectionId, 0, false, new MapValue(Map.of()), line, 0, new ListValue(List.of()));
     }
 
     static RuntimeRequest outOfBand(long connectionId, String command) {
       return new RuntimeRequest(
-          Operation.OUT_OF_BAND, connectionId, 0, false, new MapValue(Map.of()), command, 0);
+          Operation.OUT_OF_BAND, connectionId, 0, false, new MapValue(Map.of()), command, 0, new ListValue(List.of()));
     }
 
     static RuntimeRequest timeout(long connectionId, long generation) {
       return new RuntimeRequest(
-          Operation.TIMEOUT, connectionId, 0, false, new MapValue(Map.of()), "", generation);
+          Operation.TIMEOUT, connectionId, 0, false, new MapValue(Map.of()), "", generation, new ListValue(List.of()));
     }
 
     static RuntimeRequest checkpointFinished(boolean success, boolean shutdown) {
@@ -2052,7 +2078,7 @@ public final class MooRuntime implements AutoCloseable, SchedulerRuntime {
           success,
           new MapValue(Map.of()),
           "",
-          shutdown ? 1 : 0);
+          shutdown ? 1 : 0, new ListValue(List.of()));
     }
   }
 
