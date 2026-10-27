@@ -93,6 +93,9 @@ public final class MoveBuiltinFamily extends ScanningRecipe<MoveBuiltinFamily.Me
             members.limits.add(field);
           }
           if (statement instanceof J.MethodDeclaration method) {
+            if (family.equals("BinaryBuiltins") && method.getSimpleName().equals("binaryBytes")) {
+              members.binaryBytes = method;
+            }
             if (family.equals("StringBuiltins") && method.getSimpleName().equals("matchesAt")) {
               members.matchesAt = method;
             }
@@ -227,6 +230,18 @@ public final class MoveBuiltinFamily extends ScanningRecipe<MoveBuiltinFamily.Me
         .withSourcePath(Path.of("src/main/java/world/mongoose/banteng/builtin/family/" + family + ".java"));
     generated = (J.CompilationUnit) new RandomizeIdVisitor<ExecutionContext>().visitNonNull(generated, context);
     generated = (J.CompilationUnit) new AutoFormatVisitor<ExecutionContext>(null).visitNonNull(generated, context);
+    if (family.equals("BinaryBuiltins")) {
+      String source = generated.printAll();
+      int start = source.indexOf("ByteArrayOutputStream encoded =", source.indexOf("private static BuiltinResult encodeBinary"));
+      int end = source.indexOf("return BuiltinResult.value(StringValue.of(encoded.toByteArray()));", start)
+          + "return BuiltinResult.value(StringValue.of(encoded.toByteArray()));".length();
+      source = source.substring(0, start)
+          + "return BuiltinResult.value(StringValue.of(raw.toByteArray()).encodeBinary());"
+          + source.substring(end);
+      source = binaryCalls(source);
+      generated = ((J.CompilationUnit) JavaParser.fromJavaVersion().build().parse(context, source)
+          .findFirst().orElseThrow()).withSourcePath(generated.getSourcePath());
+    }
     if (family.equals("StringBuiltins")) {
       String source = generated.printAll().replace("private BuiltinResult parseAnsi(List<MooValue> arguments)",
           "private static BuiltinResult parseAnsi(List<MooValue> arguments, Random random)");
@@ -258,6 +273,9 @@ public final class MoveBuiltinFamily extends ScanningRecipe<MoveBuiltinFamily.Me
   }
 
   private String registerMethod(int group) {
+    if (family.equals("BinaryBuiltins")) {
+      return List.of("registerDecode", "registerEncodeAndChr").get(group);
+    }
     if (family.equals("StringBuiltins")) {
       return List.of("registerExplode", "registerSubstitutionAndAnsi", "registerSearchAndCompare").get(group);
     }
@@ -268,6 +286,19 @@ public final class MoveBuiltinFamily extends ScanningRecipe<MoveBuiltinFamily.Me
 
   private boolean stringAnsiGroup(int group) {
     return family.equals("StringBuiltins") && group == 1;
+  }
+
+  private static String binaryCalls(String source) {
+    return source.replace("binaryBytes((StringValue) arguments.getFirst())", "((StringValue) arguments.getFirst()).binaryBytes()")
+        .replace("binaryBytes((StringValue) arguments.get(1))", "((StringValue) arguments.get(1)).binaryBytes()")
+        .replace("binaryBytes((StringValue) value)", "((StringValue) value).binaryBytes()")
+        .replace("encodeBinary(List.of(StringValue.of(value)))", "BuiltinResult.value(StringValue.of(value).encodeBinary())")
+        .replace("encodeBinary(List.of(StringValue.of(result.body())))", "BuiltinResult.value(StringValue.of(result.body()).encodeBinary())");
+  }
+
+  private static J.CompilationUnit reparse(J.CompilationUnit unit, String source, ExecutionContext context) {
+    return ((J.CompilationUnit) JavaParser.fromJavaVersion().build().parse(context, source)
+        .findFirst().orElseThrow()).withId(unit.getId()).withSourcePath(unit.getSourcePath());
   }
 
   private static J.CompilationUnit stringSharedImports(J.CompilationUnit unit, ExecutionContext context) {
@@ -318,6 +349,24 @@ public final class MoveBuiltinFamily extends ScanningRecipe<MoveBuiltinFamily.Me
     return new JavaIsoVisitor<ExecutionContext>() {
       @Override public J.CompilationUnit visitCompilationUnit(J.CompilationUnit unit,
           ExecutionContext context) {
+        if (family.equals("BinaryBuiltins") && unit.getSourcePath().endsWith("value/MooValue.java")) {
+          String decoder = members.binaryBytes.printTrimmed(new Cursor(null, members.source))
+              .replace("private static Optional<byte[]> binaryBytes(StringValue encoded)", "public Optional<byte[]> binaryBytes()")
+              .replace("byte[] binary = encoded.bytes();", "byte[] binary = bytes();").strip().indent(4);
+          J.MethodDeclaration encode = members.implementations.stream()
+              .filter(method -> method.getSimpleName().equals("encodeBinary")).findFirst().orElseThrow();
+          String original = encode.printTrimmed(new Cursor(null, members.source));
+          String encoder = "public StringValue encodeBinary() {\n"
+              + original.substring(original.indexOf("ByteArrayOutputStream encoded ="))
+                  .replace("raw.size()", "bytes.length").replace("raw.toByteArray()", "bytes")
+                  .replace("return BuiltinResult.value(StringValue.of(encoded.toByteArray()));", "return StringValue.of(encoded.toByteArray());");
+          encoder = encoder.replace("{\nByteArrayOutputStream", "{\n  ByteArrayOutputStream").indent(4);
+          String source = unit.printAll().replace("import java.math.BigDecimal;", "import java.io.ByteArrayOutputStream;\nimport java.math.BigDecimal;")
+              .replace("final class StringValue implements MooValue {", "final class StringValue implements MooValue {\n"
+                  + "    /** Decodes Toast binary escapes, rejecting malformed escape sequences. */\n" + decoder + "\n"
+                  + "    /** Escapes this string as Toast binary input. */\n" + encoder + "\n");
+          return reparse(unit, source, context);
+        }
         if (family.equals("StringBuiltins") && unit.getSourcePath().endsWith("value/ValueSemantics.java")) {
           J.ClassDeclaration type = unit.getClasses().getFirst();
           List<Statement> body = new ArrayList<>(type.getBody().getStatements());
@@ -347,6 +396,7 @@ public final class MoveBuiltinFamily extends ScanningRecipe<MoveBuiltinFamily.Me
         J.CompilationUnit changed = super.visitCompilationUnit(unit, context);
         if (family.equals("ListBuiltins")) { changed = addSharedImports(changed, context); }
         if (family.equals("StringBuiltins")) { changed = stringSharedImports(changed, context); }
+        if (family.equals("BinaryBuiltins")) { changed = reparse(changed, binaryCalls(changed.printAll()), context); }
         return usedImports(changed, context);
       }
       @Override public J.MethodInvocation visitMethodInvocation(J.MethodInvocation invocation,
@@ -371,6 +421,7 @@ public final class MoveBuiltinFamily extends ScanningRecipe<MoveBuiltinFamily.Me
                 .filter(statement -> members.fields.stream().noneMatch(member -> member.getId().equals(statement.getId())))
                  .filter(statement -> members.foldAscii == null || !members.foldAscii.getId().equals(statement.getId()))
                  .filter(statement -> members.matchesAt == null || !members.matchesAt.getId().equals(statement.getId()))
+                 .filter(statement -> members.binaryBytes == null || !members.binaryBytes.getId().equals(statement.getId()))
                  .filter(statement -> members.nested.stream().noneMatch(member -> member.getId().equals(statement.getId())))
                 .toList())), context);
       }
@@ -416,6 +467,7 @@ public final class MoveBuiltinFamily extends ScanningRecipe<MoveBuiltinFamily.Me
     private final List<Statement> fields = new ArrayList<>();
     private J.MethodDeclaration foldAscii;
     private J.MethodDeclaration matchesAt;
+    private J.MethodDeclaration binaryBytes;
     private final List<Statement> nested = new ArrayList<>();
     private boolean ready() {
       return !collision && source != null && registrations.size() == builtins.size()

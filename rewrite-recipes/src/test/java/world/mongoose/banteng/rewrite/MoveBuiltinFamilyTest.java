@@ -15,6 +15,74 @@ import org.openrewrite.java.JavaParser;
 
 final class MoveBuiltinFamilyTest {
   @Test
+  void movesBinaryGroupsAndRetargetsSharedCodecCallers() {
+    var context = new InMemoryExecutionContext(failure -> { throw new AssertionError(failure); });
+    var files = JavaParser.fromJavaVersion().build().parse(context, """
+        package world.mongoose.banteng.builtin;
+        import java.io.ByteArrayOutputStream;
+        import java.util.List;
+        import java.util.Optional;
+        class BuiltinCatalog {
+          void buildManifest() {
+            entries.add(new BuiltinSpec("decode_binary", List.of(STRING), BuiltinPermissionRule.ANY, false, call -> decodeBinary(call.arguments())));
+            unrelated();
+            entries.add(new BuiltinSpec("encode_binary", List.of(ANY), BuiltinPermissionRule.ANY, false, call -> encodeBinary(call.arguments())));
+            entries.add(new BuiltinSpec("chr", List.of(ANY), BuiltinPermissionRule.ANY, false, call -> chr(call.arguments())));
+          }
+          private static Optional<byte[]> binaryBytes(StringValue encoded) {
+            byte[] binary = encoded.bytes();
+            return Optional.of(binary);
+          }
+          private static BuiltinResult decodeBinary(List<MooValue> arguments) {
+            return binaryBytes((StringValue) arguments.getFirst()).isPresent() ? null : null;
+          }
+          private static BuiltinResult encodeBinary(List<MooValue> arguments) {
+            ByteArrayOutputStream raw = new ByteArrayOutputStream();
+            ByteArrayOutputStream encoded = new ByteArrayOutputStream(raw.size());
+            for (byte current : raw.toByteArray()) { encoded.write(current); }
+            return BuiltinResult.value(StringValue.of(encoded.toByteArray()));
+          }
+          private static BuiltinResult chr(List<MooValue> arguments) { return null; }
+          private static boolean appendBinaryBytes() { return true; }
+          private static Object hashInput(MooValue value) { return binaryBytes((StringValue) value); }
+          private static Object hmac(List<MooValue> arguments) { return binaryBytes((StringValue) arguments.get(1)); }
+          private static Object getenv(String value) { return encodeBinary(List.of(StringValue.of(value))); }
+          private static Object curl(Result result) { return encodeBinary(List.of(StringValue.of(result.body()))); }
+        }
+        """, """
+        package world.mongoose.banteng.value;
+        import java.math.BigDecimal;
+        import java.util.Optional;
+        public interface MooValue {
+          final class StringValue implements MooValue {
+            private byte[] bytes;
+            public byte[] bytes() { return bytes; }
+          }
+        }
+        """).toList();
+    var recipe = new MoveBuiltinFamily("BinaryBuiltins", Set.of("decode_binary", "encode_binary", "chr"),
+        Set.of("decodeBinary", "encodeBinary", "chr", "appendBinaryBytes"));
+    var changes = recipe.run(new InMemoryLargeSourceSet(files), context).getChangeset().getAllResults();
+    String catalog = changedFile(changes, "BuiltinCatalog.java");
+    String family = changedFile(changes, "BinaryBuiltins.java");
+    String values = changedFile(changes, "MooValue.java");
+    assertTrue(catalog.indexOf("registerDecode(entries)") < catalog.indexOf("unrelated()"));
+    assertTrue(catalog.indexOf("unrelated()") < catalog.indexOf("registerEncodeAndChr(entries)"));
+    assertFalse(catalog.contains("private static Optional<byte[]> binaryBytes"));
+    assertTrue(catalog.contains("((StringValue) value).binaryBytes()"));
+    assertTrue(catalog.contains("((StringValue) arguments.get(1)).binaryBytes()"));
+    assertTrue(catalog.contains("BuiltinResult.value(StringValue.of(value).encodeBinary())"));
+    assertTrue(catalog.contains("BuiltinResult.value(StringValue.of(result.body()).encodeBinary())"));
+    assertTrue(family.contains("StringValue.of(raw.toByteArray()).encodeBinary()"));
+    assertTrue(family.contains("((StringValue) arguments.getFirst()).binaryBytes()"));
+    assertTrue(values.contains("public Optional<byte[]> binaryBytes()"));
+    assertTrue(values.contains("public StringValue encodeBinary()"));
+    assertTrue(values.contains("for (byte current : bytes)"));
+    assertTrue(recipe.run(new InMemoryLargeSourceSet(changes.stream().map(Result::getAfter).toList()), context)
+        .getChangeset().getAllResults().isEmpty());
+  }
+
+  @Test
   void movesStringGroupsWithSharedRandomAndExistingValueSemanticsOwner() {
     var context = new InMemoryExecutionContext(failure -> { throw new AssertionError(failure); });
     var files = JavaParser.fromJavaVersion().build().parse(context, """
