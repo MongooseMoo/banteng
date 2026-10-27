@@ -227,10 +227,10 @@ public final class VmState {
       if (!current) {
         List<MooValue> fields = new ArrayList<>();
         fields.add(frame.receiver);
-        fields.add(frame.locals.getOrDefault("verb", StringValue.of(new byte[0])));
+        fields.add(frame.localOrDefault(8, StringValue.of(new byte[0])));
         fields.add(new ObjectValue(frame.programmer));
         fields.add(frame.verbLocation);
-        fields.add(frame.locals.getOrDefault("player", new ObjectValue(-1)));
+        fields.add(frame.localOrDefault(5, new ObjectValue(-1)));
         if (lineNumbers) {
           int callInstruction =
               Math.max(
@@ -253,7 +253,7 @@ public final class VmState {
                     StringValue.of("eval"),
                     new ObjectValue(-1),
                     new ObjectValue(-1),
-                    frame.locals.getOrDefault("player", new ObjectValue(-1))));
+                    frame.localOrDefault(5, new ObjectValue(-1))));
         if (lineNumbers) {
           fields.add(new world.mongoose.banteng.value.MooValue.IntegerValue(2));
         }
@@ -325,7 +325,7 @@ public final class VmState {
         Optional.of(
             new ForkRequest(
                 program,
-                frame.locals,
+                frame.namedLocals(),
                 frame.programmer,
                 frame.verbLocation,
                 frame.calledVerb,
@@ -346,7 +346,7 @@ public final class VmState {
     // The compiler emits the fork's named binding immediately after FORK.
     var binding = frame.program.instructions().get(frame.instructionPointer);
     if (binding.opcode() == BytecodeProgram.Opcode.STORE_LOCAL) {
-      childLocals.put(binding.text().orElseThrow().toLowerCase(Locale.ROOT), taskId);
+      childLocals.put(frame.program.variableNames().get(Math.toIntExact(binding.operand().orElseThrow())), taskId);
     }
     forkRequest = Optional.empty();
     currentFrame().operandStack.push(taskId);
@@ -542,7 +542,7 @@ public final class VmState {
         frame.program,
         List.copyOf(frame.operandStack),
         indexStates,
-        frame.locals,
+        frame.namedLocals(),
         handlers,
         finallyStates,
         loops,
@@ -582,6 +582,9 @@ public final class VmState {
             snapshot.anonymousRecycleTarget(),
             snapshot.debug(),
             snapshot.threadMode());
+    for (int slot = 0; slot < frame.locals.length; slot++) {
+      frame.locals[slot] = snapshot.locals().get(frame.program.variableNames().get(slot));
+    }
     frame.operandStack.addAll(snapshot.operandStack());
     for (VmSnapshot.IndexState index : snapshot.indexCollections()) {
       frame.indexCollections.addLast(
@@ -619,10 +622,27 @@ public final class VmState {
   }
 
   static final class Frame {
+    private static final @org.jspecify.annotations.Nullable MooValue[] CONSTANT_VALUES = constantValues();
+
+    private static @org.jspecify.annotations.Nullable MooValue[] constantValues() {
+      @org.jspecify.annotations.Nullable MooValue[] values = new MooValue[24];
+      int[] slots = {0, 1, 2, 3, 4, 16, 17, 18, 19, 20, 21};
+      MooValue.Type[] types = {MooValue.Type.INTEGER, MooValue.Type.OBJECT,
+          MooValue.Type.STRING, MooValue.Type.LIST, MooValue.Type.ERROR, MooValue.Type.INTEGER,
+          MooValue.Type.FLOAT, MooValue.Type.MAP, MooValue.Type.ANONYMOUS, MooValue.Type.WAIF,
+          MooValue.Type.BOOLEAN};
+      for (int index = 0; index < slots.length; index++) {
+        values[slots[index]] = new MooValue.IntegerValue(types[index].code());
+      }
+      values[22] = MooValue.BooleanValue.TRUE;
+      values[23] = MooValue.BooleanValue.FALSE;
+      return values;
+    }
+
     final BytecodeProgram program;
     final Deque<MooValue> operandStack = new ArrayDeque<>();
     final Deque<IndexContext> indexCollections = new ArrayDeque<>();
-    final Map<String, MooValue> locals;
+    final @org.jspecify.annotations.Nullable MooValue[] locals;
     final Deque<ActiveHandler> handlers = new ArrayDeque<>();
     final Deque<VmSnapshot.FinallyState> finallyContinuations = new ArrayDeque<>();
     final Map<Integer, LoopCursor> loops = new LinkedHashMap<>();
@@ -641,6 +661,20 @@ public final class VmState {
     long programmer;
     boolean threadMode;
     int instructionPointer;
+
+    MooValue localOrDefault(int slot, MooValue fallback) {
+      MooValue value = locals[slot];
+      return value == null ? fallback : value;
+    }
+
+    Map<String, MooValue> namedLocals() {
+      Map<String, MooValue> named = new LinkedHashMap<>();
+      for (int slot = 0; slot < locals.length; slot++) {
+        MooValue value = locals[slot];
+        if (value != null) named.put(program.variableNames().get(slot), value);
+      }
+      return named;
+    }
 
     Frame(
         BytecodeProgram program,
@@ -695,7 +729,12 @@ public final class VmState {
         boolean debug,
         boolean threadMode) {
       this.program = program;
-      this.locals = normalizedLocals(locals);
+      this.locals = java.util.Arrays.copyOf(CONSTANT_VALUES, program.variableNames().size());
+      Map<String, MooValue> normalized = normalizedLocals(locals);
+      for (int slot = 0; slot < this.locals.length; slot++) {
+        String name = program.variableNames().get(slot);
+        if (normalized.containsKey(name)) this.locals[slot] = normalized.get(name);
+      }
       this.returnMode = returnMode;
       this.programmer = programmer;
       this.receiver = receiver;

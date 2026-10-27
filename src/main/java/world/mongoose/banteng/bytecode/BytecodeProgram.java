@@ -7,7 +7,8 @@ import java.util.OptionalLong;
 
 /** Immutable bytecode for the executable language slice. */
 public record BytecodeProgram(
-    List<Instruction> instructions, List<BytecodeProgram> forkVectors, String source) {
+    List<Instruction> instructions, List<BytecodeProgram> forkVectors, String source,
+    List<String> variableNames) {
   public BytecodeProgram {
     instructions =
         instructions.stream()
@@ -20,11 +21,16 @@ public record BytecodeProgram(
                             instruction.text(),
                             instruction.handler(),
                             1,
-                            instruction.astPath())
+                            instruction.astPath(), instruction.localAux(), instruction.localSlots())
                         : instruction)
             .toList();
     forkVectors = List.copyOf(forkVectors);
     Objects.requireNonNull(source, "source");
+    variableNames = List.copyOf(variableNames);
+  }
+
+  public BytecodeProgram(List<Instruction> instructions, List<BytecodeProgram> forkVectors, String source) {
+    this(instructions, forkVectors, source, LayoutCompiler.PREDEFINED_NAMES);
   }
 
   /** Creates a manually built program with explicit fork vectors and no source syntax. */
@@ -77,6 +83,7 @@ public record BytecodeProgram(
     LIST_EXTEND,
     BUILD_MAP,
     LOAD_LOCAL,
+    PUSH_CLEAR,
     STORE_LOCAL,
     DUP,
     DUP_PAIR,
@@ -158,8 +165,11 @@ public record BytecodeProgram(
       Optional<String> text,
       Optional<HandlerSpec> handler,
       int sourceLine,
-      Optional<AstPath> astPath) {
+      Optional<AstPath> astPath,
+      int localAux,
+      List<Integer> localSlots) {
     public Instruction {
+      localSlots = List.copyOf(localSlots);
       Objects.requireNonNull(astPath, "astPath");
       if (sourceLine < 0) {
         throw new IllegalArgumentException("source line must not be negative");
@@ -182,14 +192,13 @@ public record BytecodeProgram(
                 true;
             default -> false;
           };
+      boolean local = opcode == Opcode.LOAD_LOCAL || opcode == Opcode.PUSH_CLEAR
+          || opcode == Opcode.STORE_LOCAL || opcode == Opcode.SET_INDEX_LOCAL
+          || opcode == Opcode.SET_RANGE_LOCAL;
       boolean textRequired =
           switch (opcode) {
             case PUSH_STRING,
                 PUSH_ERROR,
-                LOAD_LOCAL,
-                STORE_LOCAL,
-                SET_INDEX_LOCAL,
-                SET_RANGE_LOCAL,
                 CALL,
                 ITERATE,
                 ITERATE_RANGE,
@@ -207,7 +216,10 @@ public record BytecodeProgram(
               || opcode == Opcode.SET_INDEX_PROPERTY
               || opcode == Opcode.SET_RANGE_PROPERTY
               || opcode == Opcode.SET_RANGE_LOCAL;
-      if ((!optionalParent && numberRequired != operand.isPresent())
+      if ((!local && !optionalParent && numberRequired != operand.isPresent())
+          || (local && text.isEmpty() && (operand.isEmpty() || operand.orElseThrow() < 0))
+          || (local && text.isPresent() && opcode == Opcode.PUSH_CLEAR)
+          || (opcode == Opcode.STORE_LOCAL && text.isPresent() && operand.isPresent())
           || (opcode == Opcode.INDEX
               && operand.isPresent()
               && operand.orElseThrow() != 1)
@@ -216,8 +228,8 @@ public record BytecodeProgram(
                   || opcode == Opcode.SET_RANGE_LOCAL
                   || opcode == Opcode.SET_RANGE_PROPERTY)
               && operand.isPresent()
-              && operand.orElseThrow() < 1)
-          || textRequired != text.isPresent()
+              && (!local || text.isPresent()) && operand.orElseThrow() < 1)
+          || (!local && textRequired != text.isPresent())
           || handlerRequired != handler.isPresent()) {
         throw new IllegalArgumentException(opcode + " has invalid operands");
       }
@@ -233,6 +245,11 @@ public record BytecodeProgram(
       }
     }
 
+    public Instruction(Opcode opcode, OptionalLong operand, Optional<String> text,
+        Optional<HandlerSpec> handler, int sourceLine, Optional<AstPath> astPath) {
+      this(opcode, operand, text, handler, sourceLine, astPath, 0, List.of());
+    }
+
     @Override
     public boolean equals(Object other) {
       return this == other
@@ -240,12 +257,14 @@ public record BytecodeProgram(
               && opcode == that.opcode
               && operand.equals(that.operand)
               && text.equals(that.text)
-              && handler.equals(that.handler));
+              && handler.equals(that.handler)
+              && localAux == that.localAux
+              && localSlots.equals(that.localSlots));
     }
 
     @Override
     public int hashCode() {
-      return Objects.hash(opcode, operand, text, handler);
+      return Objects.hash(opcode, operand, text, handler, localAux, localSlots);
     }
 
     /** Creates an instruction with explicit operands before source location is assigned. */
@@ -353,7 +372,13 @@ public record BytecodeProgram(
       List<String> caughtErrors,
       boolean structuredCatchBinding,
       int finallyTarget,
-      int endTarget) {
+      int endTarget,
+      int catchSlot) {
+    public HandlerSpec(int catchTarget, Optional<String> catchVariable, boolean catchesAny,
+        List<String> caughtErrors, boolean structuredCatchBinding, int finallyTarget, int endTarget) {
+      this(catchTarget, catchVariable, catchesAny, caughtErrors, structuredCatchBinding,
+          finallyTarget, endTarget, -1);
+    }
     public HandlerSpec {
       catchVariable = catchVariable.map(String::toLowerCase);
       caughtErrors = List.copyOf(caughtErrors);

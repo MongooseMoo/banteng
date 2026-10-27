@@ -406,7 +406,7 @@ public final class LayoutCompiler {
     return maximum <= 65_536 ? 2 : 4;
   }
 
-  private static final List<String> PREDEFINED_NAMES =
+  static final List<String> PREDEFINED_NAMES =
       List.of(
           "num", "obj", "str", "list", "err", "player", "this", "caller", "verb",
           "args", "argstr", "dobj", "dobjstr", "prepstr", "iobj", "iobjstr", "int",
@@ -427,6 +427,10 @@ public final class LayoutCompiler {
       symbols.put(name, symbols.size());
     }
     collectSymbols(program.statements());
+  }
+
+  static List<String> variableNames(Ast.Program program) {
+    return List.copyOf(new LayoutCompiler(program).symbols.keySet());
   }
 
   /** Returns every exact call boundary in one Toast vector. */

@@ -246,7 +246,121 @@ public final class MooCompiler {
               ? OptionalInt.of(1)
               : OptionalInt.of(instructions.get(firstImplicitInstruction - 1).sourceLine()));
     }
-    return new BytecodeProgram(instructions, forkVectors, MooUnparser.unparse(program));
+    List<String> names = new ArrayList<>(LayoutCompiler.variableNames(program));
+    collectTemporaryNames(instructions, forkVectors, names);
+    return slotProgram(new BytecodeProgram(instructions, forkVectors, MooUnparser.unparse(program)), names);
+  }
+
+  private static void collectTemporaryNames(List<Instruction> instructions,
+      List<BytecodeProgram> forks, List<String> names) {
+    for (Instruction instruction : instructions) {
+      instruction.handler().flatMap(HandlerSpec::catchVariable).ifPresent(name -> {
+        if (!names.contains(name)) names.add(name);
+      });
+    }
+    for (BytecodeProgram fork : forks) collectTemporaryNames(fork.instructions(), fork.forkVectors(), names);
+  }
+
+  private static BytecodeProgram slotProgram(BytecodeProgram program, List<String> names) {
+    List<Instruction> code = new ArrayList<>();
+    for (Instruction instruction : program.instructions()) {
+      Opcode opcode = instruction.opcode();
+      boolean local = opcode == Opcode.LOAD_LOCAL || opcode == Opcode.STORE_LOCAL
+          || opcode == Opcode.SET_INDEX_LOCAL || opcode == Opcode.SET_RANGE_LOCAL;
+      List<Integer> destinations = new ArrayList<>();
+      if (opcode == Opcode.ITERATE || opcode == Opcode.ITERATE_RANGE || opcode == Opcode.SCATTER) {
+        for (String encoded : instruction.text().orElseThrow().split(",", -1)) {
+          String name = encoded.replaceFirst("^[@?$]", "");
+          destinations.add(names.indexOf(name.toLowerCase(java.util.Locale.ROOT)));
+        }
+      }
+      Optional<HandlerSpec> handler = instruction.handler().map(spec -> new HandlerSpec(
+          spec.catchTarget(), spec.catchVariable(), spec.catchesAny(), spec.caughtErrors(),
+          spec.structuredCatchBinding(), spec.finallyTarget(), spec.endTarget(),
+          spec.catchVariable().map(names::indexOf).orElse(-1)));
+      code.add(new Instruction(opcode,
+          local ? java.util.OptionalLong.of(names.indexOf(instruction.text().orElseThrow()
+              .toLowerCase(java.util.Locale.ROOT))) : instruction.operand(),
+          local ? Optional.empty() : instruction.text(), handler, instruction.sourceLine(),
+          instruction.astPath(), local ? Math.toIntExact(instruction.operand().orElse(0)) : 0,
+          destinations));
+    }
+    clearLastReads(code);
+    return new BytecodeProgram(code, program.forkVectors().stream()
+        .map(fork -> slotProgram(fork, names)).toList(), program.source(), names);
+  }
+
+  /** Toast's reverse basic-block pass: only definite replacement/end makes a read clearable. */
+  private static void clearLastReads(List<Instruction> code) {
+    java.util.SortedSet<Integer> boundaries = new java.util.TreeSet<>();
+    boundaries.add(0);
+    boundaries.add(code.size());
+    for (int index = 0; index < code.size(); index++) {
+      Instruction instruction = code.get(index);
+      switch (instruction.opcode()) {
+        case JUMP, JUMP_IF_FALSE, JUMP_IF_TRUE, ITERATE, ITERATE_RANGE -> {
+          boundaries.add(index + 1);
+          boundaries.add(Math.toIntExact(instruction.operand().orElseThrow()));
+        }
+        case ENTER_HANDLER -> {
+          boundaries.add(index); boundaries.add(index + 1);
+          HandlerSpec handler = instruction.handler().orElseThrow();
+          if (handler.catchTarget() >= 0) boundaries.add(handler.catchTarget());
+          if (handler.finallyTarget() >= 0) boundaries.add(handler.finallyTarget());
+          boundaries.add(handler.endTarget());
+        }
+        case FORK, LEAVE_HANDLER, END_FINALLY, LEAVE_LOOP, SCATTER -> {
+          boundaries.add(index); boundaries.add(index + 1);
+        }
+        default -> {}
+      }
+    }
+    List<Integer> blocks = new ArrayList<>(boundaries);
+    for (int block = 1; block < blocks.size(); block++) {
+      java.util.BitSet unused = new java.util.BitSet();
+      for (int index = blocks.get(block) - 1; index >= blocks.get(block - 1); index--) {
+        Instruction instruction = code.get(index);
+        int slot = switch (instruction.opcode()) {
+          case LOAD_LOCAL, STORE_LOCAL, SET_INDEX_LOCAL, SET_RANGE_LOCAL ->
+              Math.toIntExact(instruction.operand().orElseThrow());
+          default -> 0;
+        };
+        switch (instruction.opcode()) {
+          case RETURN -> { if (!insideHandler(code, index)) unused.set(0, 32); }
+          case STORE_LOCAL -> { if (slot < 32 && !insideHandler(code, index)) unused.set(slot); }
+          case LOAD_LOCAL -> {
+            if (slot < 32 && unused.get(slot)) {
+              unused.clear(slot);
+              code.set(index, new Instruction(Opcode.PUSH_CLEAR, instruction.operand(),
+                  instruction.text(), instruction.handler(), instruction.sourceLine(),
+                  instruction.astPath(), instruction.localAux(), instruction.localSlots()));
+            }
+          }
+          case SET_INDEX_LOCAL, SET_RANGE_LOCAL -> unused.clear(slot);
+          case CALL_VERB -> { unused.clear(5); unused.clear(10, 16); }
+          // These builtins can inspect the calling environment.
+          case CALL -> {
+            String name = instruction.text().orElseThrow();
+            if (name.equalsIgnoreCase("pass") || name.equalsIgnoreCase("eval")
+                || name.equalsIgnoreCase("call_function")) unused.clear();
+          }
+          default -> {}
+        }
+      }
+    }
+  }
+
+  private static boolean insideHandler(List<Instruction> code, int index) {
+    for (int earlier = 0; earlier < index; earlier++) {
+      Instruction instruction = code.get(earlier);
+      if (instruction.opcode() == Opcode.ENTER_HANDLER) {
+        HandlerSpec handler = instruction.handler().orElseThrow();
+        int protectedEnd = handler.finallyTarget() >= 0 ? handler.finallyTarget() : handler.endTarget();
+        if (handler.catchTarget() >= 0) protectedEnd = Math.min(protectedEnd, handler.catchTarget());
+        if (index < protectedEnd) return true;
+      }
+    }
+    return false;
   }
 
   private AstPath callPath(Ast.Expression call) {
