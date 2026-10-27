@@ -97,10 +97,11 @@ public record BytecodeProgram(
     RANGE,
     FIRST,
     LAST,
-    SET_INDEX_LOCAL,
-    SET_INDEX_PROPERTY,
-    SET_RANGE_LOCAL,
-    SET_RANGE_PROPERTY,
+    SET_INDEX,
+    SET_PARENT_INDEX,
+    SET_RANGE,
+    PUT_TEMP,
+    PUSH_TEMP,
     CALL,
     CALL_VERB,
     NEGATE,
@@ -195,8 +196,7 @@ public record BytecodeProgram(
             default -> false;
           };
       boolean local = opcode == Opcode.LOAD_LOCAL || opcode == Opcode.PUSH_CLEAR
-          || opcode == Opcode.STORE_LOCAL || opcode == Opcode.SET_INDEX_LOCAL
-          || opcode == Opcode.SET_RANGE_LOCAL;
+          || opcode == Opcode.STORE_LOCAL;
       boolean textRequired =
           switch (opcode) {
             case PUSH_STRING,
@@ -213,11 +213,7 @@ public record BytecodeProgram(
           opcode == Opcode.LIST_APPEND
               || opcode == Opcode.LIST_EXTEND
               || opcode == Opcode.LOAD_LOCAL
-              || opcode == Opcode.INDEX
-              || opcode == Opcode.SET_INDEX_LOCAL
-              || opcode == Opcode.SET_INDEX_PROPERTY
-              || opcode == Opcode.SET_RANGE_PROPERTY
-              || opcode == Opcode.SET_RANGE_LOCAL;
+              || opcode == Opcode.INDEX;
       if ((!local && !optionalParent && numberRequired != operand.isPresent())
           || (local && text.isEmpty() && (operand.isEmpty() || operand.orElseThrow() < 0))
           || (opcode == Opcode.PUSH_CLEAR && (operand.isEmpty() || operand.orElseThrow() < 0))
@@ -225,12 +221,6 @@ public record BytecodeProgram(
           || (opcode == Opcode.INDEX
               && operand.isPresent()
               && operand.orElseThrow() != 1)
-          || ((opcode == Opcode.SET_INDEX_LOCAL
-                  || opcode == Opcode.SET_INDEX_PROPERTY
-                  || opcode == Opcode.SET_RANGE_LOCAL
-                  || opcode == Opcode.SET_RANGE_PROPERTY)
-              && operand.isPresent()
-              && (!local || text.isPresent()) && operand.orElseThrow() < 1)
           || (!local && textRequired != text.isPresent())
           || handlerRequired != handler.isPresent()) {
         throw new IllegalArgumentException(opcode + " has invalid operands");
@@ -238,6 +228,9 @@ public record BytecodeProgram(
       boolean pathAllowed =
           opcode == Opcode.CALL
               || opcode == Opcode.CALL_VERB
+              || opcode == Opcode.INDEX
+              || opcode == Opcode.SET_INDEX
+              || opcode == Opcode.SET_PARENT_INDEX
               || opcode == Opcode.JUMP
               || opcode == Opcode.ENTER_HANDLER
               || opcode == Opcode.ITERATE
