@@ -190,7 +190,7 @@ public final class MooVm {
       BuiltinCatalog builtins,
       BuiltinHosts hosts,
       long taskId) {
-    state.beginSegment();
+    state.budget().beginSegment();
     state.ensureRoot(program);
     while (state.outcome() == VmState.Outcome.RUNNING) {
       Frame frame = state.currentFrame();
@@ -217,8 +217,8 @@ public final class MooVm {
       long taskId) {
     Frame frame = state.currentFrame();
     BytecodeProgram.Opcode opcode = instruction.opcode();
-    if ((opcode == BytecodeProgram.Opcode.CALL || (state.remainingTicks() & 1023) == 0)
-        && state.secondsExhausted()) {
+    if ((opcode == BytecodeProgram.Opcode.CALL || (state.budget().remainingTicks() & 1023) == 0)
+        && state.budget().secondsExhausted()) {
       state.abortSecondsExhaustion();
       return;
     }
@@ -229,8 +229,8 @@ public final class MooVm {
       default -> false;
     };
     for (int tick = 0; tick < instructionTicks(opcode, instruction, frame); tick++) {
-      state.decrementRemainingTicks();
-      if (!extended && state.remainingTicks() <= 0) {
+      state.budget().decrementRemainingTicks();
+      if (!extended && state.budget().remainingTicks() <= 0) {
         state.abortTickExhaustion();
         return;
       }
@@ -427,8 +427,8 @@ public final class MooVm {
               arguments.elements(),
               state.programmer(),
               state.taskLocal(),
-              state.remainingTicks(),
-              state.remainingSeconds(),
+              state.budget().remainingTicks(),
+              state.budget().remainingSeconds(),
               frame.receiver,
               state.callerProgrammer(),
               state.callers()));
@@ -480,10 +480,10 @@ public final class MooVm {
         arguments, world,
         pending == null ? state.programmer() : pending.programmer(),
         pending == null ? state.taskLocal() : pending.taskLocal(), taskId,
-        pending == null ? state.remainingTicks() : pending.remainingTicks(),
-        pending == null ? state.remainingSeconds() : pending.remainingSeconds(), receiver,
+        pending == null ? state.budget().remainingTicks() : pending.remainingTicks(),
+        pending == null ? state.budget().remainingSeconds() : pending.remainingSeconds(), receiver,
         pending == null ? state.callerProgrammer() : pending.callerProgrammer(), state::callers,
-        state.threadMode(), state::stagedBufferedOutputLength, hosts);
+        state.threadMode(), state.effects()::stagedBufferedOutputLength, hosts);
   }
 
   static void applyBuiltinResult(
@@ -505,15 +505,15 @@ public final class MooVm {
       case BuiltinResult.Initialize initialize ->
           applyInitialize(initialize, frame, state, world);
       case BuiltinResult.Checkpoint _ -> {
-        state.stageCheckpointRequest(new CheckpointRequest(false));
+        state.effects().stageCheckpointRequest(new CheckpointRequest(false));
         frame.operandStack.push(new IntegerValue(0));
       }
       case BuiltinResult.Shutdown _ -> {
-        state.stageCheckpointRequest(new CheckpointRequest(true));
+        state.effects().stageCheckpointRequest(new CheckpointRequest(true));
         frame.operandStack.push(new IntegerValue(0));
       }
       case BuiltinResult.Panic panic -> {
-        state.stageCheckpointRequest(CheckpointRequest.panic(panic.message()));
+        state.effects().stageCheckpointRequest(CheckpointRequest.panic(panic.message()));
         frame.operandStack.push(new IntegerValue(0));
       }
       case BuiltinResult.Suspend suspend ->
@@ -527,11 +527,11 @@ public final class MooVm {
       case BuiltinResult.DynamicEval dynamicEval ->
           applyDynamicEval(dynamicEval.program(), state, world);
       case BuiltinResult.Output output -> {
-        state.stageOutput(output.line());
+        state.effects().stageOutput(output.line());
         frame.operandStack.push(new IntegerValue(1));
       }
       case BuiltinResult.Notify notify -> {
-        state.stageNotificationRequest(
+        state.effects().stageNotificationRequest(
             new NotificationRequest(
                 notify.connectionId(), notify.line(), notify.noFlush(), notify.noNewline()));
         frame.operandStack.push(new IntegerValue(1));
@@ -550,16 +550,16 @@ public final class MooVm {
       case BuiltinResult.RecycleAnonymous recycle ->
           applyAnonymousRecycle(recycle.object(), frame, state, world);
       case BuiltinResult.BootPlayer bootPlayer -> {
-        state.stageBootPlayerTarget(bootPlayer.target());
+        state.effects().stageBootPlayerTarget(bootPlayer.target());
         frame.operandStack.push(new IntegerValue(0));
       }
       case BuiltinResult.SetConnectionOption request -> {
-        state.stageConnectionOptionRequest(
+        state.effects().stageConnectionOptionRequest(
             new ConnectionOptionRequest(request.target(), request.option(), request.value()));
         frame.operandStack.push(new IntegerValue(0));
       }
       case BuiltinResult.ForceInput request -> {
-        state.stageForcedInputRequest(new ForcedInputRequest(request.target(), request.input()));
+        state.effects().stageForcedInputRequest(new ForcedInputRequest(request.target(), request.input()));
         frame.operandStack.push(new IntegerValue(0));
       }
     }
@@ -713,7 +713,7 @@ public final class MooVm {
         collectAnonymousReferences(property.value(), collectionDeferrals);
       }
     }
-    state.deferAnonymousCollection(collectionDeferrals);
+    state.effects().deferAnonymousCollection(collectionDeferrals);
     if (!ErrorOps.propagateWorldFailure(world.removeAnonymousObject(recycleTarget), state, world)) {
       return;
     }

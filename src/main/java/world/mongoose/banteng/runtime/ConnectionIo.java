@@ -122,7 +122,7 @@ final class ConnectionIo {
   }
 
   void applyConnectionOptionRequests(AttemptContext context, VmState task) {
-    for (ConnectionOptionRequest request : task.drainConnectionOptionRequests()) {
+    for (ConnectionOptionRequest request : task.effects().drainConnectionOptionRequests()) {
       applyConnectionOption(context, request.target(), request.option(), request.value());
     }
   }
@@ -375,7 +375,7 @@ final class ConnectionIo {
   }
 
   void applyForcedInputRequests(AttemptContext context, VmState task) {
-    for (ForcedInputRequest request : task.drainForcedInputRequests()) {
+    for (ForcedInputRequest request : task.effects().drainForcedInputRequests()) {
       long connectionId = request.target();
       if (!context.sessions.containsKey(connectionId)) {
         for (Map.Entry<Long, ConnectionState> entry : context.sessions.entrySet()) {
@@ -394,7 +394,7 @@ final class ConnectionIo {
   }
 
   void applyNotificationRequests(AttemptContext context, VmState task, long taskPlayer) {
-    for (NotificationRequest request : task.drainNotificationRequests()) {
+    for (NotificationRequest request : task.effects().drainNotificationRequests()) {
       long notificationPlayer =
           context.connections
               .connectionPlayer(request.connectionId())
@@ -402,7 +402,7 @@ final class ConnectionIo {
       boolean ordinaryCurrentPlayerOutput =
           notificationPlayer == taskPlayer && !request.noFlush() && !request.noNewline();
       if (ordinaryCurrentPlayerOutput || listenerControl.isEmpty()) {
-        task.stageRuntimeOutput(request.line());
+        task.effects().stageOutput(request.line());
       } else {
         context.effects
             .add(
@@ -416,7 +416,7 @@ final class ConnectionIo {
   }
 
   void applyBootPlayerTargets(AttemptContext context, VmState task, long taskPlayer) {
-    for (long target : task.drainBootPlayerTargets()) {
+    for (long target : task.effects().drainBootPlayerTargets()) {
       long connectionId = target;
       ConnectionState connection = context.sessions.get(connectionId);
       if (connection == null) {
@@ -437,7 +437,7 @@ final class ConnectionIo {
       if (disconnectedPlayer == taskPlayer) {
         long outputConnectionId = connectionId;
         if (listenerControl.isPresent()) {
-          context.effects.add(RuntimeEffect.write(outputConnectionId, task.output()));
+          context.effects.add(RuntimeEffect.write(outputConnectionId, task.effects().output()));
         }
       }
       long listenerHandler = connection.listenerHandler;

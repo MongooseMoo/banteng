@@ -33,7 +33,9 @@ final class CompiledVerbTest {
     BytecodeProgram install = new MooCompiler().compile(
         "return set_verb_code(#1, 1, {\"x = 1; return x;\"});");
     try (WorldTxn transaction = world(verb("work", "return 0;")).begin()) {
-      VmState state = new VmState(Map.of(), 1);
+      VmState state = new VmState(
+          new TaskOrigin(Map.of(), 1, new ObjectValue(-1), "", "", true),
+          new TaskBudget(60_000, 5, 50));
       new MooVm().execute(install, state, transaction, catalog, catalog.hosts(), 1);
       assertEquals(VmState.Outcome.RETURNED, state.outcome());
       assertEquals(new ListValue(List.of()), state.returnValue().orElseThrow());
@@ -115,7 +117,8 @@ final class CompiledVerbTest {
         "verb", StringValue.of("work"), "argstr", StringValue.of("raw command"),
         "dobjstr", StringValue.of("direct"), "subject", new IntegerValue(99));
     for (MooVm.VerbCallKind kind : List.of(MooVm.VerbCallKind.NORMAL, MooVm.VerbCallKind.PASS)) {
-      VmState state = new VmState(locals, 3);
+      VmState state = new VmState(new TaskOrigin(locals, 3, TaskOrigin.inferVerbLocation(locals),
+        TaskOrigin.calledVerb(locals), TaskOrigin.calledVerb(locals), true), new TaskBudget(60_000, 5, 50));
       state.ensureRoot(new MooCompiler().compile("return 0;"));
       ListValue args = new ListValue(List.of(new IntegerValue(7)));
       assertTrue(MooVm.callVerb(state, new ObjectValue(3), resolution, args, "work", kind,
@@ -136,7 +139,8 @@ final class CompiledVerbTest {
     for (MooVm.VerbCallKind kind : List.of(MooVm.VerbCallKind.HOOK_RECYCLE,
         MooVm.VerbCallKind.HOOK_INITIALIZE, MooVm.VerbCallKind.HOOK_ACCEPT,
         MooVm.VerbCallKind.HOOK_EXIT, MooVm.VerbCallKind.HOOK_ENTER)) {
-      VmState state = new VmState(Map.of("this", new ObjectValue(3)), 3);
+      VmState state = new VmState(new TaskOrigin(Map.of("this", new ObjectValue(3)), 3, TaskOrigin.inferVerbLocation(Map.of("this", new ObjectValue(3))),
+        TaskOrigin.calledVerb(Map.of("this", new ObjectValue(3))), TaskOrigin.calledVerb(Map.of("this", new ObjectValue(3))), true), new TaskBudget(60_000, 5, 50));
       state.ensureRoot(new MooCompiler().compile("return 0;"));
       state.currentFrame().locals.put("this", new ObjectValue(8));
       Optional<BuiltinResult.Move> move = switch (kind) {
@@ -163,7 +167,8 @@ final class CompiledVerbTest {
   @Test
   void rootEntryRetainsExplicitContextLimitsAndStoredProgram() {
     WorldVerb target = verb("work", "return {this, player, caller, args, argstr, dobj, dobjstr, prepstr, iobj, iobjstr};");
-    VmState state = new VmState(Map.of(), 1, new ObjectValue(1), 1234, 5, 71);
+    VmState state = new VmState(new TaskOrigin(Map.of(), 1, new ObjectValue(1),
+        "", "", true), new TaskBudget(1234, 5, 71));
     ListValue args = new ListValue(List.of(new IntegerValue(6)));
     MooVm.RootVerbCall call = new MooVm.RootVerbCall(new ObjectValue(3), 4, 5, "work", args,
         "raw command", Optional.of(new MooVm.CommandArguments(8, "direct", "with", 9, "indirect")));
@@ -173,7 +178,7 @@ final class CompiledVerbTest {
     assertSame(target.program(), state.currentFrame().program);
     assertEquals(VmState.ReturnMode.ROOT, state.currentFrame().returnMode);
     assertEquals(state.currentFrame().locals, state.snapshot().initialLocals());
-    assertEquals(1234, state.remainingTicks());
+    assertEquals(1234, state.budget().remainingTicks());
     try (WorldTxn transaction = world(target).begin()) {
       new MooVm().execute(target.program(), state, transaction,
           new BuiltinCatalog(BuiltinHosts.builder().build()), BuiltinHosts.builder().build(), 1);

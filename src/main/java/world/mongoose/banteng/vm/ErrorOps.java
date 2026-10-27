@@ -115,8 +115,8 @@ final class ErrorOps {
           MooValue boundValue = catchValue;
           if (handler.specification.structuredCatchBinding()
               && handler.specification.catchVariable().isPresent()) {
-            state.decrementRemainingTicks();
-            if (state.remainingTicks() <= 0) {
+            state.budget().decrementRemainingTicks();
+            if (state.budget().remainingTicks() <= 0) {
               state.abortTickExhaustion();
               return;
             }

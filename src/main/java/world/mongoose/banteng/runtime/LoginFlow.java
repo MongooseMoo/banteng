@@ -284,7 +284,7 @@ final class LoginFlow {
                     RuntimeTransition.LOGIN_USER_CREATED_THEN_CONNECTED,
                     connectionId,
                     "",
-                    connection.printMessages ? List.of("*** Connected ***") : state.output(),
+                    connection.printMessages ? List.of("*** Connected ***") : state.effects().output(),
                     switchedPlayer,
                     0,
                     false));
@@ -293,14 +293,14 @@ final class LoginFlow {
         return startConnectedHook(context,
             connectionId,
             switchedPlayer,
-            connection.printMessages ? List.of("*** Connected ***") : state.output(),
+            connection.printMessages ? List.of("*** Connected ***") : state.effects().output(),
             RuntimeTransition.LOGIN_EXISTING_USER_CONNECTED_THEN_RETURN,
             false);
       }
       return RuntimeStep.returned(
-          connection.printMessages ? List.of("*** Connected ***") : state.output());
+          connection.printMessages ? List.of("*** Connected ***") : state.effects().output());
     }
-    return RuntimeStep.returned(state.output());
+    return RuntimeStep.returned(state.effects().output());
   }
 
 

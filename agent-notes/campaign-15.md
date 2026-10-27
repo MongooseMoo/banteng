@@ -40,4 +40,6 @@ The dispatch phases are committed. Runtime attempt methods and all extracted own
 
 Source showed MooServer.openNetworkConnection re-entering runtime.registerOutboundConnection on the attempt thread. The existing listener call now takes an OutboundConnectionRegistrar bound by invocation hosts to that same context; server registration and cleanup order are preserved. Existing listener and direct VM/builtin fixtures were updated for these explicit parameters.
 
-No broad local CI has been run. Next: commit context plumbing, integrate the parent's task-state extraction branch, resolve its moved effect/budget/origin callsites, then hand the complete issue to parent publication and PR CI.
+Context plumbing is committed. Current compiled-verb ancestry is integrated. The task-state owner branch is now integrated: moved LoginFlow/ConnectionIo/runtime effect callers use EffectOutbox, VM metering uses TaskBudget, and conflicting constructor fixtures retain TaskOrigin/TaskBudget plus invocation hosts. Snapshot values and the single catalog remain unchanged by this integration.
+
+No broad local CI has been run. The authored static-move recipe test passed; root-source recipe execution completed; source inspection found no remaining ambient attempt lookup or unresolved conflict markers. Parent owns publication, Claude review, answers to findings, PR CI and normal merge after the task-state prerequisite. Next: commit the resolved integration and hand off the complete implementation for that workflow.

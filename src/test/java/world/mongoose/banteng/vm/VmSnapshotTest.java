@@ -34,20 +34,81 @@ import org.junit.jupiter.api.Test;
 
 final class VmSnapshotTest {
   @Test
+  void taskOriginOwnsCopiedNormalizedLocalsAndRootMergePreservesMetadata() {
+    Map<String, world.mongoose.banteng.value.MooValue> locals = new LinkedHashMap<>();
+    locals.put("SEED", new IntegerValue(7));
+    TaskOrigin origin = new TaskOrigin(locals, 17, new ObjectValue(19), "alias", "full alias", false);
+    locals.clear();
+    assertEquals(Map.of("seed", new IntegerValue(7)), origin.locals());
+    assertThrows(UnsupportedOperationException.class,
+        () -> origin.locals().put("other", new IntegerValue(8)));
+    VmState state = new VmState(origin, new TaskBudget(321, 0, 64));
+    BytecodeProgram program = new BytecodeProgram(List.of(new Instruction(Opcode.RETURN)));
+    state.pushFrame(program, Map.of("VERB", text("entered")), new VmState.FrameOrigin(
+        VmState.ReturnMode.ROOT, 23, new ObjectValue(29), new ObjectValue(31), "entered",
+        "entered full", Optional.empty(), OptionalLong.empty(), OptionalLong.empty(),
+        OptionalLong.empty(), OptionalLong.empty(), Optional.empty(), true));
+    VmSnapshot snapshot = state.snapshot(0);
+    assertEquals(Map.of("seed", new IntegerValue(7), "verb", text("entered")), snapshot.initialLocals());
+    assertEquals(17, snapshot.initialProgrammer());
+    assertEquals(new ObjectValue(19), snapshot.initialVerbLocation());
+    assertEquals("alias", snapshot.initialCalledVerb());
+    assertEquals("full alias", snapshot.initialFullVerbName());
+    assertEquals(Map.of("seed", new IntegerValue(7)), origin.locals());
+  }
+
+  @Test
+  void budgetCaptureIsObservationalAndRestoreStartsANewSegment() {
+    VmState state = new VmState(
+        new TaskOrigin(Map.of(), 0, new ObjectValue(-1), "", "", true),
+        new TaskBudget(12, 5, 50));
+    state.budget().beginSegment(1_000);
+    VmSnapshot first = state.snapshot(1_250);
+    VmSnapshot second = state.snapshot(1_500);
+    assertEquals(250, first.elapsedCpuNanos());
+    assertEquals(500, second.elapsedCpuNanos());
+    assertEquals(TimeUnit.SECONDS.toNanos(5) - 500, second.remainingCpuNanos());
+    VmState restored = VmState.restore(second);
+    assertEquals(second, restored.snapshot(9_000));
+    restored.budget().beginSegment(10_000);
+    assertEquals(750, restored.snapshot(10_250).elapsedCpuNanos());
+    VmSnapshot background = VmState.restoreBackground(second, 99, 10, 75).snapshot(20_000);
+    assertEquals(99, background.remainingTicks());
+    assertEquals(0, background.elapsedCpuNanos());
+    assertEquals(TimeUnit.SECONDS.toNanos(10), background.remainingCpuNanos());
+    assertEquals(75, background.maxStackDepth());
+  }
+
+  @Test
+  void outboxDrainsKeepOrderedCopiesAndAnonymousIdentityDeduplication() {
+    EffectOutbox outbox = new EffectOutbox();
+    outbox.stageBootPlayerTarget(7);
+    outbox.stageBootPlayerTarget(9);
+    List<Long> drained = outbox.drainBootPlayerTargets();
+    assertEquals(List.of(7L, 9L), drained);
+    assertEquals(List.of(), outbox.drainBootPlayerTargets());
+    outbox.stageBootPlayerTarget(11);
+    assertEquals(List.of(7L, 9L), drained);
+    AnonymousObjectValue first = new AnonymousObjectValue();
+    AnonymousObjectValue second = new AnonymousObjectValue();
+    outbox.deferAnonymousCollection(List.of(first, second, first));
+    assertEquals(List.of(first, second), outbox.anonymousCollectionDeferrals());
+    outbox.stageNotificationRequest(new NotificationRequest(-7, "abc", false, false));
+    outbox.stageNotificationRequest(new NotificationRequest(-8, "ignored", false, false));
+    outbox.stageNotificationRequest(new NotificationRequest(-7, "d", false, true));
+    assertEquals(13, outbox.stagedBufferedOutputLength(-7, 7));
+  }
+
+  @Test
   void roundTripsEveryExplicitFrameAndPendingTaskValue() {
     BytecodeProgram program =
         new BytecodeProgram(List.of(new Instruction(Opcode.PUSH_INTEGER, 7), new Instruction(Opcode.RETURN)));
     BytecodeProgram forkProgram =
         new BytecodeProgram(List.of(new Instruction(Opcode.PUSH_INTEGER, 9), new Instruction(Opcode.RETURN)));
     VmState state =
-        new VmState(
-            Map.of("THIS", new ObjectValue(5), "seed", new IntegerValue(11)),
-            17,
-            new ObjectValue(19),
-            321,
-            10,
-            64);
-    state.beginSegment(1_000);
+        new VmState(new TaskOrigin(Map.of("THIS", new ObjectValue(5), "seed", new IntegerValue(11)), 17, new ObjectValue(19),
+        TaskOrigin.calledVerb(Map.of("THIS", new ObjectValue(5), "seed", new IntegerValue(11))), TaskOrigin.calledVerb(Map.of("THIS", new ObjectValue(5), "seed", new IntegerValue(11))), true), new TaskBudget(321, 10, 64));
+    state.budget().beginSegment(1_000);
     state.ensureRoot(program);
 
     VmState.Frame frame = state.currentFrame();
@@ -73,14 +134,14 @@ final class VmSnapshotTest {
             Optional.of(new IntegerValue(2)));
     frame.loops.put(1, loop);
 
-    state.stageOutput("one");
-    state.stageConnectionOptionRequest(
+    state.effects().stageOutput("one");
+    state.effects().stageConnectionOptionRequest(
         new ConnectionOptionRequest(41, ConnectionOption.HOLD_INPUT, new IntegerValue(1)));
-    state.stageBootPlayerTarget(43);
-    state.stageForcedInputRequest(new ForcedInputRequest(47, "look"));
-    state.stageNotificationRequest(new NotificationRequest(-7, "abc", true, true));
+    state.effects().stageBootPlayerTarget(43);
+    state.effects().stageForcedInputRequest(new ForcedInputRequest(47, "look"));
+    state.effects().stageNotificationRequest(new NotificationRequest(-7, "abc", true, true));
     AnonymousObjectValue deferred = new AnonymousObjectValue();
-    state.deferAnonymousCollection(List.of(deferred));
+    state.effects().deferAnonymousCollection(List.of(deferred));
     state.switchPlayer(53);
     state.setTaskLocal(new ListValue(List.of(new IntegerValue(59))));
     state.setThreadMode(false);
@@ -93,21 +154,22 @@ final class VmSnapshotTest {
     assertEquals(250, snapshot.elapsedCpuNanos());
     assertEquals(TimeUnit.SECONDS.toNanos(10) - 250, snapshot.remainingCpuNanos());
     assertEquals(snapshot, restored.snapshot(9_000));
-    assertEquals(3, restored.stagedBufferedOutputLength(-7, 0));
+    assertEquals(3, restored.effects().stagedBufferedOutputLength(-7, 0));
     assertEquals(
         List.of(new NotificationRequest(-7, "abc", true, true)),
-        restored.drainNotificationRequests());
-    assertEquals(List.of(deferred), restored.anonymousCollectionDeferrals());
+        restored.effects().drainNotificationRequests());
+    assertEquals(List.of(deferred), restored.effects().anonymousCollectionDeferrals());
     assertSame(program, restored.currentFrame().program);
     assertSame(forkProgram, restored.forkRequest().orElseThrow().program());
   }
 
   @Test
   void ordinaryNotificationsRemainVisibleInAttemptLocalBufferedOutput() {
-    VmState state = new VmState();
-    state.stageNotificationRequest(new NotificationRequest(-7, "abc", false, false));
+    VmState state = new VmState(new TaskOrigin(java.util.Map.of(), 0, new world.mongoose.banteng.value.MooValue.ObjectValue(-1),
+        "", "", true), new TaskBudget(60_000, 5, 50));
+    state.effects().stageNotificationRequest(new NotificationRequest(-7, "abc", false, false));
 
-    assertEquals(12, state.stagedBufferedOutputLength(-7, 7));
+    assertEquals(12, state.effects().stagedBufferedOutputLength(-7, 7));
   }
 
   @Test
@@ -119,7 +181,8 @@ final class VmSnapshotTest {
                 new Instruction(Opcode.PUSH_INTEGER, 2),
                 new Instruction(Opcode.ADD),
                 new Instruction(Opcode.RETURN)));
-    VmState state = new VmState();
+    VmState state = new VmState(new TaskOrigin(java.util.Map.of(), 0, new world.mongoose.banteng.value.MooValue.ObjectValue(-1),
+        "", "", true), new TaskBudget(60_000, 5, 50));
     state.ensureRoot(program);
     state.currentFrame().operandStack.push(new IntegerValue(40));
     state.currentFrame().operandStack.push(new IntegerValue(2));
@@ -137,7 +200,8 @@ final class VmSnapshotTest {
         new BytecodeProgram(List.of(new Instruction(Opcode.RETURN)));
     BytecodeProgram verbProgram =
         new BytecodeProgram(List.of(new Instruction(Opcode.RETURN)));
-    VmState state = new VmState();
+    VmState state = new VmState(new TaskOrigin(java.util.Map.of(), 0, new world.mongoose.banteng.value.MooValue.ObjectValue(-1),
+        "", "", true), new TaskBudget(60_000, 5, 50));
     state.ensureRoot(rootProgram);
     ObjectValue created = new ObjectValue(7);
     Map<String, world.mongoose.banteng.value.MooValue> collidingLocals =
@@ -167,7 +231,8 @@ final class VmSnapshotTest {
   void hostSuspensionCapturesOnlyItsDurablePendingOutcome() {
     BytecodeProgram program =
         new BytecodeProgram(List.of(new Instruction(Opcode.PUSH_INTEGER, 0), new Instruction(Opcode.RETURN)));
-    VmState state = new VmState();
+    VmState state = new VmState(new TaskOrigin(java.util.Map.of(), 0, new world.mongoose.banteng.value.MooValue.ObjectValue(-1),
+        "", "", true), new TaskBudget(60_000, 5, 50));
     state.ensureRoot(program);
     state.suspend(
         OptionalDouble.empty(),
@@ -188,7 +253,8 @@ final class VmSnapshotTest {
   void byteSizeCountsRecursiveBinaryPayloadRatherThanInstructionPointerOrTextRendering() {
     BytecodeProgram program =
         new BytecodeProgram(List.of(new Instruction(Opcode.RETURN)));
-    VmState smaller = new VmState();
+    VmState smaller = new VmState(new TaskOrigin(java.util.Map.of(), 0, new world.mongoose.banteng.value.MooValue.ObjectValue(-1),
+        "", "", true), new TaskBudget(60_000, 5, 50));
     smaller.ensureRoot(program);
     smaller
         .currentFrame()
@@ -202,7 +268,8 @@ final class VmSnapshotTest {
                             StringValue.of(new byte[] {'"'}))))));
     smaller.currentFrame().instructionPointer = 0;
 
-    VmState larger = new VmState();
+    VmState larger = new VmState(new TaskOrigin(java.util.Map.of(), 0, new world.mongoose.banteng.value.MooValue.ObjectValue(-1),
+        "", "", true), new TaskBudget(60_000, 5, 50));
     larger.ensureRoot(program);
     larger
         .currentFrame()
@@ -228,9 +295,11 @@ final class VmSnapshotTest {
   void byteSizeCountsAnonymousObjectIdentityPayload() {
     BytecodeProgram program =
         new BytecodeProgram(List.of(new Instruction(Opcode.RETURN)));
-    VmState withoutAnonymous = new VmState();
+    VmState withoutAnonymous = new VmState(new TaskOrigin(java.util.Map.of(), 0, new world.mongoose.banteng.value.MooValue.ObjectValue(-1),
+        "", "", true), new TaskBudget(60_000, 5, 50));
     withoutAnonymous.ensureRoot(program);
-    VmState withAnonymous = new VmState();
+    VmState withAnonymous = new VmState(new TaskOrigin(java.util.Map.of(), 0, new world.mongoose.banteng.value.MooValue.ObjectValue(-1),
+        "", "", true), new TaskBudget(60_000, 5, 50));
     withAnonymous.ensureRoot(program);
     withAnonymous.currentFrame().operandStack.push(new AnonymousObjectValue());
 
@@ -243,7 +312,8 @@ final class VmSnapshotTest {
   void roundTripsEveryTypedFinallyReasonAndMultipleTypedLoopCursors() {
     BytecodeProgram program =
         new BytecodeProgram(List.of(new Instruction(Opcode.RETURN)));
-    VmState state = new VmState();
+    VmState state = new VmState(new TaskOrigin(java.util.Map.of(), 0, new world.mongoose.banteng.value.MooValue.ObjectValue(-1),
+        "", "", true), new TaskBudget(60_000, 5, 50));
     state.ensureRoot(program);
     VmState.Frame frame = state.currentFrame();
     ListValue exception =
@@ -330,7 +400,8 @@ final class VmSnapshotTest {
     LinkedHashMap<world.mongoose.banteng.value.MooValue, world.mongoose.banteng.value.MooValue> entries = new LinkedHashMap<>();
     entries.put(text("a"), new IntegerValue(1));
     entries.put(text("b"), new IntegerValue(2));
-    VmState map = new VmState();
+    VmState map = new VmState(new TaskOrigin(java.util.Map.of(), 0, new world.mongoose.banteng.value.MooValue.ObjectValue(-1),
+        "", "", true), new TaskBudget(60_000, 5, 50));
     map.ensureRoot(indexed);
     map.currentFrame()
         .loops
@@ -348,7 +419,8 @@ final class VmSnapshotTest {
         new ListValue(List.of(new IntegerValue(2), text("b"))),
         restoredMap.returnValue().orElseThrow());
 
-    VmState exhausted = new VmState();
+    VmState exhausted = new VmState(new TaskOrigin(java.util.Map.of(), 0, new world.mongoose.banteng.value.MooValue.ObjectValue(-1),
+        "", "", true), new TaskBudget(60_000, 5, 50));
     exhausted.ensureRoot(indexed);
     exhausted.currentFrame()
         .loops
@@ -376,7 +448,8 @@ final class VmSnapshotTest {
                 new Instruction(Opcode.JUMP, 0),
                 new Instruction(Opcode.PUSH_INTEGER, 99),
                 new Instruction(Opcode.RETURN)));
-    VmState state = new VmState();
+    VmState state = new VmState(new TaskOrigin(java.util.Map.of(), 0, new world.mongoose.banteng.value.MooValue.ObjectValue(-1),
+        "", "", true), new TaskBudget(60_000, 5, 50));
     state.ensureRoot(program);
     state.currentFrame()
         .loops
@@ -397,7 +470,8 @@ final class VmSnapshotTest {
     assertEquals(new ObjectValue(Long.MAX_VALUE), afterMaximum.next());
     assertEquals(new ObjectValue(Long.MAX_VALUE - 1), afterMaximum.end());
 
-    VmState exhausted = new VmState();
+    VmState exhausted = new VmState(new TaskOrigin(java.util.Map.of(), 0, new world.mongoose.banteng.value.MooValue.ObjectValue(-1),
+        "", "", true), new TaskBudget(60_000, 5, 50));
     exhausted.ensureRoot(program);
     exhausted.currentFrame()
         .loops
@@ -433,8 +507,8 @@ final class VmSnapshotTest {
     ListValue values =
         new ListValue(List.of(new IntegerValue(1), new IntegerValue(2)));
     VmState state =
-        new VmState(
-            Map.of("outer", new IntegerValue(1), "inner", new IntegerValue(1)), 0);
+        new VmState(new TaskOrigin(Map.of("outer", new IntegerValue(1), "inner", new IntegerValue(1)), 0, TaskOrigin.inferVerbLocation(Map.of("outer", new IntegerValue(1), "inner", new IntegerValue(1))),
+        TaskOrigin.calledVerb(Map.of("outer", new IntegerValue(1), "inner", new IntegerValue(1))), TaskOrigin.calledVerb(Map.of("outer", new IntegerValue(1), "inner", new IntegerValue(1))), true), new TaskBudget(60_000, 5, 50));
     state.ensureRoot(program);
     state.currentFrame().instructionPointer = 8;
     state.currentFrame()
@@ -483,7 +557,8 @@ final class VmSnapshotTest {
                 new Instruction(Opcode.END_FINALLY),
                 new Instruction(Opcode.PUSH_INTEGER, 42),
                 new Instruction(Opcode.RETURN)));
-    VmState fallThrough = new VmState();
+    VmState fallThrough = new VmState(new TaskOrigin(java.util.Map.of(), 0, new world.mongoose.banteng.value.MooValue.ObjectValue(-1),
+        "", "", true), new TaskBudget(60_000, 5, 50));
     fallThrough.ensureRoot(fallThroughProgram);
     fallThrough.currentFrame().finallyContinuations.push(new VmSnapshot.FallThrough(1));
     VmState restoredFallThrough = VmState.restore(fallThrough.snapshot(0));
@@ -492,14 +567,16 @@ final class VmSnapshotTest {
 
     BytecodeProgram terminalProgram =
         new BytecodeProgram(List.of(new Instruction(Opcode.END_FINALLY)));
-    VmState returned = new VmState();
+    VmState returned = new VmState(new TaskOrigin(java.util.Map.of(), 0, new world.mongoose.banteng.value.MooValue.ObjectValue(-1),
+        "", "", true), new TaskBudget(60_000, 5, 50));
     returned.ensureRoot(terminalProgram);
     returned.currentFrame().finallyContinuations.push(new VmSnapshot.Return(text("done")));
     VmState restoredReturned = VmState.restore(returned.snapshot(0));
     new PureVmFixture().execute(terminalProgram, restoredReturned);
     assertEquals(text("done"), restoredReturned.returnValue().orElseThrow());
 
-    VmState raised = new VmState();
+    VmState raised = new VmState(new TaskOrigin(java.util.Map.of(), 0, new world.mongoose.banteng.value.MooValue.ObjectValue(-1),
+        "", "", true), new TaskBudget(60_000, 5, 50));
     raised.ensureRoot(terminalProgram);
     raised
         .currentFrame()
@@ -517,7 +594,8 @@ final class VmSnapshotTest {
     assertEquals(VmState.Outcome.ERRORED, restoredRaised.outcome());
     assertEquals(ErrorValue.E_TYPE, restoredRaised.uncaughtError().orElseThrow());
 
-    VmState uncaught = new VmState();
+    VmState uncaught = new VmState(new TaskOrigin(java.util.Map.of(), 0, new world.mongoose.banteng.value.MooValue.ObjectValue(-1),
+        "", "", true), new TaskBudget(60_000, 5, 50));
     uncaught.ensureRoot(terminalProgram);
     uncaught.currentFrame().finallyContinuations.push(new VmSnapshot.Uncaught(ErrorValue.E_QUOTA));
     VmState restoredUncaught = VmState.restore(uncaught.snapshot(0));
@@ -541,7 +619,8 @@ final class VmSnapshotTest {
                 new Instruction(Opcode.PUSH_INTEGER, -3),
                 new Instruction(Opcode.PUSH_INTEGER, 42),
                 new Instruction(Opcode.RETURN)));
-    VmState state = new VmState();
+    VmState state = new VmState(new TaskOrigin(java.util.Map.of(), 0, new world.mongoose.banteng.value.MooValue.ObjectValue(-1),
+        "", "", true), new TaskBudget(60_000, 5, 50));
     state.ensureRoot(program);
     state.currentFrame().operandStack.push(new IntegerValue(1));
     state.currentFrame().operandStack.push(new IntegerValue(2));
