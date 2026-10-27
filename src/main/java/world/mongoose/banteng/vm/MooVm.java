@@ -75,6 +75,11 @@ public final class MooVm {
       locals.put("player", new ObjectValue(context.player()));
       locals.put("caller", new ObjectValue(context.caller()));
       locals.put("argstr", StringValue.of(context.argstr()));
+      locals.put("dobj", new ObjectValue(-1));
+      locals.put("iobj", new ObjectValue(-1));
+      locals.put("dobjstr", StringValue.of(""));
+      locals.put("prepstr", StringValue.of(""));
+      locals.put("iobjstr", StringValue.of(""));
       context.command().ifPresent(command -> {
         locals.put("dobj", new ObjectValue(command.dobj()));
         locals.put("dobjstr", StringValue.of(command.dobjstr()));
@@ -91,15 +96,12 @@ public final class MooVm {
           || kind == VerbCallKind.HOOK_ANONYMOUS_RECYCLE;
       locals.put("caller", recycle
           ? parent.localOrDefault(6, new ObjectValue(-1)) : parent.receiver);
-      locals.put("argstr", kind == VerbCallKind.NORMAL
-          ? parent.localOrDefault(10, StringValue.of("")) : StringValue.of(""));
-      if (kind == VerbCallKind.NORMAL) {
-        for (String field : List.of("dobj", "iobj")) {
-          locals.put(field, parent.localOrDefault(verbFieldSlot(field), new ObjectValue(-1)));
-        }
-        for (String field : List.of("dobjstr", "prepstr", "iobjstr")) {
-          locals.put(field, parent.localOrDefault(verbFieldSlot(field), StringValue.of("")));
-        }
+      locals.put("argstr", parent.localOrDefault(10, StringValue.of("")));
+      for (String field : List.of("dobj", "iobj")) {
+        locals.put(field, parent.localOrDefault(verbFieldSlot(field), new ObjectValue(-1)));
+      }
+      for (String field : List.of("dobjstr", "prepstr", "iobjstr")) {
+        locals.put(field, parent.localOrDefault(verbFieldSlot(field), StringValue.of("")));
       }
     }
     if (kind != VerbCallKind.PASS) {
