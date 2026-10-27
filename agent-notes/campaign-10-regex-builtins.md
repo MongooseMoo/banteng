@@ -4,7 +4,7 @@
 Issue10: move match/rmatch and PCRE registrations beside the existing package-private services, preserving behavior and catalog ordering.
 
 ## State
-Local isolated branch from fetched origin/master. RegexBuiltins owns both registration groups and toastMatch. Existing services now live beside it, package-private. The reviewed migration patch was applied through apply_patch. No publication; parent owns integration and PR CI.
+Published as PR127 with completed initial Claude review. Integrated merged Random work, preserving both family implementations. Two shared mover expressions now combine the existing family selections and apply the Regex call replacement after the existing Random registration helper; review of those actual integration edits and fresh CI follow. Existing regex production implementations are unchanged.
 
 ## Decisions and why
 Smallest change from the approved campaign plan: relocate the two existing services unchanged into builtin.family, move the seven-line toastMatch wrapper to private static with an explicit ToastRegexService argument, and move five registrations in two separated groups to RegexBuiltins.registerLegacy/registerPcre. Allocate one service in each registration closure per catalog, preserving shared PCRE cache, synchronization, flags, permissions and irrevocable behavior. About432 service lines and39 registration lines move, with roughly25 scaffold lines and a focused mover adaptation/test. Reuse the existing MoveBuiltinFamily recipe, including the service relocations; no facade or replacement regex implementation. Retarget the historical PcreService method pattern.

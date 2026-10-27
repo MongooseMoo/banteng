@@ -46,8 +46,7 @@ final class SlotLocalsTest {
         saved.verbLocation(), saved.threadMode(), saved.taskPlayer(), saved.programmer(), saved.debug(),
         saved.verb(), saved.verbNames(), saved.temporary(), saved.programCounter(),
         saved.builtinFunctionCounter(), saved.errorCounter());
-    var imported = world.mongoose.banteng.persistence.DurableTaskCodec.importActivation(old, -1, true,
-        new world.mongoose.banteng.persistence.ToastV17ProgramLayout());
+    var imported = world.mongoose.banteng.persistence.DurableTaskCodec.importActivation(old, -1, true);
     assertEquals(new IntegerValue(9), imported.locals().get("value"));
     assertEquals(new IntegerValue(77), imported.locals().get("num"));
     assertEquals(new IntegerValue(0), imported.locals().get("int"));

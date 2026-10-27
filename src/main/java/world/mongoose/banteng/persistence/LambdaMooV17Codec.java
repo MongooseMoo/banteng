@@ -218,39 +218,11 @@ public final class LambdaMooV17Codec implements DbCodec {
         pendingFinalization.add(
             readValue(input, context, "pending finalization value " + (index + 1)));
       }
-      requireExact(input, "0 clocks", "clocks count");
-      int queuedTaskCount = readSectionCount(input, " queued tasks", "queued-task count");
-      List<DurableTask> tasks = new ArrayList<>(queuedTaskCount);
-      for (int index = 0; index < queuedTaskCount; index++) {
-        tasks.add(readQueuedTask(input, context));
-      }
-      int suspendedTaskCount =
-          readSectionCount(input, " suspended tasks", "suspended-task count");
-      for (int index = 0; index < suspendedTaskCount; index++) {
-        tasks.add(readSuspendedTask(input, context));
-      }
-      int interruptedTaskCount =
-          readSectionCount(input, " interrupted tasks", "interrupted-task count");
-      for (int index = 0; index < interruptedTaskCount; index++) {
-        tasks.add(readInterruptedTask(input, context));
-      }
-      int activeConnectionCount =
-          readSectionCount(
-              input,
-              " active connections with listeners",
-              "active-connection count");
-      List<ActiveConnection> activeConnections = new ArrayList<>(activeConnectionCount);
-      for (int index = 0; index < activeConnectionCount; index++) {
-        String connectionLine = requiredLine(input, "active connection");
-        String[] connectionFields = connectionLine.split(" ", -1);
-        if (connectionFields.length != 2) {
-          throw malformed("invalid active connection: " + connectionLine);
-        }
-        activeConnections.add(
-            new ActiveConnection(
-                parseLong(connectionFields[0], "active connection player"),
-                parseLong(connectionFields[1], "active connection listener")));
-      }
+      TaskSectionReader.Tail taskTail = new TaskSectionReader(17,
+          (reader, tag, location) -> readValue(reader, tag, context, location),
+          value -> encodedObjectNumber(value, context)).read(input);
+      List<DurableTask> tasks = taskTail.tasks();
+      List<ActiveConnection> activeConnections = taskTail.connections();
 
       Map<Long, RawObject> objects = new LinkedHashMap<>();
       long expectedObjectId = 0;
@@ -486,9 +458,6 @@ public final class LambdaMooV17Codec implements DbCodec {
   private static void writeSuspendedActivation(
       BufferedWriter output, SuspendedActivation activation, WriteContext context)
       throws IOException {
-    if (activation.builtinFunctionCounter() != 0) {
-      throw new IOException("unsupported suspended builtin continuation");
-    }
     line(output, "language version " + activation.languageVersion());
     writeProgramSource(output, activation.programSource(), "suspended activation program");
     line(output, activation.locals().size() + " variables");
@@ -523,75 +492,32 @@ public final class LambdaMooV17Codec implements DbCodec {
             + activation.builtinFunctionCounter()
             + " "
             + activation.errorCounter());
+    if (activation.builtinFunctionCounter() != 0) {
+      SuspendedActivation.BuiltinContinuation builtin = activation.builtinContinuation()
+          .orElseThrow(() -> new IOException("missing builtin continuation payload"));
+      line(output, builtin.name());
+      writeBuiltinData(output, builtin);
+    }
   }
 
-  private static QueuedTask readQueuedTask(BufferedReader input, ReadContext context)
-      throws IOException {
-    String header = requiredLine(input, "queued-task header");
-    String[] fields = header.split(" ", -1);
-    if (fields.length != 4 || !fields[0].equals("0")) {
-      throw malformed("invalid queued-task header: " + header);
-    }
-    int firstLine = parseInt(fields[1], "queued-task first line");
-    if (firstLine < 1) {
-      throw malformed("invalid queued-task first line: " + firstLine);
-    }
-    long scheduledEpochSecond = parseLong(fields[2], "queued-task scheduled epoch second");
-    long taskId = parseLong(fields[3], "queued-task id");
-
-    ActivationHeader activationHeader = readActivationHeader(
-        input, context, "queued-task", "queued task #" + taskId);
-    MooValue receiver = activationHeader.receiver();
-    MooValue typedVerbLocation = activationHeader.verbLocation();
-    if (!(typedVerbLocation instanceof ObjectValue)
-        && !(typedVerbLocation instanceof AnonymousObjectValue)) {
-      throw malformed("queued-task verb location must be an object reference");
-    }
-    if (!activationHeader.debugText().equals("0") && !activationHeader.debugText().equals("1")) {
-      throw malformed("invalid queued-task compatibility sentinels");
-    }
-    if (activationHeader.legacyVerbLocation() != encodedObjectNumber(typedVerbLocation, context)) {
-      throw malformed("queued-task verb-location encodings disagree");
-    }
-    long receiverObject = activationHeader.legacyReceiver();
-    long taskPlayer = activationHeader.player();
-    long programmer = activationHeader.programmer();
-    String verb = activationHeader.verb();
-    String verbNames = activationHeader.verbNames();
-
-    int variableCount = readSectionCount(input, " variables", "queued-task variable count");
-    Map<String, Optional<MooValue>> locals = new LinkedHashMap<>();
-    for (int index = 0; index < variableCount; index++) {
-      String name = requiredLine(input, "queued-task variable name");
-      Optional<MooValue> value =
-          readRuntimeVariable(
-              input, context, "queued task #" + taskId + " variable " + name);
-      if (locals.putIfAbsent(name, value) != null) {
-        throw malformed("duplicate queued-task variable: " + name);
+  private static void writeBuiltinData(BufferedWriter output,
+      SuspendedActivation.BuiltinContinuation builtin) throws IOException {
+    switch (builtin) {
+      case SuspendedActivation.EvalContinuation ignored -> { }
+      case SuspendedActivation.CreateContinuation create ->
+          line(output, "bf_create data: oid = " + create.object());
+      case SuspendedActivation.RecycleContinuation recycle ->
+          line(output, "bf_recycle data: oid = " + recycle.object() + ", cont = 0");
+      case SuspendedActivation.MoveContinuation move ->
+          line(output, "bf_move data: what = " + move.object() + ", where = "
+              + move.destination() + ", position = " + move.position());
+      case SuspendedActivation.CallFunctionContinuation call -> {
+        line(output, "bf_call_function data: fname = " + call.function().name());
+        writeBuiltinData(output, call.function());
       }
     }
-    MooValue localReceiver = locals.getOrDefault("this", Optional.empty()).orElse(null);
-    if (receiver instanceof ObjectValue object
-        && object.value() != receiverObject) {
-      throw malformed("queued-task receiver encodings disagree");
-    }
-    if (localReceiver != null && !localReceiver.equals(receiver)) {
-      throw malformed("queued-task activation and runtime receivers disagree");
-    }
-    return new QueuedTask(
-        taskId,
-        scheduledEpochSecond,
-        firstLine,
-        verb,
-        verbNames,
-        ProgramSectionReader.readSource(input, "queued-task program"),
-        new QueuedEnvironment(locals),
-        programmer,
-        typedVerbLocation,
-        taskPlayer,
-        activationHeader.debug(),
-        activationHeader.threadMode());
   }
+
 
   /** Writes only Toast's common activation header; task-specific tails stay with their callers. */
   private static void writeActivationHeader(
@@ -615,49 +541,7 @@ public final class LambdaMooV17Codec implements DbCodec {
     lineString(output, verbNames, "activation verb names");
   }
 
-  private static ActivationHeader readActivationHeader(
-      BufferedReader input, ReadContext context, String field, String location) throws IOException {
-    MooValue sentinel = readValue(input, context, location + " sentinel");
-    if (!sentinel.equals(new IntegerValue(V17Format.ACTIVATION_PLACEHOLDER))) {
-      throw malformed("invalid " + field + " activation sentinel");
-    }
-    MooValue receiver = readValue(input, context, location + " receiver");
-    MooValue verbLocation = readValue(input, context, location + " verb location");
-    long threadMode = readLong(input, field + " thread mode");
-    if (threadMode != 0 && threadMode != 1) {
-      throw malformed("invalid " + field + " thread mode: " + threadMode);
-    }
-    String compatibility = requiredLine(input, field + " compatibility fields");
-    String[] fields = compatibility.split(" ", -1);
-    if (fields.length != 9
-        || !fields[1].equals(Integer.toString(V17Format.LEGACY_DOBJ))
-        || !fields[2].equals(Integer.toString(V17Format.LEGACY_IOBJ))
-        || !fields[4].equals(Integer.toString(V17Format.LEGACY_PREPOSITION))
-        || !fields[7].equals(Integer.toString(V17Format.LEGACY_VERB))) {
-      throw malformed("invalid " + field + " compatibility fields: " + compatibility);
-    }
-    long legacyReceiver = parseLong(fields[0], field + " receiver");
-    long player = parseLong(fields[3], field + " player");
-    long programmer = parseLong(fields[5], field + " programmer");
-    long legacyVerbLocation = parseLong(fields[6], field + " compatibility verb location");
-    long debug = parseLong(fields[8], field + " debug mode");
-    if (debug != 0 && debug != 1) {
-      throw malformed("invalid " + field + " debug mode: " + debug);
-    }
-    requireExact(input, "No", field + " obsolete argstr");
-    requireExact(input, "More", field + " obsolete dobjstr");
-    requireExact(input, "Parse", field + " obsolete iobjstr");
-    requireExact(input, "Infos", field + " obsolete prepstr");
-    String verb = requiredLine(input, field + " verb");
-    String verbNames = requiredLine(input, field + " verb names");
-    return new ActivationHeader(receiver, verbLocation, threadMode == 1, player, programmer,
-        debug == 1, verb, verbNames, legacyReceiver, legacyVerbLocation, fields[8]);
-  }
 
-  private record ActivationHeader(
-      MooValue receiver, MooValue verbLocation, boolean threadMode, long player, long programmer,
-      boolean debug, String verb, String verbNames, long legacyReceiver, long legacyVerbLocation,
-      String debugText) {}
 
   private static long encodedObjectNumber(MooValue value, WriteContext context) throws IOException {
     if (value instanceof ObjectValue object) {
@@ -684,231 +568,10 @@ public final class LambdaMooV17Codec implements DbCodec {
     return -1;
   }
 
-  private static SuspendedTask readSuspendedTask(
-      BufferedReader input, ReadContext context) throws IOException {
-    String header = requiredLine(input, "suspended-task header");
-    int firstSpace = header.indexOf(' ');
-    int secondSpace = firstSpace < 0 ? -1 : header.indexOf(' ', firstSpace + 1);
-    if (firstSpace <= 0) {
-      throw malformed("invalid suspended-task header: " + header);
-    }
-    long scheduledEpochSecond =
-        parseLong(header.substring(0, firstSpace), "suspended-task scheduled epoch second");
-    long taskId =
-        parseLong(
-            header.substring(firstSpace + 1, secondSpace < 0 ? header.length() : secondSpace),
-            "suspended-task id");
-    MooValue resumeValue =
-        secondSpace < 0
-            ? new IntegerValue(0)
-            : readValue(
-                input,
-                parseInt(header.substring(secondSpace + 1), "suspended-task resume tag"),
-                context,
-                "suspended task #" + taskId + " resume value");
-    return readSuspendedVm(
-        input, context, taskId, scheduledEpochSecond, resumeValue, Optional.empty());
-  }
 
-  private static SuspendedTask readInterruptedTask(
-      BufferedReader input, ReadContext context) throws IOException {
-    String header = requiredLine(input, "interrupted-task header");
-    int separator = header.indexOf(' ');
-    if (separator <= 0 || separator == header.length() - 1) {
-      throw malformed("invalid interrupted-task header: " + header);
-    }
-    long taskId = parseLong(header.substring(0, separator), "interrupted-task id");
-    return readSuspendedVm(
-        input,
-        context,
-        taskId,
-        0,
-        ErrorValue.E_INTRPT,
-        Optional.of(header.substring(separator + 1)));
-  }
 
-  private static SuspendedTask readSuspendedVm(
-      BufferedReader input,
-      ReadContext context,
-      long taskId,
-      long scheduledEpochSecond,
-      MooValue resumeValue,
-      Optional<String> interruptionStatus)
-      throws IOException {
-    MooValue taskLocal = readValue(input, context, "suspended task #" + taskId + " task-local");
-    String vmHeader = requiredLine(input, "suspended VM header");
-    String[] fields = vmHeader.split(" ", -1);
-    if (fields.length != 4) {
-      throw malformed("invalid suspended VM header: " + vmHeader);
-    }
-    int topActivation = parseInt(fields[0], "suspended VM top activation");
-    if (topActivation < 0) {
-      throw malformed("negative suspended VM top activation");
-    }
-    int rootActivationVector =
-        parseInt(fields[1], "suspended VM root activation vector");
-    long functionId = parseLong(fields[2], "suspended VM function id");
-    long maxStackDepth = parseLong(fields[3], "suspended VM maximum stack depth");
-    if (maxStackDepth < 1) {
-      throw malformed("invalid suspended VM maximum stack depth: " + maxStackDepth);
-    }
-    List<SuspendedActivation> activations = new ArrayList<>(topActivation + 1);
-    for (int index = 0; index <= topActivation; index++) {
-      activations.add(readSuspendedActivation(input, context, taskId, index));
-    }
-    return new SuspendedTask(
-        taskId,
-        scheduledEpochSecond,
-        resumeValue,
-        taskLocal,
-        rootActivationVector,
-        functionId,
-        maxStackDepth,
-        interruptionStatus,
-        activations);
-  }
 
-  private static SuspendedActivation readSuspendedActivation(
-      BufferedReader input, ReadContext context, long taskId, int activationIndex)
-      throws IOException {
-    String versionLine = requiredLine(input, "suspended activation language version");
-    String versionPrefix = "language version ";
-    if (!versionLine.startsWith(versionPrefix)) {
-      throw malformed("invalid suspended activation language version: " + versionLine);
-    }
-    int languageVersion =
-        parseInt(versionLine.substring(versionPrefix.length()), "activation language version");
-    String programSource = ProgramSectionReader.readSource(input, "suspended activation program");
 
-    int variableCount =
-        readSectionCount(input, " variables", "suspended activation variable count");
-    Map<String, Optional<MooValue>> locals = new LinkedHashMap<>();
-    for (int index = 0; index < variableCount; index++) {
-      String name = requiredLine(input, "suspended activation variable name");
-      Optional<MooValue> value =
-          readRuntimeVariable(
-              input,
-              context,
-              "suspended task #"
-                  + taskId
-                  + " activation "
-                  + activationIndex
-                  + " variable "
-                  + name);
-      if (locals.putIfAbsent(name, value) != null) {
-        throw malformed("duplicate suspended activation variable: " + name);
-      }
-    }
-
-    int stackCount =
-        readSectionCount(
-            input, " rt_stack slots in use", "suspended activation runtime stack count");
-    List<SuspendedStackSlot> operandStack = new ArrayList<>(stackCount);
-    for (int index = 0; index < stackCount; index++) {
-      int stackTag = readInt(input, "suspended activation runtime stack tag");
-      if (stackTag == V17Format.ValueTag.NONE.code()) {
-        operandStack.add(
-            new SuspendedStackSlot(Optional.empty(), V17Format.stackKind(stackTag), 0));
-      } else if (stackTag == V17Format.ValueTag.CATCH.code() || stackTag == V17Format.ValueTag.FINALLY.code()) {
-        operandStack.add(
-            new SuspendedStackSlot(
-                Optional.empty(),
-                V17Format.stackKind(stackTag),
-                readLong(input, "suspended activation runtime control value")));
-      } else {
-        operandStack.add(
-            new SuspendedStackSlot(
-                Optional.of(
-                    readValue(
-                        input,
-                        stackTag,
-                        context,
-                        "suspended task #"
-                            + taskId
-                            + " activation "
-                            + activationIndex
-                            + " stack slot "
-                            + index)),
-                SuspendedStackSlot.Kind.VALUE,
-                0));
-      }
-    }
-    Collections.reverse(operandStack);
-
-    ActivationHeader activationHeader = readActivationHeader(input, context, "suspended activation",
-        "suspended task #" + taskId + " activation " + activationIndex);
-    MooValue receiver = activationHeader.receiver();
-    MooValue verbLocation = activationHeader.verbLocation();
-    if (receiver instanceof ObjectValue object && object.value() != activationHeader.legacyReceiver()) {
-      throw malformed("suspended activation receiver encodings disagree");
-    }
-    if (verbLocation instanceof ObjectValue object
-        && object.value() != activationHeader.legacyVerbLocation()) {
-      throw malformed("suspended activation verb-location encodings disagree");
-    }
-    long taskPlayer = activationHeader.player();
-    long programmer = activationHeader.programmer();
-    String verb = activationHeader.verb();
-    String verbNames = activationHeader.verbNames();
-
-    int temporaryTag = readInt(input, "suspended activation temporary tag");
-    Optional<MooValue> temporary =
-        temporaryTag == V17Format.ValueTag.NONE.code()
-            ? Optional.empty()
-            : Optional.of(
-                readValue(
-                    input,
-                    temporaryTag,
-                    context,
-                    "suspended task #"
-                        + taskId
-                        + " activation "
-                        + activationIndex
-                        + " temporary"));
-    String counterLine = requiredLine(input, "suspended activation counters");
-    String[] counters = counterLine.split(" ", -1);
-    if (counters.length != 2 && counters.length != 3) {
-      throw malformed("invalid suspended activation counters: " + counterLine);
-    }
-    long programCounter = parseLong(counters[0], "suspended activation program counter");
-    long builtinFunctionCounter =
-        parseLong(counters[1], "suspended activation builtin function counter");
-    long errorCounter =
-        counters.length == 2
-            ? programCounter
-            : parseLong(counters[2], "suspended activation error counter");
-    if (builtinFunctionCounter != 0) {
-      throw malformed(
-          "unsupported suspended builtin continuation at program counter "
-              + builtinFunctionCounter);
-    }
-
-    return new SuspendedActivation(
-        languageVersion,
-        programSource,
-        locals,
-        operandStack,
-        receiver,
-        verbLocation,
-        activationHeader.threadMode(),
-        taskPlayer,
-        programmer,
-        activationHeader.debug(),
-        verb,
-        verbNames,
-        temporary,
-        programCounter,
-        builtinFunctionCounter,
-        errorCounter);
-  }
-
-  private static Optional<MooValue> readRuntimeVariable(
-      BufferedReader input, ReadContext context, String location) throws IOException {
-    int tag = readInt(input, location + " tag");
-    return tag == V17Format.ValueTag.NONE.code()
-        ? Optional.empty()
-        : Optional.of(readValue(input, tag, context, location));
-  }
 
   private static void writeProgramSource(
       BufferedWriter output, String source, String field) throws IOException {
@@ -1260,11 +923,12 @@ public final class LambdaMooV17Codec implements DbCodec {
 
   private static Map<Long, List<WorldProperty>> restoreAllProperties(
       Map<Long, RawObject> objects) throws IOException {
-    Map<Long, List<WorldProperty>> restored = new LinkedHashMap<>();
+    Map<Long, PropertySlotRestorer.Input> inputs = new LinkedHashMap<>();
     for (RawObject object : objects.values()) {
-      restoreProperties(object, objects, restored, new ArrayList<>());
+      inputs.put(object.id(), new PropertySlotRestorer.Input(object.id(), object.parents(),
+          object.propertyNames(), object.propertySlots()));
     }
-    return restored;
+    return PropertySlotRestorer.restore(inputs);
   }
 
   private static Map<WaifValue, WorldWaif> restoreWaifs(
@@ -1313,104 +977,7 @@ public final class LambdaMooV17Codec implements DbCodec {
     return restored;
   }
 
-  private static List<WorldProperty> restoreProperties(
-      RawObject object,
-      Map<Long, RawObject> objects,
-      Map<Long, List<WorldProperty>> restored,
-      List<Long> ancestry)
-      throws IOException {
-    List<WorldProperty> existing = restored.get(object.id());
-    if (existing != null) {
-      return existing;
-    }
-    if (ancestry.contains(object.id())) {
-      throw malformed("cyclic property ancestry at object #" + object.id());
-    }
-    ancestry.add(object.id());
 
-    for (long parentId : object.parents()) {
-      if (parentId == -1) {
-        continue;
-      }
-      RawObject parent = objects.get(parentId);
-      if (parent == null) {
-        throw malformed("object #" + object.id() + " has missing parent #" + parentId);
-      }
-      restoreProperties(parent, objects, restored, ancestry);
-    }
-
-    List<Long> canonical = rawAncestry(object.id(), objects);
-    int expectedSlots = 0;
-    for (long ancestorId : canonical) {
-      expectedSlots =
-          Math.addExact(
-              expectedSlots,
-              Objects.requireNonNull(objects.get(ancestorId)).propertyNames().size());
-    }
-    if (object.propertySlots().size() != expectedSlots) {
-      throw malformed(
-          "object #"
-              + object.id()
-              + " has "
-              + object.propertyNames().size()
-              + " definitions and "
-              + object.propertySlots().size()
-              + " value slots for "
-              + (expectedSlots - object.propertyNames().size())
-              + " inherited properties");
-    }
-
-    List<WorldProperty> properties = new ArrayList<>(object.propertySlots().size());
-    int slotIndex = 0;
-    for (long definingId : canonical) {
-      RawObject defining = Objects.requireNonNull(objects.get(definingId));
-      for (String name : defining.propertyNames()) {
-        RawPropertySlot slot = object.propertySlots().get(slotIndex++);
-        boolean defined = definingId == object.id();
-        if (defined && slot.clear()) {
-          throw malformed("object #" + object.id() + " has a clear local property " + name);
-        }
-        MooValue value = slot.value();
-        if (value == null) {
-          value = clearFallback(object, name, restored);
-        }
-        properties.add(
-            new WorldProperty(
-                name,
-                value,
-                slot.owner(),
-                new PropertyPerms(slot.permissions()),
-                slot.clear(),
-                defined));
-      }
-    }
-    ancestry.removeLast();
-    List<WorldProperty> result = List.copyOf(properties);
-    restored.put(object.id(), result);
-    return result;
-  }
-
-  private static MooValue clearFallback(
-      RawObject object, String propertyName, Map<Long, List<WorldProperty>> restored)
-      throws IOException {
-    for (long parentId : object.parents()) {
-      if (parentId == -1) {
-        continue;
-      }
-      List<WorldProperty> parentProperties = restored.get(parentId);
-      if (parentProperties == null) {
-        continue;
-      }
-      for (WorldProperty property : parentProperties) {
-        if (property.name().equalsIgnoreCase(propertyName)) {
-          return property.value();
-        }
-      }
-    }
-    throw malformed(
-        "object #" + object.id() + " has clear property without direct-parent fallback "
-            + propertyName);
-  }
 
   private static Map<Long, RawObject> validateAndRepairHierarchy(
       Map<Long, RawObject> objects, int permanentSlotCount) throws IOException {
@@ -1578,39 +1145,7 @@ public final class LambdaMooV17Codec implements DbCodec {
     COMPLETE
   }
 
-  private static List<Long> rawAncestry(long objectId, Map<Long, RawObject> objects)
-      throws IOException {
-    List<Long> result = new ArrayList<>();
-    collectRawAncestry(objectId, objects, new LinkedHashSet<>(), new LinkedHashSet<>(), result);
-    return List.copyOf(result);
-  }
 
-  private static void collectRawAncestry(
-      long objectId,
-      Map<Long, RawObject> objects,
-      Set<Long> visiting,
-      Set<Long> visited,
-      List<Long> result)
-      throws IOException {
-    if (visited.contains(objectId)) {
-      return;
-    }
-    RawObject object = objects.get(objectId);
-    if (object == null) {
-      throw malformed("missing inheritance object #" + objectId);
-    }
-    if (!visiting.add(objectId)) {
-      throw malformed("cyclic property ancestry at object #" + objectId);
-    }
-    visited.add(objectId);
-    result.add(objectId);
-    for (long parentId : object.parents()) {
-      if (parentId != -1) {
-        collectRawAncestry(parentId, objects, visiting, visited, result);
-      }
-    }
-    visiting.remove(objectId);
-  }
 
   private static MooValue readValue(
       BufferedReader input, ReadContext context, String location) throws IOException {
@@ -1760,15 +1295,6 @@ public final class LambdaMooV17Codec implements DbCodec {
     }
     return parseCount(
         line.substring(0, line.length() - suffix.length()), "pending-finalization count");
-  }
-
-  private static int readSectionCount(BufferedReader input, String suffix, String field)
-      throws IOException {
-    String line = requiredLine(input, field);
-    if (!line.endsWith(suffix)) {
-      throw malformed("invalid " + field + ": " + line);
-    }
-    return parseCount(line.substring(0, line.length() - suffix.length()), field);
   }
 
   private static final class WriteContext {

@@ -213,11 +213,15 @@ public final class ToastV17ProgramModel {
 
   /** One typed structural entry in Toast base-to-top runtime-stack order. */
   public sealed interface StructuralStackEntry
-      permits CatchGroup, ProtectedFinally, FinallyContinuation, CollectionLoop, RangeLoop {
+      permits CatchGroup, ProtectedFinally, FinallyContinuation, CollectionLoop, RangeLoop, IndexContext {
     AstPath ownerPath();
 
     int baseDepth();
   }
+
+  /** Collection retained while evaluating an index or range, with an optional saved parent key. */
+  public record IndexContext(AstPath ownerPath, int baseDepth, OptionalInt keyDepth)
+      implements StructuralStackEntry {}
 
   /** Catch structure, including raw marker placement and Banteng controls for synthesis. */
   public record CatchGroup(
