@@ -163,7 +163,7 @@ public final class VmState {
       pushFrame(program, origin.locals(), new FrameOrigin(
           ReturnMode.ROOT, origin.programmer(), receiver, origin.verbLocation(),
           origin.calledVerb(), origin.fullVerbName(), Optional.empty(), OptionalLong.empty(),
-          OptionalLong.empty(), OptionalLong.empty(), OptionalLong.empty(), Optional.empty(), origin.debug()));
+          OptionalLong.empty(), OptionalLong.empty(), OptionalLong.empty(), Optional.empty(), origin.debug(), origin.player()));
     }
   }
 
@@ -185,7 +185,7 @@ public final class VmState {
       String calledVerb, String fullVerbName, Optional<MooValue> createReturnOverride,
       OptionalLong recycleTarget, OptionalLong moveObject, OptionalLong moveDestination,
       OptionalLong movePosition, Optional<AnonymousObjectValue> anonymousRecycleTarget,
-      boolean debug) {}
+      boolean debug, long player) {}
 
   boolean pushFrame(BytecodeProgram program, Map<String, MooValue> locals, FrameOrigin origin) {
     if (origin.returnMode() != ReturnMode.ROOT && frames.size() >= budget.maxStackDepth()) {
@@ -195,13 +195,13 @@ public final class VmState {
       Map<String, MooValue> merged = new LinkedHashMap<>(this.origin.locals());
       merged.putAll(locals);
       this.origin = new TaskOrigin(merged, this.origin.programmer(), this.origin.verbLocation(),
-          this.origin.calledVerb(), this.origin.fullVerbName(), this.origin.debug());
+          this.origin.calledVerb(), this.origin.fullVerbName(), this.origin.debug(), origin.player());
     }
     frames.push(new Frame(program, locals, origin.returnMode(), origin.programmer(),
         origin.receiver(), origin.verbLocation(), origin.calledVerb(), origin.fullVerbName(),
         origin.createReturnOverride(), origin.recycleTarget(), origin.moveObject(),
         origin.moveDestination(), origin.movePosition(), origin.anonymousRecycleTarget(),
-        origin.debug(), true));
+        origin.debug(), true, origin.player()));
     return true;
   }
 
@@ -233,7 +233,7 @@ public final class VmState {
         fields.add(StringValue.of(frame.calledVerb));
         fields.add(new ObjectValue(frame.programmer));
         fields.add(frame.verbLocation);
-        fields.add(frame.localOrDefault(5, new ObjectValue(-1)));
+        fields.add(new ObjectValue(frame.player));
         if (lineNumbers) {
           int callInstruction =
               Math.max(
@@ -323,7 +323,7 @@ public final class VmState {
                 frame.calledVerb,
                 frame.fullVerbName,
                 frame.debug,
-                delaySeconds));
+                delaySeconds, frame.player));
     outcome = Outcome.FORKED;
   }
 
@@ -345,7 +345,7 @@ public final class VmState {
     outcome = Outcome.RUNNING;
     return new VmSnapshot.Fork(request.program(), childLocals, request.programmer(),
         request.verbLocation(), request.calledVerb(), request.fullVerbName(),
-        request.debug(), request.delaySeconds());
+        request.debug(), request.delaySeconds(), request.player());
   }
 
   void suspend(OptionalDouble delaySeconds, Optional<Callable<BuiltinResult>> externalWork) {
@@ -421,7 +421,7 @@ public final class VmState {
                     request.calledVerb(),
                     request.fullVerbName(),
                     request.debug(),
-                    request.delaySeconds()));
+                    request.delaySeconds(), request.player()));
     return new VmSnapshot(
         origin.locals(),
         origin.programmer(),
@@ -449,7 +449,7 @@ public final class VmState {
         captured.remainingTicks(),
         captured.elapsedCpuNanos(),
         captured.remainingCpuNanos(),
-        captured.maxStackDepth());
+        captured.maxStackDepth(), origin.player());
   }
 
   /** Restores a task from a value-only retry or checkpoint snapshot. */
@@ -469,7 +469,7 @@ public final class VmState {
     VmState state = new VmState(
         new TaskOrigin(snapshot.initialLocals(), snapshot.initialProgrammer(),
             snapshot.initialVerbLocation(), snapshot.initialCalledVerb(), snapshot.initialFullVerbName(),
-            snapshot.frames().isEmpty() || snapshot.frames().getLast().debug()),
+            snapshot.frames().isEmpty() || snapshot.frames().getLast().debug(), snapshot.initialPlayer()),
         budget);
     for (VmSnapshot.Frame frame : snapshot.frames()) {
       state.frames.addLast(restore(frame));
@@ -499,7 +499,7 @@ public final class VmState {
                         request.calledVerb(),
                         request.fullVerbName(),
                         request.debug(),
-                        request.delaySeconds()));
+                        request.delaySeconds(), request.player()));
     state.suspensionDelaySeconds = snapshot.suspensionDelaySeconds();
     state.awaitingHostResult = snapshot.awaitingHostResult();
     state.hostWork = Optional.empty();
@@ -553,7 +553,7 @@ public final class VmState {
         frame.threadMode,
         frame.instructionPointer,
         frame.anonymousRecycleTarget,
-        frame.builtinContinuation);
+        frame.builtinContinuation, frame.player);
   }
 
   private static Frame restore(VmSnapshot.Frame snapshot) {
@@ -574,7 +574,7 @@ public final class VmState {
             snapshot.movePosition(),
             snapshot.anonymousRecycleTarget(),
             snapshot.debug(),
-            snapshot.threadMode());
+            snapshot.threadMode(), snapshot.player());
     frame.builtinContinuation = snapshot.builtinContinuation();
     Map<String, MooValue> normalized = normalizedLocals(snapshot.locals());
     for (int slot = 0; slot < frame.locals.length; slot++) {
@@ -664,6 +664,7 @@ public final class VmState {
     final OptionalLong movePosition;
     final Optional<AnonymousObjectValue> anonymousRecycleTarget;
     final boolean debug;
+    final long player;
     long programmer;
     boolean threadMode;
     int instructionPointer;
@@ -672,7 +673,7 @@ public final class VmState {
       return VmSnapshot.builtinStackFrame(builtinContinuation,
           VmSnapshot.ReturnMode.valueOf(returnMode.name()), createReturnOverride.isPresent(),
           recycleTarget.isPresent() || anonymousRecycleTarget.isPresent(),
-          parent.program, parent.instructionPointer, localOrDefault(5, new ObjectValue(-1)),
+          parent.program, parent.instructionPointer, new ObjectValue(player),
           Map.of(), lines, false);
     }
 
@@ -722,7 +723,7 @@ public final class VmState {
           movePosition,
           Optional.empty(),
           debug,
-          threadMode);
+          threadMode, TaskOrigin.initialPlayer(locals));
     }
 
     Frame(
@@ -741,7 +742,8 @@ public final class VmState {
         OptionalLong movePosition,
         Optional<AnonymousObjectValue> anonymousRecycleTarget,
         boolean debug,
-        boolean threadMode) {
+        boolean threadMode, long player) {
+      this.player = player;
       this.program = program;
       this.locals = java.util.Arrays.copyOf(CONSTANT_VALUES, program.variableNames().size());
       Map<String, MooValue> normalized = normalizedLocals(locals);
@@ -786,7 +788,7 @@ public final class VmState {
       String calledVerb,
       String fullVerbName,
       boolean debug,
-      double delaySeconds) {
+      double delaySeconds, long player) {
     public ForkRequest {
       locals = Collections.unmodifiableMap(new LinkedHashMap<>(locals));
       Objects.requireNonNull(calledVerb, "calledVerb");

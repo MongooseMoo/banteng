@@ -938,22 +938,12 @@ public final class MooRuntime implements AutoCloseable, SchedulerRuntime {
       return RuntimeStep.returned(continuation.output());
     }
 
-    List<MooValue> stack = new ArrayList<>();
-    for (VmSnapshot.Frame frame : timedOut.frames()) {
-      MooValue thisValue = frame.locals().getOrDefault("this", frame.receiver());
-      MooValue verbValue = frame.locals().getOrDefault("verb", StringValue.of(""));
-      MooValue playerValue =
-          frame.locals().getOrDefault("player", new ObjectValue(continuation.first()));
-      stack.add(
-          new ListValue(
-              List.of(
-                  thisValue,
-                  verbValue,
-                  new ObjectValue(frame.programmer()),
-                  frame.verbLocation(),
-                  playerValue,
-                  new IntegerValue(0))));
-    }
+    MooValue serverOptions = context.world.readObjectProperty(0, "server_options").orElse(null);
+    boolean includeVariables = serverOptions instanceof ObjectValue options
+        && context.world.readObjectProperty(options.value(), "include_rt_vars")
+            .orElse(new IntegerValue(0)).isTruthy();
+    List<MooValue> stack = new ArrayList<>(TaskRegistry.projectStackFrames(
+        timedOut.frames(), true, includeVariables, context.world, -1).elements());
     if (stack.isEmpty()) {
       stack.add(
           new ListValue(
@@ -1001,7 +991,7 @@ public final class MooRuntime implements AutoCloseable, SchedulerRuntime {
     VmState root = new VmState(new TaskOrigin(Map.of(), resolution.verb().owner(), resolution.location(),
         call.verb(), resolution.verb().names(), resolution.verb().perms().debug()), new TaskBudget(foregroundTicks, foregroundSeconds, maxStackDepth));
     if (!MooVm.callVerb(root, call.receiver(), resolution, call.arguments(), call.verb(),
-        MooVm.VerbCallKind.ROOT, Optional.empty(), Optional.empty(), Optional.of(call))) {
+        MooVm.VerbCallKind.ROOT, Optional.empty(), Optional.empty(), Optional.of(call), context.world)) {
       throw new IllegalStateException("root verb exceeds empty task stack");
     }
     return RuntimeStep.vm(resolution.verb().program(), root.snapshot(), call.player(), continuation);

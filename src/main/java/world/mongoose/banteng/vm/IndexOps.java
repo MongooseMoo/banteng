@@ -267,7 +267,7 @@ final class IndexOps {
     }
     frame.instructionPointer++;
     if (!MooVm.callVerb(state, waif, verb, arguments, verbName, MooVm.VerbCallKind.NORMAL,
-        Optional.empty(), Optional.empty(), Optional.empty())) {
+        Optional.empty(), Optional.empty(), Optional.empty(), world)) {
       ErrorOps.raise(state, ErrorValue.E_MAXREC, world, false);
     }
   }
