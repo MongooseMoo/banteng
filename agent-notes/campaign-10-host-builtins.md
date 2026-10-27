@@ -30,3 +30,5 @@ Merged the latest coordinator runtime login-output and pinned-layout-boundary re
 
 ## Queue prerequisite integration
 Normally merged the published Regex tip, including reviewed Binary and SQLite prerequisites. Retained both Host and Regex registration-name branches and focused fixture methods in the existing mover. Catalog overlap retains the SQLite family import without restoring the unused binary stream import removed by Host; remaining catalog and YAML additions merged automatically. These additive resolutions follow final assembly. HostBuiltins remains byte-identical. No local tests, repeated review or publication; parent owns hosted validation and merge.
+
+Normally merged current origin/master to establish the actual merged base after GitHub reported a conflict. No conflicts occurred locally. Incoming source changes are only the already-reviewed startup-input cleaning fix and focused test, alongside runtime notes. HostBuiltins, other builtin owners, catalog and extraction files remain unchanged. Existing reviews remain retained; no local CI, review or publication ran here.

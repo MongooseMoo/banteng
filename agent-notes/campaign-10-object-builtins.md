@@ -19,7 +19,7 @@ OpenRewrite emitted Gradle runtimeClasspath exclusive-lock warnings for subproje
 Final assembly conflicted at catalog sections already extracted to this family and the adjacent switchPlayer header. Resolution retains extracted ownership and the current switchPlayer(BuiltinCall) declaration. Read-only current-catalog comparison confirms all24 moved implementation bodies match after whitespace normalization. The authored Object recipe fixture now covers all three existing Initialize payload forms and retains idempotence/shared mutation helper checks.
 
 ## Next step
-Published as PR129; this latest integration remains local only. Earlier Claude review and original PR CI are historical evidence, not acceptance of the new integration delta. Parent owns any bounded review of the three payload/import adaptations and recipe fixture, publication and current PR CI before normal merge.
+Published as PR129, including the Initialize payload integration. Original family review, bounded payload follow-up and aggregate integration coverage remain retained for unchanged code. Required hosted checks passed on the preceding published head. The latest ancestry-only merge remains local pending parent publication and current hosted checks; parent owns the normal merge.
 
 ## Final integration validation
 
@@ -38,3 +38,5 @@ Merged the latest coordinator runtime login-output and pinned-layout-boundary re
 
 ## Queue prerequisite integration
 Normally merged the published Crypto tip, including reviewed Host, Regex, Binary and SQLite prerequisites. Mover resolution retains both Object ParentArgument and Crypto nested types, all independent family generation/import branches and members. Fixture and YAML conflicts retain every existing family section. Reused catalog resolution retains the original Object registration positions alongside the prerequisite families and canonical catalog-owned crypt dependency, matching final assembly. ObjectBuiltins and incoming family owners remain byte-identical. No local tests, repeated review or publication; parent owns hosted validation and merge.
+
+Normally merged the repaired Crypto tip carrying the actual merged master ancestry through Host. No conflicts occurred. Incoming source changes are only the already-reviewed startup-input fix and focused test, with runtime and prerequisite notes. ObjectBuiltins, BuiltinResult, other builtin owners, catalog and extraction files remain unchanged. Corrected the stale Next step publication wording; existing review coverage remains retained. No local CI, review or publication ran here.
