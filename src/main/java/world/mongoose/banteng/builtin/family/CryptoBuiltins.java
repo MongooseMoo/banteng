@@ -44,9 +44,9 @@ public final class CryptoBuiltins {
     private CryptoBuiltins() {
     }
 
-    public static void register(List<BuiltinSpec> entries, SecureRandom secureRandom) {
+    public static void register(List<BuiltinSpec> entries, SecureRandom secureRandom, Crypt crypt) {
         BuiltinRegistrar registrar = new BuiltinRegistrar(entries);
-        registrar.builtin("crypt", List.of(new CallShape(List.of(STRING), List.of(STRING), Optional.empty()))).irrevocable().implementation(call -> crypt(call.arguments(), call.world(), call.programmer(), secureRandom, call.hosts().crypt()));
+        registrar.builtin("crypt", List.of(new CallShape(List.of(STRING), List.of(STRING), Optional.empty()))).irrevocable().implementation(call -> crypt(call.arguments(), call.world(), call.programmer(), secureRandom, crypt));
         registrar.builtin("salt", List.of(new CallShape(List.of(STRING, STRING), List.of(), Optional.empty()))).implementation(call -> salt(call.arguments()));
         for (String input : List.of("string", "binary", "value")) {
             registrar.builtin(input + "_hash", List.of(new CallShape(List.of(input.equals("value") ? ANY : STRING),

@@ -270,7 +270,7 @@ public final class BuiltinCatalog {
             false,
             call -> simplexNoise(call.arguments())));
     StringBuiltins.registerSearchAndCompare(entries);
-    CryptoBuiltins.register(entries, SECURE_RANDOM);
+    CryptoBuiltins.register(entries, SECURE_RANDOM, hosts.crypt());
     BinaryBuiltins.registerDecode(entries);
     entries.add(
         new BuiltinSpec(

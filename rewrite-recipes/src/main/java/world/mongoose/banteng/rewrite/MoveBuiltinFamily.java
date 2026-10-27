@@ -197,7 +197,7 @@ public final class MoveBuiltinFamily extends ScanningRecipe<MoveBuiltinFamily.Me
     for (int group = 0; group < members.groups.size(); group++) {
       body.append("  public static void ").append(registerMethod(group))
           .append("(List<BuiltinSpec> entries" + (stringAnsiGroup(group) ? ", Random random" : "")
-              + (family.equals("CryptoBuiltins") ? ", SecureRandom secureRandom" : "")
+              + (family.equals("CryptoBuiltins") ? ", SecureRandom secureRandom, Crypt crypt" : "")
               + (family.equals("RandomBuiltins")
                   ? ", java.util.function.Supplier<Random> random, java.util.function.Supplier<Random> floatingRandom, SecureRandom secureRandom" : "") + ") {\n")
           .append("    BuiltinRegistrar registrar = new BuiltinRegistrar(entries);\n");
@@ -276,7 +276,7 @@ public final class MoveBuiltinFamily extends ScanningRecipe<MoveBuiltinFamily.Me
     generated = (J.CompilationUnit) new AutoFormatVisitor<ExecutionContext>(null).visitNonNull(generated, context);
     if (family.equals("CryptoBuiltins")) {
       String source = generated.printAll()
-          .replace("crypt(call.arguments(), call.world(), call.programmer())", "crypt(call.arguments(), call.world(), call.programmer(), secureRandom, call.hosts().crypt())")
+          .replace("crypt(call.arguments(), call.world(), call.programmer())", "crypt(call.arguments(), call.world(), call.programmer(), secureRandom, crypt)")
           .replace("private BuiltinResult crypt(List<MooValue> arguments, WorldTxn world, long programmer)", "private static BuiltinResult crypt(List<MooValue> arguments, WorldTxn world, long programmer, SecureRandom secureRandom, Crypt crypt)")
           .replace("SECURE_RANDOM.nextInt", "secureRandom.nextInt")
           .replace("nativeCrypt(password, StringValue.of(salt).bytes())", "nativeCrypt(password, StringValue.of(salt).bytes(), crypt)")
@@ -542,7 +542,7 @@ public final class MoveBuiltinFamily extends ScanningRecipe<MoveBuiltinFamily.Me
             Statement replacement = ((J.CompilationUnit) JavaParser.fromJavaVersion().build()
              .parse(context, "class Replacement { void register() { " + family + "." + registerMethod(group)
                  + "(entries" + (stringAnsiGroup(group) ? ", random" : "")
-                 + (family.equals("CryptoBuiltins") ? ", SECURE_RANDOM" : "")
+                 + (family.equals("CryptoBuiltins") ? ", SECURE_RANDOM, hosts.crypt()" : "")
                  + (family.equals("RandomBuiltins") ? ", () -> random, () -> floatingRandom, SECURE_RANDOM" : "") + "); } }")
             .findFirst().orElseThrow()).getClasses().getFirst().getBody().getStatements().stream()
             .filter(J.MethodDeclaration.class::isInstance).map(J.MethodDeclaration.class::cast)

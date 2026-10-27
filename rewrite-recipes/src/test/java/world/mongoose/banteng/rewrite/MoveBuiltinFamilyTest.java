@@ -51,13 +51,14 @@ final class MoveBuiltinFamilyTest {
     var changes = recipe.run(new InMemoryLargeSourceSet(files), context).getChangeset().getAllResults();
     String catalog = changedFile(changes, "BuiltinCatalog.java");
     String family = changedFile(changes, "CryptoBuiltins.java");
-    assertTrue(catalog.indexOf("before()") < catalog.indexOf("CryptoBuiltins.register(entries, SECURE_RANDOM)"));
-    assertTrue(catalog.indexOf("CryptoBuiltins.register(entries, SECURE_RANDOM)") < catalog.indexOf("after()"));
+    assertTrue(catalog.indexOf("before()") < catalog.indexOf("CryptoBuiltins.register(entries, SECURE_RANDOM, hosts.crypt())"));
+    assertTrue(catalog.indexOf("CryptoBuiltins.register(entries, SECURE_RANDOM, hosts.crypt())") < catalog.indexOf("after()"));
     assertFalse(catalog.contains("Argon2Hasher"));
     assertFalse(catalog.contains("private BuiltinResult crypt"));
     assertTrue(family.contains("for (String input : List.of(\"string\", \"binary\", \"value\"))"));
     assertTrue(family.indexOf("input + \"_hash\"") < family.indexOf("input + \"_hmac\""));
-    assertTrue(family.contains("secureRandom, call.hosts().crypt()"));
+    assertTrue(family.contains("register(List<BuiltinSpec> entries, SecureRandom secureRandom, Crypt crypt)"));
+    assertTrue(family.contains("secureRandom, crypt)"));
     assertTrue(family.contains("private static String nativeCrypt(byte[] password, byte[] salt, Crypt crypt)"));
     assertTrue(family.contains("crypt.hash(password, salt)"));
     assertTrue(family.contains("record Argon2Settings"));
