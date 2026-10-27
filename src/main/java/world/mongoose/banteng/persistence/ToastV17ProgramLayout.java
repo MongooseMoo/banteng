@@ -22,6 +22,11 @@ import world.mongoose.banteng.bytecode.ToastV17ProgramModel.ToastHandlerGroup;
 
 /** Queries pinned Toast compiler v17 program-vector layouts for suspended-call import. */
 public final class ToastV17ProgramLayout {
+  private final int languageVersion;
+
+  public ToastV17ProgramLayout() { this(17); }
+
+  public ToastV17ProgramLayout(int languageVersion) { this.languageVersion = languageVersion; }
   /** Resolves one v17 serialized call boundary, rejecting absent or ambiguous matches. */
   public CallBoundary resolve(
       String source, int vector, long errorProgramCounter, long programCounter) {
@@ -53,7 +58,7 @@ public final class ToastV17ProgramLayout {
   /** Returns every exact call boundary in one pinned Toast v17 program vector. */
   public List<CallBoundary> callBoundaries(String source, int vector) {
     Objects.requireNonNull(source, "source");
-    return new LayoutCompiler(source).callBoundaries(vector);
+    return new LayoutCompiler(source, languageVersion).callBoundaries(vector);
   }
 
   /** Resolves active Toast catch/finally labels at one structural continuation path. */
@@ -61,7 +66,7 @@ public final class ToastV17ProgramLayout {
       String source, int vector, AstPath continuationPath) {
     Objects.requireNonNull(source, "source");
     Objects.requireNonNull(continuationPath, "continuationPath");
-    return new LayoutCompiler(source).resolveToastControls(vector, continuationPath);
+    return new LayoutCompiler(source, languageVersion).resolveToastControls(vector, continuationPath);
   }
 
   /** Resolves the unique Toast catch marker owned by an exact structural path. */
@@ -69,14 +74,14 @@ public final class ToastV17ProgramLayout {
       String source, int vector, AstPath ownerPath) {
     Objects.requireNonNull(source, "source");
     Objects.requireNonNull(ownerPath, "ownerPath");
-    return new LayoutCompiler(source).resolveToastHandlerGroup(vector, ownerPath);
+    return new LayoutCompiler(source, languageVersion).resolveToastHandlerGroup(vector, ownerPath);
   }
 
   /** Resolves the unique Toast finally label owned by an exact structural path. */
   ToastFinallyLabel resolveToastFinallyLabel(String source, int vector, AstPath ownerPath) {
     Objects.requireNonNull(source, "source");
     Objects.requireNonNull(ownerPath, "ownerPath");
-    return new LayoutCompiler(source).resolveToastFinallyLabel(vector, ownerPath);
+    return new LayoutCompiler(source, languageVersion).resolveToastFinallyLabel(vector, ownerPath);
   }
 
   /** Resolves the complete Toast structural runtime-stack shape at one call boundary. */
@@ -89,7 +94,7 @@ public final class ToastV17ProgramLayout {
       throw new IllegalArgumentException("Toast boundary vector does not match requested vector");
     }
     BantengCallSite call = locateBantengCall(program, boundary.astPath());
-    return new LayoutCompiler(source).resolveStructuralStack(vector, boundary, call.program());
+    return new LayoutCompiler(source, languageVersion).resolveStructuralStack(vector, boundary, call.program());
   }
 
   /** Finds the unique matching call recursively across Banteng's hierarchical fork programs. */

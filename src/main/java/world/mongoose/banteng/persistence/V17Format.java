@@ -1,6 +1,7 @@
 package world.mongoose.banteng.persistence;
 
 import org.jspecify.annotations.Nullable;
+import world.mongoose.banteng.world.SuspendedStackSlot.Kind;
 
 /** Persisted Toast value tags and activation compatibility markers. */
 final class V17Format {
@@ -11,6 +12,23 @@ final class V17Format {
   static final int LEGACY_VERB = -10;
 
   private V17Format() {}
+
+  static Kind stackKind(int tag) {
+    if (tag == -1) { return Kind.VALUE; }
+    if (tag == ValueTag.NONE.code()) { return Kind.NONE; }
+    if (tag == ValueTag.CATCH.code()) { return Kind.CATCH; }
+    if (tag == ValueTag.FINALLY.code()) { return Kind.FINALLY; }
+    throw new IllegalArgumentException("unsupported suspended stack tag: " + tag);
+  }
+
+  static int stackTag(Kind kind) {
+    return switch (kind) {
+      case VALUE -> -1;
+      case NONE -> ValueTag.NONE.code();
+      case CATCH -> ValueTag.CATCH.code();
+      case FINALLY -> ValueTag.FINALLY.code();
+    };
+  }
 
   enum ValueTag {
     INTEGER(0), OBJECT(1), STRING(2), ERROR(3), LIST(4), CLEAR(5), NONE(6),

@@ -64,18 +64,13 @@ final class ArchitectureTest {
   void serverDiagnosticOwnersAcceptTheSharedLog() {
     classes()
         .that()
-        .haveNameMatching(".*\\.(LambdaMooV5Reader|BuiltinHosts|MooRuntime|MooServer)")
+        .haveNameMatching(".*\\.(LambdaMooV5Reader|BuiltinHosts|MooRuntime)")
         .should(
             new ArchCondition<JavaClass>("accept the shared ServerLog") {
               @Override
               public void check(JavaClass owner, ConditionEvents events) {
                 boolean acceptsLog =
-                    owner.getSimpleName().equals("MooServer")
-                        ? owner.getConstructors().stream()
-                            .filter(constructor -> constructor.getModifiers().contains(JavaModifier.PUBLIC))
-                            .flatMap(constructor -> constructor.getRawParameterTypes().stream())
-                            .anyMatch(type -> type.getName().equals("world.mongoose.banteng.logging.ServerLog"))
-                        : owner.getFields().stream()
+                    owner.getFields().stream()
                             .anyMatch(field -> field.getRawType().getName().equals("world.mongoose.banteng.logging.ServerLog"));
                 events.add(new SimpleConditionEvent(owner, acceptsLog, owner.getName() + " accepts ServerLog"));
               }
@@ -250,14 +245,7 @@ final class ArchitectureTest {
         .check(productionClasses);
     classes()
         .that()
-        .haveNameMatching(".*\\.(LambdaMooV5Reader|LambdaMooV17Codec)")
-        .should()
-        .dependOnClassesThat()
-        .haveFullyQualifiedName("world.mongoose.banteng.persistence.ValueTagDecoder")
-        .check(productionClasses);
-    noClasses()
-        .that()
-        .haveFullyQualifiedName("world.mongoose.banteng.persistence.LambdaMooV4Reader")
+        .haveNameMatching(".*\\.(LambdaMooV4Reader|LambdaMooV5Reader|LambdaMooV17Codec)")
         .should()
         .dependOnClassesThat()
         .haveFullyQualifiedName("world.mongoose.banteng.persistence.ValueTagDecoder")
@@ -305,11 +293,7 @@ final class ArchitectureTest {
         "runtime.MooRuntime",
         "this",
         "publishedConnections", "sessionRevision");
-    assertGuardedFields(
-        productionClasses,
-        "runtime.ConnectionIo",
-        "runtime",
-        "pendingReads");
+    assertGuardedFields(productionClasses, "runtime.ConnectionIo", "runtime", "pendingReads");
   }
 
   private static void assertGuardedFields(

@@ -204,7 +204,7 @@ final class IndexOps {
   }
 
   static void setIndexedLocal(
-      Frame frame, VmState state, WorldTxn world, String owner, int parentDepth) {
+      Frame frame, VmState state, WorldTxn world, int owner, int parentDepth) {
     frame.indexCollections.pop();
     MooValue value = frame.operandStack.pop();
     MooValue key = frame.operandStack.pop();
@@ -222,7 +222,7 @@ final class IndexOps {
     if (replacement.isEmpty()) {
       return;
     }
-    frame.locals.put(PropertyOps.normalize(owner), replacement.orElseThrow());
+    frame.locals[owner] = replacement.orElseThrow();
     frame.operandStack.push(value);
     frame.instructionPointer++;
   }
@@ -338,7 +338,7 @@ final class IndexOps {
   }
 
   static void setRange(
-      Frame frame, VmState state, WorldTxn world, Optional<String> owner, int parentDepth) {
+      Frame frame, VmState state, WorldTxn world, java.util.OptionalInt owner, int parentDepth) {
     frame.indexCollections.pop();
     MooValue value = frame.operandStack.pop();
     MooValue end = frame.operandStack.pop();
@@ -432,7 +432,7 @@ final class IndexOps {
       }
       return;
     }
-    frame.locals.put(PropertyOps.normalize(owner.orElseThrow()), updatedCollection);
+    frame.locals[owner.orElseThrow()] = updatedCollection;
     frame.operandStack.push(value);
     frame.instructionPointer++;
   }

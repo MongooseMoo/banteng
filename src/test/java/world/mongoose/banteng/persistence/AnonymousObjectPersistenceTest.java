@@ -1,5 +1,6 @@
 package world.mongoose.banteng.persistence;
 
+import world.mongoose.banteng.world.Checkpoint;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
@@ -11,6 +12,10 @@ import java.nio.file.Path;
 import java.time.Duration;
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
+import world.mongoose.banteng.runtime.SchedulerTestHarness;
 import world.mongoose.banteng.server.MooServer;
 import world.mongoose.banteng.value.MooValue.AnonymousObjectValue;
 import world.mongoose.banteng.value.MooValue.MapValue;
@@ -18,8 +23,6 @@ import world.mongoose.banteng.value.MooValue.ObjectValue;
 import world.mongoose.banteng.value.MooValue.StringValue;
 import world.mongoose.banteng.world.WorldAnonymousObject;
 import world.mongoose.banteng.world.WorldSnapshot;
-import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.io.TempDir;
 
 final class AnonymousObjectPersistenceTest {
   private static final Path STARTUP_FIXTURES =
@@ -63,7 +66,7 @@ final class AnonymousObjectPersistenceTest {
 
     String firstText = Files.readString(first, StringValue.charset());
     assertTrue(firstText.contains("1 values pending finalization\n12\n4\n"));
-    LambdaMooV17Codec.Checkpoint firstCheckpoint = codec.read(first);
+    Checkpoint firstCheckpoint = codec.read(first);
     WorldSnapshot firstWorld = firstCheckpoint.world().snapshot();
     assertEquals(1, firstWorld.pendingFinalization().size());
     AnonymousObjectValue pending =
@@ -88,12 +91,12 @@ final class AnonymousObjectPersistenceTest {
     Path first = temporaryDirectory.resolve("Anon2.db.new");
 
     runUntilFixtureShutdown(codec.read(STARTUP_FIXTURES.resolve("Anon2.db")), first);
-    LambdaMooV17Codec.Checkpoint firstCheckpoint = codec.read(first);
+    Checkpoint firstCheckpoint = codec.read(first);
     WorldSnapshot firstWorld = firstCheckpoint.world().snapshot();
 
     Path second = temporaryDirectory.resolve("Anon2.db.second");
     runUntilFixtureShutdown(firstCheckpoint, second);
-    LambdaMooV17Codec.Checkpoint secondCheckpoint = codec.read(second);
+    Checkpoint secondCheckpoint = codec.read(second);
 
     assertArrayEquals(Files.readAllBytes(first), Files.readAllBytes(second));
     for (WorldSnapshot world :
@@ -145,14 +148,14 @@ final class AnonymousObjectPersistenceTest {
     Path first = temporaryDirectory.resolve("Anon3.db.new");
 
     runUntilFixtureShutdown(codec.read(input), first);
-    LambdaMooV17Codec.Checkpoint firstCheckpoint = codec.read(first);
+    Checkpoint firstCheckpoint = codec.read(first);
     assertTrue(firstCheckpoint.world().snapshot().pendingFinalization().isEmpty());
     assertTrue(firstCheckpoint.world().snapshot().anonymousObjects().isEmpty());
     assertArrayEquals(inputBytes, Files.readAllBytes(first));
 
     Path second = temporaryDirectory.resolve("Anon3.db.second");
     runUntilFixtureShutdown(firstCheckpoint, second);
-    LambdaMooV17Codec.Checkpoint secondCheckpoint = codec.read(second);
+    Checkpoint secondCheckpoint = codec.read(second);
     assertTrue(secondCheckpoint.world().snapshot().pendingFinalization().isEmpty());
     assertTrue(secondCheckpoint.world().snapshot().anonymousObjects().isEmpty());
     assertArrayEquals(inputBytes, Files.readAllBytes(second));
@@ -167,7 +170,7 @@ final class AnonymousObjectPersistenceTest {
     Path first = temporaryDirectory.resolve("Anon4.db.new");
 
     runUntilFixtureShutdown(codec.read(input), first);
-    LambdaMooV17Codec.Checkpoint firstCheckpoint = codec.read(first);
+    Checkpoint firstCheckpoint = codec.read(first);
     WorldSnapshot firstWorld = firstCheckpoint.world().snapshot();
     assertTrue(firstWorld.pendingFinalization().isEmpty());
     assertEquals(1, firstWorld.anonymousObjects().size());
@@ -194,7 +197,7 @@ final class AnonymousObjectPersistenceTest {
 
     Path second = temporaryDirectory.resolve("Anon4.db.second");
     runUntilFixtureShutdown(firstCheckpoint, second);
-    LambdaMooV17Codec.Checkpoint secondCheckpoint = codec.read(second);
+    Checkpoint secondCheckpoint = codec.read(second);
     WorldSnapshot secondWorld = secondCheckpoint.world().snapshot();
     assertEquals(1, secondWorld.pendingFinalization().size());
     assertEquals(1, secondWorld.anonymousObjects().size());
@@ -216,7 +219,7 @@ final class AnonymousObjectPersistenceTest {
 
     Path third = temporaryDirectory.resolve("Anon4.db.third");
     runUntilFixtureShutdown(secondCheckpoint, third);
-    LambdaMooV17Codec.Checkpoint thirdCheckpoint = codec.read(third);
+    Checkpoint thirdCheckpoint = codec.read(third);
     WorldSnapshot thirdWorld = thirdCheckpoint.world().snapshot();
     assertTrue(thirdWorld.pendingFinalization().isEmpty());
     assertTrue(thirdWorld.anonymousObjects().isEmpty());
@@ -236,17 +239,17 @@ final class AnonymousObjectPersistenceTest {
     Path first = temporaryDirectory.resolve("Anon5.db.new");
 
     runUntilFixtureShutdown(codec.read(STARTUP_FIXTURES.resolve("Anon5.db")), first);
-    LambdaMooV17Codec.Checkpoint firstCheckpoint = codec.read(first);
+    Checkpoint firstCheckpoint = codec.read(first);
     WorldSnapshot firstWorld = firstCheckpoint.world().snapshot();
 
     Path second = temporaryDirectory.resolve("Anon5.db.second");
     runUntilFixtureShutdown(firstCheckpoint, second);
-    LambdaMooV17Codec.Checkpoint secondCheckpoint = codec.read(second);
+    Checkpoint secondCheckpoint = codec.read(second);
     WorldSnapshot secondWorld = secondCheckpoint.world().snapshot();
 
     Path third = temporaryDirectory.resolve("Anon5.db.third");
     runUntilFixtureShutdown(secondCheckpoint, third);
-    LambdaMooV17Codec.Checkpoint thirdCheckpoint = codec.read(third);
+    Checkpoint thirdCheckpoint = codec.read(third);
     WorldSnapshot thirdWorld = thirdCheckpoint.world().snapshot();
 
     assertArrayEquals(Files.readAllBytes(second), Files.readAllBytes(third));
@@ -314,8 +317,8 @@ final class AnonymousObjectPersistenceTest {
   }
 
   private static void runUntilFixtureShutdown(
-      LambdaMooV17Codec.Checkpoint checkpoint, Path output) throws Exception {
-    MooServer server = new MooServer("127.0.0.1", 0, checkpoint.world(), output);
+      Checkpoint checkpoint, Path output) throws Exception {
+    MooServer server = SchedulerTestHarness.server(checkpoint.world(), Optional.empty(), output, List.of(), List.of());
     Thread serving = Thread.startVirtualThread(server::serve);
     try {
       assertTrue(serving.join(Duration.ofSeconds(5)), "fixture did not shut down the server");

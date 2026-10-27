@@ -9,17 +9,19 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Objects;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 import world.mongoose.banteng.value.MooValue.ObjectValue;
+import world.mongoose.banteng.value.MooValue.IntegerValue;
 import world.mongoose.banteng.value.MooValue.StringValue;
 import world.mongoose.banteng.world.ArgSpec;
+import world.mongoose.banteng.world.ActiveConnection;
 import world.mongoose.banteng.world.PropertyPerms;
 import world.mongoose.banteng.world.VerbPerms;
 import world.mongoose.banteng.world.WorldObject;
 import world.mongoose.banteng.world.WorldProperty;
 import world.mongoose.banteng.world.WorldTxn;
 import world.mongoose.banteng.world.WorldVerb;
-import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.io.TempDir;
 
 final class LambdaMooV4ReaderTest {
   private static final Path TEST_DATABASE =
@@ -108,7 +110,7 @@ final class LambdaMooV4ReaderTest {
 
   @Test
   void readsTheCompleteAuthoritativeFixtureThroughWorldTxn() throws IOException {
-    WorldTxn root = new LambdaMooV4Reader().read(TEST_DATABASE);
+    WorldTxn root = new LambdaMooV4Reader(new LambdaMooV17Codec()).read(TEST_DATABASE).world();
 
     try (WorldTxn world = root.begin()) {
       assertEquals(List.of(3L, 4L), world.players());
@@ -246,16 +248,17 @@ final class LambdaMooV4ReaderTest {
   void rejectsAnInvalidPropertySlotCount(@TempDir Path temporaryDirectory) throws IOException {
     assertMalformed(
         temporaryDirectory,
-        fixture().replace("waif\n6\n1\n-1\n", "waif\n5\n1\n-1\n"),
-        "6 property names but 5 slots");
+        fixture().replace("waif\n6\n1\n-1\n", "waif\n5\n1\n-1\n")
+            .replace("1\n7\n3\n1\n#1\n", "#1\n"),
+        "6 definitions and 5 value slots");
   }
 
   @Test
   void rejectsAnUnsupportedValueTag(@TempDir Path temporaryDirectory) throws IOException {
     assertMalformed(
         temporaryDirectory,
-        fixture().replace("waif\n6\n1\n-1\n", "waif\n6\n2\n-1\n"),
-        "unsupported persisted value tag 2");
+        fixture().replace("waif\n6\n1\n-1\n", "waif\n6\n42\n-1\n"),
+        "value tag 42");
   }
 
   @Test
@@ -275,9 +278,31 @@ final class LambdaMooV4ReaderTest {
   }
 
   @Test
-  void rejectsUnsupportedTails(@TempDir Path temporaryDirectory) throws IOException {
+  void restoresSupportedIntegerValuesAndActiveConnections(@TempDir Path temporaryDirectory) throws IOException {
+    Path database = temporaryDirectory.resolve("supported.db");
+    Files.writeString(database,
+        fixture().replace("waif\n6\n1\n-1\n", "waif\n6\n0\n-1\n")
+            + "1 active connections with listeners\n3 0\n", StringValue.charset());
+    var checkpoint = new LambdaMooV4Reader(new LambdaMooV17Codec()).read(database);
+    assertEquals(List.of(new ActiveConnection(3, 0)), checkpoint.activeConnections());
+    assertEquals(List.of(), checkpoint.tasks());
+    try (WorldTxn world = checkpoint.world().begin()) {
+      assertEquals(new IntegerValue(-1), world.property(0, "nothing").orElseThrow().value());
+    }
+  }
+
+  @Test
+  void rejectsTruncatedTaskAndConnectionTails(@TempDir Path temporaryDirectory) throws IOException {
+    String database = fixture();
+    assertMalformed(temporaryDirectory,
+        database.substring(0, database.indexOf("0 queued tasks\n")) + "1 queued tasks\n",
+        "unexpected end of file while reading queued-task header");
+    assertMalformed(temporaryDirectory, database.replace("0 suspended tasks\n", "1 suspended tasks\n"),
+        "unexpected end of file while reading suspended-task header");
+    assertMalformed(temporaryDirectory, database + "1 active connections with listeners\n",
+        "unexpected end of file while reading active connection");
     assertMalformed(
-        temporaryDirectory, fixture() + "0 active connections\n", "unsupported v4 tail");
+        temporaryDirectory, database + "0 active connections\nunexpected\n", "unexpected data after task tail");
   }
 
   private static WorldProperty property(String name, long value, long owner) {
@@ -299,7 +324,7 @@ final class LambdaMooV4ReaderTest {
     Path database = temporaryDirectory.resolve("invalid.db");
     Files.writeString(database, contents, StringValue.charset());
     IOException error =
-        assertThrows(IOException.class, () -> new LambdaMooV4Reader().read(database));
+        assertThrows(IOException.class, () -> new LambdaMooV4Reader(new LambdaMooV17Codec()).read(database).world());
     String actualMessage = Objects.requireNonNull(error.getMessage());
     assertTrue(actualMessage.contains(message), actualMessage);
   }
