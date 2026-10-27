@@ -22,6 +22,8 @@ Claude review cleanup removed only blank import lines introduced by removed impo
 CI run 40419707970, job 121910790465 failed `WorldResultTest.everyPublicBooleanWorldMutationUsesWorldResult` at line 35: its explicit read-only predicate inventory omitted `isWizard`. Issue #86 Decision 4 explicitly requires public `WorldTxn.isWizard(long)`; `WorldTxn.java:1658-1661` reads the object and its wizard flag without mutating the world. The smallest repair is two test lines: add `isWizard` to that explicit inventory and sort the reflected names before comparison so reflection order cannot affect it. Boolean mutations are still rejected; no blanket method exclusion was added. No production code changed. No local CI rerun; parent owns publication and PR CI verification.
 
 ## Draft PR
+Integrated issue105 nested-property-assignment repair e06c048 through merge f0fdd58. The merge had no conflicts; IndexOps retains typed debug access. Migrated the two incoming CommandParserTest property constructors to PropertyPerms(0), matching WorldProperty's typed signature; NestedPropertyAssignmentTest constructs WorldObject only. No local CI, push or publication; parent owns final verification.
+
 Title: Type verb and property permissions and separate verb argument specifications
 
 Verb/property flags now use immutable typed values and shared Access checks backed by WorldTxn.isWizard. WorldVerb stores independent direct/indirect argument specifications; V4/V5 readers and both permanent/anonymous V17 codec paths translate the persisted packed representation. All producers and consumers use the typed fields, including cache invalidation, command matching, property inheritance and VM debug flags.

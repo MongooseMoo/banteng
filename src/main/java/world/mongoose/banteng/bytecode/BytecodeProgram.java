@@ -204,12 +204,17 @@ public record BytecodeProgram(
               || opcode == Opcode.LOAD_LOCAL
               || opcode == Opcode.INDEX
               || opcode == Opcode.SET_INDEX_LOCAL
+              || opcode == Opcode.SET_INDEX_PROPERTY
+              || opcode == Opcode.SET_RANGE_PROPERTY
               || opcode == Opcode.SET_RANGE_LOCAL;
       if ((!optionalParent && numberRequired != operand.isPresent())
-          || ((opcode == Opcode.INDEX || opcode == Opcode.SET_RANGE_LOCAL)
+          || (opcode == Opcode.INDEX
               && operand.isPresent()
               && operand.orElseThrow() != 1)
-          || (opcode == Opcode.SET_INDEX_LOCAL
+          || ((opcode == Opcode.SET_INDEX_LOCAL
+                  || opcode == Opcode.SET_INDEX_PROPERTY
+                  || opcode == Opcode.SET_RANGE_LOCAL
+                  || opcode == Opcode.SET_RANGE_PROPERTY)
               && operand.isPresent()
               && operand.orElseThrow() < 1)
           || textRequired != text.isPresent()

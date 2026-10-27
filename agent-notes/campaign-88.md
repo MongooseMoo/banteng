@@ -1,5 +1,16 @@
 # Issue 88: command parser
 
+## Required conformance repair after suite expansion
+Goal: repair PR #105's failed merge-queue conformance at suite 73c1ae9, which added nested property assignment fixtures absent in green bd6e7c runs. Parent authorized bounded repair and owns publication.
+State: compiler rejected t.x[1][2] and t.x[1][1..2] with unchecked lowering exceptions, escaping eval and closing its socket; this also affected PR #106 independently. No JVM death asserted.
+Smallest repair: extend existing parent-depth operands to property index/range writes, reuse existing IndexContext/replaceIndex writeback for all parent collections, and preserve property permission checks through PropertyOps.setProperty; about 80-160 production lines including deletions. No new opcode. BytecodeProgram validator changes are required for those existing operands.
+Source: Toast code_gen.cc:556-597,881-912 pushes lvalue roots and reconstructs each parent before OP_PUT_PROP; execute.cc:1175-1260,1959-2005,2291-2360 validates index/range updates before property write. String-width rejection is E_INVARG after E_RANGE; current property/local replacement incorrectly returns E_TYPE, included as a demonstrated fixture repair.
+Next: author a focused VM fixture regression covering nested property list/map/string paths, inherited clear-state and alias isolation, permission and failing-update preservation, evaluation order and dollar contexts; run only that authored file, then commit locally for coordinator review.
+
+Repair complete: existing SET_INDEX_PROPERTY/SET_RANGE_PROPERTY accept the same optional positive parent-depth metadata as local writes; compiler emits parent contexts in receiver/name/index/value order, and IndexOps rebuilds parents with replaceIndex before PropertyOps.setProperty. The same helper removes the old list-only single-parent range reconstruction; existing local range lowering uses that shared path. Direct property index replacement now also reuses replaceIndex, including Toast's E_INVARG string-width result after range validation.
+Validation: `wsl -d Debian -u root --cd /mnt/c/Users/Q/code/banteng-campaign-88 env JAVA_HOME=/opt/java/25 PATH=/opt/java/25/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin bash ./gradlew --no-daemon --max-workers=2 :test --tests world.mongoose.banteng.vm.NestedPropertyAssignmentTest` completed `BUILD SUCCESSFUL in 4m 24s`. This is the actively authored file only; no local conformance or broader CI gate. Production and test source remained unchanged throughout compilation/execution. No failed test iterations.
+Focused evidence covers the newly merged fixture's list/map/string nested index/range mutations across defining, clear-inherited and explicit-inherited slots, unchanged aliases/parent/sibling holders, dollar/caret contexts and three-level paths; rejected updates retain clear state and later writes succeed, E_PERM preserves the property, and receiver/name/indices/RHS execute once in order. Full external conformance remains unverified until coordinator-owned PR CI. Next: local commit and handoff, no worker publication.
+
 ## Goal
 Implement issue 88 using Toast's tokenizer and object matcher and one world preposition table.
 
