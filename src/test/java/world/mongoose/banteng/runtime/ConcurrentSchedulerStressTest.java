@@ -28,6 +28,8 @@ final class ConcurrentSchedulerStressTest {
   void completedLoginAndStaleGenerationPollsDoNotAllocatePublicationTickets() throws Exception {
     long connectionId = -901;
     try (SchedulerTestHarness harness = SchedulerTestHarness.open(1, connectionId)) {
+      // Drain polls admitted before login publication before capturing the idle ticket counts.
+      assertTrue(harness.runtime.executeLine(connectionId, "; return 0;").contains("{1, 0}"));
       long generation = connectionGeneration(harness, connectionId);
       long ticket = harness.scheduler.nextTicket();
       assertInstanceOf(MooRuntime.LoginTimeoutResult.Done.class,

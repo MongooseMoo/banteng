@@ -31,6 +31,8 @@ The first focused run passed production compilation but test compilation rejecte
 
 Final focused result: BUILD SUCCESSFUL on frozen Java source, using WSL Debian Java25 and `bash ./gradlew --no-daemon --max-workers=2 :test --tests world.mongoose.banteng.runtime.ConcurrentSchedulerStressTest --console=plain`. This ran the unchanged saturation/conflict proof together with the two authored timeout-admission cases. No broad local CI or assertion relaxation; no publication by the worker.
 
+Changed-code review found the new ticket-count test captured its baseline too early: a monitor can acquire its ticket after login admission but before login publication, and the login future can complete before that later ticket drains. The test now executes and verifies a real foreground `return 0` command before capturing counts. Publication drains in ticket order, so completion of that later foreground command covers the earlier admitted poll. The equality and no-allocation assertions remain unchanged; no sleeps, polling or production change. This two-line fixture repair was source-verified and is left for PR CI without another local run.
+
 ## Checkpoint
 Read issue 15 and the existing extraction recipe; the requested order is collector, login, connection I/O, dispatch phases, then explicit attempt plumbing.
 The worktree has only the prepared task note untracked; implementation has not started.
