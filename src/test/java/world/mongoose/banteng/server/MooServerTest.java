@@ -9,6 +9,7 @@ import java.io.InputStreamReader;
 import java.io.OutputStreamWriter;
 import java.net.InetAddress;
 import java.net.Socket;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
@@ -118,6 +119,43 @@ final class MooServerTest {
       restarted.close();
       restartedServing.join(Duration.ofSeconds(5));
       assertFalse(restartedServing.isAlive());
+    }
+  }
+
+  @Test
+  void filtersUtf8InputBeforeEvaluatingStringsWithoutChangingConstructedBytes(
+      @TempDir Path temporaryDirectory) throws Exception {
+    MooServer server =
+        new MooServer(
+            "127.0.0.1",
+            0,
+            new LambdaMooV4Reader().read(TEST_DATABASE),
+            temporaryDirectory.resolve("Test.db.new"));
+    Thread serving = Thread.startVirtualThread(server::serve);
+    try (Socket socket = new Socket(InetAddress.getLoopbackAddress(), server.port());
+        BufferedReader input =
+            new BufferedReader(
+                new InputStreamReader(socket.getInputStream(), StringValue.charset()));
+        BufferedWriter output =
+            new BufferedWriter(
+                new OutputStreamWriter(socket.getOutputStream(), StandardCharsets.UTF_8))) {
+      socket.setSoTimeout((int) Duration.ofSeconds(5).toMillis());
+      writeLine(output, "connect Wizard");
+      assertEquals("*** Connected ***", input.readLine());
+
+      // The conformance producer sends UTF-8 literal bytes through a normal socket.
+      // Pinned Toast filters them before parsing; chr-built bytes remain real MOO strings.
+      writeLine(output, """
+          ; return {"A" == "a", length("À"), length("à"), "À" == "à", \
+          (chr(195)+chr(128)) == (chr(195)+chr(160)), length(chr(195)+chr(128))};\
+          """);
+      assertEquals(
+          List.of(CONNECTION_PREFIX, "{1, {1, 0, 0, 1, 0, 2}}", CONNECTION_SUFFIX),
+          readLines(input, 3));
+    } finally {
+      server.close();
+      serving.join(Duration.ofSeconds(5));
+      assertFalse(serving.isAlive());
     }
   }
 

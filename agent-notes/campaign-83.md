@@ -4,7 +4,7 @@
 Implement issue83's stored compiled program, transaction-aware resolved lookup, centralized verb locals and one frame push. Preserve exact persisted source and all existing call/lifecycle policies. No new cache or compatibility wrapper.
 
 ## State
-Created branch campaign/83-compiled-verb-entry from permissions86 abc436d. Integrated opcode85 2526a73 (merge3f22e0d) and parser88 4217b8e. Source migration complete; focused authored tests passed. WorldVerb compiled storage, current-transaction resolved lookup, centralized invocation, one FrameOrigin push including eval/root, root typed context and deleted runtime cache. Historical DurableTaskCodec source reconstruction and independent export validation unchanged. Parent owns publication; no push or publication by worker.
+Local implementation and master dependency integration complete; the original focused authored tests passed before this integration. Current published value semantics is integrated, with further parent-owned map repairs pending. WorldVerb compiled storage, current-transaction resolved lookup, centralized invocation, one FrameOrigin push including eval/root, root typed context and deleted runtime cache remain implemented. Historical DurableTaskCodec source reconstruction and independent export validation remain unchanged. Parent owns publication; no push or publication by worker.
 
 ## Decisions and why
 Smallest plan is450–650 added/moved production lines and650–900 deleted, plus mechanical constructor/test migration. Read issue83 and root campaign Next step. WorldVerb gains BytecodeProgram alongside exact source; installation passes existing successful compilation to avoid compiling twice, loaders translate invalid source to IOException. Metadata edits retain the same program. WorldTxn.resolveVerb returns current transaction's WorldVerb and defining MooValue location after existing VerbCache dependency replay; cache retains only location/index/read dependencies, not stale verb instances.
@@ -34,9 +34,24 @@ Title: Store compiled verbs and centralize verb entry
 
 Stored verbs previously compiled during calls and built their activation locals in separate paths. Store immutable bytecode alongside exact persisted source, reuse it across metadata edits, and resolve the verb and defining location together against the current transaction. Route normal calls, pass, protected calls, lifecycle hooks, indexing and runtime roots through one entry path and one named frame push. Remove the unbounded runtime source cache.
 
-Preserve root player/caller/command context and execution budgets, pass local copying, lifecycle continuations and transaction lookup read dependencies. Persisted-task reconstruction and independent export validation continue compiling their embedded historical source. Include typed fixture corrections needed to combine85/86/88.
+Preserve root player/caller/command context and execution budgets, pass local copying, lifecycle continuations and transaction lookup read dependencies. Persisted-task reconstruction and independent export validation continue compiling their embedded historical source.
 
-Validation: focused CompiledVerbTest, CompiledVerbLoadTest and updated VmSnapshotTest passed with stable source. Conformance unchanged; full CI/conformance and exact-head review remain for the parent-owned PR. Closes #83.
+Validation: focused CompiledVerbTest, CompiledVerbLoadTest and updated VmSnapshotTest passed before final dependency integration, with stable source. Conformance unchanged; integrated source has not been tested locally. Validation remains for the parent-owned PR. Closes #83.
+
+## Remaining integration
+Read current global instructions and compared the local implementation with the current permission, opcode, parser, timeout and value-semantics sources. No new design is needed. After the current permission/opcode/semantics PRs land, merge master once and combine their actual source changes with this implementation:
+
+- Preserve repaired nested property assignment lowering and positive parent-depth operands. The two direct property write dispatches and setIndexedProperty signature must keep parentDepth while waif handlers retain centralized callVerb.
+- Preserve the sealed login-timeout result and committed scheduler propagation. The moved disconnected-hook lookup must use ResolvedVerb and RootVerbCall; retain the named timeout default without restoring compiledPrograms. Keep fixtureEval deleted.
+- Preserve PureVmFixture and the removed production two-argument execute helper, deleted JFR events and their inventories. Keep the authored snapshot assertions on FrameOrigin/create return override.
+- Preserve central value equality/comparison, tree-order map operations and codec duplicate-key comparison. Keep RawVerb.compile, stored bytecode and metadata program reuse instead of restoring source-only loader construction or old frame-push overloads.
+
+The current permission branch has no additional WorldVerb/WorldTxn model change beyond this branch's already included typed fields. The remaining work is integration in the existing runtime/VM/loader bodies and mechanical test changes, approximately20–40 handwritten lines plus incoming changes/deletions. Read-only trivial merge previews expose overlapping ancestry as conflicts, so their raw conflict counts are not a prediction for the final normal merge. No source edits, tests, repeated reviews, review-ledger changes or bookkeeping commits were made during this preparation.
+
+## Integration completed
+Merged master dependency repairs normally. MooRuntime retains the named timeout default and sealed timeout result; the relocated disconnected hook uses ResolvedVerb and RootVerbCall. Removed fixtureEval remains removed. MooVm pass retains centralized callVerb with typed debug flags. Incoming nested property parentDepth lowering, PureVmFixture, deleted execution helper and deleted JFR events remain intact. Snapshot assertions still use FrameOrigin and retain create-return override coverage.
+
+Merged the current published value-semantics branch without conflicts. Its ordered map entry operations and codec comparison combine with the existing stored bytecode loading. The parent reports further map repairs in progress; their owner retains responsibility. No authored test was changed, so no local tests or CI steps were run for integration.
 
 ## Next step
-Commit local implementation and hand off to parent. Parent drains the existing PR stack, integrates dependencies, performs exact-head review and PR CI before publication/merge. No worker push/publication; no blocker remains in the focused implementation.
+Receive and merge the final published value-semantics repair from the parent, then hand off the substantive change and draft above for parent-owned publication and PR CI. Reuse completed reviews of unchanged code. No worker push/publication or broad local CI; no new design decision is open.

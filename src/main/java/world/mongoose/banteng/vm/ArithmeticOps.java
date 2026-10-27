@@ -1,6 +1,5 @@
 package world.mongoose.banteng.vm;
 
-import java.util.Map;
 import java.util.Optional;
 import world.mongoose.banteng.builtin.BuiltinCatalog;
 import world.mongoose.banteng.builtin.BuiltinResult;
@@ -49,9 +48,9 @@ final class ArithmeticOps {
     if (collection instanceof MapValue map) {
       long position = 0;
       int index = 0;
-      for (MooValue value : map.entries().values()) {
+      for (var entry : map.orderedEntries()) {
         index++;
-        if (mooEquals(requested, value, valueSemantics)) {
+        if (valueSemantics.equal(requested, entry.getValue(), false)) {
           position = index;
           break;
         }
@@ -66,7 +65,7 @@ final class ArithmeticOps {
     }
     long position = 0;
     for (int index = 0; index < list.elements().size(); index++) {
-      if (mooEquals(requested, list.elements().get(index), valueSemantics)) {
+      if (valueSemantics.equal(requested, list.elements().get(index), false)) {
         position = index + 1L;
         break;
       }
@@ -291,53 +290,12 @@ final class ArithmeticOps {
       Opcode operation, Frame frame, ValueSemantics valueSemantics) {
     MooValue right = frame.operandStack.pop();
     MooValue left = frame.operandStack.pop();
-    boolean equal = mooEquals(left, right, valueSemantics);
+    boolean equal = valueSemantics.equal(left, right, false);
     if (operation == Opcode.NOT_EQUAL) {
       equal = !equal;
     }
     frame.operandStack.push(new IntegerValue(equal ? 1 : 0));
     frame.instructionPointer++;
-  }
-
-  private static boolean mooEquals(
-      MooValue left, MooValue right, ValueSemantics valueSemantics) {
-    if (left instanceof BooleanValue bool && right instanceof IntegerValue integer) {
-      return integer.value() == (bool.value() ? 1 : 0);
-    }
-    if (left instanceof IntegerValue integer && right instanceof BooleanValue bool) {
-      return integer.value() == (bool.value() ? 1 : 0);
-    }
-    if (valueSemantics.promoteNumbers() && isMixedIntegerFloat(left, right)) {
-      return numericDouble(left) == numericDouble(right);
-    }
-    if (left instanceof ListValue leftList && right instanceof ListValue rightList) {
-      if (leftList.size() != rightList.size()) {
-        return false;
-      }
-      for (int index = 0; index < leftList.size(); index++) {
-        if (!mooEquals(leftList.elements().get(index), rightList.elements().get(index), valueSemantics)) {
-          return false;
-        }
-      }
-      return true;
-    }
-    if (left instanceof MapValue leftMap && right instanceof MapValue rightMap) {
-      if (leftMap.size() != rightMap.size()) {
-        return false;
-      }
-      var leftEntries = leftMap.entries().entrySet().iterator();
-      var rightEntries = rightMap.entries().entrySet().iterator();
-      while (leftEntries.hasNext()) {
-        Map.Entry<MooValue, MooValue> leftEntry = leftEntries.next();
-        Map.Entry<MooValue, MooValue> rightEntry = rightEntries.next();
-        if (!mooEquals(leftEntry.getKey(), rightEntry.getKey(), valueSemantics)
-            || !mooEquals(leftEntry.getValue(), rightEntry.getValue(), valueSemantics)) {
-          return false;
-        }
-      }
-      return true;
-    }
-    return left.equals(right);
   }
 
   static void comparison(
@@ -352,7 +310,7 @@ final class ArithmeticOps {
       leftValue = promoteInteger(leftValue);
       rightValue = promoteInteger(rightValue);
     }
-    Optional<Ordering> optionalComparison = compare(leftValue, rightValue);
+    Optional<Ordering> optionalComparison = compare(leftValue, rightValue, valueSemantics);
     if (optionalComparison.isEmpty()) {
       ErrorOps.raise(state, ErrorValue.E_TYPE, world);
       return;
@@ -363,37 +321,23 @@ final class ArithmeticOps {
     frame.instructionPointer++;
   }
 
-  private static Optional<Ordering> compare(MooValue leftValue, MooValue rightValue) {
+  private static Optional<Ordering> compare(
+      MooValue leftValue, MooValue rightValue, ValueSemantics semantics) {
     if ((leftValue instanceof BooleanValue && rightValue instanceof BooleanValue)
         || (leftValue instanceof WaifValue && rightValue instanceof WaifValue)) {
       return Optional.of(Ordering.EQUAL);
     }
-    if (leftValue instanceof IntegerValue left && rightValue instanceof IntegerValue right) {
-      return Optional.of(ordering(Long.compare(left.value(), right.value())));
+    if (leftValue.type() != rightValue.type()
+        || !(leftValue instanceof IntegerValue || leftValue instanceof ObjectValue
+            || leftValue instanceof FloatValue || leftValue instanceof ErrorValue
+            || leftValue instanceof StringValue)) {
+      return Optional.empty();
     }
-    if (leftValue instanceof ObjectValue left && rightValue instanceof ObjectValue right) {
-      return Optional.of(ordering(Long.compare(left.value(), right.value())));
+    if (leftValue instanceof FloatValue left
+        && (Double.isNaN(left.value()) || Double.isNaN(((FloatValue) rightValue).value()))) {
+      return Optional.of(Ordering.UNORDERED);
     }
-    if (leftValue instanceof FloatValue left && rightValue instanceof FloatValue right) {
-      return Optional.of(primitiveDoubleOrdering(left.value(), right.value()));
-    }
-    if (leftValue instanceof ErrorValue left && rightValue instanceof ErrorValue right) {
-      return Optional.of(ordering(Integer.compare(left.code(), right.code())));
-    }
-    if (leftValue instanceof StringValue left && rightValue instanceof StringValue right) {
-      return Optional.of(ordering(left.compareIgnoringCase(right)));
-    }
-    return Optional.empty();
-  }
-
-  private static Ordering primitiveDoubleOrdering(double left, double right) {
-    if (Double.isNaN(left) || Double.isNaN(right)) {
-      return Ordering.UNORDERED;
-    }
-    if (left < right) {
-      return Ordering.LESS;
-    }
-    return left > right ? Ordering.GREATER : Ordering.EQUAL;
+    return Optional.of(ordering(semantics.compare(leftValue, rightValue, false)));
   }
 
   private static Ordering ordering(int comparison) {
@@ -424,9 +368,4 @@ final class ArithmeticOps {
     return value instanceof IntegerValue integer ? new FloatValue((double) integer.value()) : value;
   }
 
-  private static double numericDouble(MooValue value) {
-    return value instanceof IntegerValue integer
-        ? integer.value()
-        : ((FloatValue) value).value();
-  }
 }

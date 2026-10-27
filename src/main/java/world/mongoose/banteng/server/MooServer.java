@@ -389,7 +389,9 @@ public final class MooServer implements AutoCloseable, ListenerControl {
             continue;
           }
           afterCarriageReturn = false;
-          line.write(inputByte);
+          if (inputByte < 0x80) {
+            line.write(inputByte);
+          }
         }
       }
       if (line.size() > 0) {
