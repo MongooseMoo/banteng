@@ -20,7 +20,7 @@ MooVm still contains lifecycle verb hook names recycle/initialize/exitfunc. Pare
 ## Next step
 Parent owns integration/review/publication. Worker source and focused validation are complete. Integrate the independent arithmetic semantics work and typed-permission changes in their owning branches without restoring the removed enums or builtin checks.
 
-Integration: merge issue86 head 45f206c into issue85 head 2526a73, retaining direct dispatch, typed Pass, callers rendering and typed permission/argument constructors. Git reused prior conflict resolutions in MooVm and MooVmTest; inspected both and migrated the newer callers test constructor that the reused resolution missed. No local CI run. Next merge issue91 head eb344dd and migrate remaining pure-test callers to its existing fixture; parent owns publication.
+Integration: merged issue86 head 45f206c into issue85 head 2526a73 in a89f711, retaining direct dispatch, typed Pass, callers rendering and typed permission/argument constructors. Git reused prior conflict resolutions in MooVm and MooVmTest; inspected both and migrated the newer callers test constructor that the reused resolution missed. Merged issue91 head eb344dd in 6f2ed86, preserving its runtime/status/JFR removal and PureVmFixture migration. Inspected all MooVmTest execution calls: pure calls use the existing fixture and actual MooVm calls retain explicit transaction/catalog/task context. No production helper was restored. These integrations make #106 and #109 dependencies of the final #107 range; #109 also carries #105. No local CI run; parent owns publication and CI verification.
 
 ## Draft PR
 Title: Dispatch opcodes directly and keep builtin selection in the catalog
