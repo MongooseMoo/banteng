@@ -395,6 +395,10 @@ public final class PublicationScheduler implements AutoCloseable {
             ? Optional.of(new MooRuntime.LoginTimeoutResult.Done()) : Optional.empty());
       }
       ensureOpen();
+      if (request.operation() == MooRuntime.Operation.TIMEOUT
+          && !runtime.get().loginTimeoutIsCurrent(request.connectionId(), request.generation())) {
+        return new PublishedOutput(List.of(), Optional.of(new MooRuntime.LoginTimeoutResult.Done()));
+      }
       long taskId = nextTaskId++;
       long ticket = nextTicket++;
       if (request.operation() == MooRuntime.Operation.OPEN) {

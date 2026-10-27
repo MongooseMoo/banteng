@@ -15,6 +15,7 @@ import world.mongoose.banteng.world.WorldTxn;
 /** Runtime callbacks used by the deterministic publication scheduler. */
 public interface SchedulerRuntime {
   OptionalLong connectionPlayer(long connectionId);
+  boolean loginTimeoutIsCurrent(long connectionId, long generation);
   OptionalLong inputTaskPlayer(long connectionId, String line);
   MooRuntime.AttemptContext openAttempt(WorldTxn transaction, long taskId);
   BuiltinHosts builtinHosts(MooRuntime.AttemptContext context);

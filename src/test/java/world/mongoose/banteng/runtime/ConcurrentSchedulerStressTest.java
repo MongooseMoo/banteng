@@ -1,6 +1,8 @@
 package world.mongoose.banteng.runtime;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.nio.file.Path;
@@ -8,6 +10,7 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ThreadPoolExecutor;
@@ -21,6 +24,49 @@ import org.junit.jupiter.api.io.TempDir;
 
 /** Saturation and retry stress proof for the bounded production scheduler. */
 final class ConcurrentSchedulerStressTest {
+  @Test
+  void completedLoginAndStaleGenerationPollsDoNotAllocatePublicationTickets() throws Exception {
+    long connectionId = -901;
+    try (SchedulerTestHarness harness = SchedulerTestHarness.open(1, connectionId)) {
+      // Drain polls admitted before login publication before capturing the idle ticket counts.
+      assertTrue(harness.runtime.executeLine(connectionId, "; return 0;").contains("{1, 0}"));
+      long generation = connectionGeneration(harness, connectionId);
+      long ticket = harness.scheduler.nextTicket();
+      assertInstanceOf(MooRuntime.LoginTimeoutResult.Done.class,
+          harness.scheduler.submitLoginTimeout(MooRuntime.RuntimeRequest.timeout(connectionId, generation)));
+      assertInstanceOf(MooRuntime.LoginTimeoutResult.Done.class,
+          harness.scheduler.submitLoginTimeout(MooRuntime.RuntimeRequest.timeout(connectionId, generation - 1)));
+      assertInstanceOf(MooRuntime.LoginTimeoutResult.Done.class,
+          harness.scheduler.submitLoginTimeout(MooRuntime.RuntimeRequest.timeout(connectionId - 1, generation)));
+      assertEquals(ticket, harness.scheduler.nextTicket());
+      assertEquals(ticket, harness.scheduler.nextPublicationTicket());
+    }
+  }
+
+  @Test
+  void currentUnauthenticatedPollsStillRunTheTransactionalTimeoutCheck() throws Exception {
+    long connectionId = -902;
+    try (SchedulerTestHarness harness = SchedulerTestHarness.open(1)) {
+      harness.runtime.openConnection(connectionId, 0, true,
+          new world.mongoose.banteng.value.MooValue.MapValue(Map.of()));
+      long generation = connectionGeneration(harness, connectionId);
+      assertFalse(harness.runtime.loginTimeoutIsCurrent(connectionId, generation - 1));
+      assertInstanceOf(MooRuntime.LoginTimeoutResult.Done.class,
+          harness.scheduler.submitLoginTimeout(MooRuntime.RuntimeRequest.timeout(connectionId, generation - 1)));
+      assertInstanceOf(MooRuntime.LoginTimeoutResult.KeepWatching.class,
+          harness.scheduler.submitLoginTimeout(MooRuntime.RuntimeRequest.timeout(connectionId, generation)));
+    }
+  }
+
+  private static long connectionGeneration(SchedulerTestHarness harness, long connectionId) {
+    synchronized (harness.runtime) {
+      MooRuntime.ConnectionState connection = Objects.requireNonNull((MooRuntime.ConnectionState)
+          SchedulerTestHarness.field(harness.runtime, "publishedConnections", Map.class)
+              .get(connectionId));
+      return connection.generation;
+    }
+  }
+
   @Test
   void saturationConflictsAndRetriesRemainBoundedAndEventuallyProgress(
       @TempDir Path temporaryDirectory) throws Exception {

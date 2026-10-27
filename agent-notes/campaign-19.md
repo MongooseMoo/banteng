@@ -23,6 +23,8 @@ Initial active-tree runner stopped before rewriting because ErrorProne threw NoS
 ## Next step
 Parent owns exact-code review, PR, Claude review, full PR CI and normal merge after115. No publication performed by implementation worker. Preserve concurrent84 bytecode work for later integration, avoid changing bytecode design here.
 
+Integrated the runtime dependency's obsolete login-timeout admission check and its stress-test barrier. The only composition-specific adaptation is invoking the new callback through the scheduler's existing runtime supplier. No local CI or additional tests were run for this integration; parent owns publication and changed-line review.
+
 ## Draft PR description
 Move durable checkpoint records into the world domain and expose database reads and canonical checkpoint writes through DbCodec. Banteng selects input from the header and assembles the VM, catalog, scheduler and injected runtime; legacy readers delegate output to the same V17 codec. Runtime and server no longer consume codec nested records.
 
