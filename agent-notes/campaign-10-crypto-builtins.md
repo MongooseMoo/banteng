@@ -41,3 +41,5 @@ Merged the latest coordinator runtime login-output and pinned-layout-boundary re
 
 ## Queue prerequisite integration
 Normally merged the published Host tip, including reviewed Regex, Binary and SQLite prerequisites. Additive mover resolution retains both Crypto instance methods and the Regex toastMatch method; fixture resolution retains all family methods unchanged. Reused catalog/YAML resolutions retain the combined family registrations and original catalog-owned hosts.crypt dependency; removed the unused ServerLog import left by the combined catalog imports. These resolutions follow final assembly. CryptoBuiltins and its focused family test remain byte-identical. No local tests, repeated review or publication; parent owns hosted validation and merge.
+
+Normally merged the repaired Host tip carrying the actual merged master ancestry. No conflicts occurred. Incoming source changes are only the already-reviewed startup-input cleaning fix and focused test, with runtime and Host notes. CryptoBuiltins, its family test, other builtin owners, catalog and extraction files remain unchanged. Existing reviews remain retained; no local CI, review or publication ran here.
