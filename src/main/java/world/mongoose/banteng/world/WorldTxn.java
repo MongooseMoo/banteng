@@ -429,7 +429,7 @@ public final class WorldTxn implements AutoCloseable {
       }
       for (int index = 0; index < holder.verbs().size(); index++) {
         WorldVerb verb = holder.verbs().get(index);
-        if (matchesVerbName(verb, requestedName) && (verb.permissions() & 4) != 0) {
+        if (matchesVerbName(verb, requestedName) && verb.perms().executable()) {
           return new VerbCache.Resolution(candidate, index, permanent, anonymous);
         }
       }
@@ -648,7 +648,7 @@ public final class WorldTxn implements AutoCloseable {
                 property.name(),
                 value,
                 property.owner(),
-                property.permissions(),
+                property.perms(),
                 false,
                 property.defined()));
         replacePropertyHolder(
@@ -664,7 +664,12 @@ public final class WorldTxn implements AutoCloseable {
     }
     properties.add(
         new WorldProperty(
-            inherited.name(), value, inherited.owner(), inherited.permissions(), false, false));
+            inherited.name(),
+            value,
+            inherited.owner(),
+            inherited.perms(),
+            false,
+            false));
     replacePropertyHolder(
         identity,
         copyPropertyHolder(holder, holder.name(), holder.owner(), holder.verbs(), properties));
@@ -710,9 +715,7 @@ public final class WorldTxn implements AutoCloseable {
     }
     WorldProperty property = propertyFor(identity, propertyName).orElse(null);
     if (property != null
-        && property.owner() != programmer
-        && !wizard
-        && (property.permissions() & 2) == 0) {
+        && !Access.canWrite(this, programmer, property.owner(), property.perms())) {
       return WorldResult.failed(ErrorValue.E_PERM);
     }
     return writePropertyFor(identity, propertyName, value);
@@ -856,7 +859,7 @@ public final class WorldTxn implements AutoCloseable {
                 property.name(),
                 property.value(),
                 property.owner(),
-                property.permissions(),
+                property.perms(),
                 true,
                 false));
       }
@@ -913,7 +916,7 @@ public final class WorldTxn implements AutoCloseable {
                 property.name(),
                 value,
                 property.owner(),
-                property.permissions(),
+                property.perms(),
                 false,
                 property.defined()));
         replaceWaif(identity, new WorldWaif(properties));
@@ -939,9 +942,7 @@ public final class WorldTxn implements AutoCloseable {
     }
     WorldProperty property = waifProperty(identity, propertyName).orElse(null);
     if (property != null
-        && property.owner() != programmer
-        && !isWizard(programmer)
-        && (property.permissions() & 2) == 0) {
+        && !Access.canWrite(this, programmer, property.owner(), property.perms())) {
       return WorldResult.failed(ErrorValue.E_PERM);
     }
     if (property != null && valueRefersToWaif(value, identity)) {
@@ -1371,7 +1372,7 @@ public final class WorldTxn implements AutoCloseable {
 
   /** Adds one local property, rejecting a duplicate inherited or local name. */
   public WorldResult<Boolean> addProperty(
-      long objectId, String name, MooValue value, long owner, int permissions) {
+      long objectId, String name, MooValue value, long owner, PropertyPerms permissions) {
     return addPropertyFor(objectId, name, value, owner, permissions);
   }
 
@@ -1381,13 +1382,13 @@ public final class WorldTxn implements AutoCloseable {
       String name,
       MooValue value,
       long owner,
-      int permissions) {
+      PropertyPerms permissions) {
     return addPropertyFor(
         Objects.requireNonNull(identity, "identity"), name, value, owner, permissions);
   }
 
   private WorldResult<Boolean> addPropertyFor(
-      Object identity, String name, MooValue value, long owner, int permissions) {
+      Object identity, String name, MooValue value, long owner, PropertyPerms permissions) {
     Objects.requireNonNull(name, "name");
     Objects.requireNonNull(value, "value");
     PropertyHolder holder = propertyHolder(identity).orElse(null);
@@ -1467,7 +1468,7 @@ public final class WorldTxn implements AutoCloseable {
                 property.name(),
                 property.value(),
                 property.owner(),
-                property.permissions(),
+                property.perms(),
                 true,
                 false));
         replaceObject(
@@ -1479,8 +1480,8 @@ public final class WorldTxn implements AutoCloseable {
   }
 
   /** Adds one local verb using the existing immutable verb record. */
-  public int addVerb(long objectId, String names, long owner, int permissions, int preposition) {
-    return addVerbFor(objectId, names, owner, permissions, preposition);
+  public int addVerb(long objectId, String names, long owner, VerbPerms permissions, ArgSpec dobj, int preposition, ArgSpec iobj) {
+    return addVerbFor(objectId, names, owner, permissions, dobj, preposition, iobj);
   }
 
   /** Adds one local verb to an anonymous object's immutable body. */
@@ -1488,21 +1489,23 @@ public final class WorldTxn implements AutoCloseable {
       AnonymousObjectValue identity,
       String names,
       long owner,
-      int permissions,
-      int preposition) {
+      VerbPerms permissions,
+      ArgSpec dobj,
+      int preposition,
+      ArgSpec iobj) {
     return addVerbFor(
-        Objects.requireNonNull(identity, "identity"), names, owner, permissions, preposition);
+        Objects.requireNonNull(identity, "identity"), names, owner, permissions, dobj, preposition, iobj);
   }
 
   private int addVerbFor(
-      Object identity, String names, long owner, int permissions, int preposition) {
+      Object identity, String names, long owner, VerbPerms permissions, ArgSpec dobj, int preposition, ArgSpec iobj) {
     Objects.requireNonNull(names, "names");
     PropertyHolder holder = propertyHolder(identity).orElse(null);
     if (holder == null) {
       return 0;
     }
     List<WorldVerb> verbs = new ArrayList<>(holder.verbs());
-    verbs.add(new WorldVerb(names, owner, permissions, preposition, ""));
+    verbs.add(new WorldVerb(names, owner, permissions, dobj, preposition, iobj, ""));
     replacePropertyHolder(
         identity,
         copyPropertyHolder(holder, holder.name(), holder.owner(), verbs, holder.properties()));
@@ -1548,7 +1551,13 @@ public final class WorldTxn implements AutoCloseable {
     verbs.set(
         verbIndex,
         new WorldVerb(
-            verb.names(), verb.owner(), verb.permissions(), verb.preposition(), programSource));
+            verb.names(),
+            verb.owner(),
+            verb.perms(),
+            verb.dobj(),
+            verb.preposition(),
+            verb.iobj(),
+            programSource));
     replacePropertyHolder(
         identity,
         copyPropertyHolder(holder, holder.name(), holder.owner(), verbs, holder.properties()));
@@ -1557,7 +1566,7 @@ public final class WorldTxn implements AutoCloseable {
 
   /** Replaces the information fields of one resolved zero-based local verb. */
   public WorldResult<Boolean> setVerbInfo(
-      long objectId, int verbIndex, String names, long owner, int permissions) {
+      long objectId, int verbIndex, String names, long owner, VerbPerms permissions) {
     Objects.requireNonNull(names, "names");
     WorldObject object = object(objectId).orElse(null);
     if (object == null || verbIndex < 0 || verbIndex >= object.verbs().size()) {
@@ -1570,8 +1579,10 @@ public final class WorldTxn implements AutoCloseable {
         new WorldVerb(
             names,
             owner,
-            (verb.permissions() & ~15) | permissions,
+            permissions,
+            verb.dobj(),
             verb.preposition(),
+            verb.iobj(),
             verb.programSource()));
     replaceObject(
         new WorldObject(
@@ -1591,7 +1602,7 @@ public final class WorldTxn implements AutoCloseable {
 
   /** Replaces the argument fields of one resolved zero-based local verb. */
   public WorldResult<Boolean> setVerbArgs(
-      long objectId, int verbIndex, int direct, int preposition, int indirect) {
+      long objectId, int verbIndex, ArgSpec direct, int preposition, ArgSpec indirect) {
     WorldObject object = object(objectId).orElse(null);
     if (object == null || verbIndex < 0 || verbIndex >= object.verbs().size()) {
       return WorldResult.failed(ErrorValue.E_VERBNF);
@@ -1603,8 +1614,10 @@ public final class WorldTxn implements AutoCloseable {
         new WorldVerb(
             verb.names(),
             verb.owner(),
-            (verb.permissions() & 15) | (direct << 4) | (indirect << 6),
+            verb.perms(),
+            direct,
             preposition,
+            indirect,
             verb.programSource()));
     replaceObject(
         new WorldObject(
@@ -1642,7 +1655,7 @@ public final class WorldTxn implements AutoCloseable {
     throw new IllegalArgumentException("unsupported property holder identity");
   }
 
-  private boolean isWizard(long programmer) {
+  public boolean isWizard(long programmer) {
     WorldObject object = object(programmer).orElse(null);
     return object != null && ObjectFlags.isWizard(object.flags());
   }

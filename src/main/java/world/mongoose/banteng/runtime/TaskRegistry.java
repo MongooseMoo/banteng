@@ -22,8 +22,6 @@ import world.mongoose.banteng.value.MooValue.MapValue;
 import world.mongoose.banteng.value.MooValue.ObjectValue;
 import world.mongoose.banteng.value.MooValue.StringValue;
 import world.mongoose.banteng.vm.VmSnapshot;
-import world.mongoose.banteng.world.ObjectFlags;
-import world.mongoose.banteng.world.WorldObject;
 import world.mongoose.banteng.world.WorldTxn;
 
 /** The scheduler-owned live registry used by task-management builtins. */
@@ -232,8 +230,7 @@ final class TaskRegistry {
     if (task == null) {
       return TaskControlDecision.MISSING;
     }
-    WorldObject actor = world.object(programmer).orElse(null);
-    boolean wizard = actor != null && ObjectFlags.isWizard(actor.flags());
+    boolean wizard = world.isWizard(programmer);
     return wizard || task.programmer() == programmer
         ? TaskControlDecision.ALLOWED
         : TaskControlDecision.DENIED;
@@ -258,8 +255,7 @@ final class TaskRegistry {
     if (taskId == call.taskId()) {
       return new BuiltinResult.KillAbort();
     }
-    WorldObject actor = call.world().object(call.programmer()).orElse(null);
-    boolean wizard = actor != null && ObjectFlags.isWizard(actor.flags());
+    boolean wizard = call.world().isWizard(call.programmer());
     FutureTask<BuiltinResult> submitted;
     Runnable cancellation;
     synchronized (this) {
@@ -293,8 +289,7 @@ final class TaskRegistry {
             && ((IntegerValue) call.arguments().getFirst()).isTruthy();
     boolean returnCount =
         call.arguments().size() == 2 && ((IntegerValue) call.arguments().get(1)).isTruthy();
-    WorldObject actor = call.world().object(call.programmer()).orElse(null);
-    boolean wizard = actor != null && ObjectFlags.isWizard(actor.flags());
+    boolean wizard = call.world().isWizard(call.programmer());
     List<TaskInfo> visible = visibleTo(call.programmer(), wizard).stream()
         .filter(task -> task.taskId() != call.taskId()).toList();
     if (returnCount) {
@@ -316,8 +311,7 @@ final class TaskRegistry {
     if (task == null || taskId == call.taskId() || task.snapshot().isEmpty()) {
       return BuiltinResult.error(ErrorValue.E_INVARG);
     }
-    WorldObject actor = call.world().object(call.programmer()).orElse(null);
-    boolean wizard = actor != null && ObjectFlags.isWizard(actor.flags());
+    boolean wizard = call.world().isWizard(call.programmer());
     if (!wizard && task.programmer() != call.programmer()) {
       return BuiltinResult.error(ErrorValue.E_PERM);
     }
@@ -348,8 +342,7 @@ final class TaskRegistry {
     if (body == null) {
       return value;
     }
-    WorldObject viewer = world.object(programmer).orElse(null);
-    boolean wizard = viewer != null && ObjectFlags.isWizard(viewer.flags());
+    boolean wizard = world.isWizard(programmer);
     return wizard || body.owner() == programmer
         ? value
         : new world.mongoose.banteng.value.MooValue.AnonymousObjectValue();

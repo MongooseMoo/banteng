@@ -2,6 +2,7 @@ package world.mongoose.banteng.jcstress;
 
 import java.util.List;
 import world.mongoose.banteng.value.MooValue.IntegerValue;
+import world.mongoose.banteng.world.PropertyPerms;
 import world.mongoose.banteng.world.WorldObject;
 import world.mongoose.banteng.world.WorldProperty;
 import world.mongoose.banteng.world.WorldTxn;
@@ -37,8 +38,20 @@ public class WorldPublicationTest {
                   List.of(),
                   List.of(),
                   List.of(
-                      new WorldProperty("left", new IntegerValue(0), 0, 3, false, true),
-                      new WorldProperty("right", new IntegerValue(0), 0, 3, false, true)))));
+                      new WorldProperty(
+                          "left",
+                          new IntegerValue(0),
+                          0,
+                          new PropertyPerms(3),
+                          false,
+                          true),
+                      new WorldProperty(
+                          "right",
+                          new IntegerValue(0),
+                          0,
+                          new PropertyPerms(3),
+                          false,
+                          true)))));
 
   @Actor
   public void publish() {

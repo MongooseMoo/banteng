@@ -105,8 +105,8 @@ final class PropertyLayoutEngine {
             new WorldProperty(
                 property.name(),
                 fallback.value(),
-                (fallback.permissions() & 4) != 0 ? owner : fallback.owner(),
-                fallback.permissions(),
+                fallback.perms().chownable() ? owner : fallback.owner(),
+                fallback.perms(),
                 true,
                 false));
       }
@@ -178,7 +178,7 @@ final class PropertyLayoutEngine {
                   definition.name(),
                   previous.clear() ? fallback.value() : previous.value(),
                   previous.owner(),
-                  previous.permissions(),
+                  previous.perms(),
                   previous.clear(),
                   false));
         } else {
@@ -186,8 +186,8 @@ final class PropertyLayoutEngine {
               new WorldProperty(
                   definition.name(),
                   fallback.value(),
-                  (fallback.permissions() & 4) != 0 ? object.owner() : fallback.owner(),
-                  fallback.permissions(),
+                  fallback.perms().chownable() ? object.owner() : fallback.owner(),
+                  fallback.perms(),
                   true,
                   false));
         }
@@ -341,7 +341,7 @@ final class PropertyLayoutEngine {
                   definition.name(),
                   previous.clear() ? fallback.value() : previous.value(),
                   previous.owner(),
-                  previous.permissions(),
+                  previous.perms(),
                   previous.clear(),
                   false));
         } else {
@@ -349,8 +349,8 @@ final class PropertyLayoutEngine {
               new WorldProperty(
                   definition.name(),
                   fallback.value(),
-                  (fallback.permissions() & 4) != 0 ? object.owner() : fallback.owner(),
-                  fallback.permissions(),
+                  fallback.perms().chownable() ? object.owner() : fallback.owner(),
+                  fallback.perms(),
                   true,
                   false));
         }

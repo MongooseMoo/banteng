@@ -23,6 +23,9 @@ import java.util.Objects;
 import java.util.Set;
 import world.mongoose.banteng.value.MooValue.ObjectValue;
 import world.mongoose.banteng.value.MooValue.StringValue;
+import world.mongoose.banteng.world.ArgSpec;
+import world.mongoose.banteng.world.PropertyPerms;
+import world.mongoose.banteng.world.VerbPerms;
 import world.mongoose.banteng.world.WorldObject;
 import world.mongoose.banteng.world.WorldProperty;
 import world.mongoose.banteng.world.WorldTxn;
@@ -124,7 +127,7 @@ public final class LambdaMooV4Reader {
               propertyNames.get(index),
               new ObjectValue(readLong(input, "object-reference value")),
               readLong(input, "property owner"),
-              readInt(input, "property permissions"),
+              new PropertyPerms(readInt(input, "property permissions")),
               false,
               true));
     }
@@ -306,8 +309,10 @@ public final class LambdaMooV4Reader {
             new WorldVerb(
                 rawVerb.names(),
                 rawVerb.owner(),
-                rawVerb.permissions(),
+                new VerbPerms(rawVerb.permissions() & 15),
+                ArgSpec.fromValue((rawVerb.permissions() >> 4) & 3),
                 rawVerb.preposition(),
+                ArgSpec.fromValue((rawVerb.permissions() >> 6) & 3),
                 source));
       }
       objects.add(

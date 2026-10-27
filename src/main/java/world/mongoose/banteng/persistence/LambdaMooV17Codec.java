@@ -47,6 +47,9 @@ import world.mongoose.banteng.value.MooValue.MapValue;
 import world.mongoose.banteng.value.MooValue.ObjectValue;
 import world.mongoose.banteng.value.MooValue.StringValue;
 import world.mongoose.banteng.value.MooValue.WaifValue;
+import world.mongoose.banteng.world.ArgSpec;
+import world.mongoose.banteng.world.PropertyPerms;
+import world.mongoose.banteng.world.VerbPerms;
 import world.mongoose.banteng.world.WorldObject;
 import world.mongoose.banteng.world.WorldAnonymousObject;
 import world.mongoose.banteng.world.WorldProperty;
@@ -1194,7 +1197,7 @@ public final class LambdaMooV17Codec {
     for (WorldVerb verb : object.verbs()) {
       lineString(output, verb.names(), "verb names");
       line(output, verb.owner());
-      line(output, verb.permissions());
+      line(output, verb.perms().bits() | (verb.dobj().value() << 4) | (verb.iobj().value() << 6));
       line(output, verb.preposition());
     }
 
@@ -1213,7 +1216,7 @@ public final class LambdaMooV17Codec {
         writeValue(output, property.value(), context);
       }
       line(output, property.owner());
-      line(output, property.permissions());
+      line(output, property.perms().bits());
     }
   }
 
@@ -1237,7 +1240,7 @@ public final class LambdaMooV17Codec {
     for (WorldVerb verb : object.verbs()) {
       lineString(output, verb.names(), "anonymous verb names");
       line(output, verb.owner());
-      line(output, verb.permissions());
+      line(output, verb.perms().bits() | (verb.dobj().value() << 4) | (verb.iobj().value() << 6));
       line(output, verb.preposition());
     }
 
@@ -1256,7 +1259,7 @@ public final class LambdaMooV17Codec {
         writeValue(output, property.value(), context);
       }
       line(output, property.owner());
-      line(output, property.permissions());
+      line(output, property.perms().bits());
     }
   }
 
@@ -1470,7 +1473,13 @@ public final class LambdaMooV17Codec {
         String source = programs.getOrDefault(new ProgramSlot(object.id(), index), "");
         verbs.add(
             new WorldVerb(
-                verb.names(), verb.owner(), verb.permissions(), verb.preposition(), source));
+                verb.names(),
+                verb.owner(),
+                new VerbPerms(verb.permissions() & 15),
+                ArgSpec.fromValue((verb.permissions() >> 4) & 3),
+                verb.preposition(),
+                ArgSpec.fromValue((verb.permissions() >> 6) & 3),
+                source));
       }
       restored.add(
           new WorldObject(
@@ -1511,7 +1520,13 @@ public final class LambdaMooV17Codec {
         String source = programs.getOrDefault(new ProgramSlot(object.id(), index), "");
         verbs.add(
             new WorldVerb(
-                verb.names(), verb.owner(), verb.permissions(), verb.preposition(), source));
+                verb.names(),
+                verb.owner(),
+                new VerbPerms(verb.permissions() & 15),
+                ArgSpec.fromValue((verb.permissions() >> 4) & 3),
+                verb.preposition(),
+                ArgSpec.fromValue((verb.permissions() >> 6) & 3),
+                source));
       }
       restored.put(
           entry.getValue(),
@@ -1572,7 +1587,7 @@ public final class LambdaMooV17Codec {
                 classProperty.name(),
                 override == null ? classProperty.value() : override,
                 classProperty.owner(),
-                classProperty.permissions(),
+                classProperty.perms(),
                 override == null,
                 false));
       }
@@ -1644,7 +1659,12 @@ public final class LambdaMooV17Codec {
         }
         properties.add(
             new WorldProperty(
-                name, value, slot.owner(), slot.permissions(), slot.clear(), defined));
+                name,
+                value,
+                slot.owner(),
+                new PropertyPerms(slot.permissions()),
+                slot.clear(),
+                defined));
       }
     }
     ancestry.removeLast();

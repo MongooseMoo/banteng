@@ -34,7 +34,6 @@ import world.mongoose.banteng.host.Aspell;
 import world.mongoose.banteng.host.NativeCurl;
 import world.mongoose.banteng.host.NativeCallException;
 import world.mongoose.banteng.logging.ServerLog;
-import world.mongoose.banteng.syntax.Ast;
 import world.mongoose.banteng.syntax.MooParser;
 import world.mongoose.banteng.syntax.MooUnparser;
 import world.mongoose.banteng.value.MooValue;
@@ -49,6 +48,10 @@ import world.mongoose.banteng.value.MooValue.ObjectValue;
 import world.mongoose.banteng.value.MooValue.StringValue;
 import world.mongoose.banteng.value.MooValue.WaifValue;
 import world.mongoose.banteng.value.ValueSemantics;
+import world.mongoose.banteng.world.Access;
+import world.mongoose.banteng.world.ArgSpec;
+import world.mongoose.banteng.world.PropertyPerms;
+import world.mongoose.banteng.world.VerbPerms;
 import world.mongoose.banteng.world.ObjectFlags;
 import world.mongoose.banteng.world.PropertyHolder;
 import world.mongoose.banteng.world.WorldAnonymousObject;
@@ -1791,7 +1794,7 @@ public final class BuiltinCatalog {
     if (info.isEmpty()) {
       return BuiltinResult.error(ErrorValue.E_INVARG);
     }
-    if (target != programmer && !BuiltinPermissionRule.WIZARD_ONLY.allows(world, programmer)) {
+    if (target != programmer && !world.isWizard(programmer)) {
       return BuiltinResult.error(ErrorValue.E_PERM);
     }
     return BuiltinResult.value(info.orElseThrow());
@@ -1810,7 +1813,7 @@ public final class BuiltinCatalog {
     if (connectionId.isEmpty()) {
       return BuiltinResult.error(ErrorValue.E_INVARG);
     }
-    if (programmer != target && !isWizard(world, programmer)) {
+    if (programmer != target && !world.isWizard(programmer)) {
       return BuiltinResult.error(ErrorValue.E_PERM);
     }
     long queuedBytes =
@@ -1826,7 +1829,7 @@ public final class BuiltinCatalog {
   private BuiltinResult connectionName(
       List<MooValue> arguments, WorldTxn world, long programmer) {
     long target = ((ObjectValue) arguments.getFirst()).value();
-    if (target != programmer && !BuiltinPermissionRule.WIZARD_ONLY.allows(world, programmer)) {
+    if (target != programmer && !world.isWizard(programmer)) {
       return BuiltinResult.error(ErrorValue.E_PERM);
     }
     MapValue info = connections().connectionInfo(target).orElse(null);
@@ -1887,7 +1890,7 @@ public final class BuiltinCatalog {
   private static BuiltinResult bootPlayer(
       List<MooValue> arguments, WorldTxn world, long programmer) {
     long target = ((ObjectValue) arguments.getFirst()).value();
-    if (target != programmer && !BuiltinPermissionRule.WIZARD_ONLY.allows(world, programmer)) {
+    if (target != programmer && !world.isWizard(programmer)) {
       return BuiltinResult.error(ErrorValue.E_PERM);
     }
     return new BuiltinResult.BootPlayer(target);
@@ -1896,7 +1899,7 @@ public final class BuiltinCatalog {
   private BuiltinResult setConnectionOption(
       List<MooValue> arguments, WorldTxn world, long programmer) {
     long target = ((ObjectValue) arguments.get(0)).value();
-    if (target != programmer && !BuiltinPermissionRule.WIZARD_ONLY.allows(world, programmer)) {
+    if (target != programmer && !world.isWizard(programmer)) {
       return BuiltinResult.error(ErrorValue.E_PERM);
     }
     if (connections().connectionInfo(target).isEmpty()) {
@@ -1970,7 +1973,7 @@ public final class BuiltinCatalog {
   private static BuiltinResult forceInput(
       List<MooValue> arguments, WorldTxn world, long programmer) {
     long target = ((ObjectValue) arguments.get(0)).value();
-    if (target != programmer && !BuiltinPermissionRule.WIZARD_ONLY.allows(world, programmer)) {
+    if (target != programmer && !world.isWizard(programmer)) {
       return BuiltinResult.error(ErrorValue.E_PERM);
     }
     return new BuiltinResult.ForceInput(
@@ -2153,7 +2156,7 @@ public final class BuiltinCatalog {
       if (world.verb(0, wrapper, true).isPresent()) {
         return new BuiltinResult.ProtectedCall(wrapper, new ListValue(arguments));
       }
-      if (!isWizard(world, programmer)) return BuiltinResult.error(ErrorValue.E_PERM);
+      if (!world.isWizard(programmer)) return BuiltinResult.error(ErrorValue.E_PERM);
     }
     if (spec.callShapes().stream().noneMatch(shape -> shape.acceptsArity(arguments.size()))) {
       int minimum = spec.callShapes().stream().mapToInt(shape -> shape.required().size()).min().orElseThrow();
@@ -2582,7 +2585,7 @@ public final class BuiltinCatalog {
       return BuiltinResult.error(ErrorValue.E_TYPE);
     }
     if (object == null) return BuiltinResult.error(ErrorValue.E_INVIND);
-    if (!isWizard(world, programmer)) return BuiltinResult.error(ErrorValue.E_PERM);
+    if (!world.isWizard(programmer)) return BuiltinResult.error(ErrorValue.E_PERM);
 
     // Logical 64-bit object layout, consistent with value_bytes. Banteng owns
     // source text rather than Toast's Program allocation for each stored verb.
@@ -3065,7 +3068,7 @@ public final class BuiltinCatalog {
     } else {
       return BuiltinResult.error(ErrorValue.E_TYPE);
     }
-    return owner == programmer || isWizard(world, programmer) || ObjectFlags.isReadable(flags)
+    return owner == programmer || world.isWizard(programmer) || ObjectFlags.isReadable(flags)
         ? BuiltinResult.value(new ListValue(List.of(location, StringValue.of(verb.names()))))
         : BuiltinResult.value(new IntegerValue(1));
   }
@@ -3905,7 +3908,7 @@ public final class BuiltinCatalog {
       return BuiltinResult.error(ErrorValue.E_INVARG);
     }
     long selectedStrength = strength.orElseThrow();
-    if (!isWizard(world, programmer)
+    if (!world.isWizard(programmer)
         && (isRecognizedBcrypt(salt) ? selectedStrength != 5 : selectedStrength != 0)) {
       return BuiltinResult.error(ErrorValue.E_PERM);
     }
@@ -4363,8 +4366,8 @@ public final class BuiltinCatalog {
   }
 
   private static BuiltinResult chr(List<MooValue> arguments, WorldTxn world, long programmer) {
-    int minimum = isWizard(world, programmer) ? 0 : 32;
-    int maximum = isWizard(world, programmer) ? 255 : 254;
+    int minimum = world.isWizard(programmer) ? 0 : 32;
+    int maximum = world.isWizard(programmer) ? 255 : 254;
     ByteArrayOutputStream raw = new ByteArrayOutputStream();
     for (MooValue argument : arguments) {
       if (!appendBinaryBytes(raw, argument, minimum, maximum)) {
@@ -4412,9 +4415,7 @@ public final class BuiltinCatalog {
       verb = candidate;
     }
 
-    WorldObject actor = world.object(programmer).orElse(null);
-    boolean wizard = actor != null && ObjectFlags.isWizard(actor.flags());
-    if (verb.owner() != programmer && !wizard && (verb.permissions() & 1) == 0) {
+    if (!Access.canRead(world, programmer, verb.owner(), verb.perms())) {
       return BuiltinResult.error(ErrorValue.E_PERM);
     }
     List<MooValue> lines = new ArrayList<>();
@@ -4505,7 +4506,7 @@ public final class BuiltinCatalog {
     if ((anonymous && owner == -1) || (owner != -1 && world.object(owner).isEmpty())) {
       return BuiltinResult.error(ErrorValue.E_INVARG);
     }
-    boolean wizard = isWizard(world, programmer);
+    boolean wizard = world.isWizard(programmer);
     if ((ownerSpecified && owner != programmer && !wizard)
         || !parentsAllowed(
             parents.ids(),
@@ -4556,7 +4557,7 @@ public final class BuiltinCatalog {
         owner = requestedOwner;
       }
     }
-    if ((owner != programmer && !isWizard(world, programmer))
+    if ((owner != programmer && !world.isWizard(programmer))
         || !parentsAllowed(parents.ids(), world, programmer, ObjectFlags.FLAG_FERTILE)) {
       return BuiltinResult.error(ErrorValue.E_PERM);
     }
@@ -4774,7 +4775,7 @@ public final class BuiltinCatalog {
       }
       owner = body.owner();
     }
-    if ((!isWizard(world, programmer) && owner != programmer)
+    if ((!world.isWizard(programmer) && owner != programmer)
         || !parentsAllowed(parents.ids(), world, programmer, ObjectFlags.FLAG_FERTILE)) {
       return BuiltinResult.error(ErrorValue.E_PERM);
     }
@@ -4788,11 +4789,6 @@ public final class BuiltinCatalog {
     return mutationResult(changed, new IntegerValue(0));
   }
 
-  private static boolean isWizard(WorldTxn world, long programmer) {
-    WorldObject object = world.object(programmer).orElse(null);
-    return object != null && ObjectFlags.isWizard(object.flags());
-  }
-
   private static BuiltinResult mutationResult(WorldResult<?> result, MooValue success) {
     if (result instanceof WorldResult.Failed<?> failed) {
       return BuiltinResult.error(failed.reason().value());
@@ -4802,7 +4798,7 @@ public final class BuiltinCatalog {
 
   private static boolean parentsAllowed(
       List<Long> parents, WorldTxn world, long programmer, int permissionFlag) {
-    if (isWizard(world, programmer)) {
+    if (world.isWizard(programmer)) {
       return true;
     }
     for (long parentId : parents) {
@@ -4991,8 +4987,7 @@ public final class BuiltinCatalog {
     } else {
       return Optional.of(ErrorValue.E_TYPE);
     }
-    WorldObject actor = world.object(programmer).orElse(null);
-    boolean wizard = actor != null && ObjectFlags.isWizard(actor.flags());
+    boolean wizard = world.isWizard(programmer);
     boolean writable = targetOwner == programmer || wizard || ObjectFlags.isWritable(targetFlags);
     return writable && (newOwner == programmer || wizard)
         ? Optional.empty()
@@ -5044,22 +5039,22 @@ public final class BuiltinCatalog {
     String directText = ((StringValue) verbArguments.elements().get(0)).text();
     String prepositionText = ((StringValue) verbArguments.elements().get(1)).text();
     String indirectText = ((StringValue) verbArguments.elements().get(2)).text();
-    int direct =
+    ArgSpec direct =
         switch (directText.toLowerCase(Locale.ROOT)) {
-          case "none" -> 0;
-          case "any" -> 1;
-          case "this" -> 2;
-          default -> -1;
+          case "none" -> ArgSpec.NONE;
+          case "any" -> ArgSpec.ANY;
+          case "this" -> ArgSpec.THIS;
+          default -> null;
         };
-    int indirect =
+    ArgSpec indirect =
         switch (indirectText.toLowerCase(Locale.ROOT)) {
-          case "none" -> 0;
-          case "any" -> 1;
-          case "this" -> 2;
-          default -> -1;
+          case "none" -> ArgSpec.NONE;
+          case "any" -> ArgSpec.ANY;
+          case "this" -> ArgSpec.THIS;
+          default -> null;
         };
     int preposition = parsePreposition(prepositionText);
-    if (direct < 0 || indirect < 0 || preposition == Integer.MIN_VALUE) {
+    if (direct == null || indirect == null || preposition == Integer.MIN_VALUE) {
       return BuiltinResult.error(ErrorValue.E_INVARG);
     }
 
@@ -5070,17 +5065,15 @@ public final class BuiltinCatalog {
       return BuiltinResult.error(ownershipError.orElseThrow());
     }
 
-    int encodedPermissions = permissions | (direct << 4) | (indirect << 6);
     int slot =
         receiver instanceof ObjectValue object
             ? world.addVerb(
-                object.value(), names, owner.value(), encodedPermissions, preposition)
+                object.value(), names, owner.value(), new VerbPerms(permissions), direct, preposition, indirect)
             : world.addVerb(
                 (AnonymousObjectValue) receiver,
                 names,
                 owner.value(),
-                encodedPermissions,
-                preposition);
+                new VerbPerms(permissions), direct, preposition, indirect);
     return BuiltinResult.value(
         new IntegerValue(slot));
   }
@@ -5120,13 +5113,13 @@ public final class BuiltinCatalog {
     WorldResult<Boolean> added =
         receiver instanceof ObjectValue object
             ? world.addProperty(
-                object.value(), name, arguments.get(2), owner.value(), permissions)
+                object.value(), name, arguments.get(2), owner.value(), new PropertyPerms(permissions))
             : world.addProperty(
                 (AnonymousObjectValue) receiver,
                 name,
                 arguments.get(2),
                 owner.value(),
-                permissions);
+                new PropertyPerms(permissions));
     return mutationResult(added, new IntegerValue(0));
   }
 
@@ -5142,8 +5135,7 @@ public final class BuiltinCatalog {
     if (target == null) {
       return BuiltinResult.error(ErrorValue.E_INVARG);
     }
-    WorldObject actor = world.object(programmer).orElse(null);
-    boolean wizard = actor != null && ObjectFlags.isWizard(actor.flags());
+    boolean wizard = world.isWizard(programmer);
     if (target.owner() != programmer && !wizard && !ObjectFlags.isReadable(target.flags())) {
       return BuiltinResult.error(ErrorValue.E_PERM);
     }
@@ -5181,8 +5173,7 @@ public final class BuiltinCatalog {
     if (body == null) {
       return value;
     }
-    WorldObject viewer = world.object(programmer).orElse(null);
-    boolean wizard = viewer != null && ObjectFlags.isWizard(viewer.flags());
+    boolean wizard = world.isWizard(programmer);
     return wizard || body.owner() == programmer ? value : new AnonymousObjectValue();
   }
 
@@ -5219,9 +5210,7 @@ public final class BuiltinCatalog {
     if (property == null) {
       return BuiltinResult.error(ErrorValue.E_PROPNF);
     }
-    WorldObject actor = world.object(programmer).orElse(null);
-    boolean wizard = actor != null && ObjectFlags.isWizard(actor.flags());
-    if (property.owner() != programmer && !wizard && (property.permissions() & 1) == 0) {
+    if (!Access.canRead(world, programmer, property.owner(), property.perms())) {
       return BuiltinResult.error(ErrorValue.E_PERM);
     }
     return BuiltinResult.value(new IntegerValue(property.clear() ? 1 : 0));
@@ -5263,19 +5252,17 @@ public final class BuiltinCatalog {
     if (property == null) {
       return BuiltinResult.error(ErrorValue.E_PROPNF);
     }
-    WorldObject actor = world.object(programmer).orElse(null);
-    boolean wizard = actor != null && ObjectFlags.isWizard(actor.flags());
-    if (property.owner() != programmer && !wizard && (property.permissions() & 1) == 0) {
+    if (!Access.canRead(world, programmer, property.owner(), property.perms())) {
       return BuiltinResult.error(ErrorValue.E_PERM);
     }
     String permissions = "";
-    if ((property.permissions() & 1) != 0) {
+    if (property.perms().readable()) {
       permissions += "r";
     }
-    if ((property.permissions() & 2) != 0) {
+    if (property.perms().writable()) {
       permissions += "w";
     }
-    if ((property.permissions() & 4) != 0) {
+    if (property.perms().chownable()) {
       permissions += "c";
     }
     return BuiltinResult.value(
@@ -5308,9 +5295,7 @@ public final class BuiltinCatalog {
     if (property == null) {
       return BuiltinResult.error(ErrorValue.E_PROPNF);
     }
-    WorldObject actor = world.object(programmer).orElse(null);
-    boolean wizard = actor != null && ObjectFlags.isWizard(actor.flags());
-    if (property.owner() != programmer && !wizard && (property.permissions() & 2) == 0) {
+    if (!Access.canWrite(world, programmer, property.owner(), property.perms())) {
       return BuiltinResult.error(ErrorValue.E_PERM);
     }
     WorldProperty local =
@@ -5333,8 +5318,7 @@ public final class BuiltinCatalog {
     if (target == null) {
       return BuiltinResult.error(ErrorValue.E_INVARG);
     }
-    WorldObject actor = world.object(programmer).orElse(null);
-    boolean wizard = actor != null && ObjectFlags.isWizard(actor.flags());
+    boolean wizard = world.isWizard(programmer);
     if (target.owner() != programmer && !wizard && !ObjectFlags.isWritable(target.flags())) {
       return BuiltinResult.error(ErrorValue.E_PERM);
     }
@@ -5428,13 +5412,13 @@ public final class BuiltinCatalog {
       verbIndex = targetVerbs.indexOf(verb);
     }
 
-    boolean wizard = BuiltinPermissionRule.WIZARD_ONLY.allows(world, programmer);
-    if ((verb.owner() != programmer && !wizard && (verb.permissions() & 2) == 0)
+    boolean wizard = world.isWizard(programmer);
+    if (!Access.canWrite(world, programmer, verb.owner(), verb.perms())
         || (!wizard && verb.owner() != owner.value())) {
       return BuiltinResult.error(ErrorValue.E_PERM);
     }
     WorldResult<Boolean> updated =
-        world.setVerbInfo(object.value(), verbIndex, names, owner.value(), permissions);
+        world.setVerbInfo(object.value(), verbIndex, names, owner.value(), new VerbPerms(permissions));
     return mutationResult(updated, new IntegerValue(0));
   }
 
@@ -5462,7 +5446,7 @@ public final class BuiltinCatalog {
     } else {
       return BuiltinResult.error(ErrorValue.E_TYPE);
     }
-    if (owner != programmer && !isWizard(world, programmer) && !ObjectFlags.isReadable(flags)) {
+    if (owner != programmer && !world.isWizard(programmer) && !ObjectFlags.isReadable(flags)) {
       return BuiltinResult.error(ErrorValue.E_PERM);
     }
     return BuiltinResult.value(
@@ -5503,21 +5487,20 @@ public final class BuiltinCatalog {
       verb = candidate;
     }
 
-    boolean wizard = BuiltinPermissionRule.WIZARD_ONLY.allows(world, programmer);
-    if (verb.owner() != programmer && !wizard && (verb.permissions() & 1) == 0) {
+    if (!Access.canRead(world, programmer, verb.owner(), verb.perms())) {
       return BuiltinResult.error(ErrorValue.E_PERM);
     }
     StringBuilder flags = new StringBuilder(4);
-    if ((verb.permissions() & 1) != 0) {
+    if (verb.perms().readable()) {
       flags.append('r');
     }
-    if ((verb.permissions() & 2) != 0) {
+    if (verb.perms().writable()) {
       flags.append('w');
     }
-    if ((verb.permissions() & 4) != 0) {
+    if (verb.perms().executable()) {
       flags.append('x');
     }
-    if ((verb.permissions() & 8) != 0) {
+    if (verb.perms().debug()) {
       flags.append('d');
     }
     return BuiltinResult.value(
@@ -5559,22 +5542,21 @@ public final class BuiltinCatalog {
       verb = candidate;
     }
 
-    boolean wizard = BuiltinPermissionRule.WIZARD_ONLY.allows(world, programmer);
-    if (verb.owner() != programmer && !wizard && (verb.permissions() & 1) == 0) {
+    if (!Access.canRead(world, programmer, verb.owner(), verb.perms())) {
       return BuiltinResult.error(ErrorValue.E_PERM);
     }
     String direct =
-        switch ((verb.permissions() >> 4) & 3) {
-          case 0 -> "none";
-          case 1 -> "any";
-          case 2 -> "this";
+        switch (verb.dobj()) {
+          case NONE -> "none";
+          case ANY -> "any";
+          case THIS -> "this";
           default -> throw new IllegalStateException("invalid direct-object verb specification");
         };
     String indirect =
-        switch ((verb.permissions() >> 6) & 3) {
-          case 0 -> "none";
-          case 1 -> "any";
-          case 2 -> "this";
+        switch (verb.iobj()) {
+          case NONE -> "none";
+          case ANY -> "any";
+          case THIS -> "this";
           default -> throw new IllegalStateException("invalid indirect-object verb specification");
         };
     String preposition = Prepositions.format(verb.preposition());
@@ -5600,7 +5582,7 @@ public final class BuiltinCatalog {
       return BuiltinResult.error(ErrorValue.E_INVARG);
     }
 
-    boolean wizard = BuiltinPermissionRule.WIZARD_ONLY.allows(world, programmer);
+    boolean wizard = world.isWizard(programmer);
     if (target.owner() != programmer && !wizard && !ObjectFlags.isWritable(target.flags())) {
       return BuiltinResult.error(ErrorValue.E_PERM);
     }
@@ -5650,22 +5632,22 @@ public final class BuiltinCatalog {
     String directText = ((StringValue) verbArguments.elements().get(0)).text();
     String prepositionText = ((StringValue) verbArguments.elements().get(1)).text();
     String indirectText = ((StringValue) verbArguments.elements().get(2)).text();
-    int direct =
+    ArgSpec direct =
         switch (directText.toLowerCase(Locale.ROOT)) {
-          case "none" -> 0;
-          case "any" -> 1;
-          case "this" -> 2;
-          default -> -1;
+          case "none" -> ArgSpec.NONE;
+          case "any" -> ArgSpec.ANY;
+          case "this" -> ArgSpec.THIS;
+          default -> null;
         };
-    int indirect =
+    ArgSpec indirect =
         switch (indirectText.toLowerCase(Locale.ROOT)) {
-          case "none" -> 0;
-          case "any" -> 1;
-          case "this" -> 2;
-          default -> -1;
+          case "none" -> ArgSpec.NONE;
+          case "any" -> ArgSpec.ANY;
+          case "this" -> ArgSpec.THIS;
+          default -> null;
         };
     int preposition = parsePreposition(prepositionText);
-    if (direct < 0 || indirect < 0 || preposition == Integer.MIN_VALUE) {
+    if (direct == null || indirect == null || preposition == Integer.MIN_VALUE) {
       return BuiltinResult.error(ErrorValue.E_INVARG);
     }
 
@@ -5689,8 +5671,7 @@ public final class BuiltinCatalog {
       verbIndex = targetVerbs.indexOf(verb);
     }
 
-    boolean wizard = BuiltinPermissionRule.WIZARD_ONLY.allows(world, programmer);
-    if (verb.owner() != programmer && !wizard && (verb.permissions() & 2) == 0) {
+    if (!Access.canWrite(world, programmer, verb.owner(), verb.perms())) {
       return BuiltinResult.error(ErrorValue.E_PERM);
     }
     WorldResult<Boolean> updated =
@@ -5761,11 +5742,11 @@ public final class BuiltinCatalog {
       verbIndex = targetVerbs.indexOf(verb);
     }
 
+    boolean wizard = world.isWizard(programmer);
     WorldObject actor = world.object(programmer).orElse(null);
-    boolean wizard = actor != null && ObjectFlags.isWizard(actor.flags());
     boolean programmerFlag = actor != null && ObjectFlags.isProgrammer(actor.flags());
     if ((!programmerFlag && !wizard)
-        || (verb.owner() != programmer && !wizard && (verb.permissions() & 2) == 0)) {
+        || !Access.canWrite(world, programmer, verb.owner(), verb.perms())) {
       return BuiltinResult.error(ErrorValue.E_PERM);
     }
 
@@ -5824,9 +5805,7 @@ public final class BuiltinCatalog {
       verb = candidate;
     }
 
-    WorldObject actor = world.object(programmer).orElse(null);
-    boolean wizard = actor != null && ObjectFlags.isWizard(actor.flags());
-    if (verb.owner() != programmer && !wizard && (verb.permissions() & 1) == 0) {
+    if (!Access.canRead(world, programmer, verb.owner(), verb.perms())) {
       return BuiltinResult.error(ErrorValue.E_PERM);
     }
 
@@ -5857,7 +5836,7 @@ public final class BuiltinCatalog {
         || (destination.value() != -1 && world.object(destination.value()).isEmpty())) {
       return BuiltinResult.error(ErrorValue.E_INVARG);
     }
-    boolean wizard = isWizard(world, programmer);
+    boolean wizard = world.isWizard(programmer);
     if (!wizard && moving.owner() != programmer) {
       return BuiltinResult.error(ErrorValue.E_PERM);
     }
@@ -5870,8 +5849,7 @@ public final class BuiltinCatalog {
 
   private static BuiltinResult recycle(
       List<MooValue> arguments, WorldTxn world, long programmer) {
-    WorldObject actor = world.object(programmer).orElse(null);
-    boolean wizard = actor != null && ObjectFlags.isWizard(actor.flags());
+    boolean wizard = world.isWizard(programmer);
     MooValue receiver = arguments.getFirst();
     if (receiver instanceof AnonymousObjectValue anonymous) {
       WorldAnonymousObject target = world.anonymousObject(anonymous).orElse(null);
@@ -5910,7 +5888,7 @@ public final class BuiltinCatalog {
   private static BuiltinResult setTaskPerms(
       List<MooValue> arguments, WorldTxn world, long currentProgrammer) {
     ObjectValue requested = (ObjectValue) arguments.getFirst();
-    if (requested.value() != currentProgrammer && !isWizard(world, currentProgrammer)) {
+    if (requested.value() != currentProgrammer && !world.isWizard(currentProgrammer)) {
       return BuiltinResult.error(ErrorValue.E_PERM);
     }
     return new BuiltinResult.Programmer(requested.value());
@@ -5919,7 +5897,7 @@ public final class BuiltinCatalog {
   private BuiltinResult notifyLine(
       List<MooValue> arguments, WorldTxn world, long programmer) {
     long target = ((ObjectValue) arguments.getFirst()).value();
-    if (target != programmer && !isWizard(world, programmer)) {
+    if (target != programmer && !world.isWizard(programmer)) {
       return BuiltinResult.error(ErrorValue.E_PERM);
     }
     StringValue line = (StringValue) arguments.get(1);

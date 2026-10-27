@@ -30,8 +30,9 @@ final class WorldResultTest {
             .filter(method -> method.getReturnType().equals(boolean.class))
             .map(method -> method.getName())
             .distinct()
+            .sorted()
             .toList();
 
-    assertEquals(List.of("valueRefersToWaif"), publicBooleanMethods);
+    assertEquals(List.of("isWizard", "valueRefersToWaif"), publicBooleanMethods);
   }
 }
