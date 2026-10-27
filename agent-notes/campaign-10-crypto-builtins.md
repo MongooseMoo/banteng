@@ -6,6 +6,8 @@ Extract issue 10's ten Crypto registrations and their full private implementatio
 # State
 Implemented in an isolated branch based on the completed Binary extraction. CryptoBuiltins owns the ten registrations, fifteen methods and two nested types. The catalog calls register at the original position with the existing secure generator. No publication by this agent.
 
+Latest Binary ancestry, including runtime/callback/WAIF repairs, is now merged locally without conflicts. The reviewed Crypto implementation, relocated test, mover/fixture and YAML are unchanged. The catalog still passes its own hosts.crypt() explicitly; no dependency owner changed during this integration.
+
 # Decisions and why
 Smallest change: move approximately 360 implementation lines and 40 registration lines, including the existing hash-input loop and Argon2Settings/Hasher nested types. Pass the existing secure generator and catalog-owned hosts.crypt() explicitly. Argon2 verification retains invocation-host serverLog. Use StringValue's binary decoder directly. Move the package-private failure-injection test to the family package, without a public seam or forwarding method. Extend the existing mover only for the actual loop, instance methods and nested types.
 
@@ -28,3 +30,8 @@ Validation: normal migration dry run and authored MoveBuiltinFamilyTest. Applica
 
 # Next step
 Parent to inspect the substantive commit, integrate updated Binary/Random ancestry as needed, obtain Claude review, publish and read required CI/conformance before merge. No release or deployment performed here.
+
+# Binary/runtime ancestry integration
+Normal merge of the latest campaign/10-binary-builtins completed without conflicts or source adaptations. Compared CryptoBuiltins, its relocated family test, the rewrite subproject and rewrite.yml against the prior Crypto head: no differences. Runtime, VM, persistence, bytecode and app sources match the captured Binary merge parent exactly. Crypto registration remains `CryptoBuiltins.register(entries, SECURE_RANDOM, hosts.crypt())`; the family still captures its explicit Crypt parameter, while Argon2 verification retains invocation-host logging.
+
+No local CI/test/migration or repeated review was run for unchanged code/ancestry. git diff --check passed. Parent owns publication, required CI and merge; Binary must land before parent retargets Crypto to master and merges it. This local preparation does not claim Binary has landed or conformance has accepted the integrated source.

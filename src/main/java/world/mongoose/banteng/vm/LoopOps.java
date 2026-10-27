@@ -322,7 +322,11 @@ final class LoopOps {
     if (frame.recycleTarget.isPresent()) {
       long recycleTarget = frame.recycleTarget.orElseThrow();
       state.unwindChildFrame();
+      Frame caller = state.currentFrame();
       MooVm.continueRecycle(recycleTarget, state, world);
+      if (state.currentFrame() != caller && state.activeFrames().contains(caller)) {
+        state.currentFrame().builtinContinuation = frame.builtinContinuation;
+      }
       return;
     }
     if (frame.anonymousRecycleTarget.isPresent()) {

@@ -11,6 +11,7 @@ import world.mongoose.banteng.bytecode.BytecodeProgram.Opcode;
 import world.mongoose.banteng.bytecode.LayoutCompiler;
 import world.mongoose.banteng.bytecode.ToastV17ProgramModel.BantengCallSite;
 import world.mongoose.banteng.bytecode.ToastV17ProgramModel.CallBoundary;
+import world.mongoose.banteng.bytecode.ToastV17ProgramModel.CallKind;
 import world.mongoose.banteng.bytecode.ToastV17ProgramModel.ContinuationSite;
 import world.mongoose.banteng.bytecode.ToastV17ProgramModel.EnclosingHandler;
 import world.mongoose.banteng.bytecode.ToastV17ProgramModel.EnclosingIterate;
@@ -93,19 +94,19 @@ public final class ToastV17ProgramLayout {
     if (boundary.vector() != vector) {
       throw new IllegalArgumentException("Toast boundary vector does not match requested vector");
     }
-    BantengCallSite call = locateBantengCall(program, boundary.astPath());
+    BantengCallSite call = locateBantengCall(program, boundary);
     return new LayoutCompiler(source, languageVersion).resolveStructuralStack(vector, boundary, call.program());
   }
 
   /** Finds the unique matching call recursively across Banteng's hierarchical fork programs. */
-  public BantengCallSite locateBantengCall(BytecodeProgram program, AstPath astPath) {
+  public BantengCallSite locateBantengCall(BytecodeProgram program, CallBoundary boundary) {
     Objects.requireNonNull(program, "program");
-    Objects.requireNonNull(astPath, "astPath");
+    Objects.requireNonNull(boundary, "boundary");
     List<BantengCallSite> matches = new ArrayList<>();
-    collectBantengCalls(program, astPath, matches);
+    collectBantengCalls(program, boundary, matches);
     if (matches.size() != 1) {
       throw new IllegalArgumentException(
-          "Banteng AST call path " + astPath.components() + " resolved " + matches.size() + " times");
+          "Banteng AST call path " + boundary.astPath().components() + " resolved " + matches.size() + " times");
     }
     return matches.getFirst();
   }
@@ -113,7 +114,7 @@ public final class ToastV17ProgramLayout {
   /** Resolves the structural controls enclosing an already-proven Toast call boundary. */
   public ContinuationSite resolveContinuation(BytecodeProgram program, CallBoundary boundary) {
     Objects.requireNonNull(boundary, "boundary");
-    BantengCallSite call = locateBantengCall(program, boundary.astPath());
+    BantengCallSite call = locateBantengCall(program, boundary);
     List<EnclosingHandler> handlers =
         enclosingHandlers(call.program(), boundary.astPath());
     Optional<EnclosingIterate> iterate =
@@ -263,16 +264,16 @@ public final class ToastV17ProgramLayout {
       int index, BytecodeProgram.Instruction instruction, AstPath path) {}
 
   private static void collectBantengCalls(
-      BytecodeProgram program, AstPath astPath, List<BantengCallSite> matches) {
+      BytecodeProgram program, CallBoundary boundary, List<BantengCallSite> matches) {
     for (int index = 0; index < program.instructions().size(); index++) {
       BytecodeProgram.Instruction instruction = program.instructions().get(index);
-      if ((instruction.opcode() == Opcode.CALL || instruction.opcode() == Opcode.CALL_VERB)
-          && instruction.astPath().filter(astPath::equals).isPresent()) {
+      if (CallKind.of(instruction).filter(boundary.kind()::equals).isPresent()
+          && instruction.astPath().filter(boundary.astPath()::equals).isPresent()) {
         matches.add(new BantengCallSite(program, index, index + 1));
       }
     }
     for (BytecodeProgram fork : program.forkVectors()) {
-      collectBantengCalls(fork, astPath, matches);
+      collectBantengCalls(fork, boundary, matches);
     }
   }
 }

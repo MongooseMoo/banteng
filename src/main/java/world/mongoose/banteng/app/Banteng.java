@@ -6,6 +6,9 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Arrays;
 import java.util.concurrent.Callable;
 import world.mongoose.banteng.logging.ServerLog;
 import world.mongoose.banteng.persistence.LambdaMooV17Codec;
@@ -22,6 +25,8 @@ import world.mongoose.banteng.persistence.LambdaMooV4Reader;
 import world.mongoose.banteng.persistence.LambdaMooV5Reader;
 import world.mongoose.banteng.server.MooServer;
 import world.mongoose.banteng.value.MooValue.StringValue;
+import world.mongoose.banteng.value.MooValue;
+import world.mongoose.banteng.value.MooValue.ListValue;
 import world.mongoose.banteng.value.ValueSemantics;
 import org.jspecify.annotations.Nullable;
 import picocli.CommandLine;
@@ -61,6 +66,22 @@ public final class Banteng implements Callable<Integer> {
       defaultValue = "false",
       description = "Promote integers for mixed numeric operations and float math")
   private boolean promoteNumbers;
+
+  private @Nullable String startLine;
+  private @Nullable Path startScript;
+  private boolean scriptFileFirst;
+
+  @Option(names = "--start-line", arity = "1", paramLabel = "LINE", description = "Pass a line to #0:do_start_script")
+  void startLine(String[] lines) {
+    if (startScript == null) scriptFileFirst = false;
+    startLine = lines[lines.length - 1];
+  }
+
+  @Option(names = "--start-script", arity = "1", paramLabel = "PATH", description = "Pass file lines to #0:do_start_script")
+  void startScript(Path[] paths) {
+    if (startLine == null) scriptFileFirst = true;
+    startScript = paths[paths.length - 1];
+  }
 
   @Spec private @Nullable CommandSpec commandSpec;
 
@@ -124,6 +145,7 @@ public final class Banteng implements Callable<Integer> {
             Optional.of(databasePath), Optional.of(checkpointPath), loaded.activeConnections(),
             serverLog, vm, tasks, scheduler, builtins, outputCodec);
         scheduler.restoreTasks(loaded.tasks());
+        for (ListValue script : startupScripts()) runtime().startScript(script);
         server.serve(() -> signals.dispatch(server::handleSignal));
       }
     }
@@ -138,6 +160,21 @@ public final class Banteng implements Callable<Integer> {
 
   ValueSemantics valueSemantics() {
     return new ValueSemantics(promoteNumbers);
+  }
+
+  List<ListValue> startupScripts() throws IOException {
+    List<ListValue> scripts = new ArrayList<>();
+    String line = startLine;
+    if (line != null) scripts.add(new ListValue(List.of(StringValue.of(line))));
+    Path path = startScript;
+    if (path != null) {
+      String content = Files.readString(path, StringValue.charset());
+      List<String> lines = content.isEmpty() ? List.of() : Arrays.asList(content.split("\n", -1));
+      if (content.endsWith("\n")) lines = lines.subList(0, lines.size() - 1);
+      ListValue file = new ListValue(lines.stream().map(StringValue::of).map(MooValue.class::cast).toList());
+      scripts.add(scriptFileFirst ? 0 : scripts.size(), file);
+    }
+    return scripts;
   }
 
 }
