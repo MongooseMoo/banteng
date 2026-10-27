@@ -5606,8 +5606,8 @@ public final class BuiltinCatalog {
             .collect(java.util.stream.Collectors.joining("\n"));
     WorldResult<Boolean> updated =
         receiver instanceof ObjectValue object
-            ? world.setVerbCode(object.value(), verbIndex, canonicalSource, compiled.program().orElseThrow())
-            : world.setVerbCode((AnonymousObjectValue) receiver, verbIndex, canonicalSource, compiled.program().orElseThrow());
+            ? world.setVerbCode(object.value(), verbIndex, canonicalSource)
+            : world.setVerbCode((AnonymousObjectValue) receiver, verbIndex, canonicalSource);
     return mutationResult(updated, new ListValue(List.of()));
   }
 
