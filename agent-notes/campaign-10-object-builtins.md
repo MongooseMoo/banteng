@@ -32,3 +32,6 @@ Move the 23 object lifecycle, topology, WAIF and maximum-object registrations in
 Integrate current runtime continuation metadata into the existing extraction: anonymous create retains its empty payload, while permanent create/recreate retain their existing typed CreateContinuation payloads. Preserve the current sealed result definitions, mutationResult owner, extraction recipe and three manifest positions.
 
 Validation: focused MoveBuiltinFamilyTest; original normal ExtractObjectBuiltins rewrite dry-run; current-catalog/moved24-body comparison; git diff --check. Parent owns publication, bounded review of the integration delta and current PR CI.
+
+## Login and layout repair ancestry
+Merged the latest coordinator runtime login-output and pinned-layout-boundary repairs normally, without conflicts or family source adaptations. Family implementations, services, dependencies, extraction mover, authored fixtures and YAML are unchanged. No local tests, CI, migration or repeated review ran for this mechanical integration. Parent owns publication, hosted checks and merge.
