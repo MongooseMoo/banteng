@@ -1,6 +1,5 @@
 package world.mongoose.banteng.builtin;
 import java.io.IOException;
-import java.math.BigInteger;
 import java.nio.file.Path;
 import java.security.MessageDigest;
 import java.security.SecureRandom;
@@ -17,7 +16,7 @@ import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.Random;
 import java.util.Set;
-import java.util.function.Function;
+import world.mongoose.banteng.builtin.family.FileIoBuiltins;
 import java.util.function.LongBinaryOperator;
 import java.util.function.Supplier;
 import org.bouncycastle.crypto.Digest;
@@ -32,6 +31,7 @@ import org.bouncycastle.crypto.generators.Argon2BytesGenerator;
 import org.bouncycastle.crypto.macs.HMac;
 import org.bouncycastle.crypto.params.Argon2Parameters;
 import org.bouncycastle.crypto.params.KeyParameter;
+import world.mongoose.banteng.builtin.family.ConversionBuiltins;
 
 import static world.mongoose.banteng.builtin.ValueLimits.valueBytes;
 import world.mongoose.banteng.builtin.family.BinaryBuiltins;
@@ -51,7 +51,6 @@ import world.mongoose.banteng.syntax.MooParser;
 import world.mongoose.banteng.syntax.MooUnparser;
 import world.mongoose.banteng.value.MooValue;
 import world.mongoose.banteng.value.MooValue.AnonymousObjectValue;
-import world.mongoose.banteng.value.MooValue.BooleanValue;
 import world.mongoose.banteng.value.MooValue.ErrorValue;
 import world.mongoose.banteng.value.MooValue.FloatValue;
 import world.mongoose.banteng.value.MooValue.IntegerValue;
@@ -89,7 +88,7 @@ public final class BuiltinCatalog {
   private static final String SERVER_VERSION = "0.1.0-SNAPSHOT";
 
   private final List<BuiltinSpec> manifest;
-  private final FileIoService fileIo;
+  private final FileIoBuiltins fileIo;
   private final BuiltinHosts hosts;
   private final PcreService pcre = new PcreService();
   private final Optional<ListenerControl> listenerControl;
@@ -105,7 +104,7 @@ public final class BuiltinCatalog {
     this.hosts = Objects.requireNonNull(hosts, "hosts");
     listenerControl = Optional.empty();
     ConfinedFileRoot files = new ConfinedFileRoot(Path.of("files"));
-    fileIo = new FileIoService(files);
+    fileIo = new FileIoBuiltins(files);
     sqlite = new SqliteService(files);
     random = new Random();
     floatingRandom = new Random();
@@ -118,7 +117,7 @@ public final class BuiltinCatalog {
     this.hosts = Objects.requireNonNull(hosts, "hosts");
     this.listenerControl = Optional.of(Objects.requireNonNull(listenerControl, "listenerControl"));
     ConfinedFileRoot files = new ConfinedFileRoot(Path.of("files"));
-    fileIo = new FileIoService(files);
+    fileIo = new FileIoBuiltins(files);
     sqlite = new SqliteService(files);
     random = new Random();
     floatingRandom = new Random();
@@ -922,49 +921,7 @@ public final class BuiltinCatalog {
             BuiltinPermissionRule.ANY,
             false,
             call -> notifyLine(call.hosts(), call.arguments(), call.world(), call.programmer())));
-    entries.add(
-        new BuiltinSpec(
-            "tostr",
-            List.of(new CallShape(List.of(), List.of(), Optional.of(ANY))),
-            BuiltinPermissionRule.ANY,
-            false,
-            call -> toStringValue(call.arguments())));
-    entries.add(
-        new BuiltinSpec(
-            "tofloat",
-            List.of(new CallShape(List.of(ANY), List.of(), Optional.empty())),
-            BuiltinPermissionRule.ANY,
-            false,
-            call -> toFloat(call.arguments())));
-    entries.add(
-        new BuiltinSpec(
-            "toint",
-            List.of(new CallShape(List.of(ANY), List.of(), Optional.empty())),
-            BuiltinPermissionRule.ANY,
-            false,
-            call -> toInteger(call.arguments())));
-    entries.add(
-        new BuiltinSpec(
-            "toliteral",
-            List.of(new CallShape(List.of(ANY), List.of(), Optional.empty())),
-            BuiltinPermissionRule.ANY,
-            false,
-            call -> toLiteral(call.arguments())));
-    entries.add(
-        new BuiltinSpec(
-            "toobj",
-            List.of(new CallShape(List.of(ANY), List.of(), Optional.empty())),
-            BuiltinPermissionRule.ANY,
-            false,
-            call -> toObject(call.arguments())));
-    entries.add(
-        new BuiltinSpec(
-            "equal",
-            List.of(new CallShape(List.of(ANY, ANY), List.of(), Optional.empty())),
-            BuiltinPermissionRule.ANY,
-            false,
-            call ->
-                equalValues(call.arguments(), call.hosts().valueSemantics())));
+    ConversionBuiltins.registerConversions(entries);
     entries.add(
         new BuiltinSpec(
             "eval",
@@ -972,13 +929,7 @@ public final class BuiltinCatalog {
             BuiltinPermissionRule.PROGRAMMER_ONLY,
             false,
             call -> dynamicEval(call.arguments())));
-    entries.add(
-        new BuiltinSpec(
-            "typeof",
-            List.of(new CallShape(List.of(ANY), List.of(), Optional.empty())),
-            BuiltinPermissionRule.ANY,
-            false,
-            call -> typeOf(call.arguments())));
+    ConversionBuiltins.registerTypeOf(entries);
     entries.add(
         new BuiltinSpec(
             "server_version",
@@ -993,7 +944,7 @@ public final class BuiltinCatalog {
             BuiltinPermissionRule.ANY,
             false,
             call -> functionInfo(call.arguments())));
-    addFileIoManifest(entries);
+    fileIo.register(entries);
     entries.add(
         new BuiltinSpec(
             "pcre_match",
@@ -1132,49 +1083,6 @@ public final class BuiltinCatalog {
             false,
             BuiltinCatalog::dumpDatabase));
     return List.copyOf(entries);
-  }
-
-  private void addFileIoManifest(List<BuiltinSpec> entries) {
-    entries.add(fileIoSpec("file_handles", new CallShape(List.of(), List.of(), Optional.empty()), fileIo::handles));
-    entries.add(fileIoSpec("file_open", new CallShape(List.of(STRING, STRING), List.of(), Optional.empty()), fileIo::open));
-    entries.add(fileIoSpec("file_close", new CallShape(List.of(INTEGER), List.of(), Optional.empty()), fileIo::close));
-    entries.add(fileIoSpec("file_name", new CallShape(List.of(INTEGER), List.of(), Optional.empty()), fileIo::name));
-    entries.add(fileIoSpec("file_openmode", new CallShape(List.of(INTEGER), List.of(), Optional.empty()), fileIo::openMode));
-    entries.add(fileIoSpec("file_readline", new CallShape(List.of(INTEGER), List.of(), Optional.empty()), fileIo::readLine));
-    entries.add(fileIoSpec("file_readlines", new CallShape(List.of(INTEGER, INTEGER, INTEGER), List.of(), Optional.empty()), fileIo::readLines));
-    entries.add(fileIoSpec("file_writeline", new CallShape(List.of(INTEGER, STRING), List.of(), Optional.empty()), fileIo::writeLine));
-    entries.add(fileIoSpec("file_grep", new CallShape(List.of(INTEGER, STRING), List.of(INTEGER), Optional.empty()), fileIo::grep));
-    entries.add(fileIoSpec("file_read", new CallShape(List.of(INTEGER, INTEGER), List.of(), Optional.empty()), fileIo::read));
-    entries.add(fileIoSpec("file_write", new CallShape(List.of(INTEGER, STRING), List.of(), Optional.empty()), fileIo::write));
-    entries.add(fileIoSpec("file_flush", new CallShape(List.of(INTEGER), List.of(), Optional.empty()), fileIo::flush));
-    entries.add(fileIoSpec("file_seek", new CallShape(List.of(INTEGER, INTEGER, STRING), List.of(), Optional.empty()), fileIo::seek));
-    entries.add(fileIoSpec("file_tell", new CallShape(List.of(INTEGER), List.of(), Optional.empty()), fileIo::tell));
-    entries.add(fileIoSpec("file_eof", new CallShape(List.of(INTEGER), List.of(), Optional.empty()), fileIo::eof));
-    entries.add(fileIoSpec("file_count_lines", new CallShape(List.of(INTEGER), List.of(), Optional.empty()), fileIo::countLines));
-    entries.add(fileIoSpec("file_list", new CallShape(List.of(STRING), List.of(ANY), Optional.empty()), fileIo::list));
-    entries.add(fileIoSpec("file_mkdir", new CallShape(List.of(STRING), List.of(), Optional.empty()), fileIo::mkdir));
-    entries.add(fileIoSpec("file_rmdir", new CallShape(List.of(STRING), List.of(), Optional.empty()), fileIo::rmdir));
-    entries.add(fileIoSpec("file_remove", new CallShape(List.of(STRING), List.of(), Optional.empty()), fileIo::remove));
-    entries.add(fileIoSpec("file_rename", new CallShape(List.of(STRING, STRING), List.of(), Optional.empty()), fileIo::rename));
-    entries.add(fileIoSpec("file_chmod", new CallShape(List.of(STRING, STRING), List.of(), Optional.empty()), fileIo::chmod));
-    entries.add(fileIoSpec("file_size", new CallShape(List.of(ANY), List.of(), Optional.empty()), fileIo::size));
-    entries.add(fileIoSpec("file_mode", new CallShape(List.of(ANY), List.of(), Optional.empty()), fileIo::mode));
-    entries.add(fileIoSpec("file_type", new CallShape(List.of(ANY), List.of(), Optional.empty()), fileIo::type));
-    entries.add(fileIoSpec("file_last_access", new CallShape(List.of(ANY), List.of(), Optional.empty()), fileIo::lastAccess));
-    entries.add(fileIoSpec("file_last_modify", new CallShape(List.of(ANY), List.of(), Optional.empty()), fileIo::lastModify));
-    entries.add(fileIoSpec("file_last_change", new CallShape(List.of(ANY), List.of(), Optional.empty()), fileIo::lastChange));
-    entries.add(fileIoSpec("file_stat", new CallShape(List.of(ANY), List.of(), Optional.empty()), fileIo::stat));
-  }
-
-  private static BuiltinSpec fileIoSpec(
-      String name, CallShape shape, Function<List<MooValue>, BuiltinResult> handler) {
-    return new BuiltinSpec(
-        name,
-        List.of(shape),
-        BuiltinPermissionRule.WIZARD_ONLY,
-        true,
-        call ->
-            handler.apply(call.arguments()));
   }
 
   private void addSqliteManifest(List<BuiltinSpec> entries) {
@@ -1986,7 +1894,7 @@ public final class BuiltinCatalog {
     MooValue code = arguments.getFirst();
     StringValue message =
         arguments.size() >= 2 ? (StringValue) arguments.get(1)
-            : (StringValue) ((BuiltinResult.Value) toStringValue(List.of(code))).value();
+            : (StringValue) ((BuiltinResult.Value) ConversionBuiltins.toStringValue(List.of(code))).value();
     MooValue value = arguments.size() >= 3 ? arguments.get(2) : new IntegerValue(0);
     return BuiltinResult.raised(code, message, value);
   }
@@ -3894,184 +3802,6 @@ public final class BuiltinCatalog {
         connectionId.orElseThrow(), line.text(), noFlush, noNewline);
   }
 
-  private static BuiltinResult toStringValue(List<MooValue> arguments) {
-    StringBuilder text = new StringBuilder();
-    for (MooValue argument : arguments) {
-      text.append(
-          switch (argument) {
-            case StringValue string -> string.text();
-            case IntegerValue integer -> Long.toString(integer.value());
-            case BooleanValue bool -> bool.toLiteral();
-            case FloatValue floating -> floating.toLiteral();
-            case ObjectValue object -> object.toLiteral();
-            case AnonymousObjectValue anonymous -> anonymous.toString();
-            case WaifValue waif -> waif.toString();
-            case ErrorValue error -> errorDescription(error);
-            case ListValue _ -> "{list}";
-            case MapValue _ -> "[map]";
-          });
-    }
-    return BuiltinResult.value(StringValue.of(text.toString()));
-  }
-
-  private static String errorDescription(ErrorValue error) {
-    return error.description();
-  }
-
-  private static BuiltinResult toFloat(List<MooValue> arguments) {
-    MooValue argument = arguments.getFirst();
-    if (argument instanceof FloatValue floating) {
-      return BuiltinResult.value(floating);
-    }
-    if (argument instanceof IntegerValue integer) {
-      return BuiltinResult.value(new FloatValue(integer.value()));
-    }
-    if (argument instanceof ObjectValue object) {
-      return BuiltinResult.value(new FloatValue(object.value()));
-    }
-    if (argument instanceof ErrorValue error) {
-      return BuiltinResult.value(new FloatValue(error.code()));
-    }
-    if (argument instanceof StringValue string) {
-      try {
-        String text = string.text().strip();
-        if (text.matches("[+-]?0[xX][0-9a-fA-F]+(?:\\.[0-9a-fA-F]*)?")) {
-          text += "p0";
-        }
-        double converted = Double.parseDouble(text);
-        return Double.isFinite(converted)
-            ? BuiltinResult.value(new FloatValue(converted))
-            : BuiltinResult.error(ErrorValue.E_INVARG);
-      } catch (NumberFormatException error) {
-        return BuiltinResult.error(ErrorValue.E_INVARG);
-      }
-    }
-    return BuiltinResult.error(ErrorValue.E_TYPE);
-  }
-
-  private static BuiltinResult toInteger(List<MooValue> arguments) {
-    MooValue argument = arguments.getFirst();
-    if (argument instanceof IntegerValue integer) {
-      return BuiltinResult.value(integer);
-    }
-    if (argument instanceof BooleanValue bool) {
-      return BuiltinResult.value(new IntegerValue(bool.value() ? 1 : 0));
-    }
-    if (argument instanceof FloatValue floating) {
-      return Double.isFinite(floating.value())
-          ? BuiltinResult.value(new IntegerValue((long) floating.value()))
-          : BuiltinResult.error(ErrorValue.E_FLOAT);
-    }
-    if (argument instanceof ObjectValue object) {
-      return BuiltinResult.value(new IntegerValue(object.value()));
-    }
-    if (argument instanceof ErrorValue error) {
-      return BuiltinResult.value(new IntegerValue(error.code()));
-    }
-    if (argument instanceof StringValue string) {
-      String text = string.text().strip();
-      try {
-        return BuiltinResult.value(new IntegerValue(Long.parseLong(text)));
-      } catch (NumberFormatException integerError) {
-        try {
-          double converted = Double.parseDouble(text);
-          return Double.isFinite(converted)
-              ? BuiltinResult.value(new IntegerValue((long) converted))
-              : BuiltinResult.value(new IntegerValue(0));
-        } catch (NumberFormatException floatingError) {
-          return BuiltinResult.value(new IntegerValue(0));
-        }
-      }
-    }
-    return BuiltinResult.error(ErrorValue.E_TYPE);
-  }
-
-  private static BuiltinResult toLiteral(List<MooValue> arguments) {
-    return BuiltinResult.value(StringValue.of(arguments.getFirst().toLiteral()));
-  }
-
-  private static BuiltinResult toObject(List<MooValue> arguments) {
-    MooValue argument = arguments.getFirst();
-    if (argument instanceof ObjectValue object) {
-      return BuiltinResult.value(object);
-    }
-    if (argument instanceof IntegerValue integer) {
-      return BuiltinResult.value(new ObjectValue(integer.value()));
-    }
-    if (argument instanceof BooleanValue bool) {
-      return BuiltinResult.value(new ObjectValue(bool.value() ? 1 : 0));
-    }
-    if (argument instanceof FloatValue floating) {
-      return Double.isFinite(floating.value())
-          ? BuiltinResult.value(new ObjectValue((long) floating.value()))
-          : BuiltinResult.error(ErrorValue.E_FLOAT);
-    }
-    if (argument instanceof ErrorValue error) {
-      return BuiltinResult.value(new ObjectValue(error.code()));
-    }
-    if (argument instanceof StringValue string) {
-      return BuiltinResult.value(new ObjectValue(parseToastObjectId(string.text())));
-    }
-    return BuiltinResult.error(ErrorValue.E_TYPE);
-  }
-
-  private static long parseToastObjectId(String text) {
-    int index = 0;
-    while (index < text.length() && text.charAt(index) == ' ') {
-      index++;
-    }
-    if (index < text.length() && text.charAt(index) == '#') {
-      index++;
-    }
-    while (index < text.length() && isAsciiWhitespace(text.charAt(index))) {
-      index++;
-    }
-
-    int numberStart = index;
-    if (index < text.length() && (text.charAt(index) == '+' || text.charAt(index) == '-')) {
-      index++;
-    }
-    int digitStart = index;
-    while (index < text.length() && text.charAt(index) >= '0' && text.charAt(index) <= '9') {
-      index++;
-    }
-    if (index == digitStart) {
-      return 0;
-    }
-    int numberEnd = index;
-    while (index < text.length() && text.charAt(index) == ' ') {
-      index++;
-    }
-    if (index != text.length()) {
-      return 0;
-    }
-
-    BigInteger parsed = new BigInteger(text.substring(numberStart, numberEnd));
-    if (parsed.compareTo(BigInteger.valueOf(Long.MAX_VALUE)) > 0) {
-      return Long.MAX_VALUE;
-    }
-    if (parsed.compareTo(BigInteger.valueOf(Long.MIN_VALUE)) < 0) {
-      return Long.MIN_VALUE;
-    }
-    return parsed.longValue();
-  }
-
-  private static boolean isAsciiWhitespace(char character) {
-    return character == ' '
-        || character == '\t'
-        || character == '\n'
-        || character == '\u000B'
-        || character == '\f'
-        || character == '\r';
-  }
-
-  private static BuiltinResult equalValues(
-      List<MooValue> arguments, ValueSemantics valueSemantics) {
-    return BuiltinResult.value(
-        new IntegerValue(
-            valueSemantics.equal(arguments.get(0), arguments.get(1), true) ? 1 : 0));
-  }
-
   private BuiltinResult dynamicEval(List<MooValue> arguments) {
     if (arguments.stream().anyMatch(argument -> !(argument instanceof StringValue))) {
       return BuiltinResult.error(ErrorValue.E_TYPE);
@@ -4098,10 +3828,6 @@ public final class BuiltinCatalog {
       colors.put(StringValue.of(color), new IntegerValue(0));
     }
     return BuiltinResult.value(new MapValue(colors));
-  }
-
-  private static BuiltinResult typeOf(List<MooValue> arguments) {
-    return BuiltinResult.value(new IntegerValue(arguments.getFirst().type().code()));
   }
 
   /** Concrete host capability required by the MOO listener builtins. */

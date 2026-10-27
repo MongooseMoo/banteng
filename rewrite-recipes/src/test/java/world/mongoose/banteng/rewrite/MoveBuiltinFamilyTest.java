@@ -15,6 +15,38 @@ import org.openrewrite.java.JavaParser;
 
 final class MoveBuiltinFamilyTest {
   @Test
+  void movesConversionGroupsAndRetargetsTheRealRemainingHelperCaller() {
+    var context = new InMemoryExecutionContext(failure -> { throw new AssertionError(failure); });
+    var files = JavaParser.fromJavaVersion().build().parse(context, """
+        package world.mongoose.banteng.builtin;
+        import java.util.List;
+        class BuiltinCatalog {
+          void buildManifest() {
+            entries.add(new BuiltinSpec("tostr", List.of(), BuiltinPermissionRule.ANY, false, call -> toStringValue()));
+            dynamicEval();
+            entries.add(new BuiltinSpec("typeof", List.of(), BuiltinPermissionRule.ANY, false, call -> typeOf()));
+          }
+          private static int toStringValue() { return 1; }
+          private static int typeOf() { return 2; }
+          private static int raise() { return toStringValue(); }
+        }
+        """).toList();
+    var recipe = new MoveBuiltinFamily("ConversionBuiltins", Set.of("tostr", "typeof"),
+        Set.of("toStringValue", "typeOf"));
+    var changes = recipe.run(new InMemoryLargeSourceSet(files), context).getChangeset().getAllResults();
+    String catalog = changedFile(changes, "BuiltinCatalog.java");
+    String family = changedFile(changes, "ConversionBuiltins.java");
+    assertTrue(catalog.indexOf("registerConversions(entries)") < catalog.indexOf("dynamicEval()"));
+    assertTrue(catalog.indexOf("dynamicEval()") < catalog.indexOf("registerTypeOf(entries)"));
+    assertTrue(catalog.contains("return ConversionBuiltins.toStringValue()"));
+    assertFalse(catalog.contains("static int toStringValue"));
+    assertTrue(family.contains("public static int toStringValue()"));
+    assertTrue(family.contains("private static int typeOf()"));
+    List<SourceFile> after = changes.stream().map(Result::getAfter).toList();
+    assertTrue(recipe.run(new InMemoryLargeSourceSet(after), context).getChangeset().getAllResults().isEmpty());
+  }
+
+  @Test
   void movesHostGroupsAndRetainsInlineEnvironmentAndPrivateTransferClosure() {
     var context = new InMemoryExecutionContext(failure -> { throw new AssertionError(failure); });
     var files = JavaParser.fromJavaVersion().build().parse(context, """
