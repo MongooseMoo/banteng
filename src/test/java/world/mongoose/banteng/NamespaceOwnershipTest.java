@@ -69,10 +69,7 @@ final class NamespaceOwnershipTest {
     for (String event :
         List.of(
             "TaskSegment",
-            "WorldCommit",
             "WorldConflict",
-            "TaskRetry",
-            "TaskFallback",
             "Checkpoint",
             "VersionRetention")) {
       assertEquals(

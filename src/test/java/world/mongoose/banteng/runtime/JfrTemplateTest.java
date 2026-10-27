@@ -18,10 +18,7 @@ final class JfrTemplateTest {
     for (String event :
         new String[] {
           "world.mongoose.banteng.TaskSegment",
-          "world.mongoose.banteng.WorldCommit",
           "world.mongoose.banteng.WorldConflict",
-          "world.mongoose.banteng.TaskRetry",
-          "world.mongoose.banteng.TaskFallback",
           "world.mongoose.banteng.Checkpoint",
           "world.mongoose.banteng.VersionRetention"
         }) {

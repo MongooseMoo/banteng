@@ -30,6 +30,8 @@ Shared PureVmFixture replaces 97 pure callers in MooVmTest and 11 in VmSnapshotT
 ## Next step
 Commit and hand off for parent review/CI/publication. No new guard or conformance test was added. Cancellation and failures still complete exceptionally; shutdown timeout completes Done; accepted publication retains explicit status before task-timeout handler transitions, and RootCompletion completes the future outside the monitor.
 
+PR #109 deletion follow-up on parent-integrated head 114e6d7: the JFR production template and two existing inventories still named the three deleted event classes. Removed only the WorldCommit, TaskRetry and TaskFallback template blocks and their exact entries from JfrTemplateTest and NamespaceOwnershipTest. This completes the existing deletion rather than adding a check. No Java production change, no conformance edit, and no local CI/test rerun; parent owns current-head CI and publication.
+
 ## Draft PR
 Title: Remove unused runtime code and type login timeout status
 
