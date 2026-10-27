@@ -45,6 +45,7 @@ import world.mongoose.banteng.persistence.LambdaMooV17Codec;
 import world.mongoose.banteng.persistence.LambdaMooV17Codec.ActiveConnection;
 import world.mongoose.banteng.persistence.LambdaMooV17Codec.QueuedEnvironment;
 import world.mongoose.banteng.persistence.LambdaMooV17Codec.QueuedTask;
+import world.mongoose.banteng.persistence.DurableTaskCodec;
 import world.mongoose.banteng.persistence.LambdaMooV17Codec.SuspendedActivation;
 import world.mongoose.banteng.persistence.LambdaMooV17Codec.SuspendedStackSlot;
 import world.mongoose.banteng.persistence.LambdaMooV17Codec.SuspendedTask;
@@ -1526,28 +1527,13 @@ final class PublicationSchedulerTest {
   }
 
   private static VmSnapshot.Frame importActivation(SuspendedActivation activation) {
-    try {
-      Method method =
-          PublicationScheduler.class.getDeclaredMethod(
-              "importActivation",
-              SuspendedActivation.class,
-              int.class,
-              boolean.class,
-              ToastV17ProgramLayout.class);
-      method.setAccessible(true);
-      return (VmSnapshot.Frame)
-          method.invoke(null, activation, -1, true, new ToastV17ProgramLayout());
-    } catch (InvocationTargetException failure) {
-      throw rethrowInvocation(failure);
-    } catch (ReflectiveOperationException failure) {
-      throw new LinkageError(failure.getMessage(), failure);
-    }
+    return DurableTaskCodec.importActivation(activation, -1, true, new ToastV17ProgramLayout());
   }
 
   private static SuspendedActivation exportActivation(VmSnapshot.Frame frame) {
     try {
       Method method =
-          PublicationScheduler.class.getDeclaredMethod(
+          DurableTaskCodec.class.getDeclaredMethod(
               "exportActivation", VmSnapshot.Frame.class, long.class);
       method.setAccessible(true);
       return (SuspendedActivation) method.invoke(null, frame, 0L);

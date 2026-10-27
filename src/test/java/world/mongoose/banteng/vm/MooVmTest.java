@@ -332,7 +332,7 @@ final class MooVmTest {
     assertEquals(VmState.Outcome.RUNNING, state.outcome());
     assertTrue(state.returnValue().isEmpty());
 
-    new MooVm().execute(program, state);
+    new PureVmFixture().execute(program, state);
 
     assertEquals(4, state.instructionPointer());
     assertTrue(state.operandStack().isEmpty());
@@ -352,7 +352,7 @@ final class MooVmTest {
                         + "`1 >> 65 ! E_INVARG => E_INVARG'};"));
     VmState state = new VmState();
 
-    new MooVm().execute(program, state);
+    new PureVmFixture().execute(program, state);
 
     assertEquals(VmState.Outcome.RETURNED, state.outcome());
     assertEquals(
@@ -413,7 +413,7 @@ final class MooVmTest {
         "0 PUSH_INTEGER 1\n1 DUP\n2 STORE_LOCAL x\n3 POP\n4 LOAD_LOCAL x\n5 RETURN",
         program.disassemble());
 
-    new MooVm().execute(program, state);
+    new PureVmFixture().execute(program, state);
 
     assertEquals(VmState.Outcome.ABORTED, state.outcome());
     assertEquals(2, state.instructionPointer());
@@ -432,7 +432,7 @@ final class MooVmTest {
                         + "except (ANY) return \"caught\"; endtry return \"completed\";"));
     VmState state = new VmState(Map.of(), -1, new ObjectValue(-1), 3);
 
-    new MooVm().execute(program, state);
+    new PureVmFixture().execute(program, state);
 
     assertEquals(VmState.Outcome.ABORTED, state.outcome());
     assertEquals(0, state.remainingTicks());
@@ -556,7 +556,7 @@ final class MooVmTest {
         program.disassemble());
     VmState state = new VmState();
 
-    new MooVm().execute(program, state);
+    new PureVmFixture().execute(program, state);
 
     assertEquals(VmState.Outcome.RETURNED, state.outcome());
     assertEquals(new IntegerValue(1), state.returnValue().orElseThrow());
@@ -572,7 +572,7 @@ final class MooVmTest {
                     "return {false < true, false <= true, false > true, false >= true, "
                         + "true < false, true <= false, true > false, true >= false};"));
 
-    new MooVm().execute(program, state);
+    new PureVmFixture().execute(program, state);
 
     assertEquals(VmState.Outcome.RETURNED, state.outcome());
     assertEquals(
@@ -652,7 +652,7 @@ final class MooVmTest {
         program.disassemble());
     VmState state = new VmState();
 
-    new MooVm().execute(program, state);
+    new PureVmFixture().execute(program, state);
 
     assertEquals(VmState.Outcome.RETURNED, state.outcome());
     assertEquals(new IntegerValue(2), state.returnValue().orElseThrow());
@@ -681,7 +681,7 @@ final class MooVmTest {
         program.disassemble());
     VmState state = new VmState();
 
-    new MooVm().execute(program, state);
+    new PureVmFixture().execute(program, state);
 
     assertEquals(VmState.Outcome.RETURNED, state.outcome());
     assertEquals(new IntegerValue(2), state.returnValue().orElseThrow());
@@ -710,7 +710,7 @@ final class MooVmTest {
     assertEquals(StringValue.of(source).text(), MooUnparser.unparse(syntax));
 
     VmState state = new VmState();
-    new MooVm().execute(new MooCompiler().compile(syntax), state);
+    new PureVmFixture().execute(new MooCompiler().compile(syntax), state);
 
     assertEquals(VmState.Outcome.RETURNED, state.outcome());
     assertEquals(
@@ -741,7 +741,7 @@ final class MooVmTest {
     assertEquals(StringValue.of(source).text(), MooUnparser.unparse(syntax));
 
     VmState state = new VmState();
-    new MooVm().execute(new MooCompiler().compile(syntax), state);
+    new PureVmFixture().execute(new MooCompiler().compile(syntax), state);
 
     assertEquals(VmState.Outcome.RETURNED, state.outcome());
     assertEquals(
@@ -796,7 +796,7 @@ final class MooVmTest {
         program.disassemble());
     VmState state = new VmState();
 
-    new MooVm().execute(program, state);
+    new PureVmFixture().execute(program, state);
 
     assertEquals(VmState.Outcome.RETURNED, state.outcome());
     assertEquals(
@@ -834,7 +834,7 @@ final class MooVmTest {
     assertEquals(StringValue.of(source).text(), MooUnparser.unparse(syntax));
 
     VmState state = new VmState();
-    new MooVm().execute(new MooCompiler().compile(syntax), state);
+    new PureVmFixture().execute(new MooCompiler().compile(syntax), state);
 
     assertEquals(VmState.Outcome.RETURNED, state.outcome());
     assertEquals(
@@ -895,7 +895,7 @@ final class MooVmTest {
         program.disassemble());
     VmState state = new VmState();
 
-    new MooVm().execute(program, state);
+    new PureVmFixture().execute(program, state);
 
     assertEquals(VmState.Outcome.RETURNED, state.outcome());
     assertEquals(
@@ -960,7 +960,7 @@ final class MooVmTest {
         program.disassemble());
     VmState state = new VmState();
 
-    new MooVm().execute(program, state);
+    new PureVmFixture().execute(program, state);
 
     assertEquals(VmState.Outcome.RETURNED, state.outcome());
     assertEquals(
@@ -1024,7 +1024,7 @@ final class MooVmTest {
         program.disassemble());
     VmState state = new VmState();
 
-    new MooVm().execute(program, state);
+    new PureVmFixture().execute(program, state);
 
     assertEquals(VmState.Outcome.RETURNED, state.outcome());
     assertEquals(
@@ -1102,7 +1102,7 @@ final class MooVmTest {
         program.disassemble());
     VmState state = new VmState();
 
-    new MooVm().execute(program, state);
+    new PureVmFixture().execute(program, state);
 
     assertEquals(VmState.Outcome.RETURNED, state.outcome());
     assertEquals(
@@ -1180,7 +1180,7 @@ final class MooVmTest {
         program.disassemble());
     VmState state = new VmState();
 
-    new MooVm().execute(program, state);
+    new PureVmFixture().execute(program, state);
 
     assertEquals(VmState.Outcome.RETURNED, state.outcome());
     assertEquals(
@@ -1260,7 +1260,7 @@ final class MooVmTest {
         program.disassemble());
     VmState state = new VmState();
 
-    new MooVm().execute(program, state);
+    new PureVmFixture().execute(program, state);
 
     assertEquals(VmState.Outcome.RETURNED, state.outcome());
     assertEquals(
@@ -1283,7 +1283,7 @@ final class MooVmTest {
     assertEquals("0 PUSH_STRING a\n1 PUSH_STRING B\n2 LESS_THAN\n3 RETURN", program.disassemble());
     VmState state = new VmState();
 
-    new MooVm().execute(program, state);
+    new PureVmFixture().execute(program, state);
 
     assertEquals(VmState.Outcome.RETURNED, state.outcome());
     assertEquals(new IntegerValue(1), state.returnValue().orElseThrow());
@@ -1318,7 +1318,7 @@ final class MooVmTest {
         program.disassemble());
     VmState state = new VmState();
 
-    new MooVm().execute(program, state);
+    new PureVmFixture().execute(program, state);
 
     assertEquals(VmState.Outcome.RETURNED, state.outcome());
     assertEquals(
@@ -1356,7 +1356,7 @@ final class MooVmTest {
         program.disassemble());
     VmState state = new VmState();
 
-    new MooVm().execute(program, state);
+    new PureVmFixture().execute(program, state);
 
     assertEquals(VmState.Outcome.RETURNED, state.outcome());
     assertEquals(
@@ -1378,7 +1378,7 @@ final class MooVmTest {
     BytecodeProgram program = new MooCompiler().compile(syntax);
     VmState state = new VmState();
 
-    new MooVm().execute(program, state);
+    new PureVmFixture().execute(program, state);
 
     assertEquals(VmState.Outcome.RETURNED, state.outcome());
     assertEquals(
@@ -1408,7 +1408,7 @@ final class MooVmTest {
     BytecodeProgram program = new MooCompiler().compile(syntax);
     VmState state = new VmState();
 
-    new MooVm().execute(program, state);
+    new PureVmFixture().execute(program, state);
 
     assertEquals(VmState.Outcome.RETURNED, state.outcome());
     assertEquals(
@@ -1431,7 +1431,7 @@ final class MooVmTest {
     BytecodeProgram program = new MooCompiler().compile(syntax);
     VmState state = new VmState();
 
-    new MooVm().execute(program, state);
+    new PureVmFixture().execute(program, state);
 
     assertEquals(VmState.Outcome.RETURNED, state.outcome());
     assertEquals(
@@ -1477,7 +1477,7 @@ final class MooVmTest {
         program.disassemble());
     VmState state = new VmState();
 
-    new MooVm().execute(program, state);
+    new PureVmFixture().execute(program, state);
 
     assertEquals(VmState.Outcome.RETURNED, state.outcome());
     assertEquals(new IntegerValue(1), state.returnValue().orElseThrow());
@@ -1513,7 +1513,7 @@ final class MooVmTest {
         program.disassemble());
     VmState state = new VmState();
 
-    new MooVm().execute(program, state);
+    new PureVmFixture().execute(program, state);
 
     assertEquals(VmState.Outcome.RETURNED, state.outcome());
     assertEquals(new IntegerValue(2), state.returnValue().orElseThrow());
@@ -1557,7 +1557,7 @@ final class MooVmTest {
         program.disassemble());
     VmState state = new VmState();
 
-    new MooVm().execute(program, state);
+    new PureVmFixture().execute(program, state);
 
     assertEquals(VmState.Outcome.RETURNED, state.outcome());
     assertEquals(
@@ -1601,7 +1601,7 @@ final class MooVmTest {
         program.disassemble());
     VmState state = new VmState();
 
-    new MooVm().execute(program, state);
+    new PureVmFixture().execute(program, state);
 
     assertEquals(VmState.Outcome.RETURNED, state.outcome());
     assertEquals(new ListValue(List.of()), state.returnValue().orElseThrow());
@@ -1620,7 +1620,7 @@ final class MooVmTest {
     for (Map.Entry<String, MooValue> test : ranges.entrySet()) {
       VmState state = new VmState();
 
-      new MooVm().execute(new MooCompiler().compile(parse(test.getKey())), state);
+      new PureVmFixture().execute(new MooCompiler().compile(parse(test.getKey())), state);
 
       assertEquals(VmState.Outcome.RETURNED, state.outcome(), test.getKey());
       assertEquals(test.getValue(), state.returnValue().orElseThrow(), test.getKey());
@@ -1636,7 +1636,7 @@ final class MooVmTest {
             "return [][$];")) {
       VmState state = new VmState();
 
-      new MooVm().execute(new MooCompiler().compile(parse(source)), state);
+      new PureVmFixture().execute(new MooCompiler().compile(parse(source)), state);
 
       assertEquals(VmState.Outcome.ERRORED, state.outcome(), source);
       assertEquals(ErrorValue.E_RANGE, state.uncaughtError().orElseThrow(), source);
@@ -1705,7 +1705,7 @@ final class MooVmTest {
         program.disassemble());
     VmState state = new VmState();
 
-    new MooVm().execute(program, state);
+    new PureVmFixture().execute(program, state);
 
     assertEquals(VmState.Outcome.RETURNED, state.outcome());
     assertTrue(state.uncaughtError().isEmpty());
@@ -1782,7 +1782,7 @@ final class MooVmTest {
         program.disassemble());
     VmState state = new VmState();
 
-    new MooVm().execute(program, state);
+    new PureVmFixture().execute(program, state);
 
     assertEquals(VmState.Outcome.RETURNED, state.outcome());
     assertTrue(state.uncaughtError().isEmpty());
@@ -1873,7 +1873,7 @@ final class MooVmTest {
         program.disassemble());
     VmState state = new VmState();
 
-    new MooVm().execute(program, state);
+    new PureVmFixture().execute(program, state);
 
     assertEquals(VmState.Outcome.RETURNED, state.outcome());
     assertTrue(state.uncaughtError().isEmpty());
@@ -1942,7 +1942,7 @@ final class MooVmTest {
         program.disassemble());
     VmState state = new VmState();
 
-    new MooVm().execute(program, state);
+    new PureVmFixture().execute(program, state);
 
     assertEquals(VmState.Outcome.RETURNED, state.outcome());
     assertTrue(state.uncaughtError().isEmpty());
@@ -1963,7 +1963,7 @@ final class MooVmTest {
                     "x = [1 -> { [1 -> 1] }]; y = x; x[1][1][1] = 9; return {x, y};"));
     VmState state = new VmState();
 
-    new MooVm().execute(program, state);
+    new PureVmFixture().execute(program, state);
 
     assertEquals(VmState.Outcome.RETURNED, state.outcome());
     assertTrue(state.uncaughtError().isEmpty());
@@ -2059,7 +2059,7 @@ final class MooVmTest {
         program.disassemble());
     VmState state = new VmState();
 
-    new MooVm().execute(program, state);
+    new PureVmFixture().execute(program, state);
 
     assertEquals(VmState.Outcome.RETURNED, state.outcome());
     assertTrue(state.uncaughtError().isEmpty());
@@ -2138,7 +2138,7 @@ final class MooVmTest {
         program.disassemble());
     VmState state = new VmState();
 
-    new MooVm().execute(program, state);
+    new PureVmFixture().execute(program, state);
 
     assertEquals(VmState.Outcome.RETURNED, state.outcome());
     assertTrue(state.uncaughtError().isEmpty());
@@ -2201,7 +2201,7 @@ final class MooVmTest {
         program.disassemble());
     VmState state = new VmState();
 
-    new MooVm().execute(program, state);
+    new PureVmFixture().execute(program, state);
 
     assertEquals(VmState.Outcome.RETURNED, state.outcome());
     assertTrue(state.uncaughtError().isEmpty());
@@ -2264,7 +2264,7 @@ final class MooVmTest {
         program.disassemble());
     VmState state = new VmState();
 
-    new MooVm().execute(program, state);
+    new PureVmFixture().execute(program, state);
 
     assertEquals(VmState.Outcome.RETURNED, state.outcome());
     assertTrue(state.uncaughtError().isEmpty());
@@ -2302,7 +2302,7 @@ final class MooVmTest {
         program.disassemble());
     VmState state = new VmState();
 
-    new MooVm().execute(program, state);
+    new PureVmFixture().execute(program, state);
 
     assertEquals(VmState.Outcome.RETURNED, state.outcome());
     assertEquals(
@@ -2339,7 +2339,7 @@ final class MooVmTest {
         program.disassemble());
     VmState state = new VmState();
 
-    new MooVm().execute(program, state);
+    new PureVmFixture().execute(program, state);
 
     assertEquals(VmState.Outcome.RETURNED, state.outcome());
     assertEquals(StringValue.of(new byte[0]), state.returnValue().orElseThrow());
@@ -2392,7 +2392,7 @@ final class MooVmTest {
         program.disassemble());
     VmState state = new VmState();
 
-    new MooVm().execute(program, state);
+    new PureVmFixture().execute(program, state);
 
     assertEquals(VmState.Outcome.RETURNED, state.outcome());
     assertTrue(state.uncaughtError().isEmpty());
@@ -2447,7 +2447,7 @@ final class MooVmTest {
         program.disassemble());
     VmState state = new VmState();
 
-    new MooVm().execute(program, state);
+    new PureVmFixture().execute(program, state);
 
     assertEquals(VmState.Outcome.ERRORED, state.outcome());
     assertEquals(ErrorValue.E_TYPE, state.uncaughtError().orElseThrow());
@@ -2524,7 +2524,7 @@ final class MooVmTest {
         program.disassemble());
     VmState state = new VmState();
 
-    new MooVm().execute(program, state);
+    new PureVmFixture().execute(program, state);
 
     assertEquals(VmState.Outcome.RETURNED, state.outcome());
     assertTrue(state.uncaughtError().isEmpty());
@@ -2591,7 +2591,7 @@ final class MooVmTest {
         program.disassemble());
     VmState state = new VmState();
 
-    new MooVm().execute(program, state);
+    new PureVmFixture().execute(program, state);
 
     assertEquals(VmState.Outcome.ERRORED, state.outcome());
     assertEquals(ErrorValue.E_TYPE, state.uncaughtError().orElseThrow());
@@ -2668,7 +2668,7 @@ final class MooVmTest {
         program.disassemble());
     VmState state = new VmState();
 
-    new MooVm().execute(program, state);
+    new PureVmFixture().execute(program, state);
 
     assertEquals(VmState.Outcome.RETURNED, state.outcome());
     assertTrue(state.uncaughtError().isEmpty());
@@ -2725,7 +2725,7 @@ final class MooVmTest {
         program.disassemble());
     VmState state = new VmState();
 
-    new MooVm().execute(program, state);
+    new PureVmFixture().execute(program, state);
 
     assertEquals(VmState.Outcome.RETURNED, state.outcome());
     assertEquals(new MapValue(Map.of()), state.returnValue().orElseThrow());
@@ -2760,7 +2760,7 @@ final class MooVmTest {
         program.disassemble());
     VmState state = new VmState();
 
-    new MooVm().execute(program, state);
+    new PureVmFixture().execute(program, state);
 
     assertEquals(VmState.Outcome.RETURNED, state.outcome());
     assertEquals(new IntegerValue(1), state.returnValue().orElseThrow());
@@ -2810,7 +2810,7 @@ final class MooVmTest {
         program.disassemble());
     VmState state = new VmState();
 
-    new MooVm().execute(program, state);
+    new PureVmFixture().execute(program, state);
 
     assertEquals(VmState.Outcome.RETURNED, state.outcome());
     assertEquals(new IntegerValue(7), state.returnValue().orElseThrow());
@@ -2849,7 +2849,7 @@ final class MooVmTest {
         program.disassemble());
     VmState state = new VmState();
 
-    new MooVm().execute(program, state);
+    new PureVmFixture().execute(program, state);
 
     assertEquals(VmState.Outcome.RETURNED, state.outcome());
     assertEquals(new IntegerValue(1), state.returnValue().orElseThrow());
@@ -2897,7 +2897,7 @@ final class MooVmTest {
         program.disassemble());
     VmState state = new VmState();
 
-    new MooVm().execute(program, state);
+    new PureVmFixture().execute(program, state);
 
     assertEquals(VmState.Outcome.RETURNED, state.outcome());
     assertEquals(new IntegerValue(7), state.returnValue().orElseThrow());
@@ -2930,7 +2930,7 @@ final class MooVmTest {
         program.disassemble());
     VmState state = new VmState();
 
-    new MooVm().execute(program, state);
+    new PureVmFixture().execute(program, state);
 
     assertEquals(VmState.Outcome.RETURNED, state.outcome());
     assertTrue(state.uncaughtError().isEmpty());
@@ -2966,7 +2966,7 @@ final class MooVmTest {
         program.disassemble());
     VmState state = new VmState();
 
-    new MooVm().execute(program, state);
+    new PureVmFixture().execute(program, state);
 
     assertEquals(VmState.Outcome.RETURNED, state.outcome());
     assertEquals(
@@ -3057,7 +3057,7 @@ final class MooVmTest {
         program.disassemble());
     VmState state = new VmState();
 
-    new MooVm().execute(program, state);
+    new PureVmFixture().execute(program, state);
 
     assertEquals(VmState.Outcome.RETURNED, state.outcome());
     assertEquals(
@@ -3110,7 +3110,7 @@ final class MooVmTest {
         program.disassemble());
     VmState state = new VmState();
 
-    new MooVm().execute(program, state);
+    new PureVmFixture().execute(program, state);
 
     assertEquals(VmState.Outcome.RETURNED, state.outcome());
     assertEquals(
@@ -3134,7 +3134,7 @@ final class MooVmTest {
 
     assertEquals("0 PUSH_ERROR E_INTRPT\n1 RETURN", program.disassemble());
 
-    new MooVm().execute(program, state);
+    new PureVmFixture().execute(program, state);
 
     MooValue returned = state.returnValue().orElseThrow();
     assertEquals(VmState.Outcome.RETURNED, state.outcome());
@@ -3159,7 +3159,7 @@ final class MooVmTest {
     assertEquals("0 PUSH_INTEGER 42\n1 RETURN", program.disassemble());
     VmState state = new VmState();
 
-    new MooVm().execute(program, state);
+    new PureVmFixture().execute(program, state);
 
     MooValue returned = state.returnValue().orElseThrow();
     assertEquals(VmState.Outcome.RETURNED, state.outcome());
@@ -3184,7 +3184,7 @@ final class MooVmTest {
         "0 PUSH_INTEGER -9223372036854775808\n1 RETURN", program.disassemble());
     VmState state = new VmState();
 
-    new MooVm().execute(program, state);
+    new PureVmFixture().execute(program, state);
 
     MooValue returned = state.returnValue().orElseThrow();
     assertEquals(VmState.Outcome.RETURNED, state.outcome());
@@ -3210,7 +3210,7 @@ final class MooVmTest {
         program.disassemble());
     VmState state = new VmState();
 
-    new MooVm().execute(program, state);
+    new PureVmFixture().execute(program, state);
 
     MooValue returned = state.returnValue().orElseThrow();
     assertEquals(VmState.Outcome.RETURNED, state.outcome());
@@ -3234,7 +3234,7 @@ final class MooVmTest {
     assertEquals("0 PUSH_OBJECT 2\n1 RETURN", program.disassemble());
     VmState state = new VmState();
 
-    new MooVm().execute(program, state);
+    new PureVmFixture().execute(program, state);
 
     MooValue returned = state.returnValue().orElseThrow();
     assertEquals(VmState.Outcome.RETURNED, state.outcome());
@@ -3259,7 +3259,7 @@ final class MooVmTest {
         "0 PUSH_OBJECT -9223372036854775808\n1 RETURN", program.disassemble());
     VmState state = new VmState();
 
-    new MooVm().execute(program, state);
+    new PureVmFixture().execute(program, state);
 
     MooValue returned = state.returnValue().orElseThrow();
     assertEquals(VmState.Outcome.RETURNED, state.outcome());
@@ -3283,7 +3283,7 @@ final class MooVmTest {
     assertEquals("0 PUSH_STRING é\n1 RETURN", program.disassemble());
     VmState state = new VmState();
 
-    new MooVm().execute(program, state);
+    new PureVmFixture().execute(program, state);
 
     MooValue returned = state.returnValue().orElseThrow();
     assertEquals(VmState.Outcome.RETURNED, state.outcome());
@@ -3308,7 +3308,7 @@ final class MooVmTest {
     assertEquals("0 BUILD_LIST 0\n1 RETURN", program.disassemble());
     VmState state = new VmState();
 
-    new MooVm().execute(program, state);
+    new PureVmFixture().execute(program, state);
 
     MooValue returned = state.returnValue().orElseThrow();
     assertEquals(VmState.Outcome.RETURNED, state.outcome());
@@ -3333,7 +3333,7 @@ final class MooVmTest {
     assertEquals("0 BUILD_MAP 0\n1 RETURN", program.disassemble());
     VmState state = new VmState();
 
-    new MooVm().execute(program, state);
+    new PureVmFixture().execute(program, state);
 
     MooValue returned = state.returnValue().orElseThrow();
     assertEquals(VmState.Outcome.RETURNED, state.outcome());
@@ -3361,7 +3361,7 @@ final class MooVmTest {
     assertEquals("0 PUSH_INTEGER 0\n1 NOT\n2 RETURN", program.disassemble());
     VmState state = new VmState();
 
-    new MooVm().execute(program, state);
+    new PureVmFixture().execute(program, state);
 
     MooValue returned = state.returnValue().orElseThrow();
     assertEquals(VmState.Outcome.RETURNED, state.outcome());
@@ -3393,7 +3393,7 @@ final class MooVmTest {
         program.disassemble());
     VmState state = new VmState();
 
-    new MooVm().execute(program, state);
+    new PureVmFixture().execute(program, state);
 
     MooValue returned = state.returnValue().orElseThrow();
     assertEquals(VmState.Outcome.RETURNED, state.outcome());
@@ -3406,7 +3406,7 @@ final class MooVmTest {
         new MooCompiler().compile(MooParser.parse("return typeof({}) == LIST;"));
     VmState state = new VmState();
 
-    new MooVm().execute(program, state);
+    new PureVmFixture().execute(program, state);
 
     assertEquals(VmState.Outcome.RETURNED, state.outcome());
     assertEquals(new IntegerValue(1), state.returnValue().orElseThrow());
@@ -3419,7 +3419,7 @@ final class MooVmTest {
             .compile(MooParser.parse("return {typeof(1) == INT, typeof(\"x\") == STR};"));
     VmState state = new VmState();
 
-    new MooVm().execute(program, state);
+    new PureVmFixture().execute(program, state);
 
     assertEquals(VmState.Outcome.RETURNED, state.outcome());
     assertEquals(
@@ -3463,7 +3463,7 @@ final class MooVmTest {
                         + "tostr(true), tostr(false), toliteral(true), toliteral(false)};"));
     VmState state = new VmState();
 
-    new MooVm().execute(program, state);
+    new PureVmFixture().execute(program, state);
 
     assertEquals(VmState.Outcome.RETURNED, state.outcome());
     assertEquals(
@@ -3495,7 +3495,7 @@ final class MooVmTest {
     BytecodeProgram values =
         new MooCompiler().compile(MooParser.parse("return {true, false};"));
     VmState valuesState = new VmState();
-    new MooVm().execute(values, valuesState);
+    new PureVmFixture().execute(values, valuesState);
     assertEquals(
         new ListValue(List.of(BooleanValue.TRUE, BooleanValue.FALSE)),
         valuesState.returnValue().orElseThrow());
@@ -3507,7 +3507,7 @@ final class MooVmTest {
         new MooCompiler().compile(MooParser.parse("return {true && 7 || 9, false && 7 || 9};"));
     VmState truthState = new VmState();
 
-    new MooVm().execute(truth, truthState);
+    new PureVmFixture().execute(truth, truthState);
 
     assertEquals(
         new ListValue(List.of(new IntegerValue(7), new IntegerValue(9))),
@@ -3516,7 +3516,7 @@ final class MooVmTest {
     BytecodeProgram conversion =
         new MooCompiler().compile(MooParser.parse("return `tofloat(true) ! ANY';"));
     VmState conversionState = new VmState();
-    new MooVm().execute(conversion, conversionState);
+    new PureVmFixture().execute(conversion, conversionState);
     assertEquals(ErrorValue.E_TYPE, conversionState.returnValue().orElseThrow());
   }
 
@@ -3524,7 +3524,7 @@ final class MooVmTest {
   void evaluatesToastAndOrWithSharedLeftAssociativePrecedence() {
     VmState state = new VmState();
 
-    new MooVm()
+    new PureVmFixture()
         .execute(new MooCompiler().compile(MooParser.parse("return 1 || 1 && 0;")), state);
 
     assertEquals(VmState.Outcome.RETURNED, state.outcome());
@@ -3536,7 +3536,7 @@ final class MooVmTest {
     BytecodeProgram program = new MooCompiler().compile(MooParser.parse("return 0 ^ -1;"));
     VmState state = new VmState();
 
-    new MooVm().execute(program, state);
+    new PureVmFixture().execute(program, state);
 
     assertEquals(VmState.Outcome.ERRORED, state.outcome());
     assertEquals(ErrorValue.E_DIV, state.uncaughtError().orElseThrow());
@@ -3551,7 +3551,7 @@ final class MooVmTest {
                     "return {{1, {2}} in {{0}, {1, {2}}}, " + "{1, {3}} in {{0}, {1, {2}}}};"));
     VmState state = new VmState();
 
-    new MooVm().execute(program, state);
+    new PureVmFixture().execute(program, state);
 
     assertEquals(VmState.Outcome.RETURNED, state.outcome());
     assertEquals(
@@ -3561,7 +3561,7 @@ final class MooVmTest {
     BytecodeProgram invalid = new MooCompiler().compile(MooParser.parse("return 1 in 1;"));
     VmState invalidState = new VmState();
 
-    new MooVm().execute(invalid, invalidState);
+    new PureVmFixture().execute(invalid, invalidState);
 
     assertEquals(VmState.Outcome.ERRORED, invalidState.outcome());
     assertEquals(ErrorValue.E_TYPE, invalidState.uncaughtError().orElseThrow());
@@ -3577,7 +3577,7 @@ final class MooVmTest {
                         + "\"\" in \"foobar\", \"xyz\" in \"foobar\"};"));
     VmState state = new VmState();
 
-    new MooVm().execute(program, state);
+    new PureVmFixture().execute(program, state);
 
     assertEquals(VmState.Outcome.RETURNED, state.outcome());
     assertEquals(
@@ -3601,7 +3601,7 @@ final class MooVmTest {
         new MooCompiler().compile(MooParser.parse("fork (1) return marker; endfork return 99;"));
     VmState state = new VmState(Map.of("marker", captured), 8);
 
-    new MooVm().execute(program, state);
+    new PureVmFixture().execute(program, state);
 
     assertEquals(VmState.Outcome.FORKED, state.outcome());
     assertTrue(state.returnValue().isEmpty());
@@ -3612,12 +3612,12 @@ final class MooVmTest {
     assertEquals(8, request.programmer());
 
     state.continueAfterFork(new IntegerValue(41));
-    new MooVm().execute(program, state);
+    new PureVmFixture().execute(program, state);
     assertEquals(VmState.Outcome.RETURNED, state.outcome());
     assertEquals(new IntegerValue(99), state.returnValue().orElseThrow());
 
     VmState child = new VmState(request.locals(), request.programmer());
-    new MooVm().execute(request.program(), child);
+    new PureVmFixture().execute(request.program(), child);
     assertEquals(VmState.Outcome.RETURNED, child.outcome());
     assertEquals(captured, child.returnValue().orElseThrow());
   }
@@ -3627,7 +3627,7 @@ final class MooVmTest {
     BytecodeProgram program = new MooCompiler().compile(MooParser.parse("return 11.0 - 5.5;"));
     VmState state = new VmState();
 
-    new MooVm().execute(program, state);
+    new PureVmFixture().execute(program, state);
 
     assertEquals(VmState.Outcome.RETURNED, state.outcome());
     assertEquals(new FloatValue(5.5), state.returnValue().orElseThrow());
@@ -3639,7 +3639,7 @@ final class MooVmTest {
       BytecodeProgram program = new MooCompiler().compile(parse(source));
       VmState state = new VmState();
 
-      new MooVm().execute(program, state);
+      new PureVmFixture().execute(program, state);
 
       assertEquals(VmState.Outcome.ERRORED, state.outcome(), source);
       assertEquals(ErrorValue.E_TYPE, state.uncaughtError().orElseThrow(), source);
@@ -3662,7 +3662,7 @@ final class MooVmTest {
             Map.entry("return 1.5 > 1;", new IntegerValue(1)),
             Map.entry("return true == 1;", new IntegerValue(1)),
             Map.entry("return false == 0;", new IntegerValue(1)));
-    MooVm vm = new MooVm(new ValueSemantics(true));
+    PureVmFixture vm = new PureVmFixture(new ValueSemantics(true));
 
     for (Map.Entry<String, MooValue> test : cases.entrySet()) {
       BytecodeProgram program = new MooCompiler().compile(MooParser.parse(test.getKey()));
@@ -3703,7 +3703,7 @@ final class MooVmTest {
                     new Instruction(Opcode.RETURN)));
         VmState state = new VmState();
 
-        new MooVm().execute(program, state);
+        new PureVmFixture().execute(program, state);
 
         assertEquals(VmState.Outcome.RETURNED, state.outcome(), test.getKey().name());
         assertEquals(test.getValue(), state.returnValue().orElseThrow(), test.getKey().name());
@@ -3717,7 +3717,7 @@ final class MooVmTest {
       BytecodeProgram program = new MooCompiler().compile(parse(source));
       VmState state = new VmState();
 
-      new MooVm().execute(program, state);
+      new PureVmFixture().execute(program, state);
 
       assertEquals(VmState.Outcome.ERRORED, state.outcome(), source);
       assertEquals(ErrorValue.E_DIV, state.uncaughtError().orElseThrow(), source);
@@ -3730,7 +3730,7 @@ final class MooVmTest {
       BytecodeProgram program = new MooCompiler().compile(parse(source));
       VmState state = new VmState();
 
-      new MooVm().execute(program, state);
+      new PureVmFixture().execute(program, state);
 
       double expected = source.contains("-15.0") ? 1.0 : -1.0;
       assertEquals(VmState.Outcome.RETURNED, state.outcome(), source);
@@ -3751,7 +3751,7 @@ final class MooVmTest {
       BytecodeProgram program = new MooCompiler().compile(MooParser.parse(test.getKey()));
       VmState state = new VmState();
 
-      new MooVm().execute(program, state);
+      new PureVmFixture().execute(program, state);
 
       assertEquals(VmState.Outcome.RETURNED, state.outcome(), test.getKey());
       assertEquals(
@@ -3764,7 +3764,7 @@ final class MooVmTest {
     BytecodeProgram finite = new MooCompiler().compile(MooParser.parse("return 2.0 ^ 3;"));
     VmState finiteState = new VmState();
 
-    new MooVm().execute(finite, finiteState);
+    new PureVmFixture().execute(finite, finiteState);
 
     assertEquals(VmState.Outcome.RETURNED, finiteState.outcome());
     assertEquals(new FloatValue(8.0), finiteState.returnValue().orElseThrow());
@@ -3775,7 +3775,7 @@ final class MooVmTest {
       BytecodeProgram program = new MooCompiler().compile(MooParser.parse(sources[index]));
       VmState state = new VmState();
 
-      new MooVm().execute(program, state);
+      new PureVmFixture().execute(program, state);
 
       assertEquals(VmState.Outcome.ERRORED, state.outcome(), sources[index]);
       assertEquals(errors[index], state.uncaughtError().orElseThrow(), sources[index]);
@@ -3787,7 +3787,7 @@ final class MooVmTest {
     BytecodeProgram program = new MooCompiler().compile(MooParser.parse("return `1.0 + 1 ! ANY';"));
     VmState state = new VmState();
 
-    new MooVm().execute(program, state);
+    new PureVmFixture().execute(program, state);
 
     assertEquals(VmState.Outcome.RETURNED, state.outcome());
     assertEquals(ErrorValue.E_TYPE, state.returnValue().orElseThrow());
@@ -3804,7 +3804,7 @@ final class MooVmTest {
     BytecodeProgram program = new MooCompiler().compile(syntax);
     VmState state = new VmState();
 
-    new MooVm().execute(program, state);
+    new PureVmFixture().execute(program, state);
 
     assertEquals(VmState.Outcome.RETURNED, state.outcome());
     assertInstanceOf(StringValue.class, state.returnValue().orElseThrow());
@@ -3816,7 +3816,7 @@ final class MooVmTest {
         new MooCompiler().compile(MooParser.parse("return \"10\" == \"1\" + \"0\";"));
     VmState state = new VmState();
 
-    new MooVm().execute(program, state);
+    new PureVmFixture().execute(program, state);
 
     assertEquals(VmState.Outcome.RETURNED, state.outcome());
     assertEquals(new IntegerValue(1), state.returnValue().orElseThrow());
@@ -3832,7 +3832,7 @@ final class MooVmTest {
                         + "return {1, 2.0, #3, \"four\"} == {@x, @y};"));
     VmState state = new VmState();
 
-    new MooVm().execute(program, state);
+    new PureVmFixture().execute(program, state);
 
     assertEquals(VmState.Outcome.RETURNED, state.outcome());
     assertEquals(new IntegerValue(1), state.returnValue().orElseThrow());
@@ -3848,7 +3848,7 @@ final class MooVmTest {
                         + "return [1 -> 2.0, #3 -> \"four\"] == x;"));
     VmState state = new VmState();
 
-    new MooVm().execute(program, state);
+    new PureVmFixture().execute(program, state);
 
     assertEquals(VmState.Outcome.RETURNED, state.outcome());
     assertEquals(new IntegerValue(1), state.returnValue().orElseThrow());
@@ -3859,7 +3859,7 @@ final class MooVmTest {
     BytecodeProgram program = new MooCompiler().compile(MooParser.parse("return [] == {};"));
     VmState state = new VmState();
 
-    new MooVm().execute(program, state);
+    new PureVmFixture().execute(program, state);
 
     assertEquals(VmState.Outcome.RETURNED, state.outcome());
     assertEquals(new IntegerValue(0), state.returnValue().orElseThrow());
@@ -3875,7 +3875,7 @@ final class MooVmTest {
                         + "== {1, [\"key\" -> {\"alpha\"}]}, {1, {2}} == {1, {3}}};"));
     VmState state = new VmState();
 
-    new MooVm().execute(program, state);
+    new PureVmFixture().execute(program, state);
 
     assertEquals(VmState.Outcome.RETURNED, state.outcome());
     assertEquals(
@@ -3894,7 +3894,7 @@ final class MooVmTest {
       BytecodeProgram program = new MooCompiler().compile(parse(source));
       VmState state = new VmState();
 
-      new MooVm().execute(program, state);
+      new PureVmFixture().execute(program, state);
 
       assertEquals(VmState.Outcome.RETURNED, state.outcome(), source);
       assertEquals(ErrorValue.E_TYPE, state.returnValue().orElseThrow(), source);

@@ -30,10 +30,7 @@ final class JfrEventDefinitionsTest {
 
     try (Recording recording = new Recording()) {
       recording.enable(TaskSegmentEvent.class).withoutThreshold();
-      recording.enable(WorldCommitEvent.class).withoutThreshold();
       recording.enable(WorldConflictEvent.class).withoutThreshold();
-      recording.enable(TaskRetryEvent.class).withoutThreshold();
-      recording.enable(TaskFallbackEvent.class).withoutThreshold();
       recording.enable(VersionRetentionEvent.class).withoutThreshold();
       recording.enable(CheckpointEvent.class).withoutThreshold();
       recording.start();
@@ -46,31 +43,11 @@ final class JfrEventDefinitionsTest {
       segment.begin();
       segment.commit();
 
-      WorldCommitEvent commit = new WorldCommitEvent();
-      commit.ticket = 23;
-      commit.revision = 37;
-      commit.writeCount = 2;
-      commit.effectCount = 3;
-      commit.commit();
-
       WorldConflictEvent conflict = new WorldConflictEvent();
       conflict.taskId = 17;
       conflict.ticket = 23;
       conflict.cause = "PRNG_RECORD";
       conflict.commit();
-
-      TaskRetryEvent retry = new TaskRetryEvent();
-      retry.taskId = 17;
-      retry.ticket = 23;
-      retry.attempt = 2;
-      retry.cause = "PRNG_RECORD";
-      retry.commit();
-
-      TaskFallbackEvent fallback = new TaskFallbackEvent();
-      fallback.taskId = 17;
-      fallback.ticket = 23;
-      fallback.reason = "PUBLICATION_SENSITIVE_WALL_CLOCK";
-      fallback.commit();
 
       VersionRetentionEvent retention = new VersionRetentionEvent();
       retention.currentRevision = 37;
@@ -99,10 +76,7 @@ final class JfrEventDefinitionsTest {
     assertEquals(
         Set.of(
             "world.mongoose.banteng.TaskSegment",
-            "world.mongoose.banteng.WorldCommit",
             "world.mongoose.banteng.WorldConflict",
-            "world.mongoose.banteng.TaskRetry",
-            "world.mongoose.banteng.TaskFallback",
             "world.mongoose.banteng.VersionRetention",
             "world.mongoose.banteng.Checkpoint"),
         eventsByName.keySet());
@@ -116,9 +90,6 @@ final class JfrEventDefinitionsTest {
 
     RecordedEvent recordedConflict = requireNonNull(eventsByName.get("world.mongoose.banteng.WorldConflict"));
     assertEquals("PRNG_RECORD", recordedConflict.getString("cause"));
-
-    RecordedEvent recordedFallback = requireNonNull(eventsByName.get("world.mongoose.banteng.TaskFallback"));
-    assertEquals("PUBLICATION_SENSITIVE_WALL_CLOCK", recordedFallback.getString("reason"));
 
     RecordedEvent recordedRetention = requireNonNull(eventsByName.get("world.mongoose.banteng.VersionRetention"));
     assertEquals(7, recordedRetention.getLong("retainedRevisionCount"));
