@@ -139,7 +139,7 @@ final class TaskRegistryTest {
         TaskOrigin.calledVerb(locals), TaskOrigin.calledVerb(locals), true), new TaskBudget(60_000, 5, 50));
 
     try (WorldTxn transaction = world().begin()) {
-      new MooVm().execute(program, state, transaction, new BuiltinCatalog(BuiltinHosts.builder().build()), 17);
+      new MooVm().execute(program, state, transaction, new BuiltinCatalog(BuiltinHosts.builder().build()), BuiltinHosts.builder().build(), 17);
     }
     VmSnapshot snapshot = state.snapshot();
     FutureTask<BuiltinResult> submitted =
@@ -258,7 +258,7 @@ final class TaskRegistryTest {
     VmState state = new VmState(new TaskOrigin(locals, 2, new ObjectValue(7),
         TaskOrigin.calledVerb(locals), TaskOrigin.calledVerb(locals), true), new TaskBudget(60_000, 5, 50));
     try (WorldTxn transaction = world().begin()) {
-      new MooVm().execute(program, state, transaction, new BuiltinCatalog(BuiltinHosts.builder().build()), 17);
+      new MooVm().execute(program, state, transaction, new BuiltinCatalog(BuiltinHosts.builder().build()), BuiltinHosts.builder().build(), 17);
     }
     VmSnapshot snapshot = state.snapshot();
     registry.updateSuspended(99, 1234, snapshot);
@@ -349,7 +349,7 @@ final class TaskRegistryTest {
         programmer,
         _lineNumbers -> new ListValue(List.of()),
         false,
-        (_connectionId, queuedBytes) -> queuedBytes);
+        (_connectionId, queuedBytes) -> queuedBytes, BuiltinHosts.builder().build());
   }
 
   private static MooValue value(BuiltinResult result) {

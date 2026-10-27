@@ -36,7 +36,7 @@ final class CompiledVerbTest {
       VmState state = new VmState(
           new TaskOrigin(Map.of(), 1, new ObjectValue(-1), "", "", true),
           new TaskBudget(60_000, 5, 50));
-      new MooVm().execute(install, state, transaction, catalog, 1);
+      new MooVm().execute(install, state, transaction, catalog, catalog.hosts(), 1);
       assertEquals(VmState.Outcome.RETURNED, state.outcome());
       assertEquals(new ListValue(List.of()), state.returnValue().orElseThrow());
       WorldVerb installed = transaction.verb(1, 0).orElseThrow();
@@ -181,7 +181,7 @@ final class CompiledVerbTest {
     assertEquals(1234, state.budget().remainingTicks());
     try (WorldTxn transaction = world(target).begin()) {
       new MooVm().execute(target.program(), state, transaction,
-          new BuiltinCatalog(BuiltinHosts.builder().build()), 1);
+          new BuiltinCatalog(BuiltinHosts.builder().build()), BuiltinHosts.builder().build(), 1);
     }
     assertEquals(VmState.Outcome.RETURNED, state.outcome());
     assertEquals(new ListValue(List.of(new ObjectValue(3), new ObjectValue(4), new ObjectValue(5),

@@ -1347,7 +1347,7 @@ final class BuiltinCatalogTest {
           List.of(string("buffered_output_length"), new ObjectValue(2)),
           transaction, 2, new IntegerValue(0), 17, 60_000, 5,
           new ObjectValue(2), 2, _lineNumbers -> new ListValue(List.of()), false,
-          (connectionId, queuedBytes) -> connectionId == -2 ? queuedBytes + 11 : queuedBytes);
+          (connectionId, queuedBytes) -> connectionId == -2 ? queuedBytes + 11 : queuedBytes, catalog.hosts());
       assertEquals(
           Optional.of(new IntegerValue(48)),
           value(catalog.invoke(catalog.spec("call_function").orElseThrow(), nested)));
@@ -1486,7 +1486,7 @@ final class BuiltinCatalogTest {
         1,
         _lineNumbers -> callers,
         true,
-        (_connectionId, queuedBytes) -> queuedBytes))
+        (_connectionId, queuedBytes) -> queuedBytes, catalog.hosts()))
               ));
       assertEquals(
           Optional.of(new IntegerValue(0)),
@@ -1685,7 +1685,7 @@ final class BuiltinCatalogTest {
         2,
         _lineNumbers -> new ListValue(List.of()),
         true,
-        (_connectionId, queuedBytes) -> queuedBytes));
+        (_connectionId, queuedBytes) -> queuedBytes, catalog.hosts()));
       assertEquals(Optional.of(new IntegerValue(8_123)), value(identity));
       assertEquals(
           Optional.of(ErrorValue.E_ARGS),
@@ -1704,7 +1704,7 @@ final class BuiltinCatalogTest {
         2,
         _lineNumbers -> new ListValue(List.of()),
         true,
-        (_connectionId, queuedBytes) -> queuedBytes));
+        (_connectionId, queuedBytes) -> queuedBytes, catalog.hosts()));
       assertEquals(Optional.of(new IntegerValue(59_321)), value(remaining));
       assertEquals(
           Optional.of(ErrorValue.E_ARGS),
@@ -1723,7 +1723,7 @@ final class BuiltinCatalogTest {
         2,
         _lineNumbers -> new ListValue(List.of()),
         true,
-        (_connectionId, queuedBytes) -> queuedBytes));
+        (_connectionId, queuedBytes) -> queuedBytes, catalog.hosts()));
       assertEquals(Optional.of(new IntegerValue(11)), value(remainingSeconds));
       assertEquals(
           Optional.of(ErrorValue.E_ARGS),
@@ -1765,7 +1765,7 @@ final class BuiltinCatalogTest {
         2,
         _lineNumbers -> new ListValue(List.of()),
         true,
-        (_connectionId, queuedBytes) -> queuedBytes));
+        (_connectionId, queuedBytes) -> queuedBytes, catalog.hosts()));
       assertEquals(OptionalDouble.of(0), delaySeconds(tickYield));
 
       BuiltinResult secondYield =
@@ -1781,7 +1781,7 @@ final class BuiltinCatalogTest {
         2,
         _lineNumbers -> new ListValue(List.of()),
         true,
-        (_connectionId, queuedBytes) -> queuedBytes));
+        (_connectionId, queuedBytes) -> queuedBytes, catalog.hosts()));
       assertEquals(OptionalDouble.of(0), delaySeconds(secondYield));
 
       BuiltinResult noYield =
@@ -1797,7 +1797,7 @@ final class BuiltinCatalogTest {
         2,
         _lineNumbers -> new ListValue(List.of()),
         true,
-        (_connectionId, queuedBytes) -> queuedBytes));
+        (_connectionId, queuedBytes) -> queuedBytes, catalog.hosts()));
       assertEquals(Optional.of(new IntegerValue(0)), value(noYield));
       assertTrue(delaySeconds(noYield).isEmpty());
 
@@ -6520,7 +6520,7 @@ final class BuiltinCatalogTest {
         programmer,
         _lineNumbers -> new ListValue(List.of()),
         true,
-        (_connectionId, queuedBytes) -> queuedBytes));
+        (_connectionId, queuedBytes) -> queuedBytes, catalog.hosts()));
   }
 
   private static BuiltinResult invoke(
@@ -6542,7 +6542,7 @@ final class BuiltinCatalogTest {
         programmer,
         _lineNumbers -> new ListValue(List.of()),
         threadMode,
-        (_connectionId, queuedBytes) -> queuedBytes));
+        (_connectionId, queuedBytes) -> queuedBytes, catalog.hosts()));
   }
 
   private static void assertPureVmContract(
@@ -6635,7 +6635,9 @@ final class BuiltinCatalogTest {
     }
 
     @Override
-    public long openNetworkConnection(String host, int port, boolean ipv6, long listenerHandler) {
+    public long openNetworkConnection(
+        String host, int port, boolean ipv6, long listenerHandler,
+        world.mongoose.banteng.builtin.BuiltinHosts.OutboundConnectionRegistrar registration) {
       return -77;
     }
 

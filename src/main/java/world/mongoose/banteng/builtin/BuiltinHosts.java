@@ -10,6 +10,7 @@ import world.mongoose.banteng.value.MooValue;
 import world.mongoose.banteng.value.MooValue.ErrorValue;
 import world.mongoose.banteng.value.MooValue.IntegerValue;
 import world.mongoose.banteng.value.MooValue.ListValue;
+import world.mongoose.banteng.value.MooValue.MapValue;
 import world.mongoose.banteng.value.ValueSemantics;
 
 /** Host-owned operations and configuration supplied to one builtin catalog. */
@@ -33,7 +34,8 @@ public record BuiltinHosts(
     BuiltinHandler resumeTask,
     ServerLog serverLog,
     Supplier<ConnectionRegistryAccess> connections,
-    Crypt crypt) {
+    Crypt crypt,
+    OutboundConnectionRegistrar registerOutboundConnection) {
   /** Rejects incomplete host composition. */
   public BuiltinHosts {
     Objects.requireNonNull(valueSemantics, "valueSemantics");
@@ -56,6 +58,7 @@ public record BuiltinHosts(
     Objects.requireNonNull(serverLog, "serverLog");
     Objects.requireNonNull(connections, "connections");
     Objects.requireNonNull(crypt, "crypt");
+    Objects.requireNonNull(registerOutboundConnection, "registerOutboundConnection");
   }
 
   /** Starts one host composition with behavior-preserving standalone defaults. */
@@ -95,6 +98,7 @@ public record BuiltinHosts(
     private Supplier<ConnectionRegistryAccess> connections =
         BuiltinCatalog.standaloneConnections();
     private Crypt crypt = Crypt.system();
+    private OutboundConnectionRegistrar registerOutboundConnection = (id, handler, info) -> {};
 
     private Builder() {}
 
@@ -198,6 +202,11 @@ public record BuiltinHosts(
       return this;
     }
 
+    public Builder registerOutboundConnection(OutboundConnectionRegistrar value) {
+      registerOutboundConnection = value;
+      return this;
+    }
+
     public BuiltinHosts build() {
       return new BuiltinHosts(
           valueSemantics,
@@ -219,12 +228,19 @@ public record BuiltinHosts(
           resumeTask,
           serverLog,
           connections,
-          crypt);
+          crypt,
+          registerOutboundConnection);
     }
 
     private static BuiltinResult invalidArgument(BuiltinCall call) {
       return BuiltinResult.error(ErrorValue.E_INVARG);
     }
+  }
+
+  /** Registers a successfully opened socket in the invocation's isolated attempt. */
+  @FunctionalInterface
+  public interface OutboundConnectionRegistrar {
+    void register(long connectionId, long listenerHandler, MapValue connectionInfo);
   }
 
   /** Applies one validated connection option inside the current isolated runtime attempt. */

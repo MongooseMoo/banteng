@@ -126,10 +126,10 @@ final class NestedPropertyAssignmentTest {
         TaskOrigin.calledVerb(Map.of("player", new ObjectValue(permissions), "this", new ObjectValue(1))), TaskOrigin.calledVerb(Map.of("player", new ObjectValue(permissions), "this", new ObjectValue(1))), true), new TaskBudget(60_000, 5, 50));
     BuiltinCatalog builtins = new BuiltinCatalog(BuiltinHosts.builder().build());
     MooVm vm = new MooVm();
-    vm.execute(program, state, transaction, builtins, 0);
+    vm.execute(program, state, transaction, builtins, builtins.hosts(), 0);
     while (state.outcome() == VmState.Outcome.PENDING_BUILTIN) {
-      vm.authorizePendingBuiltin(state, transaction, builtins, 0);
-      vm.execute(program, state, transaction, builtins, 0);
+      vm.authorizePendingBuiltin(state, transaction, builtins, builtins.hosts(), 0);
+      vm.execute(program, state, transaction, builtins, builtins.hosts(), 0);
     }
     assertEquals(VmState.Outcome.RETURNED, state.outcome(), source);
     assertTrue(state.uncaughtError().isEmpty(), source);

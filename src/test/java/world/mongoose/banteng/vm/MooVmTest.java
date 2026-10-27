@@ -55,7 +55,7 @@ final class MooVmTest {
         TaskOrigin.calledVerb(Map.of("this", new ObjectValue(-1), "player", new ObjectValue(8))), TaskOrigin.calledVerb(Map.of("this", new ObjectValue(-1), "player", new ObjectValue(8))), false), new TaskBudget(10_000, 5, 64));
 
     try (WorldTxn transaction = new WorldTxn(List.of(), List.of()).begin()) {
-      new MooVm().execute(program, state, transaction, new BuiltinCatalog(BuiltinHosts.builder().build()), 1);
+      new MooVm().execute(program, state, transaction, new BuiltinCatalog(BuiltinHosts.builder().build()), BuiltinHosts.builder().build(), 1);
     }
 
     assertEquals(VmState.Outcome.RETURNED, state.outcome());
@@ -109,7 +109,7 @@ final class MooVmTest {
         TaskOrigin.calledVerb(Map.of("this", new ObjectValue(-1), "player", new ObjectValue(8))), TaskOrigin.calledVerb(Map.of("this", new ObjectValue(-1), "player", new ObjectValue(8))), true), new TaskBudget(60_000, 5, 50));
 
     try (WorldTxn transaction = new WorldTxn(List.of(), List.of()).begin()) {
-      new MooVm().execute(program, state, transaction, new BuiltinCatalog(BuiltinHosts.builder().build()), 1);
+      new MooVm().execute(program, state, transaction, new BuiltinCatalog(BuiltinHosts.builder().build()), BuiltinHosts.builder().build(), 1);
     }
 
     assertEquals(VmState.Outcome.RETURNED, state.outcome());
@@ -156,7 +156,7 @@ final class MooVmTest {
         TaskOrigin.calledVerb(Map.of("player", new ObjectValue(1))), TaskOrigin.calledVerb(Map.of("player", new ObjectValue(1))), true), new TaskBudget(60_000, 5, 50));
 
       try (WorldTxn transaction = root.begin()) {
-        vm.execute(program, state, transaction, new BuiltinCatalog(BuiltinHosts.builder().build()), 1);
+        vm.execute(program, state, transaction, new BuiltinCatalog(BuiltinHosts.builder().build()), BuiltinHosts.builder().build(), 1);
         assertEquals(ObjectFlags.FLAG_PROGRAMMER, transaction.object(1).orElseThrow().flags());
       }
 
@@ -172,15 +172,15 @@ final class MooVmTest {
     WorldTxn root = new WorldTxn(List.of(), List.of());
 
     try (WorldTxn transaction = root.begin()) {
-      VmState noYield = new VmState(new TaskOrigin(Map.of(), -1, new ObjectValue(-1),
-        "", "", true), new TaskBudget(2_001, 5, 50));
-      vm.execute(program, noYield, transaction, new BuiltinCatalog(BuiltinHosts.builder().build()), 1);
+      VmState noYield = new VmState(new TaskOrigin(Map.of(), -1, new ObjectValue(-1), TaskOrigin.calledVerb(Map.of()), TaskOrigin.calledVerb(Map.of()), true),
+        new TaskBudget(2_001, 5, 50));
+      vm.execute(program, noYield, transaction, new BuiltinCatalog(BuiltinHosts.builder().build()), BuiltinHosts.builder().build(), 1);
       assertEquals(VmState.Outcome.RETURNED, noYield.outcome());
       assertEquals(new IntegerValue(0), noYield.returnValue().orElseThrow());
 
-      VmState yielded = new VmState(new TaskOrigin(Map.of(), -1, new ObjectValue(-1),
-        "", "", true), new TaskBudget(2_000, 5, 50));
-      vm.execute(program, yielded, transaction, new BuiltinCatalog(BuiltinHosts.builder().build()), 1);
+      VmState yielded = new VmState(new TaskOrigin(Map.of(), -1, new ObjectValue(-1), TaskOrigin.calledVerb(Map.of()), TaskOrigin.calledVerb(Map.of()), true),
+        new TaskBudget(2_000, 5, 50));
+      vm.execute(program, yielded, transaction, new BuiltinCatalog(BuiltinHosts.builder().build()), BuiltinHosts.builder().build(), 1);
       assertEquals(VmState.Outcome.SUSPENDED, yielded.outcome());
       assertEquals(0.0, yielded.suspensionDelaySeconds().orElseThrow());
     }
@@ -286,7 +286,7 @@ final class MooVmTest {
         StringValue.of("host failure");
 
     try (WorldTxn transaction = root.begin()) {
-      vm.execute(program, state, transaction, new BuiltinCatalog(BuiltinHosts.builder().build()), 1);
+      vm.execute(program, state, transaction, new BuiltinCatalog(BuiltinHosts.builder().build()), BuiltinHosts.builder().build(), 1);
       assertEquals(VmState.Outcome.SUSPENDED, state.outcome());
 
       vm.resumeWithError(
@@ -294,7 +294,7 @@ final class MooVmTest {
           BuiltinResult.raised(
               ErrorValue.E_INVARG, message, new IntegerValue(17)),
           transaction);
-      vm.execute(program, state, transaction, new BuiltinCatalog(BuiltinHosts.builder().build()), 1);
+      vm.execute(program, state, transaction, new BuiltinCatalog(BuiltinHosts.builder().build()), BuiltinHosts.builder().build(), 1);
     }
 
     assertEquals(VmState.Outcome.RETURNED, state.outcome());
@@ -5588,10 +5588,10 @@ final class MooVmTest {
   private static void executeWithAuthorizedIrrevocables(
       BytecodeProgram program, VmState state, WorldTxn transaction, BuiltinCatalog builtins) {
     MooVm vm = new MooVm();
-    vm.execute(program, state, transaction, builtins, 0);
+    vm.execute(program, state, transaction, builtins, builtins.hosts(), 0);
     while (state.outcome() == VmState.Outcome.PENDING_BUILTIN) {
-      vm.authorizePendingBuiltin(state, transaction, builtins, 0);
-      vm.execute(program, state, transaction, builtins, 0);
+      vm.authorizePendingBuiltin(state, transaction, builtins, builtins.hosts(), 0);
+      vm.execute(program, state, transaction, builtins, builtins.hosts(), 0);
     }
   }
 

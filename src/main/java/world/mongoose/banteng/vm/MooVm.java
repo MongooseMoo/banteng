@@ -11,6 +11,7 @@ import java.util.OptionalLong;
 import java.util.Set;
 import org.jspecify.annotations.Nullable;
 import world.mongoose.banteng.builtin.BuiltinCall;
+import world.mongoose.banteng.builtin.BuiltinHosts;
 import world.mongoose.banteng.builtin.BuiltinCatalog;
 import world.mongoose.banteng.builtin.BuiltinCatalog.ConnectionOptionRequest;
 import world.mongoose.banteng.builtin.BuiltinCatalog.ForcedInputRequest;
@@ -187,6 +188,7 @@ public final class MooVm {
       VmState state,
       WorldTxn world,
       BuiltinCatalog builtins,
+      BuiltinHosts hosts,
       long taskId) {
     state.budget().beginSegment();
     state.ensureRoot(program);
@@ -201,6 +203,7 @@ public final class MooVm {
           state,
           world,
           builtins,
+          hosts,
           taskId);
     }
   }
@@ -210,6 +213,7 @@ public final class MooVm {
       VmState state,
       WorldTxn world,
       BuiltinCatalog builtins,
+      BuiltinHosts hosts,
       long taskId) {
     Frame frame = state.currentFrame();
     BytecodeProgram.Opcode opcode = instruction.opcode();
@@ -297,7 +301,7 @@ public final class MooVm {
               Math.toIntExact(instruction.operand().orElse(0)));
       case SET_RANGE_PROPERTY -> IndexOps.setRange(frame, state, world, Optional.empty(),
           Math.toIntExact(instruction.operand().orElse(0)));
-      case CALL -> invokeBuiltin(instruction, frame, state, world, builtins, taskId);
+      case CALL -> invokeBuiltin(instruction, frame, state, world, builtins, hosts, taskId);
       case CALL_VERB -> {
         MooValue argumentsValue = frame.operandStack.pop();
         MooValue nameValue = frame.operandStack.pop();
@@ -402,6 +406,7 @@ public final class MooVm {
       VmState state,
       WorldTxn world,
       BuiltinCatalog builtins,
+      BuiltinHosts hosts,
       long taskId) {
     MooValue argumentValue = frame.operandStack.pop();
     if (!(argumentValue instanceof ListValue arguments)) {
@@ -430,7 +435,7 @@ public final class MooVm {
       return;
     }
     BuiltinResult result =
-        builtins.invoke(spec, builtinCall(state, world, taskId, arguments.elements(),
+        builtins.invoke(spec, builtinCall(state, world, hosts, taskId, arguments.elements(),
             frame.receiver, null));
     applyBuiltinResult(result, frame, state, world);
   }
@@ -459,17 +464,17 @@ public final class MooVm {
 
   /** Authorizes and applies the exact builtin request for its scheduler task ID. */
   public void authorizePendingBuiltin(
-      VmState state, WorldTxn world, BuiltinCatalog builtins, long taskId) {
+      VmState state, WorldTxn world, BuiltinCatalog builtins, BuiltinHosts hosts, long taskId) {
     VmSnapshot.PendingBuiltin request = state.authorizePendingBuiltin();
     BuiltinSpec spec = builtins.spec(request.name()).orElseThrow();
     BuiltinResult result =
-        builtins.invoke(spec, builtinCall(state, world, taskId, request.arguments(),
+        builtins.invoke(spec, builtinCall(state, world, hosts, taskId, request.arguments(),
             request.receiver(), request));
     applyBuiltinResult(result, state.currentFrame(), state, world);
   }
 
   private static BuiltinCall builtinCall(
-      VmState state, WorldTxn world, long taskId, List<MooValue> arguments,
+      VmState state, WorldTxn world, BuiltinHosts hosts, long taskId, List<MooValue> arguments,
       MooValue receiver, VmSnapshot.@Nullable PendingBuiltin pending) {
     return new BuiltinCall(
         arguments, world,
@@ -478,7 +483,7 @@ public final class MooVm {
         pending == null ? state.budget().remainingTicks() : pending.remainingTicks(),
         pending == null ? state.budget().remainingSeconds() : pending.remainingSeconds(), receiver,
         pending == null ? state.callerProgrammer() : pending.callerProgrammer(), state::callers,
-        state.threadMode(), state.effects()::stagedBufferedOutputLength);
+        state.threadMode(), state.effects()::stagedBufferedOutputLength, hosts);
   }
 
   static void applyBuiltinResult(

@@ -525,7 +525,9 @@ public final class MooServer implements AutoCloseable, ListenerControl {
 
   /** Opens an outbound socket and registers its negative MOO connection object atomically. */
   @Override
-  public long openNetworkConnection(String host, int port, boolean ipv6, long listenerHandler)
+  public long openNetworkConnection(
+      String host, int port, boolean ipv6, long listenerHandler,
+      world.mongoose.banteng.builtin.BuiltinHosts.OutboundConnectionRegistrar registration)
       throws IOException {
     if (closed.get() || port < 0 || port > 65_535) {
       throw new IllegalArgumentException("invalid outbound connection");
@@ -549,7 +551,7 @@ public final class MooServer implements AutoCloseable, ListenerControl {
               new OutputStreamWriter(socket.getOutputStream(), StringValue.charset()));
       connections.put(connectionId, socket);
       outputs.put(connectionId, new ConnectionOutput(output));
-      runtime.registerOutboundConnection(
+      registration.register(
           connectionId, listenerHandler, connectionInfo(socket, true));
       return connectionId;
     } catch (IOException | RuntimeException failure) {
