@@ -2,6 +2,9 @@ package world.mongoose.banteng.vm;
 
 import java.nio.charset.StandardCharsets;
 import java.util.Collections;
+import java.util.ArrayList;
+import world.mongoose.banteng.world.SuspendedActivation;
+import world.mongoose.banteng.world.SuspendedActivation.BuiltinContinuation;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -194,6 +197,7 @@ public record VmSnapshot(
     size = add(size, textSize(frame.calledVerb()));
     size = add(size, textSize(frame.fullVerbName()));
     size = add(size, optionalValueSize(frame.createReturnOverride()));
+    size = add(size, frame.builtinContinuation().map(VmSnapshot::continuationSize).orElse(0L));
     size = add(size, optionalLongSize(frame.recycleTarget()));
     size = add(size, optionalValueSize(frame.anonymousRecycleTarget()));
     size = add(size, optionalLongSize(frame.moveObject()));
@@ -359,6 +363,46 @@ public record VmSnapshot(
     return Math.multiplyExact(left, right);
   }
 
+  static Optional<ListValue> builtinStackFrame(Optional<BuiltinContinuation> continuation,
+      ReturnMode mode, boolean create, boolean recycle, BytecodeProgram caller, int instructionPointer,
+      MooValue player, Map<String, MooValue> locals, boolean lines, boolean variables) {
+    String name;
+    if (continuation.isPresent()) name = continuation.orElseThrow().name();
+    else if (mode == ReturnMode.EVAL) name = "eval";
+    else if (create) name = "create";
+    else if (recycle) name = "recycle";
+    else if (mode == ReturnMode.MOVE_ACCEPT || mode == ReturnMode.MOVE_EXIT || mode == ReturnMode.MOVE_ENTER) name = "move";
+    else return Optional.empty();
+    if (continuation.isEmpty() && instructionPointer > 0 && instructionPointer <= caller.instructions().size()) {
+      var instruction = caller.instructions().get(instructionPointer - 1);
+      if (instruction.opcode() == BytecodeProgram.Opcode.CALL
+          && instruction.text().orElse("").equalsIgnoreCase("call_function")) name = "call_function";
+    }
+    List<MooValue> fields = new ArrayList<>(List.of(new ObjectValue(-1), StringValue.of(name),
+        new ObjectValue(-1), new ObjectValue(-1), player));
+    if (lines) fields.add(new IntegerValue(switch (mode) {
+      case MOVE_EXIT -> 3;
+      case MOVE_ENTER -> 4;
+      default -> 2;
+    }));
+    if (variables) {
+      Map<MooValue, MooValue> values = new LinkedHashMap<>();
+      locals.forEach((key, value) -> values.put(StringValue.of(key), value));
+      fields.add(new MapValue(values));
+    }
+    return Optional.of(new ListValue(fields));
+  }
+
+  private static long continuationSize(BuiltinContinuation continuation) {
+    return switch (continuation) {
+      case SuspendedActivation.EvalContinuation ignored -> 1;
+      case SuspendedActivation.CreateContinuation ignored -> 1 + Long.BYTES;
+      case SuspendedActivation.RecycleContinuation ignored -> 1 + Long.BYTES;
+      case SuspendedActivation.MoveContinuation ignored -> 1 + 3L * Long.BYTES;
+      case SuspendedActivation.CallFunctionContinuation call -> add(1, continuationSize(call.function()));
+    };
+  }
+
   /** Value-only state for one activation frame, ordered from current to root. */
   public record Frame(
       BytecodeProgram program,
@@ -382,7 +426,8 @@ public record VmSnapshot(
       boolean debug,
       boolean threadMode,
       int instructionPointer,
-      Optional<AnonymousObjectValue> anonymousRecycleTarget) {
+      Optional<AnonymousObjectValue> anonymousRecycleTarget,
+      Optional<BuiltinContinuation> builtinContinuation) {
     public Frame(
         BytecodeProgram program,
         List<MooValue> operandStack,
@@ -426,10 +471,18 @@ public record VmSnapshot(
           true,
           threadMode,
           instructionPointer,
-          Optional.empty());
+          Optional.empty(), Optional.empty());
+    }
+
+    public Optional<ListValue> builtinStackFrame(Frame parent, boolean lines, boolean variables) {
+      return VmSnapshot.builtinStackFrame(builtinContinuation, returnMode,
+          createReturnOverride.isPresent(), recycleTarget.isPresent() || anonymousRecycleTarget.isPresent(),
+          parent.program(), parent.instructionPointer(), locals.getOrDefault("player", new ObjectValue(-1)),
+          locals, lines, variables);
     }
 
     public Frame {
+      Objects.requireNonNull(builtinContinuation, "builtinContinuation");
       operandStack = List.copyOf(operandStack);
       indexCollections = List.copyOf(indexCollections);
       locals = Collections.unmodifiableMap(new LinkedHashMap<>(locals));

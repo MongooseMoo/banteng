@@ -2,6 +2,9 @@ package world.mongoose.banteng.builtin;
 
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
+import world.mongoose.banteng.world.SuspendedActivation;
+import world.mongoose.banteng.world.SuspendedActivation.BuiltinContinuation;
 import java.util.concurrent.Callable;
 import world.mongoose.banteng.bytecode.BytecodeProgram;
 import world.mongoose.banteng.builtin.BuiltinCatalog.ConnectionOption;
@@ -31,7 +34,7 @@ public sealed interface BuiltinResult {
   }
 
   /** Invokes initialize after creating an object or anonymous object. */
-  record Initialize(MooValue created, ListValue arguments) implements BuiltinResult {
+  record Initialize(MooValue created, ListValue arguments, Optional<BuiltinContinuation> continuation) implements BuiltinResult {
     public Initialize {
       Objects.requireNonNull(created, "created");
       Objects.requireNonNull(arguments, "arguments");
@@ -89,7 +92,8 @@ public sealed interface BuiltinResult {
   }
 
   /** Evaluates the compiled program in a new frame. */
-  record DynamicEval(BytecodeProgram program) implements BuiltinResult {
+  record DynamicEval(BytecodeProgram program, BuiltinContinuation continuation) implements BuiltinResult {
+    public DynamicEval(BytecodeProgram program) { this(program, new SuspendedActivation.EvalContinuation()); }
     public DynamicEval {
       Objects.requireNonNull(program, "program");
     }
@@ -117,10 +121,16 @@ public sealed interface BuiltinResult {
   record Programmer(long programmer) implements BuiltinResult {}
 
   /** Moves one object to one destination and position as one atomic effect. */
-  record Move(long object, long destination, long position) implements BuiltinResult {}
+  record Move(long object, long destination, long position, BuiltinContinuation continuation) implements BuiltinResult {
+    public Move(long object, long destination, long position) {
+      this(object, destination, position, new SuspendedActivation.MoveContinuation(object, destination, position));
+    }
+  }
 
   /** Recycles one ordinary object. */
-  record Recycle(long object) implements BuiltinResult {}
+  record Recycle(long object, BuiltinContinuation continuation) implements BuiltinResult {
+    public Recycle(long object) { this(object, new SuspendedActivation.RecycleContinuation(object)); }
+  }
 
   /** Recycles one anonymous object. */
   record RecycleAnonymous(AnonymousObjectValue object) implements BuiltinResult {

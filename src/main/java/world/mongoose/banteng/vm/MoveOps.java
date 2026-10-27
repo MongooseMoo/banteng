@@ -28,13 +28,19 @@ final class MoveOps {
   static void returned(Frame frame, MooValue value, VmState state, WorldTxn world) {
     BuiltinResult.Move move = new BuiltinResult.Move(
         frame.moveObject.orElseThrow(), frame.moveDestination.orElseThrow(),
-        frame.movePosition.orElseThrow());
+        frame.movePosition.orElseThrow(), frame.builtinContinuation.orElseGet(() ->
+            new world.mongoose.banteng.world.SuspendedActivation.MoveContinuation(
+                frame.moveObject.orElseThrow(), frame.moveDestination.orElseThrow(), frame.movePosition.orElseThrow())));
     state.unwindChildFrame();
+    Frame caller = state.currentFrame();
     switch (frame.returnMode) {
       case MOVE_ACCEPT -> accepted(move, value.isTruthy(), state, world);
       case MOVE_EXIT -> enter(move, state, world);
       case MOVE_ENTER -> finish(state);
       default -> throw new IllegalStateException("invalid move continuation");
+    }
+    if (state.currentFrame() != caller && state.activeFrames().contains(caller)) {
+      state.currentFrame().builtinContinuation = frame.builtinContinuation;
     }
   }
 

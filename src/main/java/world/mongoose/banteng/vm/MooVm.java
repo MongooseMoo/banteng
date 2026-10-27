@@ -574,6 +574,15 @@ public final class MooVm {
         frame.operandStack.push(new IntegerValue(0));
       }
     }
+    if (state.currentFrame() != frame && state.activeFrames().contains(frame)) {
+      state.currentFrame().builtinContinuation = switch (result) {
+        case BuiltinResult.Initialize initialized -> initialized.continuation();
+        case BuiltinResult.DynamicEval evaluated -> Optional.of(evaluated.continuation());
+        case BuiltinResult.Move moved -> Optional.of(moved.continuation());
+        case BuiltinResult.Recycle recycled -> Optional.of(recycled.continuation());
+        default -> state.currentFrame().builtinContinuation;
+      };
+    }
   }
 
   private static void applyPass(

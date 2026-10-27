@@ -1,6 +1,7 @@
 package world.mongoose.banteng.vm;
 
 import java.util.ArrayDeque;
+import world.mongoose.banteng.world.SuspendedActivation.BuiltinContinuation;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Deque;
@@ -223,7 +224,9 @@ public final class VmState {
   ListValue callers(boolean lineNumbers) {
     List<MooValue> callers = new ArrayList<>();
     boolean current = true;
-    for (Frame frame : frames) {
+    List<Frame> stack = List.copyOf(frames);
+    for (int index = 0; index < stack.size(); index++) {
+      Frame frame = stack.get(index);
       if (!current) {
         List<MooValue> fields = new ArrayList<>();
         fields.add(frame.receiver);
@@ -245,19 +248,8 @@ public final class VmState {
       } else {
         current = false;
       }
-      if (frame.returnMode == ReturnMode.EVAL) {
-        List<MooValue> fields =
-            new ArrayList<>(
-                List.of(
-                    new ObjectValue(-1),
-                    StringValue.of("eval"),
-                    new ObjectValue(-1),
-                    new ObjectValue(-1),
-                    frame.localOrDefault(5, new ObjectValue(-1))));
-        if (lineNumbers) {
-          fields.add(new world.mongoose.banteng.value.MooValue.IntegerValue(2));
-        }
-        callers.add(new ListValue(fields));
+      if (index + 1 < stack.size()) {
+        frame.builtinStackFrame(stack.get(index + 1), lineNumbers).ifPresent(callers::add);
       }
     }
     return new ListValue(callers);
@@ -560,7 +552,8 @@ public final class VmState {
         frame.debug,
         frame.threadMode,
         frame.instructionPointer,
-        frame.anonymousRecycleTarget);
+        frame.anonymousRecycleTarget,
+        frame.builtinContinuation);
   }
 
   private static Frame restore(VmSnapshot.Frame snapshot) {
@@ -582,6 +575,7 @@ public final class VmState {
             snapshot.anonymousRecycleTarget(),
             snapshot.debug(),
             snapshot.threadMode());
+    frame.builtinContinuation = snapshot.builtinContinuation();
     Map<String, MooValue> normalized = normalizedLocals(snapshot.locals());
     for (int slot = 0; slot < frame.locals.length; slot++) {
       frame.locals[slot] = normalized.get(frame.program.variableNames().get(slot));
@@ -658,6 +652,7 @@ public final class VmState {
     final Deque<VmSnapshot.FinallyState> finallyContinuations = new ArrayDeque<>();
     final Map<Integer, LoopCursor> loops = new LinkedHashMap<>();
     final ReturnMode returnMode;
+    Optional<BuiltinContinuation> builtinContinuation = Optional.empty();
     final MooValue receiver;
     final MooValue verbLocation;
     final String calledVerb;
@@ -672,6 +667,14 @@ public final class VmState {
     long programmer;
     boolean threadMode;
     int instructionPointer;
+
+    Optional<ListValue> builtinStackFrame(Frame parent, boolean lines) {
+      return VmSnapshot.builtinStackFrame(builtinContinuation,
+          VmSnapshot.ReturnMode.valueOf(returnMode.name()), createReturnOverride.isPresent(),
+          recycleTarget.isPresent() || anonymousRecycleTarget.isPresent(),
+          parent.program, parent.instructionPointer, localOrDefault(5, new ObjectValue(-1)),
+          Map.of(), lines, false);
+    }
 
     MooValue localOrDefault(int slot, MooValue fallback) {
       MooValue value = locals[slot];

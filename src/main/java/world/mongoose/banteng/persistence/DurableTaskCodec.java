@@ -114,7 +114,7 @@ public final class DurableTaskCodec {
         activation.debug(),
         activation.threadMode(),
         site.call().resumeInstructionPointer(),
-        Optional.empty());
+        Optional.empty(), activation.builtinContinuation());
   }
 
   private record BuiltinState(VmSnapshot.ReturnMode mode, Optional<MooValue> create,
@@ -944,6 +944,7 @@ public final class DurableTaskCodec {
   }
 
   private static Optional<SuspendedActivation.BuiltinContinuation> exportBuiltin(VmSnapshot.Frame frame) {
+    if (frame.builtinContinuation().isPresent()) return frame.builtinContinuation();
     if (frame.returnMode() == VmSnapshot.ReturnMode.EVAL) {
       return Optional.of(new SuspendedActivation.EvalContinuation());
     }
