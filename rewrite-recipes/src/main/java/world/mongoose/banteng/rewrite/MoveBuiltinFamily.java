@@ -1,5 +1,7 @@
 package world.mongoose.banteng.rewrite;
 
+import com.fasterxml.jackson.annotation.JsonCreator;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -40,7 +42,10 @@ public final class MoveBuiltinFamily extends ScanningRecipe<MoveBuiltinFamily.Me
             "relativeHeading"));
   }
 
-  public MoveBuiltinFamily(String family, Set<String> builtins, Set<String> methods) {
+  @JsonCreator
+  public MoveBuiltinFamily(@JsonProperty("family") String family,
+      @JsonProperty("builtins") Set<String> builtins,
+      @JsonProperty("methods") Set<String> methods) {
     this.family = family;
     this.builtins = Set.copyOf(builtins);
     this.methods = Set.copyOf(methods);
@@ -104,6 +109,25 @@ public final class MoveBuiltinFamily extends ScanningRecipe<MoveBuiltinFamily.Me
 
   @Override public Collection<SourceFile> generate(Members members, ExecutionContext context) {
     if (!members.ready()) { return List.of(); }
+    Set<String> referencedNames = new HashSet<>();
+    JavaIsoVisitor<ExecutionContext> references = new JavaIsoVisitor<>() {
+      @Override public J.Identifier visitIdentifier(J.Identifier identifier, ExecutionContext unused) {
+        if (!(getCursor().getParentTreeCursor().getValue() instanceof J.FieldAccess access
+            && access.getName().getId().equals(identifier.getId()))) {
+          referencedNames.add(identifier.getSimpleName());
+        }
+        return identifier;
+      }
+    };
+    for (Statement registration : members.registrations) { references.visitNonNull(registration, context); }
+    for (J.MethodDeclaration implementation : members.implementations) { references.visitNonNull(implementation, context); }
+    StringBuilder constants = new StringBuilder();
+    for (String name : List.of("ANY", "INTEGER", "NUMBER")) {
+      if (referencedNames.contains(name)) {
+        constants.append("  private static final Set<ArgType> ").append(name)
+            .append(" = Set.of(ArgType.").append(name).append(");\n");
+      }
+    }
     StringBuilder body = new StringBuilder();
     for (Statement statement : members.registrations) {
       List<Expression> arguments = registration(statement).getArguments();
@@ -128,11 +152,9 @@ public final class MoveBuiltinFamily extends ScanningRecipe<MoveBuiltinFamily.Me
             + "import world.mongoose.banteng.builtin.BuiltinPermissionRule;\n"
             + "import world.mongoose.banteng.builtin.BuiltinResult;\n"
             + "import world.mongoose.banteng.builtin.CallShape;\n"
-            + "/** Owns math builtin registrations and implementations. */\n"
+            + "/** Owns builtin registrations and implementations for this family. */\n"
             + "public final class " + family + " {\n"
-            + "  private static final Set<ArgType> ANY = Set.of(ArgType.ANY);\n"
-            + "  private static final Set<ArgType> INTEGER = Set.of(ArgType.INTEGER);\n"
-            + "  private static final Set<ArgType> NUMBER = Set.of(ArgType.NUMBER);\n"
+            + constants
             + "  private " + family + "() {}\n"
             + "  public static void register(List<BuiltinSpec> entries) {\n"
             + "    BuiltinRegistrar registrar = new BuiltinRegistrar(entries);\n" + body + "  }\n}")
