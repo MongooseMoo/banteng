@@ -206,10 +206,12 @@ public final class MooVm {
       case LAST -> IndexOps.boundaryIndex(frame, state, world, true);
       case SET_INDEX_LOCAL -> IndexOps.setIndexedLocal(frame, state, world, instruction.text().orElseThrow(),
               Math.toIntExact(instruction.operand().orElse(0)));
-      case SET_INDEX_PROPERTY -> IndexOps.setIndexedProperty(frame, state, world);
+      case SET_INDEX_PROPERTY -> IndexOps.setIndexedProperty(frame, state, world,
+          Math.toIntExact(instruction.operand().orElse(0)));
       case SET_RANGE_LOCAL -> IndexOps.setRange(frame, state, world, instruction.text(),
               Math.toIntExact(instruction.operand().orElse(0)));
-      case SET_RANGE_PROPERTY -> IndexOps.setRange(frame, state, world, Optional.empty(), 0);
+      case SET_RANGE_PROPERTY -> IndexOps.setRange(frame, state, world, Optional.empty(),
+          Math.toIntExact(instruction.operand().orElse(0)));
       case CALL -> invokeBuiltin(instruction, frame, state, world, builtins, taskId);
       case CALL_VERB -> {
         MooValue argumentsValue = frame.operandStack.pop();
