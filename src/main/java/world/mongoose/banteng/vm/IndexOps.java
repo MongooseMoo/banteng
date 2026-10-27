@@ -79,7 +79,8 @@ final class IndexOps {
         yield true;
       }
       case SET_INDEX_PROPERTY -> {
-        setIndexedProperty(frame, state, world);
+        setIndexedProperty(frame, state, world,
+            Math.toIntExact(instruction.operand().orElse(0)));
         yield true;
       }
       case SET_RANGE_LOCAL -> {
@@ -92,7 +93,8 @@ final class IndexOps {
         yield true;
       }
       case SET_RANGE_PROPERTY -> {
-        setRange(frame, state, world, Optional.empty(), 0);
+        setRange(frame, state, world, Optional.empty(),
+            Math.toIntExact(instruction.operand().orElse(0)));
         yield true;
       }
     };
@@ -283,21 +285,29 @@ final class IndexOps {
     if (replacement.isEmpty()) {
       return;
     }
-    MooValue updatedCollection = replacement.orElseThrow();
+    replacement = replaceParents(frame, replacement.orElseThrow(), parentDepth, state, world);
+    if (replacement.isEmpty()) {
+      return;
+    }
+    frame.locals.put(PropertyOps.normalize(owner), replacement.orElseThrow());
+    frame.operandStack.push(value);
+    frame.instructionPointer++;
+  }
 
+  private static Optional<MooValue> replaceParents(
+      Frame frame, MooValue updatedCollection, int parentDepth, VmState state, WorldTxn world) {
     for (int depth = 0; depth < parentDepth; depth++) {
       IndexContext parentContext = frame.indexCollections.pop();
       MooValue parentKey = parentContext.key().orElseThrow();
       MooValue parent = parentContext.collection();
-      replacement = replaceIndex(parent, parentKey, updatedCollection, state, world);
+      Optional<MooValue> replacement =
+          replaceIndex(parent, parentKey, updatedCollection, state, world);
       if (replacement.isEmpty()) {
-        return;
+        return Optional.empty();
       }
       updatedCollection = replacement.orElseThrow();
     }
-    frame.locals.put(PropertyOps.normalize(owner), updatedCollection);
-    frame.operandStack.push(value);
-    frame.instructionPointer++;
+    return Optional.of(updatedCollection);
   }
 
   private static void dispatchWaifIndexHandler(
@@ -384,10 +394,13 @@ final class IndexOps {
     }
     if (collection instanceof StringValue string
         && key instanceof IntegerValue index
-        && value instanceof StringValue replacement
-        && replacement.length() == 1) {
+        && value instanceof StringValue replacement) {
       if (index.value() < 1 || index.value() > string.length()) {
         ErrorOps.raise(state, ErrorValue.E_RANGE, world);
+        return Optional.empty();
+      }
+      if (replacement.length() != 1) {
+        ErrorOps.raise(state, ErrorValue.E_INVARG, world);
         return Optional.empty();
       }
       byte[] replaced = string.bytes();
@@ -398,43 +411,21 @@ final class IndexOps {
     return Optional.empty();
   }
 
-  private static void setIndexedProperty(Frame frame, VmState state, WorldTxn world) {
+  private static void setIndexedProperty(
+      Frame frame, VmState state, WorldTxn world, int parentDepth) {
     frame.indexCollections.pop();
     MooValue value = frame.operandStack.pop();
     MooValue key = frame.operandStack.pop();
     MooValue collection = frame.operandStack.pop();
-    MooValue updatedCollection;
-    if (collection instanceof MapValue map) {
-      try {
-        updatedCollection = map.with(key, value);
-      } catch (IllegalArgumentException error) {
-        ErrorOps.raise(state, ErrorValue.E_TYPE, world);
-        return;
-      }
-    } else if (collection instanceof ListValue list && key instanceof IntegerValue index) {
-      if (index.value() < 1 || index.value() > list.size()) {
-        ErrorOps.raise(state, ErrorValue.E_RANGE, world);
-        return;
-      }
-      List<MooValue> replaced = new ArrayList<>(list.elements());
-      replaced.set(Math.toIntExact(index.value() - 1), value);
-      updatedCollection = new ListValue(replaced);
-    } else if (collection instanceof StringValue string
-        && key instanceof IntegerValue index
-        && value instanceof StringValue replacement
-        && replacement.length() == 1) {
-      if (index.value() < 1 || index.value() > string.length()) {
-        ErrorOps.raise(state, ErrorValue.E_RANGE, world);
-        return;
-      }
-      byte[] replaced = string.bytes();
-      replaced[Math.toIntExact(index.value() - 1)] = replacement.bytes()[0];
-      updatedCollection = StringValue.of(replaced);
-    } else {
-      ErrorOps.raise(state, ErrorValue.E_TYPE, world);
+    Optional<MooValue> replacement = replaceIndex(collection, key, value, state, world);
+    if (replacement.isEmpty()) {
       return;
     }
-    frame.operandStack.push(updatedCollection);
+    replacement = replaceParents(frame, replacement.orElseThrow(), parentDepth, state, world);
+    if (replacement.isEmpty()) {
+      return;
+    }
+    frame.operandStack.push(replacement.orElseThrow());
     int instructionPointer = frame.instructionPointer;
     PropertyOps.setProperty(frame, state, world);
     if (frame.instructionPointer == instructionPointer + 1) {
@@ -525,6 +516,12 @@ final class IndexOps {
       ErrorOps.raise(state, ErrorValue.E_TYPE, world);
       return;
     }
+    Optional<MooValue> replacement =
+        replaceParents(frame, updatedCollection, parentDepth, state, world);
+    if (replacement.isEmpty()) {
+      return;
+    }
+    updatedCollection = replacement.orElseThrow();
     if (owner.isEmpty()) {
       frame.operandStack.push(updatedCollection);
       int instructionPointer = frame.instructionPointer;
@@ -535,24 +532,7 @@ final class IndexOps {
       }
       return;
     }
-    if (parentDepth == 0) {
-      frame.locals.put(PropertyOps.normalize(owner.orElseThrow()), updatedCollection);
-    } else {
-      IndexContext parentContext = frame.indexCollections.pop();
-      MooValue parentKey = parentContext.key().orElseThrow();
-      MooValue parent = parentContext.collection();
-      if (!(parent instanceof ListValue list) || !(parentKey instanceof IntegerValue index)) {
-        ErrorOps.raise(state, ErrorValue.E_TYPE, world);
-        return;
-      }
-      if (index.value() < 1 || index.value() > list.size()) {
-        ErrorOps.raise(state, ErrorValue.E_RANGE, world);
-        return;
-      }
-      List<MooValue> replaced = new ArrayList<>(list.elements());
-      replaced.set(Math.toIntExact(index.value() - 1), updatedCollection);
-      frame.locals.put(PropertyOps.normalize(owner.orElseThrow()), new ListValue(replaced));
-    }
+    frame.locals.put(PropertyOps.normalize(owner.orElseThrow()), updatedCollection);
     frame.operandStack.push(value);
     frame.instructionPointer++;
   }
