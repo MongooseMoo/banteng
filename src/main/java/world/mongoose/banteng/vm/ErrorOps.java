@@ -171,7 +171,9 @@ final class ErrorOps {
   private static ListValue traceback(VmState state, MooValue error) {
     List<MooValue> frames = new ArrayList<>();
     boolean origin = true;
-    for (Frame frame : state.activeFrames()) {
+    List<Frame> active = state.activeFrames();
+    for (int index = 0; index < active.size(); index++) {
+      Frame frame = active.get(index);
       frames.add(tracebackFrame(frame, origin));
       boolean catchesHere =
           frame.handlers.stream()
@@ -183,6 +185,7 @@ final class ErrorOps {
       if (catchesHere) {
         break;
       }
+      if (index + 1 < active.size()) frame.builtinStackFrame(active.get(index + 1), true).ifPresent(frames::add);
       origin = false;
     }
     return new ListValue(frames);
