@@ -378,3 +378,13 @@ recipeList:
   - org.openrewrite.java.ChangeType:
       oldFullyQualifiedTypeName: world.mongoose.banteng.builtin.JsonCodec
       newFullyQualifiedTypeName: world.mongoose.banteng.builtin.family.JsonCodec
+---
+type: specs.openrewrite.org/v1beta/recipe
+name: world.mongoose.banteng.builtin.ExtractTimeBuiltins
+displayName: Extract time builtins
+description: Moves time registrations, clock selectors and formatting implementations into their family owner.
+recipeList:
+  - world.mongoose.banteng.rewrite.MoveBuiltinFamily:
+      family: TimeBuiltins
+      builtins: [time, ctime, ftime]
+      methods: [ctime, ftime]

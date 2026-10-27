@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 # Runs OpenRewrite recipes against the codebase.
+# Run Gradle itself on JDK 25 as well as its compilation toolchain. In WSL:
+#   export JAVA_HOME=/opt/java/25 PATH=/opt/java/25/bin:/usr/bin:/bin
 #
 # Usage:
 #   scripts/rewrite.sh <recipe> [recipe...]           # dry run: writes build/reports/rewrite/rewrite.patch
