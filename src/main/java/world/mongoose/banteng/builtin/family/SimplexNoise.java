@@ -1,4 +1,4 @@
-package world.mongoose.banteng.builtin;
+package world.mongoose.banteng.builtin.family;
 
 /** Direct Java port of ToastStunt's public-domain SimplexNoise1234 value functions. */
 final class SimplexNoise {

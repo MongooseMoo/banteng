@@ -454,3 +454,16 @@ recipeList:
       family: ConversionBuiltins
       builtins: [tostr, tofloat, toint, toliteral, toobj, equal, typeof]
       methods: [toStringValue, errorDescription, toFloat, toInteger, toLiteral, toObject, parseToastObjectId, isAsciiWhitespace, equalValues, typeOf]
+---
+type: specs.openrewrite.org/v1beta/recipe
+name: world.mongoose.banteng.builtin.ExtractNoiseBuiltins
+displayName: Extract noise builtins
+description: Moves simplex noise registration and wrapper beside its package-private numeric implementation.
+recipeList:
+  - world.mongoose.banteng.rewrite.MoveBuiltinFamily:
+      family: NoiseBuiltins
+      builtins: [simplex_noise]
+      methods: [simplexNoise]
+  - org.openrewrite.java.ChangeType:
+      oldFullyQualifiedTypeName: world.mongoose.banteng.builtin.SimplexNoise
+      newFullyQualifiedTypeName: world.mongoose.banteng.builtin.family.SimplexNoise

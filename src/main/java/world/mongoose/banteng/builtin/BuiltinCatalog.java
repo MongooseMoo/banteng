@@ -18,7 +18,6 @@ import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.Random;
 import java.util.Set;
-import world.mongoose.banteng.builtin.family.FileIoBuiltins;
 import java.util.function.LongBinaryOperator;
 import java.util.function.Supplier;
 import org.bouncycastle.crypto.Digest;
@@ -33,13 +32,15 @@ import org.bouncycastle.crypto.generators.Argon2BytesGenerator;
 import org.bouncycastle.crypto.macs.HMac;
 import org.bouncycastle.crypto.params.Argon2Parameters;
 import org.bouncycastle.crypto.params.KeyParameter;
-import world.mongoose.banteng.builtin.family.ConversionBuiltins;
 
 import static world.mongoose.banteng.builtin.ValueLimits.valueBytes;
+import world.mongoose.banteng.builtin.family.ConversionBuiltins;
+import world.mongoose.banteng.builtin.family.FileIoBuiltins;
 import world.mongoose.banteng.builtin.family.JsonBuiltins;
 import world.mongoose.banteng.builtin.family.ListBuiltins;
 import world.mongoose.banteng.builtin.family.MapBuiltins;
 import world.mongoose.banteng.builtin.family.MathBuiltins;
+import world.mongoose.banteng.builtin.family.NoiseBuiltins;
 import world.mongoose.banteng.builtin.family.RandomBuiltins;
 import world.mongoose.banteng.builtin.family.StringBuiltins;
 import world.mongoose.banteng.builtin.family.TimeBuiltins;
@@ -274,13 +275,7 @@ public final class BuiltinCatalog {
     StringBuiltins.registerExplode(entries);
     ListBuiltins.registerReverse(entries);
     StringBuiltins.registerSubstitutionAndAnsi(entries, random);
-    entries.add(
-        new BuiltinSpec(
-            "simplex_noise",
-            List.of(new CallShape(List.of(Set.of(ArgType.LIST)), List.of(), Optional.empty())),
-            BuiltinPermissionRule.ANY,
-            false,
-            call -> simplexNoise(call.arguments())));
+    NoiseBuiltins.register(entries);
     StringBuiltins.registerSearchAndCompare(entries);
     entries.add(
         new BuiltinSpec(
@@ -2077,22 +2072,6 @@ public final class BuiltinCatalog {
       return BuiltinResult.value(new IntegerValue(threadMode ? 1 : 0));
     }
     return new BuiltinResult.ThreadMode(arguments.getFirst().isTruthy());
-  }
-
-  private static BuiltinResult simplexNoise(List<MooValue> arguments) {
-    ListValue coordinates = (ListValue) arguments.getFirst();
-    double[] values = new double[coordinates.size()];
-    for (int index = 0; index < coordinates.size(); index++) {
-      MooValue coordinate = coordinates.elements().get(index);
-      if (!(coordinate instanceof FloatValue value)) {
-        return BuiltinResult.error(ErrorValue.E_TYPE);
-      }
-      values[index] = value.value();
-    }
-    if (values.length < 1 || values.length > 4) {
-      return BuiltinResult.value(ErrorValue.E_TYPE);
-    }
-    return BuiltinResult.value(new FloatValue(SimplexNoise.noise(values)));
   }
 
   private BuiltinResult crypt(List<MooValue> arguments, WorldTxn world, long programmer) {
