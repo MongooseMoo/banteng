@@ -11,7 +11,7 @@ import java.util.Optional;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicLong;
 import org.junit.jupiter.api.Test;
-import world.mongoose.banteng.builtin.BuiltinCatalog.ListenerControl;
+import world.mongoose.banteng.builtin.family.ConnectionBuiltins.ListenerControl;
 import world.mongoose.banteng.server.ConnectionRegistry;
 import world.mongoose.banteng.value.MooValue;
 import world.mongoose.banteng.value.MooValue.*;

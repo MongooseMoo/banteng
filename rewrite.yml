@@ -565,3 +565,41 @@ recipeList:
       family: ServerBuiltins
       builtins: [value_bytes, object_bytes, server_version, function_info, server_log, log_cache_stats, verb_cache_stats, usage, memory_usage, load_server_options, run_gc, gc_stats, shutdown, db_disk_size, dump_database]
       methods: [functionInfo, serverVersion, serverVersionMetadata, versionPair, versionPath, functionInfoDescription, typeCode, dumpDatabase, serverLog, logCacheStats, verbCacheStats, memoryUsage, usage, shutdown, objectBytes, gcStats]
+---
+type: specs.openrewrite.org/v1beta/recipe
+name: world.mongoose.banteng.builtin.ExtractConnectionBuiltins
+displayName: Extract connection builtins
+description: Moves connection registrations, transport contracts and implementations to their family owner.
+recipeList:
+  - world.mongoose.banteng.rewrite.MoveBuiltinFamily:
+      family: ConnectionBuiltins
+      builtins: [switch_player, read, connected_players, idle_seconds, connected_seconds, buffered_output_length, boot_player, connection_info, connection_name, connection_name_lookup, connection_options, output_delimiters, set_connection_option, flush_input, force_input, listen, listeners, unlisten, open_network_connection, notify]
+      methods: [connections, connectionInfo, bufferedOutputLength, connectionName, connectionNameLookup, bootPlayer, setConnectionOption, normalizeIntrinsicCommands, forceInput, listen, listeners, unlisten, openNetworkConnection, switchPlayer, notifyLine]
+  - org.openrewrite.java.ChangeType:
+      oldFullyQualifiedTypeName: world.mongoose.banteng.builtin.BuiltinCatalog$ListenerControl
+      newFullyQualifiedTypeName: world.mongoose.banteng.builtin.family.ConnectionBuiltins$ListenerControl
+      ignoreDefinition: true
+  - org.openrewrite.java.ChangeType:
+      oldFullyQualifiedTypeName: world.mongoose.banteng.builtin.BuiltinCatalog$ListenerDescription
+      newFullyQualifiedTypeName: world.mongoose.banteng.builtin.family.ConnectionBuiltins$ListenerDescription
+      ignoreDefinition: true
+  - org.openrewrite.java.ChangeType:
+      oldFullyQualifiedTypeName: world.mongoose.banteng.builtin.BuiltinCatalog$ConnectionOptionRequest
+      newFullyQualifiedTypeName: world.mongoose.banteng.builtin.family.ConnectionBuiltins$ConnectionOptionRequest
+      ignoreDefinition: true
+  - org.openrewrite.java.ChangeType:
+      oldFullyQualifiedTypeName: world.mongoose.banteng.builtin.BuiltinCatalog$ForcedInputRequest
+      newFullyQualifiedTypeName: world.mongoose.banteng.builtin.family.ConnectionBuiltins$ForcedInputRequest
+      ignoreDefinition: true
+  - org.openrewrite.java.ChangeType:
+      oldFullyQualifiedTypeName: world.mongoose.banteng.builtin.BuiltinCatalog$NotificationRequest
+      newFullyQualifiedTypeName: world.mongoose.banteng.builtin.family.ConnectionBuiltins$NotificationRequest
+      ignoreDefinition: true
+  - org.openrewrite.java.ChangeType:
+      oldFullyQualifiedTypeName: world.mongoose.banteng.builtin.BuiltinCatalog$ConnectionOption
+      newFullyQualifiedTypeName: world.mongoose.banteng.builtin.family.ConnectionBuiltins$ConnectionOption
+      ignoreDefinition: true
+  - org.openrewrite.java.ChangeType:
+      oldFullyQualifiedTypeName: world.mongoose.banteng.builtin.BuiltinCatalog$KeepAliveOptions
+      newFullyQualifiedTypeName: world.mongoose.banteng.builtin.family.ConnectionBuiltins$KeepAliveOptions
+      ignoreDefinition: true

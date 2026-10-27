@@ -6,8 +6,8 @@ import java.util.Optional;
 import world.mongoose.banteng.world.SuspendedActivation;
 import world.mongoose.banteng.world.SuspendedActivation.BuiltinContinuation;
 import java.util.concurrent.Callable;
+import world.mongoose.banteng.builtin.family.ConnectionBuiltins;
 import world.mongoose.banteng.bytecode.BytecodeProgram;
-import world.mongoose.banteng.builtin.BuiltinCatalog.ConnectionOption;
 import world.mongoose.banteng.value.MooValue;
 import world.mongoose.banteng.value.MooValue.AnonymousObjectValue;
 import world.mongoose.banteng.value.MooValue.ErrorValue;
@@ -141,7 +141,7 @@ public sealed interface BuiltinResult {
   record BootPlayer(long target) implements BuiltinResult {}
 
   /** Applies one connection option and returns zero. */
-  record SetConnectionOption(long target, ConnectionOption option, MooValue value)
+  record SetConnectionOption(long target, ConnectionBuiltins.ConnectionOption option, MooValue value)
       implements BuiltinResult {
     public SetConnectionOption {
       Objects.requireNonNull(option, "option");
