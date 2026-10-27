@@ -1323,8 +1323,13 @@ final class PublicationScheduler implements AutoCloseable {
       return;
     }
     while (!ready.isEmpty() && hasExecutorCapacity()) {
-      Entry entry = ready.remove();
-      executor.execute(() -> executeAttempt(entry));
+      Entry entry = ready.element();
+      try {
+        executor.execute(() -> executeAttempt(entry));
+      } catch (RejectedExecutionException rejected) {
+        return;
+      }
+      ready.remove();
     }
   }
 
