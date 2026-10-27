@@ -25,6 +25,10 @@ Parent owns exact-code review, PR, Claude review, full PR CI and normal merge af
 
 Integrated the runtime dependency's obsolete login-timeout admission check and its stress-test barrier. The only composition-specific adaptation is invoking the new callback through the scheduler's existing runtime supplier. No local CI or additional tests were run for this integration; parent owns publication and changed-line review.
 
+Integrated master after the runtime dependency merged. Resolved the sole conflict by retaining the durable-record migration and both existing Math/Map builtin extraction recipes with their configurations unchanged. Master contributes the existing registrar, family extraction recipe and Math/Map families; composition Java sources needed no adaptation. No local CI was run for this integration.
+
+Integrated master's slot-locals dependency. Its new SlotLocalsTest activation-import fixture still constructed the former nested SuspendedActivation type; retargeted that constructor to the existing world domain record without changing arguments or assertions. Source scan found no other old nested durable-record references in production, tests or rewrite recipe Java sources. No local CI was run; parent owns bounded review and PR CI.
+
 ## Draft PR description
 Move durable checkpoint records into the world domain and expose database reads and canonical checkpoint writes through DbCodec. Banteng selects input from the header and assembles the VM, catalog, scheduler and injected runtime; legacy readers delegate output to the same V17 codec. Runtime and server no longer consume codec nested records.
 
