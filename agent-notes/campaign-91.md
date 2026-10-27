@@ -33,6 +33,8 @@ Commit and hand off for parent review/CI/publication. No new guard or conformanc
 PR #109 deletion follow-up on parent-integrated head 114e6d7: the JFR production template and two existing inventories still named the three deleted event classes. Removed only the WorldCommit, TaskRetry and TaskFallback template blocks and their exact entries from JfrTemplateTest and NamespaceOwnershipTest. This completes the existing deletion rather than adding a check. No Java production change, no conformance edit, and no local CI/test rerun; parent owns current-head CI and publication.
 
 ## Draft PR
+Integrated issue105 nested-property-assignment repair e06c048 in merge 3acbacd with no conflicts. This branch retains World's existing integer property signature, so incoming parser tests need no typed-permission adaptation. Runtime status, JFR deletion and PureVmFixture changes are preserved. No local CI, push or publication; parent owns final verification.
+
 Title: Remove unused runtime code and type login timeout status
 
 Delete the unreachable fixture eval fallback and three JFR definitions with no production emitters. Carry sealed login timeout status through committed scheduler publication, name the 300-second default, and move pure VM execution setup into a shared test fixture while preserving selected value semantics.
