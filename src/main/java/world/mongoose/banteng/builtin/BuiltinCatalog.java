@@ -14,6 +14,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
+import world.mongoose.banteng.world.SuspendedActivation;
 import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.Random;
@@ -375,7 +376,7 @@ public final class BuiltinCatalog {
             List.of(new CallShape(List.of(OBJECT, OBJECT), List.of(INTEGER), Optional.empty())),
             BuiltinPermissionRule.WIZARD_ONLY,
             false,
-            call -> switchPlayer(call.hosts(), call.arguments(), call.world())));
+            this::switchPlayer));
     entries.add(
         new BuiltinSpec(
             "pass",
@@ -1420,11 +1421,22 @@ public final class BuiltinCatalog {
     if (target == null) {
       return BuiltinResult.error(ErrorValue.E_INVARG);
     }
-    return invoke(target, new BuiltinCall(
+    BuiltinResult result = invoke(target, new BuiltinCall(
         arguments.subList(1, arguments.size()), call.world(), call.programmer(),
         call.taskLocal(), call.taskId(), call.remainingTicks(), call.remainingSeconds(),
         call.receiver(), call.callerProgrammer(), call.callers(), call.threadMode(),
         call.stagedBufferedOutputLength(), call.hosts()));
+    return switch (result) {
+      case BuiltinResult.Initialize initialized -> new BuiltinResult.Initialize(initialized.created(),
+          initialized.arguments(), initialized.continuation().map(SuspendedActivation.CallFunctionContinuation::new));
+      case BuiltinResult.DynamicEval evaluated -> new BuiltinResult.DynamicEval(evaluated.program(),
+          new SuspendedActivation.CallFunctionContinuation(evaluated.continuation()));
+      case BuiltinResult.Move moved -> new BuiltinResult.Move(moved.object(), moved.destination(), moved.position(),
+          new SuspendedActivation.CallFunctionContinuation(moved.continuation()));
+      case BuiltinResult.Recycle recycled -> new BuiltinResult.Recycle(recycled.object(),
+          new SuspendedActivation.CallFunctionContinuation(recycled.continuation()));
+      default -> result;
+    };
   }
 
   private static ListValue functionInfoDescription(BuiltinSpec spec) {
@@ -2265,15 +2277,15 @@ public final class BuiltinCatalog {
     return wizard || body.owner() == programmer ? value : new AnonymousObjectValue();
   }
 
-  private BuiltinResult switchPlayer(BuiltinHosts invocationHosts, List<MooValue> arguments, WorldTxn world) {
-    long oldPlayer = ((ObjectValue) arguments.getFirst()).value();
-    long newPlayer = ((ObjectValue) arguments.get(1)).value();
+  private BuiltinResult switchPlayer(BuiltinCall call) {
+    long oldPlayer = ((ObjectValue) call.arguments().getFirst()).value();
+    long newPlayer = ((ObjectValue) call.arguments().get(1)).value();
     if (oldPlayer == newPlayer
-        || connections(invocationHosts).connectionId(oldPlayer).isEmpty()
-        || !world.players().contains(newPlayer)) {
+        || connections(call.hosts()).connectionId(oldPlayer).isEmpty()
+        || !call.world().players().contains(newPlayer)) {
       return BuiltinResult.error(ErrorValue.E_INVARG);
     }
-    return new BuiltinResult.SwitchPlayer(newPlayer);
+    return call.hosts().switchPlayer().invoke(call);
   }
 
   private static BuiltinResult setTaskPerms(

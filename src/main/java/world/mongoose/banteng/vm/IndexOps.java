@@ -30,6 +30,9 @@ final class IndexOps {
     MooValue index = frame.operandStack.pop();
     MooValue collection = frame.operandStack.pop();
     if (collection instanceof WaifValue waif) {
+      if (parentDepth == 1) {
+        frame.indexCollections.push(new IndexContext(collection, Optional.of(index), context.operandDepth()));
+      }
       dispatchWaifIndexHandler(
           waif, ":_index", new ListValue(List.of(index)), frame, state, world);
       return;
@@ -203,12 +206,11 @@ final class IndexOps {
     frame.instructionPointer++;
   }
 
-  static void setIndexedLocal(
-      Frame frame, VmState state, WorldTxn world, int owner, int parentDepth) {
-    frame.indexCollections.pop();
+  static void setIndex(Frame frame, VmState state, WorldTxn world, boolean parent) {
+    IndexContext context = frame.indexCollections.pop();
     MooValue value = frame.operandStack.pop();
-    MooValue key = frame.operandStack.pop();
-    MooValue collection = frame.operandStack.pop();
+    MooValue key = parent ? context.key().orElseThrow() : frame.operandStack.pop();
+    MooValue collection = parent ? context.collection() : frame.operandStack.pop();
     if (collection instanceof WaifValue waif) {
       dispatchWaifIndexHandler(
           waif, ":_set_index", new ListValue(List.of(key, value)), frame, state, world);
@@ -218,29 +220,8 @@ final class IndexOps {
     if (replacement.isEmpty()) {
       return;
     }
-    replacement = replaceParents(frame, replacement.orElseThrow(), parentDepth, state, world);
-    if (replacement.isEmpty()) {
-      return;
-    }
-    frame.locals[owner] = replacement.orElseThrow();
-    frame.operandStack.push(value);
+    frame.operandStack.push(replacement.orElseThrow());
     frame.instructionPointer++;
-  }
-
-  private static Optional<MooValue> replaceParents(
-      Frame frame, MooValue updatedCollection, int parentDepth, VmState state, WorldTxn world) {
-    for (int depth = 0; depth < parentDepth; depth++) {
-      IndexContext parentContext = frame.indexCollections.pop();
-      MooValue parentKey = parentContext.key().orElseThrow();
-      MooValue parent = parentContext.collection();
-      Optional<MooValue> replacement =
-          replaceIndex(parent, parentKey, updatedCollection, state, world);
-      if (replacement.isEmpty()) {
-        return Optional.empty();
-      }
-      updatedCollection = replacement.orElseThrow();
-    }
-    return Optional.of(updatedCollection);
   }
 
   private static void dispatchWaifIndexHandler(
@@ -267,7 +248,7 @@ final class IndexOps {
     }
     frame.instructionPointer++;
     if (!MooVm.callVerb(state, waif, verb, arguments, verbName, MooVm.VerbCallKind.NORMAL,
-        Optional.empty(), Optional.empty(), Optional.empty())) {
+        Optional.empty(), Optional.empty(), Optional.empty(), world)) {
       ErrorOps.raise(state, ErrorValue.E_MAXREC, world, false);
     }
   }
@@ -314,31 +295,7 @@ final class IndexOps {
     return Optional.empty();
   }
 
-  static void setIndexedProperty(
-      Frame frame, VmState state, WorldTxn world, int parentDepth) {
-    frame.indexCollections.pop();
-    MooValue value = frame.operandStack.pop();
-    MooValue key = frame.operandStack.pop();
-    MooValue collection = frame.operandStack.pop();
-    Optional<MooValue> replacement = replaceIndex(collection, key, value, state, world);
-    if (replacement.isEmpty()) {
-      return;
-    }
-    replacement = replaceParents(frame, replacement.orElseThrow(), parentDepth, state, world);
-    if (replacement.isEmpty()) {
-      return;
-    }
-    frame.operandStack.push(replacement.orElseThrow());
-    int instructionPointer = frame.instructionPointer;
-    PropertyOps.setProperty(frame, state, world);
-    if (frame.instructionPointer == instructionPointer + 1) {
-      frame.operandStack.pop();
-      frame.operandStack.push(value);
-    }
-  }
-
-  static void setRange(
-      Frame frame, VmState state, WorldTxn world, java.util.OptionalInt owner, int parentDepth) {
+  static void setRange(Frame frame, VmState state, WorldTxn world) {
     frame.indexCollections.pop();
     MooValue value = frame.operandStack.pop();
     MooValue end = frame.operandStack.pop();
@@ -416,24 +373,7 @@ final class IndexOps {
       ErrorOps.raise(state, ErrorValue.E_TYPE, world);
       return;
     }
-    Optional<MooValue> replacement =
-        replaceParents(frame, updatedCollection, parentDepth, state, world);
-    if (replacement.isEmpty()) {
-      return;
-    }
-    updatedCollection = replacement.orElseThrow();
-    if (owner.isEmpty()) {
-      frame.operandStack.push(updatedCollection);
-      int instructionPointer = frame.instructionPointer;
-      PropertyOps.setProperty(frame, state, world);
-      if (frame.instructionPointer == instructionPointer + 1) {
-        frame.operandStack.pop();
-        frame.operandStack.push(value);
-      }
-      return;
-    }
-    frame.locals[owner.orElseThrow()] = updatedCollection;
-    frame.operandStack.push(value);
+    frame.operandStack.push(updatedCollection);
     frame.instructionPointer++;
   }
 
