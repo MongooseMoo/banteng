@@ -2,7 +2,7 @@
 Repair command locals on fresh and nested callback activations, preserving the Toast callback contract.
 
 # State
-Implemented in an isolated tree from origin/master. The coordinator authorized this bounded red-check repair. MooVm.callVerb now initializes fresh command fields and inherits them for nested callbacks. No publication by this agent.
+Published as PR138. The coordinator integrated command context, root/nested WAIF naming, startup dispatch, builtin continuation identity, error/checkpoint outcomes, lag callbacks, saved activation player/timeout stacks, and switch-player/prelogin notifications. Focused worker tests passed; combined hosted CI is running. WAIF indexed-assignment repair remains in its isolated worker tree. Claude review awaits its session reset; no merge or deployment.
 
 # Decisions and why
 Current target source already routes runtime and move hooks through MooVm.callVerb. Smallest repair is therefore about eight net production lines in that existing owner: supply the five fresh root defaults, and let existing nested-call inheritance apply to callback kinds as well as NORMAL. Keep PASS behavior, receiver/caller/player/args/owner/definer, WAIF naming, callerProgrammer and builtin stack metadata unchanged. No new abstraction or guard. The original diagnosis used the historical coordination checkout; this plan is based on the actual target tree's unified owner.
@@ -19,9 +19,9 @@ The authored test covers fresh server defaults, explicit parsed command fields, 
 `git diff --check` passed. Required CI/conformance remains for the published PR.
 
 # Draft PR body
-Fresh root callbacks now receive dobj/iobj as #-1 and empty command strings; explicit parsed input still overrides those defaults. Nested callback kinds inherit argstr, dobj, dobjstr, prepstr, iobj and iobjstr through the existing callVerb owner, matching ordinary nested calls and Toast's activation contract. Other activation metadata remains unchanged.
+Restores callback command context, saved activation identities and builtin continuation frames; adds raw startup-script dispatch and lag callbacks; repairs error/checkpoint outcomes and switch-player/prelogin notifications. Connection notifiers resolve the next hook after the previous hook's first execution slice.
 
-Adds focused coverage for fresh/parsed roots, callback kinds and snapshot restoration. Validation: authored CallbackCommandLocalsTest. Full CI/conformance remains for this PR.
+Focused authored tests passed. Combined required CI is running. WAIF indexed-assignment failures remain under repair, and Claude review is pending its session reset.
 
 # Next step
-Parent to verify the scoped diff, obtain review, publish and read required CI/conformance. Reassess the independent WAIF naming/builtin-stack defects and unexplained failures separately. No release or deployment performed here.
+Integrate the bounded WAIF assignment repair, diagnose remaining hosted failures, complete Claude review, and normal-merge once required checks and findings are resolved. Reuse completed reviews on unchanged family PRs when resuming their merges. No release or deployment performed here.

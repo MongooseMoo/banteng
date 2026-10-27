@@ -232,7 +232,7 @@ final class ActivationPlayerTest {
         s.initialCalledVerb(), s.initialFullVerbName(), frames, s.output(), s.connectionOptionRequests(),
         s.bootPlayerTargets(), s.forcedInputRequests(), s.notificationRequests(), s.checkpointRequests(),
         s.anonymousCollectionDeferrals(), s.outcome(), s.returnValue(), s.pendingError(), s.uncaughtError(),
-        s.switchedPlayer(), s.forkRequest(), s.suspensionDelaySeconds(), s.awaitingHostResult(),
+        s.forkRequest(), s.suspensionDelaySeconds(), s.awaitingHostResult(),
         s.pendingBuiltin(), s.taskLocal(), s.remainingTicks(), s.elapsedCpuNanos(), s.remainingCpuNanos(),
         s.maxStackDepth(), s.initialPlayer());
   }
