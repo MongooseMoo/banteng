@@ -1,5 +1,12 @@
 ---
 type: specs.openrewrite.org/v1beta/recipe
+name: world.mongoose.banteng.builtin.ExtractFileIoBuiltins
+displayName: Extract File I/O builtin family
+description: Relocates the existing file handle owner and its registrations.
+recipeList:
+  - world.mongoose.banteng.rewrite.MoveFileIoBuiltins
+---
+type: specs.openrewrite.org/v1beta/recipe
 name: world.mongoose.banteng.vm.DecomposeMooVmOpcodeFamilies
 displayName: Decompose MooVm opcode families
 description: Moves MooVm's static opcode-family methods into dedicated helper files.
@@ -45,7 +52,7 @@ recipeList:
       methodPattern: world.mongoose.banteng.runtime.TaskRegistry string(java.lang.String)
       fullyQualifiedTargetTypeName: world.mongoose.banteng.value.MooValue.StringValue
   - org.openrewrite.java.ChangeMethodTargetToStatic:
-      methodPattern: world.mongoose.banteng.builtin.FileIoService mooString(java.lang.String)
+      methodPattern: world.mongoose.banteng.builtin.family.FileIoBuiltins mooString(java.lang.String)
       fullyQualifiedTargetTypeName: world.mongoose.banteng.value.MooValue.StringValue
   - org.openrewrite.java.ChangeMethodTargetToStatic:
       methodPattern: world.mongoose.banteng.builtin.PcreService string(java.lang.String)
