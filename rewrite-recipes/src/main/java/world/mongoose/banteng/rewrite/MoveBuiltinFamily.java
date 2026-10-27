@@ -109,7 +109,7 @@ public final class MoveBuiltinFamily extends ScanningRecipe<MoveBuiltinFamily.Me
             if (methods.contains(method.getSimpleName()) && method.getModifiers().stream()
                 .anyMatch(modifier -> modifier.getType() == J.Modifier.Type.Static)
                 || family.equals("StringBuiltins") && method.getSimpleName().equals("parseAnsi")
-                || family.equals("RandomBuiltins") && methods.contains(method.getSimpleName())) {
+                || Set.of("RandomBuiltins", "TaskBuiltins").contains(family) && methods.contains(method.getSimpleName())) {
               members.implementations.add(method);
             }
             if (method.getSimpleName().equals("buildManifest") && method.getBody() != null) {
@@ -123,9 +123,9 @@ public final class MoveBuiltinFamily extends ScanningRecipe<MoveBuiltinFamily.Me
                   members.registrations.add(entry);
                 }
                 previousRegistration = spec != null;
-                if (family.equals("ListBuiltins") && entry instanceof J.VariableDeclarations variables
+                if ((family.equals("ListBuiltins") || family.equals("TaskBuiltins")) && entry instanceof J.VariableDeclarations variables
                     && variables.getVariables().stream().anyMatch(variable ->
-                        Set.of("allMembers", "sort").contains(variable.getSimpleName()))) {
+                        Set.of("allMembers", "sort", "setThreadMode", "callFunction").contains(variable.getSimpleName()))) {
                   members.handlers.add(entry);
                 }
               }
@@ -164,7 +164,7 @@ public final class MoveBuiltinFamily extends ScanningRecipe<MoveBuiltinFamily.Me
     for (Statement registration : members.registrations) { references.visitNonNull(registration, context); }
     for (J.MethodDeclaration implementation : members.implementations) { references.visitNonNull(implementation, context); }
     StringBuilder constants = new StringBuilder();
-    for (String name : List.of("ANY", "INTEGER", "NUMBER", "STRING")) {
+    for (String name : List.of("ANY", "INTEGER", "NUMBER", "STRING", "OBJECT")) {
       if (referencedNames.contains(name)) {
         constants.append("  private static final Set<ArgType> ").append(name)
             .append(" = Set.of(ArgType.").append(name).append(");\n");
@@ -174,10 +174,11 @@ public final class MoveBuiltinFamily extends ScanningRecipe<MoveBuiltinFamily.Me
     for (int group = 0; group < members.groups.size(); group++) {
       body.append("  public static void ").append(registerMethod(group))
           .append("(List<BuiltinSpec> entries" + (stringAnsiGroup(group) ? ", Random random" : "")
+              + (family.equals("TaskBuiltins") ? ", BuiltinCatalog catalog" : "")
               + (family.equals("RandomBuiltins")
                   ? ", java.util.function.Supplier<Random> random, java.util.function.Supplier<Random> floatingRandom, SecureRandom secureRandom" : "") + ") {\n")
           .append("    BuiltinRegistrar registrar = new BuiltinRegistrar(entries);\n");
-      for (Statement handler : members.handlers) {
+      for (Statement handler : family.equals("TaskBuiltins") ? List.<Statement>of() : members.handlers) {
         String name = ((J.VariableDeclarations) handler).getVariables().getFirst().getSimpleName();
         if (members.groups.get(group).stream().anyMatch(statement ->
             registration(statement).getArguments().get(4) instanceof J.Identifier identifier
@@ -204,6 +205,8 @@ public final class MoveBuiltinFamily extends ScanningRecipe<MoveBuiltinFamily.Me
         .parse(context, "package world.mongoose.banteng.builtin.family;\n"
             + "import java.util.List; import java.util.Set;\n"
             + "import world.mongoose.banteng.builtin.ArgType;\n"
+            + "import world.mongoose.banteng.builtin.BuiltinCatalog;\n"
+            + "import world.mongoose.banteng.builtin.BuiltinCall;\n"
             + "import world.mongoose.banteng.builtin.BuiltinRegistrar;\n"
             + "import world.mongoose.banteng.builtin.BuiltinSpec;\n"
             + "import world.mongoose.banteng.builtin.BuiltinHandler;\n"
@@ -243,6 +246,17 @@ public final class MoveBuiltinFamily extends ScanningRecipe<MoveBuiltinFamily.Me
           .findFirst().orElseThrow()).withSourcePath(generated.getSourcePath());
       generated = stringSharedImports(generated, context);
     }
+    if (family.equals("TaskBuiltins")) {
+      String source = generated.printAll()
+          .replace("private BuiltinResult configureThreadPool(", "private static BuiltinResult configureThreadPool(")
+          .replace("private BuiltinResult callFunction(BuiltinCall call)", "private static BuiltinResult callFunction(BuiltinCall call, BuiltinCatalog catalog)")
+          .replace("BuiltinSpec target = specs.get(name);", "BuiltinSpec target = catalog.spec(name).orElse(null);")
+          .replace("return invoke(target,", "return catalog.invoke(target,")
+          .replace("private BuiltinResult dynamicEval(List<MooValue> arguments)", "private static BuiltinResult dynamicEval(List<MooValue> arguments, BuiltinCatalog catalog)")
+          .replace("name -> spec(name).isPresent()", "name -> catalog.spec(name).isPresent()");
+      generated = ((J.CompilationUnit) JavaParser.fromJavaVersion().build().parse(context, source)
+          .findFirst().orElseThrow()).withSourcePath(generated.getSourcePath());
+    }
     if (family.equals("RandomBuiltins")) {
       String source = generated.printAll()
           .replace("private BuiltinResult randomInteger(List<MooValue> arguments)",
@@ -281,6 +295,7 @@ public final class MoveBuiltinFamily extends ScanningRecipe<MoveBuiltinFamily.Me
   }
 
   private String registerMethod(int group) {
+    if (family.equals("TaskBuiltins")) { return "registerGroup" + group; }
     if (family.equals("ConversionBuiltins")) {
       return List.of("registerConversions", "registerTypeOf").get(group);
     }
@@ -300,6 +315,14 @@ public final class MoveBuiltinFamily extends ScanningRecipe<MoveBuiltinFamily.Me
           .replace("floatingRandom(call.arguments())", "floatingRandom(call.arguments(), floatingRandom.get())")
           .replace("randomBytes(call.arguments(), call.world())", "randomBytes(call.arguments(), call.world(), secureRandom)")
           .replace("random.setSeed(SECURE_RANDOM.nextLong())", "random.get().setSeed(secureRandom.nextLong())");
+    }
+    if (family.equals("TaskBuiltins")) {
+      result = switch (result) {
+        case "callFunction" -> "call -> callFunction(call, catalog)";
+        case "setThreadMode" -> "call -> setThreadMode(call.arguments(), call.threadMode())";
+        case "this::configureThreadPool" -> "TaskBuiltins::configureThreadPool";
+        default -> result.replace("dynamicEval(call.arguments())", "dynamicEval(call.arguments(), catalog)");
+      };
     }
     return result;
   }
@@ -454,6 +477,7 @@ public final class MoveBuiltinFamily extends ScanningRecipe<MoveBuiltinFamily.Me
             Statement replacement = ((J.CompilationUnit) JavaParser.fromJavaVersion().build()
              .parse(context, "class Replacement { void register() { " + family + "." + registerMethod(group)
                  + "(entries" + (stringAnsiGroup(group) ? ", random" : "")
+                 + (family.equals("TaskBuiltins") ? ", this" : "")
                  + (family.equals("RandomBuiltins") ? ", () -> random, () -> floatingRandom, SECURE_RANDOM" : "") + "); } }")
             .findFirst().orElseThrow()).getClasses().getFirst().getBody().getStatements().stream()
             .filter(J.MethodDeclaration.class::isInstance).map(J.MethodDeclaration.class::cast)

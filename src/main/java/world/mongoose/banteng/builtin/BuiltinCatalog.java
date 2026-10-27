@@ -33,15 +33,16 @@ import org.bouncycastle.crypto.generators.Argon2BytesGenerator;
 import org.bouncycastle.crypto.macs.HMac;
 import org.bouncycastle.crypto.params.Argon2Parameters;
 import org.bouncycastle.crypto.params.KeyParameter;
-import world.mongoose.banteng.builtin.family.ConversionBuiltins;
 
 import static world.mongoose.banteng.builtin.ValueLimits.valueBytes;
+import world.mongoose.banteng.builtin.family.ConversionBuiltins;
 import world.mongoose.banteng.builtin.family.JsonBuiltins;
 import world.mongoose.banteng.builtin.family.ListBuiltins;
 import world.mongoose.banteng.builtin.family.MapBuiltins;
 import world.mongoose.banteng.builtin.family.MathBuiltins;
 import world.mongoose.banteng.builtin.family.RandomBuiltins;
 import world.mongoose.banteng.builtin.family.StringBuiltins;
+import world.mongoose.banteng.builtin.family.TaskBuiltins;
 import world.mongoose.banteng.builtin.family.TimeBuiltins;
 import world.mongoose.banteng.bytecode.MooCompiler;
 import world.mongoose.banteng.host.Aspell;
@@ -222,12 +223,7 @@ public final class BuiltinCatalog {
 
   private List<BuiltinSpec> buildManifest() {
     List<BuiltinSpec> entries = new ArrayList<>();
-    entries.add(new BuiltinSpec(
-        "task_local", List.of(new CallShape(List.of(), List.of(), Optional.empty())),
-        BuiltinPermissionRule.WIZARD_ONLY, false, call -> BuiltinResult.value(call.taskLocal())));
-    entries.add(new BuiltinSpec(
-        "set_task_local", List.of(new CallShape(List.of(ANY), List.of(), Optional.empty())),
-        BuiltinPermissionRule.WIZARD_ONLY, false, call -> new BuiltinResult.TaskLocal(call.arguments().getFirst())));
+    TaskBuiltins.registerGroup0(entries, this);
     entries.add(new BuiltinSpec(
         "getenv", List.of(new CallShape(List.of(STRING), List.of(), Optional.empty())),
         BuiltinPermissionRule.WIZARD_ONLY, false, call -> {
@@ -238,9 +234,6 @@ public final class BuiltinCatalog {
     entries.add(new BuiltinSpec(
         "respond_to", List.of(new CallShape(List.of(ANY, STRING), List.of(), Optional.empty())),
         BuiltinPermissionRule.ANY, false, call -> respondTo(call.arguments(), call.world(), call.programmer())));
-    BuiltinHandler setThreadMode =
-        call -> setThreadMode(call.arguments(), call.threadMode());
-    BuiltinHandler callFunction = this::callFunction;
     entries.add(
         new BuiltinSpec(
             "value_bytes",
@@ -260,13 +253,7 @@ public final class BuiltinCatalog {
     MathBuiltins.register(entries);
     RandomBuiltins.register(entries, () -> random, () -> floatingRandom, SECURE_RANDOM);
     TimeBuiltins.register(entries);
-    entries.add(
-        new BuiltinSpec(
-            "raise",
-            List.of(new CallShape(List.of(ANY), List.of(STRING, ANY), Optional.empty())),
-            BuiltinPermissionRule.ANY,
-            false,
-            call -> raise(call.arguments())));
+    TaskBuiltins.registerGroup1(entries, this);
     ListBuiltins.registerListEdits(entries);
     MapBuiltins.register(entries);
     JsonBuiltins.register(entries);
@@ -679,81 +666,7 @@ public final class BuiltinCatalog {
             BuiltinPermissionRule.WIZARD_ONLY,
             false,
             call -> switchPlayer(call.hosts(), call.arguments(), call.world())));
-    entries.add(
-        new BuiltinSpec(
-            "pass",
-            List.of(new CallShape(List.of(), List.of(), Optional.of(ANY))),
-            BuiltinPermissionRule.ANY,
-            false,
-            call -> new BuiltinResult.Pass(new ListValue(call.arguments()))));
-    entries.add(
-        new BuiltinSpec(
-            "caller_perms",
-            List.of(new CallShape(List.of(), List.of(), Optional.empty())),
-            BuiltinPermissionRule.ANY,
-            false,
-            call ->
-                BuiltinResult.value(new ObjectValue(call.callers().apply(false).size() == 0 ? -1 : call.callerProgrammer()))));
-    entries.add(
-        new BuiltinSpec(
-            "callers",
-            List.of(new CallShape(List.of(), List.of(ANY), Optional.empty())),
-            BuiltinPermissionRule.ANY,
-            false,
-            call -> callers(call.callers().apply(
-                !call.arguments().isEmpty() && call.arguments().getFirst().isTruthy()),
-                call.world(), call.programmer())));
-    entries.add(
-        new BuiltinSpec(
-            "call_function",
-            List.of(new CallShape(List.of(STRING), List.of(), Optional.of(ANY))),
-            BuiltinPermissionRule.ANY,
-            true,
-            callFunction));
-    entries.add(
-        new BuiltinSpec(
-            "queue_info",
-            List.of(new CallShape(List.of(), List.of(OBJECT), Optional.empty())),
-            BuiltinPermissionRule.ANY,
-            false,
-            call -> call.hosts().queueInfo().invoke(call)));
-    entries.add(
-        new BuiltinSpec(
-            "queued_tasks",
-            List.of(new CallShape(List.of(), List.of(INTEGER, INTEGER), Optional.empty())),
-            BuiltinPermissionRule.ANY,
-            true,
-            call -> call.hosts().queuedTasks().invoke(call)));
-    entries.add(
-        new BuiltinSpec(
-            "task_stack",
-            List.of(new CallShape(List.of(INTEGER), List.of(ANY, ANY), Optional.empty())),
-            BuiltinPermissionRule.ANY,
-            true,
-            call -> call.hosts().taskStack().invoke(call)));
-    entries.add(
-        new BuiltinSpec(
-            "kill_task",
-            List.of(new CallShape(List.of(INTEGER), List.of(), Optional.empty())),
-            BuiltinPermissionRule.ANY,
-            true,
-            call -> call.hosts().killTask().invoke(call)));
-    entries.add(
-        new BuiltinSpec(
-            "thread_pool",
-            List.of(
-                new CallShape(
-                    List.of(STRING, STRING), List.of(INTEGER), Optional.empty())),
-            BuiltinPermissionRule.WIZARD_ONLY,
-            true,
-            this::configureThreadPool));
-    entries.add(
-        new BuiltinSpec(
-            "threads",
-            List.of(new CallShape(List.of(), List.of(), Optional.empty())),
-            BuiltinPermissionRule.WIZARD_ONLY,
-            true,
-            call -> call.hosts().threads().invoke(call)));
+    TaskBuiltins.registerGroup2(entries, this);
     entries.add(
         new BuiltinSpec(
             "read",
@@ -926,48 +839,7 @@ public final class BuiltinCatalog {
             BuiltinPermissionRule.WIZARD_ONLY,
             true,
             this::openNetworkConnection));
-    entries.add(
-        new BuiltinSpec(
-            "task_perms",
-            List.of(new CallShape(List.of(), List.of(), Optional.empty())),
-            BuiltinPermissionRule.ANY,
-            false,
-            call -> BuiltinResult.value(new ObjectValue(call.programmer()))));
-    entries.add(
-        new BuiltinSpec(
-            "task_id",
-            List.of(new CallShape(List.of(), List.of(), Optional.empty())),
-            BuiltinPermissionRule.ANY,
-            false,
-            call -> BuiltinResult.value(new IntegerValue(call.taskId()))));
-    entries.add(
-        new BuiltinSpec(
-            "ticks_left",
-            List.of(new CallShape(List.of(), List.of(), Optional.empty())),
-            BuiltinPermissionRule.ANY,
-            false,
-            call -> BuiltinResult.value(new IntegerValue(call.remainingTicks()))));
-    entries.add(
-        new BuiltinSpec(
-            "seconds_left",
-            List.of(new CallShape(List.of(), List.of(), Optional.empty())),
-            BuiltinPermissionRule.ANY,
-            false,
-            call -> BuiltinResult.value(new IntegerValue(call.remainingSeconds()))));
-    entries.add(
-        new BuiltinSpec(
-            "set_task_perms",
-            List.of(new CallShape(List.of(OBJECT), List.of(), Optional.empty())),
-            BuiltinPermissionRule.ANY,
-            false,
-            call -> setTaskPerms(call.arguments(), call.world(), call.programmer())));
-    entries.add(
-        new BuiltinSpec(
-            "set_thread_mode",
-            List.of(new CallShape(List.of(), List.of(INTEGER), Optional.empty())),
-            BuiltinPermissionRule.ANY,
-            false,
-            setThreadMode));
+    TaskBuiltins.registerGroup3(entries, this);
     entries.add(
         new BuiltinSpec(
             "notify",
@@ -976,13 +848,7 @@ public final class BuiltinCatalog {
             false,
             call -> notifyLine(call.hosts(), call.arguments(), call.world(), call.programmer())));
     ConversionBuiltins.registerConversions(entries);
-    entries.add(
-        new BuiltinSpec(
-            "eval",
-            List.of(new CallShape(List.of(STRING), List.of(), Optional.of(ANY))),
-            BuiltinPermissionRule.PROGRAMMER_ONLY,
-            false,
-            call -> dynamicEval(call.arguments())));
+    TaskBuiltins.registerGroup4(entries, this);
     ConversionBuiltins.registerTypeOf(entries);
     entries.add(
         new BuiltinSpec(
@@ -1092,29 +958,7 @@ public final class BuiltinCatalog {
               call.world().resetLastUsedObjectId();
               return BuiltinResult.value(new IntegerValue(0));
             }));
-    entries.add(
-        new BuiltinSpec(
-            "suspend",
-            List.of(new CallShape(List.of(), List.of(NUMBER), Optional.empty())),
-            BuiltinPermissionRule.ANY,
-            false,
-            call -> suspend(call.arguments())));
-    entries.add(
-        new BuiltinSpec(
-            "resume",
-            List.of(new CallShape(List.of(INTEGER), List.of(ANY), Optional.empty())),
-            BuiltinPermissionRule.ANY,
-            true,
-            call -> call.hosts().resumeTask().invoke(call)));
-    entries.add(
-        new BuiltinSpec(
-            "yin",
-            List.of(
-                new CallShape(
-                    List.of(), List.of(NUMBER, INTEGER, INTEGER), Optional.empty())),
-            BuiltinPermissionRule.ANY,
-            false,
-            call -> yin(call.arguments(), call.world(), call.remainingTicks(), call.remainingSeconds())));
+    TaskBuiltins.registerGroup5(entries, this);
     entries.add(
         new BuiltinSpec(
             "shutdown",
@@ -1253,26 +1097,6 @@ public final class BuiltinCatalog {
         BuiltinPermissionRule.WIZARD_ONLY,
         irrevocable,
         handler);
-  }
-
-  private BuiltinResult configureThreadPool(BuiltinCall call) {
-    StringValue function = (StringValue) call.arguments().get(0);
-    StringValue pool = (StringValue) call.arguments().get(1);
-    long requested =
-        call.arguments().size() == 3 ? ((IntegerValue) call.arguments().get(2)).value() : 0;
-    if (!pool.text().equals("MAIN")) {
-      return BuiltinResult.raised(ErrorValue.E_INVARG, StringValue.of("Invalid thread pool"), pool);
-    }
-    if (!function.text().equals("INIT")) {
-      return BuiltinResult.raised(ErrorValue.E_INVARG, StringValue.of("Invalid function"), function);
-    }
-    if (requested < 0 || requested > Integer.MAX_VALUE) {
-      return BuiltinResult.raised(
-          ErrorValue.E_INVARG,
-          StringValue.of("Invalid number of threads"),
-          new IntegerValue(requested));
-    }
-    return call.hosts().threadPool().invoke(call);
   }
 
   private BuiltinResult connectionInfo(BuiltinHosts invocationHosts,
@@ -1768,20 +1592,6 @@ public final class BuiltinCatalog {
     }
   }
 
-  private BuiltinResult callFunction(BuiltinCall call) {
-    List<MooValue> arguments = call.arguments();
-    String name = ((StringValue) arguments.getFirst()).text().toLowerCase(Locale.ROOT);
-    BuiltinSpec target = specs.get(name);
-    if (target == null) {
-      return BuiltinResult.error(ErrorValue.E_INVARG);
-    }
-    return invoke(target, new BuiltinCall(
-        arguments.subList(1, arguments.size()), call.world(), call.programmer(),
-        call.taskLocal(), call.taskId(), call.remainingTicks(), call.remainingSeconds(),
-        call.receiver(), call.callerProgrammer(), call.callers(), call.threadMode(),
-        call.stagedBufferedOutputLength(), call.hosts()));
-  }
-
   private static ListValue functionInfoDescription(BuiltinSpec spec) {
     CallShape shape = spec.callShapes().getFirst();
     List<MooValue> argumentTypes = new ArrayList<>();
@@ -1895,64 +1705,6 @@ public final class BuiltinCatalog {
       result.add(new IntegerValue(resource[index]));
     }
     return BuiltinResult.value(new ListValue(result));
-  }
-
-  private static BuiltinResult suspend(List<MooValue> arguments) {
-    if (arguments.isEmpty()) {
-      return new BuiltinResult.Suspend(Double.POSITIVE_INFINITY);
-    }
-    MooValue delay = arguments.getFirst();
-    double seconds =
-        delay instanceof IntegerValue integer
-            ? integer.value()
-            : ((FloatValue) delay).value();
-    return seconds < 0
-        ? BuiltinResult.error(ErrorValue.E_INVARG)
-        : new BuiltinResult.Suspend(seconds);
-  }
-
-  private static BuiltinResult yin(
-      List<MooValue> arguments, WorldTxn world, long remainingTicks, long remainingSeconds) {
-    if (arguments.isEmpty()) {
-      return remainingTicks < 2_000 || remainingSeconds < 2
-          ? new BuiltinResult.Suspend(0)
-          : BuiltinResult.value(new IntegerValue(0));
-    }
-    double delaySeconds;
-    MooValue delay = arguments.getFirst();
-    delaySeconds =
-        delay instanceof IntegerValue integer
-            ? integer.value()
-            : ((FloatValue) delay).value();
-    long minimumTicks =
-        arguments.size() >= 2 ? ((IntegerValue) arguments.get(1)).value() : 2_000;
-    long minimumSeconds =
-        arguments.size() >= 3 ? ((IntegerValue) arguments.get(2)).value() : 2;
-
-    long foregroundTicks = 60_000;
-    long foregroundSeconds = 5;
-    MooValue serverOptions = world.readObjectProperty(0, "server_options").orElse(null);
-    if (serverOptions instanceof ObjectValue options) {
-      if (world.readObjectProperty(options.value(), "fg_ticks").orElse(null)
-          instanceof IntegerValue configuredTicks) {
-        foregroundTicks = configuredTicks.value();
-      }
-      if (world.readObjectProperty(options.value(), "fg_seconds").orElse(null)
-          instanceof IntegerValue configuredSeconds) {
-        foregroundSeconds = configuredSeconds.value();
-      }
-    }
-
-    if (delaySeconds < 0
-        || minimumTicks <= 0
-        || minimumSeconds <= 0
-        || minimumTicks >= foregroundTicks
-        || minimumSeconds >= foregroundSeconds) {
-      return BuiltinResult.error(ErrorValue.E_INVARG);
-    }
-    return remainingTicks < minimumTicks || remainingSeconds < minimumSeconds
-        ? new BuiltinResult.Suspend(delaySeconds)
-        : BuiltinResult.value(new IntegerValue(0));
   }
 
   private static BuiltinResult shutdown(List<MooValue> arguments) {
@@ -2075,15 +1827,6 @@ public final class BuiltinCatalog {
     return BuiltinResult.value(new IntegerValue(bytes));
   }
 
-  private static BuiltinResult raise(List<MooValue> arguments) {
-    MooValue code = arguments.getFirst();
-    StringValue message =
-        arguments.size() >= 2 ? (StringValue) arguments.get(1)
-            : (StringValue) ((BuiltinResult.Value) ConversionBuiltins.toStringValue(List.of(code))).value();
-    MooValue value = arguments.size() >= 3 ? arguments.get(2) : new IntegerValue(0);
-    return BuiltinResult.raised(code, message, value);
-  }
-
   private static BuiltinResult respondTo(List<MooValue> arguments, WorldTxn world, long programmer) {
     MooValue target = arguments.getFirst();
     String name = ((StringValue) arguments.get(1)).text();
@@ -2113,13 +1856,6 @@ public final class BuiltinCatalog {
     return owner == programmer || world.isWizard(programmer) || ObjectFlags.isReadable(flags)
         ? BuiltinResult.value(new ListValue(List.of(location, StringValue.of(verb.names()))))
         : BuiltinResult.value(new IntegerValue(1));
-  }
-
-  private static BuiltinResult setThreadMode(List<MooValue> arguments, boolean threadMode) {
-    if (arguments.isEmpty()) {
-      return BuiltinResult.value(new IntegerValue(threadMode ? 1 : 0));
-    }
-    return new BuiltinResult.ThreadMode(arguments.getFirst().isTruthy());
   }
 
   private static BuiltinResult simplexNoise(List<MooValue> arguments) {
@@ -3343,34 +3079,6 @@ public final class BuiltinCatalog {
     return BuiltinResult.value(new ListValue(names));
   }
 
-  private static BuiltinResult callers(ListValue callers, WorldTxn world, long programmer) {
-    List<MooValue> frames = new ArrayList<>(callers.size());
-    for (MooValue value : callers.elements()) {
-      if (!(value instanceof ListValue frame) || frame.size() < 4) {
-        frames.add(value);
-        continue;
-      }
-      List<MooValue> fields = new ArrayList<>(frame.elements());
-      fields.set(0, anonymizeTaskReference(fields.get(0), world, programmer));
-      fields.set(3, anonymizeTaskReference(fields.get(3), world, programmer));
-      frames.add(new ListValue(fields));
-    }
-    return BuiltinResult.value(new ListValue(frames));
-  }
-
-  private static MooValue anonymizeTaskReference(
-      MooValue value, WorldTxn world, long programmer) {
-    if (!(value instanceof AnonymousObjectValue anonymous)) {
-      return value;
-    }
-    WorldAnonymousObject body = world.anonymousObject(anonymous).orElse(null);
-    if (body == null) {
-      return value;
-    }
-    boolean wizard = world.isWizard(programmer);
-    return wizard || body.owner() == programmer ? value : new AnonymousObjectValue();
-  }
-
   private static BuiltinResult isClearProperty(
       List<MooValue> arguments, WorldTxn world, long programmer) {
     MooValue receiver = arguments.getFirst();
@@ -4079,15 +3787,6 @@ public final class BuiltinCatalog {
     return new BuiltinResult.SwitchPlayer(newPlayer);
   }
 
-  private static BuiltinResult setTaskPerms(
-      List<MooValue> arguments, WorldTxn world, long currentProgrammer) {
-    ObjectValue requested = (ObjectValue) arguments.getFirst();
-    if (requested.value() != currentProgrammer && !world.isWizard(currentProgrammer)) {
-      return BuiltinResult.error(ErrorValue.E_PERM);
-    }
-    return new BuiltinResult.Programmer(requested.value());
-  }
-
   private BuiltinResult notifyLine(BuiltinHosts invocationHosts,
       List<MooValue> arguments, WorldTxn world, long programmer) {
     long target = ((ObjectValue) arguments.getFirst()).value();
@@ -4106,25 +3805,6 @@ public final class BuiltinCatalog {
     }
     return new BuiltinResult.Notify(
         connectionId.orElseThrow(), line.text(), noFlush, noNewline);
-  }
-
-  private BuiltinResult dynamicEval(List<MooValue> arguments) {
-    if (arguments.stream().anyMatch(argument -> !(argument instanceof StringValue))) {
-      return BuiltinResult.error(ErrorValue.E_TYPE);
-    }
-    String source =
-        arguments.stream()
-            .map(StringValue.class::cast)
-            .map(StringValue::text)
-            .collect(java.util.stream.Collectors.joining("\n"));
-    MooCompiler.CompilationResult compiled =
-        new MooCompiler().compileResult(source, name -> spec(name).isPresent());
-    if (!compiled.diagnostics().isEmpty()) {
-      return BuiltinResult.value(new ListValue(List.of(new IntegerValue(0),
-          new ListValue(compiled.diagnostics().stream()
-              .map(diagnostic -> (MooValue) StringValue.of(diagnostic.display())).toList()))));
-    }
-    return new BuiltinResult.DynamicEval(compiled.program().orElseThrow());
   }
 
   private static BuiltinResult gcStats() {
