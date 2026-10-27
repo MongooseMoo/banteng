@@ -27,3 +27,6 @@ Parent owns publication and required PR CI/conformance after runtime lands. Pres
 
 ## Login and layout repair ancestry
 Merged the latest coordinator runtime login-output and pinned-layout-boundary repairs normally, without conflicts or family source adaptations. Family implementations, services, dependencies, extraction mover, authored fixtures and YAML are unchanged. No local tests, CI, migration or repeated review ran for this mechanical integration. Parent owns publication, hosted checks and merge.
+
+## Queue prerequisite integration
+Normally merged the published Regex tip, including reviewed Binary and SQLite prerequisites. Retained both Host and Regex registration-name branches and focused fixture methods in the existing mover. Catalog overlap retains the SQLite family import without restoring the unused binary stream import removed by Host; remaining catalog and YAML additions merged automatically. These additive resolutions follow final assembly. HostBuiltins remains byte-identical. No local tests, repeated review or publication; parent owns hosted validation and merge.

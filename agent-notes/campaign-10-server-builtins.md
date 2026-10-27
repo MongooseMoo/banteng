@@ -4,7 +4,7 @@
 Extract 15 server/diagnostics registrations in four manifest groups and their existing 16-method closure and SERVER_VERSION constant into ServerBuiltins. Preserve catalog manifest/spec/protected-functions state and existing logging ownership.
 
 ## State
-Implemented scoped mover/YAML/fixture and applied reviewed migration output with apply_patch. ServerBuiltins has 321 lines, 15 registrations in four original groups, the 16-method closure and unchanged SERVER_VERSION constant. Catalog retains manifest/spec/protected-function ownership.
+Implemented scoped mover/YAML/fixture and applied reviewed migration output with apply_patch. ServerBuiltins has 319 lines, 15 registrations in four original groups, the 16-method closure and unchanged SERVER_VERSION constant. Catalog retains manifest/spec/protected-function ownership.
 
 Latest campaign/callback-command-locals integrated normally without conflicts. ServerBuiltins, the existing family mover, its focused fixture and rewrite.yml are byte-for-byte unchanged by this integration. Current catalog retains all four Server registration calls, including the existing catalog/logging ownership arguments.
 
@@ -29,3 +29,11 @@ Original validation: focused MoveBuiltinFamilyTest; normal ExtractServerBuiltins
 
 ## Login and layout repair ancestry
 Merged the latest coordinator runtime login-output and pinned-layout-boundary repairs normally, without conflicts or family source adaptations. Family implementations, services, dependencies, extraction mover, authored fixtures and YAML are unchanged. No local tests, CI, migration or repeated review ran for this mechanical integration. Parent owns publication, hosted checks and merge.
+
+## Independent Claude review of the Server-specific range
+Claude reviewed the fixed two-endpoint diff from the PR138 runtime head to the PR136 head (six paths) manually, reusing the completed PR138 runtime review rather than repeating it. No code findings. One note inaccuracy: State says ServerBuiltins has 321 lines; the published file has 319. Ledger returned to the coordinator; parent runs the gate after the runtime base lands.
+
+## Queue prerequisite integration
+Normally merged the published Noise tip and its reviewed prerequisite families. Mover resolution retains Server constant/method selection, serverParameters and logging rewrites alongside all incoming generation branches and shared imports; YAML retains every complete recipe document. Reused fixture/catalog resolutions retain Server's four registration positions and canonical hosts.serverLog dependency, matching final assembly. ServerBuiltins and incoming family owners remain byte-identical. Preserved the pre-existing Claude note edits in this substantive merge. No local tests, repeated review or publication; parent owns hosted validation and merge.
+
+Normally merged the newly published Noise tip carrying the actual merged master ancestry. No conflicts occurred; incoming source changes are only the already-reviewed startup-input fix and focused test, alongside runtime and prerequisite ancestry notes. ServerBuiltins, all other builtin owners, catalog and extraction files remain unchanged. No CI, review or publication ran here.
