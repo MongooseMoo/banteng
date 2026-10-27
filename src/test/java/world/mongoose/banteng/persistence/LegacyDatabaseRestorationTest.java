@@ -32,7 +32,7 @@ final class LegacyDatabaseRestorationTest {
     Checkpoint checkpoint = new LambdaMooV4Reader(codec).read(fixture("Suspended"));
     assertEquals(List.of(new ActiveConnection(3, 0)), checkpoint.activeConnections());
     SuspendedTask task = assertInstanceOf(SuspendedTask.class, checkpoint.tasks().getFirst());
-    assertEquals(Long.MAX_VALUE, task.scheduledEpochSecond());
+    assertEquals(2147483647L, task.scheduledEpochSecond());
     assertEquals(2, task.activations().size());
     VmState state = restored(task);
     assertEquals(VmSnapshot.ReturnMode.EVAL, state.snapshot().frames().getFirst().returnMode());
@@ -285,7 +285,7 @@ final class LegacyDatabaseRestorationTest {
     for (int index = 0; index < task.activations().size(); index++) {
       var activation = task.activations().get(index);
       frames.addFirst(DurableTaskCodec.importActivation(activation,
-          index == 0 ? task.rootActivationVector() : -1, index == 0, new ToastV17ProgramLayout()));
+          index == 0 ? task.rootActivationVector() : -1, index == 0));
     }
     VmSnapshot.Frame root = frames.getLast();
     return VmState.restore(new VmSnapshot(root.locals(), root.programmer(), root.verbLocation(),

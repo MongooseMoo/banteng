@@ -36,7 +36,6 @@ import world.mongoose.banteng.world.DurableTask;
 import world.mongoose.banteng.world.QueuedTask;
 import world.mongoose.banteng.world.SuspendedActivation;
 import world.mongoose.banteng.world.SuspendedTask;
-import world.mongoose.banteng.persistence.ToastV17ProgramLayout;
 import world.mongoose.banteng.value.MooValue;
 import world.mongoose.banteng.value.MooValue.AnonymousObjectValue;
 import world.mongoose.banteng.value.MooValue.ErrorValue;
@@ -212,7 +211,6 @@ public final class PublicationScheduler implements AutoCloseable {
       throw new IllegalArgumentException("invalid v17 maximum stack depth for task " + restored.taskId());
     }
 
-    ToastV17ProgramLayout layout = new ToastV17ProgramLayout();
     List<VmSnapshot.Frame> rootToCurrent = new ArrayList<>();
     for (int activationIndex = 0;
         activationIndex < restored.activations().size();
@@ -220,7 +218,7 @@ public final class PublicationScheduler implements AutoCloseable {
       SuspendedActivation activation = restored.activations().get(activationIndex);
       int vector = activationIndex == 0 ? restored.rootActivationVector() : -1;
       rootToCurrent.add(
-          DurableTaskCodec.importActivation(activation, vector, activationIndex == 0, layout));
+          DurableTaskCodec.importActivation(activation, vector, activationIndex == 0));
     }
     Collections.reverse(rootToCurrent);
     VmSnapshot.Frame root = rootToCurrent.getLast();

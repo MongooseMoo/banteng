@@ -60,13 +60,12 @@ public final class DurableTaskCodec {
   public static VmSnapshot.Frame importActivation(
       SuspendedActivation activation,
       int vector,
-      boolean rootActivation,
-      ToastV17ProgramLayout layout) {
+      boolean rootActivation) {
     if (activation.languageVersion() < 4 || activation.languageVersion() > 17) {
       throw new IllegalArgumentException(
           "unsupported suspended activation language version " + activation.languageVersion());
     }
-    layout = new ToastV17ProgramLayout(activation.languageVersion());
+    ToastV17ProgramLayout layout = new ToastV17ProgramLayout(activation.languageVersion());
     BuiltinState builtin = importBuiltin(activation, rootActivation);
 
     BytecodeProgram compiled = new MooCompiler().compile(activation.programSource());

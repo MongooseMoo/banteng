@@ -44,8 +44,13 @@ Conformance also exposed a production diagnostic defect. Toast db_file.cc logs a
 field types in parents/children/location/contents order before phase-one rejection, and logs
 reciprocity failures in location/contents/parents/children order across objects before rejecting.
 The existing V5 reader rejects at the first mismatch without those diagnostics. The authorized
-repair adds that log-before-reject behavior inside the existing reader, retaining cycle admission
-and missing-reference repair. Conformance fixtures and assertions remain unchanged.
+repair now adds that log-before-reject behavior inside the existing reader, retaining cycle
+admission and missing-reference repair. The authored V5 reader test passes; its captured output
+contains every unchanged Broken2/4/5 conformance diagnostic in Toast order. Conformance fixtures
+and assertions remain unchanged; conformance itself was not rerun locally.
+The timeout and overwritten-layout-parameter review repairs are complete. The authored
+LegacyDatabaseRestorationTest passes with the repaired production source frozen through
+compilation; all actual importActivation callers compile against the three-argument method.
 Coordinator verifies the implementation and primary-source claims, publishes, obtains Claude
 review and PR CI, then normally merges after prerequisites. Nothing has been published by worker.
 
@@ -55,10 +60,17 @@ Legacy activation threading defaults true: execute.cc uses DEFAULT_THREAD_MODE, 
 defines it true. Old VM maximum defaults fifty. Indexed assignment layout previously passed
 indexed_above true for the outer lvalue; Toast code_gen.cc passes zero and only nested parents
 use one. That existing layout error is corrected as part of indexed continuation restoration.
-Toast temp is set after indexed RHS evaluation and cleared after straight-line assignment;
-there is no call between PUT_TEMP and PUSH_TEMP. Raw temp metadata is retained by read/write,
-and runtime import need not feed it into a new VM mechanism.
+Correction: the earlier claim that no call occurs between PUT_TEMP and PUSH_TEMP was wrong.
+With WAIF_DICT enabled, OP_INDEXSET can call the _set_index verb (execute.cc1175–1205).
+Toast saved-PC admission requires a CALL_VERB or BI_FUNC_CALL boundary (execute.cc3998–4011),
+and rejects that indexed-assignment saved PC. No supported suspended producer requiring temp
+translation has been established. Raw temp metadata remains retained by database read/write;
+the evidence does not justify a new VM mechanism.
 Local authoring failures were repaired without changing protections: extraction-orphaned
 helpers and repair-copy methods were deleted; missing Override annotations, nullable map
 assertions and explicit split limits fixed static errors; multiline test literals use text
 blocks; direct VM tests now use existing transaction begin/authorize/commit lifecycle.
+Claude review identified a timeout interpretation defect: Toast tasks.cc2096 maps only negative
+stored deadlines to INTNUM_MAX. Finite 2147483647 must remain finite. The repair removes that
+extra conversion while retaining negative/MAX saturation handling. The immediately overwritten
+importActivation layout parameter is removed from the method and its concrete callers.

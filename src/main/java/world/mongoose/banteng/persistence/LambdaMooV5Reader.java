@@ -177,15 +177,34 @@ public final class LambdaMooV5Reader implements DbCodec {
   private Map<Long, RepairedObject> repairTopology(Map<Long, RawObject> objects) throws IOException {
     serverLog.info("VALIDATE: checking object references ...");
     Map<Long, RepairedObject> repaired = new LinkedHashMap<>();
+    boolean broken = false;
     for (RawObject object : objects.values()) {
+      if (!(object.parents() instanceof ObjectValue) && !isObjectList(object.parents())) {
+        serverLog.error("*** VALIDATE: #" + object.id() + ".parents is not an object or list of objects.");
+        broken = true;
+      }
+      if (!isObjectList(object.children())) {
+        serverLog.error("*** VALIDATE: #" + object.id() + ".children is not a list of objects.");
+        broken = true;
+      }
+      if (!(object.location() instanceof ObjectValue)) {
+        serverLog.error("*** VALIDATE: #" + object.id() + ".location is not an object.");
+        broken = true;
+      }
+      if (!isObjectList(object.contents())) {
+        serverLog.error("*** VALIDATE: #" + object.id() + ".contents is not a list of objects.");
+        broken = true;
+      }
+      if (broken) continue;
+      List<Long> parents = repairParents(object, objects);
+      List<Long> children = repairObjectList(object, object.children(), "children", "child", objects);
+      long location = repairLocation(object, objects);
+      List<Long> contents = repairObjectList(object, object.contents(), "contents", "content", objects);
       repaired.put(
           object.id(),
-          new RepairedObject(
-              repairLocation(object, objects),
-              repairObjectList(object, object.contents(), "contents", "content", objects),
-              repairParents(object, objects),
-              repairObjectList(object, object.children(), "children", "child", objects)));
+          new RepairedObject(location, contents, parents, children));
     }
+    if (broken) throw malformed("invalid hierarchy field types");
 
     serverLog.info("VALIDATE: checking inheritance graph for cycles ...");
     Set<Long> parentCycles = new LinkedHashSet<>();
@@ -207,28 +226,41 @@ public final class LambdaMooV5Reader implements DbCodec {
       long id = entry.getKey();
       RepairedObject object = entry.getValue();
       if (object.location() != -1 && !Objects.requireNonNull(repaired.get(object.location())).contents().contains(id)) {
-        throw malformed("object #" + id + " is absent from its location contents");
+        serverLog.error("*** VALIDATE: #" + id + " not in it's location's (#" + object.location() + ") contents.");
+        broken = true;
+      }
+      for (long content : object.contents()) {
+        if (content == -1) continue;
+        if (Objects.requireNonNull(repaired.get(content)).location() != id) {
+          serverLog.error("*** VALIDATE: #" + id + " not in it's content's (#" + content + ") location.");
+          broken = true;
+          break;
+        }
       }
       for (long parent : object.parents()) {
         if (parent == -1) continue;
         if (!Objects.requireNonNull(repaired.get(parent)).children().contains(id)) {
-          throw malformed("object #" + id + " is absent from parent #" + parent + " children");
+          serverLog.error("*** VALIDATE: #" + id + " not in it's parent's (#" + parent + ") children.");
+          broken = true;
+          break;
         }
       }
       for (long child : object.children()) {
         if (child == -1) continue;
         if (!Objects.requireNonNull(repaired.get(child)).parents().contains(id)) {
-          throw malformed("child #" + child + " does not name parent #" + id);
-        }
-      }
-      for (long content : object.contents()) {
-        if (content == -1) continue;
-        if (Objects.requireNonNull(repaired.get(content)).location() != id) {
-          throw malformed("content #" + content + " does not name location #" + id);
+          serverLog.error("*** VALIDATE: #" + id + " not in it's child's (#" + child + ") parents.");
+          broken = true;
+          break;
         }
       }
     }
+    if (broken) throw malformed("inconsistent hierarchy relationships");
     return repaired;
+  }
+
+  private static boolean isObjectList(MooValue value) {
+    return value instanceof ListValue list
+        && list.elements().stream().allMatch(element -> element instanceof ObjectValue);
   }
 
   private long repairLocation(RawObject object, Map<Long, RawObject> objects) throws IOException {

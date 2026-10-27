@@ -191,7 +191,7 @@ final class TaskSectionReader {
                 parseInt(header.substring(secondSpace + 1), "suspended-task resume tag"),
                 "suspended task #" + taskId + " resume value");
     return readSuspendedVm(
-        input, taskId, scheduledEpochSecond < 0 || scheduledEpochSecond == Integer.MAX_VALUE ? Long.MAX_VALUE : scheduledEpochSecond, resumeValue, Optional.empty());
+        input, taskId, scheduledEpochSecond < 0 ? Long.MAX_VALUE : scheduledEpochSecond, resumeValue, Optional.empty());
   }
 
   private SuspendedTask readInterruptedTask(
