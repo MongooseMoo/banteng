@@ -47,18 +47,16 @@ public record ValueSemantics(boolean promoteNumbers) {
       case MapValue map -> {
         if (map == right) yield true;
         MapValue other = (MapValue) right;
-        boolean same = map.size() == other.size();
-        if (same) {
-          var leftEntries = map.orderedEntries().iterator();
-          var rightEntries = other.orderedEntries().iterator();
-          while (same && leftEntries.hasNext()) {
-            var leftEntry = leftEntries.next();
-            var rightEntry = rightEntries.next();
-            same = equal(leftEntry.getKey(), rightEntry.getKey(), caseMatters)
-                && equal(leftEntry.getValue(), rightEntry.getValue(), caseMatters);
-          }
+        var leftEntries = map.orderedEntries().iterator();
+        var rightEntries = other.orderedEntries().iterator();
+        boolean same = true;
+        while (same && leftEntries.hasNext() && rightEntries.hasNext()) {
+          var leftEntry = leftEntries.next();
+          var rightEntry = rightEntries.next();
+          same = equal(leftEntry.getKey(), rightEntry.getKey(), caseMatters)
+              && equal(leftEntry.getValue(), rightEntry.getValue(), caseMatters);
         }
-        yield same;
+        yield same && !leftEntries.hasNext() && !rightEntries.hasNext();
       }
       case MooValue.AnonymousObjectValue anonymous -> anonymous == right;
       case MooValue.WaifValue waif -> waif == right;

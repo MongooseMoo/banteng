@@ -71,6 +71,19 @@ final class ValueSemanticsTest {
   }
 
   @Test
+  void mapLiteralEqualityRequiresBothLookupTreesToBeExhausted() {
+    assertEquals(
+        new ListValue(List.of(new IntegerValue(0), new IntegerValue(0), new IntegerValue(0),
+            new IntegerValue(0), new IntegerValue(1), new IntegerValue(1))),
+        execute("""
+            a = ["\u00c3\u00a9" -> 1, "\u00c3\u0089" -> 2];
+            b = ["\u00c3\u0089" -> 2];
+            c = ["\u00c3\u0089" -> 2, "\u00c3\u00a9" -> 1];
+            return {a == b, b == a, equal(a, b), equal(b, a), equal(a, c), a == c};
+            """, Map.of()));
+  }
+
+  @Test
   void anonymousMapKeysUseExistingTreeTopologyAndReferenceIdentity() {
     AnonymousObjectValue first = new AnonymousObjectValue();
     AnonymousObjectValue second = new AnonymousObjectValue();
