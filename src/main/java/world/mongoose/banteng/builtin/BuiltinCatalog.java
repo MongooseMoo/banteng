@@ -1,23 +1,17 @@
 package world.mongoose.banteng.builtin;
 import world.mongoose.banteng.builtin.family.SqliteBuiltins;
-import java.io.IOException;
 import java.nio.file.Path;
 import java.security.SecureRandom;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
-import world.mongoose.banteng.world.SuspendedActivation;
 import java.util.Optional;
-import java.util.OptionalLong;
 import java.util.Random;
 import java.util.Set;
-import java.util.function.LongBinaryOperator;
-import java.util.function.Supplier;
 import world.mongoose.banteng.builtin.family.ConversionBuiltins;
 import world.mongoose.banteng.builtin.family.ConnectionBuiltins;
 
@@ -39,34 +33,18 @@ import world.mongoose.banteng.builtin.family.StringBuiltins;
 import world.mongoose.banteng.builtin.family.TaskBuiltins;
 import world.mongoose.banteng.builtin.family.TimeBuiltins;
 import world.mongoose.banteng.builtin.family.VerbBuiltins;
-import world.mongoose.banteng.bytecode.MooCompiler;
-import world.mongoose.banteng.host.NativeCallException;
-import world.mongoose.banteng.logging.ServerLog;
 import world.mongoose.banteng.value.MooValue;
-import world.mongoose.banteng.value.MooValue.AnonymousObjectValue;
 import world.mongoose.banteng.value.MooValue.ErrorValue;
-import world.mongoose.banteng.value.MooValue.FloatValue;
 import world.mongoose.banteng.value.MooValue.IntegerValue;
 import world.mongoose.banteng.value.MooValue.ListValue;
-import world.mongoose.banteng.value.MooValue.MapValue;
 import world.mongoose.banteng.value.MooValue.ObjectValue;
 import world.mongoose.banteng.value.MooValue.StringValue;
-import world.mongoose.banteng.value.MooValue.WaifValue;
 
-import world.mongoose.banteng.value.ValueSemantics;
-import world.mongoose.banteng.world.WorldAnonymousObject;
-import world.mongoose.banteng.world.WorldObject;
-import world.mongoose.banteng.world.WorldProperty;
 import world.mongoose.banteng.world.WorldTxn;
-import world.mongoose.banteng.world.WorldVerb;
 
 /** The explicit builtin catalog required by the first managed runtime path. */
 public final class BuiltinCatalog {
   private static final SecureRandom SECURE_RANDOM = new SecureRandom();
-  private static final Set<ArgType> ANY = Set.of(ArgType.ANY);
-  private static final Set<ArgType> INTEGER = Set.of(ArgType.INTEGER);
-  private static final Set<ArgType> STRING = Set.of(ArgType.STRING);
-  private static final Set<ArgType> OBJECT = Set.of(ArgType.OBJECT);
 
   private final List<BuiltinSpec> manifest;
   private final FileIoBuiltins fileIo;

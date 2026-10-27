@@ -6,7 +6,7 @@ Integrate the twelve existing family extractions into the current callback runti
 
 ## State
 
-New isolated campaign/10-final-assembly starts from current committed campaign/callback-command-locals. Existing root campaign-10-plan final assembly section governs. Parent owns publication, PR integration/merge, reviews and CI; this local preparation is not those milestones. Parent will integrate the pending login repair later.
+All twelve family branches are integrated through normal local merges in campaign/10-final-assembly. Current campaign/callback-command-locals, including login projection and layout-selector repairs, was merged before the final Connection relocation. Parent owns publication, PR integration/merge, reviews and CI; this local preparation is not those milestones.
 
 ## Smallest change and decisions
 
@@ -14,8 +14,10 @@ Normally merge existing family branches in actual dependency order: Binary befor
 
 ## Surprises
 
-None yet. This task does not edit other worktrees, run broad local CI, launch Claude or publish.
+Mechanical conflicts combined additive mover cases, fixtures and YAML declarations, retained every family's registration group in original order, and preserved both sides' deletions of moved catalog bodies. The twelve family owner files are byte-identical to their respective source branches. Connection was last; MooRuntime, MooVm and VmSnapshot changes against current runtime relocate transport types only. The newer LoginSwitchOutputTest needed its ListenerControl import relocated too. No other worktree was edited, local CI run, review repeated or publication performed.
+
+Final cleanup removes eighteen unused imports and four unused ArgType constants: twenty-two lines. BuiltinCatalog is 214 lines, with forty-six registration-group calls and the retained constructors, host access, manifest/index, lookup, central invocation and protection reload. No implementation body or dispatch framework was added. Read-only diff checks find no whitespace errors. No current compile or hosted CI acceptance is claimed.
 
 ## Next step
 
-Integrate Binary, Host, Crypto, Regex, SQLite, Object, Property, Verb, Task, Noise, Server and Connection through normal local merges. Record mechanical conflicts and actual retained code, remove only dead catalog imports/constants, then report actual line count, cleanup diff and remaining uncertainty to parent. No substitution of local preparation for required PR CI or reviews.
+Parent can inspect and integrate this local assembly after the required runtime/family milestones. Remaining uncertainty is integration compilation and behavior under hosted CI; no substantive source ambiguity was found. Existing completed family reviews remain reusable for unchanged owners; assembly conflict resolution and the new fixture import are the actual integration delta.
