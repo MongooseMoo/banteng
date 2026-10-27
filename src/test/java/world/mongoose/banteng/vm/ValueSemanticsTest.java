@@ -144,7 +144,7 @@ final class ValueSemanticsTest {
         BuiltinHosts.builder().valueSemantics(new ValueSemantics(promote)).build());
     try (WorldTxn world = new WorldTxn(List.of(), List.of()).begin()) {
       BuiltinCall call = new BuiltinCall(arguments, world, 0, new IntegerValue(0), 1, 60_000, 5,
-          new ObjectValue(0), 0, new ListValue(List.of()), false,
+          new ObjectValue(0), 0, _lineNumbers -> new ListValue(List.of()), false,
           (_connection, bytes) -> bytes);
       BuiltinResult result = catalog.invoke(catalog.spec(name).orElseThrow(), call);
       return ((BuiltinResult.Value) result).value();
