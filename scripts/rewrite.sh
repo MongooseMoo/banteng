@@ -22,4 +22,6 @@ fi
 [ $# -ge 1 ] || { echo "usage: scripts/rewrite.sh [--apply] <recipe> [recipe...]" >&2; exit 2; }
 
 recipes=$(IFS=,; echo "$*")
-./gradlew "$task" --warning-mode summary "-Drewrite.activeRecipe=${recipes}"
+# The plugin caches recipe classloaders by jar URL, not jar contents. A fresh
+# Gradle process is required when rebuilding a recipe at the same jar path.
+./gradlew --no-daemon "$task" --warning-mode summary "-Drewrite.activeRecipe=${recipes}"
