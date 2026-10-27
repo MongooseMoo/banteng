@@ -94,7 +94,11 @@ public final class LayoutCompiler {
           PendingProtectedFinally,
           PendingFinallyContinuation,
           PendingCollectionLoop,
-          PendingRangeLoop {}
+          PendingRangeLoop,
+          PendingIndex {}
+
+  record PendingIndex(AstPath ownerPath, int baseDepth, OptionalInt keyDepth)
+      implements PendingStructuralEntry {}
 
   record PendingCatchGroup(
       AstPath ownerPath,
@@ -202,6 +206,9 @@ public final class LayoutCompiler {
 
     private StructuralStackEntry structuralEntry(
         PendingStructuralEntry entry, BytecodeProgram bantengProgram) {
+      if (entry instanceof PendingIndex index) {
+        return new ToastV17ProgramModel.IndexContext(index.ownerPath(), index.baseDepth(), index.keyDepth());
+      }
       if (entry instanceof PendingCatchGroup caught) {
         ToastHandlerGroup group = handlerGroup(caught.group());
         return new CatchGroup(
@@ -419,12 +426,23 @@ public final class LayoutCompiler {
 
   /** Parses one MOO source body for Toast v17 layout queries. */
   public LayoutCompiler(String source) {
-    this(MooParser.parse(Objects.requireNonNull(source, "source")));
+    this(source, 17);
+  }
+
+  public LayoutCompiler(String source, int languageVersion) {
+    this(MooParser.parse(Objects.requireNonNull(source, "source")), languageVersion);
   }
 
   private LayoutCompiler(Ast.Program program) {
+    this(program, 17);
+  }
+
+  private LayoutCompiler(Ast.Program program, int languageVersion) {
     this.program = program;
-    for (String name : PREDEFINED_NAMES) {
+    int count = 16 + (languageVersion >= 3 ? 2 : 0) + (languageVersion >= 7 ? 1 : 0)
+        + (languageVersion >= 13 ? 1 : 0) + (languageVersion >= 14 ? 1 : 0)
+        + (languageVersion >= 17 ? 3 : 0);
+    for (String name : PREDEFINED_NAMES.subList(0, count)) {
       symbols.put(name, symbols.size());
       symbolSpellings.add(name.equals("true") || name.equals("false")
           || (symbols.size() > 5 && symbols.size() <= 16) ? name : name.toUpperCase(Locale.ROOT));
@@ -1147,15 +1165,21 @@ public final class LayoutCompiler {
     }
     if (expression instanceof Ast.IndexAccess index) {
       emitExpression(index.collection(), append(path, 0), vector);
+      PendingIndex context = new PendingIndex(astPath(path), vector.stackDepth() - 1, OptionalInt.empty());
+      vector.enterStructure(context);
       emitExpression(index.index(), append(path, 1), vector);
+      vector.leaveStructure(context);
       vector.bytecode();
       vector.pop(1);
       return;
     }
     if (expression instanceof Ast.RangeAccess range) {
       emitExpression(range.collection(), append(path, 0), vector);
+      PendingIndex context = new PendingIndex(astPath(path), vector.stackDepth() - 1, OptionalInt.empty());
+      vector.enterStructure(context);
       emitExpression(range.start(), append(path, 1), vector);
       emitExpression(range.end(), append(path, 2), vector);
+      vector.leaveStructure(context);
       vector.bytecode();
       vector.pop(2);
       return;
@@ -1302,8 +1326,10 @@ public final class LayoutCompiler {
       vector.pop(2);
       return;
     }
-    emitLvalue(target, true, append(path, 0), vector);
+    List<PendingIndex> indices = new ArrayList<>();
+    emitLvalue(target, false, append(path, 0), vector, indices);
     emitExpression(assignment.value(), append(path, 1), vector);
+    for (int index = indices.size() - 1; index >= 0; index--) vector.leaveStructure(indices.get(index));
     if (target instanceof Ast.IndexTarget || target instanceof Ast.RangeTarget) {
       vector.bytecode();
     }
@@ -1343,7 +1369,8 @@ public final class LayoutCompiler {
   }
 
   private void emitLvalue(
-      Ast.AssignmentTarget target, boolean indexedAbove, List<Integer> path, VectorBuilder vector) {
+      Ast.AssignmentTarget target, boolean indexedAbove, List<Integer> path, VectorBuilder vector,
+      List<PendingIndex> indices) {
     if (target instanceof Ast.VariableTarget variable) {
       if (indexedAbove) {
         vector.variable(symbol(variable.name()));
@@ -1361,18 +1388,27 @@ public final class LayoutCompiler {
       return;
     }
     if (target instanceof Ast.IndexTarget index) {
-      emitLvalue(targetFor(index.collection()), true, append(path, 0), vector);
+      emitLvalue(targetFor(index.collection()), true, append(path, 0), vector, indices);
+      PendingIndex context = new PendingIndex(astPath(path), vector.stackDepth() - 1, OptionalInt.empty());
+      vector.enterStructure(context);
       emitExpression(index.index(), append(path, 1), vector);
       if (indexedAbove) {
+        vector.leaveStructure(context);
+        context = new PendingIndex(astPath(path), context.baseDepth(), OptionalInt.of(vector.stackDepth() - 1));
+        vector.enterStructure(context);
         vector.bytecode();
         vector.push(1);
       }
+      indices.add(context);
       return;
     }
     if (target instanceof Ast.RangeTarget range) {
-      emitLvalue(targetFor(range.collection()), true, append(path, 0), vector);
+      emitLvalue(targetFor(range.collection()), true, append(path, 0), vector, indices);
+      PendingIndex context = new PendingIndex(astPath(path), vector.stackDepth() - 1, OptionalInt.empty());
+      vector.enterStructure(context);
       emitExpression(range.start(), append(path, 1), vector);
       emitExpression(range.end(), append(path, 2), vector);
+      indices.add(context);
       return;
     }
     if (target instanceof Ast.ScatterTarget) {

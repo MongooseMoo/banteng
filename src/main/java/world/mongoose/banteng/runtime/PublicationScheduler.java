@@ -197,7 +197,8 @@ public final class PublicationScheduler implements AutoCloseable {
     }
     return new TimedWork(
         work,
-        Math.multiplyExact(restored.scheduledEpochSecond(), 1_000L),
+        restored.scheduledEpochSecond() == Long.MAX_VALUE ? Long.MAX_VALUE
+            : Math.multiplyExact(restored.scheduledEpochSecond(), 1_000L),
         Optional.empty(),
         Optional.of(restored));
   }
@@ -275,7 +276,8 @@ public final class PublicationScheduler implements AutoCloseable {
                 : BuiltinResult.value(restored.resumeValue());
     return new TimedWork(
         work,
-        Math.multiplyExact(restored.scheduledEpochSecond(), 1_000L),
+        restored.scheduledEpochSecond() == Long.MAX_VALUE ? Long.MAX_VALUE
+            : Math.multiplyExact(restored.scheduledEpochSecond(), 1_000L),
         Optional.of(wake),
         Optional.of(restored));
   }

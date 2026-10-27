@@ -41,7 +41,7 @@ final class SlotLocalsTest {
     locals.put("VALUE", Optional.of(new IntegerValue(9)));
     locals.put("NUM", Optional.of(new IntegerValue(77)));
     locals.put("FLOAT", Optional.empty());
-    var old = new world.mongoose.banteng.persistence.LambdaMooV17Codec.SuspendedActivation(
+    var old = new world.mongoose.banteng.world.SuspendedActivation(
         saved.languageVersion(), saved.programSource(), locals, saved.operandStack(), saved.receiver(),
         saved.verbLocation(), saved.threadMode(), saved.taskPlayer(), saved.programmer(), saved.debug(),
         saved.verb(), saved.verbNames(), saved.temporary(), saved.programCounter(),
