@@ -327,7 +327,6 @@ final class BuiltinCatalogTest {
         new LinkedHashSet<>(manifest.stream().map(BuiltinSpec::name).toList()).size());
     for (BuiltinSpec spec : manifest) {
       assertTrue(!spec.callShapes().isEmpty(), spec.name());
-      assertTrue(spec.tickCost().charge(List.of()) >= 0, spec.name());
       assertSame(spec, catalog.spec(spec.name().toUpperCase(java.util.Locale.ROOT)).orElseThrow());
     }
   }
@@ -341,9 +340,7 @@ final class BuiltinCatalogTest {
         List.of(new CallShape(List.of(Set.of(ArgType.ANY)), List.of(), Optional.empty())),
         spec.callShapes());
     assertSame(BuiltinPermissionRule.ANY, spec.permission());
-    assertEquals(0, spec.tickCost().charge(List.of(new IntegerValue(1))));
-    assertEquals(EffectClass.TRANSACTION_READ, spec.effect());
-    assertEquals(BuiltinOwner.WORLD, spec.owner());
+    assertEquals(false, spec.irrevocable());
 
     WorldObject wizard =
         new WorldObject(1, "Wizard", 4, 1, -1, -1, List.of(), List.of(), List.of(), List.of());
@@ -426,9 +423,7 @@ final class BuiltinCatalogTest {
     assertEquals(
         List.of(new CallShape(List.of(), List.of(), Optional.empty())), spec.callShapes());
     assertSame(BuiltinPermissionRule.WIZARD_ONLY, spec.permission());
-    assertEquals(0, spec.tickCost().charge(List.of()));
-    assertEquals(EffectClass.IRREVOCABLE, spec.effect());
-    assertEquals(BuiltinOwner.VM, spec.owner());
+    assertEquals(true, spec.irrevocable());
 
     RecordingRandom recordingRandom = new RecordingRandom();
     recordingRandom.resetSeedCalls();
@@ -471,9 +466,7 @@ final class BuiltinCatalogTest {
                 Optional.empty())),
         spec.callShapes());
     assertSame(BuiltinPermissionRule.ANY, spec.permission());
-    assertEquals(0, spec.tickCost().charge(List.of(string("value"))));
-    assertEquals(EffectClass.PURE, spec.effect());
-    assertEquals(BuiltinOwner.VM, spec.owner());
+    assertEquals(false, spec.irrevocable());
 
     try (WorldTxn transaction = world().begin()) {
       assertEquals(
@@ -718,8 +711,7 @@ final class BuiltinCatalogTest {
                 Optional.empty())),
         spec.callShapes());
     assertSame(BuiltinPermissionRule.ANY, spec.permission());
-    assertEquals(EffectClass.IRREVOCABLE, spec.effect());
-    assertEquals(BuiltinOwner.TASK, spec.owner());
+    assertEquals(true, spec.irrevocable());
     try (WorldTxn transaction = world().begin()) {
       assertEquals(Optional.of(tasks), value(invoke(catalog, spec, List.of(), transaction, 1)));
       assertEquals(
@@ -751,8 +743,7 @@ final class BuiltinCatalogTest {
       assertEquals(
           List.of(new CallShape(List.of(), List.of(), Optional.empty())), spec.callShapes());
       assertSame(BuiltinPermissionRule.ANY, spec.permission());
-      assertEquals(EffectClass.IRREVOCABLE, spec.effect());
-      assertEquals(BuiltinOwner.VM, spec.owner());
+      assertEquals(true, spec.irrevocable());
       assertTrue(value >= before && value <= after);
     }
   }
@@ -855,8 +846,7 @@ final class BuiltinCatalogTest {
         List.of(new CallShape(List.of(Set.of(ArgType.INTEGER)), List.of(), Optional.empty())),
         spec.callShapes());
     assertSame(BuiltinPermissionRule.ANY, spec.permission());
-    assertEquals(EffectClass.IRREVOCABLE, spec.effect());
-    assertEquals(BuiltinOwner.TASK, spec.owner());
+    assertEquals(true, spec.irrevocable());
     try (WorldTxn transaction = world().begin()) {
       assertEquals(
           Optional.of(new IntegerValue(23)),
@@ -891,9 +881,7 @@ final class BuiltinCatalogTest {
                 Optional.empty())),
         spec.callShapes());
     assertSame(BuiltinPermissionRule.ANY, spec.permission());
-    assertEquals(0, spec.tickCost().charge(List.of()));
-    assertEquals(EffectClass.SUSPENDING_HOST, spec.effect());
-    assertEquals(BuiltinOwner.CONNECTION, spec.owner());
+    assertEquals(false, spec.irrevocable());
     try (WorldTxn transaction = world().begin()) {
       assertEquals(
           Optional.of(ErrorValue.E_PERM),
@@ -950,8 +938,7 @@ final class BuiltinCatalogTest {
         List.of(new CallShape(List.of(Set.of(ArgType.OBJECT)), List.of(), Optional.empty())),
         spec.callShapes());
     assertSame(BuiltinPermissionRule.ANY, spec.permission());
-    assertEquals(EffectClass.EXTERNAL_READ, spec.effect());
-    assertEquals(BuiltinOwner.CONNECTION, spec.owner());
+    assertEquals(false, spec.irrevocable());
     try (WorldTxn transaction = world().begin()) {
       connections.openConnection(-2, info);
       connections.switchConnectionPlayer(-2, 2);
@@ -1003,8 +990,7 @@ final class BuiltinCatalogTest {
                 Optional.empty())),
         spec.callShapes());
     assertSame(BuiltinPermissionRule.ANY, spec.permission());
-    assertEquals(EffectClass.EXTERNAL_READ, spec.effect());
-    assertEquals(BuiltinOwner.CONNECTION, spec.owner());
+    assertEquals(false, spec.irrevocable());
     try (WorldTxn transaction = world().begin()) {
       connections.openConnection(-2, info);
       connections.switchConnectionPlayer(-2, 2);
@@ -1059,8 +1045,7 @@ final class BuiltinCatalogTest {
     for (BuiltinSpec spec : List.of(idle, connected)) {
       assertEquals(List.of(shape), spec.callShapes());
       assertSame(BuiltinPermissionRule.ANY, spec.permission());
-      assertEquals(EffectClass.EXTERNAL_READ, spec.effect());
-      assertEquals(BuiltinOwner.CONNECTION, spec.owner());
+      assertEquals(false, spec.irrevocable());
     }
     try (WorldTxn transaction = world().begin()) {
       assertEquals(
@@ -1092,8 +1077,7 @@ final class BuiltinCatalogTest {
     for (BuiltinSpec spec : List.of(match, rmatch)) {
       assertEquals(List.of(shape), spec.callShapes());
       assertSame(BuiltinPermissionRule.ANY, spec.permission());
-      assertEquals(EffectClass.PURE, spec.effect());
-      assertEquals(BuiltinOwner.VM, spec.owner());
+      assertEquals(false, spec.irrevocable());
     }
     try (WorldTxn transaction = world().begin()) {
       assertEquals(
@@ -1232,8 +1216,7 @@ final class BuiltinCatalogTest {
                 Optional.empty())),
         spec.callShapes());
     assertSame(BuiltinPermissionRule.ANY, spec.permission());
-    assertEquals(EffectClass.SUSPENDING_HOST, spec.effect());
-    assertEquals(BuiltinOwner.CONNECTION, spec.owner());
+    assertEquals(false, spec.irrevocable());
     try (WorldTxn transaction = world().begin()) {
       connections.openConnection(-2, info);
       connections.switchConnectionPlayer(-2, 2);
@@ -1292,8 +1275,7 @@ final class BuiltinCatalogTest {
                 List.of(), List.of(Set.of(ArgType.ANY)), Optional.empty())),
         spec.callShapes());
     assertSame(BuiltinPermissionRule.ANY, spec.permission());
-    assertEquals(EffectClass.EXTERNAL_READ, spec.effect());
-    assertEquals(BuiltinOwner.CONNECTION, spec.owner());
+    assertEquals(false, spec.irrevocable());
     try (WorldTxn transaction = world().begin()) {
       connections.openConnection(-2);
       connections.switchConnectionPlayer(-2, 2);
@@ -1331,8 +1313,7 @@ final class BuiltinCatalogTest {
         List.of(new CallShape(List.of(), List.of(Set.of(ArgType.OBJECT)), Optional.empty())),
         spec.callShapes());
     assertSame(BuiltinPermissionRule.ANY, spec.permission());
-    assertEquals(EffectClass.EXTERNAL_READ, spec.effect());
-    assertEquals(BuiltinOwner.CONNECTION, spec.owner());
+    assertEquals(false, spec.irrevocable());
     try (WorldTxn transaction = world().begin()) {
       connections.openConnection(-2);
       connections.switchConnectionPlayer(-2, 2);
@@ -1346,6 +1327,14 @@ final class BuiltinCatalogTest {
           Optional.of(new IntegerValue(37)),
           value(invoke(catalog, spec, List.of(new ObjectValue(2)), transaction, 2)));
       assertEquals(-2, listener.bufferedOutputConnectionId);
+      BuiltinCall nested = new BuiltinCall(
+          List.of(string("buffered_output_length"), new ObjectValue(2)),
+          transaction, 2, new IntegerValue(0), 17, 60_000, 5,
+          new ObjectValue(2), 2, new ListValue(List.of()), false,
+          (connectionId, queuedBytes) -> connectionId == -2 ? queuedBytes + 11 : queuedBytes);
+      assertEquals(
+          Optional.of(new IntegerValue(48)),
+          value(catalog.invoke(catalog.spec("call_function").orElseThrow(), nested)));
       assertEquals(
           Optional.of(ErrorValue.E_PERM),
           error(invoke(catalog, spec, List.of(new ObjectValue(1)), transaction, 2)));
@@ -1456,8 +1445,7 @@ final class BuiltinCatalogTest {
         List.of(new CallShape(List.of(Set.of(ArgType.STRING)), List.of(), Optional.of(Set.of(ArgType.ANY)))),
         spec.callShapes());
     assertSame(BuiltinPermissionRule.ANY, spec.permission());
-    assertEquals(EffectClass.IRREVOCABLE, spec.effect());
-    assertEquals(BuiltinOwner.VM, spec.owner());
+    assertEquals(true, spec.irrevocable());
     try (WorldTxn transaction = world().begin()) {
       assertEquals(
           Optional.of(new IntegerValue(0)),
@@ -1470,18 +1458,19 @@ final class BuiltinCatalogTest {
               ));
       assertEquals(
           Optional.of(callers),
-          value(catalog.invoke(
-                  spec,
-                  List.of(string("callers")),
-                  transaction,
-                  1,
-                  new IntegerValue(0),
-                  9,
-                  100,
-                  5,
-                  new ObjectValue(1),
-                  1,
-                  callers)
+          value(catalog.invoke(spec, new BuiltinCall(
+        List.of(string("callers")),
+        transaction,
+        1,
+        new IntegerValue(0),
+        9,
+        100,
+        5,
+        new ObjectValue(1),
+        1,
+        callers,
+        true,
+        (_connectionId, queuedBytes) -> queuedBytes))
               ));
       assertEquals(
           Optional.of(new IntegerValue(0)),
@@ -1518,8 +1507,7 @@ final class BuiltinCatalogTest {
                 Optional.empty())),
         spec.callShapes());
     assertSame(BuiltinPermissionRule.ANY, spec.permission());
-    assertEquals(EffectClass.DEFERRED_COMMIT, spec.effect());
-    assertEquals(BuiltinOwner.CONNECTION, spec.owner());
+    assertEquals(false, spec.irrevocable());
     try (WorldTxn transaction = world().begin()) {
       connections.openConnection(-2, info);
       connections.switchConnectionPlayer(-2, 2);
@@ -1592,8 +1580,7 @@ final class BuiltinCatalogTest {
                 Optional.empty())),
         spec.callShapes());
     assertSame(BuiltinPermissionRule.ANY, spec.permission());
-    assertEquals(EffectClass.DEFERRED_COMMIT, spec.effect());
-    assertEquals(BuiltinOwner.CONNECTION, spec.owner());
+    assertEquals(false, spec.irrevocable());
     try (WorldTxn transaction = world().begin()) {
       BuiltinResult negative =
           invoke(
@@ -1648,20 +1635,16 @@ final class BuiltinCatalogTest {
 
     assertEquals(List.of(noArguments), load.callShapes());
     assertSame(BuiltinPermissionRule.WIZARD_ONLY, load.permission());
-    assertEquals(EffectClass.IRREVOCABLE, load.effect());
-    assertEquals(BuiltinOwner.SERVER, load.owner());
+    assertEquals(true, load.irrevocable());
     assertEquals(List.of(noArguments), taskId.callShapes());
     assertSame(BuiltinPermissionRule.ANY, taskId.permission());
-    assertEquals(EffectClass.PURE, taskId.effect());
-    assertEquals(BuiltinOwner.VM, taskId.owner());
+    assertEquals(false, taskId.irrevocable());
     assertEquals(List.of(noArguments), ticks.callShapes());
     assertSame(BuiltinPermissionRule.ANY, ticks.permission());
-    assertEquals(EffectClass.PURE, ticks.effect());
-    assertEquals(BuiltinOwner.VM, ticks.owner());
+    assertEquals(false, ticks.irrevocable());
     assertEquals(List.of(noArguments), seconds.callShapes());
     assertSame(BuiltinPermissionRule.ANY, seconds.permission());
-    assertEquals(EffectClass.PURE, seconds.effect());
-    assertEquals(BuiltinOwner.VM, seconds.owner());
+    assertEquals(false, seconds.irrevocable());
     try (WorldTxn transaction = world().begin()) {
       assertEquals(
           Optional.of(new IntegerValue(0)),
@@ -1674,54 +1657,57 @@ final class BuiltinCatalogTest {
           error(invoke(catalog, load, List.of(new IntegerValue(1)), transaction, 1)));
 
       BuiltinResult identity =
-          catalog.invoke(
-              taskId,
-              List.of(),
-              transaction,
-              2,
-              new MapValue(Map.of()),
-              8_123,
-              60_000,
-              5,
-              new ObjectValue(2),
-              2,
-              new ListValue(List.of()));
+          catalog.invoke(taskId, new BuiltinCall(
+        List.of(),
+        transaction,
+        2,
+        new MapValue(Map.of()),
+        8_123,
+        60_000,
+        5,
+        new ObjectValue(2),
+        2,
+        new ListValue(List.of()),
+        true,
+        (_connectionId, queuedBytes) -> queuedBytes));
       assertEquals(Optional.of(new IntegerValue(8_123)), value(identity));
       assertEquals(
           Optional.of(ErrorValue.E_ARGS),
           error(invoke(catalog, taskId, List.of(new IntegerValue(1)), transaction, 2)));
 
       BuiltinResult remaining =
-          catalog.invoke(
-              ticks,
-              List.of(),
-              transaction,
-              2,
-              new MapValue(Map.of()),
-              0,
-              59_321,
-              5,
-              new ObjectValue(2),
-              2,
-              new ListValue(List.of()));
+          catalog.invoke(ticks, new BuiltinCall(
+        List.of(),
+        transaction,
+        2,
+        new MapValue(Map.of()),
+        0,
+        59_321,
+        5,
+        new ObjectValue(2),
+        2,
+        new ListValue(List.of()),
+        true,
+        (_connectionId, queuedBytes) -> queuedBytes));
       assertEquals(Optional.of(new IntegerValue(59_321)), value(remaining));
       assertEquals(
           Optional.of(ErrorValue.E_ARGS),
           error(invoke(catalog, ticks, List.of(new IntegerValue(1)), transaction, 2)));
 
       BuiltinResult remainingSeconds =
-          catalog.invoke(
-              seconds,
-              List.of(),
-              transaction,
-              2,
-              new MapValue(Map.of()),
-              0,
-              59_321,
-              11,
-              new ObjectValue(2),
-              2,
-              new ListValue(List.of()));
+          catalog.invoke(seconds, new BuiltinCall(
+        List.of(),
+        transaction,
+        2,
+        new MapValue(Map.of()),
+        0,
+        59_321,
+        11,
+        new ObjectValue(2),
+        2,
+        new ListValue(List.of()),
+        true,
+        (_connectionId, queuedBytes) -> queuedBytes));
       assertEquals(Optional.of(new IntegerValue(11)), value(remainingSeconds));
       assertEquals(
           Optional.of(ErrorValue.E_ARGS),
@@ -1745,55 +1731,57 @@ final class BuiltinCatalogTest {
                 Optional.empty())),
         spec.callShapes());
     assertSame(BuiltinPermissionRule.ANY, spec.permission());
-    assertEquals(EffectClass.PURE, spec.effect());
-    assertEquals(BuiltinOwner.VM, spec.owner());
+    assertEquals(false, spec.irrevocable());
 
     try (WorldTxn transaction = world().begin()) {
       List<MooValue> thresholds =
           List.of(new IntegerValue(0), new IntegerValue(59_999), new IntegerValue(4));
       BuiltinResult tickYield =
-          catalog.invoke(
-              spec,
-              thresholds,
-              transaction,
-              2,
-              new MapValue(Map.of()),
-              17,
-              59_998,
-              5,
-              new ObjectValue(2),
-              2,
-              new ListValue(List.of()));
+          catalog.invoke(spec, new BuiltinCall(
+        thresholds,
+        transaction,
+        2,
+        new MapValue(Map.of()),
+        17,
+        59_998,
+        5,
+        new ObjectValue(2),
+        2,
+        new ListValue(List.of()),
+        true,
+        (_connectionId, queuedBytes) -> queuedBytes));
       assertEquals(OptionalDouble.of(0), delaySeconds(tickYield));
 
       BuiltinResult secondYield =
-          catalog.invoke(
-              spec,
-              thresholds,
-              transaction,
-              2,
-              new MapValue(Map.of()),
-              17,
-              59_999,
-              3,
-              new ObjectValue(2),
-              2,
-              new ListValue(List.of()));
+          catalog.invoke(spec, new BuiltinCall(
+        thresholds,
+        transaction,
+        2,
+        new MapValue(Map.of()),
+        17,
+        59_999,
+        3,
+        new ObjectValue(2),
+        2,
+        new ListValue(List.of()),
+        true,
+        (_connectionId, queuedBytes) -> queuedBytes));
       assertEquals(OptionalDouble.of(0), delaySeconds(secondYield));
 
       BuiltinResult noYield =
-          catalog.invoke(
-              spec,
-              thresholds,
-              transaction,
-              2,
-              new MapValue(Map.of()),
-              17,
-              59_999,
-              4,
-              new ObjectValue(2),
-              2,
-              new ListValue(List.of()));
+          catalog.invoke(spec, new BuiltinCall(
+        thresholds,
+        transaction,
+        2,
+        new MapValue(Map.of()),
+        17,
+        59_999,
+        4,
+        new ObjectValue(2),
+        2,
+        new ListValue(List.of()),
+        true,
+        (_connectionId, queuedBytes) -> queuedBytes));
       assertEquals(Optional.of(new IntegerValue(0)), value(noYield));
       assertTrue(delaySeconds(noYield).isEmpty());
 
@@ -1833,8 +1821,7 @@ final class BuiltinCatalogTest {
         List.of(new CallShape(List.of(Set.of(ArgType.OBJECT)), List.of(), Optional.empty())),
         spec.callShapes());
     assertSame(BuiltinPermissionRule.ANY, spec.permission());
-    assertEquals(EffectClass.DEFERRED_COMMIT, spec.effect());
-    assertEquals(BuiltinOwner.CONNECTION, spec.owner());
+    assertEquals(false, spec.irrevocable());
     try (WorldTxn transaction = world().begin()) {
       BuiltinResult self =
           invoke(catalog, spec, List.of(new ObjectValue(2)), transaction, 2);
@@ -1864,7 +1851,7 @@ final class BuiltinCatalogTest {
                 List.of(),
                 Optional.empty())),
         spec.callShapes());
-    assertSame(EffectClass.TRANSACTION_WRITE, spec.effect());
+    assertEquals(false, spec.irrevocable());
     try (WorldTxn transaction = world().begin()) {
       assertEquals(
           Optional.of(ErrorValue.E_INVARG),
@@ -1913,8 +1900,7 @@ final class BuiltinCatalogTest {
                 Optional.empty())),
         spec.callShapes());
     assertSame(BuiltinPermissionRule.WIZARD_ONLY, spec.permission());
-    assertEquals(EffectClass.IRREVOCABLE, spec.effect());
-    assertEquals(BuiltinOwner.SERVER, spec.owner());
+    assertEquals(true, spec.irrevocable());
     try (WorldTxn transaction = world().begin()) {
       BuiltinResult result =
           invoke(
@@ -1971,7 +1957,7 @@ final class BuiltinCatalogTest {
         List.of(new CallShape(List.of(), List.of(Set.of(ArgType.ANY)), Optional.empty())),
         listeners.callShapes());
     assertSame(BuiltinPermissionRule.ANY, listeners.permission());
-    assertEquals(EffectClass.EXTERNAL_READ, listeners.effect());
+    assertEquals(false, listeners.irrevocable());
 
     BuiltinSpec unlisten = catalog.spec("unlisten").orElseThrow();
     assertEquals(
@@ -1982,7 +1968,7 @@ final class BuiltinCatalogTest {
                 Optional.empty())),
         unlisten.callShapes());
     assertSame(BuiltinPermissionRule.WIZARD_ONLY, unlisten.permission());
-    assertEquals(EffectClass.IRREVOCABLE, unlisten.effect());
+    assertEquals(true, unlisten.irrevocable());
 
     BuiltinSpec open = catalog.spec("open_network_connection").orElseThrow();
     assertEquals(
@@ -1993,7 +1979,7 @@ final class BuiltinCatalogTest {
                 Optional.empty())),
         open.callShapes());
     assertSame(BuiltinPermissionRule.WIZARD_ONLY, open.permission());
-    assertEquals(EffectClass.IRREVOCABLE, open.effect());
+    assertEquals(true, open.irrevocable());
   }
 
   @Test
@@ -2009,8 +1995,7 @@ final class BuiltinCatalogTest {
                 Optional.empty())),
         spec.callShapes());
     assertSame(BuiltinPermissionRule.ANY, spec.permission());
-    assertEquals(EffectClass.TRANSACTION_WRITE, spec.effect());
-    assertEquals(BuiltinOwner.WORLD, spec.owner());
+    assertEquals(false, spec.irrevocable());
     try (WorldTxn transaction = world().begin()) {
       assertEquals(1, transaction.addVerb(2, "old-name", 2, 3, -1));
       BuiltinResult result =
@@ -2131,8 +2116,7 @@ final class BuiltinCatalogTest {
                 Optional.empty())),
         spec.callShapes());
     assertSame(BuiltinPermissionRule.ANY, spec.permission());
-    assertEquals(EffectClass.TRANSACTION_WRITE, spec.effect());
-    assertEquals(BuiltinOwner.WORLD, spec.owner());
+    assertEquals(false, spec.irrevocable());
     try (WorldTxn transaction = world().begin()) {
       assertEquals(1, transaction.addVerb(2, "target", 2, 3, 7));
       BuiltinResult result =
@@ -2299,10 +2283,8 @@ final class BuiltinCatalogTest {
     assertEquals(List.of(twoAny), argsSpec.callShapes());
     assertSame(BuiltinPermissionRule.ANY, infoSpec.permission());
     assertSame(BuiltinPermissionRule.ANY, argsSpec.permission());
-    assertEquals(EffectClass.TRANSACTION_READ, infoSpec.effect());
-    assertEquals(EffectClass.TRANSACTION_READ, argsSpec.effect());
-    assertEquals(BuiltinOwner.WORLD, infoSpec.owner());
-    assertEquals(BuiltinOwner.WORLD, argsSpec.owner());
+    assertEquals(false, infoSpec.irrevocable());
+    assertEquals(false, argsSpec.irrevocable());
 
     WorldObject wizard =
         new WorldObject(1, "Wizard", 4, 1, -1, -1, List.of(), List.of(), List.of(), List.of());
@@ -2396,8 +2378,7 @@ final class BuiltinCatalogTest {
                 Optional.empty())),
         spec.callShapes());
     assertSame(BuiltinPermissionRule.ANY, spec.permission());
-    assertEquals(EffectClass.TRANSACTION_WRITE, spec.effect());
-    assertEquals(BuiltinOwner.WORLD, spec.owner());
+    assertEquals(false, spec.irrevocable());
 
     WorldObject wizard =
         new WorldObject(1, "Wizard", 4, 1, -1, -1, List.of(), List.of(), List.of(), List.of());
@@ -2484,8 +2465,7 @@ final class BuiltinCatalogTest {
                 Optional.empty())),
         spec.callShapes());
     assertSame(BuiltinPermissionRule.ANY, spec.permission());
-    assertEquals(EffectClass.TRANSACTION_WRITE, spec.effect());
-    assertEquals(BuiltinOwner.WORLD, spec.owner());
+    assertEquals(false, spec.irrevocable());
 
     WorldObject wizard =
         new WorldObject(1, "Wizard", 4, 1, -1, -1, List.of(), List.of(), List.of(), List.of());
@@ -2527,8 +2507,7 @@ final class BuiltinCatalogTest {
                 Optional.empty())),
         spec.callShapes());
     assertSame(BuiltinPermissionRule.ANY, spec.permission());
-    assertEquals(EffectClass.TRANSACTION_WRITE, spec.effect());
-    assertEquals(BuiltinOwner.WORLD, spec.owner());
+    assertEquals(false, spec.irrevocable());
 
     WorldObject wizard =
         new WorldObject(1, "Wizard", 4, 1, -1, -1, List.of(), List.of(), List.of(), List.of());
@@ -2558,14 +2537,10 @@ final class BuiltinCatalogTest {
   @Test
   void propertyBuiltinsExposeDefinitionsAndClearInheritedSlots() {
     BuiltinCatalog catalog = new BuiltinCatalog(BuiltinHosts.builder().build());
-    assertEquals(EffectClass.TRANSACTION_READ, catalog.spec("properties").orElseThrow().effect());
-    assertEquals(
-        EffectClass.TRANSACTION_READ,
-        catalog.spec("is_clear_property").orElseThrow().effect());
-    assertEquals(
-        EffectClass.TRANSACTION_WRITE, catalog.spec("clear_property").orElseThrow().effect());
-    assertEquals(
-        EffectClass.TRANSACTION_WRITE, catalog.spec("delete_property").orElseThrow().effect());
+    assertEquals(false, catalog.spec("properties").orElseThrow().irrevocable());
+    assertEquals(false, catalog.spec("is_clear_property").orElseThrow().irrevocable());
+    assertEquals(false, catalog.spec("clear_property").orElseThrow().irrevocable());
+    assertEquals(false, catalog.spec("delete_property").orElseThrow().irrevocable());
 
     WorldProperty definition =
         new WorldProperty("test", new IntegerValue(1), 1, 7, false, true);
@@ -2716,8 +2691,7 @@ final class BuiltinCatalogTest {
                 List.of(),
                 Optional.empty())),
         spec.callShapes());
-    assertEquals(EffectClass.TRANSACTION_READ, spec.effect());
-    assertEquals(BuiltinOwner.WORLD, spec.owner());
+    assertEquals(false, spec.irrevocable());
 
     WorldObject wizard =
         new WorldObject(1, "Wizard", 4, 1, -1, -1, List.of(), List.of(), List.of(), List.of());
@@ -2896,8 +2870,7 @@ final class BuiltinCatalogTest {
                 Optional.empty())),
         spec.callShapes());
     assertSame(BuiltinPermissionRule.ANY, spec.permission());
-    assertEquals(EffectClass.TRANSACTION_WRITE, spec.effect());
-    assertEquals(BuiltinOwner.WORLD, spec.owner());
+    assertEquals(false, spec.irrevocable());
 
     WorldObject wizard =
         new WorldObject(1, "Wizard", 4, 1, -1, -1, List.of(), List.of(), List.of(), List.of());
@@ -2995,8 +2968,7 @@ final class BuiltinCatalogTest {
                 Optional.empty())),
         spec.callShapes());
     assertSame(BuiltinPermissionRule.ANY, spec.permission());
-    assertEquals(EffectClass.TRANSACTION_READ, spec.effect());
-    assertEquals(BuiltinOwner.WORLD, spec.owner());
+    assertEquals(false, spec.irrevocable());
 
     WorldObject programmer =
         new WorldObject(2, "Programmer", 0, 2, -1, -1, List.of(), List.of(), List.of(), List.of());
@@ -3044,8 +3016,7 @@ final class BuiltinCatalogTest {
             new CallShape(List.of(Set.of(ArgType.ANY)), List.of(), Optional.empty())),
         spec.callShapes());
     assertSame(BuiltinPermissionRule.ANY, spec.permission());
-    assertEquals(EffectClass.TRANSACTION_WRITE, spec.effect());
-    assertEquals(BuiltinOwner.WORLD, spec.owner());
+    assertEquals(false, spec.irrevocable());
 
     WorldObject owner =
         new WorldObject(2, "Owner", 0, 2, -1, -1, List.of(), List.of(), List.of(), List.of());
@@ -3089,8 +3060,7 @@ final class BuiltinCatalogTest {
         List.of(new CallShape(List.of(), List.of(), Optional.empty())), maxObject.callShapes());
     for (BuiltinSpec spec : List.of(parent, isPlayer, valid, maxObject)) {
       assertSame(BuiltinPermissionRule.ANY, spec.permission());
-      assertEquals(EffectClass.TRANSACTION_READ, spec.effect());
-      assertEquals(BuiltinOwner.WORLD, spec.owner());
+      assertEquals(false, spec.irrevocable());
     }
 
     WorldObject system =
@@ -3155,8 +3125,7 @@ final class BuiltinCatalogTest {
                 Optional.empty())),
         spec.callShapes());
     assertSame(BuiltinPermissionRule.WIZARD_ONLY, spec.permission());
-    assertEquals(EffectClass.TRANSACTION_READ, spec.effect());
-    assertEquals(BuiltinOwner.WORLD, spec.owner());
+    assertEquals(false, spec.irrevocable());
 
     try (WorldTxn transaction = world().begin()) {
       assertEquals(
@@ -3355,8 +3324,7 @@ final class BuiltinCatalogTest {
                 Optional.empty())),
         spec.callShapes());
     assertSame(BuiltinPermissionRule.ANY, spec.permission());
-    assertEquals(EffectClass.TRANSACTION_READ, spec.effect());
-    assertEquals(BuiltinOwner.WORLD, spec.owner());
+    assertEquals(false, spec.irrevocable());
     try (WorldTxn transaction = new WorldTxn(List.of(), List.of(first, second, child)).begin()) {
       assertEquals(
           Optional.of(new IntegerValue(1)),
@@ -3559,7 +3527,7 @@ final class BuiltinCatalogTest {
     BuiltinCatalog catalog = new BuiltinCatalog(BuiltinHosts.builder().build());
     BuiltinSpec eval = catalog.spec("eval").orElseThrow();
     assertEquals(
-        List.of(new CallShape(List.of(Set.of(ArgType.STRING)), List.of(), Optional.of(Set.of(ArgType.STRING)))),
+        List.of(new CallShape(List.of(Set.of(ArgType.STRING)), List.of(), Optional.of(Set.of(ArgType.ANY)))),
         eval.callShapes());
     assertSame(BuiltinPermissionRule.PROGRAMMER_ONLY, eval.permission());
 
@@ -3577,6 +3545,12 @@ final class BuiltinCatalogTest {
       assertEquals(
           Optional.of(ErrorValue.E_PERM),
           error(invoke(catalog, eval, List.of(string("return 5;")), transaction, 3)));
+      assertEquals(
+          Optional.of(ErrorValue.E_PERM),
+          error(invoke(catalog, eval, List.of(string("return 5;"), new IntegerValue(7)), transaction, 2)));
+      assertEquals(
+          Optional.of(ErrorValue.E_TYPE),
+          error(invoke(catalog, eval, List.of(string("return 5;"), new IntegerValue(7)), transaction, 1)));
       assertEquals(
           Optional.of("x = 1;\nreturn x + 1;"),
           dynamicSource(invoke(
@@ -3886,8 +3860,7 @@ final class BuiltinCatalogTest {
                 Optional.empty())),
         spec.callShapes());
     assertSame(BuiltinPermissionRule.ANY, spec.permission());
-    assertEquals(EffectClass.PURE, spec.effect());
-    assertEquals(BuiltinOwner.VM, spec.owner());
+    assertEquals(false, spec.irrevocable());
 
     try (WorldTxn transaction = new WorldTxn(List.of(), List.of()).begin()) {
       BuiltinResult basic =
@@ -3990,9 +3963,7 @@ final class BuiltinCatalogTest {
         randomBytes.callShapes());
     for (BuiltinSpec spec : List.of(frandom, randomBytes)) {
       assertSame(BuiltinPermissionRule.ANY, spec.permission());
-      assertEquals(0, spec.tickCost().charge(List.of()));
-      assertEquals(EffectClass.IRREVOCABLE, spec.effect());
-      assertEquals(BuiltinOwner.VM, spec.owner());
+      assertEquals(true, spec.irrevocable());
     }
     for (String name : List.of("ctime", "ftime")) {
       BuiltinSpec spec = catalog.spec(name).orElseThrow();
@@ -4002,9 +3973,7 @@ final class BuiltinCatalogTest {
                   List.of(), List.of(Set.of(ArgType.INTEGER)), Optional.empty())),
           spec.callShapes());
       assertSame(BuiltinPermissionRule.ANY, spec.permission());
-      assertEquals(0, spec.tickCost().charge(List.of()));
-      assertEquals(EffectClass.IRREVOCABLE, spec.effect());
-      assertEquals(BuiltinOwner.VM, spec.owner());
+      assertEquals(true, spec.irrevocable());
     }
 
     try (WorldTxn transaction = world().begin()) {
@@ -4235,8 +4204,8 @@ final class BuiltinCatalogTest {
     BuiltinCatalog catalog =
         new BuiltinCatalog(
             BuiltinHosts.builder().valueSemantics(new ValueSemantics(true)).build());
-    CallShape unaryNumber =
-        new CallShape(List.of(Set.of(ArgType.NUMBER)), List.of(), Optional.empty());
+    CallShape unaryFloat =
+        new CallShape(List.of(Set.of(ArgType.FLOAT)), List.of(), Optional.empty());
     for (String name :
         List.of(
             "acos",
@@ -4257,20 +4226,20 @@ final class BuiltinCatalogTest {
             "sqrt",
             "tan",
             "tanh")) {
-      assertPureVmContract(catalog, name, unaryNumber);
+      assertPureVmContract(catalog, name, unaryFloat);
     }
     assertPureVmContract(
         catalog,
         "atan",
         new CallShape(
-            List.of(Set.of(ArgType.NUMBER)),
-            List.of(Set.of(ArgType.NUMBER)),
+            List.of(Set.of(ArgType.FLOAT)),
+            List.of(Set.of(ArgType.FLOAT)),
             Optional.empty()));
     assertPureVmContract(
         catalog,
         "atan2",
         new CallShape(
-            List.of(Set.of(ArgType.NUMBER), Set.of(ArgType.NUMBER)),
+            List.of(Set.of(ArgType.FLOAT), Set.of(ArgType.FLOAT)),
             List.of(),
             Optional.empty()));
 
@@ -4405,7 +4374,7 @@ final class BuiltinCatalogTest {
         new CallShape(
             List.of(Set.of(ArgType.NUMBER)),
             List.of(),
-            Optional.of(Set.of(ArgType.NUMBER)));
+            Optional.of(Set.of(ArgType.ANY)));
     assertPureVmContract(catalog, "min", shape);
 
     try (WorldTxn transaction = world().begin()) {
@@ -4514,8 +4483,7 @@ final class BuiltinCatalogTest {
                 Optional.empty())),
         spec.callShapes());
     assertSame(BuiltinPermissionRule.ANY, spec.permission());
-    assertEquals(EffectClass.IRREVOCABLE, spec.effect());
-    assertEquals(BuiltinOwner.VM, spec.owner());
+    assertEquals(true, spec.irrevocable());
 
     try (WorldTxn transaction = world().begin()) {
       assertEquals(
@@ -4562,8 +4530,7 @@ final class BuiltinCatalogTest {
         List.of(new CallShape(List.of(Set.of(ArgType.ANY), Set.of(ArgType.ANY)), List.of(), Optional.empty())),
         spec.callShapes());
     assertSame(BuiltinPermissionRule.ANY, spec.permission());
-    assertEquals(EffectClass.TRANSACTION_READ, spec.effect());
-    assertEquals(BuiltinOwner.WORLD, spec.owner());
+    assertEquals(false, spec.irrevocable());
 
     WorldObject wizard =
         new WorldObject(1, "Wizard", 4, 1, -1, -1, List.of(), List.of(), List.of(), List.of());
@@ -4667,9 +4634,7 @@ final class BuiltinCatalogTest {
     assertEquals(
         List.of(new CallShape(List.of(), List.of(), Optional.empty())), spec.callShapes());
     assertSame(BuiltinPermissionRule.WIZARD_ONLY, spec.permission());
-    assertEquals(0, spec.tickCost().charge(List.of()));
-    assertEquals(EffectClass.DEFERRED_COMMIT, spec.effect());
-    assertEquals(BuiltinOwner.SERVER, spec.owner());
+    assertEquals(false, spec.irrevocable());
   }
 
   @Test
@@ -4680,8 +4645,7 @@ final class BuiltinCatalogTest {
     assertEquals(
         List.of(new CallShape(List.of(), List.of(), Optional.empty())), spec.callShapes());
     assertSame(BuiltinPermissionRule.ANY, spec.permission());
-    assertEquals(EffectClass.EXTERNAL_READ, spec.effect());
-    assertEquals(BuiltinOwner.SERVER, spec.owner());
+    assertEquals(false, spec.irrevocable());
     try (WorldTxn transaction = world().begin()) {
       assertEquals(
           new IntegerValue(0),
@@ -4703,8 +4667,7 @@ final class BuiltinCatalogTest {
         List.of(new CallShape(List.of(Set.of(ArgType.OBJECT)), List.of(), Optional.empty())),
         spec.callShapes());
     assertSame(BuiltinPermissionRule.ANY, spec.permission());
-    assertEquals(EffectClass.EXTERNAL_READ, spec.effect());
-    assertEquals(BuiltinOwner.CONNECTION, spec.owner());
+    assertEquals(false, spec.irrevocable());
     try (WorldTxn transaction = world().begin()) {
       assertEquals(
           ErrorValue.E_ARGS,
@@ -4725,8 +4688,7 @@ final class BuiltinCatalogTest {
     assertEquals(
         List.of(new CallShape(List.of(), List.of(), Optional.empty())), spec.callShapes());
     assertSame(BuiltinPermissionRule.ANY, spec.permission());
-    assertEquals(EffectClass.EXTERNAL_READ, spec.effect());
-    assertEquals(BuiltinOwner.SERVER, spec.owner());
+    assertEquals(false, spec.irrevocable());
     try (WorldTxn transaction = world().begin()) {
       BuiltinResult result = invoke(catalog, spec, List.of(), transaction, 2);
       ListValue usage = assertInstanceOf(ListValue.class, value(result).orElseThrow());
@@ -4747,8 +4709,7 @@ final class BuiltinCatalogTest {
     assertEquals(
         List.of(new CallShape(List.of(), List.of(), Optional.empty())), spec.callShapes());
     assertSame(BuiltinPermissionRule.WIZARD_ONLY, spec.permission());
-    assertEquals(EffectClass.EXTERNAL_READ, spec.effect());
-    assertEquals(BuiltinOwner.SERVER, spec.owner());
+    assertEquals(false, spec.irrevocable());
     try (WorldTxn transaction = world().begin()) {
       assertEquals(
           ErrorValue.E_PERM,
@@ -4772,8 +4733,7 @@ final class BuiltinCatalogTest {
     assertEquals(
         List.of(new CallShape(List.of(), List.of(), Optional.empty())), spec.callShapes());
     assertSame(BuiltinPermissionRule.WIZARD_ONLY, spec.permission());
-    assertEquals(EffectClass.EXTERNAL_READ, spec.effect());
-    assertEquals(BuiltinOwner.SERVER, spec.owner());
+    assertEquals(false, spec.irrevocable());
     WorldVerb look = new WorldVerb("look", 1, 4, -1, "return 1;");
     WorldObject wizard =
         new WorldObject(
@@ -4888,8 +4848,7 @@ final class BuiltinCatalogTest {
     assertEquals(
         List.of(new CallShape(List.of(), List.of(), Optional.empty())), spec.callShapes());
     assertSame(BuiltinPermissionRule.ANY, spec.permission());
-    assertEquals(EffectClass.TRANSACTION_READ, spec.effect());
-    assertEquals(BuiltinOwner.WORLD, spec.owner());
+    assertEquals(false, spec.irrevocable());
     WorldObject programmer =
         new WorldObject(2, "Programmer", 0, 2, -1, -1, List.of(), List.of(), List.of(), List.of());
     WorldObject waifClass =
@@ -4915,8 +4874,7 @@ final class BuiltinCatalogTest {
         List.of(new CallShape(List.of(), List.of(Set.of(ArgType.OBJECT)), Optional.empty())),
         spec.callShapes());
     assertSame(BuiltinPermissionRule.ANY, spec.permission());
-    assertEquals(EffectClass.TRANSACTION_READ, spec.effect());
-    assertEquals(BuiltinOwner.WORLD, spec.owner());
+    assertEquals(false, spec.irrevocable());
 
     WorldObject zero =
         new WorldObject(0, "System", 4, 0, -1, -1, List.of(), List.of(), List.of(), List.of());
@@ -4962,8 +4920,7 @@ final class BuiltinCatalogTest {
     assertEquals(
         List.of(new CallShape(List.of(), List.of(), Optional.empty())), spec.callShapes());
     assertSame(BuiltinPermissionRule.ANY, spec.permission());
-    assertEquals(EffectClass.TRANSACTION_READ, spec.effect());
-    assertEquals(BuiltinOwner.WORLD, spec.owner());
+    assertEquals(false, spec.irrevocable());
 
     WorldObject zero =
         new WorldObject(0, "System", 4, 0, -1, -1, List.of(), List.of(), List.of(), List.of());
@@ -4994,8 +4951,7 @@ final class BuiltinCatalogTest {
     assertEquals(
         List.of(new CallShape(List.of(), List.of(), Optional.empty())), spec.callShapes());
     assertSame(BuiltinPermissionRule.WIZARD_ONLY, spec.permission());
-    assertEquals(EffectClass.TRANSACTION_WRITE, spec.effect());
-    assertEquals(BuiltinOwner.WORLD, spec.owner());
+    assertEquals(false, spec.irrevocable());
 
     WorldObject programmer =
         new WorldObject(2, "Programmer", 0, 2, -1, -1, List.of(), List.of(), List.of(), List.of());
@@ -5023,8 +4979,7 @@ final class BuiltinCatalogTest {
         List.of(new CallShape(List.of(Set.of(ArgType.OBJECT)), List.of(), Optional.empty())),
         spec.callShapes());
     assertSame(BuiltinPermissionRule.ANY, spec.permission());
-    assertEquals(EffectClass.TRANSACTION_READ, spec.effect());
-    assertEquals(BuiltinOwner.WORLD, spec.owner());
+    assertEquals(false, spec.irrevocable());
 
     WorldObject owner =
         new WorldObject(1, "Owner", 0, 1, -1, -1, List.of(), List.of(), List.of(), List.of());
@@ -5144,8 +5099,7 @@ final class BuiltinCatalogTest {
         List.of(new CallShape(List.of(Set.of(ArgType.STRING)), List.of(), Optional.empty())),
         spec.callShapes());
     assertSame(BuiltinPermissionRule.ANY, spec.permission());
-    assertEquals(EffectClass.IRREVOCABLE, spec.effect());
-    assertEquals(BuiltinOwner.VM, spec.owner());
+    assertEquals(true, spec.irrevocable());
 
     try (WorldTxn transaction = world().begin()) {
       assertString(
@@ -5178,8 +5132,7 @@ final class BuiltinCatalogTest {
         List.of(new CallShape(List.of(Set.of(ArgType.STRING)), List.of(), Optional.empty())),
         spec.callShapes());
     assertSame(BuiltinPermissionRule.ANY, spec.permission());
-    assertEquals(EffectClass.PURE, spec.effect());
-    assertEquals(BuiltinOwner.VM, spec.owner());
+    assertEquals(false, spec.irrevocable());
 
     try (WorldTxn transaction = world().begin()) {
       assertString(
@@ -5212,8 +5165,7 @@ final class BuiltinCatalogTest {
         List.of(new CallShape(List.of(Set.of(ArgType.LIST)), List.of(), Optional.empty())),
         spec.callShapes());
     assertSame(BuiltinPermissionRule.ANY, spec.permission());
-    assertEquals(EffectClass.PURE, spec.effect());
-    assertEquals(BuiltinOwner.VM, spec.owner());
+    assertEquals(false, spec.irrevocable());
 
     try (WorldTxn transaction = world().begin()) {
       BuiltinResult first =
@@ -5425,7 +5377,7 @@ final class BuiltinCatalogTest {
   void cryptPreservesTheStockUnixVectorAndUnsupportedPrefixMarker() {
     BuiltinCatalog catalog = new BuiltinCatalog(BuiltinHosts.builder().build());
     BuiltinSpec spec = catalog.spec("crypt").orElseThrow();
-    assertEquals(EffectClass.IRREVOCABLE, spec.effect());
+    assertEquals(true, spec.irrevocable());
     try (WorldTxn transaction = world().begin()) {
       assertString(
           "SAEmC5UwrAl2A",
@@ -5630,9 +5582,7 @@ final class BuiltinCatalogTest {
       BuiltinSpec spec = catalog.spec(entry.getKey()).orElseThrow();
       assertEquals(List.of(entry.getValue()), spec.callShapes());
       assertSame(BuiltinPermissionRule.ANY, spec.permission());
-      assertEquals(0, spec.tickCost().charge(List.of()));
-      assertEquals(EffectClass.TRANSACTION_READ, spec.effect());
-      assertEquals(BuiltinOwner.WORLD, spec.owner());
+      assertEquals(false, spec.irrevocable());
     }
     assertPureVmContract(
         catalog, "reverse", new CallShape(List.of(any), List.of(), Optional.empty()));
@@ -5930,9 +5880,7 @@ final class BuiltinCatalogTest {
         List.of(new CallShape(List.of(), List.of(Set.of(ArgType.INTEGER)), Optional.empty())),
         setThreadMode.callShapes());
     assertSame(BuiltinPermissionRule.ANY, setThreadMode.permission());
-    assertEquals(0, setThreadMode.tickCost().charge(List.of()));
-    assertEquals(EffectClass.DEFERRED_COMMIT, setThreadMode.effect());
-    assertEquals(BuiltinOwner.VM, setThreadMode.owner());
+    assertEquals(false, setThreadMode.irrevocable());
     assertEquals(
         List.of(
             new CallShape(
@@ -5941,9 +5889,7 @@ final class BuiltinCatalogTest {
                 Optional.empty())),
         allMembers.callShapes());
     assertSame(BuiltinPermissionRule.ANY, allMembers.permission());
-    assertEquals(0, allMembers.tickCost().charge(List.of()));
-    assertEquals(EffectClass.SUSPENDING_HOST, allMembers.effect());
-    assertEquals(BuiltinOwner.VM, allMembers.owner());
+    assertEquals(false, allMembers.irrevocable());
 
     try (WorldTxn transaction = world().begin()) {
       assertEquals(
@@ -5996,9 +5942,7 @@ final class BuiltinCatalogTest {
                 Optional.empty())),
         sort.callShapes());
     assertSame(BuiltinPermissionRule.ANY, sort.permission());
-    assertEquals(0, sort.tickCost().charge(List.of()));
-    assertEquals(EffectClass.SUSPENDING_HOST, sort.effect());
-    assertEquals(BuiltinOwner.VM, sort.owner());
+    assertEquals(false, sort.irrevocable());
 
     try (WorldTxn transaction = world().begin()) {
       BuiltinResult threaded = invoke(catalog, sort, List.of(integers), transaction, 1, true);
@@ -6096,15 +6040,11 @@ final class BuiltinCatalogTest {
                 Optional.empty())),
         threadPool.callShapes());
     assertSame(BuiltinPermissionRule.WIZARD_ONLY, threadPool.permission());
-    assertEquals(0, threadPool.tickCost().charge(List.of()));
-    assertEquals(EffectClass.IRREVOCABLE, threadPool.effect());
-    assertEquals(BuiltinOwner.TASK, threadPool.owner());
+    assertEquals(true, threadPool.irrevocable());
     assertEquals(
         List.of(new CallShape(List.of(), List.of(), Optional.empty())), threads.callShapes());
     assertSame(BuiltinPermissionRule.WIZARD_ONLY, threads.permission());
-    assertEquals(0, threads.tickCost().charge(List.of()));
-    assertEquals(EffectClass.IRREVOCABLE, threads.effect());
-    assertEquals(BuiltinOwner.TASK, threads.owner());
+    assertEquals(true, threads.irrevocable());
 
     try (WorldTxn transaction = world().begin()) {
       assertEquals(
@@ -6392,29 +6332,7 @@ final class BuiltinCatalogTest {
       List<MooValue> arguments,
       WorldTxn world,
       long programmer) {
-    return catalog.invoke(
-        spec,
-        arguments,
-        world,
-        programmer,
-        new MapValue(Map.of()),
-        0,
-        60_000,
-        5,
-        new ObjectValue(programmer),
-        programmer,
-        new ListValue(List.of()));
-  }
-
-  private static BuiltinResult invoke(
-      BuiltinCatalog catalog,
-      BuiltinSpec spec,
-      List<MooValue> arguments,
-      WorldTxn world,
-      long programmer,
-      boolean threadMode) {
-    return catalog.invoke(
-        spec,
+    return catalog.invoke(spec, new BuiltinCall(
         arguments,
         world,
         programmer,
@@ -6425,7 +6343,30 @@ final class BuiltinCatalogTest {
         new ObjectValue(programmer),
         programmer,
         new ListValue(List.of()),
-        threadMode);
+        true,
+        (_connectionId, queuedBytes) -> queuedBytes));
+  }
+
+  private static BuiltinResult invoke(
+      BuiltinCatalog catalog,
+      BuiltinSpec spec,
+      List<MooValue> arguments,
+      WorldTxn world,
+      long programmer,
+      boolean threadMode) {
+    return catalog.invoke(spec, new BuiltinCall(
+        arguments,
+        world,
+        programmer,
+        new MapValue(Map.of()),
+        0,
+        60_000,
+        5,
+        new ObjectValue(programmer),
+        programmer,
+        new ListValue(List.of()),
+        threadMode,
+        (_connectionId, queuedBytes) -> queuedBytes));
   }
 
   private static void assertPureVmContract(
@@ -6433,9 +6374,7 @@ final class BuiltinCatalogTest {
     BuiltinSpec spec = catalog.spec(name).orElseThrow();
     assertEquals(List.of(shape), spec.callShapes());
     assertSame(BuiltinPermissionRule.ANY, spec.permission());
-    assertEquals(0, spec.tickCost().charge(List.of()));
-    assertEquals(EffectClass.PURE, spec.effect());
-    assertEquals(BuiltinOwner.VM, spec.owner());
+    assertEquals(false, spec.irrevocable());
   }
 
   private static StringValue string(String value) {

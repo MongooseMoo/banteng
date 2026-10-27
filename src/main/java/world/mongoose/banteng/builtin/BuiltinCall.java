@@ -21,34 +21,6 @@ public record BuiltinCall(
     ListValue callers,
     boolean threadMode,
     LongBinaryOperator stagedBufferedOutputLength) {
-  /** Creates a call with no attempt-local output projection. */
-  public BuiltinCall(
-      List<MooValue> arguments,
-      WorldTxn world,
-      long programmer,
-      MooValue taskLocal,
-      long taskId,
-      long remainingTicks,
-      long remainingSeconds,
-      MooValue receiver,
-      long callerProgrammer,
-      ListValue callers,
-      boolean threadMode) {
-    this(
-        arguments,
-        world,
-        programmer,
-        taskLocal,
-        taskId,
-        remainingTicks,
-        remainingSeconds,
-        receiver,
-        callerProgrammer,
-        callers,
-        threadMode,
-        (_connectionId, queuedBytes) -> queuedBytes);
-  }
-
   /** Takes immutable ownership of the invocation context. */
   public BuiltinCall {
     arguments = List.copyOf(arguments);

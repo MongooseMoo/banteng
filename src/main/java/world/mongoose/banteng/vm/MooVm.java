@@ -9,6 +9,8 @@ import java.util.Optional;
 import java.util.OptionalDouble;
 import java.util.OptionalLong;
 import java.util.Set;
+import org.jspecify.annotations.Nullable;
+import world.mongoose.banteng.builtin.BuiltinCall;
 import world.mongoose.banteng.builtin.BuiltinCatalog;
 import world.mongoose.banteng.builtin.BuiltinCatalog.ConnectionOptionRequest;
 import world.mongoose.banteng.builtin.BuiltinCatalog.ForcedInputRequest;
@@ -17,7 +19,6 @@ import world.mongoose.banteng.builtin.BuiltinHosts;
 import world.mongoose.banteng.builtin.BuiltinResult;
 import world.mongoose.banteng.builtin.BuiltinSpec;
 import world.mongoose.banteng.builtin.CheckpointRequest;
-import world.mongoose.banteng.builtin.EffectClass;
 import world.mongoose.banteng.bytecode.BytecodeProgram;
 import world.mongoose.banteng.bytecode.BytecodeProgram.Instruction;
 import world.mongoose.banteng.bytecode.MooCompiler;
@@ -556,7 +557,7 @@ public final class MooVm {
       return;
     }
     frame.instructionPointer++;
-    if (spec.effect() == EffectClass.IRREVOCABLE) {
+    if (spec.irrevocable()) {
       state.yieldBuiltin(
           new VmSnapshot.PendingBuiltin(
               spec.name(),
@@ -577,20 +578,8 @@ public final class MooVm {
             ? state.callers(true)
             : state.callers();
     BuiltinResult result =
-        builtins.invoke(
-            spec,
-            arguments.elements(),
-            world,
-            state.programmer(),
-            state.taskLocal(),
-            taskId,
-            state.remainingTicks(),
-            state.remainingSeconds(),
-            frame.receiver,
-            state.callerProgrammer(),
-            callerFrames,
-            state.threadMode(),
-            state::stagedBufferedOutputLength);
+        builtins.invoke(spec, builtinCall(state, world, taskId, arguments.elements(),
+            frame.receiver, callerFrames, null));
     applyBuiltinResult(result, frame, state, world);
   }
 
@@ -622,21 +611,22 @@ public final class MooVm {
     VmSnapshot.PendingBuiltin request = state.authorizePendingBuiltin();
     BuiltinSpec spec = builtins.spec(request.name()).orElseThrow();
     BuiltinResult result =
-        builtins.invoke(
-            spec,
-            request.arguments(),
-            world,
-            request.programmer(),
-            request.taskLocal(),
-            taskId,
-            request.remainingTicks(),
-            request.remainingSeconds(),
-            request.receiver(),
-            request.callerProgrammer(),
-            request.callers(),
-            state.threadMode(),
-            state::stagedBufferedOutputLength);
+        builtins.invoke(spec, builtinCall(state, world, taskId, request.arguments(),
+            request.receiver(), request.callers(), request));
     applyBuiltinResult(result, state.currentFrame(), state, world);
+  }
+
+  private static BuiltinCall builtinCall(
+      VmState state, WorldTxn world, long taskId, List<MooValue> arguments,
+      MooValue receiver, ListValue callers, VmSnapshot.@Nullable PendingBuiltin pending) {
+    return new BuiltinCall(
+        arguments, world,
+        pending == null ? state.programmer() : pending.programmer(),
+        pending == null ? state.taskLocal() : pending.taskLocal(), taskId,
+        pending == null ? state.remainingTicks() : pending.remainingTicks(),
+        pending == null ? state.remainingSeconds() : pending.remainingSeconds(), receiver,
+        pending == null ? state.callerProgrammer() : pending.callerProgrammer(), callers,
+        state.threadMode(), state::stagedBufferedOutputLength);
   }
 
   static void applyBuiltinResult(

@@ -341,7 +341,8 @@ final class TaskRegistryTest {
         new ObjectValue(programmer),
         programmer,
         new ListValue(List.of()),
-        false);
+        false,
+        (_connectionId, queuedBytes) -> queuedBytes);
   }
 
   private static MooValue value(BuiltinResult result) {
