@@ -144,7 +144,7 @@ public final class DurableTaskCodec {
               baseToTop,
               consumed,
               protectedFinally.markerDepth(),
-              8,
+              V17Format.ValueTag.FINALLY.code(),
               protectedFinally.handlerLabelProgramCounter(),
               "protected finally");
           handlerGroups.add(
@@ -248,7 +248,7 @@ public final class DurableTaskCodec {
             baseToTop,
             consumed,
             group.markerDepth().orElseThrow(),
-            7,
+            V17Format.ValueTag.CATCH.code(),
             group.clauses().size(),
             "catch marker");
         handlers.add(
@@ -339,7 +339,7 @@ public final class DurableTaskCodec {
         requireSlot(baseToTop, consumed, loop.iteratorDepth(), "collection loop iterator");
     VmSnapshot.CollectionKind kind = collectionKind(loop, base);
     Optional<MooValue> next;
-    if (kind == VmSnapshot.CollectionKind.MAP && iterator.controlTag() == 6) {
+    if (kind == VmSnapshot.CollectionKind.MAP && iterator.controlTag() == V17Format.ValueTag.NONE.code()) {
       next = Optional.empty();
     } else if (iterator.value().isPresent()) {
       next = iterator.value();
@@ -529,7 +529,7 @@ public final class DurableTaskCodec {
                 baseToTop,
                 structural,
                 group.markerDepth().orElseThrow(),
-                7,
+                V17Format.ValueTag.CATCH.code(),
                 group.clauses().size(),
                 "catch marker");
           }
@@ -540,7 +540,7 @@ public final class DurableTaskCodec {
               baseToTop,
               structural,
               protectedFinally.markerDepth(),
-              8,
+              V17Format.ValueTag.FINALLY.code(),
               protectedFinally.handlerLabelProgramCounter(),
               "protected finally");
           expectedHandlerGroups.add(
@@ -786,7 +786,7 @@ public final class DurableTaskCodec {
           baseToTop,
           structural,
           shape.iteratorDepth(),
-          6,
+          V17Format.ValueTag.NONE.code(),
           0,
           "collection loop iterator");
     } else {

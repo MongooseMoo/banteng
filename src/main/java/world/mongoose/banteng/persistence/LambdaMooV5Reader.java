@@ -1,8 +1,6 @@
 package world.mongoose.banteng.persistence;
 
 import static world.mongoose.banteng.persistence.DbScanner.malformed;
-import static world.mongoose.banteng.persistence.DbScanner.parseCount;
-import static world.mongoose.banteng.persistence.DbScanner.parseLong;
 import static world.mongoose.banteng.persistence.DbScanner.readCount;
 import static world.mongoose.banteng.persistence.DbScanner.readInt;
 import static world.mongoose.banteng.persistence.DbScanner.readLong;
@@ -34,7 +32,6 @@ import world.mongoose.banteng.world.WorldObject;
 import world.mongoose.banteng.world.WorldProperty;
 import world.mongoose.banteng.world.WorldTxn;
 import world.mongoose.banteng.world.WorldVerb;
-import org.jspecify.annotations.Nullable;
 
 /** Reader and topology repairer for LambdaMOO's first next-generation database format. */
 public final class LambdaMooV5Reader {
@@ -75,7 +72,11 @@ public final class LambdaMooV5Reader {
         Optional<RawObject> object = readObject(input, objectId);
         object.ifPresent(raw -> rawObjects.put(raw.id(), raw));
       }
-      Map<ProgramSlot, String> programs = readPrograms(input, programCount, rawObjects);
+      Map<ProgramSlot, String> programs = ProgramSectionReader.read(input, programCount,
+          objectId -> {
+            RawObject object = rawObjects.get(objectId);
+            return object == null ? -1 : object.verbs().size();
+          });
       requireExact(input, "0 clocks", "clocks tail");
       requireExact(input, "0 queued tasks", "queued-tasks tail");
       requireExact(input, "0 suspended tasks", "suspended-tasks tail");
@@ -131,8 +132,8 @@ public final class LambdaMooV5Reader {
       int tag = readInt(input, "property value tag");
       propertySlots.add(
           new RawPropertySlot(
-              tag == 5 ? null : readV5(input, tag),
-              tag == 5,
+              tag == V17Format.ValueTag.CLEAR.code() ? null : readV5(input, tag),
+              tag == V17Format.ValueTag.CLEAR.code(),
               readLong(input, "property owner"),
               readInt(input, "property permissions")));
     }
@@ -151,35 +152,6 @@ public final class LambdaMooV5Reader {
             propertySlots));
   }
 
-  private static Map<ProgramSlot, String> readPrograms(
-      BufferedReader input, int programCount, Map<Long, RawObject> objects) throws IOException {
-    Map<ProgramSlot, String> programs = new LinkedHashMap<>();
-    for (int count = 0; count < programCount; count++) {
-      String header = requiredLine(input, "program header");
-      int colon = header.indexOf(':');
-      if (!header.startsWith("#") || colon <= 1 || colon != header.lastIndexOf(':')) {
-        throw malformed("invalid program header: " + header);
-      }
-      long objectId = parseLong(header.substring(1, colon), "program object");
-      int verbIndex = parseCount(header.substring(colon + 1), "program verb index");
-      RawObject object = objects.get(objectId);
-      if (object == null || verbIndex >= object.verbs().size()) {
-        throw malformed("program references missing verb #" + objectId + ":" + verbIndex);
-      }
-      StringBuilder source = new StringBuilder();
-      while (true) {
-        String line = requiredLine(input, "program source");
-        if (line.equals(".")) {
-          break;
-        }
-        source.append(line).append('\n');
-      }
-      if (programs.putIfAbsent(new ProgramSlot(objectId, verbIndex), source.toString()) != null) {
-        throw malformed("duplicate program #" + objectId + ":" + verbIndex);
-      }
-    }
-    return programs;
-  }
 
   private Map<Long, RepairedObject> repairTopology(Map<Long, RawObject> objects) {
     serverLog.info("VALIDATE: checking object references ...");
@@ -450,9 +422,6 @@ public final class LambdaMooV5Reader {
       }
     }
   }
-
-  private record RawPropertySlot(
-      @Nullable MooValue value, boolean clear, long owner, int permissions) {}
 
   private record RawObject(
       long id,
