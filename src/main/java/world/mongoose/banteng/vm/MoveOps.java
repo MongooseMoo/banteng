@@ -101,7 +101,7 @@ final class MoveOps {
     };
     if (!MooVm.callVerb(state, new ObjectValue(receiver), hook,
         new ListValue(List.of(new ObjectValue(move.object()))), name, kind,
-        java.util.Optional.empty(), java.util.Optional.of(move), java.util.Optional.empty())) {
+        java.util.Optional.empty(), java.util.Optional.of(move), java.util.Optional.empty(), world)) {
       ErrorOps.raise(state, ErrorValue.E_MAXREC, world, false);
     }
     return true;

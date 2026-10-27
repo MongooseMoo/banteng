@@ -54,7 +54,7 @@ final class BuiltinContinuationIdentityTest {
         assertEquals(new IntegerValue(2), stackRow.elements().get(5));
         assertTrue(stackRow.elements().get(6) instanceof MooValue.MapValue);
         if (!anonymous) {
-          var durable = DurableTaskCodec.durableSuspension(12, 0, snapshot, 1, new IntegerValue(0));
+          var durable = DurableTaskCodec.durableSuspension(12, 0, snapshot, new IntegerValue(0));
           Path dump = temporary.resolve("callbacks.db");
           var codec = new LambdaMooV17Codec();
           codec.writeAtomic(dump, world.snapshot(), List.of(durable), List.of());
@@ -200,6 +200,6 @@ final class BuiltinContinuationIdentityTest {
         s.bootPlayerTargets(), s.forcedInputRequests(), s.notificationRequests(), s.checkpointRequests(),
         s.anonymousCollectionDeferrals(), s.outcome(), s.returnValue(), s.pendingError(), s.uncaughtError(),
         s.switchedPlayer(), s.forkRequest(), s.suspensionDelaySeconds(), s.awaitingHostResult(),
-        s.pendingBuiltin(), s.taskLocal(), s.remainingTicks(), s.elapsedCpuNanos(), s.remainingCpuNanos(), s.maxStackDepth());
+        s.pendingBuiltin(), s.taskLocal(), s.remainingTicks(), s.elapsedCpuNanos(), s.remainingCpuNanos(), s.maxStackDepth(), s.initialPlayer());
   }
 }

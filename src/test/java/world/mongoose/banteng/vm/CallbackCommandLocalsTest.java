@@ -33,7 +33,7 @@ final class CallbackCommandLocalsTest {
     VmState state = state(Map.of());
     var root = new MooVm.RootVerbCall(0, -1, -1, "server_started", new ListValue(List.of()), "");
     assertTrue(MooVm.callVerb(state, new ObjectValue(0), new ResolvedVerb(CALLBACK, new ObjectValue(0)),
-        root.arguments(), root.verb(), MooVm.VerbCallKind.ROOT, Optional.empty(), Optional.empty(), Optional.of(root)));
+        root.arguments(), root.verb(), MooVm.VerbCallKind.ROOT, Optional.empty(), Optional.empty(), Optional.of(root), new world.mongoose.banteng.world.WorldTxn(List.of(), List.of())));
     Map<String, MooValue> locals = state.snapshot().frames().getFirst().locals();
     assertEquals(new ObjectValue(-1), locals.get("dobj"));
     assertEquals(new ObjectValue(-1), locals.get("iobj"));
@@ -48,7 +48,7 @@ final class CallbackCommandLocalsTest {
     var root = new MooVm.RootVerbCall(new ObjectValue(0), 8, 8, "command", new ListValue(List.of()),
         "kept input", Optional.of(new MooVm.CommandArguments(11, "direct", "with", 12, "indirect")));
     assertTrue(MooVm.callVerb(state, root.receiver(), new ResolvedVerb(CALLBACK, new ObjectValue(0)),
-        root.arguments(), root.verb(), MooVm.VerbCallKind.ROOT, Optional.empty(), Optional.empty(), Optional.of(root)));
+        root.arguments(), root.verb(), MooVm.VerbCallKind.ROOT, Optional.empty(), Optional.empty(), Optional.of(root), new world.mongoose.banteng.world.WorldTxn(List.of(), List.of())));
     assertCommandFields(state);
   }
 
@@ -67,7 +67,8 @@ final class CallbackCommandLocalsTest {
           ? new AnonymousObjectValue() : new ObjectValue(30);
       assertTrue(MooVm.callVerb(state, receiver, new ResolvedVerb(CALLBACK, new ObjectValue(31)),
           new ListValue(List.of()), "callback", kind, Optional.of(receiver),
-          Optional.of(new BuiltinResult.Move(30, 31, 0)), Optional.empty()), kind.name());
+          Optional.of(new BuiltinResult.Move(30, 31, 0)), Optional.empty(),
+          new world.mongoose.banteng.world.WorldTxn(List.of(), List.of())), kind.name());
       assertCommandFields(state);
       assertCommandFields(VmState.restore(state.snapshot()));
       assertEquals(receiver, state.snapshot().frames().getFirst().receiver());

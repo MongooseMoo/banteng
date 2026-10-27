@@ -169,7 +169,7 @@ public final class PublicationScheduler implements AutoCloseable {
     BytecodeProgram program = DurableTaskCodec.restoreQueuedProgram(restored);
     VmState state =
         new VmState(new TaskOrigin(restored.initialLocals(), restored.programmer(), restored.verbLocation(),
-        restored.calledVerb(), restored.fullVerbName(), restored.debug()), new TaskBudget(MooRuntime.DEFAULT_BACKGROUND_TICKS, MooRuntime.DEFAULT_BACKGROUND_SECONDS, MooRuntime.DEFAULT_MAX_STACK_DEPTH));
+        restored.calledVerb(), restored.fullVerbName(), restored.debug(), restored.taskPlayer()), new TaskBudget(MooRuntime.DEFAULT_BACKGROUND_TICKS, MooRuntime.DEFAULT_BACKGROUND_SECONDS, MooRuntime.DEFAULT_MAX_STACK_DEPTH));
     state.ensureRoot(program);
     state.setThreadMode(restored.threadMode());
     VmSnapshot snapshot = state.snapshot();
@@ -250,7 +250,7 @@ public final class PublicationScheduler implements AutoCloseable {
             MooRuntime.DEFAULT_BACKGROUND_TICKS,
             0,
             TimeUnit.SECONDS.toNanos(MooRuntime.DEFAULT_BACKGROUND_SECONDS),
-            restored.maxStackDepth());
+            restored.maxStackDepth(), root.player());
     SuspendedActivation current = restored.activations().getLast();
     SuspendedWork work =
         new SuspendedWork(
@@ -315,12 +315,11 @@ public final class PublicationScheduler implements AutoCloseable {
             default -> throw new IllegalStateException("invalid durable wake result: " + wake);
           };
       return DurableTaskCodec.durableSuspension(
-          work.taskId(), timed.scheduledEpochMilli(), work.snapshot(), work.taskPlayer(),
+          work.taskId(), timed.scheduledEpochMilli(), work.snapshot(),
           resumeValue);
     }
     return DurableTaskCodec.exportQueuedTask(
-        work.taskId(), timed.scheduledEpochMilli(), work.program(), work.snapshot(),
-        work.taskPlayer());
+        work.taskId(), timed.scheduledEpochMilli(), work.program(), work.snapshot());
   }
 
   BuiltinResult resumeTask(BuiltinCall call) {
@@ -629,12 +628,12 @@ public final class PublicationScheduler implements AutoCloseable {
           VmSnapshot.Fork fork = state.continueAfterFork(new IntegerValue(childTaskId));
           VmState child =
               new VmState(new TaskOrigin(fork.locals(), fork.programmer(), fork.verbLocation(),
-        fork.calledVerb(), fork.fullVerbName(), fork.debug()), new TaskBudget(MooRuntime.DEFAULT_BACKGROUND_TICKS, MooRuntime.DEFAULT_BACKGROUND_SECONDS, state.snapshot().maxStackDepth()));
+        fork.calledVerb(), fork.fullVerbName(), fork.debug(), fork.player()), new TaskBudget(MooRuntime.DEFAULT_BACKGROUND_TICKS, MooRuntime.DEFAULT_BACKGROUND_SECONDS, state.snapshot().maxStackDepth()));
           VmSnapshot childState = child.snapshot();
           long scheduledStart = Math.addExact(
               System.currentTimeMillis(), Math.round(fork.delaySeconds() * 1_000.0));
           TimedWork pending = new TimedWork(
-              new SuspendedWork(childTaskId, fork.program(), childState, taskPlayer,
+              new SuspendedWork(childTaskId, fork.program(), childState, fork.player(),
                   Optional.empty(), Optional.empty(), true),
               scheduledStart, Optional.empty(), Optional.empty());
           synchronized (this) {

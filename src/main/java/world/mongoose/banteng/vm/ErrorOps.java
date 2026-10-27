@@ -208,7 +208,7 @@ final class ErrorOps {
             evalFrame ? StringValue.of("") : frame.localOrDefault(8, StringValue.of("")),
             evalFrame ? new ObjectValue(-1) : new ObjectValue(frame.programmer),
             evalFrame ? new ObjectValue(-1) : tracebackReference(frame.verbLocation),
-            frame.localOrDefault(5, new ObjectValue(-1)),
+            new ObjectValue(frame.player),
             new IntegerValue(frame.program.instructions().get(instructionIndex).sourceLine())));
   }
 

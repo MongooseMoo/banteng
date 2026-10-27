@@ -11,7 +11,21 @@ import world.mongoose.banteng.value.MooValue.StringValue;
 
 /** Immutable initial task environment and dispatch metadata. */
 public record TaskOrigin(Map<String, MooValue> locals, long programmer, MooValue verbLocation,
-    String calledVerb, String fullVerbName, boolean debug) {
+    String calledVerb, String fullVerbName, boolean debug, long player) {
+  public TaskOrigin(Map<String, MooValue> locals, long programmer, MooValue verbLocation,
+      String calledVerb, String fullVerbName, boolean debug) {
+    this(locals, programmer, verbLocation, calledVerb, fullVerbName, debug, initialPlayer(locals));
+  }
+
+  public static long initialPlayer(Map<String, MooValue> locals) {
+    for (var entry : locals.entrySet()) {
+      if (entry.getKey().equalsIgnoreCase("player") && entry.getValue() instanceof ObjectValue object) {
+        return object.value();
+      }
+    }
+    return -1;
+  }
+
   public TaskOrigin {
     Map<String, MooValue> normalized = new LinkedHashMap<>();
     locals.forEach((name, value) -> normalized.put(name.toLowerCase(Locale.ROOT), value));

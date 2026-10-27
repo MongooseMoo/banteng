@@ -37,7 +37,7 @@ final class LegacyDatabaseRestorationTest {
     VmState state = restored(task);
     assertEquals(VmSnapshot.ReturnMode.EVAL, state.snapshot().frames().getFirst().returnMode());
     SuspendedTask exported = DurableTaskCodec.durableSuspension(task.taskId(), 0,
-        state.snapshot(), 3, new IntegerValue(42));
+        state.snapshot(), new IntegerValue(42));
     Path canonical = directory.resolve("canonical.db");
     codec.writeAtomic(canonical, checkpoint.world().snapshot(), List.of(exported), checkpoint.activeConnections());
     Checkpoint reread = codec.read(canonical);
@@ -119,7 +119,7 @@ final class LegacyDatabaseRestorationTest {
         -1, 0, 50, Optional.empty(), List.of(activation));
     VmState state = restored(task);
     assertEquals(1, state.snapshot().frames().getFirst().indexCollections().size());
-    DurableTaskCodec.durableSuspension(8, 0, state.snapshot(), 0, new IntegerValue(2));
+    DurableTaskCodec.durableSuspension(8, 0, state.snapshot(), new IntegerValue(2));
     state.resume(new IntegerValue(2));
     execute(state.snapshot().frames().getFirst().program(), state, new WorldTxn(List.of(), List.of()), 8);
     assertEquals(Optional.of(new IntegerValue(20)), state.returnValue());
@@ -186,7 +186,7 @@ final class LegacyDatabaseRestorationTest {
           -1, 0, 50, Optional.empty(), List.of(activation));
       VmState state = restored(task);
       assertEquals(assignment ? 2 : 1, state.snapshot().frames().getFirst().indexCollections().size());
-      SuspendedTask canonical = DurableTaskCodec.durableSuspension(9, 0, state.snapshot(), 0, new IntegerValue(2));
+      SuspendedTask canonical = DurableTaskCodec.durableSuspension(9, 0, state.snapshot(), new IntegerValue(2));
       VmState resumed = restored(canonical);
       resumed.resume(new IntegerValue(2));
       execute(resumed.snapshot().frames().getFirst().program(), resumed, new WorldTxn(List.of(), List.of()), 9);
@@ -250,7 +250,7 @@ final class LegacyDatabaseRestorationTest {
           0, new ObjectValue(0), "test", "test", true), new TaskBudget(10000, 5, 50));
         execute(program, state, world, 77);
       assertEquals(VmState.Outcome.SUSPENDED, state.outcome(), operation);
-      SuspendedTask task = DurableTaskCodec.durableSuspension(77, 0, state.snapshot(), 0, new IntegerValue(1));
+      SuspendedTask task = DurableTaskCodec.durableSuspension(77, 0, state.snapshot(), new IntegerValue(1));
       var codec = new LambdaMooV17Codec();
       Path path = directory.resolve(operation + ".db");
       codec.writeAtomic(path, world.snapshot(), List.of(task), List.of());
@@ -292,6 +292,6 @@ final class LegacyDatabaseRestorationTest {
         root.calledVerb(), root.fullVerbName(), frames, List.of(), List.of(), List.of(), List.of(),
         List.of(), List.of(), List.of(), VmState.Outcome.SUSPENDED, Optional.empty(), Optional.empty(),
         Optional.empty(), OptionalLong.empty(), Optional.empty(), OptionalDouble.of(0), false,
-        Optional.empty(), task.taskLocal(), 10000, 0, 5000000000L, task.maxStackDepth()));
+        Optional.empty(), task.taskLocal(), 10000, 0, 5000000000L, task.maxStackDepth(), root.player()));
   }
 }

@@ -365,7 +365,7 @@ public final class TaskRegistry {
     fields.add(StringValue.of(frame.calledVerb()));
     fields.add(new ObjectValue(frame.programmer()));
     fields.add(frame.verbLocation());
-    fields.add(frame.locals().getOrDefault("player", new ObjectValue(-1)));
+    fields.add(new ObjectValue(frame.player()));
     if (includeLines) {
       int instructionCount = frame.program().instructions().size();
       int instruction =

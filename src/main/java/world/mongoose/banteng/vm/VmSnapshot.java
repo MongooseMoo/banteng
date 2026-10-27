@@ -58,7 +58,7 @@ public record VmSnapshot(
     long remainingTicks,
     long elapsedCpuNanos,
     long remainingCpuNanos,
-    long maxStackDepth) {
+    long maxStackDepth, long initialPlayer) {
   public VmSnapshot {
     initialLocals =
         Collections.unmodifiableMap(new LinkedHashMap<>(initialLocals));
@@ -102,7 +102,7 @@ public record VmSnapshot(
    * nor the length of a rendered or serialized snapshot.
    */
   public long byteSize() {
-    long size = stringValueMapSize(initialLocals);
+    long size = add(stringValueMapSize(initialLocals), Long.BYTES);
     size = add(size, Long.BYTES);
     size = add(size, valueSize(initialVerbLocation));
     size = add(size, textSize(initialCalledVerb));
@@ -167,7 +167,7 @@ public record VmSnapshot(
   }
 
   private static long frameSize(Frame frame) {
-    long size = programSize(frame.program());
+    long size = add(programSize(frame.program()), Long.BYTES);
     size = add(size, valueListSize(frame.operandStack()));
     size = add(size, Integer.BYTES);
     for (IndexState index : frame.indexCollections()) {
@@ -240,7 +240,7 @@ public record VmSnapshot(
   }
 
   private static long forkSize(Fork fork) {
-    long size = programSize(fork.program());
+    long size = add(programSize(fork.program()), Long.BYTES);
     size = add(size, stringValueMapSize(fork.locals()));
     size = add(size, Long.BYTES);
     size = add(size, valueSize(fork.verbLocation()));
@@ -427,7 +427,7 @@ public record VmSnapshot(
       boolean threadMode,
       int instructionPointer,
       Optional<AnonymousObjectValue> anonymousRecycleTarget,
-      Optional<BuiltinContinuation> builtinContinuation) {
+      Optional<BuiltinContinuation> builtinContinuation, long player) {
     public Frame(
         BytecodeProgram program,
         List<MooValue> operandStack,
@@ -471,13 +471,13 @@ public record VmSnapshot(
           true,
           threadMode,
           instructionPointer,
-          Optional.empty(), Optional.empty());
+          Optional.empty(), Optional.empty(), TaskOrigin.initialPlayer(locals));
     }
 
     public Optional<ListValue> builtinStackFrame(Frame parent, boolean lines, boolean variables) {
       return VmSnapshot.builtinStackFrame(builtinContinuation, returnMode,
           createReturnOverride.isPresent(), recycleTarget.isPresent() || anonymousRecycleTarget.isPresent(),
-          parent.program(), parent.instructionPointer(), locals.getOrDefault("player", new ObjectValue(-1)),
+          parent.program(), parent.instructionPointer(), new ObjectValue(player),
           locals, lines, variables);
     }
 
@@ -642,7 +642,7 @@ public record VmSnapshot(
       String calledVerb,
       String fullVerbName,
       boolean debug,
-      double delaySeconds) {
+      double delaySeconds, long player) {
     public Fork(
         BytecodeProgram program,
         Map<String, MooValue> locals,
@@ -659,7 +659,7 @@ public record VmSnapshot(
           calledVerb,
           fullVerbName,
           true,
-          delaySeconds);
+          delaySeconds, TaskOrigin.initialPlayer(locals));
     }
 
     public Fork {
