@@ -84,6 +84,32 @@ final class ValueSemanticsTest {
   }
 
   @Test
+  void mapRangesCopyOrderedKeyValuePairsWithoutJavaKeyCollisions() {
+    String setup = "k1 = chr(195, 169); k2 = chr(195, 137); m = [k1 -> 1, k2 -> 2]; ";
+    assertEquals(
+        new ListValue(List.of(new IntegerValue(2), new IntegerValue(2),
+            new IntegerValue(1), new IntegerValue(2))),
+        execute(setup + "r = m[k2..k1]; return {m[k2], m[k2..k2][k2], r[k1], r[k2]};", Map.of()));
+    assertEquals(
+        new ListValue(List.of(new IntegerValue(2), new IntegerValue(1))),
+        execute(setup + "a = m; b = m; a[k1..k1] = []; b[k2..k2] = []; return {a[k2], b[k1]};",
+            Map.of()));
+    assertEquals(
+        new ListValue(List.of(new IntegerValue(1), new IntegerValue(2), new IntegerValue(1),
+            new IntegerValue(2), new IntegerValue(1), new IntegerValue(2))),
+        execute(setup + """
+            a = [0 -> 0, 1 -> 1, 2 -> 2]; a[1..1] = m;
+            b = m; b[k1..k2] = [];
+            c = [0 -> 0, 1 -> 1]; c[1..0] = m;
+            return {a[k1], a[k2], b[k1], b[k2], c[k1], c[k2]};
+            """, Map.of()));
+    assertEquals(
+        new ListValue(List.of(new IntegerValue(10), new IntegerValue(3))),
+        execute("m = [1 -> 1, 2 -> 2, 3 -> 3]; m[2..2] = [1 -> 10, 3 -> 30]; return {m[1], m[3]};",
+            Map.of()));
+  }
+
+  @Test
   void anonymousMapKeysUseExistingTreeTopologyAndReferenceIdentity() {
     AnonymousObjectValue first = new AnonymousObjectValue();
     AnonymousObjectValue second = new AnonymousObjectValue();
