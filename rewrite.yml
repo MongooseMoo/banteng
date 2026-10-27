@@ -555,3 +555,13 @@ recipeList:
   - org.openrewrite.java.ChangeType:
       oldFullyQualifiedTypeName: world.mongoose.banteng.builtin.SimplexNoise
       newFullyQualifiedTypeName: world.mongoose.banteng.builtin.family.SimplexNoise
+---
+type: specs.openrewrite.org/v1beta/recipe
+name: world.mongoose.banteng.builtin.ExtractServerBuiltins
+displayName: Extract server and diagnostics builtins
+description: Moves existing diagnostics and server registrations with explicit catalog and logging dependencies.
+recipeList:
+  - world.mongoose.banteng.rewrite.MoveBuiltinFamily:
+      family: ServerBuiltins
+      builtins: [value_bytes, object_bytes, server_version, function_info, server_log, log_cache_stats, verb_cache_stats, usage, memory_usage, load_server_options, run_gc, gc_stats, shutdown, db_disk_size, dump_database]
+      methods: [functionInfo, serverVersion, serverVersionMetadata, versionPair, versionPath, functionInfoDescription, typeCode, dumpDatabase, serverLog, logCacheStats, verbCacheStats, memoryUsage, usage, shutdown, objectBytes, gcStats]

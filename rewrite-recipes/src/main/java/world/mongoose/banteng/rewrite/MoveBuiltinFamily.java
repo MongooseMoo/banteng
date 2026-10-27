@@ -81,6 +81,10 @@ public final class MoveBuiltinFamily extends ScanningRecipe<MoveBuiltinFamily.Me
                   Set.of("pcre", "toastRegex").contains(variable.getSimpleName()))) {
             members.regexFields.add(field);
           }
+          if (family.equals("ServerBuiltins") && statement instanceof J.VariableDeclarations field
+              && field.getVariables().stream().anyMatch(variable -> variable.getSimpleName().equals("SERVER_VERSION"))) {
+            members.fields.add(field);
+          }
           if (family.equals("TimeBuiltins") && statement instanceof J.VariableDeclarations field
               && field.getVariables().stream().anyMatch(variable -> Set.of(
                   "CLOCK_REALTIME", "CLOCK_MONOTONIC", "CLOCK_MONOTONIC_RAW",
@@ -128,7 +132,8 @@ public final class MoveBuiltinFamily extends ScanningRecipe<MoveBuiltinFamily.Me
                 || Set.of("RandomBuiltins", "TaskBuiltins").contains(family) && methods.contains(method.getSimpleName())
                 || family.equals("CryptoBuiltins") && Set.of("crypt", "nativeCrypt").contains(method.getSimpleName())
                 || family.equals("RegexBuiltins") && method.getSimpleName().equals("toastMatch")
-                || family.equals("VerbBuiltins") && method.getSimpleName().equals("setVerbCode")) {
+                || family.equals("VerbBuiltins") && method.getSimpleName().equals("setVerbCode")
+                || family.equals("ServerBuiltins") && Set.of("functionInfo", "serverLog", "logCacheStats").contains(method.getSimpleName())) {
               members.implementations.add(method);
             }
             if (method.getSimpleName().equals("buildManifest") && method.getBody() != null) {
@@ -191,6 +196,10 @@ public final class MoveBuiltinFamily extends ScanningRecipe<MoveBuiltinFamily.Me
     Set<String> referencedNames = new HashSet<>();
     JavaIsoVisitor<ExecutionContext> references = new JavaIsoVisitor<>() {
       @Override public J.Identifier visitIdentifier(J.Identifier identifier, ExecutionContext unused) {
+        if (getCursor().getParentTreeCursor().getValue() instanceof J.Case clause
+            && clause.getCaseLabels().stream().anyMatch(label -> label.getId().equals(identifier.getId()))) {
+          return identifier;
+        }
         if (!(getCursor().getParentTreeCursor().getValue() instanceof J.FieldAccess access
             && access.getName().getId().equals(identifier.getId()))) {
           referencedNames.add(identifier.getSimpleName());
@@ -210,7 +219,7 @@ public final class MoveBuiltinFamily extends ScanningRecipe<MoveBuiltinFamily.Me
     StringBuilder body = new StringBuilder();
     for (int group = 0; group < members.groups.size(); group++) {
       body.append("  public static void ").append(registerMethod(group))
-          .append("(List<BuiltinSpec> entries" + (stringAnsiGroup(group) ? ", Random random" : verbCodeGroup(group) ? ", BuiltinCatalog catalog" : "")
+          .append("(List<BuiltinSpec> entries" + serverParameters(group, true) + (stringAnsiGroup(group) ? ", Random random" : verbCodeGroup(group) ? ", BuiltinCatalog catalog" : "")
               + (family.equals("CryptoBuiltins") ? ", SecureRandom secureRandom, Crypt crypt" : "")
               + (family.equals("TaskBuiltins") ? ", BuiltinCatalog catalog" : "")
               + (family.equals("RandomBuiltins")
@@ -341,6 +350,21 @@ public final class MoveBuiltinFamily extends ScanningRecipe<MoveBuiltinFamily.Me
     if (family.equals("PropertyBuiltins")) {
       generated = propertySharedImports(generated, context);
     }
+    if (family.equals("ServerBuiltins")) {
+      String source = generated.printAll()
+          .replace("private BuiltinResult functionInfo(", "private static BuiltinResult functionInfo(")
+          .replaceAll("(private static BuiltinResult functionInfo\\(\\s*List<MooValue> arguments)\\)", "$1, BuiltinCatalog catalog)")
+          .replace("manifest.stream()", "catalog.manifest().stream()")
+          .replace("BuiltinCatalog::functionInfoDescription", "ServerBuiltins::functionInfoDescription")
+          .replace("specs.get(requestedName.text().toLowerCase(Locale.ROOT))", "catalog.spec(requestedName.text()).orElse(null)")
+          .replace("private BuiltinResult serverLog(List<MooValue> arguments)",
+              "private static BuiltinResult serverLog(List<MooValue> arguments, ServerLog log)")
+          .replace("private BuiltinResult logCacheStats(WorldTxn world)",
+              "private static BuiltinResult logCacheStats(WorldTxn world, ServerLog log)")
+          .replace("hosts.serverLog().", "log.");
+      generated = ((J.CompilationUnit) JavaParser.fromJavaVersion().build().parse(context, source)
+          .findFirst().orElseThrow()).withSourcePath(generated.getSourcePath());
+    }
     if (family.equals("StringBuiltins")) {
       String source = generated.printAll().replace("private BuiltinResult parseAnsi(List<MooValue> arguments)",
           "private static BuiltinResult parseAnsi(List<MooValue> arguments, Random random)");
@@ -408,6 +432,9 @@ public final class MoveBuiltinFamily extends ScanningRecipe<MoveBuiltinFamily.Me
       return List.of("registerRespondTo", "registerDisassemble", "registerDefinitionEdits", "registerMetadataAndCode").get(group);
     }
     if (family.equals("TaskBuiltins")) { return "registerGroup" + group; }
+    if (family.equals("ServerBuiltins")) {
+      return List.of("registerValueSizes", "registerVersionAndFunctions", "registerDiagnostics", "registerShutdownAndDatabase").get(group);
+    }
     if (family.equals("ConversionBuiltins")) {
       return List.of("registerConversions", "registerTypeOf").get(group);
     }
@@ -433,9 +460,20 @@ public final class MoveBuiltinFamily extends ScanningRecipe<MoveBuiltinFamily.Me
     return family.equals("VerbBuiltins") && group == 3;
   }
 
+  private String serverParameters(int group, boolean declaration) {
+    if (!family.equals("ServerBuiltins")) { return ""; }
+    String catalog = group == 1 || group == 2 ? (declaration ? ", BuiltinCatalog catalog" : ", this") : "";
+    return catalog + (group == 2 ? (declaration ? ", ServerLog serverLog" : ", hosts.serverLog()") : "");
+  }
   private String registrationImplementation(String implementation) {
     String result = implementation.replace("BuiltinCatalog::", family + "::")
         .replace("parseAnsi(call.arguments())", "parseAnsi(call.arguments(), random)");
+    if (family.equals("ServerBuiltins")) {
+      result = result.replace("functionInfo(call.arguments())", "functionInfo(call.arguments(), catalog)")
+          .replace("reloadProtectedFunctions(call.world())", "catalog.reloadProtectedFunctions(call.world())")
+          .replace("serverLog(call.arguments())", "serverLog(call.arguments(), serverLog)")
+          .replace("logCacheStats(call.world())", "logCacheStats(call.world(), serverLog)");
+    }
     if (family.equals("RandomBuiltins")) {
       result = result.replace("randomInteger(call.arguments())", "randomInteger(call.arguments(), random.get())")
           .replace("floatingRandom(call.arguments())", "floatingRandom(call.arguments(), floatingRandom.get())")
@@ -686,7 +724,7 @@ public final class MoveBuiltinFamily extends ScanningRecipe<MoveBuiltinFamily.Me
           if (group >= 0) {
             Statement replacement = ((J.CompilationUnit) JavaParser.fromJavaVersion().build()
              .parse(context, "class Replacement { void register() { " + family + "." + registerMethod(group)
-                 + "(entries" + (stringAnsiGroup(group) ? ", random" : verbCodeGroup(group) ? ", this" : "")
+                 + "(entries" + serverParameters(group, false) + (stringAnsiGroup(group) ? ", random" : verbCodeGroup(group) ? ", this" : "")
                  + (family.equals("CryptoBuiltins") ? ", SECURE_RANDOM, hosts.crypt()" : "")
                  + (family.equals("TaskBuiltins") ? ", this" : "")
                  + (family.equals("RandomBuiltins") ? ", () -> random, () -> floatingRandom, SECURE_RANDOM" : "") + "); } }")
