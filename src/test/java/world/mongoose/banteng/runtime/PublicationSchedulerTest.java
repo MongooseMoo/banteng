@@ -38,10 +38,9 @@ import jdk.jfr.consumer.RecordingFile;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import world.mongoose.banteng.builtin.BuiltinCall;
-import world.mongoose.banteng.builtin.BuiltinCatalog.ListenerControl;
-import world.mongoose.banteng.builtin.BuiltinCatalog.ListenerDescription;
 import world.mongoose.banteng.builtin.BuiltinHosts;
 import world.mongoose.banteng.builtin.BuiltinResult;
+import world.mongoose.banteng.builtin.family.ConnectionBuiltins;
 import world.mongoose.banteng.bytecode.MooCompiler;
 import world.mongoose.banteng.bytecode.ToastV17ProgramModel;
 import world.mongoose.banteng.persistence.DurableTaskCodec;
@@ -1787,7 +1786,7 @@ final class PublicationSchedulerTest {
     private final MooRuntime runtime;
     private final PublicationScheduler scheduler;
 
-    static Harness open(int workers, ListenerControl listener) throws IOException {
+    static Harness open(int workers, ConnectionBuiltins.ListenerControl listener) throws IOException {
       WorldTxn root = new LambdaMooV4Reader(new LambdaMooV17Codec()).read(FIXTURE).world();
       MooRuntime runtime =
           SchedulerTestHarness.runtime(
@@ -1848,7 +1847,7 @@ final class PublicationSchedulerTest {
     }
   }
 
-  private static final class RecordingListener implements ListenerControl {
+  private static final class RecordingListener implements ConnectionBuiltins.ListenerControl {
     private Optional<Path> expectedPanicDump = Optional.empty();
     private boolean panicCalled;
     private boolean panicDumpPresentAtCall;
@@ -1864,7 +1863,7 @@ final class PublicationSchedulerTest {
     }
 
     @Override
-    public List<ListenerDescription> listeners() {
+    public List<ConnectionBuiltins.ListenerDescription> listeners() {
       return List.of();
     }
 

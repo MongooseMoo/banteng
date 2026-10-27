@@ -15,6 +15,86 @@ import org.openrewrite.java.JavaParser;
 
 final class MoveBuiltinFamilyTest {
   @Test
+  void movesConnectionContractsDefaultsAndExplicitListenerDependency() {
+    var context = new InMemoryExecutionContext(failure -> { throw new AssertionError(failure); });
+    var files = JavaParser.fromJavaVersion().build().parse(context, """
+        package world.mongoose.banteng.builtin;
+        import java.util.List;
+        import java.util.Optional;
+        public class BuiltinCatalog {
+          private static final int DEFAULT_MAX_QUEUED_OUTPUT = 65536;
+          private Optional<ListenerControl> listenerControl;
+          void buildManifest() {
+            entries.add(new BuiltinSpec("switch_player", List.of(OBJECT), BuiltinPermissionRule.WIZARD_ONLY, false, call -> switchPlayer(call.hosts())));
+            between();
+            entries.add(new BuiltinSpec("buffered_output_length", List.of(), BuiltinPermissionRule.ANY, false, call -> bufferedOutputLength(call.hosts(), call.stagedBufferedOutputLength())));
+            between();
+            entries.add(new BuiltinSpec("listen", List.of(), BuiltinPermissionRule.WIZARD_ONLY, true, call -> listen(call.arguments())));
+            entries.add(new BuiltinSpec("unlisten", List.of(), BuiltinPermissionRule.WIZARD_ONLY, true, call -> unlisten(call.arguments())));
+            entries.add(new BuiltinSpec("open_network_connection", List.of(), BuiltinPermissionRule.WIZARD_ONLY, true, this::openNetworkConnection));
+            entries.add(new BuiltinSpec("connection_name_lookup", List.of(), BuiltinPermissionRule.ANY, false, this::connectionNameLookup));
+            between();
+            entries.add(new BuiltinSpec("notify", List.of(), BuiltinPermissionRule.ANY, false, call -> notifyLine(call.hosts())));
+          }
+          private BuiltinResult switchPlayer(BuiltinHosts hosts) { return null; }
+          private BuiltinResult bufferedOutputLength(BuiltinHosts hosts, Object projection) { return value(listenerControl, projection, DEFAULT_MAX_QUEUED_OUTPUT); }
+          private BuiltinResult listen(List<Object> arguments) { return value(listenerControl); }
+          private BuiltinResult unlisten(List<Object> arguments) { return value(listenerControl); }
+          private BuiltinResult openNetworkConnection(BuiltinCall call) { return value(listenerControl, call.hosts()); }
+          private BuiltinResult connectionNameLookup(BuiltinCall call) { return call.hosts().connectionNameLookup().invoke(call); }
+          private BuiltinResult notifyLine(BuiltinHosts hosts) { return null; }
+          static java.util.function.Supplier<Object> standaloneConnections() { return () -> EmptyConnectionRegistry.INSTANCE; }
+          private enum EmptyConnectionRegistry { INSTANCE }
+          public interface ListenerControl {}
+          public record ListenerDescription(long handler) {}
+          public record ConnectionOptionRequest(long target) {}
+          public record ForcedInputRequest(long target) {}
+          public record NotificationRequest(long connectionId) {}
+          public enum ConnectionOption { BINARY }
+          public record KeepAliveOptions(boolean enabled) {}
+          private void between() {}
+        }
+        """, """
+        package world.mongoose.banteng.builtin;
+        import java.util.List;
+        import world.mongoose.banteng.builtin.BuiltinCatalog.ConnectionOption;
+        public class BuiltinHosts {
+          private java.util.function.Supplier<Object> connections = BuiltinCatalog.standaloneConnections();
+        }
+        """).toList();
+    var mover = new MoveBuiltinFamily("ConnectionBuiltins",
+        Set.of("switch_player", "buffered_output_length", "listen", "unlisten", "open_network_connection", "connection_name_lookup", "notify"),
+        Set.of("switchPlayer", "bufferedOutputLength", "listen", "unlisten", "openNetworkConnection", "connectionNameLookup", "notifyLine"));
+    var changes = mover.run(new InMemoryLargeSourceSet(files), context).getChangeset().getAllResults();
+    String catalog = changedFile(changes, "BuiltinCatalog.java");
+    String family = changedFile(changes, "ConnectionBuiltins.java");
+    String hosts = changedFile(changes, "BuiltinHosts.java");
+    assertTrue(catalog.contains("ConnectionBuiltins.registerSwitchPlayer(entries, listenerControl)"));
+    assertTrue(catalog.contains("ConnectionBuiltins.registerInventory(entries, listenerControl)"));
+    assertTrue(catalog.contains("ConnectionBuiltins.registerOptionsAndListeners(entries, listenerControl)"));
+    assertTrue(catalog.contains("ConnectionBuiltins.registerNotify(entries, listenerControl)"));
+    assertFalse(catalog.contains("standaloneConnections"));
+    assertFalse(catalog.contains("public interface ListenerControl"));
+    assertFalse(catalog.contains("DEFAULT_MAX_QUEUED_OUTPUT"));
+    assertTrue(family.contains("private static BuiltinResult bufferedOutputLength(Optional<ListenerControl> listenerControl,"));
+    assertTrue(family.contains("bufferedOutputLength(listenerControl, call.hosts(), call.stagedBufferedOutputLength())"));
+    assertTrue(family.contains("call -> openNetworkConnection(listenerControl, call)"));
+    assertTrue(family.contains("call -> unlisten(listenerControl, call.arguments())"));
+    assertTrue(family.contains("ConnectionBuiltins::connectionNameLookup"));
+    assertTrue(family.contains("public record NotificationRequest"));
+    assertTrue(family.contains("private static final Set<ArgType> OBJECT"));
+    assertTrue(family.contains("import world.mongoose.banteng.builtin.BuiltinHosts;"));
+    assertTrue(family.contains("import world.mongoose.banteng.builtin.BuiltinCall;"));
+    assertTrue(family.contains(".permission(BuiltinPermissionRule.WIZARD_ONLY).irrevocable()"));
+    assertTrue(hosts.contains("() -> EmptyConnectionRegistry.INSTANCE"));
+    assertTrue(hosts.contains("private enum EmptyConnectionRegistry"));
+    assertTrue(hosts.contains("import world.mongoose.banteng.builtin.family.ConnectionBuiltins.ConnectionOption;"));
+    assertFalse(family.contains("EmptyConnectionRegistry"));
+    assertTrue(mover.run(new InMemoryLargeSourceSet(changes.stream().map(Result::getAfter).toList()), context)
+        .getChangeset().getAllResults().isEmpty());
+  }
+
+  @Test
   void movesConversionGroupsAndRetargetsTheRealRemainingHelperCaller() {
     var context = new InMemoryExecutionContext(failure -> { throw new AssertionError(failure); });
     var files = JavaParser.fromJavaVersion().build().parse(context, """

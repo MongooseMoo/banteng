@@ -30,16 +30,11 @@ import java.util.stream.Stream;
 import org.jspecify.annotations.Nullable;
 import world.mongoose.banteng.builtin.BuiltinCall;
 import world.mongoose.banteng.builtin.BuiltinCatalog;
-import world.mongoose.banteng.builtin.BuiltinCatalog.ConnectionOption;
-import world.mongoose.banteng.builtin.BuiltinCatalog.ConnectionOptionRequest;
-import world.mongoose.banteng.builtin.BuiltinCatalog.ForcedInputRequest;
-import world.mongoose.banteng.builtin.BuiltinCatalog.KeepAliveOptions;
-import world.mongoose.banteng.builtin.BuiltinCatalog.NotificationRequest;
-import world.mongoose.banteng.builtin.BuiltinCatalog.ListenerControl;
 import world.mongoose.banteng.builtin.BuiltinHosts;
 import world.mongoose.banteng.builtin.BuiltinResult;
 import world.mongoose.banteng.builtin.CheckpointRequest;
 import world.mongoose.banteng.builtin.ConnectionRegistryAccess;
+import world.mongoose.banteng.builtin.family.ConnectionBuiltins;
 import world.mongoose.banteng.bytecode.BytecodeProgram;
 import world.mongoose.banteng.bytecode.MooCompiler;
 import world.mongoose.banteng.logging.ServerLog;
@@ -88,7 +83,7 @@ public final class MooRuntime implements AutoCloseable, SchedulerRuntime {
   private final ValueSemantics valueSemantics;
   private final TaskRegistry taskRegistry;
   private final ServerLog serverLog;
-  private final Optional<ListenerControl> listenerControl;
+  private final Optional<ConnectionBuiltins.ListenerControl> listenerControl;
   private final Optional<Path> database;
   private final Optional<Path> checkpoint;
   private final WorldTxn committedWorld;
@@ -114,7 +109,7 @@ public final class MooRuntime implements AutoCloseable, SchedulerRuntime {
       ConnectionRegistryAccess connections,
       LongSupplier nanoTime,
       ConnectionNameResolver connectionNameResolver,
-      Optional<ListenerControl> listenerControl,
+      Optional<ConnectionBuiltins.ListenerControl> listenerControl,
       Optional<Path> database,
       Optional<Path> checkpoint,
       List<ActiveConnection> activeConnections,
@@ -1545,7 +1540,7 @@ public final class MooRuntime implements AutoCloseable, SchedulerRuntime {
           checkpointCodec.writeAtomic(
               target, retained.snapshot(), scheduler.durableTasksExcluding(currentTaskId), activeConnections());
           if (effect.binary) {
-            listenerControl.ifPresent(ListenerControl::shutdown);
+            listenerControl.ifPresent(ConnectionBuiltins.ListenerControl::shutdown);
           } else {
             scheduler.enqueueDetached(RuntimeRequest.checkpointFinished(true, false));
           }
@@ -1583,7 +1578,7 @@ public final class MooRuntime implements AutoCloseable, SchedulerRuntime {
         }
         listenerControl.orElseThrow().panic();
       }
-      case SHUTDOWN -> listenerControl.ifPresent(ListenerControl::shutdown);
+      case SHUTDOWN -> listenerControl.ifPresent(ConnectionBuiltins.ListenerControl::shutdown);
     }
   }
 
@@ -1912,7 +1907,7 @@ public final class MooRuntime implements AutoCloseable, SchedulerRuntime {
     boolean holdInput;
     boolean disableOob;
     boolean binary;
-    KeepAliveOptions keepAlive = KeepAliveOptions.defaults();
+    ConnectionBuiltins.KeepAliveOptions keepAlive = ConnectionBuiltins.KeepAliveOptions.defaults();
     Optional<String> flushCommand = Optional.empty();
     final List<String> pendingInput = new ArrayList<>();
     Optional<String> prefix = Optional.empty();
@@ -2113,7 +2108,7 @@ public final class MooRuntime implements AutoCloseable, SchedulerRuntime {
       long generation,
       String text,
       boolean noNewline,
-      KeepAliveOptions keepAlive) {
+      ConnectionBuiltins.KeepAliveOptions keepAlive) {
     RuntimeEffect {
       lines = List.copyOf(lines);
       Objects.requireNonNull(keepAlive, "keepAlive");
@@ -2137,7 +2132,7 @@ public final class MooRuntime implements AutoCloseable, SchedulerRuntime {
           generation,
           text,
           noNewline,
-          KeepAliveOptions.defaults());
+          ConnectionBuiltins.KeepAliveOptions.defaults());
     }
 
     static RuntimeEffect startTimeout(long connectionId, long generation) {
@@ -2180,7 +2175,7 @@ public final class MooRuntime implements AutoCloseable, SchedulerRuntime {
           RuntimeEffectKind.BINARY, connectionId, List.of(), binary, false, 0, "", false);
     }
 
-    static RuntimeEffect keepAlive(long connectionId, KeepAliveOptions options) {
+    static RuntimeEffect keepAlive(long connectionId, ConnectionBuiltins.KeepAliveOptions options) {
       return new RuntimeEffect(
           RuntimeEffectKind.KEEP_ALIVE,
           connectionId,

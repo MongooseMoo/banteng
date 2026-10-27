@@ -15,10 +15,8 @@ import java.util.OptionalDouble;
 import java.util.OptionalLong;
 import java.util.concurrent.TimeUnit;
 import world.mongoose.banteng.builtin.BuiltinResult;
-import world.mongoose.banteng.builtin.BuiltinCatalog.ConnectionOption;
-import world.mongoose.banteng.builtin.BuiltinCatalog.ConnectionOptionRequest;
-import world.mongoose.banteng.builtin.BuiltinCatalog.ForcedInputRequest;
-import world.mongoose.banteng.builtin.BuiltinCatalog.NotificationRequest;
+import world.mongoose.banteng.builtin.family.ConnectionBuiltins;
+import world.mongoose.banteng.builtin.family.ConnectionBuiltins.ConnectionOption;
 import world.mongoose.banteng.bytecode.BytecodeProgram;
 import world.mongoose.banteng.bytecode.BytecodeProgram.HandlerSpec;
 import world.mongoose.banteng.bytecode.BytecodeProgram.Instruction;
@@ -124,9 +122,9 @@ final class VmSnapshotTest {
     AnonymousObjectValue second = new AnonymousObjectValue();
     outbox.deferAnonymousCollection(List.of(first, second, first));
     assertEquals(List.of(first, second), outbox.anonymousCollectionDeferrals());
-    outbox.stageNotificationRequest(new NotificationRequest(-7, "abc", false, false));
-    outbox.stageNotificationRequest(new NotificationRequest(-8, "ignored", false, false));
-    outbox.stageNotificationRequest(new NotificationRequest(-7, "d", false, true));
+    outbox.stageNotificationRequest(new ConnectionBuiltins.NotificationRequest(-7, "abc", false, false));
+    outbox.stageNotificationRequest(new ConnectionBuiltins.NotificationRequest(-8, "ignored", false, false));
+    outbox.stageNotificationRequest(new ConnectionBuiltins.NotificationRequest(-7, "d", false, true));
     assertEquals(13, outbox.stagedBufferedOutputLength(-7, 7));
   }
 
@@ -167,10 +165,10 @@ final class VmSnapshotTest {
 
     state.effects().stageOutput("one");
     state.effects().stageConnectionOptionRequest(
-        new ConnectionOptionRequest(41, ConnectionOption.HOLD_INPUT, new IntegerValue(1)));
+        new ConnectionBuiltins.ConnectionOptionRequest(41, ConnectionBuiltins.ConnectionOption.HOLD_INPUT, new IntegerValue(1)));
     state.effects().stageBootPlayerTarget(43);
-    state.effects().stageForcedInputRequest(new ForcedInputRequest(47, "look"));
-    state.effects().stageNotificationRequest(new NotificationRequest(-7, "abc", true, true));
+    state.effects().stageForcedInputRequest(new ConnectionBuiltins.ForcedInputRequest(47, "look"));
+    state.effects().stageNotificationRequest(new ConnectionBuiltins.NotificationRequest(-7, "abc", true, true));
     AnonymousObjectValue deferred = new AnonymousObjectValue();
     state.effects().deferAnonymousCollection(List.of(deferred));
     state.switchPlayer(53);
@@ -187,7 +185,7 @@ final class VmSnapshotTest {
     assertEquals(snapshot, restored.snapshot(9_000));
     assertEquals(3, restored.effects().stagedBufferedOutputLength(-7, 0));
     assertEquals(
-        List.of(new NotificationRequest(-7, "abc", true, true)),
+        List.of(new ConnectionBuiltins.NotificationRequest(-7, "abc", true, true)),
         restored.effects().drainNotificationRequests());
     assertEquals(List.of(deferred), restored.effects().anonymousCollectionDeferrals());
     assertSame(program, restored.currentFrame().program);
@@ -198,7 +196,7 @@ final class VmSnapshotTest {
   void ordinaryNotificationsRemainVisibleInAttemptLocalBufferedOutput() {
     VmState state = new VmState(new TaskOrigin(java.util.Map.of(), 0, new world.mongoose.banteng.value.MooValue.ObjectValue(-1),
         "", "", true), new TaskBudget(60_000, 5, 50));
-    state.effects().stageNotificationRequest(new NotificationRequest(-7, "abc", false, false));
+    state.effects().stageNotificationRequest(new ConnectionBuiltins.NotificationRequest(-7, "abc", false, false));
 
     assertEquals(12, state.effects().stagedBufferedOutputLength(-7, 7));
   }

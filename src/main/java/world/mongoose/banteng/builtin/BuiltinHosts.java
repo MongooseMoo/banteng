@@ -1,10 +1,12 @@
 package world.mongoose.banteng.builtin;
 
 import java.util.List;
+import java.util.Optional;
+import java.util.OptionalLong;
 import java.util.Objects;
 import java.util.function.Supplier;
 import world.mongoose.banteng.host.Crypt;
-import world.mongoose.banteng.builtin.BuiltinCatalog.ConnectionOption;
+import world.mongoose.banteng.builtin.family.ConnectionBuiltins.ConnectionOption;
 import world.mongoose.banteng.logging.ServerLog;
 import world.mongoose.banteng.value.MooValue;
 import world.mongoose.banteng.value.MooValue.ErrorValue;
@@ -96,7 +98,7 @@ public record BuiltinHosts(
     private BuiltinHandler resumeTask = Builder::invalidArgument;
     private ServerLog serverLog = ServerLog.stderr(System.Logger.Level.INFO);
     private Supplier<ConnectionRegistryAccess> connections =
-        BuiltinCatalog.standaloneConnections();
+        () -> EmptyConnectionRegistry.INSTANCE;
     private Crypt crypt = Crypt.system();
     private OutboundConnectionRegistrar registerOutboundConnection = (id, handler, info) -> {};
 
@@ -247,5 +249,85 @@ public record BuiltinHosts(
   @FunctionalInterface
   public interface ConnectionOptionSetter {
     BuiltinResult set(long target, ConnectionOption option, MooValue value);
+  }
+
+  private enum EmptyConnectionRegistry implements ConnectionRegistryAccess {
+    INSTANCE;
+
+    @Override
+    public List<Long> connectionIds() {
+      return List.of();
+    }
+
+    @Override
+    public ConnectionRegistryAccess copy() {
+      return this;
+    }
+
+    @Override
+    public void replaceWith(ConnectionRegistryAccess source) {
+      if (!Objects.requireNonNull(source, "source").connectionIds().isEmpty()) {
+        throw new IllegalStateException("connection registry is unavailable");
+      }
+    }
+
+    @Override
+    public boolean sameState(ConnectionRegistryAccess other) {
+      return Objects.requireNonNull(other, "other").connectionIds().isEmpty();
+    }
+
+    @Override
+    public void openConnection(long connectionId) {
+      throw new IllegalStateException("connection registry is unavailable");
+    }
+
+    @Override
+    public void openConnection(long connectionId, MapValue info) {
+      throw new IllegalStateException("connection registry is unavailable");
+    }
+
+    @Override
+    public void closeConnection(long connectionId) {}
+
+    @Override
+    public OptionalLong connectionPlayer(long connectionId) {
+      return OptionalLong.empty();
+    }
+
+    @Override
+    public List<Long> connectedPlayers(boolean showAll) {
+      return List.of();
+    }
+
+    @Override
+    public Optional<MapValue> connectionInfo(long objectId) {
+      return Optional.empty();
+    }
+
+    @Override
+    public boolean rewriteConnectionName(
+        long connectionId, String expectedIp, String resolvedName) {
+      return false;
+    }
+
+    @Override
+    public OptionalLong connectionId(long objectId) {
+      return OptionalLong.empty();
+    }
+
+    @Override
+    public Optional<ListValue> intrinsicCommands(long objectId) {
+      return Optional.empty();
+    }
+
+    @Override
+    public boolean setIntrinsicCommands(long objectId, ListValue commands) {
+      return false;
+    }
+
+    @Override
+    public boolean switchConnectionPlayer(long connectionId, long playerId) {
+      return false;
+    }
   }
 }

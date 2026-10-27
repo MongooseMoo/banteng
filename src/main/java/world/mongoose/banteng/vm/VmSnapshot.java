@@ -9,10 +9,8 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.OptionalDouble;
 import java.util.OptionalLong;
-import world.mongoose.banteng.builtin.BuiltinCatalog.ConnectionOptionRequest;
-import world.mongoose.banteng.builtin.BuiltinCatalog.ForcedInputRequest;
-import world.mongoose.banteng.builtin.BuiltinCatalog.NotificationRequest;
 import world.mongoose.banteng.builtin.CheckpointRequest;
+import world.mongoose.banteng.builtin.family.ConnectionBuiltins;
 import world.mongoose.banteng.bytecode.BytecodeProgram;
 import world.mongoose.banteng.bytecode.BytecodeProgram.HandlerSpec;
 import world.mongoose.banteng.value.MooValue;
@@ -36,10 +34,10 @@ public record VmSnapshot(
     String initialFullVerbName,
     List<Frame> frames,
     List<String> output,
-    List<ConnectionOptionRequest> connectionOptionRequests,
+    List<ConnectionBuiltins.ConnectionOptionRequest> connectionOptionRequests,
     List<Long> bootPlayerTargets,
-    List<ForcedInputRequest> forcedInputRequests,
-    List<NotificationRequest> notificationRequests,
+    List<ConnectionBuiltins.ForcedInputRequest> forcedInputRequests,
+    List<ConnectionBuiltins.NotificationRequest> notificationRequests,
     List<CheckpointRequest> checkpointRequests,
     List<AnonymousObjectValue> anonymousCollectionDeferrals,
     VmState.Outcome outcome,
@@ -113,7 +111,7 @@ public record VmSnapshot(
       size = add(size, textSize(line));
     }
     size = add(size, Integer.BYTES);
-    for (ConnectionOptionRequest request : connectionOptionRequests) {
+    for (ConnectionBuiltins.ConnectionOptionRequest request : connectionOptionRequests) {
       size = add(size, Long.BYTES);
       size = add(size, Byte.BYTES);
       size = add(size, valueSize(request.value()));
@@ -121,12 +119,12 @@ public record VmSnapshot(
     size = add(size, Integer.BYTES);
     size = add(size, multiply(bootPlayerTargets.size(), Long.BYTES));
     size = add(size, Integer.BYTES);
-    for (ForcedInputRequest request : forcedInputRequests) {
+    for (ConnectionBuiltins.ForcedInputRequest request : forcedInputRequests) {
       size = add(size, Long.BYTES);
       size = add(size, textSize(request.line()));
     }
     size = add(size, Integer.BYTES);
-    for (NotificationRequest request : notificationRequests) {
+    for (ConnectionBuiltins.NotificationRequest request : notificationRequests) {
       size = add(size, Long.BYTES);
       size = add(size, textSize(request.line()));
       size = add(size, multiply(2, Byte.BYTES));

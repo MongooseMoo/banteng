@@ -27,8 +27,9 @@ import java.util.OptionalLong;
 import java.util.Random;
 import java.util.Set;
 import java.util.concurrent.Callable;
-import world.mongoose.banteng.builtin.BuiltinCatalog.ConnectionOption;
 import world.mongoose.banteng.builtin.BuiltinResult;
+import world.mongoose.banteng.builtin.family.ConnectionBuiltins;
+import world.mongoose.banteng.builtin.family.ConnectionBuiltins.ConnectionOption;
 import world.mongoose.banteng.host.Crypt;
 import world.mongoose.banteng.host.NativeCallException;
 import world.mongoose.banteng.logging.ServerLog;
@@ -1539,7 +1540,7 @@ final class BuiltinCatalogTest {
               2);
       assertEquals(
           new BuiltinResult.SetConnectionOption(
-              2, ConnectionOption.HOLD_INPUT, new IntegerValue(1)),
+              2, ConnectionBuiltins.ConnectionOption.HOLD_INPUT, new IntegerValue(1)),
           held);
 
       BuiltinResult flush =
@@ -1551,7 +1552,7 @@ final class BuiltinCatalogTest {
               1);
       assertEquals(
           new BuiltinResult.SetConnectionOption(
-              2, ConnectionOption.FLUSH_COMMAND, string(".flush")),
+              2, ConnectionBuiltins.ConnectionOption.FLUSH_COMMAND, string(".flush")),
           flush);
       assertEquals(
           Optional.of(ErrorValue.E_PERM),
@@ -6603,7 +6604,7 @@ final class BuiltinCatalogTest {
     }
   }
 
-  private static final class RecordingListener implements BuiltinCatalog.ListenerControl {
+  private static final class RecordingListener implements ConnectionBuiltins.ListenerControl {
     private long handler;
     private int port;
     private boolean printMessages;
@@ -6624,9 +6625,9 @@ final class BuiltinCatalogTest {
     }
 
     @Override
-    public List<BuiltinCatalog.ListenerDescription> listeners() {
+    public List<ConnectionBuiltins.ListenerDescription> listeners() {
       return List.of(
-          new BuiltinCatalog.ListenerDescription(handler, port, port, false, printMessages, "127.0.0.1"));
+          new ConnectionBuiltins.ListenerDescription(handler, port, port, false, printMessages, "127.0.0.1"));
     }
 
     @Override

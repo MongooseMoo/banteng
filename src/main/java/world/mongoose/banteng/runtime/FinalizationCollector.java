@@ -9,7 +9,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Stream;
-import world.mongoose.banteng.builtin.BuiltinCatalog.ConnectionOptionRequest;
+import world.mongoose.banteng.builtin.family.ConnectionBuiltins;
 import world.mongoose.banteng.value.MooValue;
 import world.mongoose.banteng.value.MooValue.AnonymousObjectValue;
 import world.mongoose.banteng.value.MooValue.ListValue;
@@ -218,7 +218,7 @@ final class FinalizationCollector {
         }
         FinalizationCollector.markReachableAnonymous(frame.receiver(), snapshot, reachable, visitedWaifs);
       }
-      for (ConnectionOptionRequest request : task.connectionOptionRequests()) {
+      for (ConnectionBuiltins.ConnectionOptionRequest request : task.connectionOptionRequests()) {
         FinalizationCollector.markReachableAnonymous(request.value(), snapshot, reachable, visitedWaifs);
       }
       for (AnonymousObjectValue anonymous : task.anonymousCollectionDeferrals()) {

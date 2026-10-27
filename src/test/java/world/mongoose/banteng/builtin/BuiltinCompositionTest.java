@@ -13,7 +13,8 @@ import java.util.List;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
-import world.mongoose.banteng.builtin.BuiltinCatalog.ListenerControl;
+import world.mongoose.banteng.builtin.family.ConnectionBuiltins;
+import world.mongoose.banteng.builtin.family.ConnectionBuiltins.ListenerControl;
 import world.mongoose.banteng.value.MooValue;
 import world.mongoose.banteng.value.MooValue.IntegerValue;
 import world.mongoose.banteng.value.MooValue.ListValue;
@@ -109,7 +110,7 @@ final class BuiltinCompositionTest {
             .collect(Collectors.toSet());
 
     assertEquals(
-        Set.of(List.of(BuiltinHosts.class), List.of(ListenerControl.class, BuiltinHosts.class)),
+        Set.of(List.of(BuiltinHosts.class), List.of(ConnectionBuiltins.ListenerControl.class, BuiltinHosts.class)),
         signatures);
   }
 

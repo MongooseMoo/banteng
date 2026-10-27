@@ -76,6 +76,18 @@ public final class MoveBuiltinFamily extends ScanningRecipe<MoveBuiltinFamily.Me
         members.source = getCursor().firstEnclosingOrThrow(J.CompilationUnit.class);
         members.owner = type.getId();
         for (Statement statement : type.getBody().getStatements()) {
+          if (family.equals("ConnectionBuiltins")) {
+            if (statement instanceof J.VariableDeclarations field && field.getVariables().stream()
+                .anyMatch(variable -> variable.getSimpleName().equals("DEFAULT_MAX_QUEUED_OUTPUT"))) {
+              members.fields.add(field);
+            }
+            if (statement instanceof J.ClassDeclaration nested) {
+              if (nested.getSimpleName().equals("EmptyConnectionRegistry")) { members.emptyConnections = nested; }
+              else if (Set.of("ListenerControl", "ListenerDescription", "ConnectionOptionRequest",
+                  "ForcedInputRequest", "NotificationRequest", "ConnectionOption", "KeepAliveOptions")
+                  .contains(nested.getSimpleName())) { members.nested.add(nested); }
+            }
+          }
           if (family.equals("TimeBuiltins") && statement instanceof J.VariableDeclarations field
               && field.getVariables().stream().anyMatch(variable -> Set.of(
                   "CLOCK_REALTIME", "CLOCK_MONOTONIC", "CLOCK_MONOTONIC_RAW",
@@ -106,10 +118,13 @@ public final class MoveBuiltinFamily extends ScanningRecipe<MoveBuiltinFamily.Me
                 members.foldAscii = method;
               }
             }
+            if (family.equals("ConnectionBuiltins") && method.getSimpleName().equals("standaloneConnections")) {
+              members.standaloneConnections = method;
+            }
             if (methods.contains(method.getSimpleName()) && method.getModifiers().stream()
                 .anyMatch(modifier -> modifier.getType() == J.Modifier.Type.Static)
                 || family.equals("StringBuiltins") && method.getSimpleName().equals("parseAnsi")
-                || family.equals("RandomBuiltins") && methods.contains(method.getSimpleName())) {
+                || Set.of("RandomBuiltins", "ConnectionBuiltins").contains(family) && methods.contains(method.getSimpleName())) {
               members.implementations.add(method);
             }
             if (method.getSimpleName().equals("buildManifest") && method.getBody() != null) {
@@ -164,7 +179,7 @@ public final class MoveBuiltinFamily extends ScanningRecipe<MoveBuiltinFamily.Me
     for (Statement registration : members.registrations) { references.visitNonNull(registration, context); }
     for (J.MethodDeclaration implementation : members.implementations) { references.visitNonNull(implementation, context); }
     StringBuilder constants = new StringBuilder();
-    for (String name : List.of("ANY", "INTEGER", "NUMBER", "STRING")) {
+    for (String name : List.of("ANY", "INTEGER", "NUMBER", "STRING", "OBJECT")) {
       if (referencedNames.contains(name)) {
         constants.append("  private static final Set<ArgType> ").append(name)
             .append(" = Set.of(ArgType.").append(name).append(");\n");
@@ -174,6 +189,7 @@ public final class MoveBuiltinFamily extends ScanningRecipe<MoveBuiltinFamily.Me
     for (int group = 0; group < members.groups.size(); group++) {
       body.append("  public static void ").append(registerMethod(group))
           .append("(List<BuiltinSpec> entries" + (stringAnsiGroup(group) ? ", Random random" : "")
+              + (family.equals("ConnectionBuiltins") ? ", Optional<ListenerControl> listenerControl" : "")
               + (family.equals("RandomBuiltins")
                   ? ", java.util.function.Supplier<Random> random, java.util.function.Supplier<Random> floatingRandom, SecureRandom secureRandom" : "") + ") {\n")
           .append("    BuiltinRegistrar registrar = new BuiltinRegistrar(entries);\n");
@@ -204,6 +220,9 @@ public final class MoveBuiltinFamily extends ScanningRecipe<MoveBuiltinFamily.Me
         .parse(context, "package world.mongoose.banteng.builtin.family;\n"
             + "import java.util.List; import java.util.Set;\n"
             + "import world.mongoose.banteng.builtin.ArgType;\n"
+            + "import world.mongoose.banteng.builtin.BuiltinCall;\n"
+            + "import world.mongoose.banteng.builtin.BuiltinHosts;\n"
+            + "import world.mongoose.banteng.builtin.ConnectionRegistryAccess;\n"
             + "import world.mongoose.banteng.builtin.BuiltinRegistrar;\n"
             + "import world.mongoose.banteng.builtin.BuiltinSpec;\n"
             + "import world.mongoose.banteng.builtin.BuiltinHandler;\n"
@@ -236,6 +255,15 @@ public final class MoveBuiltinFamily extends ScanningRecipe<MoveBuiltinFamily.Me
         .withSourcePath(Path.of("src/main/java/world/mongoose/banteng/builtin/family/" + family + ".java"));
     generated = (J.CompilationUnit) new RandomizeIdVisitor<ExecutionContext>().visitNonNull(generated, context);
     generated = (J.CompilationUnit) new AutoFormatVisitor<ExecutionContext>(null).visitNonNull(generated, context);
+    if (family.equals("ConnectionBuiltins")) {
+      String source = generated.printAll().replace("private BuiltinResult ", "private static BuiltinResult ");
+      for (String name : List.of("bufferedOutputLength", "listen", "listeners", "unlisten", "openNetworkConnection")) {
+        source = source.replace("private static BuiltinResult " + name + "(",
+            "private static BuiltinResult " + name + "(Optional<ListenerControl> listenerControl, ");
+      }
+      generated = ((J.CompilationUnit) JavaParser.fromJavaVersion().build().parse(context, source)
+          .findFirst().orElseThrow()).withSourcePath(generated.getSourcePath());
+    }
     if (family.equals("StringBuiltins")) {
       String source = generated.printAll().replace("private BuiltinResult parseAnsi(List<MooValue> arguments)",
           "private static BuiltinResult parseAnsi(List<MooValue> arguments, Random random)");
@@ -281,6 +309,9 @@ public final class MoveBuiltinFamily extends ScanningRecipe<MoveBuiltinFamily.Me
   }
 
   private String registerMethod(int group) {
+    if (family.equals("ConnectionBuiltins")) {
+      return List.of("registerSwitchPlayer", "registerInventory", "registerOptionsAndListeners", "registerNotify").get(group);
+    }
     if (family.equals("ConversionBuiltins")) {
       return List.of("registerConversions", "registerTypeOf").get(group);
     }
@@ -300,6 +331,13 @@ public final class MoveBuiltinFamily extends ScanningRecipe<MoveBuiltinFamily.Me
           .replace("floatingRandom(call.arguments())", "floatingRandom(call.arguments(), floatingRandom.get())")
           .replace("randomBytes(call.arguments(), call.world())", "randomBytes(call.arguments(), call.world(), secureRandom)")
           .replace("random.setSeed(SECURE_RANDOM.nextLong())", "random.get().setSeed(secureRandom.nextLong())");
+    }
+    if (family.equals("ConnectionBuiltins")) {
+      result = result.replace("this::connectionNameLookup", "ConnectionBuiltins::connectionNameLookup")
+          .replace("this::openNetworkConnection", "call -> openNetworkConnection(listenerControl, call)");
+      for (String name : List.of("bufferedOutputLength", "listen", "listeners", "unlisten")) {
+        result = result.replaceAll("\\b" + name + "\\(", name + "(listenerControl, ");
+      }
     }
     return result;
   }
@@ -356,6 +394,18 @@ public final class MoveBuiltinFamily extends ScanningRecipe<MoveBuiltinFamily.Me
     return new JavaIsoVisitor<ExecutionContext>() {
       @Override public J.CompilationUnit visitCompilationUnit(J.CompilationUnit unit,
           ExecutionContext context) {
+        if (family.equals("ConnectionBuiltins") && unit.getSourcePath().endsWith("builtin/BuiltinHosts.java")) {
+          J.ClassDeclaration type = unit.getClasses().getFirst();
+          List<Statement> body = new ArrayList<>(type.getBody().getStatements());
+          body.add(members.emptyConnections);
+          String source = unit.withClasses(List.of(type.withBody(type.getBody().withStatements(body)))).printAll()
+              .replace("BuiltinCatalog.standaloneConnections()", "() -> EmptyConnectionRegistry.INSTANCE")
+              .replace("import world.mongoose.banteng.builtin.BuiltinCatalog.ConnectionOption;",
+                  "import world.mongoose.banteng.builtin.family.ConnectionBuiltins.ConnectionOption;")
+              .replace("import java.util.List;", "import java.util.List;\nimport java.util.Optional;\nimport java.util.OptionalLong;");
+          return ((J.CompilationUnit) JavaParser.fromJavaVersion().build().parse(context, source)
+              .findFirst().orElseThrow()).withId(unit.getId()).withSourcePath(unit.getSourcePath());
+        }
         if (family.equals("RandomBuiltins")) {
           if (unit.getSourcePath().endsWith("builtin/ValueLimits.java")) {
             J.ClassDeclaration type = unit.getClasses().getFirst();
@@ -436,6 +486,8 @@ public final class MoveBuiltinFamily extends ScanningRecipe<MoveBuiltinFamily.Me
                  .filter(statement -> members.foldAscii == null || !members.foldAscii.getId().equals(statement.getId()))
                  .filter(statement -> members.matchesAt == null || !members.matchesAt.getId().equals(statement.getId()))
                  .filter(statement -> members.stringLengthError == null || !members.stringLengthError.getId().equals(statement.getId()))
+                 .filter(statement -> members.emptyConnections == null || !members.emptyConnections.getId().equals(statement.getId()))
+                 .filter(statement -> members.standaloneConnections == null || !members.standaloneConnections.getId().equals(statement.getId()))
                  .filter(statement -> members.nested.stream().noneMatch(member -> member.getId().equals(statement.getId())))
                 .toList())), context);
       }
@@ -454,6 +506,7 @@ public final class MoveBuiltinFamily extends ScanningRecipe<MoveBuiltinFamily.Me
             Statement replacement = ((J.CompilationUnit) JavaParser.fromJavaVersion().build()
              .parse(context, "class Replacement { void register() { " + family + "." + registerMethod(group)
                  + "(entries" + (stringAnsiGroup(group) ? ", random" : "")
+                 + (family.equals("ConnectionBuiltins") ? ", listenerControl" : "")
                  + (family.equals("RandomBuiltins") ? ", () -> random, () -> floatingRandom, SECURE_RANDOM" : "") + "); } }")
             .findFirst().orElseThrow()).getClasses().getFirst().getBody().getStatements().stream()
             .filter(J.MethodDeclaration.class::isInstance).map(J.MethodDeclaration.class::cast)
@@ -480,6 +533,8 @@ public final class MoveBuiltinFamily extends ScanningRecipe<MoveBuiltinFamily.Me
     private final List<Statement> handlers = new ArrayList<>();
     private final List<Statement> limits = new ArrayList<>();
     private final List<Statement> fields = new ArrayList<>();
+    private J.ClassDeclaration emptyConnections;
+    private J.MethodDeclaration standaloneConnections;
     private J.MethodDeclaration foldAscii;
     private J.MethodDeclaration matchesAt;
     private J.MethodDeclaration stringLengthError;

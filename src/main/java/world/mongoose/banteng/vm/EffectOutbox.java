@@ -3,19 +3,17 @@ package world.mongoose.banteng.vm;
 import java.util.ArrayDeque;
 import java.util.List;
 import java.util.Queue;
-import world.mongoose.banteng.builtin.BuiltinCatalog.ConnectionOptionRequest;
-import world.mongoose.banteng.builtin.BuiltinCatalog.ForcedInputRequest;
-import world.mongoose.banteng.builtin.BuiltinCatalog.NotificationRequest;
 import world.mongoose.banteng.builtin.CheckpointRequest;
+import world.mongoose.banteng.builtin.family.ConnectionBuiltins;
 import world.mongoose.banteng.value.MooValue.AnonymousObjectValue;
 
 /** Ordered host effects staged by one task attempt. */
 public final class EffectOutbox {
   final Queue<String> output = new ArrayDeque<>();
-  final Queue<ConnectionOptionRequest> connectionOptionRequests = new ArrayDeque<>();
+  final Queue<ConnectionBuiltins.ConnectionOptionRequest> connectionOptionRequests = new ArrayDeque<>();
   final Queue<Long> bootPlayerTargets = new ArrayDeque<>();
-  final Queue<ForcedInputRequest> forcedInputRequests = new ArrayDeque<>();
-  final Queue<NotificationRequest> notificationRequests = new ArrayDeque<>();
+  final Queue<ConnectionBuiltins.ForcedInputRequest> forcedInputRequests = new ArrayDeque<>();
+  final Queue<ConnectionBuiltins.NotificationRequest> notificationRequests = new ArrayDeque<>();
   final Queue<CheckpointRequest> checkpointRequests = new ArrayDeque<>();
   final Queue<AnonymousObjectValue> anonymousCollectionDeferrals = new ArrayDeque<>();
   /** Returns ordered output staged by this execution. */
@@ -33,12 +31,12 @@ public final class EffectOutbox {
     output.add(line);
   }
 
-  void stageConnectionOptionRequest(ConnectionOptionRequest request) {
+  void stageConnectionOptionRequest(ConnectionBuiltins.ConnectionOptionRequest request) {
     connectionOptionRequests.add(request);
   }
 
   /** Removes and returns connection-option requests in their task execution order. */
-  public List<ConnectionOptionRequest> drainConnectionOptionRequests() {
+  public List<ConnectionBuiltins.ConnectionOptionRequest> drainConnectionOptionRequests() {
     return drain(connectionOptionRequests);
   }
 
@@ -51,28 +49,28 @@ public final class EffectOutbox {
     return drain(bootPlayerTargets);
   }
 
-  void stageForcedInputRequest(ForcedInputRequest request) {
+  void stageForcedInputRequest(ConnectionBuiltins.ForcedInputRequest request) {
     forcedInputRequests.add(request);
   }
 
   /** Removes and returns forced-input requests in their task execution order. */
-  public List<ForcedInputRequest> drainForcedInputRequests() {
+  public List<ConnectionBuiltins.ForcedInputRequest> drainForcedInputRequests() {
     return drain(forcedInputRequests);
   }
 
-  void stageNotificationRequest(NotificationRequest request) {
+  void stageNotificationRequest(ConnectionBuiltins.NotificationRequest request) {
     notificationRequests.add(request);
   }
 
   /** Removes and returns connection notifications in their task execution order. */
-  public List<NotificationRequest> drainNotificationRequests() {
+  public List<ConnectionBuiltins.NotificationRequest> drainNotificationRequests() {
     return drain(notificationRequests);
   }
 
   /** Projects this attempt's staged notification sequence over live queued bytes. */
   public long stagedBufferedOutputLength(long connectionId, long liveQueuedBytes) {
     long queuedBytes = liveQueuedBytes;
-    for (NotificationRequest request : notificationRequests) {
+    for (ConnectionBuiltins.NotificationRequest request : notificationRequests) {
       if (request.connectionId() != connectionId) {
         continue;
       }
