@@ -14,6 +14,8 @@ The recipe captures declared static methods and registration AST nodes, builds t
 Source comparisons after applying the patch establish all 28 Math names retain their order; all 23 moved method bodies match the previous catalog ignoring whitespace; the rest of the catalog code matches after removing import lines and replacing the moved registration block with MathBuiltins.register(entries). Random state and all non-Math implementations remain in their current owner.
 
 ## Surprises
+PR CI rejected the new family package because its classes lacked explicit nullness marking. Added the same package-level NullMarked declaration as the existing builtin package; the existing compiler check remains unchanged. The recipe moves classes into this now-declared package.
+
 Issue text still describes removed cost fields. Current BuiltinSpec has five fields; source governs the registrar.
 
 The initial focused compilation rejected deprecated zero-argument printTrimmed calls. The recipe now uses the cursor-taking API. Scoped import ordering initially used an outdated constructor arity; current OpenRewrite requires Boolean and String arguments. Both authoring errors were repaired without changing compiler protection.
