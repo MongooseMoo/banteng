@@ -427,3 +427,13 @@ recipeList:
       family: TimeBuiltins
       builtins: [time, ctime, ftime]
       methods: [ctime, ftime]
+---
+type: specs.openrewrite.org/v1beta/recipe
+name: world.mongoose.banteng.builtin.ExtractRandomBuiltins
+displayName: Extract random builtins
+description: Moves random registrations and implementations while retaining existing generator lifetimes.
+recipeList:
+  - world.mongoose.banteng.rewrite.MoveBuiltinFamily:
+      family: RandomBuiltins
+      builtins: [random, reseed_random, frandom, random_bytes]
+      methods: [randomInteger, floatingRandom, randomBytes]
