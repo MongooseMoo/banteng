@@ -444,3 +444,13 @@ recipeList:
       family: RandomBuiltins
       builtins: [random, reseed_random, frandom, random_bytes]
       methods: [randomInteger, floatingRandom, randomBytes]
+---
+type: specs.openrewrite.org/v1beta/recipe
+name: world.mongoose.banteng.builtin.ExtractConversionBuiltins
+displayName: Extract conversion builtins
+description: Moves conversion registrations and implementations into their family owner.
+recipeList:
+  - world.mongoose.banteng.rewrite.MoveBuiltinFamily:
+      family: ConversionBuiltins
+      builtins: [tostr, tofloat, toint, toliteral, toobj, equal, typeof]
+      methods: [toStringValue, errorDescription, toFloat, toInteger, toLiteral, toObject, parseToastObjectId, isAsciiWhitespace, equalValues, typeOf]
