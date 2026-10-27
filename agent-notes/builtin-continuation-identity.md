@@ -19,6 +19,8 @@ The authored fixture initially used ListValue accessors incorrectly; its owner e
 Parent separately identified immutable activation-player display/propagation and timeout-stack line reporting work. Those remain outside this commit; this repair does not claim complete callback conformance while those fixes remain outstanding.
 
 ## Next step
+PR CI exposed stale explicit assertions left behind by this repair: BuiltinResultTest's component inventory omitted continuation payloads, and three MooRuntimeTest methods expected eval tracebacks without the synthetic builtin row (four string assertions). Updated those assertions to match the actual result records and Toast make_stack_list at execute.cc:452–513. This follow-up changes expectations only. No broad local CI was run; parent integrates it and reads PR CI.
+
 Parent integrates this local commit, reviews and runs PR CI. Lag worker reuses package-visible TaskRegistry.projectStackFrames after that dependency is integrated. Next independent assigned work is read-only planning for immutable activation player and timeout projection; no such code is included here.
 
 Validation: explicit WSL JAVA_HOME=/opt/java/25 and PATH=/opt/java/25/bin:/usr/bin:/bin; ./gradlew :test --tests world.mongoose.banteng.vm.BuiltinContinuationIdentityTest. Real cases cover direct/reflected create/recreate, anonymous create, suspend/snapshot restore, supported permanent callback dump/read/import/resume, recycle-induced exitfunc, move phase counters, eval, caught error tracebacks and a failed callback push caught above its original caller. git diff --check passed. No broad suite acceptance claim; parent owns required PR checks.
