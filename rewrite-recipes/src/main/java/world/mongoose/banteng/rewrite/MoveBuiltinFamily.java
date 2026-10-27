@@ -213,7 +213,11 @@ public final class MoveBuiltinFamily extends ScanningRecipe<MoveBuiltinFamily.Me
         .findFirst().orElseThrow();
     J.ClassDeclaration type = skeleton.getClasses().getFirst();
     List<Statement> statements = new ArrayList<>(type.getBody().getStatements());
-    statements.addAll(members.implementations);
+    for (J.MethodDeclaration implementation : members.implementations) {
+      statements.add(family.equals("ConversionBuiltins")
+          && implementation.getSimpleName().equals("toStringValue")
+          ? publicMethod(implementation) : implementation);
+    }
     statements.addAll(members.fields);
     statements.addAll(members.nested);
     List<J.Import> imports = new ArrayList<>(members.source.getImports());
@@ -258,6 +262,9 @@ public final class MoveBuiltinFamily extends ScanningRecipe<MoveBuiltinFamily.Me
   }
 
   private String registerMethod(int group) {
+    if (family.equals("ConversionBuiltins")) {
+      return List.of("registerConversions", "registerTypeOf").get(group);
+    }
     if (family.equals("StringBuiltins")) {
       return List.of("registerExplode", "registerSubstitutionAndAnsi", "registerSearchAndCompare").get(group);
     }
@@ -352,6 +359,11 @@ public final class MoveBuiltinFamily extends ScanningRecipe<MoveBuiltinFamily.Me
       @Override public J.MethodInvocation visitMethodInvocation(J.MethodInvocation invocation,
           ExecutionContext context) {
         J.MethodInvocation changed = super.visitMethodInvocation(invocation, context);
+        if (family.equals("ConversionBuiltins") && changed.getSimpleName().equals("toStringValue")) {
+          return changed.withSelect(new J.Identifier(java.util.UUID.randomUUID(),
+              org.openrewrite.java.tree.Space.EMPTY, org.openrewrite.marker.Markers.EMPTY,
+              List.of(), family, null, null));
+        }
         if (family.equals("ListBuiltins") && changed.getSimpleName().equals("enforceListValueLimit")
             && changed.getSelect() instanceof J.Identifier identifier
             && identifier.getSimpleName().equals("BuiltinCatalog")) {
