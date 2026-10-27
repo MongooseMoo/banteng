@@ -31,3 +31,6 @@ No local CI/test/migration or new review was run for this unchanged code/ancestr
 Moves legacy and PCRE registrations into RegexBuiltins beside the existing package-private services. Each catalog retains one service per registration group, including the PCRE cache shared by its handlers. Registration order, permissions and irrevocable behavior remain the same.
 
 Validation: the scoped migration dry-run, focused MoveBuiltinFamilyTest file, read-only service-body comparison and git diff --check. PR CI must run the existing conformance workflow.
+
+## Login and layout repair ancestry
+Merged the latest coordinator runtime login-output and pinned-layout-boundary repairs normally, without conflicts or family source adaptations. Family implementations, services, dependencies, extraction mover, authored fixtures and YAML are unchanged. No local tests, CI, migration or repeated review ran for this mechanical integration. Parent owns publication, hosted checks and merge.
