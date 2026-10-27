@@ -1,5 +1,13 @@
 ---
 type: specs.openrewrite.org/v1beta/recipe
+name: world.mongoose.banteng.builtin.ExtractSqliteBuiltins
+displayName: Extract SQLite builtin family
+description: Relocates the existing SQLite handle owner and its registrations.
+recipeList:
+  - world.mongoose.banteng.rewrite.MoveFileIoBuiltins:
+      family: Sqlite
+---
+type: specs.openrewrite.org/v1beta/recipe
 name: world.mongoose.banteng.builtin.ExtractFileIoBuiltins
 displayName: Extract File I/O builtin family
 description: Relocates the existing file handle owner and its registrations.
@@ -55,10 +63,10 @@ recipeList:
       methodPattern: world.mongoose.banteng.builtin.family.FileIoBuiltins mooString(java.lang.String)
       fullyQualifiedTargetTypeName: world.mongoose.banteng.value.MooValue.StringValue
   - org.openrewrite.java.ChangeMethodTargetToStatic:
-      methodPattern: world.mongoose.banteng.builtin.PcreService string(java.lang.String)
+      methodPattern: world.mongoose.banteng.builtin.family.PcreService string(java.lang.String)
       fullyQualifiedTargetTypeName: world.mongoose.banteng.value.MooValue.StringValue
   - org.openrewrite.java.ChangeMethodTargetToStatic:
-      methodPattern: world.mongoose.banteng.builtin.SqliteService string(java.lang.String)
+      methodPattern: world.mongoose.banteng.builtin.family.SqliteBuiltins string(java.lang.String)
       fullyQualifiedTargetTypeName: world.mongoose.banteng.value.MooValue.StringValue
   - org.openrewrite.java.ChangeMethodName:
       methodPattern: world.mongoose.banteng.value.MooValue.StringValue encode(java.lang.String)
@@ -474,3 +482,43 @@ recipeList:
       family: PropertyBuiltins
       builtins: [add_property, properties, property_info, is_clear_property, clear_property, delete_property]
       methods: [addProperty, properties, propertyInfo, isClearProperty, clearProperty, deleteProperty]
+---
+type: specs.openrewrite.org/v1beta/recipe
+name: world.mongoose.banteng.builtin.ExtractRegexBuiltins
+displayName: Extract regex builtins
+description: Moves legacy and PCRE registrations beside their package-private services.
+recipeList:
+  - world.mongoose.banteng.rewrite.MoveBuiltinFamily:
+      family: RegexBuiltins
+      builtins: [match, rmatch, pcre_match, pcre_replace, pcre_cache_stats]
+      methods: [toastMatch]
+---
+type: specs.openrewrite.org/v1beta/recipe
+name: world.mongoose.banteng.builtin.ExtractBinaryBuiltins
+displayName: Extract binary builtins
+description: Moves binary registrations and flattening to their family and shared escaping to StringValue.
+recipeList:
+  - world.mongoose.banteng.rewrite.MoveBuiltinFamily:
+      family: BinaryBuiltins
+      builtins: [decode_binary, encode_binary, chr]
+      methods: [decodeBinary, encodeBinary, chr, appendBinaryBytes]
+---
+type: specs.openrewrite.org/v1beta/recipe
+name: world.mongoose.banteng.builtin.ExtractHostBuiltins
+displayName: Extract host builtins
+description: Moves environment, transfer, spelling and URL registrations into their family owner.
+recipeList:
+  - world.mongoose.banteng.rewrite.MoveBuiltinFamily:
+      family: HostBuiltins
+      builtins: [getenv, curl, spellcheck, url_encode, url_decode]
+      methods: [curl, serverIntegerOption, curlTransfer, curlError, spellcheck, urlEncode, urlDecode]
+---
+type: specs.openrewrite.org/v1beta/recipe
+name: world.mongoose.banteng.builtin.ExtractCryptoBuiltins
+displayName: Extract crypto builtins
+description: Moves crypto registrations and implementation closure into their family owner.
+recipeList:
+  - world.mongoose.banteng.rewrite.MoveBuiltinFamily:
+      family: CryptoBuiltins
+      builtins: [crypt, salt, string_hash, string_hmac, binary_hash, binary_hmac, value_hash, value_hmac, argon2, argon2_verify]
+      methods: [crypt, salt, cryptStrength, isRecognizedBcrypt, nativeCrypt, argon2, argon2Settings, argon2Verify, argon2Hash, optionalPositiveInt, cStringBytes, hashInput, hash, hmac, digestResult]

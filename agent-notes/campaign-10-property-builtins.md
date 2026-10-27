@@ -29,3 +29,6 @@ Validation: focused MoveBuiltinFamilyTest; normal ExtractPropertyBuiltins rewrit
 
 ## Login and layout repair ancestry
 Merged the latest coordinator runtime login-output and pinned-layout-boundary repairs normally, without conflicts or family source adaptations. Family implementations, services, dependencies, extraction mover, authored fixtures and YAML are unchanged. No local tests, CI, migration or repeated review ran for this mechanical integration. Parent owns publication, hosted checks and merge.
+
+## Queue prerequisite integration
+Normally merged the published Object tip and its reviewed Crypto, Host, Regex, Binary and SQLite prerequisites. Additive mover resolution retains Property import-generation branches and ownershipPreamble alongside existing Binary/Crypto generation and binaryBytes state. YAML retains all complete recipe documents; focused fixtures merged automatically. Reused catalog resolution retains all family registrations and canonical crypt dependency, matching final assembly. PropertyBuiltins and incoming family owners remain byte-identical. No local tests, repeated review or publication; parent owns hosted validation and merge.
