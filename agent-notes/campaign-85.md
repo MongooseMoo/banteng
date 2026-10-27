@@ -5,7 +5,7 @@ Remove duplicated operation vocabularies and builtin-name checks from MooVm, pre
 
 ## State
 Created campaign/85-opcode-dispatch from aabe141 and merged current origin/master so issue93's removed source-shape tests stay removed. Read issue85, all five family wrappers, MooVm CALL/invoke/result paths, BuiltinCall/Result, Catalog registrations/call_function/callers/yin, VmState caller renderer and Toast execute.cc:3679–3749.
-Implementation and focused behavior tests passed (direct/indirect callers, yin, pass-local inheritance and maxrec, existing pass error/lookup paths, and BuiltinCall context). Added pass to the existing exact catalog-name inventory; its authored contract test passed too. No broad local suite or CI gate has run. Ready for parent handoff.
+Implementation and focused behavior tests passed (direct/indirect callers, yin, pass-local inheritance and maxrec, existing pass error/lookup paths, and BuiltinCall context). Added pass to the existing exact catalog-name inventory; its authored contract test passed too. PR #105 has merged; merged normalized #106 head e3b68f2 in 5aee34f without conflicts or source changes. PR #107 depends on #106 and #109 landing, and awaits current-head review/CI verification. No broad local suite or CI gate has run; parent owns publication and merge.
 
 ## Decisions and why
 Smallest implementation: delete five Operation wrappers; dispatch directly to existing void helpers, grouping arithmetic/bitwise/comparison cases by existing Opcode. Remove arithmetic's redundant numeric operation enums as their helpers consume Opcode directly; preserve calculations. Approximately 250–400 changed production lines plus relocating the existing pass body.
@@ -18,7 +18,7 @@ Registering pass exposes call_function("pass") as a real caller of the inherited
 MooVm still contains lifecycle verb hook names recycle/initialize/exitfunc. Parent explicitly confirmed these are preserved: issue85 concerns builtin dispatch checks, not moving verb hook ownership for a literal grep. PR claims must distinguish lifecycle verb lookup from builtin selection.
 
 ## Next step
-Parent owns integration/review/publication. Worker source and focused validation are complete. Integrate the independent arithmetic semantics work and typed-permission changes in their owning branches without restoring the removed enums or builtin checks.
+Parent verifies current-head review/CI and lands #106 and #109 before #107. Worker source and focused validation are complete; parent owns publication and merge.
 
 Integration: merged issue86 head 45f206c into issue85 head 2526a73 in a89f711, retaining direct dispatch, typed Pass, callers rendering and typed permission/argument constructors. Git reused prior conflict resolutions in MooVm and MooVmTest; inspected both and migrated the newer callers test constructor that the reused resolution missed. Merged issue91 head eb344dd in 6f2ed86, preserving its runtime/status/JFR removal and PureVmFixture migration. Inspected all MooVmTest execution calls: pure calls use the existing fixture and actual MooVm calls retain explicit transaction/catalog/task context. No production helper was restored. These integrations make #106 and #109 dependencies of the final #107 range; #109 also carries #105. No local CI run; parent owns publication and CI verification.
 
