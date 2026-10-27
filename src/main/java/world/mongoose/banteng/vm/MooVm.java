@@ -138,10 +138,8 @@ public final class MooVm {
           BytecodeProgram.Opcode.SET_PROPERTY,
           BytecodeProgram.Opcode.INDEX,
           BytecodeProgram.Opcode.RANGE,
-          BytecodeProgram.Opcode.SET_INDEX_LOCAL,
-          BytecodeProgram.Opcode.SET_INDEX_PROPERTY,
-          BytecodeProgram.Opcode.SET_RANGE_LOCAL,
-          BytecodeProgram.Opcode.SET_RANGE_PROPERTY,
+          BytecodeProgram.Opcode.SET_INDEX,
+          BytecodeProgram.Opcode.SET_PARENT_INDEX,
           BytecodeProgram.Opcode.CALL,
           BytecodeProgram.Opcode.CALL_VERB,
           BytecodeProgram.Opcode.NEGATE,
@@ -305,14 +303,18 @@ public final class MooVm {
       case RANGE -> IndexOps.range(frame, state, world);
       case FIRST -> IndexOps.boundaryIndex(frame, state, world, false);
       case LAST -> IndexOps.boundaryIndex(frame, state, world, true);
-      case SET_INDEX_LOCAL -> IndexOps.setIndexedLocal(frame, state, world, Math.toIntExact(instruction.operand().orElseThrow()),
-              instruction.localAux());
-      case SET_INDEX_PROPERTY -> IndexOps.setIndexedProperty(frame, state, world,
-          Math.toIntExact(instruction.operand().orElse(0)));
-      case SET_RANGE_LOCAL -> IndexOps.setRange(frame, state, world, java.util.OptionalInt.of(Math.toIntExact(instruction.operand().orElseThrow())),
-              instruction.localAux());
-      case SET_RANGE_PROPERTY -> IndexOps.setRange(frame, state, world, java.util.OptionalInt.empty(),
-          Math.toIntExact(instruction.operand().orElse(0)));
+      case SET_INDEX, SET_PARENT_INDEX -> IndexOps.setIndex(frame, state, world,
+          instruction.opcode() == BytecodeProgram.Opcode.SET_PARENT_INDEX);
+      case SET_RANGE -> IndexOps.setRange(frame, state, world);
+      case PUT_TEMP -> {
+        frame.temporary = Optional.of(frame.operandStack.getFirst());
+        frame.instructionPointer++;
+      }
+      case PUSH_TEMP -> {
+        frame.operandStack.push(frame.temporary.orElseThrow());
+        frame.temporary = Optional.empty();
+        frame.instructionPointer++;
+      }
       case CALL -> invokeBuiltin(instruction, frame, state, world, builtins, hosts, taskId);
       case CALL_VERB -> {
         MooValue argumentsValue = frame.operandStack.pop();
@@ -399,6 +401,7 @@ public final class MooVm {
     return switch (opcode) {
       case LIST_APPEND, LIST_EXTEND -> Math.toIntExact(instruction.operand().orElse(1));
       case LOAD_LOCAL, PUSH_CLEAR -> instruction.localAux();
+      case INDEX -> instruction.operand().isPresent() ? 0 : 1;
       case STORE_LOCAL -> frame.instructionPointer > 0
           && frame.program.instructions().get(frame.instructionPointer - 1).opcode()
               == BytecodeProgram.Opcode.FORK ? 0 : 1;
@@ -407,7 +410,6 @@ public final class MooVm {
         var handler = instruction.handler().orElseThrow();
         yield handler.catchTarget() < 0 || !handler.catchesAny() ? 1 : 0;
       }
-      case SET_INDEX_LOCAL, SET_INDEX_PROPERTY -> 2;
       default -> COUNTED_OPCODES.contains(opcode) ? 1 : 0;
     };
   }

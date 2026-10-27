@@ -114,7 +114,7 @@ public final class DurableTaskCodec {
         activation.debug(),
         activation.threadMode(),
         site.call().resumeInstructionPointer(),
-        Optional.empty(), activation.builtinContinuation(), activation.taskPlayer());
+        Optional.empty(), activation.builtinContinuation(), activation.taskPlayer(), activation.temporary());
   }
 
   private record BuiltinState(VmSnapshot.ReturnMode mode, Optional<MooValue> create,
@@ -884,7 +884,7 @@ public final class DurableTaskCodec {
     }
     int callIndex = Math.subtractExact(frame.instructionPointer(), 1);
     Instruction call = frame.program().instructions().get(callIndex);
-    if ((call.opcode() != Opcode.CALL && call.opcode() != Opcode.CALL_VERB)
+    if (world.mongoose.banteng.bytecode.ToastV17ProgramModel.CallKind.of(call).isEmpty()
         || call.astPath().isEmpty()) {
       throw new IllegalStateException("suspended VM is not positioned after a structural call");
     }
@@ -899,7 +899,9 @@ public final class DurableTaskCodec {
     ToastV17ProgramLayout layout = new ToastV17ProgramLayout();
     List<ToastV17ProgramModel.CallBoundary> boundaries =
         layout.callBoundaries(frame.program().source(), -1).stream()
-            .filter(boundary -> boundary.astPath().equals(canonicalCall.astPath().orElseThrow()))
+            .filter(boundary -> boundary.astPath().equals(canonicalCall.astPath().orElseThrow())
+                && world.mongoose.banteng.bytecode.ToastV17ProgramModel.CallKind.of(canonicalCall)
+                    .filter(boundary.kind()::equals).isPresent())
             .toList();
     if (boundaries.size() != 1) {
       throw new IllegalStateException(
@@ -913,10 +915,6 @@ public final class DurableTaskCodec {
     for (String name : frame.program().variableNames()) {
       locals.put(name, Optional.ofNullable(frame.locals().get(name)));
     }
-    String verb =
-        frame.locals().get("verb") instanceof world.mongoose.banteng.value.MooValue.StringValue value
-            ? value.text()
-            : "";
     Optional<SuspendedActivation.BuiltinContinuation> builtin = exportBuiltin(frame);
     long builtinCounter = builtin.isEmpty() ? 0 : switch (frame.returnMode()) {
       case MOVE_EXIT -> 3;
@@ -934,9 +932,9 @@ public final class DurableTaskCodec {
         frame.player(),
         frame.programmer(),
         true,
-        verb,
-        verb,
-        Optional.empty(),
+        frame.calledVerb(),
+        frame.fullVerbName(),
+        frame.temporary(),
         boundary.programCounter(),
         builtinCounter,
         boundary.errorProgramCounter(), builtin);

@@ -47,7 +47,7 @@ final class VmSnapshotTest {
         frame.verbLocation(), frame.calledVerb(), frame.fullVerbName(), frame.createReturnOverride(),
         frame.recycleTarget(), frame.moveObject(), frame.moveDestination(), frame.movePosition(),
         frame.programmer(), frame.debug(), frame.threadMode(), frame.instructionPointer(),
-        frame.anonymousRecycleTarget(), frame.builtinContinuation(), frame.player());
+        frame.anonymousRecycleTarget(), frame.builtinContinuation(), frame.player(), frame.temporary());
     VmSnapshot saved = new VmSnapshot(snapshot.initialLocals(), snapshot.initialProgrammer(),
         snapshot.initialVerbLocation(), snapshot.initialCalledVerb(), snapshot.initialFullVerbName(),
         List.of(upper), snapshot.output(), snapshot.connectionOptionRequests(), snapshot.bootPlayerTargets(),
