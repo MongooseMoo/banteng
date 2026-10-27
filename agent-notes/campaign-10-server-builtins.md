@@ -12,6 +12,8 @@ Validation: focused MoveBuiltinFamilyTest passed on Java25 with --no-daemon. Nor
 Pass the existing catalog only for functionInfo/load_server_options; pass catalog hosts.serverLog() for logging. Keep db_disk_size using invocation hosts as before and valueBytes in ValueLimits. No new diagnostics, state or service.
 
 ## Surprises
+Parent source inspection found the mover mistook enum switch labels INTEGER/NUMBER for shape constant references, emitting unused fields. Corrected the existing identifier collector to exclude case labels, removed the two generated fields, and included the real switch shape in the existing fixture.
+
 Initial patch inspection found the moved dumpDatabase signature needed an explicit BuiltinCall import because it leaves that type's package. Added the required import to the existing recipe skeleton and included the real dumpDatabase method/reference in the authored fixture before applying output. Focused fixture and corrected normal migration passed. OpenRewrite emitted existing Gradle exclusive-lock/classpath and configuration-cache compatibility warnings but parsed all sources and completed successfully.
 
 ## Next step

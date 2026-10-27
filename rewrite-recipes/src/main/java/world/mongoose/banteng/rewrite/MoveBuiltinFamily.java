@@ -159,6 +159,10 @@ public final class MoveBuiltinFamily extends ScanningRecipe<MoveBuiltinFamily.Me
     Set<String> referencedNames = new HashSet<>();
     JavaIsoVisitor<ExecutionContext> references = new JavaIsoVisitor<>() {
       @Override public J.Identifier visitIdentifier(J.Identifier identifier, ExecutionContext unused) {
+        if (getCursor().getParentTreeCursor().getValue() instanceof J.Case clause
+            && clause.getCaseLabels().stream().anyMatch(label -> label.getId().equals(identifier.getId()))) {
+          return identifier;
+        }
         if (!(getCursor().getParentTreeCursor().getValue() instanceof J.FieldAccess access
             && access.getName().getId().equals(identifier.getId()))) {
           referencedNames.add(identifier.getSimpleName());

@@ -38,8 +38,6 @@ import world.mongoose.banteng.world.WorldVerb;
 /** Owns builtin registrations and implementations for this family. */
 public final class ServerBuiltins {
     private static final Set<ArgType> ANY = Set.of(ArgType.ANY);
-    private static final Set<ArgType> INTEGER = Set.of(ArgType.INTEGER);
-    private static final Set<ArgType> NUMBER = Set.of(ArgType.NUMBER);
     private static final Set<ArgType> STRING = Set.of(ArgType.STRING);
 
     private ServerBuiltins() {

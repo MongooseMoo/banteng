@@ -46,7 +46,7 @@ final class MoveBuiltinFamilyTest {
             BuiltinSpec requested = specs.get(requestedName.text().toLowerCase(Locale.ROOT));
             return null;
           }
-          private static int functionInfoDescription(BuiltinSpec spec) { return 1; }
+          private static int functionInfoDescription(BuiltinSpec spec) { return switch (spec.type()) { case INTEGER -> 0; case NUMBER -> -2; default -> -1; }; }
           private static String serverVersion() { return SERVER_VERSION; }
           private BuiltinResult serverLog(List<MooValue> arguments) { hosts.serverLog().info("message"); return null; }
           private BuiltinResult logCacheStats(WorldTxn world) { hosts.serverLog().info("cache"); return null; }
@@ -72,6 +72,8 @@ final class MoveBuiltinFamilyTest {
     assertTrue(family.contains("catalog.manifest().stream()"));
     assertTrue(family.contains("catalog.spec(requestedName.text()).orElse(null)"));
     assertTrue(family.contains("ServerBuiltins::functionInfoDescription"));
+    assertFalse(family.contains("Set<ArgType> INTEGER"));
+    assertFalse(family.contains("Set<ArgType> NUMBER"));
     assertTrue(family.contains("catalog.reloadProtectedFunctions(call.world())"));
     assertTrue(family.contains("serverLog(call.arguments(), serverLog)"));
     assertTrue(family.contains("logCacheStats(call.world(), serverLog)"));
