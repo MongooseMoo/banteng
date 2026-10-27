@@ -4,7 +4,7 @@
 Centralize MOO equality and ordering in ValueSemantics, following Toast utils.cc:408-492 plus the existing numeric-promotion extension. Preserve Java representation equality/hashCode and constructor behavior.
 
 ## State
-PR #108 targets master. Parent published normal-input repair 022735d after its authored real-socket test passed; exact-head PR CI is pending. PRs #105, #106, #109 and #107 must land before #108. Coordinator owns publication, review and merge; other agents own separate worktrees.
+PR #108 targets master. Parent published normal-input repair 022735d after its authored real-socket test passed. PR #105 has merged. Merged normalized #107 head dcabbe7 in ef49cbd without conflicts or source changes; exact-head PR CI/review verification is pending. PRs #106, #109 and #107 must land before #108. Coordinator owns publication, review and merge; other agents own separate worktrees.
 
 ## Normal-input repair history
 Required CI repair after 5b29582: parent authorized the demonstrated normal-input filter correction only. Smallest change was three production lines around the existing normal-byte append in MooServer, plus one real-socket regression in existing MooServerTest; no comparator, conformance or binary-path changes. Toast network.cc:408 admits isgraph/space/tab and starts connections with binary=false:609; binary input bypasses filtering:547-560. Banteng previously appended all normal high bytes at MooServer:392.
@@ -22,7 +22,7 @@ Smallest approved change: about 250 added / 300 deleted lines plus focused tests
 Long integer/object key comparison is already fixed. Toast's runtime type rank includes TYPE_COMPLEX_FLAG and differs from persisted Type.code ordering. Its map equality and map-value membership traverse tree order. Java representation methods deliberately retain existing behavior and are not used for MOO-level equality.
 
 ## Next step
-Coordinator verifies current-head review and CI, lands dependencies #105, #106, #109 and #107, then handles #108 merge. Worker implementation and authored repair validation are complete; this correction changes notes only.
+Coordinator verifies current-head review and CI, lands dependencies #106, #109 and #107, then handles #108 merge. Worker implementation and authored repair validation are complete; ancestry normalization and this correction change no source or tests.
 
 ## Map-equality repair history
 PR #108 review repair: integrated campaign/89-builtin-contract 09d8fd5 as merge 90a906a before editing. The map equality branch incorrectly checked Java representation size before traversing the separate lookup tree, and advanced the right iterator without checking exhaustion. `StringValue.equals` folds valid UTF-8 Unicode while map insertion uses byte/ASCII ordering, so literal keys with bytes C3 A9 and C3 89 can produce one representation entry and two lookup-tree entries. Smallest repair: compare paired iterators until either is exhausted, then require both exhausted and every compared entry equal, matching Toast map.cc:774-788. Add only a focused real-literal regression to existing ValueSemanticsTest; preserve identity suppression, map representation and conformance. Parent owns publication/CI.
