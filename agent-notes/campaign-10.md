@@ -14,6 +14,8 @@ The recipe captures declared static methods and registration AST nodes, builds t
 Source comparisons after applying the patch establish all 28 Math names retain their order; all 23 moved method bodies match the previous catalog ignoring whitespace; the rest of the catalog code matches after removing import lines and replacing the moved registration block with MathBuiltins.register(entries). Random state and all non-Math implementations remain in their current owner.
 
 ## Surprises
+CodeQL flagged the configurable recipe's inherited Cloneable contract. The recipe now explicitly overrides clone via super.clone; its String and Set.copyOf configuration is immutable. Parent inspected installed OpenRewrite bytecode: ScanningRecipe.clone preserves the concrete object and allocates a separate accumulator key, so delegation retains that required isolation. No suppression or check change.
+
 PR CI rejected the new family package because its classes lacked explicit nullness marking. Added the same package-level NullMarked declaration as the existing builtin package; the existing compiler check remains unchanged. The recipe moves classes into this now-declared package.
 
 Issue text still describes removed cost fields. Current BuiltinSpec has five fields; source governs the registrar.

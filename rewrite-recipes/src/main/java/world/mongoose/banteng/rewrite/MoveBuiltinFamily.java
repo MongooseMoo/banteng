@@ -46,6 +46,11 @@ public final class MoveBuiltinFamily extends ScanningRecipe<MoveBuiltinFamily.Me
     this.methods = Set.copyOf(methods);
   }
 
+  @Override public MoveBuiltinFamily clone() {
+    // Configuration is immutable; the superclass gives the clone its own scan accumulator key.
+    return (MoveBuiltinFamily) super.clone();
+  }
+
   @Override public String getDisplayName() { return "Move builtin family"; }
   @Override public String getDescription() {
     return "Moves a builtin registration block and its static implementations to a family owner.";
