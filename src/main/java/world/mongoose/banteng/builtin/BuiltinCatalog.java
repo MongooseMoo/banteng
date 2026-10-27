@@ -1,4 +1,5 @@
 package world.mongoose.banteng.builtin;
+import world.mongoose.banteng.builtin.family.SqliteBuiltins;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.security.SecureRandom;
@@ -81,7 +82,7 @@ public final class BuiltinCatalog {
   private final BuiltinHosts hosts;
   private final Optional<ListenerControl> listenerControl;
   private final Random random;
-  private final SqliteService sqlite;
+  private final SqliteBuiltins sqlite;
   private final Random floatingRandom;
   private final Map<String, BuiltinSpec> specs;
   private volatile Set<String> protectedFunctions = Set.of();
@@ -92,7 +93,7 @@ public final class BuiltinCatalog {
     listenerControl = Optional.empty();
     ConfinedFileRoot files = new ConfinedFileRoot(Path.of("files"));
     fileIo = new FileIoBuiltins(files);
-    sqlite = new SqliteService(files);
+    sqlite = new SqliteBuiltins(files);
     random = new Random();
     floatingRandom = new Random();
     manifest = buildManifest();
@@ -105,7 +106,7 @@ public final class BuiltinCatalog {
     this.listenerControl = Optional.of(Objects.requireNonNull(listenerControl, "listenerControl"));
     ConfinedFileRoot files = new ConfinedFileRoot(Path.of("files"));
     fileIo = new FileIoBuiltins(files);
-    sqlite = new SqliteService(files);
+    sqlite = new SqliteBuiltins(files);
     random = new Random();
     floatingRandom = new Random();
     manifest = buildManifest();
@@ -881,7 +882,7 @@ public final class BuiltinCatalog {
             call -> functionInfo(call.arguments())));
     fileIo.register(entries);
     RegexBuiltins.registerPcre(entries);
-    addSqliteManifest(entries);
+    sqlite.register(entries);
     entries.add(
         new BuiltinSpec(
             "server_log",
@@ -996,79 +997,6 @@ public final class BuiltinCatalog {
             false,
             BuiltinCatalog::dumpDatabase));
     return List.copyOf(entries);
-  }
-
-  private void addSqliteManifest(List<BuiltinSpec> entries) {
-    entries.add(
-        sqliteSpec(
-            "sqlite_open",
-            new CallShape(List.of(STRING), List.of(INTEGER), Optional.empty()),
-            true,
-            call -> sqlite.open(call.arguments())));
-    entries.add(
-        sqliteSpec(
-            "sqlite_close",
-            new CallShape(List.of(INTEGER), List.of(), Optional.empty()),
-            true,
-            call -> sqlite.close(call.arguments())));
-    entries.add(
-        sqliteSpec(
-            "sqlite_handles",
-            new CallShape(List.of(), List.of(), Optional.empty()),
-            false,
-            call -> sqlite.handles(call.arguments())));
-    entries.add(
-        sqliteSpec(
-            "sqlite_info",
-            new CallShape(List.of(INTEGER), List.of(), Optional.empty()),
-            false,
-            call -> sqlite.info(call.arguments())));
-    entries.add(
-        sqliteSpec(
-            "sqlite_query",
-            new CallShape(List.of(INTEGER, STRING), List.of(ANY), Optional.empty()),
-            false,
-            call -> sqlite.query(call.arguments(), call.threadMode())));
-    entries.add(
-        sqliteSpec(
-            "sqlite_execute",
-            new CallShape(
-                List.of(INTEGER, STRING, Set.of(ArgType.LIST)),
-                List.of(),
-                Optional.empty()),
-            false,
-            call -> sqlite.execute(call.arguments(), call.threadMode())));
-    entries.add(
-        sqliteSpec(
-            "sqlite_last_insert_row_id",
-            new CallShape(List.of(INTEGER), List.of(), Optional.empty()),
-            false,
-            call -> sqlite.lastInsertRowId(call.arguments())));
-    entries.add(
-        sqliteSpec(
-            "sqlite_limit",
-            new CallShape(List.of(INTEGER, ANY, INTEGER), List.of(), Optional.empty()),
-            true,
-            call -> sqlite.limit(call.arguments())));
-    entries.add(
-        sqliteSpec(
-            "sqlite_interrupt",
-            new CallShape(List.of(INTEGER), List.of(), Optional.empty()),
-            true,
-            call -> sqlite.interrupt(call.arguments())));
-  }
-
-  private static BuiltinSpec sqliteSpec(
-      String name,
-      CallShape shape,
-      boolean irrevocable,
-      BuiltinHandler handler) {
-    return new BuiltinSpec(
-        name,
-        List.of(shape),
-        BuiltinPermissionRule.WIZARD_ONLY,
-        irrevocable,
-        handler);
   }
 
   private BuiltinResult configureThreadPool(BuiltinCall call) {
