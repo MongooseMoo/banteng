@@ -512,3 +512,13 @@ recipeList:
       family: ObjectBuiltins
       builtins: [create, recreate, parent, parents, ancestors, isa, children, chparent, chparents, is_player, valid, max_object, locate_by_name, locations, recycled_objects, next_recycled_object, owned_objects, set_player_flag, move, recycle, new_waif, waif_stats, reset_max_object]
       methods: [create, recreate, decrementOwnershipQuota, parent, parents, ancestors, isa, isA, children, changeParents, parentsAllowed, parentArgument, objectList, locateByName, locations, nextRecycledObject, recycledObjects, waifStats, ownedObjects, isPlayer, valid, setPlayerFlag, move, recycle]
+---
+type: specs.openrewrite.org/v1beta/recipe
+name: world.mongoose.banteng.builtin.ExtractPropertyBuiltins
+displayName: Extract property builtins
+description: Moves property registrations and implementations and shared ownership validation into existing Access.
+recipeList:
+  - world.mongoose.banteng.rewrite.MoveBuiltinFamily:
+      family: PropertyBuiltins
+      builtins: [add_property, properties, property_info, is_clear_property, clear_property, delete_property]
+      methods: [addProperty, properties, propertyInfo, isClearProperty, clearProperty, deleteProperty]

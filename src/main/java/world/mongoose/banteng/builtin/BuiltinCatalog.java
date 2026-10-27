@@ -33,6 +33,7 @@ import world.mongoose.banteng.builtin.family.MathBuiltins;
 import world.mongoose.banteng.builtin.family.RandomBuiltins;
 import world.mongoose.banteng.builtin.family.RegexBuiltins;
 import world.mongoose.banteng.builtin.family.ObjectBuiltins;
+import world.mongoose.banteng.builtin.family.PropertyBuiltins;
 import world.mongoose.banteng.builtin.family.StringBuiltins;
 import world.mongoose.banteng.builtin.family.TimeBuiltins;
 import world.mongoose.banteng.bytecode.MooCompiler;
@@ -53,12 +54,12 @@ import world.mongoose.banteng.value.MooValue.StringValue;
 import world.mongoose.banteng.value.MooValue.WaifValue;
 
 import world.mongoose.banteng.value.ValueSemantics;
+import static world.mongoose.banteng.world.Access.resolveOwnershipPreamble;
 import world.mongoose.banteng.world.Access;
 import world.mongoose.banteng.world.ArgSpec;
 import world.mongoose.banteng.world.ObjectFlags;
 import world.mongoose.banteng.world.Prepositions;
 import world.mongoose.banteng.world.PropertyHolder;
-import world.mongoose.banteng.world.PropertyPerms;
 import world.mongoose.banteng.world.VerbPerms;
 import world.mongoose.banteng.world.WorldAnonymousObject;
 import world.mongoose.banteng.world.WorldObject;
@@ -274,52 +275,7 @@ public final class BuiltinCatalog {
             call -> disassemble(call.arguments(), call.world(), call.programmer())));
     HostBuiltins.registerTransferAndText(entries);
     BinaryBuiltins.registerEncodeAndChr(entries);
-    entries.add(
-        new BuiltinSpec(
-            "add_property",
-            List.of(
-                new CallShape(
-                    List.of(ANY, STRING, ANY, Set.of(ArgType.LIST)),
-                    List.of(),
-                    Optional.empty())),
-            BuiltinPermissionRule.ANY,
-            false,
-            call -> addProperty(call.arguments(), call.world(), call.programmer())));
-    entries.add(
-        new BuiltinSpec(
-            "properties",
-            List.of(new CallShape(List.of(ANY), List.of(), Optional.empty())),
-            BuiltinPermissionRule.ANY,
-            false,
-            call -> properties(call.arguments(), call.world(), call.programmer())));
-    entries.add(
-        new BuiltinSpec(
-            "property_info",
-            List.of(new CallShape(List.of(ANY, STRING), List.of(), Optional.empty())),
-            BuiltinPermissionRule.ANY,
-            false,
-            call -> propertyInfo(call.arguments(), call.world(), call.programmer())));
-    entries.add(
-        new BuiltinSpec(
-            "is_clear_property",
-            List.of(new CallShape(List.of(ANY, STRING), List.of(), Optional.empty())),
-            BuiltinPermissionRule.ANY,
-            false,
-            call -> isClearProperty(call.arguments(), call.world(), call.programmer())));
-    entries.add(
-        new BuiltinSpec(
-            "clear_property",
-            List.of(new CallShape(List.of(ANY, STRING), List.of(), Optional.empty())),
-            BuiltinPermissionRule.ANY,
-            false,
-            call -> clearProperty(call.arguments(), call.world(), call.programmer())));
-    entries.add(
-        new BuiltinSpec(
-            "delete_property",
-            List.of(new CallShape(List.of(ANY, STRING), List.of(), Optional.empty())),
-            BuiltinPermissionRule.ANY,
-            false,
-            call -> deleteProperty(call.arguments(), call.world(), call.programmer())));
+    PropertyBuiltins.register(entries);
     entries.add(
         new BuiltinSpec(
             "delete_verb",
@@ -1667,34 +1623,6 @@ public final class BuiltinCatalog {
     return BuiltinResult.value(new ListValue(lines));
   }
 
-  private static Optional<ErrorValue> resolveOwnershipPreamble(
-      MooValue receiver, long newOwner, WorldTxn world, long programmer) {
-    long targetOwner;
-    int targetFlags;
-    if (receiver instanceof ObjectValue object) {
-      WorldObject target = world.object(object.value()).orElse(null);
-      if (target == null) {
-        return Optional.of(ErrorValue.E_INVARG);
-      }
-      targetOwner = target.owner();
-      targetFlags = target.flags();
-    } else if (receiver instanceof AnonymousObjectValue anonymous) {
-      WorldAnonymousObject target = world.anonymousObject(anonymous).orElse(null);
-      if (target == null) {
-        return Optional.of(ErrorValue.E_INVARG);
-      }
-      targetOwner = target.owner();
-      targetFlags = target.flags();
-    } else {
-      return Optional.of(ErrorValue.E_TYPE);
-    }
-    boolean wizard = world.isWizard(programmer);
-    boolean writable = targetOwner == programmer || wizard || ObjectFlags.isWritable(targetFlags);
-    return writable && (newOwner == programmer || wizard)
-        ? Optional.empty()
-        : Optional.of(ErrorValue.E_PERM);
-  }
-
   private static BuiltinResult addVerb(
       List<MooValue> arguments, WorldTxn world, long programmer) {
     ListValue info = (ListValue) arguments.get(1);
@@ -1779,77 +1707,6 @@ public final class BuiltinCatalog {
         new IntegerValue(slot));
   }
 
-  private static BuiltinResult addProperty(
-      List<MooValue> arguments, WorldTxn world, long programmer) {
-    ListValue info = (ListValue) arguments.get(3);
-    if (info.size() != 2
-        || !(info.elements().get(0) instanceof ObjectValue owner)
-        || !(info.elements().get(1) instanceof StringValue permissionValue)) {
-      return BuiltinResult.error(ErrorValue.E_TYPE);
-    }
-    if (world.object(owner.value()).isEmpty()) {
-      return BuiltinResult.error(ErrorValue.E_INVARG);
-    }
-    int permissions = 0;
-    String permissionText = permissionValue.text();
-    for (int index = 0; index < permissionText.length(); index++) {
-      permissions |=
-          switch (Character.toLowerCase(permissionText.charAt(index))) {
-            case 'r' -> 1;
-            case 'w' -> 2;
-            case 'c' -> 4;
-            default -> -1;
-          };
-      if (permissions < 0) {
-        return BuiltinResult.error(ErrorValue.E_INVARG);
-      }
-    }
-    MooValue receiver = arguments.get(0);
-    Optional<ErrorValue> ownershipError =
-        resolveOwnershipPreamble(receiver, owner.value(), world, programmer);
-    if (ownershipError.isPresent()) {
-      return BuiltinResult.error(ownershipError.orElseThrow());
-    }
-    String name = ((StringValue) arguments.get(1)).text();
-    WorldResult<Boolean> added =
-        receiver instanceof ObjectValue object
-            ? world.addProperty(
-                object.value(), name, arguments.get(2), owner.value(), new PropertyPerms(permissions))
-            : world.addProperty(
-                (AnonymousObjectValue) receiver,
-                name,
-                arguments.get(2),
-                owner.value(),
-                new PropertyPerms(permissions));
-    return mutationResult(added, new IntegerValue(0));
-  }
-
-  private static BuiltinResult properties(
-      List<MooValue> arguments, WorldTxn world, long programmer) {
-    if (arguments.getFirst() instanceof WaifValue) {
-      return BuiltinResult.error(ErrorValue.E_INVARG);
-    }
-    if (!(arguments.getFirst() instanceof ObjectValue object)) {
-      return BuiltinResult.error(ErrorValue.E_TYPE);
-    }
-    WorldObject target = world.object(object.value()).orElse(null);
-    if (target == null) {
-      return BuiltinResult.error(ErrorValue.E_INVARG);
-    }
-    boolean wizard = world.isWizard(programmer);
-    if (target.owner() != programmer && !wizard && !ObjectFlags.isReadable(target.flags())) {
-      return BuiltinResult.error(ErrorValue.E_PERM);
-    }
-    List<MooValue> names =
-        target.properties().stream()
-            .filter(WorldProperty::defined)
-            .map(WorldProperty::name)
-            .map(StringValue::of)
-            .map(MooValue.class::cast)
-            .toList();
-    return BuiltinResult.value(new ListValue(names));
-  }
-
   private static BuiltinResult callers(ListValue callers, WorldTxn world, long programmer) {
     List<MooValue> frames = new ArrayList<>(callers.size());
     for (MooValue value : callers.elements()) {
@@ -1876,161 +1733,6 @@ public final class BuiltinCatalog {
     }
     boolean wizard = world.isWizard(programmer);
     return wizard || body.owner() == programmer ? value : new AnonymousObjectValue();
-  }
-
-  private static BuiltinResult isClearProperty(
-      List<MooValue> arguments, WorldTxn world, long programmer) {
-    MooValue receiver = arguments.getFirst();
-    if (!(receiver instanceof ObjectValue || receiver instanceof AnonymousObjectValue)) {
-      return BuiltinResult.error(ErrorValue.E_INVARG);
-    }
-    boolean invalid = switch (receiver) {
-      case ObjectValue object -> world.object(object.value()).isEmpty();
-      case AnonymousObjectValue anonymous -> world.anonymousObject(anonymous).isEmpty();
-      default -> true;
-    };
-    if (invalid) {
-      return BuiltinResult.error(ErrorValue.E_INVARG);
-    }
-    String name = ((StringValue) arguments.get(1)).text();
-    String normalized = name.toLowerCase(Locale.ROOT);
-    if (normalized.equals("name")
-        || normalized.equals("location")
-        || normalized.equals("contents")
-        || normalized.equals("owner")
-        || normalized.equals("programmer")
-        || normalized.equals("wizard")
-        || normalized.equals("r")
-        || normalized.equals("w")
-        || normalized.equals("f")) {
-      return BuiltinResult.value(new IntegerValue(0));
-    }
-    WorldProperty property = receiver instanceof ObjectValue object
-        ? world.property(object.value(), name).orElse(null)
-        : world.property((AnonymousObjectValue) receiver, name).orElse(null);
-    if (property == null) {
-      return BuiltinResult.error(ErrorValue.E_PROPNF);
-    }
-    if (!Access.canRead(world, programmer, property.owner(), property.perms())) {
-      return BuiltinResult.error(ErrorValue.E_PERM);
-    }
-    return BuiltinResult.value(new IntegerValue(property.clear() ? 1 : 0));
-  }
-
-  private static BuiltinResult propertyInfo(
-      List<MooValue> arguments, WorldTxn world, long programmer) {
-    if (arguments.getFirst() instanceof WaifValue) {
-      return BuiltinResult.error(ErrorValue.E_INVARG);
-    }
-    MooValue receiver = arguments.getFirst();
-    if (!(receiver instanceof ObjectValue || receiver instanceof AnonymousObjectValue)) {
-      return BuiltinResult.error(ErrorValue.E_TYPE);
-    }
-    boolean invalid = switch (receiver) {
-      case ObjectValue object -> world.object(object.value()).isEmpty();
-      case AnonymousObjectValue anonymous -> world.anonymousObject(anonymous).isEmpty();
-      default -> true;
-    };
-    if (invalid) {
-      return BuiltinResult.error(ErrorValue.E_INVARG);
-    }
-    String name = ((StringValue) arguments.get(1)).text();
-    String normalized = name.toLowerCase(Locale.ROOT);
-    if (normalized.equals("name")
-        || normalized.equals("location")
-        || normalized.equals("contents")
-        || normalized.equals("owner")
-        || normalized.equals("programmer")
-        || normalized.equals("wizard")
-        || normalized.equals("r")
-        || normalized.equals("w")
-        || normalized.equals("f")) {
-      return BuiltinResult.error(ErrorValue.E_PROPNF);
-    }
-    WorldProperty property = receiver instanceof ObjectValue object
-        ? world.property(object.value(), name).orElse(null)
-        : world.property((AnonymousObjectValue) receiver, name).orElse(null);
-    if (property == null) {
-      return BuiltinResult.error(ErrorValue.E_PROPNF);
-    }
-    if (!Access.canRead(world, programmer, property.owner(), property.perms())) {
-      return BuiltinResult.error(ErrorValue.E_PERM);
-    }
-    String permissions = "";
-    if (property.perms().readable()) {
-      permissions += "r";
-    }
-    if (property.perms().writable()) {
-      permissions += "w";
-    }
-    if (property.perms().chownable()) {
-      permissions += "c";
-    }
-    return BuiltinResult.value(
-        new ListValue(List.of(new ObjectValue(property.owner()), StringValue.of(permissions))));
-  }
-
-  private static BuiltinResult clearProperty(
-      List<MooValue> arguments, WorldTxn world, long programmer) {
-    if (!(arguments.getFirst() instanceof ObjectValue object)) {
-      return BuiltinResult.error(ErrorValue.E_TYPE);
-    }
-    WorldObject target = world.object(object.value()).orElse(null);
-    if (target == null) {
-      return BuiltinResult.error(ErrorValue.E_INVARG);
-    }
-    String name = ((StringValue) arguments.get(1)).text();
-    String normalized = name.toLowerCase(Locale.ROOT);
-    if (normalized.equals("name")
-        || normalized.equals("location")
-        || normalized.equals("contents")
-        || normalized.equals("owner")
-        || normalized.equals("programmer")
-        || normalized.equals("wizard")
-        || normalized.equals("r")
-        || normalized.equals("w")
-        || normalized.equals("f")) {
-      return BuiltinResult.error(ErrorValue.E_PERM);
-    }
-    WorldProperty property = world.property(object.value(), name).orElse(null);
-    if (property == null) {
-      return BuiltinResult.error(ErrorValue.E_PROPNF);
-    }
-    if (!Access.canWrite(world, programmer, property.owner(), property.perms())) {
-      return BuiltinResult.error(ErrorValue.E_PERM);
-    }
-    WorldProperty local =
-        target.properties().stream()
-            .filter(candidate -> candidate.name().equalsIgnoreCase(name))
-            .findFirst()
-            .orElse(null);
-    if (local == null || local.defined()) {
-      return BuiltinResult.error(ErrorValue.E_INVARG);
-    }
-    return mutationResult(world.clearProperty(object.value(), name), new IntegerValue(0));
-  }
-
-  private static BuiltinResult deleteProperty(
-      List<MooValue> arguments, WorldTxn world, long programmer) {
-    if (!(arguments.getFirst() instanceof ObjectValue object)) {
-      return BuiltinResult.error(ErrorValue.E_TYPE);
-    }
-    WorldObject target = world.object(object.value()).orElse(null);
-    if (target == null) {
-      return BuiltinResult.error(ErrorValue.E_INVARG);
-    }
-    boolean wizard = world.isWizard(programmer);
-    if (target.owner() != programmer && !wizard && !ObjectFlags.isWritable(target.flags())) {
-      return BuiltinResult.error(ErrorValue.E_PERM);
-    }
-    String name = ((StringValue) arguments.get(1)).text();
-    boolean defined =
-        target.properties().stream()
-            .anyMatch(property -> property.defined() && property.name().equalsIgnoreCase(name));
-    if (!defined) {
-      return BuiltinResult.error(ErrorValue.E_PROPNF);
-    }
-    return mutationResult(world.deleteProperty(object.value(), name), new IntegerValue(0));
   }
 
   private static BuiltinResult setVerbInfo(
