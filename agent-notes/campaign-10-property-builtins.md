@@ -26,3 +26,6 @@ Earlier Verb migration compilation exposed that generated PropertyBuiltins omitt
 Move the six property registrations and existing implementations into PropertyBuiltins through the family mover, preserving their manifest position. Move the shared ownership preamble into existing Access for addVerb/addProperty and reuse BuiltinResult.mutationResult. Keep task caller anonymization in its current owner.
 
 Validation: focused MoveBuiltinFamilyTest; normal ExtractPropertyBuiltins rewrite dry-run; read-only original/moved body and registration-order comparisons; git diff --check. Required PR CI and Claude review remain pending.
+
+## Login and layout repair ancestry
+Merged the latest coordinator runtime login-output and pinned-layout-boundary repairs normally, without conflicts or family source adaptations. Family implementations, services, dependencies, extraction mover, authored fixtures and YAML are unchanged. No local tests, CI, migration or repeated review ran for this mechanical integration. Parent owns publication, hosted checks and merge.
