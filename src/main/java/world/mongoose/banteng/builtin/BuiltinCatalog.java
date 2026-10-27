@@ -18,7 +18,6 @@ import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.Random;
 import java.util.Set;
-import world.mongoose.banteng.builtin.family.FileIoBuiltins;
 import java.util.function.LongBinaryOperator;
 import java.util.function.Supplier;
 import org.bouncycastle.crypto.Digest;
@@ -34,18 +33,17 @@ import org.bouncycastle.crypto.macs.HMac;
 import org.bouncycastle.crypto.params.Argon2Parameters;
 import org.bouncycastle.crypto.params.KeyParameter;
 import world.mongoose.banteng.builtin.family.ConversionBuiltins;
-
-import static world.mongoose.banteng.builtin.ValueLimits.valueBytes;
+import world.mongoose.banteng.builtin.family.FileIoBuiltins;
 import world.mongoose.banteng.builtin.family.JsonBuiltins;
 import world.mongoose.banteng.builtin.family.ListBuiltins;
 import world.mongoose.banteng.builtin.family.MapBuiltins;
 import world.mongoose.banteng.builtin.family.MathBuiltins;
 import world.mongoose.banteng.builtin.family.RandomBuiltins;
+import world.mongoose.banteng.builtin.family.ServerBuiltins;
 import world.mongoose.banteng.builtin.family.StringBuiltins;
 import world.mongoose.banteng.builtin.family.TimeBuiltins;
 import world.mongoose.banteng.bytecode.MooCompiler;
 import world.mongoose.banteng.host.Aspell;
-import world.mongoose.banteng.host.Libc;
 import world.mongoose.banteng.host.NativeCallException;
 import world.mongoose.banteng.host.NativeCurl;
 import world.mongoose.banteng.logging.ServerLog;
@@ -68,7 +66,6 @@ import world.mongoose.banteng.world.Access;
 import world.mongoose.banteng.world.ArgSpec;
 import world.mongoose.banteng.world.ObjectFlags;
 import world.mongoose.banteng.world.Prepositions;
-import world.mongoose.banteng.world.PropertyHolder;
 import world.mongoose.banteng.world.PropertyPerms;
 import world.mongoose.banteng.world.VerbPerms;
 import world.mongoose.banteng.world.WorldAnonymousObject;
@@ -87,7 +84,6 @@ public final class BuiltinCatalog {
   private static final Set<ArgType> STRING = Set.of(ArgType.STRING);
   private static final Set<ArgType> OBJECT = Set.of(ArgType.OBJECT);
   private static final int DEFAULT_MAX_QUEUED_OUTPUT = 65_536;
-  private static final String SERVER_VERSION = "0.1.0-SNAPSHOT";
 
   private final List<BuiltinSpec> manifest;
   private final FileIoBuiltins fileIo;
@@ -241,21 +237,7 @@ public final class BuiltinCatalog {
     BuiltinHandler setThreadMode =
         call -> setThreadMode(call.arguments(), call.threadMode());
     BuiltinHandler callFunction = this::callFunction;
-    entries.add(
-        new BuiltinSpec(
-            "value_bytes",
-            List.of(new CallShape(List.of(ANY), List.of(), Optional.empty())),
-            BuiltinPermissionRule.ANY,
-            false,
-            call ->
-                BuiltinResult.value(new IntegerValue(valueBytes(call.arguments().getFirst(), call.world())))));
-    entries.add(
-        new BuiltinSpec(
-            "object_bytes",
-            List.of(new CallShape(List.of(ANY), List.of(), Optional.empty())),
-            BuiltinPermissionRule.ANY,
-            false,
-            call -> objectBytes(call.arguments().getFirst(), call.world(), call.programmer())));
+    ServerBuiltins.registerValueSizes(entries);
     ListBuiltins.registerLength(entries);
     MathBuiltins.register(entries);
     RandomBuiltins.register(entries, () -> random, () -> floatingRandom, SECURE_RANDOM);
@@ -984,20 +966,7 @@ public final class BuiltinCatalog {
             false,
             call -> dynamicEval(call.arguments())));
     ConversionBuiltins.registerTypeOf(entries);
-    entries.add(
-        new BuiltinSpec(
-            "server_version",
-            List.of(new CallShape(List.of(), List.of(ANY), Optional.empty())),
-            BuiltinPermissionRule.ANY,
-            false,
-            call -> serverVersion(call.arguments())));
-    entries.add(
-        new BuiltinSpec(
-            "function_info",
-            List.of(new CallShape(List.of(), List.of(STRING), Optional.empty())),
-            BuiltinPermissionRule.ANY,
-            false,
-            call -> functionInfo(call.arguments())));
+    ServerBuiltins.registerVersionAndFunctions(entries, this);
     fileIo.register(entries);
     entries.add(
         new BuiltinSpec(
@@ -1023,65 +992,7 @@ public final class BuiltinCatalog {
             false,
             call -> pcre.cacheStats()));
     addSqliteManifest(entries);
-    entries.add(
-        new BuiltinSpec(
-            "server_log",
-            List.of(new CallShape(List.of(STRING), List.of(ANY), Optional.empty())),
-            BuiltinPermissionRule.WIZARD_ONLY,
-            true,
-            call -> serverLog(call.arguments())));
-    entries.add(
-        new BuiltinSpec(
-            "log_cache_stats",
-            List.of(new CallShape(List.of(), List.of(), Optional.empty())),
-            BuiltinPermissionRule.WIZARD_ONLY,
-            true,
-            call -> logCacheStats(call.world())));
-    entries.add(
-        new BuiltinSpec(
-            "verb_cache_stats",
-            List.of(new CallShape(List.of(), List.of(), Optional.empty())),
-            BuiltinPermissionRule.WIZARD_ONLY,
-            false,
-            call -> verbCacheStats(call.world())));
-    entries.add(
-        new BuiltinSpec(
-            "usage",
-            List.of(new CallShape(List.of(), List.of(), Optional.empty())),
-            BuiltinPermissionRule.WIZARD_ONLY,
-            false,
-            call -> usage()));
-    entries.add(
-        new BuiltinSpec(
-            "memory_usage",
-            List.of(new CallShape(List.of(), List.of(), Optional.empty())),
-            BuiltinPermissionRule.ANY,
-            false,
-            call -> memoryUsage()));
-    entries.add(
-        new BuiltinSpec(
-            "load_server_options",
-            List.of(new CallShape(List.of(), List.of(), Optional.empty())),
-            BuiltinPermissionRule.WIZARD_ONLY,
-            true,
-            call -> {
-              reloadProtectedFunctions(call.world());
-              return BuiltinResult.value(new IntegerValue(0));
-            }));
-    entries.add(
-        new BuiltinSpec(
-            "run_gc",
-            List.of(new CallShape(List.of(), List.of(), Optional.empty())),
-            BuiltinPermissionRule.WIZARD_ONLY,
-            false,
-            call -> BuiltinResult.value(new IntegerValue(0))));
-    entries.add(
-        new BuiltinSpec(
-            "gc_stats",
-            List.of(new CallShape(List.of(), List.of(), Optional.empty())),
-            BuiltinPermissionRule.WIZARD_ONLY,
-            false,
-            call -> gcStats()));
+    ServerBuiltins.registerDiagnostics(entries, this, hosts.serverLog());
     entries.add(
         new BuiltinSpec(
             "reset_max_object",
@@ -1115,27 +1026,7 @@ public final class BuiltinCatalog {
             BuiltinPermissionRule.ANY,
             false,
             call -> yin(call.arguments(), call.world(), call.remainingTicks(), call.remainingSeconds())));
-    entries.add(
-        new BuiltinSpec(
-            "shutdown",
-            List.of(new CallShape(List.of(), List.of(STRING, ANY), Optional.empty())),
-            BuiltinPermissionRule.WIZARD_ONLY,
-            false,
-            call -> shutdown(call.arguments())));
-    entries.add(
-        new BuiltinSpec(
-            "db_disk_size",
-            List.of(new CallShape(List.of(), List.of(), Optional.empty())),
-            BuiltinPermissionRule.ANY,
-            false,
-            call -> call.hosts().dbDiskSize().invoke(call)));
-    entries.add(
-        new BuiltinSpec(
-            "dump_database",
-            List.of(new CallShape(List.of(), List.of(), Optional.empty())),
-            BuiltinPermissionRule.WIZARD_ONLY,
-            false,
-            BuiltinCatalog::dumpDatabase));
+    ServerBuiltins.registerShutdownAndDatabase(entries);
     return List.copyOf(entries);
   }
 
@@ -1643,88 +1534,6 @@ public final class BuiltinCatalog {
     protectedFunctions = Set.copyOf(protectedNames);
   }
 
-  private BuiltinResult functionInfo(List<MooValue> arguments) {
-    if (arguments.isEmpty()) {
-      return BuiltinResult.value(
-          new ListValue(
-              manifest.stream()
-                  .map(BuiltinCatalog::functionInfoDescription)
-                  .map(MooValue.class::cast)
-                  .toList()));
-    }
-    StringValue requestedName = (StringValue) arguments.getFirst();
-    BuiltinSpec requested = specs.get(requestedName.text().toLowerCase(Locale.ROOT));
-    return requested == null
-        ? BuiltinResult.error(ErrorValue.E_INVARG)
-        : BuiltinResult.value(functionInfoDescription(requested));
-  }
-
-  private static BuiltinResult serverVersion(List<MooValue> arguments) {
-    if (arguments.isEmpty()) {
-      return BuiltinResult.value(StringValue.of(SERVER_VERSION));
-    }
-    MooValue detail = arguments.getFirst();
-    ListValue metadata = serverVersionMetadata();
-    if (!(detail instanceof StringValue path) || path.text().isEmpty()) {
-      return BuiltinResult.value(metadata);
-    }
-    Optional<MooValue> value = versionPath(metadata, path.text());
-    return value.isEmpty() ? BuiltinResult.error(ErrorValue.E_INVARG) : BuiltinResult.value(value.orElseThrow());
-  }
-
-  private static ListValue serverVersionMetadata() {
-    return new ListValue(
-        List.of(
-            versionPair("major", new IntegerValue(0)),
-            versionPair("minor", new IntegerValue(1)),
-            versionPair("release", new IntegerValue(0)),
-            versionPair("ext", StringValue.of("-SNAPSHOT")),
-            versionPair("string", StringValue.of(SERVER_VERSION)),
-            versionPair("os", StringValue.of(System.getProperty("os.name"))),
-            versionPair("features", new ListValue(List.of())),
-            versionPair(
-                "options",
-                new ListValue(
-                    List.of(
-                        versionPair("OUTBOUND_NETWORK", StringValue.of("ON")),
-                        versionPair("PROMOTE_NUMBERS", StringValue.of("OFF"))))),
-            versionPair("source", new ListValue(List.of(versionPair("vcs", StringValue.of("git")))))));
-  }
-
-  private static ListValue versionPair(String name, MooValue value) {
-    return new ListValue(List.of(StringValue.of(name), value));
-  }
-
-  private static Optional<MooValue> versionPath(ListValue tree, String path) {
-    ListValue current = tree;
-    int start = 0;
-    while (true) {
-      int slash = path.indexOf('/', start);
-      String component = slash < 0 ? path.substring(start) : path.substring(start, slash);
-      MooValue found = null;
-      for (MooValue item : current.elements()) {
-        if (item instanceof ListValue pair
-            && pair.size() == 2
-            && pair.elements().getFirst() instanceof StringValue key
-            && key.text().equals(component)) {
-          found = pair.elements().get(1);
-          break;
-        }
-      }
-      if (found == null) {
-        return Optional.empty();
-      }
-      if (slash < 0) {
-        return Optional.of(found);
-      }
-      if (!(found instanceof ListValue nested) || slash == path.length() - 1) {
-        return Optional.empty();
-      }
-      current = nested;
-      start = slash + 1;
-    }
-  }
-
   private BuiltinResult callFunction(BuiltinCall call) {
     List<MooValue> arguments = call.arguments();
     String name = ((StringValue) arguments.getFirst()).text().toLowerCase(Locale.ROOT);
@@ -1737,121 +1546,6 @@ public final class BuiltinCatalog {
         call.taskLocal(), call.taskId(), call.remainingTicks(), call.remainingSeconds(),
         call.receiver(), call.callerProgrammer(), call.callers(), call.threadMode(),
         call.stagedBufferedOutputLength(), call.hosts()));
-  }
-
-  private static ListValue functionInfoDescription(BuiltinSpec spec) {
-    CallShape shape = spec.callShapes().getFirst();
-    List<MooValue> argumentTypes = new ArrayList<>();
-    shape.required().forEach(types -> argumentTypes.add(new IntegerValue(typeCode(types))));
-    shape.optional().forEach(types -> argumentTypes.add(new IntegerValue(typeCode(types))));
-    int maximumArguments =
-        shape.variadic().isPresent()
-            ? -1
-            : shape.required().size() + shape.optional().size();
-    return new ListValue(
-        List.of(
-            StringValue.of(spec.name()),
-            new IntegerValue(shape.required().size()),
-            new IntegerValue(maximumArguments),
-            new ListValue(argumentTypes)));
-  }
-
-  private static int typeCode(Set<ArgType> types) {
-    if (types.size() != 1) {
-      return -1;
-    }
-    return switch (types.iterator().next()) {
-      case ANY -> -1;
-      case NUMBER -> -2;
-      case INTEGER -> 0;
-      case OBJECT -> 1;
-      case STRING -> 2;
-      case ERROR -> 3;
-      case LIST -> 4;
-      case FLOAT -> 9;
-      case MAP -> 10;
-      case WAIF -> 13;
-    };
-  }
-
-  private static BuiltinResult dumpDatabase(BuiltinCall call) {
-    return new BuiltinResult.Checkpoint();
-  }
-
-  private BuiltinResult serverLog(List<MooValue> arguments) {
-    String message = ((StringValue) arguments.getFirst()).text();
-    hosts.serverLog().info("> " + message);
-    return BuiltinResult.value(new IntegerValue(0));
-  }
-
-  private BuiltinResult logCacheStats(WorldTxn world) {
-    WorldTxn.VerbCacheStats stats = world.verbCacheStats();
-    hosts.serverLog().info(
-        String.format(
-            Locale.ROOT,
-            "Verb cache stat summary: %d hits, %d misses, %d generations",
-            stats.hits(),
-            stats.misses(),
-            stats.generation()));
-    hosts.serverLog().info("Depth   Count");
-    for (int depth = 0; depth < stats.histogram().size(); depth++) {
-      hosts.serverLog().info(
-          String.format(Locale.ROOT, "%-5d   %-5d", depth, stats.histogram().get(depth)));
-    }
-    hosts.serverLog().info("---");
-    return BuiltinResult.value(new IntegerValue(0));
-  }
-
-  private static BuiltinResult verbCacheStats(WorldTxn world) {
-    WorldTxn.VerbCacheStats stats = world.verbCacheStats();
-    List<MooValue> histogram =
-        stats.histogram().stream()
-            .map(Integer::longValue)
-            .map(IntegerValue::new)
-            .map(MooValue.class::cast)
-            .toList();
-    return BuiltinResult.value(
-        new ListValue(
-            List.of(
-                new IntegerValue(stats.hits()),
-                new IntegerValue(stats.negativeHits()),
-                new IntegerValue(stats.misses()),
-                new IntegerValue(stats.generation()),
-                new ListValue(histogram))));
-  }
-
-  private static BuiltinResult memoryUsage() {
-    final double[] fields;
-    try {
-      fields = Libc.memoryUsage();
-    } catch (IOException exception) {
-      return BuiltinResult.error(ErrorValue.E_FILE);
-    } catch (IllegalArgumentException exception) {
-      return BuiltinResult.error(ErrorValue.E_NACC);
-    }
-    List<MooValue> result = new ArrayList<>(5);
-    for (double field : fields) result.add(new FloatValue(field));
-    return BuiltinResult.value(new ListValue(result));
-  }
-
-  private static BuiltinResult usage() {
-    List<MooValue> loads = new ArrayList<>(3);
-    for (long load : Libc.loadAverages()) loads.add(new IntegerValue(load));
-
-    long[] resource = new long[11];
-    try {
-      resource = Libc.resourceUsage();
-    } catch (NativeCallException failure) {
-      Arrays.fill(resource, 0);
-    }
-    List<MooValue> result = new ArrayList<>(10);
-    result.add(new ListValue(loads));
-    result.add(new FloatValue(resource[0] + resource[1] / 1_000_000.0));
-    result.add(new FloatValue(resource[2] + resource[3] / 1_000_000.0));
-    for (int index = 4; index < resource.length; index++) {
-      result.add(new IntegerValue(resource[index]));
-    }
-    return BuiltinResult.value(new ListValue(result));
   }
 
   private static BuiltinResult suspend(List<MooValue> arguments) {
@@ -1910,13 +1604,6 @@ public final class BuiltinCatalog {
     return remainingTicks < minimumTicks || remainingSeconds < minimumSeconds
         ? new BuiltinResult.Suspend(delaySeconds)
         : BuiltinResult.value(new IntegerValue(0));
-  }
-
-  private static BuiltinResult shutdown(List<MooValue> arguments) {
-    if (arguments.size() == 2 && arguments.get(1).isTruthy()) {
-      return new BuiltinResult.Panic(((StringValue) arguments.getFirst()).text());
-    }
-    return new BuiltinResult.Shutdown();
   }
 
   private static BuiltinResult curl(List<MooValue> arguments, WorldTxn world, boolean threadMode) {
@@ -2005,31 +1692,6 @@ public final class BuiltinCatalog {
       decoded.write(b);
     }
     return BuiltinResult.value(StringValue.of(decoded.toByteArray()));
-  }
-
-  private static BuiltinResult objectBytes(MooValue target, WorldTxn world, long programmer) {
-    PropertyHolder object;
-    if (target instanceof ObjectValue permanent) {
-      object = world.object(permanent.value()).orElse(null);
-    } else if (target instanceof AnonymousObjectValue anonymous) {
-      object = world.anonymousObject(anonymous).orElse(null);
-    } else {
-      return BuiltinResult.error(ErrorValue.E_TYPE);
-    }
-    if (object == null) return BuiltinResult.error(ErrorValue.E_INVIND);
-    if (!world.isWizard(programmer)) return BuiltinResult.error(ErrorValue.E_PERM);
-
-    // Logical 64-bit object layout, consistent with value_bytes. Banteng owns
-    // source text rather than Toast's Program allocation for each stored verb.
-    long bytes = 160L + object.name().length() + 1;
-    for (WorldVerb verb : object.verbs()) {
-      bytes += 40L + verb.names().length() + 1 + verb.programSource().length() + 1;
-    }
-    for (WorldProperty property : object.properties()) {
-      if (property.defined()) bytes += 16L + property.name().length() + 1;
-      bytes += 16L + (property.clear() ? 16 : valueBytes(property.value(), world));
-    }
-    return BuiltinResult.value(new IntegerValue(bytes));
   }
 
   private static BuiltinResult raise(List<MooValue> arguments) {
@@ -4082,15 +3744,6 @@ public final class BuiltinCatalog {
               .map(diagnostic -> (MooValue) StringValue.of(diagnostic.display())).toList()))));
     }
     return new BuiltinResult.DynamicEval(compiled.program().orElseThrow());
-  }
-
-  private static BuiltinResult gcStats() {
-    Map<MooValue, MooValue> colors = new LinkedHashMap<>();
-    for (String color :
-        List.of("green", "yellow", "black", "gray", "white", "purple", "pink")) {
-      colors.put(StringValue.of(color), new IntegerValue(0));
-    }
-    return BuiltinResult.value(new MapValue(colors));
   }
 
   /** Concrete host capability required by the MOO listener builtins. */

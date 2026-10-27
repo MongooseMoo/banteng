@@ -15,6 +15,79 @@ import org.openrewrite.java.JavaParser;
 
 final class MoveBuiltinFamilyTest {
   @Test
+  void movesServerGroupsWithCatalogOwnedLoggingAndLiveCatalogLookup() {
+    var context = new InMemoryExecutionContext(failure -> { throw new AssertionError(failure); });
+    var files = JavaParser.fromJavaVersion().build().parse(context, """
+        package world.mongoose.banteng.builtin;
+        import java.util.List;
+        import java.util.Locale;
+        import world.mongoose.banteng.logging.ServerLog;
+        import static world.mongoose.banteng.builtin.ValueLimits.valueBytes;
+        class BuiltinCatalog {
+          private static final String SERVER_VERSION = "0.1.0-SNAPSHOT";
+          private List<BuiltinSpec> manifest;
+          private Map<String, BuiltinSpec> specs;
+          void buildManifest() {
+            entries.add(new BuiltinSpec("value_bytes", List.of(ANY), BuiltinPermissionRule.ANY, false, call -> valueBytes(call.arguments(), call.world())));
+            middle();
+            entries.add(new BuiltinSpec("server_version", List.of(), BuiltinPermissionRule.ANY, false, call -> serverVersion()));
+            entries.add(new BuiltinSpec("function_info", List.of(), BuiltinPermissionRule.ANY, false, call -> functionInfo(call.arguments())));
+            files();
+            entries.add(new BuiltinSpec("server_log", List.of(STRING), BuiltinPermissionRule.WIZARD_ONLY, true, call -> serverLog(call.arguments())));
+            entries.add(new BuiltinSpec("log_cache_stats", List.of(), BuiltinPermissionRule.WIZARD_ONLY, true, call -> logCacheStats(call.world())));
+            entries.add(new BuiltinSpec("load_server_options", List.of(), BuiltinPermissionRule.WIZARD_ONLY, true, call -> { reloadProtectedFunctions(call.world()); return null; }));
+            tasks();
+            entries.add(new BuiltinSpec("db_disk_size", List.of(), BuiltinPermissionRule.ANY, false, call -> call.hosts().dbDiskSize().invoke(call)));
+            entries.add(new BuiltinSpec("dump_database", List.of(), BuiltinPermissionRule.WIZARD_ONLY, false, BuiltinCatalog::dumpDatabase));
+          }
+          private BuiltinResult functionInfo(List<MooValue> arguments) {
+            manifest.stream().map(BuiltinCatalog::functionInfoDescription);
+            StringValue requestedName = (StringValue) arguments.getFirst();
+            BuiltinSpec requested = specs.get(requestedName.text().toLowerCase(Locale.ROOT));
+            return null;
+          }
+          private static int functionInfoDescription(BuiltinSpec spec) { return 1; }
+          private static String serverVersion() { return SERVER_VERSION; }
+          private BuiltinResult serverLog(List<MooValue> arguments) { hosts.serverLog().info("message"); return null; }
+          private BuiltinResult logCacheStats(WorldTxn world) { hosts.serverLog().info("cache"); return null; }
+          private static BuiltinResult dumpDatabase(BuiltinCall call) { return new BuiltinResult.Checkpoint(); }
+          public void reloadProtectedFunctions(WorldTxn world) { protectedFunctions = null; }
+        }
+        """).toList();
+    var recipe = new MoveBuiltinFamily("ServerBuiltins",
+        Set.of("value_bytes", "server_version", "function_info", "server_log", "log_cache_stats", "load_server_options", "db_disk_size", "dump_database"),
+        Set.of("functionInfo", "functionInfoDescription", "serverVersion", "serverLog", "logCacheStats", "dumpDatabase"));
+    var changes = recipe.run(new InMemoryLargeSourceSet(files), context).getChangeset().getAllResults();
+    String catalog = changedFile(changes, "BuiltinCatalog.java");
+    String family = changedFile(changes, "ServerBuiltins.java");
+    assertTrue(catalog.indexOf("registerValueSizes(entries)") < catalog.indexOf("middle()"));
+    assertTrue(catalog.indexOf("middle()") < catalog.indexOf("registerVersionAndFunctions(entries, this)"));
+    assertTrue(catalog.indexOf("files()") < catalog.indexOf("registerDiagnostics(entries, this, hosts.serverLog())"));
+    assertTrue(catalog.indexOf("tasks()") < catalog.indexOf("registerShutdownAndDatabase(entries)"));
+    assertTrue(catalog.contains("private List<BuiltinSpec> manifest"));
+    assertTrue(catalog.contains("private Map<String, BuiltinSpec> specs"));
+    assertTrue(catalog.contains("void reloadProtectedFunctions"));
+    assertFalse(catalog.contains("String SERVER_VERSION"));
+    assertTrue(family.contains("private static final String SERVER_VERSION"));
+    assertTrue(family.contains("catalog.manifest().stream()"));
+    assertTrue(family.contains("catalog.spec(requestedName.text()).orElse(null)"));
+    assertTrue(family.contains("ServerBuiltins::functionInfoDescription"));
+    assertTrue(family.contains("catalog.reloadProtectedFunctions(call.world())"));
+    assertTrue(family.contains("serverLog(call.arguments(), serverLog)"));
+    assertTrue(family.contains("logCacheStats(call.world(), serverLog)"));
+    assertTrue(family.contains("private static BuiltinResult serverLog(List<MooValue> arguments, ServerLog log)"));
+    assertTrue(family.contains("log.info(\"message\")"));
+    assertFalse(family.contains("hosts.serverLog()"));
+    assertTrue(family.contains("call.hosts().dbDiskSize().invoke(call)"));
+    assertTrue(family.contains("import world.mongoose.banteng.builtin.BuiltinCall;"));
+    assertTrue(family.contains("ServerBuiltins::dumpDatabase"));
+    assertTrue(family.contains(".irrevocable()"));
+    assertTrue(family.contains("import static world.mongoose.banteng.builtin.ValueLimits.valueBytes;"));
+    assertTrue(recipe.run(new InMemoryLargeSourceSet(changes.stream().map(Result::getAfter).toList()), context)
+        .getChangeset().getAllResults().isEmpty());
+  }
+
+  @Test
   void movesConversionGroupsAndRetargetsTheRealRemainingHelperCaller() {
     var context = new InMemoryExecutionContext(failure -> { throw new AssertionError(failure); });
     var files = JavaParser.fromJavaVersion().build().parse(context, """
