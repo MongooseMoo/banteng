@@ -15,6 +15,49 @@ import org.openrewrite.java.JavaParser;
 
 final class MoveBuiltinFamilyTest {
   @Test
+  void movesObjectGroupsRecordAndSharedResultIntoExistingOwner() {
+    var context = new InMemoryExecutionContext(failure -> { throw new AssertionError(failure); });
+    var files = JavaParser.fromJavaVersion().build().parse(context, """
+        package world.mongoose.banteng.builtin;
+        import world.mongoose.banteng.world.WorldResult;
+        class BuiltinCatalog {
+          void buildManifest() {
+            entries.add(new BuiltinSpec("create", List.of(OBJECT), BuiltinPermissionRule.ANY, false, call -> create()));
+            verb();
+            entries.add(new BuiltinSpec("move", List.of(OBJECT), BuiltinPermissionRule.ANY, false, call -> move()));
+            diagnostics();
+            entries.add(new BuiltinSpec("reset_max_object", List.of(), BuiltinPermissionRule.WIZARD_ONLY, false, call -> reset()));
+          }
+          private static int create() { return mutationResult(null, null); }
+          private static int move() { return 2; }
+          private static int reset() { return 3; }
+          private static int property() { return mutationResult(null, null); }
+          private static int mutationResult(WorldResult<?> result, Object value) { return 4; }
+          private record ParentArgument(int value) {}
+        }
+        """, "package world.mongoose.banteng.builtin; public sealed interface BuiltinResult {}")
+        .toList();
+    var recipe = new MoveBuiltinFamily("ObjectBuiltins", Set.of("create", "move", "reset_max_object"),
+        Set.of("create", "move", "reset"));
+    var changes = recipe.run(new InMemoryLargeSourceSet(files), context).getChangeset().getAllResults();
+    String catalog = changedFile(changes, "BuiltinCatalog.java");
+    String family = changedFile(changes, "ObjectBuiltins.java");
+    assertTrue(catalog.indexOf("registerLifecycleAndTopology(entries)") < catalog.indexOf("verb()"));
+    assertTrue(catalog.indexOf("verb()") < catalog.indexOf("registerMovementAndWaifs(entries)"));
+    assertTrue(catalog.indexOf("diagnostics()") < catalog.indexOf("registerResetMaximum(entries)"));
+    assertTrue(family.contains("Set.of(ArgType.OBJECT)"));
+    assertTrue(family.contains("private record ParentArgument"));
+    assertTrue(family.contains("import static world.mongoose.banteng.builtin.BuiltinResult.mutationResult;"));
+    assertTrue(catalog.contains("import static world.mongoose.banteng.builtin.BuiltinResult.mutationResult;"));
+    assertFalse(catalog.contains("static int mutationResult"));
+    assertFalse(catalog.contains("record ParentArgument"));
+    assertTrue(changedFile(changes, "BuiltinResult.java").contains("public static int mutationResult"));
+    assertTrue(changedFile(changes, "BuiltinResult.java").contains("import world.mongoose.banteng.world.WorldResult;"));
+    assertTrue(recipe.run(new InMemoryLargeSourceSet(changes.stream().map(Result::getAfter).toList()), context)
+        .getChangeset().getAllResults().isEmpty());
+  }
+
+  @Test
   void movesStringGroupsWithSharedRandomAndExistingValueSemanticsOwner() {
     var context = new InMemoryExecutionContext(failure -> { throw new AssertionError(failure); });
     var files = JavaParser.fromJavaVersion().build().parse(context, """
