@@ -365,3 +365,16 @@ recipeList:
       family: StringBuiltins
       builtins: [explode, strsub, strtr, parse_ansi, remove_ansi, index, rindex, strcmp]
       methods: [explode, stringSubstitute, stringTranslate, preserveAsciiCase, parseAnsi, removeAnsi, replaceAsciiIgnoringCase, stringIndex, stringCompare]
+---
+type: specs.openrewrite.org/v1beta/recipe
+name: world.mongoose.banteng.builtin.ExtractJsonBuiltins
+displayName: Extract JSON builtins
+description: Moves JSON registrations and wrappers beside their package-private codec.
+recipeList:
+  - world.mongoose.banteng.rewrite.MoveBuiltinFamily:
+      family: JsonBuiltins
+      builtins: [generate_json, parse_json]
+      methods: [generateJson, parseJson]
+  - org.openrewrite.java.ChangeType:
+      oldFullyQualifiedTypeName: world.mongoose.banteng.builtin.JsonCodec
+      newFullyQualifiedTypeName: world.mongoose.banteng.builtin.family.JsonCodec
