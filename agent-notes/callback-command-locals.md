@@ -2,7 +2,7 @@
 Repair command locals on fresh and nested callback activations, preserving the Toast callback contract.
 
 # State
-Published as PR138. The coordinator integrated command context, root/nested WAIF naming, startup dispatch, builtin continuation identity, error/checkpoint outcomes, lag callbacks, saved activation player/timeout stacks, and switch-player/prelogin notifications. Focused worker tests passed; combined hosted CI is running. WAIF indexed-assignment repair remains in its isolated worker tree. Claude review awaits its session reset; no merge or deployment.
+Published as PR138. The coordinator integrated command context, root/nested WAIF naming, startup dispatch, builtin continuation identity, error/checkpoint outcomes, lag callbacks, saved activation player/timeout stacks, switch-player/prelogin notifications, and WAIF indexed-assignment with durable temporary state. Hosted MOO conformance now passes. Java CI exposed standalone login output loss and a structural test selecting the newly introduced index boundary; both have isolated repairs. The pinned layout test now selects its original builtin boundary without changing its numeric assertions. Claude review awaits its session reset; no merge or deployment.
 
 # Decisions and why
 Current target source already routes runtime and move hooks through MooVm.callVerb. Smallest repair is therefore about eight net production lines in that existing owner: supply the five fresh root defaults, and let existing nested-call inheritance apply to callback kinds as well as NORMAL. Keep PASS behavior, receiver/caller/player/args/owner/definer, WAIF naming, callerProgrammer and builtin stack metadata unchanged. No new abstraction or guard. The original diagnosis used the historical coordination checkout; this plan is based on the actual target tree's unified owner.
@@ -19,9 +19,9 @@ The authored test covers fresh server defaults, explicit parsed command fields, 
 `git diff --check` passed. Required CI/conformance remains for the published PR.
 
 # Draft PR body
-Restores callback command context, saved activation identities and builtin continuation frames; adds raw startup-script dispatch and lag callbacks; repairs error/checkpoint outcomes and switch-player/prelogin notifications. Connection notifiers resolve the next hook after the previous hook's first execution slice.
+Restores callback command context, saved activation identities and builtin continuation frames; adds raw startup-script dispatch and lag callbacks; repairs error/checkpoint outcomes and switch-player/prelogin notifications. Connection notifiers resolve the next hook after the previous hook's first execution slice. WAIF indexed assignments preserve their owner, expression result and parent writeback through suspension and v17 persistence using the existing activation temporary register.
 
-Focused authored tests passed. Combined required CI is running. WAIF indexed-assignment failures remain under repair, and Claude review is pending its session reset.
+Focused authored tests passed. Combined required CI is running, and Claude review is pending its session reset.
 
 # Next step
-Integrate the bounded WAIF assignment repair, diagnose remaining hosted failures, complete Claude review, and normal-merge once required checks and findings are resolved. Reuse completed reviews on unchanged family PRs when resuming their merges. No release or deployment performed here.
+Diagnose remaining hosted failures, complete Claude review, and normal-merge once required checks and findings are resolved. Reuse completed reviews on unchanged family PRs when resuming their merges. No release or deployment performed here.

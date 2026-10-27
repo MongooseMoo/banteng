@@ -624,7 +624,9 @@ final class ToastV17ProgramLayoutTest {
     source.append("suspend();\n");
 
     ToastV17ProgramModel.CallBoundary boundary =
-        new ToastV17ProgramLayout().callBoundaries(source.toString(), -1).getFirst();
+        new ToastV17ProgramLayout().callBoundaries(source.toString(), -1).stream()
+            .filter(candidate -> candidate.kind() == ToastV17ProgramModel.CallKind.BUILTIN)
+            .findFirst().orElseThrow();
 
     assertEquals(72_525, boundary.errorProgramCounter());
     assertEquals(72_527, boundary.programCounter());
