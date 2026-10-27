@@ -840,22 +840,29 @@ public final class MooCompiler {
       return;
     }
     if (assignment.target() instanceof Ast.IndexTarget index) {
-      if (index.collection() instanceof Ast.PropertyAccess property) {
-        compileExpression(property.object(), instructions);
-        compileExpression(property.property(), instructions);
-        instructions.add(new Instruction(Opcode.DUP_PAIR));
-        instructions.add(new Instruction(Opcode.GET_PROPERTY));
-        instructions.add(new Instruction(Opcode.ENTER_INDEX));
-        compileExpression(index.index(), instructions);
-        compileExpression(assignment.value(), instructions);
-        instructions.add(new Instruction(Opcode.SET_INDEX_PROPERTY));
-        return;
-      }
       List<Ast.Expression> parentIndices = new ArrayList<>();
       Ast.Expression root = index.collection();
       while (root instanceof Ast.IndexAccess parent) {
         parentIndices.addFirst(parent.index());
         root = parent.collection();
+      }
+      if (root instanceof Ast.PropertyAccess property) {
+        compileExpression(property.object(), instructions);
+        compileExpression(property.property(), instructions);
+        instructions.add(new Instruction(Opcode.DUP_PAIR));
+        instructions.add(new Instruction(Opcode.GET_PROPERTY));
+        for (Ast.Expression parentIndex : parentIndices) {
+          instructions.add(new Instruction(Opcode.ENTER_INDEX));
+          compileExpression(parentIndex, instructions);
+          instructions.add(new Instruction(Opcode.INDEX, 1));
+        }
+        instructions.add(new Instruction(Opcode.ENTER_INDEX));
+        compileExpression(index.index(), instructions);
+        compileExpression(assignment.value(), instructions);
+        instructions.add(parentIndices.isEmpty()
+            ? new Instruction(Opcode.SET_INDEX_PROPERTY)
+            : new Instruction(Opcode.SET_INDEX_PROPERTY, parentIndices.size()));
+        return;
       }
       if (root instanceof Ast.Identifier owner) {
         instructions.add(new Instruction(Opcode.LOAD_LOCAL, owner.name()));
@@ -876,38 +883,45 @@ public final class MooCompiler {
       throw new IllegalArgumentException("indexed assignment requires a local owner");
     }
     if (assignment.target() instanceof Ast.RangeTarget range) {
-      if (range.collection() instanceof Ast.PropertyAccess property) {
+      List<Ast.Expression> parentIndices = new ArrayList<>();
+      Ast.Expression root = range.collection();
+      while (root instanceof Ast.IndexAccess parent) {
+        parentIndices.addFirst(parent.index());
+        root = parent.collection();
+      }
+      if (root instanceof Ast.PropertyAccess property) {
         compileExpression(property.object(), instructions);
         compileExpression(property.property(), instructions);
         instructions.add(new Instruction(Opcode.DUP_PAIR));
         instructions.add(new Instruction(Opcode.GET_PROPERTY));
+        for (Ast.Expression parentIndex : parentIndices) {
+          instructions.add(new Instruction(Opcode.ENTER_INDEX));
+          compileExpression(parentIndex, instructions);
+          instructions.add(new Instruction(Opcode.INDEX, 1));
+        }
         instructions.add(new Instruction(Opcode.ENTER_INDEX));
         compileExpression(range.start(), instructions);
         compileExpression(range.end(), instructions);
         compileExpression(assignment.value(), instructions);
-        instructions.add(new Instruction(Opcode.SET_RANGE_PROPERTY));
+        instructions.add(parentIndices.isEmpty()
+            ? new Instruction(Opcode.SET_RANGE_PROPERTY)
+            : new Instruction(Opcode.SET_RANGE_PROPERTY, parentIndices.size()));
         return;
       }
-      if (range.collection() instanceof Ast.Identifier owner) {
+      if (root instanceof Ast.Identifier owner) {
         instructions.add(new Instruction(Opcode.LOAD_LOCAL, owner.name()));
+        for (Ast.Expression parentIndex : parentIndices) {
+          instructions.add(new Instruction(Opcode.ENTER_INDEX));
+          compileExpression(parentIndex, instructions);
+          instructions.add(new Instruction(Opcode.INDEX, 1));
+        }
         instructions.add(new Instruction(Opcode.ENTER_INDEX));
         compileExpression(range.start(), instructions);
         compileExpression(range.end(), instructions);
         compileExpression(assignment.value(), instructions);
-        instructions.add(new Instruction(Opcode.SET_RANGE_LOCAL, owner.name()));
-        return;
-      }
-      if (range.collection() instanceof Ast.IndexAccess parent
-          && parent.collection() instanceof Ast.Identifier owner) {
-        instructions.add(new Instruction(Opcode.LOAD_LOCAL, owner.name()));
-        instructions.add(new Instruction(Opcode.ENTER_INDEX));
-        compileExpression(parent.index(), instructions);
-        instructions.add(new Instruction(Opcode.INDEX, 1));
-        instructions.add(new Instruction(Opcode.ENTER_INDEX));
-        compileExpression(range.start(), instructions);
-        compileExpression(range.end(), instructions);
-        compileExpression(assignment.value(), instructions);
-        instructions.add(new Instruction(Opcode.SET_RANGE_LOCAL, 1, owner.name()));
+        instructions.add(parentIndices.isEmpty()
+            ? new Instruction(Opcode.SET_RANGE_LOCAL, owner.name())
+            : new Instruction(Opcode.SET_RANGE_LOCAL, parentIndices.size(), owner.name()));
         return;
       }
       throw new IllegalArgumentException("range assignment requires a local owner");
