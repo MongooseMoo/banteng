@@ -128,7 +128,7 @@ public final class BuiltinCatalog {
     RegexBuiltins.registerLegacy(entries);
     ConnectionBuiltins.registerOptionsAndListeners(entries, listenerControl);
     TaskBuiltins.registerGroup3(entries, this);
-    ConnectionBuiltins.registerNotify(entries, listenerControl);
+    ConnectionBuiltins.registerNotify(entries, listenerControl, () -> serverOptions.maxQueuedOutput());
     ConversionBuiltins.registerConversions(entries);
     TaskBuiltins.registerGroup4(entries, this);
     ConversionBuiltins.registerTypeOf(entries);

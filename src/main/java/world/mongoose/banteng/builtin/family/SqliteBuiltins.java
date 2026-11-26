@@ -131,6 +131,8 @@ public final class SqliteBuiltins {
     Connection opened = DriverManager.getConnection(url);
     try {
       SQLiteConnection connection = opened.unwrap(SQLiteConnection.class);
+      connection.setLimit(SQLiteLimits.SQLITE_LIMIT_SQL_LENGTH, 1_000_000_000);
+      connection.setLimit(SQLiteLimits.SQLITE_LIMIT_FUNCTION_ARG, 127);
       Function.create(connection, "regexp", new Function() {
         @Override
         protected void xFunc() throws SQLException {

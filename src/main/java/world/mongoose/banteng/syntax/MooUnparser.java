@@ -6,7 +6,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.math.BigDecimal;
-import world.mongoose.banteng.value.MooValue.FloatValue;
+import java.util.function.DoubleFunction;
 
 /** Canonically renders the complete MOO syntax tree accepted by {@link MooParser}. */
 public final class MooUnparser {
@@ -47,17 +47,14 @@ public final class MooUnparser {
 
   /** Returns deterministic line-oriented MOO source for {@code program}. */
   public static String unparse(Ast.Program program) {
-    return render(program, false, false);
+    return unparse(program, false, MooUnparser::roundTripFloatLiteral);
   }
 
-  /** Renders verb code for inspection with Toast's display precision. */
-  public static String unparseVerbCode(Ast.Program program, boolean parenthesize) {
-    return render(program, parenthesize, true);
-  }
-
-  private static String render(Ast.Program program, boolean parenthesize, boolean displayFloats) {
+  /** Renders MOO source with the caller's float literal formatting. */
+  public static String unparse(
+      Ast.Program program, boolean parenthesize, DoubleFunction<String> floatLiteral) {
     Objects.requireNonNull(program, "program");
-    Renderer renderer = new Renderer(parenthesize, displayFloats);
+    Renderer renderer = new Renderer(parenthesize, floatLiteral);
     renderer.statements(program.statements(), 0);
     return renderer.text.toString();
   }
@@ -65,11 +62,11 @@ public final class MooUnparser {
   private static final class Renderer {
     private final StringBuilder text = new StringBuilder();
     private final boolean parenthesize;
-    private final boolean displayFloats;
+    private final DoubleFunction<String> floatLiteral;
 
-    private Renderer(boolean parenthesize, boolean displayFloats) {
+    private Renderer(boolean parenthesize, DoubleFunction<String> floatLiteral) {
       this.parenthesize = parenthesize;
-      this.displayFloats = displayFloats;
+      this.floatLiteral = floatLiteral;
     }
 
     private void statements(List<Ast.Statement> statements, int indentation) {
@@ -232,18 +229,7 @@ public final class MooUnparser {
           if (!Double.isFinite(floating.value())) {
             throw new IllegalArgumentException("non-finite float literal");
           }
-          if (displayFloats) {
-            rendered = new FloatValue(floating.value()).toLiteral();
-            break;
-          }
-          rendered = Double.toString(floating.value());
-          double magnitude = Math.abs(floating.value());
-          if (rendered.indexOf('E') >= 0 && magnitude >= 0.0001 && magnitude < 1.0e15) {
-            rendered = BigDecimal.valueOf(floating.value()).toPlainString();
-            if (rendered.indexOf('.') < 0) {
-              rendered += ".0";
-            }
-          }
+          rendered = floatLiteral.apply(floating.value());
         }
         case Ast.StringLiteral string -> {
           rendered = quote(string.value());
@@ -489,6 +475,18 @@ public final class MooUnparser {
       case "bool" -> "BOOL";
       default -> name;
     };
+  }
+
+  private static String roundTripFloatLiteral(double value) {
+    String rendered = Double.toString(value);
+    double magnitude = Math.abs(value);
+    if (rendered.indexOf('E') >= 0 && magnitude >= 0.0001 && magnitude < 1.0e15) {
+      rendered = BigDecimal.valueOf(value).toPlainString();
+      if (rendered.indexOf('.') < 0) {
+        rendered += ".0";
+      }
+    }
+    return rendered;
   }
 
   private static int precedence(Ast.Expression expression) {

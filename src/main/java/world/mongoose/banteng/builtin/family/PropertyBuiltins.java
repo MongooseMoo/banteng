@@ -1,6 +1,5 @@
 package world.mongoose.banteng.builtin.family;
 import java.util.List;
-import java.util.Locale;
 import java.util.Optional;
 import java.util.Set;
 import world.mongoose.banteng.builtin.ArgType;
@@ -135,16 +134,7 @@ public final class PropertyBuiltins {
             return BuiltinResult.error(ErrorValue.E_INVARG);
         }
         String name = ((StringValue) arguments.get(1)).text();
-        String normalized = name.toLowerCase(Locale.ROOT);
-        if (normalized.equals("name")
-                || normalized.equals("location")
-                || normalized.equals("contents")
-                || normalized.equals("owner")
-                || normalized.equals("programmer")
-                || normalized.equals("wizard")
-                || normalized.equals("r")
-                || normalized.equals("w")
-                || normalized.equals("f")) {
+        if (WorldTxn.isBuiltinPropertyName(name)) {
             return BuiltinResult.value(new IntegerValue(0));
         }
         WorldProperty property = receiver instanceof ObjectValue object
@@ -177,16 +167,7 @@ public final class PropertyBuiltins {
             return BuiltinResult.error(ErrorValue.E_INVARG);
         }
         String name = ((StringValue) arguments.get(1)).text();
-        String normalized = name.toLowerCase(Locale.ROOT);
-        if (normalized.equals("name")
-                || normalized.equals("location")
-                || normalized.equals("contents")
-                || normalized.equals("owner")
-                || normalized.equals("programmer")
-                || normalized.equals("wizard")
-                || normalized.equals("r")
-                || normalized.equals("w")
-                || normalized.equals("f")) {
+        if (WorldTxn.isBuiltinPropertyName(name)) {
             return BuiltinResult.error(ErrorValue.E_PROPNF);
         }
         WorldProperty property = receiver instanceof ObjectValue object
@@ -222,16 +203,7 @@ public final class PropertyBuiltins {
             return BuiltinResult.error(ErrorValue.E_INVARG);
         }
         String name = ((StringValue) arguments.get(1)).text();
-        String normalized = name.toLowerCase(Locale.ROOT);
-        if (normalized.equals("name")
-                || normalized.equals("location")
-                || normalized.equals("contents")
-                || normalized.equals("owner")
-                || normalized.equals("programmer")
-                || normalized.equals("wizard")
-                || normalized.equals("r")
-                || normalized.equals("w")
-                || normalized.equals("f")) {
+        if (WorldTxn.isBuiltinPropertyName(name)) {
             return BuiltinResult.error(ErrorValue.E_PERM);
         }
         WorldProperty property = world.property(object.value(), name).orElse(null);

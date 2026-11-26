@@ -33,4 +33,10 @@ public record BuiltinCall(
     Objects.requireNonNull(stagedBufferedOutputLength, "stagedBufferedOutputLength");
     Objects.requireNonNull(hosts, "hosts");
   }
+
+  /** Reuses the current task context for another builtin invocation. */
+  public BuiltinCall withArguments(List<MooValue> replacement) {
+    return new BuiltinCall(replacement, world, programmer, taskLocal, taskId, remainingTicks,
+        remainingSeconds, receiver, callerProgrammer, callers, threadMode, stagedBufferedOutputLength, hosts);
+  }
 }

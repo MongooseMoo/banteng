@@ -118,11 +118,7 @@ public final class TaskBuiltins {
             return BuiltinResult.raised(
                     ErrorValue.E_INVARG, StringValue.of("Unknown built-in function"), name);
         }
-        BuiltinResult result = catalog.invoke(target, new BuiltinCall(
-                arguments.subList(1, arguments.size()), call.world(), call.programmer(),
-                call.taskLocal(), call.taskId(), call.remainingTicks(), call.remainingSeconds(),
-                call.receiver(), call.callerProgrammer(), call.callers(), call.threadMode(),
-                call.stagedBufferedOutputLength(), call.hosts()));
+        BuiltinResult result = catalog.invoke(target, call.withArguments(arguments.subList(1, arguments.size())));
         return switch (result) {
             case BuiltinResult.Initialize initialized -> new BuiltinResult.Initialize(initialized.created(),
                     initialized.arguments(), initialized.continuation().map(SuspendedActivation.CallFunctionContinuation::new));

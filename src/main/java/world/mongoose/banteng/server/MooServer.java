@@ -446,7 +446,7 @@ public final class MooServer implements AutoCloseable, ConnectionBuiltins.Listen
       return;
     }
     try {
-      output.notify(line, noFlush, noNewline, binaryConnections.containsKey(connectionId));
+      output.notify(line, noFlush, noNewline);
     } catch (IOException ignored) {
       // The connection reader owns physical cleanup after a failed write.
     }
@@ -668,10 +668,9 @@ public final class MooServer implements AutoCloseable, ConnectionBuiltins.Listen
       flush();
     }
 
-    synchronized void notify(
-        String line, boolean noFlush, boolean noNewline, boolean binary) throws IOException {
+    synchronized void notify(String line, boolean noFlush, boolean noNewline) throws IOException {
       queued.append(line);
-      if (!binary && !noNewline) {
+      if (!noNewline) {
         queued.append("\r\n");
       }
       if (!noFlush) {

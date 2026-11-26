@@ -107,9 +107,11 @@ public final class ConnectionBuiltins {
                         Optional.empty()))).permission(BuiltinPermissionRule.WIZARD_ONLY).irrevocable().implementation(call -> openNetworkConnection(listenerControl, call));
     }
 
-    public static void registerNotify(List<BuiltinSpec> entries, Optional<ListenerControl> listenerControl) {
+    public static void registerNotify(List<BuiltinSpec> entries, Optional<ListenerControl> listenerControl,
+                                      LongSupplier outputCapacity) {
         BuiltinRegistrar registrar = new BuiltinRegistrar(entries);
-        registrar.builtin("notify", List.of(new CallShape(List.of(OBJECT, STRING), List.of(ANY, ANY), Optional.empty()))).implementation(call -> notifyLine(call.hosts(), call.arguments(), call.world(), call.programmer()));
+        registrar.builtin("notify", List.of(new CallShape(List.of(OBJECT, STRING), List.of(ANY, ANY), Optional.empty())))
+                .implementation(call -> notifyLine(call, listenerControl, outputCapacity.getAsLong()));
     }
 
     private static ConnectionRegistryAccess connections(BuiltinHosts invocationHosts) {
@@ -454,24 +456,42 @@ public final class ConnectionBuiltins {
         return call.hosts().switchPlayer().invoke(call);
     }
 
-    private static BuiltinResult notifyLine(BuiltinHosts invocationHosts,
-                                     List<MooValue> arguments, WorldTxn world, long programmer) {
-        long target = ((ObjectValue) arguments.getFirst()).value();
-        if (target != programmer && !world.isWizard(programmer)) {
+    private static BuiltinResult notifyLine(BuiltinCall call, Optional<ListenerControl> listenerControl,
+                                            long outputCapacity) {
+        List<MooValue> arguments = call.arguments();
+        ObjectValue recipient = (ObjectValue) arguments.getFirst();
+        long target = recipient.value();
+        if (target != call.programmer() && !call.world().isWizard(call.programmer())) {
             return BuiltinResult.error(ErrorValue.E_PERM);
         }
         StringValue line = (StringValue) arguments.get(1);
         boolean noFlush = arguments.size() > 2 && arguments.get(2).isTruthy();
         boolean noNewline = arguments.size() > 3 && arguments.get(3).isTruthy();
-        if (target == programmer && !noFlush && !noNewline) {
+        OptionalLong connectionId = connections(call.hosts()).connectionId(target);
+        if (connectionId.isPresent() && call.hosts().connectionOptions()
+                .invoke(call.withArguments(List.of(recipient, StringValue.of("binary"))))
+                    instanceof BuiltinResult.Value binary && binary.value().isTruthy()) {
+            var decoded = line.binaryBytes();
+            if (decoded.isEmpty()) return BuiltinResult.error(ErrorValue.E_INVARG);
+            line = StringValue.of(decoded.orElseThrow());
+            noNewline = true;
+        }
+        if (target == call.programmer() && !noFlush && !noNewline) {
             return new BuiltinResult.Output(line.text());
         }
-        OptionalLong connectionId = connections(invocationHosts).connectionId(target);
         if (connectionId.isEmpty()) {
             return BuiltinResult.value(new IntegerValue(1));
         }
-        return new BuiltinResult.Notify(
-                connectionId.orElseThrow(), line.text(), noFlush, noNewline);
+        long id = connectionId.orElseThrow();
+        if (noFlush && listenerControl.isPresent()) {
+            long queued = call.stagedBufferedOutputLength().applyAsLong(
+                    id, listenerControl.orElseThrow().bufferedOutputLength(id));
+            long wireLength = line.length() + (noNewline ? 0L : 2L);
+            if (queued != 0 && queued + wireLength > outputCapacity) {
+                return BuiltinResult.value(new IntegerValue(0));
+            }
+        }
+        return new BuiltinResult.Notify(id, line.text(), noFlush, noNewline);
     }
 
     /** Concrete host capability required by the MOO listener builtins. */

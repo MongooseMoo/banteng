@@ -625,7 +625,7 @@ public final class LambdaMooV17Codec implements DbCodec {
     line(output, definitionCount);
     for (WorldProperty property : object.properties()) {
       if (property.defined()) {
-        lineString(output, property.name(), "property name");
+        writePropertyName(output, property.name());
       }
     }
     line(output, object.properties().size());
@@ -668,7 +668,7 @@ public final class LambdaMooV17Codec implements DbCodec {
     line(output, definitionCount);
     for (WorldProperty property : object.properties()) {
       if (property.defined()) {
-        lineString(output, property.name(), "anonymous property name");
+        writePropertyName(output, property.name());
       }
     }
     line(output, object.properties().size());
@@ -822,7 +822,7 @@ public final class LambdaMooV17Codec implements DbCodec {
     int propertyNameCount = readCount(input, "object #" + expectedId + " property-name count");
     List<String> propertyNames = new ArrayList<>(propertyNameCount);
     for (int index = 0; index < propertyNameCount; index++) {
-      propertyNames.add(requiredLine(input, "property name"));
+      propertyNames.add(DbScanner.readPropertyName(input));
     }
     int propertyValueCount = readCount(input, "object #" + expectedId + " property-value count");
     List<RawPropertySlot> propertySlots = new ArrayList<>(propertyValueCount);
@@ -1289,6 +1289,11 @@ public final class LambdaMooV17Codec implements DbCodec {
       throw new IOException(field + " cannot contain a line break in a v17 database");
     }
     line(output, value);
+  }
+
+  private static void writePropertyName(BufferedWriter output, String name) throws IOException {
+    if (name.indexOf('\n') >= 0) throw new IOException("property name cannot contain LF in a v17 database");
+    line(output, name);
   }
 
   private static void line(BufferedWriter output, Object value) throws IOException {

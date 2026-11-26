@@ -15,6 +15,9 @@ import world.mongoose.banteng.persistence.LambdaMooV17Codec;
 import world.mongoose.banteng.persistence.DatabaseVerbCompiler;
 import world.mongoose.banteng.persistence.DbCodec;
 import world.mongoose.banteng.world.Checkpoint;
+import world.mongoose.banteng.world.WorldObject;
+import world.mongoose.banteng.world.WorldProperty;
+import world.mongoose.banteng.world.WorldTxn;
 import world.mongoose.banteng.runtime.MooRuntime;
 import world.mongoose.banteng.runtime.PublicationScheduler;
 import world.mongoose.banteng.runtime.TaskRegistry;
@@ -139,6 +142,15 @@ public final class Banteng implements Callable<Integer> {
       } catch (IOException failure) {
         serverLog.error(failure.toString());
         throw failure;
+      }
+      for (WorldObject object : loaded.world().snapshot().objects().values()) {
+        for (WorldProperty property : object.properties()) {
+          if (!property.defined()) break;
+          if (WorldTxn.isBuiltinPropertyName(property.name())) {
+            serverLog.info("DB_WARNING: Property #%d.%s has a reserved name"
+                .formatted(object.id(), property.name()));
+          }
+        }
       }
       ConnectionRegistry connections = new ConnectionRegistry();
       TaskRegistry tasks = new TaskRegistry();

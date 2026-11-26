@@ -67,6 +67,16 @@ final class DbScanner {
     return line;
   }
 
+  static String readPropertyName(BufferedReader input) throws IOException {
+    StringBuilder name = new StringBuilder();
+    int next;
+    while ((next = input.read()) >= 0 && next != '\n') {
+      name.append((char) next);
+    }
+    if (next < 0) throw malformed("unexpected end of file while reading property name");
+    return name.toString();
+  }
+
   static IOException malformed(String message) {
     return new IOException(message);
   }

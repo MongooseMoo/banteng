@@ -703,8 +703,9 @@ public final class VerbBuiltins {
             return BuiltinResult.value(new ListValue(List.of()));
         }
         List<MooValue> lines =
-                Arrays.stream(MooUnparser.unparseVerbCode(MooParser.parse(verb.programSource()),
-                        arguments.size() >= 3 && arguments.get(2).isTruthy()).split("\n", -1))
+                Arrays.stream(MooUnparser.unparse(MooParser.parse(verb.programSource()),
+                        arguments.size() >= 3 && arguments.get(2).isTruthy(),
+                        value -> new MooValue.FloatValue(value).toLiteral()).split("\n", -1))
                         .map(line -> indent ? line : line.stripLeading())
                         .map(StringValue::of)
                         .map(MooValue.class::cast)

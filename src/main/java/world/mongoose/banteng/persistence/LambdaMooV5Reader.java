@@ -154,7 +154,7 @@ public final class LambdaMooV5Reader implements DbCodec {
     int propertyNameCount = readCount(input, "property-name count");
     List<String> propertyNames = new ArrayList<>(propertyNameCount);
     for (int index = 0; index < propertyNameCount; index++) {
-      propertyNames.add(requiredLine(input, "property name"));
+      propertyNames.add(DbScanner.readPropertyName(input));
     }
     int propertySlotCount = readCount(input, "property-slot count");
     List<RawPropertySlot> propertySlots = new ArrayList<>(propertySlotCount);
