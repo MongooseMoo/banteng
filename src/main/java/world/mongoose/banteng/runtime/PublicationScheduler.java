@@ -628,6 +628,7 @@ public final class PublicationScheduler implements AutoCloseable {
           VmState child =
               new VmState(new TaskOrigin(fork.locals(), fork.programmer(), fork.verbLocation(),
         fork.calledVerb(), fork.fullVerbName(), fork.debug(), fork.player()), new TaskBudget(MooRuntime.DEFAULT_BACKGROUND_TICKS, MooRuntime.DEFAULT_BACKGROUND_SECONDS, state.snapshot().maxStackDepth()));
+          child.ensureRoot(fork.program());
           VmSnapshot childState = child.snapshot();
           long scheduledStart = Math.addExact(
               System.currentTimeMillis(), Math.round(fork.delaySeconds() * 1_000.0));

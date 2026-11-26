@@ -18,6 +18,7 @@ import java.net.InetSocketAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.net.SocketException;
+import java.net.SocketTimeoutException;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
@@ -30,7 +31,9 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReference;
 import world.mongoose.banteng.builtin.family.ConnectionBuiltins;
+import world.mongoose.banteng.logging.ServerLog;
 import world.mongoose.banteng.runtime.MooRuntime;
 import world.mongoose.banteng.value.MooValue;
 import world.mongoose.banteng.value.MooValue.IntegerValue;
@@ -39,7 +42,9 @@ import world.mongoose.banteng.value.MooValue.StringValue;
 
 /** The concrete blocking socket server for the first managed vertical slice. */
 public final class MooServer implements AutoCloseable, ConnectionBuiltins.ListenerControl {
+  private static final int MAX_LINE_BYTES = 5_242_880;
   private final java.util.function.Supplier<MooRuntime> runtime;
+  private final ServerLog serverLog;
   private final InetAddress listenAddress;
   private final ServerSocket primaryListener;
   private final Listener primary;
@@ -52,11 +57,15 @@ public final class MooServer implements AutoCloseable, ConnectionBuiltins.Listen
   private final AtomicBoolean closed = new AtomicBoolean();
   private final CountDownLatch closedLatch = new CountDownLatch(1);
   private final AtomicLong nextConnectionId = new AtomicLong(-2);
+  private final AtomicReference<Optional<Socket>> pendingConnect =
+      new AtomicReference<>(Optional.empty());
 
   /** Binds the transport around the application's deferred runtime reference. */
   public MooServer(
-      String address, int port, java.util.function.Supplier<MooRuntime> runtime) throws IOException {
+      String address, int port, java.util.function.Supplier<MooRuntime> runtime, ServerLog serverLog)
+      throws IOException {
     this.runtime = Objects.requireNonNull(runtime, "runtime");
+    this.serverLog = Objects.requireNonNull(serverLog, "serverLog");
     listenAddress = InetAddress.getByName(address);
     primaryListener = new ServerSocket();
     try {
@@ -152,8 +161,13 @@ public final class MooServer implements AutoCloseable, ConnectionBuiltins.Listen
       ByteArrayOutputStream subnegotiation = null;
       boolean afterSubnegotiationIac = false;
       byte[] inputBuffer = new byte[1024];
-      int inputCount;
-      while ((inputCount = input.read(inputBuffer)) != -1) {
+      while (true) {
+        int inputCount = input.read(inputBuffer);
+        if (line.size() >= MAX_LINE_BYTES) {
+          logInputLimit(socket, "closed for exceeding MAX_LINE_BYTES!", line.size());
+          return;
+        }
+        if (inputCount == -1) break;
         if (binaryConnections.containsKey(connectionId)) {
           connectionOutput.writeLines(
               runtime.get().receiveLine(
@@ -164,6 +178,10 @@ public final class MooServer implements AutoCloseable, ConnectionBuiltins.Listen
         for (int inputIndex = 0; inputIndex < inputCount; inputIndex++) {
           int inputByte = Byte.toUnsignedInt(inputBuffer[inputIndex]);
           if (subnegotiation != null) {
+            if (subnegotiation.size() >= MAX_LINE_BYTES) {
+              logInputLimit(socket, "exceeded MAX_LINE_BYTES in telnet command!", subnegotiation.size());
+              return;
+            }
             subnegotiation.write(inputByte);
             if (afterSubnegotiationIac) {
               afterSubnegotiationIac = false;
@@ -252,6 +270,11 @@ public final class MooServer implements AutoCloseable, ConnectionBuiltins.Listen
       binaryConnections.remove(connectionId);
       connections.remove(connectionId, socket);
     }
+  }
+
+  private void logInputLimit(Socket socket, String message, int bytes) {
+    serverLog.error("Connection `%s` %s (%d /%d)".formatted(
+        socket.getRemoteSocketAddress(), message, bytes, MAX_LINE_BYTES));
   }
 
   private static MapValue connectionInfo(Socket socket, boolean outbound) {
@@ -368,7 +391,7 @@ public final class MooServer implements AutoCloseable, ConnectionBuiltins.Listen
   /** Opens an outbound socket and registers its negative MOO connection object atomically. */
   @Override
   public long openNetworkConnection(
-      String host, int port, boolean ipv6, long listenerHandler,
+      String host, int port, boolean ipv6, long listenerHandler, int timeoutMillis,
       world.mongoose.banteng.builtin.BuiltinHosts.OutboundConnectionRegistrar registration)
       throws IOException {
     if (closed.get() || port < 0 || port > 65_535) {
@@ -387,7 +410,7 @@ public final class MooServer implements AutoCloseable, ConnectionBuiltins.Listen
     Socket socket = new Socket();
     long connectionId = nextConnectionId.getAndDecrement();
     try {
-      socket.connect(new InetSocketAddress(remote, port));
+      connectWithAlarm(socket, new InetSocketAddress(remote, port), timeoutMillis);
       BufferedWriter output =
           new BufferedWriter(
               new OutputStreamWriter(socket.getOutputStream(), StringValue.charset()));
@@ -402,6 +425,34 @@ public final class MooServer implements AutoCloseable, ConnectionBuiltins.Listen
       closeSocket(socket);
       throw failure;
     }
+  }
+
+  private void connectWithAlarm(Socket socket, InetSocketAddress remote, int timeoutMillis)
+      throws IOException {
+    Optional<Socket> pending = Optional.of(socket);
+    // Network builtins run one at a time on the scheduler's irrevocable path.
+    pendingConnect.set(pending);
+    try {
+      if (closed.get()) throw new SocketException("Server is closed");
+      socket.connect(remote, timeoutMillis);
+    } catch (IOException failure) {
+      if (!pendingConnect.compareAndSet(pending, Optional.empty())) {
+        throw new SocketTimeoutException("Connection timed out");
+      }
+      throw failure;
+    } catch (RuntimeException failure) {
+      pendingConnect.compareAndSet(pending, Optional.empty());
+      throw failure;
+    }
+    if (!pendingConnect.compareAndSet(pending, Optional.empty())) {
+      throw new SocketTimeoutException("Connection timed out");
+    }
+  }
+
+  private boolean closePendingConnect() {
+    Optional<Socket> pending = pendingConnect.getAndSet(Optional.empty());
+    pending.ifPresent(MooServer::closeSocket);
+    return pending.isPresent();
   }
 
   /** Writes ordered lines to one accepted socket without closing it. */
@@ -427,7 +478,7 @@ public final class MooServer implements AutoCloseable, ConnectionBuiltins.Listen
       return;
     }
     try {
-      output.notify(line, noFlush, noNewline, binaryConnections.containsKey(connectionId));
+      output.notify(line, noFlush, noNewline);
     } catch (IOException ignored) {
       // The connection reader owns physical cleanup after a failed write.
     }
@@ -497,7 +548,7 @@ public final class MooServer implements AutoCloseable, ConnectionBuiltins.Listen
   public void handleSignal(int signal) {
     if (signal == 2 || signal == 15) {
       gracefulShutdown();
-    } else {
+    } else if (signal != 14 || !closePendingConnect()) {
       runtime.get().handleSignal(signal);
     }
   }
@@ -597,6 +648,7 @@ public final class MooServer implements AutoCloseable, ConnectionBuiltins.Listen
     if (!closed.compareAndSet(false, true)) {
       return Optional.empty();
     }
+    closePendingConnect();
 
     IOException failure = null;
     for (Listener listener : listeners.values()) {
@@ -649,10 +701,9 @@ public final class MooServer implements AutoCloseable, ConnectionBuiltins.Listen
       flush();
     }
 
-    synchronized void notify(
-        String line, boolean noFlush, boolean noNewline, boolean binary) throws IOException {
+    synchronized void notify(String line, boolean noFlush, boolean noNewline) throws IOException {
       queued.append(line);
-      if (!binary && !noNewline) {
+      if (!noNewline) {
         queued.append("\r\n");
       }
       if (!noFlush) {

@@ -12,7 +12,7 @@ final class CompiledVerbLoadTest {
   @Test
   void persistedSourceCompilesWithoutReplacingItsSpelling() throws Exception {
     String source = " /* persisted comment */ return 7;";
-    var verb = new RawVerb("work", 1, 12, -1).compile(source);
+    var verb = DatabaseVerbCompiler.PRESERVE_SOURCE.compile(0, new RawVerb("work", 1, 12, -1), source);
     assertEquals(source, verb.programSource());
     assertFalse(verb.program().instructions().isEmpty());
   }
@@ -20,7 +20,7 @@ final class CompiledVerbLoadTest {
   @Test
   void invalidPersistedProgramIsAnIoFailure() {
     IOException error = assertThrows(IOException.class,
-        () -> new RawVerb("work", 1, 12, -1).compile("if ("));
+        () -> DatabaseVerbCompiler.PRESERVE_SOURCE.compile(0, new RawVerb("work", 1, 12, -1), "if ("));
     assertInstanceOf(IllegalArgumentException.class, error.getCause());
   }
 }

@@ -127,7 +127,15 @@ final class ToastRegexService {
           firstClassMember = true;
         }
         case '^' -> translated.append("\\A");
-        case '$' -> translated.append("\\z");
+        case '$' -> {
+          int following = index + 1;
+          if (following < source.length()
+              && !source.startsWith("%|", following)
+              && !source.startsWith("%)", following)) {
+            throw new PatternSyntaxException("misplaced end-of-string anchor", source, index);
+          }
+          translated.append("\\z");
+        }
         case '(', ')', '{', '}', '|', '\\' -> translated.append('\\').append(current);
         default -> translated.append(current);
       }

@@ -12,8 +12,11 @@ import java.util.Arrays;
 import java.util.concurrent.Callable;
 import world.mongoose.banteng.logging.ServerLog;
 import world.mongoose.banteng.persistence.LambdaMooV17Codec;
+import world.mongoose.banteng.persistence.DatabaseVerbCompiler;
 import world.mongoose.banteng.persistence.DbCodec;
 import world.mongoose.banteng.world.Checkpoint;
+import world.mongoose.banteng.world.WorldObject;
+import world.mongoose.banteng.world.WorldProperty;
 import world.mongoose.banteng.runtime.MooRuntime;
 import world.mongoose.banteng.runtime.PublicationScheduler;
 import world.mongoose.banteng.runtime.TaskRegistry;
@@ -111,7 +114,12 @@ public final class Banteng implements Callable<Integer> {
     }
 
     try (ServerLog serverLog = ServerLog.open(logLevel, Optional.ofNullable(logFile))) {
-      DbCodec outputCodec = new LambdaMooV17Codec();
+      ValueSemantics semantics = valueSemantics();
+      BuiltinHosts builtinHosts = BuiltinHosts.builder().valueSemantics(semantics).serverLog(serverLog).build();
+      BuiltinCatalog storedBuiltins = new BuiltinCatalog(builtinHosts);
+      DatabaseVerbCompiler verbCompiler = new DatabaseVerbCompiler(
+          name -> storedBuiltins.spec(name).isPresent(), serverLog::info);
+      DbCodec outputCodec = new LambdaMooV17Codec(verbCompiler);
       DbCodec inputCodec;
       try (BufferedReader input =
           Files.newBufferedReader(databasePath, StringValue.charset())) {
@@ -119,27 +127,40 @@ public final class Banteng implements Callable<Integer> {
         inputCodec =
             switch (Objects.requireNonNullElse(header, "")) {
               case "** LambdaMOO Database, Format Version 4 **" ->
-                  new LambdaMooV4Reader(outputCodec);
+                  new LambdaMooV4Reader(outputCodec, verbCompiler);
               case "** LambdaMOO Database, Format Version 5 **" ->
-                  new LambdaMooV5Reader(serverLog, outputCodec);
+                  new LambdaMooV5Reader(serverLog, outputCodec, verbCompiler);
               case "** LambdaMOO Database, Format Version 17 **" ->
                   outputCodec;
               default -> throw new IOException("unsupported database header: " + header);
             };
       }
-      Checkpoint loaded = inputCodec.read(databasePath);
+      Checkpoint loaded;
+      try {
+        loaded = inputCodec.read(databasePath);
+      } catch (IOException failure) {
+        serverLog.error(failure.toString());
+        throw failure;
+      }
+      for (WorldObject object : loaded.world().snapshot().objects().values()) {
+        for (WorldProperty property : object.properties()) {
+          if (!property.defined()) break;
+          if (WorldProperty.isReservedName(property.name())) {
+            serverLog.info("DB_WARNING: Property #%d.%s has a reserved name"
+                .formatted(object.id(), property.name()));
+          }
+        }
+      }
       ConnectionRegistry connections = new ConnectionRegistry();
       TaskRegistry tasks = new TaskRegistry();
-      ValueSemantics semantics = valueSemantics();
       MooVm vm = new MooVm(semantics);
       try (ProcessSignals signals = new ProcessSignals();
           MooServer server =
-              new MooServer(listenAddress, port, this::runtime);
+              new MooServer(listenAddress, port, this::runtime, serverLog);
           PublicationScheduler scheduler = new PublicationScheduler(
               loaded.world(), this::runtime,
               Math.max(2, Runtime.getRuntime().availableProcessors()), tasks)) {
-        BuiltinCatalog builtins = new BuiltinCatalog(server,
-            BuiltinHosts.builder().valueSemantics(semantics).serverLog(serverLog).build());
+        BuiltinCatalog builtins = new BuiltinCatalog(server, builtinHosts);
         runtime = new MooRuntime(loaded.world(), semantics, connections, System::nanoTime,
             MooRuntime::resolveCanonicalConnectionName, Optional.of(server),
             Optional.of(databasePath), Optional.of(checkpointPath), loaded.activeConnections(),

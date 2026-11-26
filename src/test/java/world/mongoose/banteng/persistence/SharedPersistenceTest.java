@@ -55,7 +55,7 @@ final class SharedPersistenceTest {
     Path database = directory.resolve("anonymous.db");
     codec.writeAtomic(database, world, List.of(queued, suspended), List.of());
     String text = Files.readString(database, StringValue.charset());
-    String legacy = "-1 -7 -8 0 -9 0 1 -10 1";
+    String legacy = "-1 -7 -8 0 -9 0 1 -10 140";
     assertEquals(2, text.lines().filter(legacy::equals).count());
     assertTrue(text.contains("-111\n12\n1\n12\n1\n1\n" + legacy));
     Checkpoint restored = codec.read(database);
@@ -67,12 +67,12 @@ final class SharedPersistenceTest {
 
     // Queued anonymous numeric-vloc equality remains stricter than suspended's Object-only check.
     Path changed = directory.resolve("changed.db");
-    Files.writeString(changed, text.replace(legacy, "-1 -7 -8 0 -9 0 -1 -10 1"),
+    Files.writeString(changed, text.replace(legacy, "-1 -7 -8 0 -9 0 -1 -10 140"),
         StringValue.charset());
     IOException error = assertThrows(IOException.class, () -> codec.read(changed));
     assertEquals("queued-task verb-location encodings disagree", error.getMessage());
     int last = text.lastIndexOf(legacy);
-    Files.writeString(changed, text.substring(0, last) + "-1 -7 -8 0 -9 0 -1 -10 1"
+    Files.writeString(changed, text.substring(0, last) + "-1 -7 -8 0 -9 0 -1 -10 140"
         + text.substring(last + legacy.length()), StringValue.charset());
     assertEquals(2, codec.read(changed).tasks().size());
   }

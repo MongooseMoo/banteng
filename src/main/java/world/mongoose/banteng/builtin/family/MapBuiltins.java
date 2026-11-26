@@ -11,7 +11,6 @@ import world.mongoose.banteng.builtin.BuiltinResult;
 import world.mongoose.banteng.builtin.BuiltinSpec;
 import world.mongoose.banteng.builtin.CallShape;
 import world.mongoose.banteng.value.MooValue;
-import world.mongoose.banteng.value.MooValue.AnonymousObjectValue;
 import world.mongoose.banteng.value.MooValue.ErrorValue;
 import world.mongoose.banteng.value.MooValue.IntegerValue;
 import world.mongoose.banteng.value.MooValue.ListValue;
@@ -22,7 +21,7 @@ import world.mongoose.banteng.value.ValueSemantics;
 /** Owns builtin registrations and implementations for this family. */
 public final class MapBuiltins {
     private static final Set<ArgType> ANY = Set.of(ArgType.ANY);
-    private static final Set<ArgType> INTEGER = Set.of(ArgType.INTEGER);
+    private static final Set<ArgType> FLAG = Set.of(ArgType.FLAG);
 
     private MapBuiltins() {
     }
@@ -38,7 +37,20 @@ public final class MapBuiltins {
                         List.of(Set.of(ArgType.MAP)), List.of(), Optional.of(ANY)))).implementation(call -> mapValues(call.arguments()));
         registrar.builtin("maphaskey", List.of(
                 new CallShape(
-                        List.of(Set.of(ArgType.MAP), ANY), List.of(INTEGER), Optional.empty()))).implementation(call -> mapHasKey(call.arguments()));
+                        List.of(Set.of(ArgType.MAP), ANY), List.of(FLAG), Optional.empty()))).implementation(call -> mapHasKey(call.arguments()));
+        registrar.builtin("is_member", List.of(
+                new CallShape(List.of(ANY, ANY), List.of(FLAG), Optional.empty())))
+                .implementation(call -> isMember(call.arguments(), call.hosts().valueSemantics()));
+    }
+
+    private static BuiltinResult isMember(List<MooValue> arguments, ValueSemantics semantics) {
+        MooValue collection = arguments.get(1);
+        if (!(collection instanceof ListValue || collection instanceof MapValue)) {
+            return BuiltinResult.error(ErrorValue.E_INVARG);
+        }
+        boolean caseMatters = arguments.size() == 2 || arguments.get(2).isTruthy();
+        return BuiltinResult.value(new IntegerValue(
+                semantics.memberIndex(arguments.getFirst(), collection, caseMatters)));
     }
 
     private static BuiltinResult mapKeys(List<MooValue> arguments) {
@@ -119,8 +131,6 @@ public final class MapBuiltins {
     }
 
     private static boolean invalidMapBuiltinKey(MooValue key) {
-        return key instanceof ListValue
-                || key instanceof MapValue
-                || key instanceof AnonymousObjectValue;
+        return key instanceof ListValue || key instanceof MapValue;
     }
 }

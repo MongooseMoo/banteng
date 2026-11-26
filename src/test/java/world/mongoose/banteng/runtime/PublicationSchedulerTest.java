@@ -153,14 +153,7 @@ final class PublicationSchedulerTest {
                     List.of(new IntegerValue(task.taskId()), new IntegerValue(1)),
                     transaction,
                     -1));
-        ListValue stack =
-            assertInstanceOf(
-                ListValue.class,
-                assertInstanceOf(BuiltinResult.Value.class, stackResult).value());
-        ListValue activation =
-            assertInstanceOf(ListValue.class, stack.elements().getFirst());
-        assertEquals(string("tick"), activation.elements().get(1));
-        assertEquals(new IntegerValue(37), activation.elements().get(5));
+        assertEquals(BuiltinResult.error(ErrorValue.E_INVARG), stackResult);
       }
     }
   }
@@ -1878,7 +1871,7 @@ final class PublicationSchedulerTest {
 
     @Override
     public long openNetworkConnection(
-        String host, int port, boolean ipv6, long listenerHandler,
+        String host, int port, boolean ipv6, long listenerHandler, int timeoutMillis,
         world.mongoose.banteng.builtin.BuiltinHosts.OutboundConnectionRegistrar registration) {
       return -77;
     }

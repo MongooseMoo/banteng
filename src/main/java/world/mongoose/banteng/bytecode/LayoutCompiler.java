@@ -91,6 +91,7 @@ public final class LayoutCompiler {
 
   sealed interface PendingStructuralEntry
       permits PendingCatchGroup,
+          PendingCatchSelector,
           PendingProtectedFinally,
           PendingFinallyContinuation,
           PendingCollectionLoop,
@@ -98,6 +99,9 @@ public final class LayoutCompiler {
           PendingIndex {}
 
   record PendingIndex(AstPath ownerPath, int baseDepth, OptionalInt keyDepth)
+      implements PendingStructuralEntry {}
+
+  record PendingCatchSelector(PendingToastClause clause, int baseDepth)
       implements PendingStructuralEntry {}
 
   record PendingCatchGroup(
@@ -208,6 +212,11 @@ public final class LayoutCompiler {
         PendingStructuralEntry entry, BytecodeProgram bantengProgram) {
       if (entry instanceof PendingIndex index) {
         return new ToastV17ProgramModel.IndexContext(index.ownerPath(), index.baseDepth(), index.keyDepth());
+      }
+      if (entry instanceof PendingCatchSelector selector) {
+        PendingToastClause clause = selector.clause();
+        return new ToastV17ProgramModel.CatchSelector(clause.path(), selector.baseDepth(),
+            clause.selector(), labelTarget(clause.label()));
       }
       if (entry instanceof PendingCatchGroup caught) {
         ToastHandlerGroup group = handlerGroup(caught.group());
@@ -599,6 +608,7 @@ public final class LayoutCompiler {
       collectSymbols(guarded.body());
       for (Ast.ExceptClause clause : guarded.exceptClauses()) {
         clause.variable().ifPresent(this::register);
+        collectErrorSymbols(clause.errors());
         collectSymbols(clause.body());
       }
       guarded.finallyClause().ifPresent(clause -> collectSymbols(clause.body()));
@@ -686,7 +696,14 @@ public final class LayoutCompiler {
     }
     if (expression instanceof Ast.Catch caught) {
       collectExpressionSymbols(caught.guarded());
+      collectErrorSymbols(caught.errors());
       caught.fallback().ifPresent(this::collectExpressionSymbols);
+    }
+  }
+
+  private void collectErrorSymbols(Ast.ErrorSelector selector) {
+    if (selector instanceof Ast.ErrorList list) {
+      list.expressions().forEach(this::collectExpressionSymbols);
     }
   }
 
@@ -938,9 +955,10 @@ public final class LayoutCompiler {
     int baseDepth = vector.stackDepth();
     AstPath ownerPath = astPath(path);
     List<PendingToastClause> pendingClauses = new ArrayList<>();
+    List<PendingCatchSelector> pendingSelectors = new ArrayList<>();
     for (int index = 0; index < guarded.exceptClauses().size(); index++) {
       Ast.ExceptClause clause = guarded.exceptClauses().get(index);
-      emitErrorCodes(clause.errors(), vector);
+      emitErrorCodes(clause.errors(), append(path, 3), index, vector);
       vector.extended();
       LabelReference handlerLabel = vector.labelReference();
       pendingClauses.add(
@@ -949,7 +967,12 @@ public final class LayoutCompiler {
               toastSelector(clause.errors()),
               handlerLabel));
       vector.push(1);
+      PendingCatchSelector selector = new PendingCatchSelector(pendingClauses.getLast(),
+          baseDepth + index * 2);
+      pendingSelectors.add(selector);
+      vector.enterStructure(selector);
     }
+    for (PendingCatchSelector selector : pendingSelectors.reversed()) vector.leaveStructure(selector);
     PendingToastHandlerGroup group = vector.handlerGroup(ownerPath, pendingClauses);
     vector.extended();
     vector.bytecode();
@@ -1025,20 +1048,15 @@ public final class LayoutCompiler {
     vector.pop(2);
   }
 
-  private void emitErrorCodes(Ast.ErrorSelector errors, VectorBuilder vector) {
+  private void emitErrorCodes(Ast.ErrorSelector errors, List<Integer> path,
+      int childSlot, VectorBuilder vector) {
     if (errors instanceof Ast.AnyErrors) {
       vector.bytecode();
       vector.push(1);
       return;
     }
     Ast.ErrorList list = (Ast.ErrorList) errors;
-    for (int index = 0; index < list.names().size(); index++) {
-      vector.literal(new LiteralKey("error", list.names().get(index).toLowerCase(Locale.ROOT)));
-      vector.bytecode();
-      if (index > 0) {
-        vector.pop(1);
-      }
-    }
+    emitArguments(list.expressions(), path, childSlot, vector);
   }
 
   private static ToastErrorSelector toastSelector(Ast.ErrorSelector errors) {
@@ -1046,7 +1064,8 @@ public final class LayoutCompiler {
       return new ToastErrorSelector(true, List.of());
     }
     Ast.ErrorList list = (Ast.ErrorList) errors;
-    return new ToastErrorSelector(false, list.names());
+    return new ToastErrorSelector(false, list.staticNames().orElse(List.of()),
+        list.staticNames().isEmpty());
   }
 
   private static Optional<CollectionKind> collectionKind(Ast.Expression expression) {
@@ -1233,7 +1252,7 @@ public final class LayoutCompiler {
     if (expression instanceof Ast.Catch caught) {
       int baseDepth = vector.stackDepth();
       AstPath ownerPath = astPath(path);
-      emitErrorCodes(caught.errors(), vector);
+      emitErrorCodes(caught.errors(), path, 3, vector);
       vector.extended();
       LabelReference handlerLabel = vector.labelReference();
       PendingToastHandlerGroup group =

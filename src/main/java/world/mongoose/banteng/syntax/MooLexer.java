@@ -15,6 +15,7 @@ final class MooLexer {
     INTEGER,
     FLOAT,
     STRING,
+    UNCLOSED_STRING,
     OBJECT,
     ERROR,
     IF,
@@ -100,7 +101,7 @@ final class MooLexer {
     skipIgnored();
     int tokenLine = line;
     int tokenColumn = column;
-    if (atEnd()) {
+    if (atEnd() || peek() > 0x7f) {
       return new Token(TokenKind.EOF, "", tokenLine, tokenColumn, offset, offset);
     }
 
@@ -236,27 +237,37 @@ final class MooLexer {
   }
 
   private Token string(int tokenLine, int tokenColumn) {
+    int start = offset - 1;
     StringBuilder decoded = new StringBuilder();
+    TokenKind kind = TokenKind.STRING;
     while (!atEnd() && peek() != '"') {
-      char current = advance();
-      if (current == '\\') {
-        if (atEnd()) {
-          throw error(tokenLine, tokenColumn, "unterminated string literal");
-        }
-        current = advance();
+      if (peek() == '\\') {
+        advance();
+        if (atEnd()) break;
       }
-      decoded.append(current);
+      if (peek() == '\n') {
+        // Toast consumes the newline as part of the unclosed token without counting a new line.
+        offset++;
+        column++;
+        kind = TokenKind.UNCLOSED_STRING;
+        break;
+      }
+      decoded.append(advance());
     }
-    if (atEnd()) {
+    if (kind == TokenKind.STRING) {
+      if (atEnd()) {
+        throw error(tokenLine, tokenColumn, "unterminated string literal");
+      }
+      advance();
+    } else if (atEnd()) {
       throw error(tokenLine, tokenColumn, "unterminated string literal");
     }
-    advance();
     return new Token(
-        TokenKind.STRING,
+        kind,
         decoded.toString(),
         tokenLine,
         tokenColumn,
-        tokenStart(tokenLine, tokenColumn),
+        start,
         offset);
   }
 
@@ -287,22 +298,26 @@ final class MooLexer {
           case "endtry" -> TokenKind.ENDTRY;
           case "return" -> TokenKind.RETURN;
           case "any" -> TokenKind.ANY;
-          default -> ERROR_NAMES.contains(lexeme) ? TokenKind.ERROR : TokenKind.IDENTIFIER;
+          default -> isErrorName(lexeme) ? TokenKind.ERROR : TokenKind.IDENTIFIER;
         };
     return new Token(
         kind,
-        lexeme,
+        kind == TokenKind.ERROR ? lexeme.toUpperCase(Locale.ROOT) : lexeme,
         tokenLine,
         tokenColumn,
         tokenStart(tokenLine, tokenColumn),
         offset);
   }
 
+  static boolean isErrorName(String value) {
+    return ERROR_NAMES.contains(value.toUpperCase(Locale.ROOT));
+  }
+
   private void skipIgnored() {
     boolean skipped;
     do {
       skipped = false;
-      while (!atEnd() && Character.isWhitespace(peek())) {
+      while (!atEnd() && (peek() == ' ' || (peek() >= '\t' && peek() <= '\r'))) {
         advance();
         skipped = true;
       }
@@ -387,11 +402,11 @@ final class MooLexer {
     return value >= '0' && value <= '9';
   }
 
-  private static boolean isIdentifierStart(char value) {
-    return Character.isLetter(value) || value == '_';
+  static boolean isIdentifierStart(char value) {
+    return (value >= 'A' && value <= 'Z') || (value >= 'a' && value <= 'z') || value == '_';
   }
 
-  private static boolean isIdentifierPart(char value) {
+  static boolean isIdentifierPart(char value) {
     return isIdentifierStart(value) || isDigit(value);
   }
 

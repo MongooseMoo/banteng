@@ -24,10 +24,11 @@ final class PropertyOps {
   static void loadLocal(Frame frame, int slot, boolean clear, VmState state, WorldTxn world) {
     MooValue value = frame.locals[slot];
     if (value == null) {
+      String name = frame.program.instructions().get(frame.instructionPointer).text()
+          .orElse(frame.program.variableNames().get(slot));
       ErrorOps.raise(state, ErrorValue.E_VARNF,
-          new ListValue(List.of(StringValue.of("Variable not found: "
-              + frame.program.instructions().get(frame.instructionPointer).text()
-                  .orElse(frame.program.variableNames().get(slot))), new IntegerValue(0))), world);
+          new ListValue(List.of(StringValue.of("Variable not found: " + name),
+              new ListValue(List.of(new ObjectValue(-1), StringValue.of(name))))), world);
       return;
     }
     frame.operandStack.push(value);

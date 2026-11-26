@@ -503,7 +503,7 @@ public final class VmState {
           new VmSnapshot.HandlerState(
               handler.specification,
               handler.operandDepth,
-              VmSnapshot.HandlerPhase.valueOf(handler.phase.name())));
+              VmSnapshot.HandlerPhase.valueOf(handler.phase.name()), handler.selector));
     }
     List<VmSnapshot.FinallyState> finallyStates =
         List.copyOf(frame.finallyContinuations);
@@ -578,6 +578,7 @@ public final class VmState {
       ActiveHandler restored =
           new ActiveHandler(handler.specification(), handler.operandDepth());
       restored.phase = HandlerPhase.valueOf(handler.phase().name());
+      restored.selector = handler.selector();
       frame.handlers.addLast(restored);
     }
     frame.finallyContinuations.addAll(snapshot.finallyStates());
@@ -762,6 +763,7 @@ public final class VmState {
     final HandlerSpec specification;
     final int operandDepth;
     HandlerPhase phase = HandlerPhase.TRY;
+    Optional<ListValue> selector = Optional.empty();
 
     ActiveHandler(HandlerSpec specification, int operandDepth) {
       this.specification = specification;

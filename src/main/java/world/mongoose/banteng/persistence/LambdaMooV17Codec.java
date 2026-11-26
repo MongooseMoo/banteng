@@ -70,13 +70,23 @@ import org.jspecify.annotations.Nullable;
 public final class LambdaMooV17Codec implements DbCodec {
   private static final String HEADER = "** LambdaMOO Database, Format Version 17 **";
   private final AtomicPromoter promoter;
+  private final DatabaseVerbCompiler verbCompiler;
 
   /** Creates the production codec with mandatory atomic replacement. */
   public LambdaMooV17Codec() {
-    this((source, target) -> Files.move(source, target, ATOMIC_MOVE, REPLACE_EXISTING));
+    this(DatabaseVerbCompiler.PRESERVE_SOURCE);
+  }
+
+  public LambdaMooV17Codec(DatabaseVerbCompiler verbCompiler) {
+    this(verbCompiler, (source, target) -> Files.move(source, target, ATOMIC_MOVE, REPLACE_EXISTING));
   }
 
   LambdaMooV17Codec(AtomicPromoter promoter) {
+    this(DatabaseVerbCompiler.PRESERVE_SOURCE, promoter);
+  }
+
+  private LambdaMooV17Codec(DatabaseVerbCompiler verbCompiler, AtomicPromoter promoter) {
+    this.verbCompiler = Objects.requireNonNull(verbCompiler, "verbCompiler");
     this.promoter = Objects.requireNonNull(promoter, "promoter");
   }
 
@@ -417,7 +427,7 @@ public final class LambdaMooV17Codec implements DbCodec {
             + task.taskId());
     MooValue receiver = task.initialLocals().getOrDefault("this", new ObjectValue(-1));
     writeActivationHeader(output, receiver, task.verbLocation(), task.threadMode(),
-        task.taskPlayer(), task.programmer(), task.debug(), task.calledVerb(),
+        task.taskPlayer(), task.programmer(), task.calledVerb(),
         task.fullVerbName(), context);
     line(output, task.environment().slots().size() + " variables");
     for (Map.Entry<String, Optional<MooValue>> local : task.environment().slots().entrySet()) {
@@ -479,7 +489,7 @@ public final class LambdaMooV17Codec implements DbCodec {
     }
     writeActivationHeader(output, activation.receiver(), activation.verbLocation(),
         activation.threadMode(), activation.taskPlayer(), activation.programmer(),
-        activation.debug(), activation.verb(), activation.verbNames(), context);
+        activation.verb(), activation.verbNames(), context);
     if (activation.temporary().isPresent()) {
       writeValue(output, activation.temporary().orElseThrow(), context);
     } else {
@@ -522,17 +532,18 @@ public final class LambdaMooV17Codec implements DbCodec {
   /** Writes only Toast's common activation header; task-specific tails stay with their callers. */
   private static void writeActivationHeader(
       BufferedWriter output, MooValue receiver, MooValue verbLocation, boolean threadMode,
-      long player, long programmer, boolean debug, String verb, String verbNames,
+      long player, long programmer, String verb, String verbNames,
       WriteContext context) throws IOException {
     writeValue(output, new IntegerValue(V17Format.ACTIVATION_PLACEHOLDER), context);
     writeValue(output, receiver, context);
     writeValue(output, verbLocation, context);
     line(output, threadMode ? 1 : 0);
     long legacyReceiver = receiver instanceof ObjectValue object ? object.value() : -1;
+    // Toast writes the definer's runtime type in the field its reader uses for debug mode.
     line(output, legacyReceiver + " " + V17Format.LEGACY_DOBJ + " "
         + V17Format.LEGACY_IOBJ + " " + player + " " + V17Format.LEGACY_PREPOSITION + " "
         + programmer + " " + encodedObjectNumber(verbLocation, context) + " "
-        + V17Format.LEGACY_VERB + " " + (debug ? 1 : 0));
+        + V17Format.LEGACY_VERB + " " + verbLocation.type().runtimeCode());
     line(output, "No");
     line(output, "More");
     line(output, "Parse");
@@ -614,7 +625,7 @@ public final class LambdaMooV17Codec implements DbCodec {
     line(output, definitionCount);
     for (WorldProperty property : object.properties()) {
       if (property.defined()) {
-        lineString(output, property.name(), "property name");
+        writePropertyName(output, property.name());
       }
     }
     line(output, object.properties().size());
@@ -657,7 +668,7 @@ public final class LambdaMooV17Codec implements DbCodec {
     line(output, definitionCount);
     for (WorldProperty property : object.properties()) {
       if (property.defined()) {
-        lineString(output, property.name(), "anonymous property name");
+        writePropertyName(output, property.name());
       }
     }
     line(output, object.properties().size());
@@ -811,7 +822,7 @@ public final class LambdaMooV17Codec implements DbCodec {
     int propertyNameCount = readCount(input, "object #" + expectedId + " property-name count");
     List<String> propertyNames = new ArrayList<>(propertyNameCount);
     for (int index = 0; index < propertyNameCount; index++) {
-      propertyNames.add(requiredLine(input, "property name"));
+      propertyNames.add(DbScanner.readPropertyName(input));
     }
     int propertyValueCount = readCount(input, "object #" + expectedId + " property-value count");
     List<RawPropertySlot> propertySlots = new ArrayList<>(propertyValueCount);
@@ -850,7 +861,7 @@ public final class LambdaMooV17Codec implements DbCodec {
         propertySlots);
   }
 
-  private static List<WorldObject> restoreObjects(
+  private List<WorldObject> restoreObjects(
       Map<Long, RawObject> objects,
       Map<ProgramSlot, String> programs,
       Map<Long, List<WorldProperty>> restoredProperties,
@@ -865,8 +876,7 @@ public final class LambdaMooV17Codec implements DbCodec {
       for (int index = 0; index < object.verbs().size(); index++) {
         RawVerb verb = object.verbs().get(index);
         String source = programs.getOrDefault(new ProgramSlot(object.id(), index), "");
-        verbs.add(
-            verb.compile(source));
+        verbs.add(verbCompiler.compile(object.id(), verb, source));
       }
       restored.add(
           new WorldObject(
@@ -885,7 +895,7 @@ public final class LambdaMooV17Codec implements DbCodec {
     return restored;
   }
 
-  private static Map<AnonymousObjectValue, WorldAnonymousObject> restoreAnonymousObjects(
+  private Map<AnonymousObjectValue, WorldAnonymousObject> restoreAnonymousObjects(
       Map<Long, RawObject> objects,
       Map<ProgramSlot, String> programs,
       Map<Long, List<WorldProperty>> restoredProperties,
@@ -905,8 +915,7 @@ public final class LambdaMooV17Codec implements DbCodec {
       for (int index = 0; index < object.verbs().size(); index++) {
         RawVerb verb = object.verbs().get(index);
         String source = programs.getOrDefault(new ProgramSlot(object.id(), index), "");
-        verbs.add(
-            verb.compile(source));
+        verbs.add(verbCompiler.compile(object.id(), verb, source));
       }
       restored.put(
           entry.getValue(),
@@ -1280,6 +1289,11 @@ public final class LambdaMooV17Codec implements DbCodec {
       throw new IOException(field + " cannot contain a line break in a v17 database");
     }
     line(output, value);
+  }
+
+  private static void writePropertyName(BufferedWriter output, String name) throws IOException {
+    if (name.indexOf('\n') >= 0) throw new IOException("property name cannot contain LF in a v17 database");
+    line(output, name);
   }
 
   private static void line(BufferedWriter output, Object value) throws IOException {

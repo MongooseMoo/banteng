@@ -45,32 +45,11 @@ final class ArithmeticOps {
       frame.instructionPointer++;
       return;
     }
-    if (collection instanceof MapValue map) {
-      long position = 0;
-      int index = 0;
-      for (var entry : map.orderedEntries()) {
-        index++;
-        if (valueSemantics.equal(requested, entry.getValue(), false)) {
-          position = index;
-          break;
-        }
-      }
-      frame.operandStack.push(new IntegerValue(position));
-      frame.instructionPointer++;
-      return;
-    }
-    if (!(collection instanceof ListValue list)) {
+    if (!(collection instanceof ListValue || collection instanceof MapValue)) {
       ErrorOps.raise(state, ErrorValue.E_TYPE, world);
       return;
     }
-    long position = 0;
-    for (int index = 0; index < list.elements().size(); index++) {
-      if (valueSemantics.equal(requested, list.elements().get(index), false)) {
-        position = index + 1L;
-        break;
-      }
-    }
-    frame.operandStack.push(new IntegerValue(position));
+    frame.operandStack.push(new IntegerValue(valueSemantics.memberIndex(requested, collection, false)));
     frame.instructionPointer++;
   }
 
@@ -155,12 +134,7 @@ final class ArithmeticOps {
         }
         return;
       }
-      byte[] leftBytes = left.bytes();
-      byte[] rightBytes = right.bytes();
-      byte[] concatenated = new byte[Math.addExact(leftBytes.length, rightBytes.length)];
-      System.arraycopy(leftBytes, 0, concatenated, 0, leftBytes.length);
-      System.arraycopy(rightBytes, 0, concatenated, leftBytes.length, rightBytes.length);
-      frame.operandStack.push(StringValue.of(concatenated));
+      frame.operandStack.push(left.concatenate(right));
       frame.instructionPointer++;
       return;
     }
@@ -196,11 +170,7 @@ final class ArithmeticOps {
     if (operation == Opcode.POWER
         && leftValue instanceof FloatValue left
         && rightValue instanceof IntegerValue right) {
-      if (left.value() == 0.0 && right.value() < 0) {
-        ErrorOps.raise(state, ErrorValue.E_DIV, world);
-        return;
-      }
-      pushFiniteFloat(frame, state, world, Math.pow(left.value(), (double) right.value()));
+      pushFloatPower(frame, state, world, left.value(), (double) right.value());
       return;
     }
     if (leftValue instanceof FloatValue left && rightValue instanceof FloatValue right) {
@@ -208,11 +178,11 @@ final class ArithmeticOps {
         ErrorOps.raise(state, ErrorValue.E_DIV, world);
         return;
       }
-      if (operation == Opcode.POWER && left.value() == 0.0 && right.value() < 0.0) {
-        ErrorOps.raise(state, ErrorValue.E_DIV, world);
-        return;
+      if (operation == Opcode.POWER) {
+        pushFloatPower(frame, state, world, left.value(), right.value());
+      } else {
+        pushFiniteFloat(frame, state, world, floatResult(operation, left.value(), right.value()));
       }
-      pushFiniteFloat(frame, state, world, floatResult(operation, left.value(), right.value()));
       return;
     }
     if (operation == Opcode.ADD && leftValue instanceof StringValue) {
@@ -232,8 +202,8 @@ final class ArithmeticOps {
       case ADD -> left + right;
       case SUBTRACT -> left - right;
       case MULTIPLY -> left * right;
-      case DIVIDE -> left == -Long.MAX_VALUE && right == -1 ? -Long.MAX_VALUE : left / right;
-      case REMAINDER -> (left % right + right) % right;
+      case DIVIDE -> left / right;
+      case REMAINDER -> Math.floorMod(left, right);
       case POWER -> integerPower(left, right);
       default -> throw new IllegalArgumentException("unsupported arithmetic opcode: " + operation);
     };
@@ -246,7 +216,6 @@ final class ArithmeticOps {
       case MULTIPLY -> left * right;
       case DIVIDE -> left / right;
       case REMAINDER -> mooRemainder(left, right);
-      case POWER -> Math.pow(left, right);
       default -> throw new IllegalArgumentException("unsupported arithmetic opcode: " + operation);
     };
   }
@@ -269,8 +238,25 @@ final class ArithmeticOps {
     frame.instructionPointer++;
   }
 
+  private static void pushFloatPower(
+      Frame frame, VmState state, WorldTxn world, double base, double exponent) {
+    if (base == 0.0 && exponent < 0.0) {
+      ErrorOps.raise(state, ErrorValue.E_DIV, world);
+      return;
+    }
+    double result = Math.pow(base, exponent);
+    if (result == 0.0 && base != 0.0 && Double.isFinite(base) && Double.isFinite(exponent)) {
+      ErrorOps.raise(state, ErrorValue.E_FLOAT, world);
+      return;
+    }
+    pushFiniteFloat(frame, state, world, result);
+  }
+
   private static long integerPower(long base, long exponent) {
     if (exponent < 0) {
+      if (base == 1 || base == -1) {
+        return (exponent & 1) == 0 ? 1 : base;
+      }
       return 0;
     }
     long result = 1;

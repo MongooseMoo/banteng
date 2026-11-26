@@ -1,5 +1,6 @@
 package world.mongoose.banteng.value;
 
+import java.util.concurrent.atomic.AtomicLong;
 import world.mongoose.banteng.value.MooValue.BooleanValue;
 import world.mongoose.banteng.value.MooValue.ErrorValue;
 import world.mongoose.banteng.value.MooValue.FloatValue;
@@ -13,6 +14,12 @@ import world.mongoose.banteng.value.MooValue.StringValue;
 public record ValueSemantics(boolean promoteNumbers) {
   /** Stock Toast-compatible value behavior. */
   public static final ValueSemantics STANDARD = new ValueSemantics(false);
+  private static final AtomicLong NEXT_IDENTITY_KEY_ORDER = new AtomicLong();
+
+  // Java references, unlike Toast's native pointers, have no stable total order of their own.
+  static long nextIdentityKeyOrder() {
+    return NEXT_IDENTITY_KEY_ORDER.getAndIncrement();
+  }
 
   /** Toast equality(), including recursive collections and the configured numeric extension. */
   // Toast listequal (list.cc:359) and mapequal (map.cc:766) test collection identity first.
@@ -63,13 +70,13 @@ public record ValueSemantics(boolean promoteNumbers) {
     };
   }
 
-  /** Toast compare(); identity types deliberately do not form a Java Comparator order. */
+  /** Toast comparison with a stable runtime order for identity values. */
   public int compare(MooValue left, MooValue right, boolean caseMatters) {
     if (promoteNumbers && mixedNumbers(left, right)) {
       return compareNumbers(number(left), number(right));
     }
     if (left.type() != right.type()) {
-      return runtimeType(left.type()) - runtimeType(right.type());
+      return left.type().runtimeCode() - right.type().runtimeCode();
     }
     return switch (left) {
       case IntegerValue integer -> Long.compare(integer.value(), ((IntegerValue) right).value());
@@ -77,12 +84,31 @@ public record ValueSemantics(boolean promoteNumbers) {
       case ErrorValue error -> error.code() - ((ErrorValue) right).code();
       case StringValue string -> compareStrings(string, (StringValue) right, caseMatters);
       case FloatValue floating -> compareNumbers(floating.value(), ((FloatValue) right).value());
-      case BooleanValue bool -> bool == right ? 0 : 1;
-      case MooValue.AnonymousObjectValue anonymous -> anonymous == right ? 0 : 1;
-      case MooValue.WaifValue waif -> waif == right ? 0 : 1;
+      case BooleanValue bool -> Boolean.compare(bool.value(), ((BooleanValue) right).value());
+      case MooValue.AnonymousObjectValue anonymous ->
+          Long.compareUnsigned(anonymous.keyOrder(), ((MooValue.AnonymousObjectValue) right).keyOrder());
+      case MooValue.WaifValue waif ->
+          Long.compareUnsigned(waif.keyOrder(), ((MooValue.WaifValue) right).keyOrder());
       case ListValue ignored -> throw new IllegalArgumentException("list comparison");
       case MapValue ignored -> throw new IllegalArgumentException("map comparison");
     };
+  }
+
+  /** Returns the one-based position of a matching list element or map value. */
+  public int memberIndex(MooValue requested, MooValue collection, boolean caseMatters) {
+    int index = 0;
+    if (collection instanceof ListValue list) {
+      for (MooValue element : list.elements()) {
+        index++;
+        if (equal(requested, element, caseMatters)) return index;
+      }
+    } else if (collection instanceof MapValue map) {
+      for (var entry : map.orderedEntries()) {
+        index++;
+        if (equal(requested, entry.getValue(), caseMatters)) return index;
+      }
+    }
+    return 0;
   }
 
   private static int compareNumbers(double left, double right) {
@@ -96,13 +122,6 @@ public record ValueSemantics(boolean promoteNumbers) {
 
   private static double number(MooValue value) {
     return value instanceof IntegerValue integer ? integer.value() : ((FloatValue) value).value();
-  }
-
-  private static int runtimeType(MooValue.Type type) {
-    return switch (type) {
-      case STRING, LIST, MAP, ANONYMOUS, WAIF -> type.code() | 0x80;
-      default -> type.code();
-    };
   }
 
   private static int compareStrings(StringValue left, StringValue right, boolean caseMatters) {

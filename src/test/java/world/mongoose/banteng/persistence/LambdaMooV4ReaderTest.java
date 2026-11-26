@@ -241,7 +241,7 @@ final class LambdaMooV4ReaderTest {
     assertMalformed(
         temporaryDirectory,
         fixture().replace("#7\nWaif Class\n", "#8\nWaif Class\n"),
-        "invalid object slot 7");
+        "READ_DB_FILE: Bad object #7.");
   }
 
   @Test

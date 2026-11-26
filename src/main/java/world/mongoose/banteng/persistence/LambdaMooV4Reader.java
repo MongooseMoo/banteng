@@ -37,10 +37,16 @@ public final class LambdaMooV4Reader implements DbCodec {
   private static final String HEADER = "** LambdaMOO Database, Format Version 4 **";
 
   private final DbCodec output;
+  private final DatabaseVerbCompiler verbCompiler;
 
   /** Receives the application's canonical checkpoint output codec. */
   public LambdaMooV4Reader(DbCodec output) {
+    this(output, DatabaseVerbCompiler.PRESERVE_SOURCE);
+  }
+
+  public LambdaMooV4Reader(DbCodec output, DatabaseVerbCompiler verbCompiler) {
     this.output = Objects.requireNonNull(output, "output");
+    this.verbCompiler = Objects.requireNonNull(verbCompiler, "verbCompiler");
   }
 
   /** Reads and validates the exact supported v4 database contract. */
@@ -111,7 +117,7 @@ public final class LambdaMooV4Reader implements DbCodec {
   private static @org.jspecify.annotations.Nullable RawObject readObject(BufferedReader input, int slot) throws IOException {
     String header = requiredLine(input, "object slot " + slot);
     if (header.equals("#" + slot + " recycled")) return null;
-    if (!header.equals("#" + slot)) throw malformed("invalid object slot " + slot);
+    if (!header.equals("#" + slot)) throw malformed("READ_DB_FILE: Bad object #" + slot + ".");
     String name = requiredLine(input, "object #" + slot + " name");
     requiredLine(input, "object #" + slot + " handles");
     int flags = readInt(input, "object #" + slot + " flags");
@@ -137,7 +143,7 @@ public final class LambdaMooV4Reader implements DbCodec {
     int propertyNameCount = readCount(input, "object #" + slot + " property-name count");
     List<String> propertyNames = new ArrayList<>(propertyNameCount);
     for (int index = 0; index < propertyNameCount; index++) {
-      propertyNames.add(requiredLine(input, "object #" + slot + " property name"));
+      propertyNames.add(DbScanner.readPropertyName(input));
     }
 
     int propertySlotCount = readCount(input, "object #" + slot + " property-slot count");
@@ -288,7 +294,7 @@ public final class LambdaMooV4Reader implements DbCodec {
     return result;
   }
 
-  private static WorldTxn buildWorld(
+  private WorldTxn buildWorld(
       List<Long> players,
       Map<Long, RawObject> rawObjects,
       Map<ProgramSlot, String> programs,
@@ -308,8 +314,7 @@ public final class LambdaMooV4Reader implements DbCodec {
         RawVerb rawVerb = raw.verbs().get(index);
         String source = programs.get(new ProgramSlot(raw.id(), index));
         if (source == null) source = "";
-        verbs.add(
-            rawVerb.compile(source));
+        verbs.add(verbCompiler.compile(raw.id(), rawVerb, source));
       }
       objects.add(
           new WorldObject(

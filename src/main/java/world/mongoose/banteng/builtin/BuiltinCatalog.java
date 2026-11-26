@@ -45,6 +45,8 @@ import world.mongoose.banteng.world.WorldTxn;
 /** The explicit builtin catalog required by the first managed runtime path. */
 public final class BuiltinCatalog {
   private static final SecureRandom SECURE_RANDOM = new SecureRandom();
+  private static final long DEFAULT_MAX_QUEUED_OUTPUT = 65_536;
+  private static final long MIN_POSITIVE_MAX_QUEUED_OUTPUT = 2_048;
 
   private final List<BuiltinSpec> manifest;
   private final FileIoBuiltins fileIo;
@@ -54,7 +56,10 @@ public final class BuiltinCatalog {
   private final SqliteBuiltins sqlite;
   private final Random floatingRandom;
   private final Map<String, BuiltinSpec> specs;
-  private volatile Set<String> protectedFunctions = Set.of();
+  private volatile ServerOptions serverOptions =
+      new ServerOptions(Set.of(), DEFAULT_MAX_QUEUED_OUTPUT);
+
+  private record ServerOptions(Set<String> protectedFunctions, long maxQueuedOutput) {}
 
   /** Creates a catalog from one complete standalone host composition. */
   public BuiltinCatalog(BuiltinHosts hosts) {
@@ -119,11 +124,11 @@ public final class BuiltinCatalog {
     ObjectBuiltins.registerMovementAndWaifs(entries);
     ConnectionBuiltins.registerSwitchPlayer(entries, listenerControl);
     TaskBuiltins.registerGroup2(entries, this);
-    ConnectionBuiltins.registerInventory(entries, listenerControl);
+    ConnectionBuiltins.registerInventory(entries, listenerControl, () -> serverOptions.maxQueuedOutput());
     RegexBuiltins.registerLegacy(entries);
     ConnectionBuiltins.registerOptionsAndListeners(entries, listenerControl);
     TaskBuiltins.registerGroup3(entries, this);
-    ConnectionBuiltins.registerNotify(entries, listenerControl);
+    ConnectionBuiltins.registerNotify(entries, listenerControl, () -> serverOptions.maxQueuedOutput());
     ConversionBuiltins.registerConversions(entries);
     TaskBuiltins.registerGroup4(entries, this);
     ConversionBuiltins.registerTypeOf(entries);
@@ -165,7 +170,7 @@ public final class BuiltinCatalog {
     long programmer = call.programmer();
     MooValue receiver = call.receiver();
     if (!(receiver instanceof ObjectValue object && object.value() == 0)
-        && protectedFunctions.contains(spec.name())) {
+        && serverOptions.protectedFunctions().contains(spec.name())) {
       String wrapper = "bf_" + spec.name();
       if (world.verb(0, wrapper, true).isPresent()) {
         return new BuiltinResult.ProtectedCall(wrapper, new ListValue(arguments));
@@ -197,10 +202,16 @@ public final class BuiltinCatalog {
     return spec.implementation().invoke(call);
   }
 
-  /** Loads the builtin protection flags from the published server options. */
-  public void reloadProtectedFunctions(WorldTxn world) {
+  /** Loads the cached builtin protection flags and output capacity. */
+  public void reloadServerOptions(WorldTxn world) {
     Set<String> protectedNames = new LinkedHashSet<>();
+    long maxQueuedOutput = DEFAULT_MAX_QUEUED_OUTPUT;
     if (world.readObjectProperty(0, "server_options").orElse(null) instanceof ObjectValue options) {
+      if (world.readObjectProperty(options.value(), "max_queued_output").orElse(null)
+          instanceof IntegerValue configured) {
+        long value = configured.value();
+        maxQueuedOutput = value > 0 ? Math.max(MIN_POSITIVE_MAX_QUEUED_OUTPUT, value) : value;
+      }
       for (BuiltinSpec spec : manifest) {
         if (world.readObjectProperty(options.value(), "protect_" + spec.name())
             .map(MooValue::isTruthy).orElse(false)) {
@@ -208,7 +219,7 @@ public final class BuiltinCatalog {
         }
       }
     }
-    protectedFunctions = Set.copyOf(protectedNames);
+    serverOptions = new ServerOptions(Set.copyOf(protectedNames), maxQueuedOutput);
   }
 
 }

@@ -1,7 +1,6 @@
 package world.mongoose.banteng.builtin.family;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Locale;
 import java.util.Optional;
 import java.util.Set;
 import world.mongoose.banteng.builtin.ArgType;
@@ -58,7 +57,7 @@ public final class TaskBuiltins {
                 call.world(), call.programmer()));
         registrar.builtin("call_function", List.of(new CallShape(List.of(STRING), List.of(), Optional.of(ANY)))).irrevocable().implementation(call -> callFunction(call, catalog));
         registrar.builtin("queue_info", List.of(new CallShape(List.of(), List.of(OBJECT), Optional.empty()))).implementation(call -> call.hosts().queueInfo().invoke(call));
-        registrar.builtin("queued_tasks", List.of(new CallShape(List.of(), List.of(INTEGER, INTEGER), Optional.empty()))).irrevocable().implementation(call -> call.hosts().queuedTasks().invoke(call));
+        registrar.builtin("queued_tasks", List.of(new CallShape(List.of(), List.of(Set.of(ArgType.FLAG), Set.of(ArgType.FLAG)), Optional.empty()))).irrevocable().implementation(call -> call.hosts().queuedTasks().invoke(call));
         registrar.builtin("task_stack", List.of(new CallShape(List.of(INTEGER), List.of(ANY, ANY), Optional.empty()))).irrevocable().implementation(call -> call.hosts().taskStack().invoke(call));
         registrar.builtin("kill_task", List.of(new CallShape(List.of(INTEGER), List.of(), Optional.empty()))).irrevocable().implementation(call -> call.hosts().killTask().invoke(call));
         registrar.builtin("thread_pool", List.of(
@@ -74,7 +73,7 @@ public final class TaskBuiltins {
         registrar.builtin("ticks_left", List.of(new CallShape(List.of(), List.of(), Optional.empty()))).implementation(call -> BuiltinResult.value(new IntegerValue(call.remainingTicks())));
         registrar.builtin("seconds_left", List.of(new CallShape(List.of(), List.of(), Optional.empty()))).implementation(call -> BuiltinResult.value(new IntegerValue(call.remainingSeconds())));
         registrar.builtin("set_task_perms", List.of(new CallShape(List.of(OBJECT), List.of(), Optional.empty()))).implementation(call -> setTaskPerms(call.arguments(), call.world(), call.programmer()));
-        registrar.builtin("set_thread_mode", List.of(new CallShape(List.of(), List.of(INTEGER), Optional.empty()))).implementation(call -> setThreadMode(call.arguments(), call.threadMode()));
+        registrar.builtin("set_thread_mode", List.of(new CallShape(List.of(), List.of(Set.of(ArgType.FLAG)), Optional.empty()))).implementation(call -> setThreadMode(call.arguments(), call.threadMode()));
     }
 
     public static void registerGroup4(List<BuiltinSpec> entries, BuiltinCatalog catalog) {
@@ -113,16 +112,13 @@ public final class TaskBuiltins {
 
     private static BuiltinResult callFunction(BuiltinCall call, BuiltinCatalog catalog) {
         List<MooValue> arguments = call.arguments();
-        String name = ((StringValue) arguments.getFirst()).text().toLowerCase(Locale.ROOT);
-        BuiltinSpec target = catalog.spec(name).orElse(null);
+        StringValue name = (StringValue) arguments.getFirst();
+        BuiltinSpec target = catalog.spec(name.text()).orElse(null);
         if (target == null) {
-            return BuiltinResult.error(ErrorValue.E_INVARG);
+            return BuiltinResult.raised(
+                    ErrorValue.E_INVARG, StringValue.of("Unknown built-in function"), name);
         }
-        BuiltinResult result = catalog.invoke(target, new BuiltinCall(
-                arguments.subList(1, arguments.size()), call.world(), call.programmer(),
-                call.taskLocal(), call.taskId(), call.remainingTicks(), call.remainingSeconds(),
-                call.receiver(), call.callerProgrammer(), call.callers(), call.threadMode(),
-                call.stagedBufferedOutputLength(), call.hosts()));
+        BuiltinResult result = catalog.invoke(target, call.withArguments(arguments.subList(1, arguments.size())));
         return switch (result) {
             case BuiltinResult.Initialize initialized -> new BuiltinResult.Initialize(initialized.created(),
                     initialized.arguments(), initialized.continuation().map(SuspendedActivation.CallFunctionContinuation::new));

@@ -61,7 +61,7 @@ public final class MathBuiltins {
                         Optional.empty()))).implementation(call -> distance(call.arguments()));
         registrar.builtin("exp", List.of(new CallShape(List.of(Set.of(ArgType.FLOAT)), List.of(), Optional.empty()))).implementation(unaryFloatBuiltin(value -> {
             double result = Math.exp(value);
-            return result < Double.MIN_NORMAL ? Double.NaN : result;
+            return result == 0.0 ? Double.NaN : result;
         }));
         registrar.builtin("floatstr", List.of(
                 new CallShape(

@@ -5,6 +5,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Deque;
 import java.util.IdentityHashMap;
+import java.util.IdentityHashMap;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -383,6 +384,20 @@ public final class WorldTxn implements AutoCloseable {
 
   private record LocatedVerb(Object location, WorldVerb verb) {}
 
+  /** Finds a descriptor in the object's own verbs, in definition order. */
+  public static int definedVerbIndex(List<WorldVerb> verbs, StringValue descriptor) {
+    String requestedName = descriptor.text().toLowerCase(Locale.ROOT);
+    IdentityHashMap<StringValue, Boolean> reference = new IdentityHashMap<>(1);
+    reference.put(descriptor, Boolean.TRUE);
+    for (int index = 0; index < verbs.size(); index++) {
+      WorldVerb verb = verbs.get(index);
+      if (reference.containsKey(verb.namesValue()) || matchesVerbName(verb, requestedName)) {
+        return index;
+      }
+    }
+    return -1;
+  }
+
   private static boolean matchesVerbName(WorldVerb verb, String requestedName) {
     StringTokenizer names = new StringTokenizer(verb.names(), " ");
     while (names.hasMoreTokens()) {
@@ -656,6 +671,10 @@ public final class WorldTxn implements AutoCloseable {
       return WorldResult.ok(value);
     }
     if (holder instanceof WorldObject object) {
+      if (normalizedName.equals("location") || normalizedName.equals("last_move")
+          || normalizedName.equals("contents")) {
+        return WorldResult.failed(ErrorValue.E_PERM);
+      }
       int flag =
           switch (normalizedName) {
             case "programmer" -> ObjectFlags.FLAG_PROGRAMMER;
@@ -745,9 +764,6 @@ public final class WorldTxn implements AutoCloseable {
       if (!wizard) {
         return WorldResult.failed(ErrorValue.E_PERM);
       }
-    }
-    if (!anonymous && propertyName.equalsIgnoreCase("last_move")) {
-      return WorldResult.failed(ErrorValue.E_PERM);
     }
     WorldProperty property = propertyFor(identity, propertyName).orElse(null);
     if (property != null
@@ -1428,7 +1444,7 @@ public final class WorldTxn implements AutoCloseable {
     Objects.requireNonNull(name, "name");
     Objects.requireNonNull(value, "value");
     PropertyHolder holder = propertyHolder(identity).orElse(null);
-    if (holder == null || propertyFor(identity, name).isPresent()) {
+    if (holder == null || WorldProperty.isReservedName(name) || propertyFor(identity, name).isPresent()) {
       return WorldResult.failed(ErrorValue.E_INVARG);
     }
     Map<Long, WorldObject> oldObjects = working.objects();
@@ -1602,7 +1618,7 @@ public final class WorldTxn implements AutoCloseable {
     verbs.set(
         verbIndex,
         new WorldVerb(
-            verb.names(),
+            verb.namesValue(),
             verb.owner(),
             verb.perms(),
             verb.dobj(),
@@ -1663,7 +1679,7 @@ public final class WorldTxn implements AutoCloseable {
     verbs.set(
         verbIndex,
         new WorldVerb(
-            verb.names(),
+            verb.namesValue(),
             verb.owner(),
             verb.perms(),
             direct,

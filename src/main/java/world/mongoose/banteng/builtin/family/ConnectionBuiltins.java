@@ -1,5 +1,8 @@
 package world.mongoose.banteng.builtin.family;
 import java.io.IOException;
+import java.net.ConnectException;
+import java.net.NoRouteToHostException;
+import java.net.SocketTimeoutException;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -10,6 +13,7 @@ import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.Set;
 import java.util.function.LongBinaryOperator;
+import java.util.function.LongSupplier;
 import world.mongoose.banteng.builtin.ArgType;
 import world.mongoose.banteng.builtin.BuiltinCall;
 import world.mongoose.banteng.builtin.BuiltinHosts;
@@ -41,10 +45,12 @@ public final class ConnectionBuiltins {
 
     public static void registerSwitchPlayer(List<BuiltinSpec> entries, Optional<ListenerControl> listenerControl) {
         BuiltinRegistrar registrar = new BuiltinRegistrar(entries);
-        registrar.builtin("switch_player", List.of(new CallShape(List.of(OBJECT, OBJECT), List.of(INTEGER), Optional.empty()))).permission(BuiltinPermissionRule.WIZARD_ONLY).implementation(ConnectionBuiltins::switchPlayer);
+        registrar.builtin("switch_player", List.of(new CallShape(List.of(OBJECT, OBJECT), List.of(Set.of(ArgType.FLAG)), Optional.empty()))).permission(BuiltinPermissionRule.WIZARD_ONLY).implementation(ConnectionBuiltins::switchPlayer);
     }
 
-    public static void registerInventory(List<BuiltinSpec> entries, Optional<ListenerControl> listenerControl) {
+    public static void registerInventory(List<BuiltinSpec> entries,
+                                         Optional<ListenerControl> listenerControl,
+                                         LongSupplier outputCapacity) {
         BuiltinRegistrar registrar = new BuiltinRegistrar(entries);
         registrar.builtin("read", List.of(new CallShape(List.of(), List.of(OBJECT, ANY), Optional.empty()))).implementation(call -> {
             if (call.arguments().isEmpty() && !BuiltinPermissionRule.WIZARD_ONLY.allows(call.world(), call.programmer())) {
@@ -72,12 +78,14 @@ public final class ConnectionBuiltins {
         registrar.builtin("idle_seconds", List.of(new CallShape(List.of(OBJECT), List.of(), Optional.empty()))).implementation(call -> call.hosts().idleSeconds().invoke(call));
         registrar.builtin("connected_seconds", List.of(new CallShape(List.of(OBJECT), List.of(), Optional.empty()))).implementation(call -> call.hosts().connectedSeconds().invoke(call));
         registrar.builtin("buffered_output_length", List.of(new CallShape(List.of(), List.of(OBJECT), Optional.empty()))).implementation(call ->
-                bufferedOutputLength(listenerControl, call.hosts(),
+                call.arguments().isEmpty()
+                        ? BuiltinResult.value(new IntegerValue(outputCapacity.getAsLong()))
+                        : bufferedOutputLength(listenerControl, call.hosts(),
                         call.arguments(),
                         call.world(),
                         call.programmer(),
                         call.stagedBufferedOutputLength()));
-        registrar.builtin("boot_player", List.of(new CallShape(List.of(OBJECT), List.of(), Optional.empty()))).implementation(call -> bootPlayer(call.arguments(), call.world(), call.programmer()));
+        registrar.builtin("boot_player", List.of(new CallShape(List.of(OBJECT), List.of(), Optional.empty()))).irrevocable().implementation(call -> bootPlayer(call.arguments(), call.world(), call.programmer()));
         registrar.builtin("connection_info", List.of(new CallShape(List.of(OBJECT), List.of(), Optional.empty()))).implementation(call -> connectionInfo(call.hosts(), call.arguments(), call.world(), call.programmer()));
         registrar.builtin("connection_name", List.of(new CallShape(List.of(OBJECT), List.of(INTEGER), Optional.empty()))).implementation(call -> connectionName(call.hosts(), call.arguments(), call.world(), call.programmer()));
     }
@@ -102,9 +110,11 @@ public final class ConnectionBuiltins {
                         Optional.empty()))).permission(BuiltinPermissionRule.WIZARD_ONLY).irrevocable().implementation(call -> openNetworkConnection(listenerControl, call));
     }
 
-    public static void registerNotify(List<BuiltinSpec> entries, Optional<ListenerControl> listenerControl) {
+    public static void registerNotify(List<BuiltinSpec> entries, Optional<ListenerControl> listenerControl,
+                                      LongSupplier outputCapacity) {
         BuiltinRegistrar registrar = new BuiltinRegistrar(entries);
-        registrar.builtin("notify", List.of(new CallShape(List.of(OBJECT, STRING), List.of(ANY, ANY), Optional.empty()))).implementation(call -> notifyLine(call.hosts(), call.arguments(), call.world(), call.programmer()));
+        registrar.builtin("notify", List.of(new CallShape(List.of(OBJECT, STRING), List.of(ANY, ANY), Optional.empty())))
+                .implementation(call -> notifyLine(call, listenerControl, outputCapacity.getAsLong()));
     }
 
     private static ConnectionRegistryAccess connections(BuiltinHosts invocationHosts) {
@@ -129,9 +139,6 @@ public final class ConnectionBuiltins {
                                                WorldTxn world,
                                                long programmer,
                                                LongBinaryOperator stagedBufferedOutputLength) {
-        if (arguments.isEmpty()) {
-            return BuiltinResult.value(new IntegerValue(DEFAULT_MAX_QUEUED_OUTPUT));
-        }
         long target = ((ObjectValue) arguments.getFirst()).value();
         OptionalLong connectionId = connections(invocationHosts).connectionId(target);
         if (connectionId.isEmpty()) {
@@ -428,14 +435,26 @@ public final class ConnectionBuiltins {
         } catch (ArithmeticException invalid) {
             return BuiltinResult.error(ErrorValue.E_INVARG);
         }
+        long timeoutSeconds = 5;
+        if (call.world().readObjectProperty(0, "server_options").orElse(null) instanceof ObjectValue options
+                && call.world().readObjectProperty(options.value(), "outbound_connect_timeout")
+                        .orElse(null) instanceof IntegerValue configured) {
+            timeoutSeconds = configured.value();
+        }
+        int timeoutMillis = (int) Math.clamp(
+                Math.clamp(timeoutSeconds, 0L, Integer.MAX_VALUE) * 1_000L, 1L, Integer.MAX_VALUE);
         try {
             return BuiltinResult.value(
                     new ObjectValue(
                             listenerControl
                                     .orElseThrow()
-                                    .openNetworkConnection(host, port, ipv6, listenerHandler, call.hosts().registerOutboundConnection())));
+                                    .openNetworkConnection(host, port, ipv6, listenerHandler, timeoutMillis,
+                                            call.hosts().registerOutboundConnection())));
         } catch (IllegalArgumentException invalid) {
             return BuiltinResult.error(ErrorValue.E_INVARG);
+        } catch (SocketTimeoutException | ConnectException | NoRouteToHostException unavailable) {
+            return BuiltinResult.raised(ErrorValue.E_INVARG, StringValue.of("Connection failure"),
+                    StringValue.of(Objects.toString(unavailable.getMessage(), "Connection failure")));
         } catch (IOException unavailable) {
             return BuiltinResult.error(ErrorValue.E_QUOTA);
         }
@@ -452,26 +471,43 @@ public final class ConnectionBuiltins {
         return call.hosts().switchPlayer().invoke(call);
     }
 
-    private static BuiltinResult notifyLine(BuiltinHosts invocationHosts,
-                                     List<MooValue> arguments, WorldTxn world, long programmer) {
-        long target = ((ObjectValue) arguments.getFirst()).value();
-        if (target != programmer && !world.isWizard(programmer)) {
+    private static BuiltinResult notifyLine(BuiltinCall call, Optional<ListenerControl> listenerControl,
+                                            long outputCapacity) {
+        List<MooValue> arguments = call.arguments();
+        ObjectValue recipient = (ObjectValue) arguments.getFirst();
+        long target = recipient.value();
+        if (target != call.programmer() && !call.world().isWizard(call.programmer())) {
             return BuiltinResult.error(ErrorValue.E_PERM);
         }
         StringValue line = (StringValue) arguments.get(1);
         boolean noFlush = arguments.size() > 2 && arguments.get(2).isTruthy();
         boolean noNewline = arguments.size() > 3 && arguments.get(3).isTruthy();
-        if (target == programmer && !noFlush && !noNewline) {
+        OptionalLong connectionId = connections(call.hosts()).connectionId(target);
+        if (connectionId.isPresent() && call.hosts().connectionOptions()
+                .invoke(call.withArguments(List.of(recipient, StringValue.of("binary"))))
+                    instanceof BuiltinResult.Value binary && binary.value().isTruthy()) {
+            var decoded = line.binaryBytes();
+            if (decoded.isEmpty()) return BuiltinResult.error(ErrorValue.E_INVARG);
+            line = StringValue.of(decoded.orElseThrow());
+            noNewline = true;
+        }
+        if (target == call.programmer() && !noFlush && !noNewline) {
             return new BuiltinResult.Output(line.text());
         }
-        OptionalLong connectionId = connections(invocationHosts).connectionId(target);
         if (connectionId.isEmpty()) {
             return BuiltinResult.value(new IntegerValue(1));
         }
-        return new BuiltinResult.Notify(
-                connectionId.orElseThrow(), line.text(), noFlush, noNewline);
+        long id = connectionId.orElseThrow();
+        if (noFlush && listenerControl.isPresent()) {
+            long queued = call.stagedBufferedOutputLength().applyAsLong(
+                    id, listenerControl.orElseThrow().bufferedOutputLength(id));
+            long wireLength = line.length() + (noNewline ? 0L : 2L);
+            if (queued != 0 && queued + wireLength > outputCapacity) {
+                return BuiltinResult.value(new IntegerValue(0));
+            }
+        }
+        return new BuiltinResult.Notify(id, line.text(), noFlush, noNewline);
     }
-    private static final int DEFAULT_MAX_QUEUED_OUTPUT = 65_536;
 
     /** Concrete host capability required by the MOO listener builtins. */
     public interface ListenerControl {
@@ -488,7 +524,7 @@ public final class ConnectionBuiltins {
 
         /** Opens and registers one outbound network connection. */
         long openNetworkConnection(
-                String host, int port, boolean ipv6, long listenerHandler,
+                String host, int port, boolean ipv6, long listenerHandler, int timeoutMillis,
                 BuiltinHosts.OutboundConnectionRegistrar registration)
                 throws IOException;
 

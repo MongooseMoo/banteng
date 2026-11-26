@@ -10,6 +10,7 @@ import world.mongoose.banteng.builtin.CallShape;
 import world.mongoose.banteng.builtin.ConfinedFileRoot;
 
 
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.sql.Connection;
 import java.sql.DriverManager;
@@ -19,12 +20,14 @@ import java.sql.ResultSetMetaData;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.OptionalLong;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.regex.Pattern;
+import java.util.regex.PatternSyntaxException;
 import world.mongoose.banteng.value.MooValue;
 import world.mongoose.banteng.value.MooValue.ErrorValue;
 import world.mongoose.banteng.value.MooValue.FloatValue;
@@ -34,6 +37,7 @@ import world.mongoose.banteng.value.MooValue.MapValue;
 import world.mongoose.banteng.value.MooValue.ObjectValue;
 import world.mongoose.banteng.value.MooValue.StringValue;
 import org.jspecify.annotations.Nullable;
+import org.sqlite.Function;
 import org.sqlite.SQLiteConnection;
 import org.sqlite.SQLiteLimits;
 import org.sqlite.SQLiteException;
@@ -64,8 +68,13 @@ public final class SqliteBuiltins {
   private static final int PARSE_OBJECTS = 4;
   private static final int SANITIZE_STRINGS = 8;
   private static final Map<String, Integer> LIMIT_CATEGORIES = limitCategories();
+  private static final Pattern DECIMAL_INTEGER = Pattern.compile("[+-]?[0-9]+");
+  private static final Pattern DECIMAL_REAL = Pattern.compile(
+      "[+-]?(?:[0-9]+(?:\\.[0-9]*)?|\\.[0-9]+)(?:e[+-]?[0-9]+)?");
+  private static final Pattern HEX_REAL = Pattern.compile(
+      "[+-]?0x(?:[0-9a-f]+(?:\\.[0-9a-f]*)?|\\.[0-9a-f]+)(?:p[+-]?[0-9]+)?");
 
-  private final Map<Long, Database> databases = new LinkedHashMap<>();
+  private final LinkedHashMap<Long, Database> databases = new LinkedHashMap<>();
   private final ConfinedFileRoot files;
   private long nextHandle = 1;
 
@@ -102,8 +111,7 @@ public final class SqliteBuiltins {
     }
 
     try {
-      Connection opened = DriverManager.getConnection(url);
-      SQLiteConnection connection = opened.unwrap(SQLiteConnection.class);
+      SQLiteConnection connection = openConnection(url);
       long handle = nextHandle++;
       String displayPath =
           path == null
@@ -117,6 +125,41 @@ public final class SqliteBuiltins {
       return BuiltinResult.value(new IntegerValue(handle));
     } catch (SQLException failure) {
       return BuiltinResult.error(ErrorValue.E_NONE);
+    }
+  }
+
+  private static SQLiteConnection openConnection(String url) throws SQLException {
+    Connection opened = DriverManager.getConnection(url);
+    try {
+      SQLiteConnection connection = opened.unwrap(SQLiteConnection.class);
+      connection.setLimit(SQLiteLimits.SQLITE_LIMIT_SQL_LENGTH, 1_000_000_000);
+      connection.setLimit(SQLiteLimits.SQLITE_LIMIT_FUNCTION_ARG, 127);
+      Function.create(connection, "regexp", new Function() {
+        @Override
+        protected void xFunc() throws SQLException {
+          String pattern = value_text(0);
+          String subject = value_text(1);
+          if (pattern == null) {
+            error("SQLite REGEXP called with invalid pattern.");
+          } else if (subject == null) {
+            error("SQLite REGEXP called with invalid string.");
+          } else {
+            try {
+              result(PcreService.containsMatch(subject, pattern) ? 1 : 0);
+            } catch (PatternSyntaxException failure) {
+              error(failure.getDescription());
+            }
+          }
+        }
+      }, 2, Function.FLAG_DETERMINISTIC);
+      return connection;
+    } catch (SQLException failure) {
+      try {
+        opened.close();
+      } catch (SQLException closeFailure) {
+        failure.addSuppressed(closeFailure);
+      }
+      throw failure;
     }
   }
 
@@ -144,8 +187,7 @@ public final class SqliteBuiltins {
   private synchronized BuiltinResult handles() {
     return BuiltinResult.value(
         new ListValue(
-            databases.keySet().stream()
-                .sorted(Comparator.naturalOrder())
+            databases.sequencedKeySet().reversed().stream()
                 .map(IntegerValue::new)
                 .map(MooValue.class::cast)
                 .toList()));
@@ -251,6 +293,9 @@ public final class SqliteBuiltins {
   private BuiltinResult executeQuery(Database database, String sql, boolean headers) {
     synchronized (database.executionLock) {
       try (Statement statement = database.connection.createStatement()) {
+        if (emptySql(database, sql)) {
+          return BuiltinResult.value(new ListValue(List.of()));
+        }
         database.activeStatement = statement;
         boolean hasRows = statement.execute(sql);
         if (!hasRows) {
@@ -269,15 +314,20 @@ public final class SqliteBuiltins {
 
   private BuiltinResult executePrepared(Database database, String sql, ListValue parameters) {
     synchronized (database.executionLock) {
-      try (PreparedStatement statement = database.connection.prepareStatement(sql)) {
-        database.activeStatement = statement;
-        bind(statement, parameters);
-        boolean hasRows = statement.execute();
-        if (!hasRows) {
-          return BuiltinResult.value(new ListValue(List.of()));
+      try {
+        if (emptySql(database, sql)) {
+          return BuiltinResult.value(StringValue.of("not an error"));
         }
-        try (ResultSet result = statement.getResultSet()) {
-          return BuiltinResult.value(rows(database, result, false));
+        try (PreparedStatement statement = database.connection.prepareStatement(sql)) {
+          database.activeStatement = statement;
+          bind(statement, parameters);
+          boolean hasRows = statement.execute();
+          if (!hasRows) {
+            return BuiltinResult.value(new ListValue(List.of()));
+          }
+          try (ResultSet result = statement.getResultSet()) {
+            return BuiltinResult.value(rows(database, result, false));
+          }
         }
       } catch (SQLException failure) {
         return errorResult(failure);
@@ -285,6 +335,31 @@ public final class SqliteBuiltins {
         database.activeStatement = null;
       }
     }
+  }
+
+  /** JDBC expects a statement handle, which SQLite does not create for SQL containing only separators. */
+  private static boolean emptySql(Database database, String sql) throws SQLException {
+    int end = sql.indexOf('\0');
+    if (end < 0) end = sql.length();
+    int offset = 0;
+    while (offset < end) {
+      switch (sql.charAt(offset)) {
+        case ' ', '\t', '\r', '\n', '\f', ';', '\uFEFF' -> offset++;
+        case '-' -> {
+          if (!sql.startsWith("--", offset)) return false;
+          int newline = sql.indexOf('\n', offset + 2);
+          offset = newline < 0 || newline >= end ? end : newline + 1;
+        }
+        case '/' -> {
+          if (!sql.startsWith("/*", offset) || offset + 2 >= end) return false;
+          int close = sql.indexOf("*/", offset + 2);
+          offset = close < 0 || close >= end ? end : close + 2;
+        }
+        default -> { return false; }
+      }
+    }
+    return sql.getBytes(StandardCharsets.UTF_8).length <= database.connection.getDatabase()
+        .limit(SQLiteLimits.SQLITE_LIMIT_SQL_LENGTH.getId(), -1);
   }
 
   private static BuiltinResult run(Database database, SqlWork work) {
@@ -296,11 +371,13 @@ public final class SqliteBuiltins {
   }
 
   private static void bind(PreparedStatement statement, ListValue parameters) throws SQLException {
+    int available = statement.getParameterMetaData().getParameterCount();
     int index = 1;
     for (MooValue parameter : parameters.elements()) {
+      if (index > available) break;
       switch (parameter) {
         case StringValue string -> statement.setString(index, string.text());
-        case IntegerValue integer -> statement.setLong(index, integer.value());
+        case IntegerValue integer -> statement.setInt(index, (int) integer.value());
         case FloatValue floating -> statement.setDouble(index, floating.value());
         case ObjectValue object -> statement.setString(index, "#" + object.value());
         default -> statement.setObject(index, null);
@@ -317,7 +394,10 @@ public final class SqliteBuiltins {
     while (result.next()) {
       List<MooValue> row = new ArrayList<>();
       for (int column = 1; column <= columns; column++) {
-        MooValue value = databaseValue(database.options, result.getString(column));
+        Object typed = result.getObject(column);
+        String raw = typed instanceof Double real && Double.isFinite(real)
+            ? new FloatValue(real).toLiteral() : result.getString(column);
+        MooValue value = databaseValue(database.options, raw);
         if (headers) {
           row.add(
               new ListValue(
@@ -332,36 +412,56 @@ public final class SqliteBuiltins {
   }
 
   private static MooValue databaseValue(int options, @Nullable String raw) {
-    String value = raw == null ? "NULL" : raw;
+    if (raw == null) {
+      return StringValue.of((options & PARSE_TYPES) == 0 ? "" : "NULL");
+    }
+    int terminator = raw.indexOf('\0');
+    String value = terminator < 0 ? raw : raw.substring(0, terminator);
     if ((options & PARSE_TYPES) == 0) {
       return StringValue.of(sanitize(options, value));
     }
-    if ((options & PARSE_OBJECTS) != 0 && value.matches("#[+-]?[0-9]+")) {
-      try {
-        return new ObjectValue(Long.parseLong(value.substring(1)));
-      } catch (NumberFormatException ignored) {
-        // Preserve a numeric-looking value that exceeds Banteng's object range as a string.
-      }
+    if ((options & PARSE_OBJECTS) != 0 && value.startsWith("#")) {
+      OptionalLong object = parseDecimalInteger(numericText(value.substring(1)));
+      if (object.isPresent()) return new ObjectValue(object.orElseThrow());
     }
-    if (value.matches("[+-]?[0-9]+")) {
-      try {
-        return new IntegerValue(Long.parseLong(value));
-      } catch (NumberFormatException ignored) {
-        // SQLite may return arbitrary-precision text; fall through to float/string parsing.
-      }
+    String number = numericText(value).toLowerCase(Locale.ROOT);
+    OptionalLong integer = parseDecimalInteger(number);
+    if (integer.isPresent()) return new IntegerValue(integer.orElseThrow());
+    if (number.equals("inf") || number.equals("+inf")
+        || number.equals("infinity") || number.equals("+infinity")) {
+      return new FloatValue(Double.POSITIVE_INFINITY);
     }
-    if (looksFloating(value)) {
-      try {
-        return new FloatValue(Double.parseDouble(value));
-      } catch (NumberFormatException ignored) {
-        // Not a Java-representable floating value.
-      }
+    if (number.equals("-inf") || number.equals("-infinity")) {
+      return new FloatValue(Double.NEGATIVE_INFINITY);
+    }
+    if (DECIMAL_REAL.matcher(number).matches()) {
+      return new FloatValue(Double.parseDouble(number));
+    }
+    if (HEX_REAL.matcher(number).matches()) {
+      return new FloatValue(Double.parseDouble(number.indexOf('p') >= 0 ? number : number + "p0"));
     }
     return StringValue.of(sanitize(options, value));
   }
 
-  private static boolean looksFloating(String value) {
-    return value.matches("[+-]?(?:[0-9]+\\.[0-9]*|[0-9]*\\.[0-9]+|[0-9]+[eE][+-]?[0-9]+)(?:[eE][+-]?[0-9]+)?");
+  private static OptionalLong parseDecimalInteger(String value) {
+    if (!DECIMAL_INTEGER.matcher(value).matches()) return OptionalLong.empty();
+    try {
+      return OptionalLong.of(Long.parseLong(value));
+    } catch (NumberFormatException overflow) {
+      return OptionalLong.of(value.charAt(0) == '-' ? Long.MIN_VALUE : Long.MAX_VALUE);
+    }
+  }
+
+  private static String numericText(String value) {
+    int start = 0;
+    while (start < value.length()) {
+      char current = value.charAt(start);
+      if (current != ' ' && (current < '\t' || current > '\r')) break;
+      start++;
+    }
+    int end = value.length();
+    while (end > start && value.charAt(end - 1) == ' ') end--;
+    return value.substring(start, end);
   }
 
   private static String sanitize(int options, String value) {

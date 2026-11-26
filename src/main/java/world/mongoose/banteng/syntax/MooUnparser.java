@@ -6,6 +6,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.math.BigDecimal;
+import java.util.function.DoubleFunction;
 
 /** Canonically renders the complete MOO syntax tree accepted by {@link MooParser}. */
 public final class MooUnparser {
@@ -46,13 +47,14 @@ public final class MooUnparser {
 
   /** Returns deterministic line-oriented MOO source for {@code program}. */
   public static String unparse(Ast.Program program) {
-    return unparse(program, false);
+    return unparse(program, false, MooUnparser::roundTripFloatLiteral);
   }
 
-  /** Renders optional parentheses around compound child expressions. */
-  public static String unparse(Ast.Program program, boolean parenthesize) {
+  /** Renders MOO source with the caller's float literal formatting. */
+  public static String unparse(
+      Ast.Program program, boolean parenthesize, DoubleFunction<String> floatLiteral) {
     Objects.requireNonNull(program, "program");
-    Renderer renderer = new Renderer(parenthesize);
+    Renderer renderer = new Renderer(parenthesize, floatLiteral);
     renderer.statements(program.statements(), 0);
     return renderer.text.toString();
   }
@@ -60,9 +62,11 @@ public final class MooUnparser {
   private static final class Renderer {
     private final StringBuilder text = new StringBuilder();
     private final boolean parenthesize;
+    private final DoubleFunction<String> floatLiteral;
 
-    private Renderer(boolean parenthesize) {
+    private Renderer(boolean parenthesize, DoubleFunction<String> floatLiteral) {
       this.parenthesize = parenthesize;
+      this.floatLiteral = floatLiteral;
     }
 
     private void statements(List<Ast.Statement> statements, int indentation) {
@@ -204,6 +208,13 @@ public final class MooUnparser {
       text.append("  ".repeat(indentation)).append(line);
     }
 
+    private String errors(Ast.ErrorSelector selector) {
+      return switch (selector) {
+        case Ast.AnyErrors ignored -> "ANY";
+        case Ast.ErrorList list -> joinExpressions(list.expressions());
+      };
+    }
+
     private String expression(Ast.Expression expression, int minimumPrecedence) {
       int precedence = precedence(expression);
       String rendered;
@@ -218,14 +229,7 @@ public final class MooUnparser {
           if (!Double.isFinite(floating.value())) {
             throw new IllegalArgumentException("non-finite float literal");
           }
-          rendered = Double.toString(floating.value());
-          double magnitude = Math.abs(floating.value());
-          if (rendered.indexOf('E') >= 0 && magnitude >= 0.0001 && magnitude < 1.0e15) {
-            rendered = BigDecimal.valueOf(floating.value()).toPlainString();
-            if (rendered.indexOf('.') < 0) {
-              rendered += ".0";
-            }
-          }
+          rendered = floatLiteral.apply(floating.value());
         }
         case Ast.StringLiteral string -> {
           rendered = quote(string.value());
@@ -443,14 +447,13 @@ public final class MooUnparser {
 
   private static boolean isIdentifier(String value) {
     if (value.isEmpty()
-        || !(Character.isLetter(value.charAt(0)) || value.charAt(0) == '_')
-        || value.startsWith("E_")
+        || !MooLexer.isIdentifierStart(value.charAt(0))
+        || MooLexer.isErrorName(value)
         || KEYWORDS.contains(value.toLowerCase(Locale.ROOT))) {
       return false;
     }
     for (int index = 1; index < value.length(); index++) {
-      char character = value.charAt(index);
-      if (!(Character.isLetterOrDigit(character) || character == '_')) {
+      if (!MooLexer.isIdentifierPart(value.charAt(index))) {
         return false;
       }
     }
@@ -474,14 +477,16 @@ public final class MooUnparser {
     };
   }
 
-  private static String errors(Ast.ErrorSelector selector) {
-    if (selector instanceof Ast.AnyErrors) {
-      return "ANY";
+  private static String roundTripFloatLiteral(double value) {
+    String rendered = Double.toString(value);
+    double magnitude = Math.abs(value);
+    if (rendered.indexOf('E') >= 0 && magnitude >= 0.0001 && magnitude < 1.0e15) {
+      rendered = BigDecimal.valueOf(value).toPlainString();
+      if (rendered.indexOf('.') < 0) {
+        rendered += ".0";
+      }
     }
-    if (selector instanceof Ast.ErrorList errors) {
-      return String.join(", ", errors.names());
-    }
-    throw new IllegalArgumentException("unsupported error selector: " + selector);
+    return rendered;
   }
 
   private static int precedence(Ast.Expression expression) {

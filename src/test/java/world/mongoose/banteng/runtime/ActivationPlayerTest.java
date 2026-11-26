@@ -30,6 +30,7 @@ import world.mongoose.banteng.vm.VmSnapshot;
 import world.mongoose.banteng.vm.VmState;
 import world.mongoose.banteng.world.ArgSpec;
 import world.mongoose.banteng.world.PropertyPerms;
+import world.mongoose.banteng.world.QueuedTask;
 import world.mongoose.banteng.world.SuspendedTask;
 import world.mongoose.banteng.world.VerbPerms;
 import world.mongoose.banteng.world.WorldObject;
@@ -146,6 +147,31 @@ final class ActivationPlayerTest {
       run(fork.program(), child, world);
       assertEquals(1, child.snapshot().frames().getFirst().player());
       assertEquals(new ObjectValue(3), child.snapshot().frames().getFirst().locals().get("player"));
+    }
+  }
+
+  @Test
+  void emptyQueuedForkCanBeWrittenAgainAfterCheckpointRestore() throws Exception {
+    try (WorldTxn world = world(true, List.of(), List.of()).begin()) {
+      var program = new MooCompiler().compile("fork (3600) endfork return 0;");
+      VmState state = state(60_000);
+      run(program, state, world);
+      VmSnapshot.Fork fork = state.continueAfterFork(new IntegerValue(12));
+      VmState child = new VmState(new TaskOrigin(fork.locals(), fork.programmer(), fork.verbLocation(),
+          fork.calledVerb(), fork.fullVerbName(), fork.debug(), fork.player()), new TaskBudget(60_000, 5, 50));
+      var codec = new LambdaMooV17Codec();
+      var queued = DurableTaskCodec.exportQueuedTask(12, 3_600_000, fork.program(), child.snapshot());
+      for (int restart = 0; restart < 2; restart++) {
+        Path dump = temporary.resolve("empty-fork-" + restart + ".db");
+        codec.writeAtomic(dump, world.snapshot(), List.of(queued), List.of());
+        var restored = (QueuedTask) codec.read(dump).tasks().getFirst();
+        assertEquals(12, restored.taskId());
+        assertEquals("", restored.programSource());
+        BytecodeProgram restoredProgram = DurableTaskCodec.restoreQueuedProgram(restored);
+        queued = DurableTaskCodec.exportQueuedTask(12, 3_600_000, restoredProgram, child.snapshot());
+      }
+      run(DurableTaskCodec.restoreQueuedProgram(queued), child, world);
+      assertEquals(new IntegerValue(0), child.returnValue().orElseThrow());
     }
   }
 

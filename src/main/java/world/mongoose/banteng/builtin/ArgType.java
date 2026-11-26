@@ -1,6 +1,7 @@
 package world.mongoose.banteng.builtin;
 
 import world.mongoose.banteng.value.MooValue;
+import world.mongoose.banteng.value.MooValue.BooleanValue;
 import world.mongoose.banteng.value.MooValue.ErrorValue;
 import world.mongoose.banteng.value.MooValue.FloatValue;
 import world.mongoose.banteng.value.MooValue.IntegerValue;
@@ -16,6 +17,7 @@ public enum ArgType {
   INTEGER,
   FLOAT,
   NUMBER,
+  FLAG,
   STRING,
   LIST,
   MAP,
@@ -30,6 +32,7 @@ public enum ArgType {
       case INTEGER -> value instanceof IntegerValue;
       case FLOAT -> value instanceof FloatValue;
       case NUMBER -> value instanceof IntegerValue || value instanceof FloatValue;
+      case FLAG -> value instanceof IntegerValue || value instanceof BooleanValue;
       case STRING -> value instanceof StringValue;
       case LIST -> value instanceof ListValue;
       case MAP -> value instanceof MapValue;

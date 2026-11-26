@@ -14,6 +14,7 @@ import world.mongoose.banteng.bytecode.LayoutCompiler.LabelReference;
 import world.mongoose.banteng.bytecode.LayoutCompiler.LiteralKey;
 import world.mongoose.banteng.bytecode.LayoutCompiler.PendingCall;
 import world.mongoose.banteng.bytecode.LayoutCompiler.PendingCatchGroup;
+import world.mongoose.banteng.bytecode.LayoutCompiler.PendingCatchSelector;
 import world.mongoose.banteng.bytecode.LayoutCompiler.PendingProtectedFinally;
 import world.mongoose.banteng.bytecode.LayoutCompiler.PendingStructuralEntry;
 import world.mongoose.banteng.bytecode.LayoutCompiler.PendingToastClause;
@@ -219,6 +220,8 @@ final class VectorBuilder {
         if (caught.markerDepth().isPresent()) {
           structuralSlots += 2 * caught.group().clauses().size() + 1;
         }
+      } else if (structure instanceof PendingCatchSelector selector) {
+        structuralSlots += selector.clause().selector().dynamic() ? 1 : 2;
       } else if (structure instanceof PendingProtectedFinally) {
         structuralSlots++;
       } else {

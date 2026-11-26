@@ -597,9 +597,16 @@ public sealed interface Ast
 
   record AnyErrors() implements ErrorSelector {}
 
-  record ErrorList(List<String> names) implements ErrorSelector {
+  record ErrorList(List<Expression> expressions) implements ErrorSelector {
     public ErrorList {
-      names = List.copyOf(names);
+      expressions = List.copyOf(expressions);
+    }
+
+    public Optional<List<String>> staticNames() {
+      if (expressions.stream().allMatch(ErrorLiteral.class::isInstance)) {
+        return Optional.of(expressions.stream().map(value -> ((ErrorLiteral) value).name()).toList());
+      }
+      return Optional.empty();
     }
   }
 

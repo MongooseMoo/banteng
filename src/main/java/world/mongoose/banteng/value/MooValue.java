@@ -64,6 +64,14 @@ public sealed interface MooValue
       return code;
     }
 
+    /** Returns the runtime type code, including Toast's flag for complex values. */
+    public int runtimeCode() {
+      return switch (this) {
+        case STRING, LIST, MAP, ANONYMOUS, WAIF -> code | 0x80;
+        default -> code;
+      };
+    }
+
   }
 
   /** A signed 64-bit MOO integer. */
@@ -159,6 +167,8 @@ public sealed interface MooValue
       if (value == 0.0) {
         return Double.doubleToRawLongBits(value) < 0 ? "-0.0" : "0.0";
       }
+      if (Double.isInfinite(value)) return value < 0.0 ? "-inf.0" : "inf.0";
+      if (Double.isNaN(value)) return "nan.0";
       String formatted = String.format(Locale.ROOT, "%.15g", new BigDecimal(value));
       int exponent = Math.max(formatted.indexOf('e'), formatted.indexOf('E'));
       String significand = exponent < 0 ? formatted : formatted.substring(0, exponent);
@@ -240,14 +250,13 @@ public sealed interface MooValue
     private static final Charset CHARSET = StandardCharsets.ISO_8859_1;
     private final byte[] bytes;
 
-    /** Creates a string by taking a defensive copy of {@code bytes}. */
-    private StringValue(byte[] bytes) {
-      this.bytes = Arrays.copyOf(bytes, bytes.length);
+    private StringValue(byte[] ownedBytes) {
+      bytes = ownedBytes;
     }
 
     /** Creates a binary string by taking a defensive copy of {@code bytes}. */
     public static StringValue of(byte[] bytes) {
-      return new StringValue(bytes);
+      return new StringValue(Arrays.copyOf(bytes, bytes.length));
     }
 
     /** Encodes {@code text} as one Latin-1 byte per character. */
@@ -278,6 +287,19 @@ public sealed interface MooValue
     /** Returns the byte length of this string. */
     public int length() {
       return bytes.length;
+    }
+
+    /** Concatenates two immutable strings into one allocation. */
+    public StringValue concatenate(StringValue right) {
+      byte[] combined = Arrays.copyOf(bytes, Math.addExact(bytes.length, right.bytes.length));
+      System.arraycopy(right.bytes, 0, combined, bytes.length, right.bytes.length);
+      return new StringValue(combined);
+    }
+
+    /** Copies the requested zero-based range of this string. */
+    public StringValue slice(int start, int end) {
+      Objects.checkFromToIndex(start, end, bytes.length);
+      return new StringValue(Arrays.copyOfRange(bytes, start, end));
     }
 
     /** Returns the zero-based case-insensitive byte position of {@code needle}, or -1. */
@@ -330,6 +352,9 @@ public sealed interface MooValue
       }
       if (!(other instanceof StringValue string)) {
         return false;
+      }
+      if (bytes.length == 0 || string.bytes.length == 0) {
+        return bytes.length == string.bytes.length;
       }
       Optional<String> decoded = decodeValidUtf8(bytes);
       Optional<String> otherDecoded = decodeValidUtf8(string.bytes);
@@ -422,6 +447,12 @@ public sealed interface MooValue
 
   /** An anonymous MOO object whose runtime identity is its Java reference. */
   final class AnonymousObjectValue implements MooValue {
+    private final long keyOrder = ValueSemantics.nextIdentityKeyOrder();
+
+    long keyOrder() {
+      return keyOrder;
+    }
+
     @Override
     public Type type() {
       return Type.ANONYMOUS;
@@ -445,12 +476,17 @@ public sealed interface MooValue
 
   /** A MOO WAIF with identity semantics and immutable class and owner references. */
   final class WaifValue implements MooValue {
+    private final long keyOrder = ValueSemantics.nextIdentityKeyOrder();
     private final ObjectValue classObject;
     private final ObjectValue owner;
 
     public WaifValue(ObjectValue classObject, ObjectValue owner) {
       this.classObject = classObject;
       this.owner = owner;
+    }
+
+    long keyOrder() {
+      return keyOrder;
     }
 
     /** Returns this WAIF's class object. */

@@ -31,7 +31,7 @@ public final class StringBuiltins {
 
     public static void registerExplode(List<BuiltinSpec> entries) {
         BuiltinRegistrar registrar = new BuiltinRegistrar(entries);
-        registrar.builtin("explode", List.of(new CallShape(List.of(STRING), List.of(STRING, INTEGER), Optional.empty()))).implementation(call -> explode(call.arguments()));
+        registrar.builtin("explode", List.of(new CallShape(List.of(STRING), List.of(STRING, Set.of(ArgType.FLAG)), Optional.empty()))).implementation(call -> explode(call.arguments()));
     }
 
     public static void registerSubstitutionAndAnsi(List<BuiltinSpec> entries, Random random) {
@@ -248,18 +248,17 @@ public final class StringBuiltins {
         byte[] source = ((StringValue) arguments.get(0)).bytes();
         byte[] what = ((StringValue) arguments.get(1)).bytes();
         boolean caseMatters = arguments.size() >= 3 && arguments.get(2).isTruthy();
-        long offset = arguments.size() == 4 ? ((IntegerValue) arguments.get(3)).value() : 0;
+        int offset = arguments.size() == 4 ? (int) ((IntegerValue) arguments.get(3)).value() : 0;
         if ((!reverse && offset < 0) || (reverse && offset > 0)) {
             return BuiltinResult.error(ErrorValue.E_INVARG);
         }
 
         if (reverse) {
-            long prefixLength = source.length + offset;
+            int prefixLength = source.length + offset;
             if (prefixLength < 0) {
                 return BuiltinResult.value(new IntegerValue(0));
             }
-            int length = (int) Math.min(prefixLength, source.length);
-            for (int position = length - what.length; position >= 0; position--) {
+            for (int position = prefixLength - what.length; position >= 0; position--) {
                 if (matchesAt(source, position, what, caseMatters)) {
                     return BuiltinResult.value(new IntegerValue(position + 1L));
                 }
@@ -270,10 +269,9 @@ public final class StringBuiltins {
         if (offset > source.length) {
             return BuiltinResult.value(new IntegerValue(0));
         }
-        int start = (int) offset;
-        for (int position = start; position <= source.length - what.length; position++) {
+        for (int position = offset; position <= source.length - what.length; position++) {
             if (matchesAt(source, position, what, caseMatters)) {
-                return BuiltinResult.value(new IntegerValue(position - start + 1L));
+                return BuiltinResult.value(new IntegerValue(position - offset + 1L));
             }
         }
         return BuiltinResult.value(new IntegerValue(0));

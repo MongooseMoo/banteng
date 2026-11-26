@@ -20,6 +20,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.regex.Pattern;
 import java.util.Set;
 import world.mongoose.banteng.logging.ServerLog;
 import world.mongoose.banteng.world.ActiveConnection;
@@ -42,11 +43,19 @@ public final class LambdaMooV5Reader implements DbCodec {
   private final ServerLog serverLog;
 
   private final DbCodec output;
+  private final DatabaseVerbCompiler verbCompiler;
+
+  private static final Pattern OBJECT_HEADER = Pattern.compile("#\\s*[+-]?[0-9]+( recycled)?");
 
   /** Receives the shared log and the application's canonical checkpoint output codec. */
   public LambdaMooV5Reader(ServerLog serverLog, DbCodec output) {
+    this(serverLog, output, DatabaseVerbCompiler.PRESERVE_SOURCE);
+  }
+
+  public LambdaMooV5Reader(ServerLog serverLog, DbCodec output, DatabaseVerbCompiler verbCompiler) {
     this.serverLog = Objects.requireNonNull(serverLog, "serverLog");
     this.output = Objects.requireNonNull(output, "output");
+    this.verbCompiler = Objects.requireNonNull(verbCompiler, "verbCompiler");
   }
 
   /** Reads a v5 world, applying the same three topology-repair phases as LambdaMOO. */
@@ -116,12 +125,12 @@ public final class LambdaMooV5Reader implements DbCodec {
   private static Optional<RawObject> readObject(BufferedReader input, long expectedId)
       throws IOException {
     String header = requiredLine(input, "object #" + expectedId + " header");
-    if (header.equals("#" + expectedId + " recycled")
-        || header.equals("# " + expectedId + " recycled")) {
-      return Optional.empty();
-    }
-    if (!header.equals("#" + expectedId)) {
+    var label = OBJECT_HEADER.matcher(header);
+    if (!label.matches()) {
       throw malformed("invalid object #" + expectedId + " header: " + header);
+    }
+    if (label.group(1) != null) {
+      return Optional.empty();
     }
     String name = requiredLine(input, "object name");
     int flags = readInt(input, "object flags");
@@ -145,7 +154,7 @@ public final class LambdaMooV5Reader implements DbCodec {
     int propertyNameCount = readCount(input, "property-name count");
     List<String> propertyNames = new ArrayList<>(propertyNameCount);
     for (int index = 0; index < propertyNameCount; index++) {
-      propertyNames.add(requiredLine(input, "property name"));
+      propertyNames.add(DbScanner.readPropertyName(input));
     }
     int propertySlotCount = readCount(input, "property-slot count");
     List<RawPropertySlot> propertySlots = new ArrayList<>(propertySlotCount);
@@ -361,7 +370,7 @@ public final class LambdaMooV5Reader implements DbCodec {
     return false;
   }
 
-  private static List<WorldObject> restoreObjects(
+  private List<WorldObject> restoreObjects(
       Map<Long, RawObject> rawObjects,
       Map<Long, RepairedObject> repaired,
       Map<ProgramSlot, String> programs) throws IOException {
@@ -376,8 +385,8 @@ public final class LambdaMooV5Reader implements DbCodec {
       List<WorldVerb> verbs = new ArrayList<>(raw.verbs().size());
       for (int index = 0; index < raw.verbs().size(); index++) {
         RawVerb verb = raw.verbs().get(index);
-        verbs.add(
-            verb.compile(programs.getOrDefault(new ProgramSlot(raw.id(), index), "")));
+        String source = programs.getOrDefault(new ProgramSlot(raw.id(), index), "");
+        verbs.add(verbCompiler.compile(raw.id(), verb, source));
       }
       RepairedObject topology = Objects.requireNonNull(repaired.get(raw.id()));
       objects.add(

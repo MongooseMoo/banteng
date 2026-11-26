@@ -56,6 +56,8 @@ final class MooParserTest {
     String source = "return " + "(".repeat(2_560) + "1" + ")".repeat(2_560) + ";";
 
     assertDoesNotThrow(() -> MooParser.parse(accepted));
+    String grouped = "return " + "1 ^ (".repeat(255) + "1 ^ 1" + ")".repeat(255) + ";";
+    assertDoesNotThrow(() -> MooParser.parse(grouped));
     MooParser.ParseException error =
         assertThrows(MooParser.ParseException.class, () -> MooParser.parse(source));
 

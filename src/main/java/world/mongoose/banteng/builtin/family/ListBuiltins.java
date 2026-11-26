@@ -85,8 +85,8 @@ public final class ListBuiltins {
                         List.of(Set.of(ArgType.LIST)),
                         List.of(
                                 Set.of(ArgType.LIST),
-                                Set.of(ArgType.INTEGER),
-                                Set.of(ArgType.INTEGER)),
+                                Set.of(ArgType.FLAG),
+                                Set.of(ArgType.FLAG)),
                         Optional.empty()))).implementation(sort);
     }
 

@@ -4,6 +4,7 @@ import java.math.BigInteger;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.function.UnaryOperator;
 import world.mongoose.banteng.syntax.MooLexer.Token;
 import world.mongoose.banteng.syntax.MooLexer.TokenKind;
 import org.jspecify.annotations.Nullable;
@@ -25,20 +26,32 @@ public final class MooParser {
   private static final int MAX_EXPRESSION_DEPTH = 256;
 
   private final MooLexer lexer;
+  private final UnaryOperator<Ast.Call> builtinCall;
   private Token current;
   private int previousEndOffset;
   private int indexDepth;
   private int expressionDepth;
+  private int groupingDepth;
   private @Nullable List<ParseDiagnostic> recoveringDiagnostics = null;
 
   private MooParser(String source) {
+    this(source, UnaryOperator.identity());
+  }
+
+  private MooParser(String source, UnaryOperator<Ast.Call> builtinCall) {
     lexer = new MooLexer(source);
+    this.builtinCall = builtinCall;
     current = lexer.next();
   }
 
   /** Parses a complete stored or dynamically compiled MOO verb body. */
   public static Ast.Program parse(String source) {
     return new MooParser(source).parseProgram();
+  }
+
+  /** Parses stored source with the database loader's builtin resolution rules. */
+  public static Ast.Program parse(String source, UnaryOperator<Ast.Call> builtinCall) {
+    return new MooParser(source, builtinCall).parseProgram();
   }
 
   /** Parses one verb body while collecting every recoverable source diagnostic. */
@@ -317,7 +330,11 @@ public final class MooParser {
     }
 
     Optional<Ast.FinallyClause> finallyClause = Optional.empty();
-    if (match(TokenKind.FINALLY)) {
+    if (current.kind() == TokenKind.FINALLY) {
+      if (!exceptClauses.isEmpty()) {
+        throw error("finally cannot follow except in the same try statement");
+      }
+      advance();
       finallyClause = Optional.of(new Ast.FinallyClause(parseStatementsUntil(TokenKind.ENDTRY)));
     }
     if (exceptClauses.isEmpty() && finallyClause.isEmpty()) {
@@ -492,7 +509,10 @@ public final class MooParser {
           throw error(token, "invalid float literal", exception);
         }
       }
-      case STRING -> {
+      case STRING, UNCLOSED_STRING -> {
+        if (token.kind() == TokenKind.UNCLOSED_STRING) {
+          reportRecoverable(token, "unterminated string literal");
+        }
         advance();
         yield new Ast.StringLiteral(
             token.lexeme(),
@@ -529,22 +549,8 @@ public final class MooParser {
                     token.line(),
                     token.column())));
       }
-      case DOLLAR -> {
-        if (indexDepth == 0) {
-          yield parseSystemProperty();
-        }
-        advance();
-        yield new Ast.LastIndex(
-            Optional.of(
-                new Ast.SourceSpan(
-                    token.startOffset(), token.endOffset(), token.line(), token.column())));
-      }
-      case LEFT_PAREN -> {
-        advance();
-        Ast.Expression expression = parseExpression(ASSIGNMENT_PRECEDENCE);
-        expectAndAdvance(TokenKind.RIGHT_PAREN, "')'");
-        yield expression;
-      }
+      case DOLLAR -> parseDollarExpression();
+      case LEFT_PAREN -> parseGroupedExpression();
       case LEFT_BRACE -> parseListLiteral();
       case LEFT_BRACKET -> parseMapLiteral();
       case CARET -> {
@@ -585,10 +591,32 @@ public final class MooParser {
     };
   }
 
-  private Ast.Expression parseSystemProperty() {
+  private Ast.Expression parseGroupedExpression() {
+    if (groupingDepth >= MAX_EXPRESSION_DEPTH) {
+      throw error("expression nesting limit exceeded");
+    }
+    groupingDepth++;
+    // Groups do not add a node to the expression tree.
+    expressionDepth--;
+    try {
+      advance();
+      Ast.Expression expression = parseExpression(ASSIGNMENT_PRECEDENCE);
+      expectAndAdvance(TokenKind.RIGHT_PAREN, "')'");
+      return expression;
+    } finally {
+      expressionDepth++;
+      groupingDepth--;
+    }
+  }
+
+  private Ast.Expression parseDollarExpression() {
     Token dollar = current;
     advance();
     if (current.kind() != TokenKind.IDENTIFIER) {
+      if (indexDepth > 0) {
+        return new Ast.LastIndex(Optional.of(new Ast.SourceSpan(
+            dollar.startOffset(), dollar.endOffset(), dollar.line(), dollar.column())));
+      }
       throw error(dollar, "'$' is only valid inside an index expression");
     }
     String property = expect(TokenKind.IDENTIFIER, "system property name").lexeme();
@@ -694,10 +722,11 @@ public final class MooParser {
     if (match(TokenKind.ANY)) {
       return new Ast.AnyErrors();
     }
-    List<String> errors = new ArrayList<>();
+    List<Ast.Expression> errors = new ArrayList<>();
     do {
-      errors.add(expect(TokenKind.ERROR, "error name or ANY").lexeme());
-      advance();
+      boolean splice = match(TokenKind.AT);
+      Ast.Expression expression = parseExpression(ASSIGNMENT_PRECEDENCE);
+      errors.add(splice ? new Ast.Splice(expression) : expression);
     } while (match(TokenKind.COMMA));
     return new Ast.ErrorList(errors);
   }
@@ -759,7 +788,7 @@ public final class MooParser {
     }
     Token rightParen = current;
     expectAndAdvance(TokenKind.RIGHT_PAREN, "')' after call arguments");
-    return new Ast.Call(
+    return builtinCall.apply(new Ast.Call(
         identifier.name(),
         arguments,
         Optional.of(
@@ -767,7 +796,7 @@ public final class MooParser {
                 firstToken.startOffset(),
                 rightParen.endOffset(),
                 firstToken.line(),
-                firstToken.column())));
+                firstToken.column()))));
   }
 
   private Ast.PropertyAccess parseProperty(Ast.Expression receiver) {
@@ -777,9 +806,10 @@ public final class MooParser {
       property = parseExpression(ASSIGNMENT_PRECEDENCE);
       expectAndAdvance(TokenKind.RIGHT_PAREN, "')' after computed property name");
     } else {
+      boolean colonPrefix = match(TokenKind.COLON);
       String name = expect(TokenKind.IDENTIFIER, "property name").lexeme();
       advance();
-      property = new Ast.StringLiteral(name);
+      property = new Ast.StringLiteral(colonPrefix ? ":" + name : name);
     }
     return new Ast.PropertyAccess(receiver, property);
   }

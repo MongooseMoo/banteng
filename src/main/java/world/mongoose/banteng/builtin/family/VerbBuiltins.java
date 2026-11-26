@@ -142,12 +142,11 @@ public final class VerbBuiltins {
             }
             verb = target.verbs().get((int) index);
         } else {
-            WorldVerb candidate =
-                    world.verb(object.value(), ((StringValue) descriptor).text(), false).orElse(null);
-            if (candidate == null || !target.verbs().contains(candidate)) {
+            int index = WorldTxn.definedVerbIndex(target.verbs(), (StringValue) descriptor);
+            if (index < 0) {
                 return BuiltinResult.error(ErrorValue.E_VERBNF);
             }
-            verb = candidate;
+            verb = target.verbs().get(index);
         }
 
         if (!Access.canRead(world, programmer, verb.owner(), verb.perms())) {
@@ -311,13 +310,11 @@ public final class VerbBuiltins {
             verbIndex = (int) index;
             verb = targetVerbs.get(verbIndex);
         } else {
-            WorldVerb candidate =
-                    world.verb(object.value(), ((StringValue) descriptor).text(), false).orElse(null);
-            if (candidate == null || !targetVerbs.contains(candidate)) {
+            verbIndex = WorldTxn.definedVerbIndex(targetVerbs, (StringValue) descriptor);
+            if (verbIndex < 0) {
                 return BuiltinResult.error(ErrorValue.E_VERBNF);
             }
-            verb = candidate;
-            verbIndex = targetVerbs.indexOf(verb);
+            verb = targetVerbs.get(verbIndex);
         }
 
         boolean wizard = world.isWizard(programmer);
@@ -358,7 +355,7 @@ public final class VerbBuiltins {
             return BuiltinResult.error(ErrorValue.E_PERM);
         }
         return BuiltinResult.value(
-                new ListValue(verbs.stream().map(WorldVerb::names).map(StringValue::of).toList()));
+                new ListValue(verbs.stream().map(WorldVerb::namesValue).toList()));
     }
 
     private static BuiltinResult verbInfo(
@@ -387,12 +384,11 @@ public final class VerbBuiltins {
             }
             verb = target.verbs().get((int) index);
         } else {
-            WorldVerb candidate =
-                    world.verb(object.value(), ((StringValue) descriptor).text(), false).orElse(null);
-            if (candidate == null || !target.verbs().contains(candidate)) {
+            int index = WorldTxn.definedVerbIndex(target.verbs(), (StringValue) descriptor);
+            if (index < 0) {
                 return BuiltinResult.error(ErrorValue.E_VERBNF);
             }
-            verb = candidate;
+            verb = target.verbs().get(index);
         }
 
         if (!Access.canRead(world, programmer, verb.owner(), verb.perms())) {
@@ -413,7 +409,7 @@ public final class VerbBuiltins {
         }
         return BuiltinResult.value(
                 new ListValue(
-                        List.of(new ObjectValue(verb.owner()), StringValue.of(flags.toString()), StringValue.of(verb.names()))));
+                        List.of(new ObjectValue(verb.owner()), StringValue.of(flags.toString()), verb.namesValue())));
     }
 
     private static BuiltinResult verbArgs(
@@ -442,12 +438,11 @@ public final class VerbBuiltins {
             }
             verb = target.verbs().get((int) index);
         } else {
-            WorldVerb candidate =
-                    world.verb(object.value(), ((StringValue) descriptor).text(), false).orElse(null);
-            if (candidate == null || !target.verbs().contains(candidate)) {
+            int index = WorldTxn.definedVerbIndex(target.verbs(), (StringValue) descriptor);
+            if (index < 0) {
                 return BuiltinResult.error(ErrorValue.E_VERBNF);
             }
-            verb = candidate;
+            verb = target.verbs().get(index);
         }
 
         if (!Access.canRead(world, programmer, verb.owner(), verb.perms())) {
@@ -503,12 +498,10 @@ public final class VerbBuiltins {
             }
             verbIndex = (int) index;
         } else {
-            WorldVerb candidate =
-                    world.verb(object.value(), ((StringValue) descriptor).text(), false).orElse(null);
-            if (candidate == null || !target.verbs().contains(candidate)) {
+            verbIndex = WorldTxn.definedVerbIndex(target.verbs(), (StringValue) descriptor);
+            if (verbIndex < 0) {
                 return BuiltinResult.error(ErrorValue.E_VERBNF);
             }
-            verbIndex = target.verbs().indexOf(candidate);
         }
         return mutationResult(world.deleteVerb(object.value(), verbIndex), new IntegerValue(0));
     }
@@ -570,13 +563,11 @@ public final class VerbBuiltins {
             verbIndex = (int) index;
             verb = targetVerbs.get(verbIndex);
         } else {
-            WorldVerb candidate =
-                    world.verb(object.value(), ((StringValue) descriptor).text(), false).orElse(null);
-            if (candidate == null || !targetVerbs.contains(candidate)) {
+            verbIndex = WorldTxn.definedVerbIndex(targetVerbs, (StringValue) descriptor);
+            if (verbIndex < 0) {
                 return BuiltinResult.error(ErrorValue.E_VERBNF);
             }
-            verb = candidate;
-            verbIndex = targetVerbs.indexOf(verb);
+            verb = targetVerbs.get(verbIndex);
         }
 
         if (!Access.canWrite(world, programmer, verb.owner(), verb.perms())) {
@@ -634,20 +625,11 @@ public final class VerbBuiltins {
             verbIndex = (int) index;
             verb = targetVerbs.get(verbIndex);
         } else {
-            WorldVerb candidate =
-                    receiver instanceof ObjectValue object
-                            ? world.verb(object.value(), ((StringValue) descriptor).text(), false).orElse(null)
-                            : world
-                            .verb(
-                                    (AnonymousObjectValue) receiver,
-                                    ((StringValue) descriptor).text(),
-                                    false)
-                            .orElse(null);
-            if (candidate == null || !targetVerbs.contains(candidate)) {
+            verbIndex = WorldTxn.definedVerbIndex(targetVerbs, (StringValue) descriptor);
+            if (verbIndex < 0) {
                 return BuiltinResult.error(ErrorValue.E_VERBNF);
             }
-            verb = candidate;
-            verbIndex = targetVerbs.indexOf(verb);
+            verb = targetVerbs.get(verbIndex);
         }
 
         boolean wizard = world.isWizard(programmer);
@@ -705,12 +687,11 @@ public final class VerbBuiltins {
             }
             verb = target.verbs().get((int) index);
         } else {
-            WorldVerb candidate =
-                    world.verb(object.value(), ((StringValue) descriptor).text(), false).orElse(null);
-            if (candidate == null || !target.verbs().contains(candidate)) {
+            int index = WorldTxn.definedVerbIndex(target.verbs(), (StringValue) descriptor);
+            if (index < 0) {
                 return BuiltinResult.error(ErrorValue.E_VERBNF);
             }
-            verb = candidate;
+            verb = target.verbs().get(index);
         }
 
         if (!Access.canRead(world, programmer, verb.owner(), verb.perms())) {
@@ -723,7 +704,8 @@ public final class VerbBuiltins {
         }
         List<MooValue> lines =
                 Arrays.stream(MooUnparser.unparse(MooParser.parse(verb.programSource()),
-                        arguments.size() >= 3 && arguments.get(2).isTruthy()).split("\n", -1))
+                        arguments.size() >= 3 && arguments.get(2).isTruthy(),
+                        value -> new MooValue.FloatValue(value).toLiteral()).split("\n", -1))
                         .map(line -> indent ? line : line.stripLeading())
                         .map(StringValue::of)
                         .map(MooValue.class::cast)

@@ -137,20 +137,16 @@ final class IndexOps {
     if (collection instanceof StringValue string
         && start instanceof IntegerValue first
         && end instanceof IntegerValue last) {
-      byte[] bytes = string.bytes();
       if (last.value() < first.value()) {
         frame.operandStack.push(StringValue.of(new byte[0]));
         frame.instructionPointer++;
         return;
       }
-      if (first.value() < 1 || last.value() > bytes.length) {
+      if (first.value() < 1 || last.value() > string.length()) {
         ErrorOps.raise(state, ErrorValue.E_RANGE, world);
         return;
       }
-      frame.operandStack.push(
-          StringValue.of(
-              Arrays.copyOfRange(
-                  bytes, Math.toIntExact(first.value() - 1), Math.toIntExact(last.value()))));
+      frame.operandStack.push(string.slice(Math.toIntExact(first.value() - 1), Math.toIntExact(last.value())));
       frame.instructionPointer++;
       return;
     }
@@ -162,9 +158,7 @@ final class IndexOps {
         ErrorOps.raise(state, ErrorValue.E_TYPE, world);
         return;
       }
-      if (start instanceof IntegerValue first
-          && end instanceof IntegerValue last
-          && last.value() < first.value()) {
+      if (ValueSemantics.STANDARD.compare(start, end, false) > 0) {
         frame.operandStack.push(new MapValue(Map.of()));
         frame.instructionPointer++;
         return;

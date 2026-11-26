@@ -65,6 +65,44 @@ final class MooVmTest {
   }
 
   @Test
+  void nonDebugActivationContinuesAfterARejectedArgumentList() {
+    WorldObject system = new WorldObject(0, "System", 0, 0, -1, -1, List.of(), List.of(), List.of(),
+        List.of(new WorldProperty("server_options", new ObjectValue(1), 0, new PropertyPerms(0), false, true)));
+    WorldObject options = new WorldObject(1, "Options", 0, 0, -1, -1, List.of(), List.of(), List.of(),
+        List.of(new WorldProperty("max_list_value_bytes", new IntegerValue(1100), 0, new PropertyPerms(0), false, true),
+            new WorldProperty("max_concat_catchable", new IntegerValue(1), 0, new PropertyPerms(0), false, true)));
+    var program = new MooCompiler().compile("mark = 0; result = equal(x, x, mark = 1); return {result, mark};");
+    var state = new VmState(new TaskOrigin(Map.of("x", text("x".repeat(600))), 0,
+        new ObjectValue(0), "", "", false), new TaskBudget(60_000, 5, 50));
+    executeAndClose(program, state, new WorldTxn(List.of(), List.of(system, options)),
+        new BuiltinCatalog(BuiltinHosts.builder().build()));
+    assertEquals(VmState.Outcome.RETURNED, state.outcome());
+    assertEquals(new ListValue(List.of(ErrorValue.E_TYPE, new IntegerValue(1))),
+        state.returnValue().orElseThrow());
+  }
+
+  @Test
+  void sqliteDistinguishesEmptyQueriesFromEmptyPreparedStatements() {
+    var program = new MooCompiler().compile("""
+        set_thread_mode(0);
+        db = sqlite_open(":memory:");
+        r = {sqlite_execute(db, "", {}), sqlite_execute(db, "  -- comment", {1}),
+             sqlite_query(db, ""), sqlite_query(db, " ; ")};
+        sqlite_close(db);
+        return r;
+        """);
+    WorldObject wizard = new WorldObject(0, "Wizard", ObjectFlags.FLAG_WIZARD, 0, -1, -1,
+        List.of(), List.of(), List.of(), List.of());
+    VmState state = new VmState(new TaskOrigin(Map.of(), 0, new ObjectValue(0), "", "", true),
+        new TaskBudget(60_000, 5, 50));
+    executeAndClose(program, state, new WorldTxn(List.of(), List.of(wizard)),
+        new BuiltinCatalog(BuiltinHosts.builder().build()));
+    assertEquals(VmState.Outcome.RETURNED, state.outcome());
+    assertEquals(new ListValue(List.of(text("not an error"), text("not an error"),
+        new ListValue(List.of()), new ListValue(List.of()))), state.returnValue().orElseThrow());
+  }
+
+  @Test
   void calledVerbUsesItsOwnDebugPermission() {
     WorldVerb nonDebug =
         new WorldVerb(
@@ -825,19 +863,18 @@ final class MooVmTest {
         2 STORE_LOCAL 24
         3 POP
         4 PUSH_STRING 12345
-        5 ITERATE 15 i
-        6 BUILD_LIST 0
-        7 PUSH_CLEAR 24
-        8 LIST_EXTEND 1
-        9 LOAD_LOCAL 25
-        10 LIST_APPEND 0
-        11 DUP
-        12 STORE_LOCAL 24
-        13 POP
-        14 JUMP 5
-        15 LEAVE_LOOP 5
-        16 PUSH_CLEAR 24
-        17 RETURN""",
+        5 ITERATE 14 i
+        6 PUSH_CLEAR 24
+        7 LIST_EXTEND 1
+        8 LOAD_LOCAL 25
+        9 LIST_APPEND 0
+        10 DUP
+        11 STORE_LOCAL 24
+        12 POP
+        13 JUMP 5
+        14 LEAVE_LOOP 5
+        15 PUSH_CLEAR 24
+        16 RETURN""",
         program.disassemble());
     VmState state = new VmState(new TaskOrigin(java.util.Map.of(), 0, new world.mongoose.banteng.value.MooValue.ObjectValue(-1),
         "", "", true), new TaskBudget(60_000, 5, 50));
@@ -922,23 +959,21 @@ final class MooVmTest {
         2 STORE_LOCAL 24
         3 POP
         4 PUSH_STRING 12
-        5 ITERATE 19 i,j
-        6 BUILD_LIST 0
-        7 PUSH_CLEAR 24
-        8 LIST_EXTEND 1
-        9 BUILD_LIST 0
-        10 LOAD_LOCAL 25
-        11 LIST_APPEND 1
-        12 LOAD_LOCAL 26
-        13 LIST_APPEND 0
-        14 LIST_APPEND 0
-        15 DUP
-        16 STORE_LOCAL 24
-        17 POP
-        18 JUMP 5
-        19 LEAVE_LOOP 5
-        20 PUSH_CLEAR 24
-        21 RETURN""",
+        5 ITERATE 17 i,j
+        6 PUSH_CLEAR 24
+        7 LIST_EXTEND 1
+        8 LOAD_LOCAL 25
+        9 LIST_APPEND 1
+        10 LOAD_LOCAL 26
+        11 LIST_APPEND 0
+        12 LIST_APPEND 0
+        13 DUP
+        14 STORE_LOCAL 24
+        15 POP
+        16 JUMP 5
+        17 LEAVE_LOOP 5
+        18 PUSH_CLEAR 24
+        19 RETURN""",
         program.disassemble());
     VmState state = new VmState(new TaskOrigin(java.util.Map.of(), 0, new world.mongoose.banteng.value.MooValue.ObjectValue(-1),
         "", "", true), new TaskBudget(60_000, 5, 50));
@@ -992,19 +1027,18 @@ final class MooVmTest {
         6 PUSH_INTEGER 1
         7 PUSH_STRING a
         8 BUILD_MAP 2
-        9 ITERATE 19 v
-        10 BUILD_LIST 0
-        11 PUSH_CLEAR 24
-        12 LIST_EXTEND 1
-        13 LOAD_LOCAL 25
-        14 LIST_APPEND 0
-        15 DUP
-        16 STORE_LOCAL 24
-        17 POP
-        18 JUMP 9
-        19 LEAVE_LOOP 9
-        20 PUSH_CLEAR 24
-        21 RETURN""",
+        9 ITERATE 18 v
+        10 PUSH_CLEAR 24
+        11 LIST_EXTEND 1
+        12 LOAD_LOCAL 25
+        13 LIST_APPEND 0
+        14 DUP
+        15 STORE_LOCAL 24
+        16 POP
+        17 JUMP 9
+        18 LEAVE_LOOP 9
+        19 PUSH_CLEAR 24
+        20 RETURN""",
         program.disassemble());
     VmState state = new VmState(new TaskOrigin(java.util.Map.of(), 0, new world.mongoose.banteng.value.MooValue.ObjectValue(-1),
         "", "", true), new TaskBudget(60_000, 5, 50));
@@ -1053,23 +1087,21 @@ final class MooVmTest {
         6 PUSH_INTEGER 1
         7 PUSH_STRING a
         8 BUILD_MAP 2
-        9 ITERATE 23 v,k
-        10 BUILD_LIST 0
-        11 PUSH_CLEAR 24
-        12 LIST_EXTEND 1
-        13 BUILD_LIST 0
-        14 LOAD_LOCAL 25
-        15 LIST_APPEND 1
-        16 LOAD_LOCAL 26
-        17 LIST_APPEND 0
-        18 LIST_APPEND 0
-        19 DUP
-        20 STORE_LOCAL 24
-        21 POP
-        22 JUMP 9
-        23 LEAVE_LOOP 9
-        24 PUSH_CLEAR 24
-        25 RETURN""",
+        9 ITERATE 21 v,k
+        10 PUSH_CLEAR 24
+        11 LIST_EXTEND 1
+        12 LOAD_LOCAL 25
+        13 LIST_APPEND 1
+        14 LOAD_LOCAL 26
+        15 LIST_APPEND 0
+        16 LIST_APPEND 0
+        17 DUP
+        18 STORE_LOCAL 24
+        19 POP
+        20 JUMP 9
+        21 LEAVE_LOOP 9
+        22 PUSH_CLEAR 24
+        23 RETURN""",
         program.disassemble());
     VmState state = new VmState(new TaskOrigin(java.util.Map.of(), 0, new world.mongoose.banteng.value.MooValue.ObjectValue(-1),
         "", "", true), new TaskBudget(60_000, 5, 50));
@@ -1123,32 +1155,30 @@ final class MooVmTest {
         1 DUP
         2 STORE_LOCAL 24
         3 POP
-        4 BUILD_LIST 0
-        5 PUSH_INTEGER 1
-        6 LIST_APPEND 1
-        7 PUSH_INTEGER 2
-        8 LIST_APPEND 0
-        9 PUSH_INTEGER 3
-        10 LIST_APPEND 0
-        11 ITERATE 27 i
-        12 LOAD_LOCAL 25
-        13 PUSH_INTEGER 2
-        14 GREATER_THAN
-        15 JUMP_IF_FALSE 18
-        16 JUMP 27
-        17 JUMP 18
-        18 BUILD_LIST 0
-        19 PUSH_CLEAR 24
-        20 LIST_EXTEND 1
-        21 LOAD_LOCAL 25
-        22 LIST_APPEND 0
-        23 DUP
-        24 STORE_LOCAL 24
-        25 POP
-        26 JUMP 11
-        27 LEAVE_LOOP 11
-        28 PUSH_CLEAR 24
-        29 RETURN""",
+        4 PUSH_INTEGER 1
+        5 LIST_APPEND 1
+        6 PUSH_INTEGER 2
+        7 LIST_APPEND 0
+        8 PUSH_INTEGER 3
+        9 LIST_APPEND 0
+        10 ITERATE 25 i
+        11 LOAD_LOCAL 25
+        12 PUSH_INTEGER 2
+        13 GREATER_THAN
+        14 JUMP_IF_FALSE 17
+        15 JUMP 25
+        16 JUMP 17
+        17 PUSH_CLEAR 24
+        18 LIST_EXTEND 1
+        19 LOAD_LOCAL 25
+        20 LIST_APPEND 0
+        21 DUP
+        22 STORE_LOCAL 24
+        23 POP
+        24 JUMP 10
+        25 LEAVE_LOOP 10
+        26 PUSH_CLEAR 24
+        27 RETURN""",
         program.disassemble());
     VmState state = new VmState(new TaskOrigin(java.util.Map.of(), 0, new world.mongoose.banteng.value.MooValue.ObjectValue(-1),
         "", "", true), new TaskBudget(60_000, 5, 50));
@@ -1198,36 +1228,34 @@ final class MooVmTest {
         1 DUP
         2 STORE_LOCAL 24
         3 POP
-        4 BUILD_LIST 0
-        5 PUSH_STRING 1
-        6 LIST_APPEND 1
-        7 PUSH_STRING 2
-        8 LIST_APPEND 0
-        9 PUSH_STRING 3
-        10 LIST_APPEND 0
-        11 PUSH_STRING 4
-        12 LIST_APPEND 0
-        13 PUSH_STRING 5
-        14 LIST_APPEND 0
-        15 ITERATE 31 i,j
-        16 LOAD_LOCAL 26
-        17 PUSH_INTEGER 2
-        18 GREATER_THAN
-        19 JUMP_IF_FALSE 22
-        20 JUMP 31
-        21 JUMP 22
-        22 BUILD_LIST 0
-        23 PUSH_CLEAR 24
-        24 LIST_EXTEND 1
-        25 LOAD_LOCAL 25
-        26 LIST_APPEND 0
-        27 DUP
-        28 STORE_LOCAL 24
-        29 POP
-        30 JUMP 15
-        31 LEAVE_LOOP 15
-        32 PUSH_CLEAR 24
-        33 RETURN""",
+        4 PUSH_STRING 1
+        5 LIST_APPEND 1
+        6 PUSH_STRING 2
+        7 LIST_APPEND 0
+        8 PUSH_STRING 3
+        9 LIST_APPEND 0
+        10 PUSH_STRING 4
+        11 LIST_APPEND 0
+        12 PUSH_STRING 5
+        13 LIST_APPEND 0
+        14 ITERATE 29 i,j
+        15 LOAD_LOCAL 26
+        16 PUSH_INTEGER 2
+        17 GREATER_THAN
+        18 JUMP_IF_FALSE 21
+        19 JUMP 29
+        20 JUMP 21
+        21 PUSH_CLEAR 24
+        22 LIST_EXTEND 1
+        23 LOAD_LOCAL 25
+        24 LIST_APPEND 0
+        25 DUP
+        26 STORE_LOCAL 24
+        27 POP
+        28 JUMP 14
+        29 LEAVE_LOOP 14
+        30 PUSH_CLEAR 24
+        31 RETURN""",
         program.disassemble());
     VmState state = new VmState(new TaskOrigin(java.util.Map.of(), 0, new world.mongoose.banteng.value.MooValue.ObjectValue(-1),
         "", "", true), new TaskBudget(60_000, 5, 50));
@@ -1279,36 +1307,34 @@ final class MooVmTest {
         1 DUP
         2 STORE_LOCAL 24
         3 POP
-        4 BUILD_LIST 0
-        5 PUSH_INTEGER 1
-        6 LIST_APPEND 1
-        7 PUSH_INTEGER 2
-        8 LIST_APPEND 0
-        9 PUSH_INTEGER 3
-        10 LIST_APPEND 0
-        11 PUSH_INTEGER 4
-        12 LIST_APPEND 0
-        13 PUSH_INTEGER 5
-        14 LIST_APPEND 0
-        15 ITERATE 31 i
-        16 LOAD_LOCAL 25
-        17 PUSH_INTEGER 3
-        18 LESS_THAN
-        19 JUMP_IF_FALSE 22
-        20 JUMP 15
-        21 JUMP 22
-        22 BUILD_LIST 0
-        23 PUSH_CLEAR 24
-        24 LIST_EXTEND 1
-        25 LOAD_LOCAL 25
-        26 LIST_APPEND 0
-        27 DUP
-        28 STORE_LOCAL 24
-        29 POP
-        30 JUMP 15
-        31 LEAVE_LOOP 15
-        32 PUSH_CLEAR 24
-        33 RETURN""",
+        4 PUSH_INTEGER 1
+        5 LIST_APPEND 1
+        6 PUSH_INTEGER 2
+        7 LIST_APPEND 0
+        8 PUSH_INTEGER 3
+        9 LIST_APPEND 0
+        10 PUSH_INTEGER 4
+        11 LIST_APPEND 0
+        12 PUSH_INTEGER 5
+        13 LIST_APPEND 0
+        14 ITERATE 29 i
+        15 LOAD_LOCAL 25
+        16 PUSH_INTEGER 3
+        17 LESS_THAN
+        18 JUMP_IF_FALSE 21
+        19 JUMP 14
+        20 JUMP 21
+        21 PUSH_CLEAR 24
+        22 LIST_EXTEND 1
+        23 LOAD_LOCAL 25
+        24 LIST_APPEND 0
+        25 DUP
+        26 STORE_LOCAL 24
+        27 POP
+        28 JUMP 14
+        29 LEAVE_LOOP 14
+        30 PUSH_CLEAR 24
+        31 RETURN""",
         program.disassemble());
     VmState state = new VmState(new TaskOrigin(java.util.Map.of(), 0, new world.mongoose.banteng.value.MooValue.ObjectValue(-1),
         "", "", true), new TaskBudget(60_000, 5, 50));
@@ -1357,18 +1383,16 @@ final class MooVmTest {
     BytecodeProgram program = new MooCompiler().compile(syntax);
     assertEquals(
         """
-        0 BUILD_LIST 0
-        1 PUSH_INTEGER 1
-        2 LIST_APPEND 1
-        3 PUSH_INTEGER 2
-        4 LIST_APPEND 0
-        5 BUILD_LIST 0
-        6 PUSH_INTEGER 3
-        7 LIST_APPEND 1
-        8 PUSH_INTEGER 4
-        9 LIST_APPEND 0
-        10 ADD
-        11 RETURN""",
+        0 PUSH_INTEGER 1
+        1 LIST_APPEND 1
+        2 PUSH_INTEGER 2
+        3 LIST_APPEND 0
+        4 PUSH_INTEGER 3
+        5 LIST_APPEND 1
+        6 PUSH_INTEGER 4
+        7 LIST_APPEND 0
+        8 ADD
+        9 RETURN""",
         program.disassemble());
     VmState state = new VmState(new TaskOrigin(java.util.Map.of(), 0, new world.mongoose.banteng.value.MooValue.ObjectValue(-1),
         "", "", true), new TaskBudget(60_000, 5, 50));
@@ -1400,14 +1424,13 @@ final class MooVmTest {
     BytecodeProgram program = new MooCompiler().compile(syntax);
     assertEquals(
         """
-        0 BUILD_LIST 0
-        1 PUSH_INTEGER 1
-        2 LIST_APPEND 1
-        3 PUSH_INTEGER 2
-        4 LIST_APPEND 0
-        5 PUSH_INTEGER 3
-        6 ADD
-        7 RETURN""",
+        0 PUSH_INTEGER 1
+        1 LIST_APPEND 1
+        2 PUSH_INTEGER 2
+        3 LIST_APPEND 0
+        4 PUSH_INTEGER 3
+        5 ADD
+        6 RETURN""",
         program.disassemble());
     VmState state = new VmState(new TaskOrigin(java.util.Map.of(), 0, new world.mongoose.banteng.value.MooValue.ObjectValue(-1),
         "", "", true), new TaskBudget(60_000, 5, 50));
@@ -1603,18 +1626,17 @@ final class MooVmTest {
     BytecodeProgram program = new MooCompiler().compile(syntax);
     assertEquals(
         """
-        0 BUILD_LIST 0
-        1 PUSH_STRING one
-        2 LIST_APPEND 1
-        3 PUSH_STRING two
-        4 LIST_APPEND 0
-        5 PUSH_STRING three
-        6 LIST_APPEND 0
-        7 ENTER_INDEX
+        0 PUSH_STRING one
+        1 LIST_APPEND 1
+        2 PUSH_STRING two
+        3 LIST_APPEND 0
+        4 PUSH_STRING three
+        5 LIST_APPEND 0
+        6 ENTER_INDEX
+        7 PUSH_INTEGER 3
         8 PUSH_INTEGER 3
-        9 PUSH_INTEGER 3
-        10 RANGE
-        11 RETURN""",
+        9 RANGE
+        10 RETURN""",
         program.disassemble());
     VmState state = new VmState(new TaskOrigin(java.util.Map.of(), 0, new world.mongoose.banteng.value.MooValue.ObjectValue(-1),
         "", "", true), new TaskBudget(60_000, 5, 50));
@@ -1648,18 +1670,17 @@ final class MooVmTest {
     BytecodeProgram program = new MooCompiler().compile(syntax);
     assertEquals(
         """
-        0 BUILD_LIST 0
-        1 PUSH_INTEGER 1
-        2 LIST_APPEND 1
-        3 PUSH_INTEGER 2
-        4 LIST_APPEND 0
-        5 PUSH_INTEGER 3
-        6 LIST_APPEND 0
-        7 ENTER_INDEX
-        8 PUSH_INTEGER 17
-        9 PUSH_INTEGER 12
-        10 RANGE
-        11 RETURN""",
+        0 PUSH_INTEGER 1
+        1 LIST_APPEND 1
+        2 PUSH_INTEGER 2
+        3 LIST_APPEND 0
+        4 PUSH_INTEGER 3
+        5 LIST_APPEND 0
+        6 ENTER_INDEX
+        7 PUSH_INTEGER 17
+        8 PUSH_INTEGER 12
+        9 RANGE
+        10 RETURN""",
         program.disassemble());
     VmState state = new VmState(new TaskOrigin(java.util.Map.of(), 0, new world.mongoose.banteng.value.MooValue.ObjectValue(-1),
         "", "", true), new TaskBudget(60_000, 5, 50));
@@ -1740,36 +1761,34 @@ final class MooVmTest {
     BytecodeProgram program = new MooCompiler().compile(syntax);
     assertEquals(
         """
-        0 BUILD_LIST 0
-        1 PUSH_INTEGER 1
-        2 LIST_APPEND 1
-        3 PUSH_INTEGER 2
-        4 LIST_APPEND 0
-        5 PUSH_INTEGER 3
-        6 LIST_APPEND 0
-        7 DUP
-        8 STORE_LOCAL 24
-        9 POP
-        10 PUSH_CLEAR 24
-        11 ENTER_INDEX
-        12 PUSH_INTEGER 2
-        13 PUSH_INTEGER 3
-        14 BUILD_LIST 0
-        15 PUSH_INTEGER 6
-        16 LIST_APPEND 1
-        17 PUSH_INTEGER 7
+        0 PUSH_INTEGER 1
+        1 LIST_APPEND 1
+        2 PUSH_INTEGER 2
+        3 LIST_APPEND 0
+        4 PUSH_INTEGER 3
+        5 LIST_APPEND 0
+        6 DUP
+        7 STORE_LOCAL 24
+        8 POP
+        9 PUSH_CLEAR 24
+        10 ENTER_INDEX
+        11 PUSH_INTEGER 2
+        12 PUSH_INTEGER 3
+        13 PUSH_INTEGER 6
+        14 LIST_APPEND 1
+        15 PUSH_INTEGER 7
+        16 LIST_APPEND 0
+        17 PUSH_INTEGER 8
         18 LIST_APPEND 0
-        19 PUSH_INTEGER 8
+        19 PUSH_INTEGER 9
         20 LIST_APPEND 0
-        21 PUSH_INTEGER 9
-        22 LIST_APPEND 0
-        23 PUT_TEMP
-        24 SET_RANGE
-        25 STORE_LOCAL 24
-        26 PUSH_TEMP
-        27 POP
-        28 PUSH_CLEAR 24
-        29 RETURN""",
+        21 PUT_TEMP
+        22 SET_RANGE
+        23 STORE_LOCAL 24
+        24 PUSH_TEMP
+        25 POP
+        26 PUSH_CLEAR 24
+        27 RETURN""",
         program.disassemble());
     VmState state = new VmState(new TaskOrigin(java.util.Map.of(), 0, new world.mongoose.banteng.value.MooValue.ObjectValue(-1),
         "", "", true), new TaskBudget(60_000, 5, 50));
@@ -1821,36 +1840,34 @@ final class MooVmTest {
     BytecodeProgram program = new MooCompiler().compile(syntax);
     assertEquals(
         """
-        0 BUILD_LIST 0
-        1 PUSH_INTEGER 1
-        2 LIST_APPEND 1
-        3 PUSH_INTEGER 6
-        4 LIST_APPEND 0
-        5 PUSH_INTEGER 7
-        6 LIST_APPEND 0
-        7 PUSH_INTEGER 8
-        8 LIST_APPEND 0
-        9 PUSH_INTEGER 9
-        10 LIST_APPEND 0
-        11 DUP
-        12 STORE_LOCAL 24
-        13 POP
-        14 PUSH_CLEAR 24
-        15 ENTER_INDEX
-        16 PUSH_INTEGER 2
-        17 PUSH_INTEGER 1
-        18 BUILD_LIST 0
-        19 PUSH_INTEGER 10
-        20 LIST_APPEND 1
-        21 PUSH_STRING foo
-        22 LIST_APPEND 0
-        23 PUT_TEMP
-        24 SET_RANGE
-        25 STORE_LOCAL 24
-        26 PUSH_TEMP
-        27 POP
-        28 PUSH_CLEAR 24
-        29 RETURN""",
+        0 PUSH_INTEGER 1
+        1 LIST_APPEND 1
+        2 PUSH_INTEGER 6
+        3 LIST_APPEND 0
+        4 PUSH_INTEGER 7
+        5 LIST_APPEND 0
+        6 PUSH_INTEGER 8
+        7 LIST_APPEND 0
+        8 PUSH_INTEGER 9
+        9 LIST_APPEND 0
+        10 DUP
+        11 STORE_LOCAL 24
+        12 POP
+        13 PUSH_CLEAR 24
+        14 ENTER_INDEX
+        15 PUSH_INTEGER 2
+        16 PUSH_INTEGER 1
+        17 PUSH_INTEGER 10
+        18 LIST_APPEND 1
+        19 PUSH_STRING foo
+        20 LIST_APPEND 0
+        21 PUT_TEMP
+        22 SET_RANGE
+        23 STORE_LOCAL 24
+        24 PUSH_TEMP
+        25 POP
+        26 PUSH_CLEAR 24
+        27 RETURN""",
         program.disassemble());
     VmState state = new VmState(new TaskOrigin(java.util.Map.of(), 0, new world.mongoose.banteng.value.MooValue.ObjectValue(-1),
         "", "", true), new TaskBudget(60_000, 5, 50));
@@ -1913,42 +1930,41 @@ final class MooVmTest {
     BytecodeProgram program = new MooCompiler().compile(syntax);
     assertEquals(
         """
-        0 BUILD_LIST 0
-        1 PUSH_INTEGER 1
-        2 LIST_APPEND 1
-        3 PUSH_INTEGER 10
-        4 LIST_APPEND 0
-        5 PUSH_STRING foo
-        6 LIST_APPEND 0
-        7 PUSH_INTEGER 6
-        8 LIST_APPEND 0
-        9 PUSH_INTEGER 7
-        10 LIST_APPEND 0
-        11 PUSH_INTEGER 8
-        12 LIST_APPEND 0
-        13 PUSH_INTEGER 9
-        14 LIST_APPEND 0
-        15 DUP
-        16 STORE_LOCAL 24
-        17 POP
-        18 PUSH_CLEAR 24
-        19 ENTER_INDEX
-        20 PUSH_INTEGER 3
-        21 INDEX 1
-        22 ENTER_INDEX
-        23 PUSH_INTEGER 2
-        24 LAST
-        25 PUSH_STRING u
-        26 PUT_TEMP
-        27 SET_RANGE
-        28 SET_PARENT_INDEX
-        29 STORE_LOCAL 24
-        30 PUSH_TEMP
-        31 POP
-        32 PUSH_CLEAR 24
-        33 RETURN""",
+        0 PUSH_INTEGER 1
+        1 LIST_APPEND 1
+        2 PUSH_INTEGER 10
+        3 LIST_APPEND 0
+        4 PUSH_STRING foo
+        5 LIST_APPEND 0
+        6 PUSH_INTEGER 6
+        7 LIST_APPEND 0
+        8 PUSH_INTEGER 7
+        9 LIST_APPEND 0
+        10 PUSH_INTEGER 8
+        11 LIST_APPEND 0
+        12 PUSH_INTEGER 9
+        13 LIST_APPEND 0
+        14 DUP
+        15 STORE_LOCAL 24
+        16 POP
+        17 PUSH_CLEAR 24
+        18 ENTER_INDEX
+        19 PUSH_INTEGER 3
+        20 INDEX 1
+        21 ENTER_INDEX
+        22 PUSH_INTEGER 2
+        23 LAST
+        24 PUSH_STRING u
+        25 PUT_TEMP
+        26 SET_RANGE
+        27 SET_PARENT_INDEX
+        28 STORE_LOCAL 24
+        29 PUSH_TEMP
+        30 POP
+        31 PUSH_CLEAR 24
+        32 RETURN""",
         program.disassemble());
-    assertEquals(Opcode.SET_PARENT_INDEX, program.instructions().get(28).opcode());
+    assertEquals(Opcode.SET_PARENT_INDEX, program.instructions().get(27).opcode());
     VmState state = new VmState(new TaskOrigin(java.util.Map.of(), 0, new world.mongoose.banteng.value.MooValue.ObjectValue(-1),
         "", "", true), new TaskBudget(60_000, 5, 50));
 
@@ -1991,39 +2007,36 @@ final class MooVmTest {
     BytecodeProgram program = new MooCompiler().compile(syntax);
     assertEquals(
         """
-        0 BUILD_LIST 0
-        1 BUILD_LIST 0
-        2 PUSH_INTEGER 1
-        3 LIST_APPEND 1
-        4 PUSH_INTEGER 2
-        5 LIST_APPEND 0
+        0 PUSH_INTEGER 1
+        1 LIST_APPEND 1
+        2 PUSH_INTEGER 2
+        3 LIST_APPEND 0
+        4 LIST_APPEND 1
+        5 PUSH_INTEGER 1
         6 LIST_APPEND 1
-        7 BUILD_LIST 0
-        8 PUSH_INTEGER 1
-        9 LIST_APPEND 1
-        10 PUSH_INTEGER 2
-        11 LIST_APPEND 0
-        12 LIST_APPEND 0
-        13 DUP
-        14 STORE_LOCAL 24
-        15 POP
-        16 PUSH_CLEAR 24
+        7 PUSH_INTEGER 2
+        8 LIST_APPEND 0
+        9 LIST_APPEND 0
+        10 DUP
+        11 STORE_LOCAL 24
+        12 POP
+        13 PUSH_CLEAR 24
+        14 ENTER_INDEX
+        15 PUSH_INTEGER 1
+        16 INDEX 1
         17 ENTER_INDEX
-        18 PUSH_INTEGER 1
-        19 INDEX 1
-        20 ENTER_INDEX
-        21 PUSH_INTEGER 2
-        22 PUSH_INTEGER 9
-        23 PUT_TEMP
-        24 SET_INDEX
-        25 SET_PARENT_INDEX
-        26 STORE_LOCAL 24
-        27 PUSH_TEMP
-        28 POP
-        29 PUSH_CLEAR 24
-        30 RETURN""",
+        18 PUSH_INTEGER 2
+        19 PUSH_INTEGER 9
+        20 PUT_TEMP
+        21 SET_INDEX
+        22 SET_PARENT_INDEX
+        23 STORE_LOCAL 24
+        24 PUSH_TEMP
+        25 POP
+        26 PUSH_CLEAR 24
+        27 RETURN""",
         program.disassemble());
-    assertEquals(Opcode.SET_PARENT_INDEX, program.instructions().get(25).opcode());
+    assertEquals(Opcode.SET_PARENT_INDEX, program.instructions().get(22).opcode());
     VmState state = new VmState(new TaskOrigin(java.util.Map.of(), 0, new world.mongoose.banteng.value.MooValue.ObjectValue(-1),
         "", "", true), new TaskBudget(60_000, 5, 50));
 
@@ -2109,42 +2122,40 @@ final class MooVmTest {
     BytecodeProgram program = new MooCompiler().compile(syntax);
     assertEquals(
         """
-        0 BUILD_LIST 0
-        1 PUSH_INTEGER 1
-        2 LIST_APPEND 1
-        3 PUSH_INTEGER 2
-        4 LIST_APPEND 0
-        5 PUSH_INTEGER 3
-        6 LIST_APPEND 0
-        7 PUSH_INTEGER 4
-        8 LIST_APPEND 0
-        9 PUSH_INTEGER 5
-        10 LIST_APPEND 0
-        11 PUSH_INTEGER 6
-        12 LIST_APPEND 0
-        13 PUSH_INTEGER 7
-        14 LIST_APPEND 0
-        15 DUP
-        16 STORE_LOCAL 24
-        17 POP
-        18 PUSH_CLEAR 24
-        19 ENTER_INDEX
-        20 PUSH_INTEGER 7
-        21 PUSH_INTEGER 1
-        22 BUILD_LIST 0
-        23 PUSH_STRING a
-        24 LIST_APPEND 1
-        25 PUSH_STRING b
+        0 PUSH_INTEGER 1
+        1 LIST_APPEND 1
+        2 PUSH_INTEGER 2
+        3 LIST_APPEND 0
+        4 PUSH_INTEGER 3
+        5 LIST_APPEND 0
+        6 PUSH_INTEGER 4
+        7 LIST_APPEND 0
+        8 PUSH_INTEGER 5
+        9 LIST_APPEND 0
+        10 PUSH_INTEGER 6
+        11 LIST_APPEND 0
+        12 PUSH_INTEGER 7
+        13 LIST_APPEND 0
+        14 DUP
+        15 STORE_LOCAL 24
+        16 POP
+        17 PUSH_CLEAR 24
+        18 ENTER_INDEX
+        19 PUSH_INTEGER 7
+        20 PUSH_INTEGER 1
+        21 PUSH_STRING a
+        22 LIST_APPEND 1
+        23 PUSH_STRING b
+        24 LIST_APPEND 0
+        25 PUSH_STRING c
         26 LIST_APPEND 0
-        27 PUSH_STRING c
-        28 LIST_APPEND 0
-        29 PUT_TEMP
-        30 SET_RANGE
-        31 STORE_LOCAL 24
-        32 PUSH_TEMP
-        33 POP
-        34 PUSH_CLEAR 24
-        35 RETURN""",
+        27 PUT_TEMP
+        28 SET_RANGE
+        29 STORE_LOCAL 24
+        30 PUSH_TEMP
+        31 POP
+        32 PUSH_CLEAR 24
+        33 RETURN""",
         program.disassemble());
     VmState state = new VmState(new TaskOrigin(java.util.Map.of(), 0, new world.mongoose.banteng.value.MooValue.ObjectValue(-1),
         "", "", true), new TaskBudget(60_000, 5, 50));
@@ -2956,17 +2967,16 @@ final class MooVmTest {
     BytecodeProgram program = new MooCompiler().compile(syntax);
     assertEquals(
         """
-        0 BUILD_LIST 0
-        1 PUSH_INTEGER 1
-        2 LIST_APPEND 1
-        3 PUSH_INTEGER 2
-        4 LIST_APPEND 0
-        5 PUSH_INTEGER 3
-        6 LIST_APPEND 0
-        7 ENTER_INDEX
-        8 FIRST
-        9 INDEX
-        10 RETURN""",
+        0 PUSH_INTEGER 1
+        1 LIST_APPEND 1
+        2 PUSH_INTEGER 2
+        3 LIST_APPEND 0
+        4 PUSH_INTEGER 3
+        5 LIST_APPEND 0
+        6 ENTER_INDEX
+        7 FIRST
+        8 INDEX
+        9 RETURN""",
         program.disassemble());
     VmState state = new VmState(new TaskOrigin(java.util.Map.of(), 0, new world.mongoose.banteng.value.MooValue.ObjectValue(-1),
         "", "", true), new TaskBudget(60_000, 5, 50));
@@ -2997,25 +3007,24 @@ final class MooVmTest {
     BytecodeProgram program = new MooCompiler().compile(syntax);
     assertEquals(
         """
-        0 BUILD_LIST 0
-        1 PUSH_INTEGER 1
-        2 LIST_APPEND 1
-        3 PUSH_INTEGER 2
-        4 LIST_APPEND 0
-        5 PUSH_INTEGER 3
-        6 LIST_APPEND 0
-        7 PUSH_INTEGER 4
-        8 LIST_APPEND 0
-        9 PUSH_INTEGER 5
-        10 LIST_APPEND 0
-        11 PUSH_INTEGER 6
-        12 LIST_APPEND 0
-        13 PUSH_INTEGER 7
-        14 LIST_APPEND 0
-        15 ENTER_INDEX
-        16 LAST
-        17 INDEX
-        18 RETURN""",
+        0 PUSH_INTEGER 1
+        1 LIST_APPEND 1
+        2 PUSH_INTEGER 2
+        3 LIST_APPEND 0
+        4 PUSH_INTEGER 3
+        5 LIST_APPEND 0
+        6 PUSH_INTEGER 4
+        7 LIST_APPEND 0
+        8 PUSH_INTEGER 5
+        9 LIST_APPEND 0
+        10 PUSH_INTEGER 6
+        11 LIST_APPEND 0
+        12 PUSH_INTEGER 7
+        13 LIST_APPEND 0
+        14 ENTER_INDEX
+        15 LAST
+        16 INDEX
+        17 RETURN""",
         program.disassemble());
     VmState state = new VmState(new TaskOrigin(java.util.Map.of(), 0, new world.mongoose.banteng.value.MooValue.ObjectValue(-1),
         "", "", true), new TaskBudget(60_000, 5, 50));
@@ -3219,27 +3228,26 @@ final class MooVmTest {
     BytecodeProgram program = new MooCompiler().compile(syntax);
     assertEquals(
         """
-        0 BUILD_LIST 0
-        1 PUSH_INTEGER 1
-        2 LIST_APPEND 1
-        3 PUSH_INTEGER 2
-        4 LIST_APPEND 0
-        5 PUSH_INTEGER 3
-        6 LIST_APPEND 0
-        7 DUP
-        8 STORE_LOCAL 24
-        9 POP
-        10 PUSH_CLEAR 24
-        11 ENTER_INDEX
-        12 FIRST
-        13 PUSH_INTEGER 9
-        14 PUT_TEMP
-        15 SET_INDEX
-        16 STORE_LOCAL 24
-        17 PUSH_TEMP
-        18 POP
-        19 PUSH_CLEAR 24
-        20 RETURN""",
+        0 PUSH_INTEGER 1
+        1 LIST_APPEND 1
+        2 PUSH_INTEGER 2
+        3 LIST_APPEND 0
+        4 PUSH_INTEGER 3
+        5 LIST_APPEND 0
+        6 DUP
+        7 STORE_LOCAL 24
+        8 POP
+        9 PUSH_CLEAR 24
+        10 ENTER_INDEX
+        11 FIRST
+        12 PUSH_INTEGER 9
+        13 PUT_TEMP
+        14 SET_INDEX
+        15 STORE_LOCAL 24
+        16 PUSH_TEMP
+        17 POP
+        18 PUSH_CLEAR 24
+        19 RETURN""",
         program.disassemble());
     VmState state = new VmState(new TaskOrigin(java.util.Map.of(), 0, new world.mongoose.banteng.value.MooValue.ObjectValue(-1),
         "", "", true), new TaskBudget(60_000, 5, 50));
@@ -3924,7 +3932,8 @@ final class MooVmTest {
   void integerDivisionAndModuloUsePinnedToastBoundaries() {
     for (Map.Entry<String, Long> test :
         Map.of(
-                "return -9223372036854775807 / -1;", -Long.MAX_VALUE,
+                "return -9223372036854775807 / -1;", Long.MAX_VALUE,
+                "return -9223372036854775808 / -1;", Long.MIN_VALUE,
                 "return -15 % -4;", -3L,
                 "return -15 % 4;", 1L,
                 "return 15 % -4;", -1L,
