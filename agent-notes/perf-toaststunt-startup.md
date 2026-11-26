@@ -31,7 +31,12 @@ A bounded short-string cache slowed two of three paired runs and was removed.
 The final development profile still placed 68% of main-thread samples in
 database object and value decoding.
 
+The PR build reached the greeting in 14.892 seconds on the same checkpoint.
+Compiler and VM disassembly fixtures now reflect the omitted empty-list
+instruction for nonempty lists and argument vectors. VM result assertions
+remain in place.
+
 ## Next step
 
-Verify the PR build independently against the copied checkpoints. Continue
-profiling database decoding to reach the ten-second Mongoose target.
+Continue profiling database decoding to reach the ten-second Mongoose
+target.
