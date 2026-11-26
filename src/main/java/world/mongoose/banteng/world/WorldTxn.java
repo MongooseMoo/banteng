@@ -5,6 +5,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Deque;
 import java.util.IdentityHashMap;
+import java.util.IdentityHashMap;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -382,6 +383,20 @@ public final class WorldTxn implements AutoCloseable {
   }
 
   private record LocatedVerb(Object location, WorldVerb verb) {}
+
+  /** Finds a descriptor in the object's own verbs, in definition order. */
+  public static int definedVerbIndex(List<WorldVerb> verbs, StringValue descriptor) {
+    String requestedName = descriptor.text().toLowerCase(Locale.ROOT);
+    IdentityHashMap<StringValue, Boolean> reference = new IdentityHashMap<>(1);
+    reference.put(descriptor, Boolean.TRUE);
+    for (int index = 0; index < verbs.size(); index++) {
+      WorldVerb verb = verbs.get(index);
+      if (reference.containsKey(verb.namesValue()) || matchesVerbName(verb, requestedName)) {
+        return index;
+      }
+    }
+    return -1;
+  }
 
   private static boolean matchesVerbName(WorldVerb verb, String requestedName) {
     StringTokenizer names = new StringTokenizer(verb.names(), " ");
@@ -1602,7 +1617,7 @@ public final class WorldTxn implements AutoCloseable {
     verbs.set(
         verbIndex,
         new WorldVerb(
-            verb.names(),
+            verb.namesValue(),
             verb.owner(),
             verb.perms(),
             verb.dobj(),
@@ -1663,7 +1678,7 @@ public final class WorldTxn implements AutoCloseable {
     verbs.set(
         verbIndex,
         new WorldVerb(
-            verb.names(),
+            verb.namesValue(),
             verb.owner(),
             verb.perms(),
             direct,

@@ -285,12 +285,13 @@ final class JsonCodec {
           throw new IllegalArgumentException("JSON object key must be a string");
         }
         MooValue key = typedString(parseString());
+        if (map.get(key).isPresent()) {
+          throw new IllegalArgumentException("duplicate JSON object key");
+        }
         skipWhitespace();
         consume(':');
         MooValue value = parseValue(depth);
-        if (map.get(key).isEmpty()) {
-          map = map.with(key, value);
-        }
+        map = map.with(key, value);
         skipWhitespace();
         if (consumeIf('}')) {
           return map;

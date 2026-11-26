@@ -70,7 +70,7 @@ public record ValueSemantics(boolean promoteNumbers) {
     };
   }
 
-  /** Toast compare(); identity types deliberately do not form a Java Comparator order. */
+  /** Toast comparison with a stable runtime order for identity values. */
   public int compare(MooValue left, MooValue right, boolean caseMatters) {
     if (promoteNumbers && mixedNumbers(left, right)) {
       return compareNumbers(number(left), number(right));

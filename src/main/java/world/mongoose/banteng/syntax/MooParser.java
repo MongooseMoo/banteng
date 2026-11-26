@@ -504,7 +504,10 @@ public final class MooParser {
           throw error(token, "invalid float literal", exception);
         }
       }
-      case STRING -> {
+      case STRING, UNCLOSED_STRING -> {
+        if (token.kind() == TokenKind.UNCLOSED_STRING) {
+          reportRecoverable(token, "unterminated string literal");
+        }
         advance();
         yield new Ast.StringLiteral(
             token.lexeme(),

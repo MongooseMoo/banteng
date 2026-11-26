@@ -122,20 +122,20 @@ final class ValueSemanticsTest {
   }
 
   @Test
-  void anonymousMapKeysUseExistingTreeTopologyAndReferenceIdentity() {
+  void anonymousMapKeysUseStableOrderingAndReferenceIdentity() {
     AnonymousObjectValue first = new AnonymousObjectValue();
     AnonymousObjectValue second = new AnonymousObjectValue();
     AnonymousObjectValue third = new AnonymousObjectValue();
     MapValue map = new MapValue(Map.of()).with(first, new IntegerValue(1))
         .with(second, new IntegerValue(2)).with(third, new IntegerValue(3));
-    assertEquals(1, ValueSemantics.STANDARD.compare(first, second, false));
+    assertEquals(-1, ValueSemantics.STANDARD.compare(first, second, false));
     assertEquals(1, ValueSemantics.STANDARD.compare(second, first, false));
     assertEquals(0, ValueSemantics.STANDARD.compare(first, first, false));
     assertFalse(ValueSemantics.STANDARD.equal(first, second, false));
-    assertSame(third, map.orderedEntries().getFirst().getKey());
+    assertSame(first, map.orderedEntries().getFirst().getKey());
     assertEquals(new IntegerValue(1), map.get(first).orElseThrow());
-    assertEquals(new ListValue(List.of(third, second, first)), builtin("mapkeys", List.of(map), false));
-    assertEquals(new ListValue(List.of(new IntegerValue(3), new IntegerValue(2), new IntegerValue(1))),
+    assertEquals(new ListValue(List.of(first, second, third)), builtin("mapkeys", List.of(map), false));
+    assertEquals(new ListValue(List.of(new IntegerValue(1), new IntegerValue(2), new IntegerValue(3))),
         builtin("mapvalues", List.of(map), false));
   }
 

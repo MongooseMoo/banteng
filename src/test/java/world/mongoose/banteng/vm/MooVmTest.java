@@ -3924,7 +3924,8 @@ final class MooVmTest {
   void integerDivisionAndModuloUsePinnedToastBoundaries() {
     for (Map.Entry<String, Long> test :
         Map.of(
-                "return -9223372036854775807 / -1;", -Long.MAX_VALUE,
+                "return -9223372036854775807 / -1;", Long.MAX_VALUE,
+                "return -9223372036854775808 / -1;", Long.MIN_VALUE,
                 "return -15 % -4;", -3L,
                 "return -15 % 4;", 1L,
                 "return 15 % -4;", -1L,
