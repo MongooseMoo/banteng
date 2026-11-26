@@ -162,9 +162,7 @@ final class IndexOps {
         ErrorOps.raise(state, ErrorValue.E_TYPE, world);
         return;
       }
-      if (start instanceof IntegerValue first
-          && end instanceof IntegerValue last
-          && last.value() < first.value()) {
+      if (ValueSemantics.STANDARD.compare(start, end, false) > 0) {
         frame.operandStack.push(new MapValue(Map.of()));
         frame.instructionPointer++;
         return;

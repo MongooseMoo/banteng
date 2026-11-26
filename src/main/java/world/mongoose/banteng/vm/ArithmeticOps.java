@@ -196,11 +196,7 @@ final class ArithmeticOps {
     if (operation == Opcode.POWER
         && leftValue instanceof FloatValue left
         && rightValue instanceof IntegerValue right) {
-      if (left.value() == 0.0 && right.value() < 0) {
-        ErrorOps.raise(state, ErrorValue.E_DIV, world);
-        return;
-      }
-      pushFiniteFloat(frame, state, world, Math.pow(left.value(), (double) right.value()));
+      pushFloatPower(frame, state, world, left.value(), (double) right.value());
       return;
     }
     if (leftValue instanceof FloatValue left && rightValue instanceof FloatValue right) {
@@ -208,11 +204,11 @@ final class ArithmeticOps {
         ErrorOps.raise(state, ErrorValue.E_DIV, world);
         return;
       }
-      if (operation == Opcode.POWER && left.value() == 0.0 && right.value() < 0.0) {
-        ErrorOps.raise(state, ErrorValue.E_DIV, world);
-        return;
+      if (operation == Opcode.POWER) {
+        pushFloatPower(frame, state, world, left.value(), right.value());
+      } else {
+        pushFiniteFloat(frame, state, world, floatResult(operation, left.value(), right.value()));
       }
-      pushFiniteFloat(frame, state, world, floatResult(operation, left.value(), right.value()));
       return;
     }
     if (operation == Opcode.ADD && leftValue instanceof StringValue) {
@@ -246,7 +242,6 @@ final class ArithmeticOps {
       case MULTIPLY -> left * right;
       case DIVIDE -> left / right;
       case REMAINDER -> mooRemainder(left, right);
-      case POWER -> Math.pow(left, right);
       default -> throw new IllegalArgumentException("unsupported arithmetic opcode: " + operation);
     };
   }
@@ -267,6 +262,20 @@ final class ArithmeticOps {
     }
     frame.operandStack.push(new FloatValue(result));
     frame.instructionPointer++;
+  }
+
+  private static void pushFloatPower(
+      Frame frame, VmState state, WorldTxn world, double base, double exponent) {
+    if (base == 0.0 && exponent < 0.0) {
+      ErrorOps.raise(state, ErrorValue.E_DIV, world);
+      return;
+    }
+    double result = Math.pow(base, exponent);
+    if (result == 0.0 && base != 0.0 && Double.isFinite(base) && Double.isFinite(exponent)) {
+      ErrorOps.raise(state, ErrorValue.E_FLOAT, world);
+      return;
+    }
+    pushFiniteFloat(frame, state, world, result);
   }
 
   private static long integerPower(long base, long exponent) {
