@@ -9,6 +9,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.OptionalInt;
+import java.util.function.Consumer;
 import java.util.function.Predicate;
 import world.mongoose.banteng.bytecode.BytecodeProgram.AstPath;
 import world.mongoose.banteng.bytecode.BytecodeProgram.HandlerSpec;
@@ -32,6 +33,21 @@ public final class MooCompiler {
   /** Parses and compiles one MOO verb body. */
   public BytecodeProgram compile(String source) {
     return compile(MooParser.parse(source));
+  }
+
+  /** Loads a stored program, warning and rewriting calls to absent builtins. */
+  public BytecodeProgram compileStored(
+      String source, Predicate<String> knownBuiltin, Consumer<Diagnostic> warning) {
+    return compile(MooParser.parse(source, call -> {
+      if (knownBuiltin.test(call.name())) {
+        return call;
+      }
+      warning.accept(unknownBuiltinDiagnostic(source, call).value());
+      List<Ast.Expression> arguments = new ArrayList<>(call.arguments().size() + 1);
+      arguments.add(new Ast.StringLiteral(call.name()));
+      arguments.addAll(call.arguments());
+      return new Ast.Call("call_function", arguments, call.span());
+    }));
   }
 
   /** Parses and compiles one MOO verb body while retaining user-facing diagnostics. */
@@ -60,12 +76,7 @@ public final class MooCompiler {
     for (Ast.Expression expression : callPaths.keySet()) {
       if (expression instanceof Ast.Call call
           && !call.name().equalsIgnoreCase("pass") && !knownBuiltin.test(call.name())) {
-        Ast.SourceSpan span = call.span().orElseThrow();
-        int end = span.endOffset() - 1;
-        int line = 1 + (int) source.substring(0, end).chars().filter(value -> value == '\n').count();
-        int column = end - source.lastIndexOf('\n', end);
-        positionedDiagnostics.add(new PositionedDiagnostic(
-            new Diagnostic(line, "Unknown built-in function: " + call.name()), column));
+        positionedDiagnostics.add(unknownBuiltinDiagnostic(source, call));
       }
     }
     positionedDiagnostics.sort(
@@ -83,6 +94,14 @@ public final class MooCompiler {
       return new CompilationResult(Optional.empty(), diagnostics);
     }
     return new CompilationResult(Optional.of(compile(program)), List.of());
+  }
+
+  private static PositionedDiagnostic unknownBuiltinDiagnostic(String source, Ast.Call call) {
+    int end = call.span().orElseThrow().endOffset() - 1;
+    int line = 1 + (int) source.substring(0, end).chars().filter(value -> value == '\n').count();
+    int column = end - source.lastIndexOf('\n', end);
+    return new PositionedDiagnostic(
+        new Diagnostic(line, "Unknown built-in function: " + call.name()), column);
   }
 
   private static String programmingDiagnostic(String parserMessage) {
@@ -270,7 +289,11 @@ public final class MooCompiler {
       Opcode opcode = instruction.opcode();
       boolean local = opcode == Opcode.LOAD_LOCAL || opcode == Opcode.STORE_LOCAL;
       List<Integer> destinations = new ArrayList<>();
-      if (opcode == Opcode.ITERATE || opcode == Opcode.ITERATE_RANGE || opcode == Opcode.SCATTER) {
+      if (opcode == Opcode.SCATTER) {
+        for (var binding : instruction.scatterBindings()) {
+          destinations.add(names.indexOf(binding.name().toLowerCase(java.util.Locale.ROOT)));
+        }
+      } else if (opcode == Opcode.ITERATE || opcode == Opcode.ITERATE_RANGE) {
         for (String encoded : instruction.text().orElseThrow().split(",", -1)) {
           String name = encoded.replaceFirst("^[@?$]", "");
           destinations.add(names.indexOf(name.toLowerCase(java.util.Locale.ROOT)));
@@ -313,7 +336,14 @@ public final class MooCompiler {
           if (handler.finallyTarget() >= 0) boundaries.add(handler.finallyTarget());
           boundaries.add(handler.endTarget());
         }
-        case FORK, LEAVE_HANDLER, END_FINALLY, LEAVE_LOOP, SCATTER -> {
+        case SCATTER -> {
+          boundaries.add(index);
+          boundaries.add(Math.toIntExact(instruction.operand().orElseThrow()));
+          for (var binding : instruction.scatterBindings()) {
+            if (binding.defaultTarget() >= 0) boundaries.add(binding.defaultTarget());
+          }
+        }
+        case FORK, LEAVE_HANDLER, END_FINALLY, LEAVE_LOOP -> {
           boundaries.add(index); boundaries.add(index + 1);
         }
         default -> {}
@@ -1008,18 +1038,20 @@ public final class MooCompiler {
     }
     if (assignment.target() instanceof Ast.ScatterTarget scatter) {
       compileExpression(assignment.value(), instructions);
+      int scatterInstruction = instructions.size();
+      instructions.add(new Instruction(Opcode.SCATTER, 0, ""));
       List<String> encodedElements = new ArrayList<>();
       for (Ast.ScatterElement element : scatter.elements()) {
-        element.defaultValue().ifPresent(value -> compileExpression(value, instructions));
-        encodedElements.add(
-            (element.rest()
-                    ? "@"
-                    : element.defaultValue().isPresent() ? "$" : element.optional() ? "?" : "")
-                + element.name());
+        if (element.defaultValue().isPresent()) {
+          encodedElements.add("$" + element.name() + ":" + instructions.size());
+          compileExpression(element.defaultValue().orElseThrow(), instructions);
+          instructions.add(new Instruction(Opcode.STORE_LOCAL, element.name()));
+        } else {
+          encodedElements.add((element.rest() ? "@" : element.optional() ? "?" : "") + element.name());
+        }
       }
-      instructions.add(
-          new Instruction(
-              Opcode.SCATTER, scatter.elements().size(), String.join(",", encodedElements)));
+      instructions.set(scatterInstruction,
+          new Instruction(Opcode.SCATTER, instructions.size(), String.join(",", encodedElements)));
       return;
     }
     throw new AssertionError("unreachable assignment target variant: " + assignment.target());

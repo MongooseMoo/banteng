@@ -420,7 +420,7 @@ final class V17RoundTripTest {
   }
 
   @Test
-  void reinsertsNonTotalMapKeysAcrossV17Read(@TempDir Path temporaryDirectory)
+  void restoresBooleanAndNonTotalMapKeysAcrossV17Read(@TempDir Path temporaryDirectory)
       throws IOException {
     WaifValue firstWaif = new WaifValue(new ObjectValue(0), new ObjectValue(0));
     WaifValue secondWaif = new WaifValue(new ObjectValue(0), new ObjectValue(0));
@@ -453,7 +453,7 @@ final class V17RoundTripTest {
             .with(firstAnonymous, string("first"));
 
     assertEquals(
-        List.of(BooleanValue.TRUE, BooleanValue.FALSE),
+        List.of(BooleanValue.FALSE, BooleanValue.TRUE),
         List.copyOf(booleanForward.entries().keySet()));
     assertEquals(
         List.of(BooleanValue.FALSE, BooleanValue.TRUE),
@@ -560,7 +560,7 @@ final class V17RoundTripTest {
         List.of(BooleanValue.FALSE, BooleanValue.TRUE),
         List.copyOf(restoredBooleanForward.entries().keySet()));
     assertEquals(
-        List.of(BooleanValue.TRUE, BooleanValue.FALSE),
+        List.of(BooleanValue.FALSE, BooleanValue.TRUE),
         List.copyOf(restoredBooleanReverse.entries().keySet()));
     assertEquals(
         List.of(restoredFirstWaif, restoredSecondWaif),
@@ -574,8 +574,8 @@ final class V17RoundTripTest {
     assertEquals(
         List.of(restoredSecondAnonymous, restoredFirstAnonymous),
         List.copyOf(restoredAnonymousReverse.entries().keySet()));
-    assertNotEquals(booleanForward.toLiteral(), restoredBooleanForward.toLiteral());
-    assertNotEquals(booleanReverse.toLiteral(), restoredBooleanReverse.toLiteral());
+    assertEquals(booleanForward.toLiteral(), restoredBooleanForward.toLiteral());
+    assertEquals(booleanReverse.toLiteral(), restoredBooleanReverse.toLiteral());
     assertNotEquals(waifForward.toLiteral(), restoredWaifForward.toLiteral());
     assertNotEquals(waifReverse.toLiteral(), restoredWaifReverse.toLiteral());
     assertNotEquals(anonymousForward.toLiteral(), restoredAnonymousForward.toLiteral());

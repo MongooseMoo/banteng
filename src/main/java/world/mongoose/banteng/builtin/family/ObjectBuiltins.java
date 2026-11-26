@@ -590,8 +590,8 @@ public final class ObjectBuiltins {
     private static BuiltinResult move(List<MooValue> arguments, WorldTxn world, long programmer) {
         ObjectValue object = (ObjectValue) arguments.get(0);
         ObjectValue destination = (ObjectValue) arguments.get(1);
-        long position =
-                arguments.size() == 3 ? ((IntegerValue) arguments.get(2)).value() : 0;
+        int position =
+                arguments.size() == 3 ? (int) ((IntegerValue) arguments.get(2)).value() : 0;
         if (position < 0) {
             return BuiltinResult.error(ErrorValue.E_INVARG);
         }

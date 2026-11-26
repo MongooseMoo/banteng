@@ -191,7 +191,7 @@ final class QueuedTaskV17CodecTest {
   }
 
   @Test
-  void roundTripsDisabledDebugAndThreadModesWithoutNormalizingThem(
+  void writesToastDefinerTypeAndReadsLegacyDebugMode(
       @TempDir Path temporaryDirectory)
       throws IOException {
     LambdaMooV17Codec codec = new LambdaMooV17Codec();
@@ -213,15 +213,22 @@ final class QueuedTaskV17CodecTest {
 
     codec.writeAtomic(checkpoint, emptyWorld(), List.of(disabled), List.of());
 
-    assertEquals(List.of(disabled), codec.read(checkpoint).tasks());
+    QueuedTask restored = assertInstanceOf(QueuedTask.class, codec.read(checkpoint).tasks().getFirst());
+    assertTrue(restored.debug());
+    assertFalse(restored.threadMode());
+    String written = Files.readString(checkpoint, StringValue.charset());
+    String activationFields = "7 -7 -8 9 -9 3 8 -10 ";
+    assertTrue(written.contains(activationFields + "1\n"));
     assertEquals(
         0,
-        Files.readString(checkpoint, StringValue.charset())
-            .lines()
+        written.lines()
             .skip(12)
             .findFirst()
             .map(Integer::parseInt)
             .orElseThrow());
+    Files.writeString(checkpoint,
+        written.replace(activationFields + "1\n", activationFields + "0\n"), StringValue.charset());
+    assertEquals(List.of(disabled), codec.read(checkpoint).tasks());
   }
 
   private static QueuedTask task() {

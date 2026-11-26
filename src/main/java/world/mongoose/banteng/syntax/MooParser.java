@@ -4,6 +4,7 @@ import java.math.BigInteger;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.function.UnaryOperator;
 import world.mongoose.banteng.syntax.MooLexer.Token;
 import world.mongoose.banteng.syntax.MooLexer.TokenKind;
 import org.jspecify.annotations.Nullable;
@@ -25,6 +26,7 @@ public final class MooParser {
   private static final int MAX_EXPRESSION_DEPTH = 256;
 
   private final MooLexer lexer;
+  private final UnaryOperator<Ast.Call> builtinCall;
   private Token current;
   private int previousEndOffset;
   private int indexDepth;
@@ -32,13 +34,23 @@ public final class MooParser {
   private @Nullable List<ParseDiagnostic> recoveringDiagnostics = null;
 
   private MooParser(String source) {
+    this(source, UnaryOperator.identity());
+  }
+
+  private MooParser(String source, UnaryOperator<Ast.Call> builtinCall) {
     lexer = new MooLexer(source);
+    this.builtinCall = builtinCall;
     current = lexer.next();
   }
 
   /** Parses a complete stored or dynamically compiled MOO verb body. */
   public static Ast.Program parse(String source) {
     return new MooParser(source).parseProgram();
+  }
+
+  /** Parses stored source with the database loader's builtin resolution rules. */
+  public static Ast.Program parse(String source, UnaryOperator<Ast.Call> builtinCall) {
+    return new MooParser(source, builtinCall).parseProgram();
   }
 
   /** Parses one verb body while collecting every recoverable source diagnostic. */
@@ -754,7 +766,7 @@ public final class MooParser {
     }
     Token rightParen = current;
     expectAndAdvance(TokenKind.RIGHT_PAREN, "')' after call arguments");
-    return new Ast.Call(
+    return builtinCall.apply(new Ast.Call(
         identifier.name(),
         arguments,
         Optional.of(
@@ -762,7 +774,7 @@ public final class MooParser {
                 firstToken.startOffset(),
                 rightParen.endOffset(),
                 firstToken.line(),
-                firstToken.column())));
+                firstToken.column()))));
   }
 
   private Ast.PropertyAccess parseProperty(Ast.Expression receiver) {

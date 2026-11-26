@@ -1,5 +1,6 @@
 package world.mongoose.banteng.bytecode;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -161,6 +162,9 @@ public record BytecodeProgram(
     }
   }
 
+  /** A scatter destination and its compiled default entry point, if any. */
+  public record ScatterBinding(String name, boolean rest, boolean optional, int defaultTarget) {}
+
   /** One validated instruction and its explicit operands. */
   public record Instruction(
       Opcode opcode,
@@ -171,6 +175,23 @@ public record BytecodeProgram(
       Optional<AstPath> astPath,
       int localAux,
       List<Integer> localSlots) {
+    public List<ScatterBinding> scatterBindings() {
+      List<ScatterBinding> bindings = new ArrayList<>();
+      for (String binding : text.orElseThrow().split(",", -1)) {
+        switch (binding.charAt(0)) {
+          case '@' -> bindings.add(new ScatterBinding(binding.substring(1), true, false, -1));
+          case '?' -> bindings.add(new ScatterBinding(binding.substring(1), false, true, -1));
+          case '$' -> {
+            int separator = binding.indexOf(':');
+            int target = Integer.parseInt(binding.substring(separator + 1));
+            bindings.add(new ScatterBinding(binding.substring(1, separator), false, true, target));
+          }
+          default -> bindings.add(new ScatterBinding(binding, false, false, -1));
+        }
+      }
+      return bindings;
+    }
+
     public Instruction {
       localSlots = List.copyOf(localSlots);
       Objects.requireNonNull(astPath, "astPath");

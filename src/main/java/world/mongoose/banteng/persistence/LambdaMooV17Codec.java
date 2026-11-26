@@ -70,13 +70,23 @@ import org.jspecify.annotations.Nullable;
 public final class LambdaMooV17Codec implements DbCodec {
   private static final String HEADER = "** LambdaMOO Database, Format Version 17 **";
   private final AtomicPromoter promoter;
+  private final DatabaseVerbCompiler verbCompiler;
 
   /** Creates the production codec with mandatory atomic replacement. */
   public LambdaMooV17Codec() {
-    this((source, target) -> Files.move(source, target, ATOMIC_MOVE, REPLACE_EXISTING));
+    this(DatabaseVerbCompiler.PRESERVE_SOURCE);
+  }
+
+  public LambdaMooV17Codec(DatabaseVerbCompiler verbCompiler) {
+    this(verbCompiler, (source, target) -> Files.move(source, target, ATOMIC_MOVE, REPLACE_EXISTING));
   }
 
   LambdaMooV17Codec(AtomicPromoter promoter) {
+    this(DatabaseVerbCompiler.PRESERVE_SOURCE, promoter);
+  }
+
+  private LambdaMooV17Codec(DatabaseVerbCompiler verbCompiler, AtomicPromoter promoter) {
+    this.verbCompiler = Objects.requireNonNull(verbCompiler, "verbCompiler");
     this.promoter = Objects.requireNonNull(promoter, "promoter");
   }
 
@@ -851,7 +861,7 @@ public final class LambdaMooV17Codec implements DbCodec {
         propertySlots);
   }
 
-  private static List<WorldObject> restoreObjects(
+  private List<WorldObject> restoreObjects(
       Map<Long, RawObject> objects,
       Map<ProgramSlot, String> programs,
       Map<Long, List<WorldProperty>> restoredProperties,
@@ -866,8 +876,7 @@ public final class LambdaMooV17Codec implements DbCodec {
       for (int index = 0; index < object.verbs().size(); index++) {
         RawVerb verb = object.verbs().get(index);
         String source = programs.getOrDefault(new ProgramSlot(object.id(), index), "");
-        verbs.add(
-            verb.compile(source));
+        verbs.add(verbCompiler.compile(object.id(), verb, source));
       }
       restored.add(
           new WorldObject(
@@ -886,7 +895,7 @@ public final class LambdaMooV17Codec implements DbCodec {
     return restored;
   }
 
-  private static Map<AnonymousObjectValue, WorldAnonymousObject> restoreAnonymousObjects(
+  private Map<AnonymousObjectValue, WorldAnonymousObject> restoreAnonymousObjects(
       Map<Long, RawObject> objects,
       Map<ProgramSlot, String> programs,
       Map<Long, List<WorldProperty>> restoredProperties,
@@ -906,8 +915,7 @@ public final class LambdaMooV17Codec implements DbCodec {
       for (int index = 0; index < object.verbs().size(); index++) {
         RawVerb verb = object.verbs().get(index);
         String source = programs.getOrDefault(new ProgramSlot(object.id(), index), "");
-        verbs.add(
-            verb.compile(source));
+        verbs.add(verbCompiler.compile(object.id(), verb, source));
       }
       restored.put(
           entry.getValue(),

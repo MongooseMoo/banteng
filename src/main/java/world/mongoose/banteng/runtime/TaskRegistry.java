@@ -102,6 +102,7 @@ public final class TaskRegistry {
                 variables,
                 0,
                 true,
+                true,
                 snapshot))
         != null) {
       throw new IllegalStateException("duplicate live task " + taskId);
@@ -136,6 +137,7 @@ public final class TaskRegistry {
         snapshot.byteSize(),
         activation.locals(),
         0,
+        false,
         true,
         Optional.of(snapshot));
   }
@@ -179,6 +181,7 @@ public final class TaskRegistry {
             snapshot.byteSize(),
             Map.of(),
             handle,
+            false,
             false,
             Optional.of(snapshot)));
     return true;
@@ -308,7 +311,7 @@ public final class TaskRegistry {
     synchronized (this) {
       task = tasks.get(taskId);
     }
-    if (task == null || taskId == call.taskId() || task.snapshot().isEmpty()) {
+    if (task == null || taskId == call.taskId() || task.queuedFork() || task.snapshot().isEmpty()) {
       return BuiltinResult.error(ErrorValue.E_INVARG);
     }
     boolean wizard = call.world().isWizard(call.programmer());
@@ -419,6 +422,7 @@ public final class TaskRegistry {
       long bytes,
       Map<String, MooValue> variables,
       long hostHandle,
+      boolean queuedFork,
       boolean variablesVisible,
       Optional<VmSnapshot> snapshot) {
     TaskInfo {

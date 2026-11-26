@@ -2885,7 +2885,7 @@ final class BuiltinCatalogTest {
 
     try (WorldTxn transaction = world().begin()) {
       assertEquals(
-          Optional.of(new IntegerValue(0)),
+          Optional.of(new IntegerValue(1)),
           value(invoke(catalog, hasKey, List.of(map, BooleanValue.TRUE), transaction, 1)));
       assertEquals(
           Optional.of(new IntegerValue(1)),

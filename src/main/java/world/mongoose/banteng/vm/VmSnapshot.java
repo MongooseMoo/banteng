@@ -367,10 +367,11 @@ public record VmSnapshot(
     else if (recycle) name = "recycle";
     else if (mode == ReturnMode.MOVE_ACCEPT || mode == ReturnMode.MOVE_EXIT || mode == ReturnMode.MOVE_ENTER) name = "move";
     else return Optional.empty();
-    if (continuation.isEmpty() && instructionPointer > 0 && instructionPointer <= caller.instructions().size()) {
+    if (instructionPointer > 0 && instructionPointer <= caller.instructions().size()) {
       var instruction = caller.instructions().get(instructionPointer - 1);
-      if (instruction.opcode() == BytecodeProgram.Opcode.CALL
-          && instruction.text().orElse("").equalsIgnoreCase("call_function")) name = "call_function";
+      if (instruction.opcode() == BytecodeProgram.Opcode.CALL) {
+        name = instruction.text().orElseThrow().toLowerCase(java.util.Locale.ROOT);
+      }
     }
     List<MooValue> fields = new ArrayList<>(List.of(new ObjectValue(-1), StringValue.of(name),
         new ObjectValue(-1), new ObjectValue(-1), player));

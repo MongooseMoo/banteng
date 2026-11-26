@@ -240,66 +240,52 @@ final class LoopOps {
   private record CollectionElement(MooValue value, MooValue indexOrKey) {}
 
   static void scatter(Instruction instruction, Frame frame, VmState state, WorldTxn world) {
-    String[] names = instruction.text().orElseThrow().split(",", -1);
-    MooValue[] defaults = new MooValue[names.length];
-    for (int index = names.length - 1; index >= 0; index--) {
-      if (names[index].startsWith("$")) {
-        defaults[index] = frame.operandStack.pop();
-      }
-    }
-    MooValue source = frame.operandStack.pop();
+    int done = Math.toIntExact(instruction.operand().orElseThrow());
+    MooValue source = frame.operandStack.getFirst();
     if (!(source instanceof ListValue list)) {
+      frame.operandStack.pop();
       ErrorOps.typeMismatch(state, "list", source, world);
+      if (!frame.debug) frame.instructionPointer = done;
       return;
     }
-    int requiredValues = 0;
+    var bindings = instruction.scatterBindings();
+    int required = 0;
     boolean hasRest = false;
-    for (String name : names) {
-      if (name.startsWith("@")) {
+    for (var binding : bindings) {
+      if (binding.rest()) {
         hasRest = true;
-      } else if (!name.startsWith("?") && !name.startsWith("$")) {
-        requiredValues++;
+      } else if (!binding.optional()) {
+        required++;
       }
     }
-    if (names.length != instruction.operand().orElseThrow()
-        || list.size() < requiredValues
-        || (!hasRest && list.size() > names.length)) {
+    if (list.size() < required || (!hasRest && list.size() > bindings.size())) {
+      frame.operandStack.pop();
       ErrorOps.raise(state, ErrorValue.E_ARGS, world);
+      if (!frame.debug) frame.instructionPointer = done;
       return;
     }
+
+    int optionalValues = list.size() - required;
+    int restValues = Math.max(0, list.size() - bindings.size() + 1);
+    int nextInstruction = done;
     int sourceIndex = 0;
-    for (int index = 0; index < names.length; index++) {
-      String encodedName = names[index];
+    for (int index = 0; index < bindings.size(); index++) {
+      var binding = bindings.get(index);
       int slot = instruction.localSlots().get(index);
-      int requiredAfter = 0;
-      for (int later = index + 1; later < names.length; later++) {
-        if (!names[later].startsWith("@")
-            && !names[later].startsWith("?")
-            && !names[later].startsWith("$")) {
-          requiredAfter++;
-        }
-      }
-      if (encodedName.startsWith("@")) {
-        int end = list.size() - requiredAfter;
+      if (binding.rest()) {
+        int end = sourceIndex + restValues;
         frame.locals[slot] = new ListValue(list.elements().subList(sourceIndex, end));
         sourceIndex = end;
-      } else if (encodedName.startsWith("?") || encodedName.startsWith("$")) {
-        if (list.size() - sourceIndex > requiredAfter) {
-          frame.locals[slot] = list.elements().get(sourceIndex++);
-        } else if (defaults[index] != null) {
-          state.budget().decrementRemainingTicks();
-          if (state.budget().remainingTicks() <= 0) {
-            state.abortTickExhaustion();
-            return;
-          }
-          frame.locals[slot] = defaults[index];
-        }
-      } else {
+      } else if (!binding.optional()) {
         frame.locals[slot] = list.elements().get(sourceIndex++);
+      } else if (optionalValues > 0) {
+        optionalValues--;
+        frame.locals[slot] = list.elements().get(sourceIndex++);
+      } else if (nextInstruction == done && binding.defaultTarget() >= 0) {
+        nextInstruction = binding.defaultTarget();
       }
     }
-    frame.operandStack.push(source);
-    frame.instructionPointer++;
+    frame.instructionPointer = nextInstruction;
   }
 
   private static void routeReturnInternal(VmState state, MooValue value, WorldTxn world) {

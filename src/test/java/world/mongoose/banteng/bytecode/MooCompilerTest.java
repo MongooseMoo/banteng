@@ -52,16 +52,16 @@ final class MooCompilerTest {
   }
 
   @Test
-  void reportsLoopNamesThatDoNotMatchLocalVariableCaseFolding() {
+  void reportsLoopNamesThatDoNotMatchAnEnclosingLoop() {
     for (String exit : List.of("break", "continue")) {
       for (String source :
-          List.of("for I in ({1}) EXIT ı; endfor", "while I (1) EXIT ı; endwhile")) {
+          List.of("for I in ({1}) EXIT j; endfor", "while I (1) EXIT j; endwhile")) {
         MooCompiler.CompilationResult result =
             new MooCompiler().compileResult(source.replace("EXIT", exit));
 
         assertTrue(result.program().isEmpty());
         assertEquals(
-            List.of(new MooCompiler.Diagnostic(1, "Invalid loop name in `" + exit + "' statement: ı")),
+            List.of(new MooCompiler.Diagnostic(1, "Invalid loop name in `" + exit + "' statement: j")),
             result.diagnostics());
       }
     }

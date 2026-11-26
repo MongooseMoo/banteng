@@ -1362,6 +1362,10 @@ public final class MooRuntime implements AutoCloseable, SchedulerRuntime {
           frame.elements().get(1) instanceof StringValue name
               ? name.text()
               : "";
+      if (isBuiltinTracebackFrame(frame)) {
+        lines.add("... called from built-in function " + verb + "()");
+        continue;
+      }
       MooValue location = frame.elements().get(3);
       long line =
           frame.elements().get(5) instanceof IntegerValue sourceLine ? sourceLine.value() : 0;
@@ -1383,12 +1387,22 @@ public final class MooRuntime implements AutoCloseable, SchedulerRuntime {
       } else {
         lines.add("... called from " + label + ", line " + line);
       }
-      if (index == 0 && verb.isEmpty() && location.equals(new ObjectValue(-1))) {
+      if (index == 0 && verb.isEmpty() && location.equals(new ObjectValue(-1))
+          && (traceback.size() == 1 || !isBuiltinTracebackFrame(traceback.elements().get(1)))) {
         lines.add("... called from built-in function eval()");
       }
     }
     lines.add("(End of traceback)");
     return lines;
+  }
+
+  private static boolean isBuiltinTracebackFrame(MooValue value) {
+    ObjectValue nothing = new ObjectValue(-1);
+    return value instanceof ListValue frame && frame.size() >= 6
+        && frame.elements().get(1) instanceof StringValue name && !name.text().isEmpty()
+        && frame.elements().get(0).equals(nothing)
+        && frame.elements().get(2).equals(nothing)
+        && frame.elements().get(3).equals(nothing);
   }
 
   @Override

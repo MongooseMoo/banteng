@@ -20,7 +20,7 @@ Source inspection found that the working implementations already check the new J
 
 Two further current cases have contradictions in the source. `IndexOps.range` handles inverted integer map bounds before lookup but reports E_RANGE for inverted bounds of other types when a key is absent. `ArithmeticOps.arithmetic` accepts a floating power of zero when a finite nonzero base underflows.
 
-The current unknown-builtin startup fixture also expects load-time diagnostics, source normalization to `call_function`, and the structured `E_INVARG` from that call. The latter is implemented locally. The database readers still use `RawVerb.compile` with the original source and need a load-path repair.
+The current unknown-builtin startup fixture expects load-time diagnostics, source normalization to `call_function`, and a structured `E_INVARG`. The latest local batch composes the database verb compiler from the builtin catalog and server log, rewrites only absent builtins, and preserves normal dynamic compilation diagnostics. The structured error is already on the PR branch. The isolated distribution build passed after narrowing the compiler's source and metadata error handling.
 
 The pinned Toast suite's 64-bit artifact confirms that all four queued-fork restart cases actually passed. The Toast writer passes a two-word `Var` to one integer conversion; the last field prints the definer's runtime type and is read as the debug flag. The previous Barn investigation captured the bytes and disassembly. Banteng writes the actual debug flag in the shared v17 activation header; write the definer type there and keep the existing `debug != 0` import semantics for older files.
 
@@ -30,7 +30,15 @@ An isolated Linux build was still reading source when the checkpoint patch was a
 
 ## Next step
 
-1. Publish the follow-up and compare its JUnit results against the baseline. The largest baseline groups were callback stack frames, scatter assignment, SQLite, and PCRE. The unknown-builtin load path still needs normalization and logging. Live non-debug fork/suspend cases failed separately from the checkpoint field behavior.
+1. Compare the published follow-up's JUnit results against the baseline. The largest baseline groups were callback stack frames, scatter assignment, SQLite, and PCRE. The unknown-builtin load path still needs normalization and logging. Live non-debug fork/suspend cases failed separately from the checkpoint field behavior.
 2. Fix verified Banteng differences at their source. Re-run the existing managed stock and promotion checks against the latest suite and read the resulting JUnit reports and admission evidence.
 
 Q authorized publication of the pull request. Leave the pull request open for review.
+
+The scatter follow-up is local while hosted CI validates the preceding changes. `MooCompiler` previously emitted all default expressions before `SCATTER`. `LoopOps` also let a rest target take elements reserved for optional targets. The compiler now emits default blocks after the instruction. The VM validates the source, binds supplied values, and jumps to the first missing default or the end. The Toast checkpoint layout already models defaults after binding with the source list on the stack.
+
+The second hosted build passed. Its Java tests found five older assertions with different expectations for boolean ordering, Unicode loop labels, or the v17 debug field. The local test updates assert the verified Toast behavior and retain checks for loading older files and invalid input. The second managed run reported 219 failures, 12,424 passes, and 1,831 skips on the same suite revision. All 18 map-range cases and all 13 parser-syntax cases passed. ToastCore started and its five cases received the declared feature skip in the stock profile. Promotion did not run after stock failed.
+
+The callback cases exposed two independent task paths. Live queued forks now snapshot a root frame so restore retains the captured debug flag. `task_stack` ignores queued forks until they suspend, though the snapshots remain available as collection roots. Uncaught traceback output now renders the builtin rows it already receives, and the row uses the builtin name at the caller's instruction, including `recreate` and `call_function`.
+
+The next batch also logs the v4 bad-label admission failure, recognizes a v5 label without using it as the record identity, and narrows `move`, `index`, and `rindex` arguments to signed 32 bits before validation. A clean Linux copy built the complete batch successfully. The new head needs the managed conformance and Java checks.
