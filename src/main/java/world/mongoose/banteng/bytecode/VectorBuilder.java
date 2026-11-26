@@ -14,6 +14,7 @@ import world.mongoose.banteng.bytecode.LayoutCompiler.LabelReference;
 import world.mongoose.banteng.bytecode.LayoutCompiler.LiteralKey;
 import world.mongoose.banteng.bytecode.LayoutCompiler.PendingCall;
 import world.mongoose.banteng.bytecode.LayoutCompiler.PendingCatchGroup;
+import world.mongoose.banteng.bytecode.LayoutCompiler.PendingCatchSelector;
 import world.mongoose.banteng.bytecode.LayoutCompiler.PendingProtectedFinally;
 import world.mongoose.banteng.bytecode.LayoutCompiler.PendingStructuralEntry;
 import world.mongoose.banteng.bytecode.LayoutCompiler.PendingToastClause;
@@ -219,6 +220,8 @@ final class VectorBuilder {
         if (caught.markerDepth().isPresent()) {
           structuralSlots += 2 * caught.group().clauses().size() + 1;
         }
+      } else if (structure instanceof PendingCatchSelector selector) {
+        structuralSlots += selector.clause().selector().dynamic() ? 1 : 2;
       } else if (structure instanceof PendingProtectedFinally) {
         structuralSlots++;
       } else {
@@ -260,15 +263,23 @@ final class VectorBuilder {
                     <= 65_536
                 ? 2
                 : 4;
+    List<Integer> unitOffsets = new ArrayList<>(units.size() + 1);
+    unitOffsets.add(0);
+    for (int index = 0; index < units.size(); index++) {
+      int width = switch (units.get(index)) {
+        case BYTE -> 1;
+        case LITERAL -> literalWidth;
+        case FORK -> forkWidth;
+        case VARIABLE -> variableWidth;
+        case LABEL -> labelWidth;
+        case STACK -> stackWidth;
+      };
+      unitOffsets.add(unitOffsets.get(index) + width);
+    }
     return new VectorLayout(
-        List.copyOf(units),
+        List.copyOf(unitOffsets),
         List.copyOf(calls),
         List.copyOf(handlerGroups),
-        List.copyOf(finallyLabels),
-        literalWidth,
-        forkWidth,
-        variableWidth,
-        labelWidth,
-        stackWidth);
+        List.copyOf(finallyLabels));
   }
 }

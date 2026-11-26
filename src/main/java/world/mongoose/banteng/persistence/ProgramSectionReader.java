@@ -5,7 +5,6 @@ import static world.mongoose.banteng.persistence.DbScanner.parseCount;
 import static world.mongoose.banteng.persistence.DbScanner.parseLong;
 import static world.mongoose.banteng.persistence.DbScanner.requiredLine;
 
-import java.io.BufferedReader;
 import java.io.IOException;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -16,7 +15,7 @@ final class ProgramSectionReader {
   private ProgramSectionReader() {}
 
   static Map<ProgramSlot, String> read(
-      BufferedReader input, int count, LongToIntFunction verbCount) throws IOException {
+      DbScanner input, int count, LongToIntFunction verbCount) throws IOException {
     Map<ProgramSlot, String> programs = new LinkedHashMap<>();
     for (int index = 0; index < count; index++) {
       String header = requiredLine(input, "program header");
@@ -41,7 +40,7 @@ final class ProgramSectionReader {
     return programs;
   }
 
-  static String readSource(BufferedReader input, String field) throws IOException {
+  static String readSource(DbScanner input, String field) throws IOException {
     StringBuilder source = new StringBuilder();
     while (true) {
       String line = requiredLine(input, field);

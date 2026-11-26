@@ -213,6 +213,7 @@ public record BytecodeProgram(
           opcode == Opcode.LIST_APPEND
               || opcode == Opcode.LIST_EXTEND
               || opcode == Opcode.LOAD_LOCAL
+              || opcode == Opcode.ENTER_HANDLER
               || opcode == Opcode.INDEX;
       if ((!local && !optionalParent && numberRequired != operand.isPresent())
           || (local && text.isEmpty() && (operand.isEmpty() || operand.orElseThrow() < 0))
@@ -221,6 +222,8 @@ public record BytecodeProgram(
           || (opcode == Opcode.INDEX
               && operand.isPresent()
               && operand.orElseThrow() != 1)
+          || (opcode == Opcode.ENTER_HANDLER && operand.isPresent()
+              && (operand.orElseThrow() < 1 || operand.orElseThrow() > Integer.MAX_VALUE))
           || (!local && textRequired != text.isPresent())
           || handlerRequired != handler.isPresent()) {
         throw new IllegalArgumentException(opcode + " has invalid operands");
@@ -349,9 +352,14 @@ public record BytecodeProgram(
 
     /** Creates an explicit handler entry instruction with its stable AST path. */
     public Instruction(HandlerSpec handler, AstPath astPath) {
+      this(handler, astPath, 0);
+    }
+
+    /** Excludes selector values awaiting installation from this handler's operand depth. */
+    public Instruction(HandlerSpec handler, AstPath astPath, int pendingSelectors) {
       this(
           Opcode.ENTER_HANDLER,
-          OptionalLong.empty(),
+          pendingSelectors == 0 ? OptionalLong.empty() : OptionalLong.of(pendingSelectors),
           Optional.empty(),
           Optional.of(handler),
           0,
@@ -368,7 +376,14 @@ public record BytecodeProgram(
       boolean structuredCatchBinding,
       int finallyTarget,
       int endTarget,
-      int catchSlot) {
+      int catchSlot,
+      boolean dynamicErrors) {
+    public HandlerSpec(int catchTarget, Optional<String> catchVariable, boolean catchesAny,
+        List<String> caughtErrors, boolean structuredCatchBinding, int finallyTarget, int endTarget,
+        int catchSlot) {
+      this(catchTarget, catchVariable, catchesAny, caughtErrors, structuredCatchBinding,
+          finallyTarget, endTarget, catchSlot, false);
+    }
     public HandlerSpec(int catchTarget, Optional<String> catchVariable, boolean catchesAny,
         List<String> caughtErrors, boolean structuredCatchBinding, int finallyTarget, int endTarget) {
       this(catchTarget, catchVariable, catchesAny, caughtErrors, structuredCatchBinding,
@@ -381,7 +396,7 @@ public record BytecodeProgram(
         throw new IllegalArgumentException("invalid handler target");
       }
       if ((catchTarget == -1)
-          != (catchVariable.isEmpty() && caughtErrors.isEmpty() && !catchesAny)) {
+          != (catchVariable.isEmpty() && caughtErrors.isEmpty() && !catchesAny && !dynamicErrors)) {
         throw new IllegalArgumentException("invalid catch metadata");
       }
       if (catchTarget == -1 && structuredCatchBinding) {

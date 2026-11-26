@@ -2,15 +2,11 @@ package world.mongoose.banteng.builtin;
 import java.util.Map;
 import java.util.Optional;
 import world.mongoose.banteng.value.MooValue;
-import world.mongoose.banteng.value.MooValue.AnonymousObjectValue;
-import world.mongoose.banteng.value.MooValue.BooleanValue;
 import world.mongoose.banteng.value.MooValue.ErrorValue;
-import world.mongoose.banteng.value.MooValue.FloatValue;
 import world.mongoose.banteng.value.MooValue.IntegerValue;
 import world.mongoose.banteng.value.MooValue.ListValue;
 import world.mongoose.banteng.value.MooValue.MapValue;
 import world.mongoose.banteng.value.MooValue.ObjectValue;
-import world.mongoose.banteng.value.MooValue.StringValue;
 import world.mongoose.banteng.value.MooValue.WaifValue;
 import world.mongoose.banteng.world.WorldProperty;
 import world.mongoose.banteng.world.WorldTxn;
@@ -23,32 +19,29 @@ public final class ValueLimits {
     private static final long MAX_LIST_VALUE_BYTES_LIMIT = 2_147_482_626L;
 
     public static long valueBytes(MooValue value, WorldTxn world) {
+        return value.valueBytesWithoutWaifProperties() + waifPropertyBytes(value, world);
+    }
+
+    private static long waifPropertyBytes(MooValue value, WorldTxn world) {
+        if (!value.containsWaifReferences()) return 0;
         return switch (value) {
-            case IntegerValue _ -> 16;
-            case BooleanValue _ -> 16;
-            case ObjectValue _ -> 16;
-            case ErrorValue _ -> 16;
-            case AnonymousObjectValue _ -> 16;
-            case FloatValue _ -> 24;
-            case StringValue string -> 17L + string.length();
             case ListValue list -> {
-                long bytes = 32;
+                long bytes = 0;
                 for (MooValue element : list.elements()) {
-                    bytes += valueBytes(element, world);
+                    bytes += waifPropertyBytes(element, world);
                 }
                 yield bytes;
             }
             case MapValue map -> {
-                long bytes = 32;
+                long bytes = 0;
                 for (Map.Entry<MooValue, MooValue> entry : map.entries().entrySet()) {
-                    bytes += 24;
-                    bytes += valueBytes(entry.getKey(), world);
-                    bytes += valueBytes(entry.getValue(), world);
+                    bytes += waifPropertyBytes(entry.getKey(), world);
+                    bytes += waifPropertyBytes(entry.getValue(), world);
                 }
                 yield bytes;
             }
             case WaifValue waif -> {
-                long bytes = 72;
+                long bytes = 0;
                 var body = world.waif(waif).orElse(null);
                 if (body != null) {
                     for (WorldProperty property : body.properties()) {
@@ -59,6 +52,7 @@ public final class ValueLimits {
                 }
                 yield bytes;
             }
+            default -> 0;
         };
     }
 

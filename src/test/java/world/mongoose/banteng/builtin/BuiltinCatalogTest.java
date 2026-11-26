@@ -393,6 +393,13 @@ final class BuiltinCatalogTest {
                   1)
               ));
       assertEquals(transactionBefore, transaction.snapshot());
+      ListValue repeatedWaif = new ListValue(List.of(
+          waif, new MapValue(Map.of(waif, new IntegerValue(1)))));
+      assertEquals(Optional.of(new IntegerValue(280)),
+          value(invoke(catalog, spec, List.of(repeatedWaif), transaction, 1)));
+      assertTrue(transaction.writeWaifProperty(waif, "marker", string("hello")).isOk());
+      assertEquals(Optional.of(new IntegerValue(292)),
+          value(invoke(catalog, spec, List.of(repeatedWaif), transaction, 1)));
     }
     assertEquals(committedBefore, root.snapshot());
   }

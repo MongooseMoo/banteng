@@ -1,7 +1,5 @@
 package world.mongoose.banteng.world;
 
-import java.util.Collections;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import world.mongoose.banteng.value.MooValue;
@@ -19,14 +17,13 @@ public record WorldSnapshot(
     List<MooValue> pendingFinalization) {
   /** Takes immutable, insertion-preserving copies of the ordered world records. */
   public WorldSnapshot {
+    objects = WorldRecords.copyOf(objects);
     if (lastUsedObjectId < greatestObjectId(objects)) {
       throw new IllegalArgumentException("last used object ID precedes a live object");
     }
     players = List.copyOf(players);
-    objects = Collections.unmodifiableMap(new LinkedHashMap<>(objects));
-    anonymousObjects =
-        Collections.unmodifiableMap(new LinkedHashMap<>(anonymousObjects));
-    waifs = Collections.unmodifiableMap(new LinkedHashMap<>(waifs));
+    anonymousObjects = WorldRecords.copyOf(anonymousObjects);
+    waifs = WorldRecords.copyOf(waifs);
     pendingFinalization = List.copyOf(pendingFinalization);
   }
 
@@ -87,10 +84,20 @@ public record WorldSnapshot(
   }
 
   private static long greatestObjectId(Map<Long, WorldObject> objects) {
-    long greatest = -1;
-    for (long objectId : objects.keySet()) {
-      greatest = Math.max(greatest, objectId);
-    }
-    return greatest;
+    return WorldRecords.greatestObjectId(objects);
+  }
+
+  /** Returns the permanent property roots in their first occurrence order. */
+  public List<MooValue> permanentCollectibleRoots() {
+    return WorldRecords.collectibleRoots(objects);
+  }
+
+  /** Identities of the immutable property edges that can affect reachability. */
+  public record CollectibleGraph(Object permanent, Object anonymous, Object waifs) {}
+
+  public CollectibleGraph collectibleGraph() {
+    return new CollectibleGraph(
+        WorldRecords.collectibleGraph(objects), WorldRecords.collectibleGraph(anonymousObjects),
+        WorldRecords.collectibleGraph(waifs));
   }
 }

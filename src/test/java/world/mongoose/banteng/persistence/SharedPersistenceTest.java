@@ -8,9 +8,8 @@ import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import java.io.BufferedReader;
+import java.io.ByteArrayInputStream;
 import java.io.IOException;
-import java.io.StringReader;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
@@ -126,8 +125,9 @@ final class SharedPersistenceTest {
     assertArrayEquals(fixture, Files.readAllBytes(copy));
   }
 
-  private static BufferedReader reader(String source) {
-    return new BufferedReader(new StringReader(source));
+  private static DbScanner reader(String source) {
+    return new DbScanner(new ByteArrayInputStream(
+        source.getBytes(java.nio.charset.StandardCharsets.ISO_8859_1)));
   }
 
   private static WorldObject root(List<WorldVerb> verbs) {

@@ -11,6 +11,9 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.LinkedHashMap;
+import java.util.Set;
+import java.util.TreeSet;
+import java.util.TreeMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -39,6 +42,38 @@ public sealed interface MooValue
 
   /** Returns source text for this value as a MOO literal. */
   String toLiteral();
+
+  /** Contains anonymous or WAIF identities through collections, without following their bodies. */
+  default boolean containsCollectibleReferences() {
+    return referenceKinds() != 0;
+  }
+
+  /** Returns whether the value's byte size can depend on current WAIF properties. */
+  default boolean containsWaifReferences() {
+    return (referenceKinds() & 2) != 0;
+  }
+
+  private int referenceKinds() {
+    return switch (this) {
+      case AnonymousObjectValue ignored -> 1;
+      case WaifValue ignored -> 2;
+      case ListValue list -> list.referenceKinds;
+      case MapValue map -> map.referenceKinds;
+      default -> 0;
+    };
+  }
+
+  /** Counts the immutable value representation, excluding the contents of WAIF property bodies. */
+  default long valueBytesWithoutWaifProperties() {
+    return switch (this) {
+      case FloatValue ignored -> 24;
+      case StringValue string -> 17L + string.length();
+      case ListValue list -> list.valueBytes;
+      case MapValue map -> map.valueBytes;
+      case WaifValue ignored -> 72;
+      default -> 16;
+    };
+  }
 
   /** Persisted type tags used by the values in this slice. */
   enum Type {
@@ -242,12 +277,22 @@ public sealed interface MooValue
 
     /** Creates a string by taking a defensive copy of {@code bytes}. */
     private StringValue(byte[] bytes) {
-      this.bytes = Arrays.copyOf(bytes, bytes.length);
+      this(bytes, 0, bytes.length);
+    }
+
+    private StringValue(byte[] bytes, int from, int to) {
+      this.bytes = Arrays.copyOfRange(bytes, from, to);
     }
 
     /** Creates a binary string by taking a defensive copy of {@code bytes}. */
     public static StringValue of(byte[] bytes) {
       return new StringValue(bytes);
+    }
+
+    /** Creates a binary string from a slice of a caller-owned byte buffer. */
+    public static StringValue of(byte[] bytes, int from, int to) {
+      Objects.checkFromToIndex(from, to, bytes.length);
+      return new StringValue(bytes, from, to);
     }
 
     /** Encodes {@code text} as one Latin-1 byte per character. */
@@ -571,10 +616,27 @@ public sealed interface MooValue
   /** An immutable heterogeneous MOO list with one-based access. */
   final class ListValue implements MooValue {
     private final List<MooValue> elements;
+    private final int referenceKinds;
+    private final long valueBytes;
 
     /** Creates a list by taking an immutable snapshot of {@code elements}. */
     public ListValue(List<? extends MooValue> elements) {
       this.elements = List.copyOf(elements);
+      int references = 0;
+      long bytes = 32;
+      for (int index = 0; index < this.elements.size(); index++) {
+        MooValue element = this.elements.get(index);
+        references |= element.referenceKinds();
+        bytes += element.valueBytesWithoutWaifProperties();
+      }
+      this.referenceKinds = references;
+      this.valueBytes = bytes;
+    }
+
+    private ListValue(List<MooValue> elements, int referenceKinds, long valueBytes) {
+      this.elements = List.copyOf(elements);
+      this.referenceKinds = referenceKinds;
+      this.valueBytes = valueBytes;
     }
 
     /** Returns the immutable element snapshot. */
@@ -600,7 +662,8 @@ public sealed interface MooValue
       List<MooValue> concatenated = new ArrayList<>(elements.size() + other.elements.size());
       concatenated.addAll(elements);
       concatenated.addAll(other.elements);
-      return new ListValue(concatenated);
+      return new ListValue(concatenated, referenceKinds | other.referenceKinds,
+          valueBytes + other.valueBytes - 32);
     }
 
     /** Returns this list with {@code value} appended. */
@@ -608,7 +671,8 @@ public sealed interface MooValue
       List<MooValue> appended = new ArrayList<>(elements.size() + 1);
       appended.addAll(elements);
       appended.add(value);
-      return new ListValue(appended);
+      return new ListValue(appended, referenceKinds | value.referenceKinds(),
+          valueBytes + value.valueBytesWithoutWaifProperties());
     }
 
     @Override
@@ -653,6 +717,105 @@ public sealed interface MooValue
   final class MapValue implements MooValue {
     private final Map<MooValue, MooValue> entries;
     private final @Nullable MapNode lookupRoot;
+    private final int referenceKinds;
+    private final long valueBytes;
+
+    /** Builds a uniquely owned map without copying it after each inserted entry. */
+    public static final class Builder {
+      private final Set<MooValue> scalarKeys =
+          new TreeSet<>((left, right) -> ValueSemantics.STANDARD.compare(left, right, false));
+      private final LinkedHashMap<MooValue, MooValue> identityBindings = new LinkedHashMap<>();
+      private final List<Map.Entry<MooValue, MooValue>> floatBindings = new ArrayList<>();
+      private @Nullable MapNode root;
+
+      /** Inserts a key, returning false for an existing Toast-comparison-equal key. */
+      public boolean add(MooValue key, MooValue value) {
+        if (!remember(key)) return false;
+        if (isIdentityKey(key)) identityBindings.putFirst(key, value);
+        if (key instanceof FloatValue) floatBindings.add(Map.entry(key, value));
+        root = insertLookupNode(root, key, value);
+        return true;
+      }
+
+      /** Inserts or replaces a binding using the same tree insertion as immutable updates. */
+      public void put(MooValue key, MooValue value) {
+        remember(key);
+        if (isIdentityKey(key)) identityBindings.putFirst(key, value);
+        if (key instanceof FloatValue) floatBindings.add(Map.entry(key, value));
+        root = insertLookupNode(root, key, value);
+      }
+
+      private boolean remember(MooValue key) {
+        requireScalarKey(key);
+        if (isIdentityKey(key)) {
+          return !identityBindings.containsKey(key);
+        } else if (key instanceof FloatValue floating && Double.isNaN(floating.value())) {
+          return true;
+        } else {
+          return scalarKeys.add(key);
+        }
+      }
+
+      /** Freezes the map and relinquishes the builder's mutable tree. */
+      public MapValue build() {
+        LinkedHashMap<MooValue, MooValue> entries = new LinkedHashMap<>();
+        Set<Type> emittedIdentityTypes = java.util.EnumSet.noneOf(Type.class);
+        boolean emittedFloats = false;
+        List<MapNode> pending = new ArrayList<>();
+        MapNode current = root;
+        while (current != null || !pending.isEmpty()) {
+          while (current != null) {
+            pending.add(current);
+            current = current.left;
+          }
+          MapNode node = pending.removeLast();
+          if (node.key instanceof FloatValue) {
+            if (!emittedFloats) {
+              appendFloatBindings(entries);
+              emittedFloats = true;
+            }
+          } else if (!isIdentityKey(node.key)) {
+            entries.put(node.key, node.value);
+          } else if (emittedIdentityTypes.add(node.key.type())) {
+            for (Map.Entry<MooValue, MooValue> entry : identityBindings.entrySet()) {
+              if (entry.getKey().type() == node.key.type()) {
+                entries.put(entry.getKey(), entry.getValue());
+              }
+            }
+          }
+          current = node.right;
+        }
+        MapValue result = new MapValue(entries, root);
+        root = null;
+        scalarKeys.clear();
+        identityBindings.clear();
+        floatBindings.clear();
+        return result;
+      }
+
+      private void appendFloatBindings(Map<MooValue, MooValue> entries) {
+        Map<MooValue, MooValue> segment =
+            new TreeMap<>((left, right) -> ValueSemantics.STANDARD.compare(left, right, false));
+        // NaN compares greater in both directions: every insertion starts before the
+        // latest NaN, while finite keys within each intervening segment are sorted.
+        for (Map.Entry<MooValue, MooValue> binding : floatBindings.reversed()) {
+          FloatValue key = (FloatValue) binding.getKey();
+          if (Double.isNaN(key.value())) {
+            entries.putAll(segment);
+            segment.clear();
+            entries.put(key, binding.getValue());
+          } else if (scalarKeys.remove(key)) {
+            segment.put(key, binding.getValue());
+          }
+        }
+        entries.putAll(segment);
+      }
+
+      private static boolean isIdentityKey(MooValue key) {
+        return key instanceof AnonymousObjectValue || key instanceof WaifValue
+            || key instanceof BooleanValue;
+      }
+    }
 
     /** Creates a map by taking an immutable insertion-preserving snapshot of {@code entries}. */
     public MapValue(Map<? extends MooValue, ? extends MooValue> entries) {
@@ -665,11 +828,31 @@ public sealed interface MooValue
       }
       this.entries = Collections.unmodifiableMap(owned);
       this.lookupRoot = root;
+      Size size = measure(owned);
+      this.referenceKinds = size.referenceKinds();
+      this.valueBytes = size.bytes();
     }
 
     private MapValue(Map<MooValue, MooValue> entries, @Nullable MapNode lookupRoot) {
       this.entries = Collections.unmodifiableMap(entries);
       this.lookupRoot = lookupRoot;
+      Size size = measure(entries);
+      this.referenceKinds = size.referenceKinds();
+      this.valueBytes = size.bytes();
+    }
+
+    private record Size(int referenceKinds, long bytes) {}
+
+    private static Size measure(Map<MooValue, MooValue> entries) {
+      int references = 0;
+      long bytes = 32;
+      for (Map.Entry<MooValue, MooValue> entry : entries.entrySet()) {
+        MooValue key = entry.getKey();
+        MooValue value = entry.getValue();
+        references |= key.referenceKinds() | value.referenceKinds();
+        bytes += 24 + key.valueBytesWithoutWaifProperties() + value.valueBytesWithoutWaifProperties();
+      }
+      return new Size(references, bytes);
     }
 
     /** Returns the immutable insertion-preserving entry snapshot. */
@@ -827,6 +1010,7 @@ public sealed interface MooValue
       int lastDirection = 0;
 
       while (true) {
+        boolean inserted = iterator == null;
         if (iterator == null) {
           iterator = new MapNode(key, value);
           Objects.requireNonNull(parent).setLink(direction, iterator);
@@ -849,6 +1033,7 @@ public sealed interface MooValue
           }
         }
 
+        if (inserted) break;
         int comparison = ValueSemantics.STANDARD.compare(iterator.key, key, false);
         if (comparison == 0) {
           iterator.key = key;

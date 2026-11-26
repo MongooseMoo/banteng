@@ -6,6 +6,11 @@ import java.util.List;
 public record WorldWaif(List<WorldProperty> properties) {
   /** Creates a WAIF body by taking an immutable snapshot of its ordered property slots. */
   public WorldWaif {
-    properties = List.copyOf(properties);
+    properties = WorldProperties.copyOf(properties);
+  }
+
+  /** Property roots which can retain anonymous objects or WAIFs. */
+  public List<WorldProperty> collectibleProperties() {
+    return ((WorldProperties) properties).collectibleProperties();
   }
 }

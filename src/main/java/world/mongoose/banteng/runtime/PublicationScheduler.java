@@ -14,7 +14,6 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.OptionalDouble;
 import java.util.OptionalLong;
-import java.util.Queue;
 import java.util.TreeMap;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.Callable;
@@ -55,7 +54,7 @@ public final class PublicationScheduler implements AutoCloseable {
   private volatile int backgroundWorkers;
   private final ThreadPoolExecutor executor;
   @GuardedBy("this")
-  private final Queue<Entry> ready = new ArrayDeque<>();
+  private final ArrayDeque<Entry> ready = new ArrayDeque<>();
   @GuardedBy("this")
   private final Map<Long, Attempt> completed = new TreeMap<>();
   @GuardedBy("this")
@@ -64,6 +63,8 @@ public final class PublicationScheduler implements AutoCloseable {
   private final Map<Long, Long> lastInputTasks = new TreeMap<>();
   @GuardedBy("this")
   private final Map<Long, TimedWork> timedWork = new TreeMap<>();
+  @GuardedBy("this")
+  private final ArrayDeque<TimedWork> dueTimers = new ArrayDeque<>();
   @GuardedBy("this")
   private final Map<Long, TimedWork> checkpointingWork = new TreeMap<>();
   @GuardedBy("this")
@@ -127,7 +128,7 @@ public final class PublicationScheduler implements AutoCloseable {
     }
   }
 
-  /** Starts restored timers once startup callbacks and {@code server_started} have completed. */
+  /** Starts restored timers after the first published slice of {@code server_started}. */
   void activateRestoredTasks() {
     List<TimedWork> restored;
     synchronized (this) {
@@ -388,7 +389,8 @@ public final class PublicationScheduler implements AutoCloseable {
     CompletableFuture<PublishedOutput> published = new CompletableFuture<>();
     synchronized (this) {
       if (closed && (request.operation() == MooRuntime.Operation.STARTUP
-          || request.operation() == MooRuntime.Operation.TIMEOUT)) {
+          || request.operation() == MooRuntime.Operation.TIMEOUT
+          || request.operation() == MooRuntime.Operation.CLOSE)) {
         return new PublishedOutput(List.of(), request.operation() == MooRuntime.Operation.TIMEOUT
             ? Optional.of(new MooRuntime.LoginTimeoutResult.Done()) : Optional.empty());
       }
@@ -464,14 +466,40 @@ public final class PublicationScheduler implements AutoCloseable {
     if (closed) {
       return;
     }
+    admitDueTimers();
     while (!ready.isEmpty() && hasExecutorCapacity()) {
       Entry entry = ready.element();
+      if (entry.ticket() != nextPublicationTicket
+          && entry.continuation().flatMap(MooRuntime.RuntimeContinuation::ingress)
+              .map(MooRuntime.RuntimeRequest::operation)
+              .filter(operation -> operation == MooRuntime.Operation.CHECKPOINT_DISCONNECT
+                  || operation == MooRuntime.Operation.STARTUP)
+              .isPresent()) {
+        return;
+      }
       try {
         executor.execute(() -> executeAttempt(entry));
       } catch (RejectedExecutionException rejected) {
         return;
       }
       ready.remove();
+    }
+  }
+
+  @GuardedBy("this")
+  private void admitDueTimers() {
+    // Leave room for ingress while restored timers are already due.
+    while (!dueTimers.isEmpty() && nextTicket - nextPublicationTicket < workers) {
+      TimedWork timed = dueTimers.removeFirst();
+      long taskId = timed.work().taskId();
+      if (!timedWork.remove(taskId, timed) || taskRegistry.discardIfCanceled(taskId)) continue;
+      if (checkpointingWork.putIfAbsent(taskId, timed) != null) {
+        throw new IllegalStateException("task already has checkpointing state " + taskId);
+      }
+      long ticket = nextTicket++;
+      ready.addLast(timed.wakeResult().isPresent()
+          ? timed.work().wake(ticket, timed.wakeResult().orElseThrow())
+          : timed.work().ready(ticket));
     }
   }
 
@@ -817,7 +845,7 @@ public final class PublicationScheduler implements AutoCloseable {
       PublishedAttempt published = publishAttempt(attempt);
       if (published.retry() || published.authorizeIrrevocable()) {
         synchronized (this) {
-          ready.add(
+          ready.addFirst(
               published.authorizeIrrevocable()
                   ? attempt.entry().authorizeIrrevocable()
                   : attempt.entry());
@@ -908,9 +936,11 @@ public final class PublicationScheduler implements AutoCloseable {
     }
     CompletableFuture<PublishedOutput> foreground = null;
     boolean retainedIngress = false;
-    if (result.inputOutput().isPresent()) {
-      synchronized (this) {
-        input = ingress.get(start.taskId());
+    synchronized (this) {
+      input = ingress.get(start.taskId());
+      if (input != null && input.operation() == MooRuntime.Operation.STARTUP) {
+        foreground = ingress.remove(start.taskId()).future();
+      } else if (result.inputOutput().isPresent()) {
         if (input != null && (input.socketConnection().isPresent()
             || input.operation() == MooRuntime.Operation.START_SCRIPT)) {
           foreground = ingress.remove(start.taskId()).future();
@@ -919,8 +949,6 @@ public final class PublicationScheduler implements AutoCloseable {
           retainedIngress = true;
         }
       }
-    }
-    synchronized (this) {
       registerActiveFinalization(start.taskId(), result.finalizationControl());
     }
     Entry boundary =
@@ -937,12 +965,10 @@ public final class PublicationScheduler implements AutoCloseable {
         boundary,
         result.snapshot().orElseThrow(),
         result.hostWork());
-    if (result.inputOutput().isPresent()) {
-      if (foreground != null) {
-        foreground.complete(new PublishedOutput(List.of(), Optional.empty()));
-      } else if (!retainedIngress) {
-        runtime.get().writeDetachedOutput(result.taskPlayer(), result.inputOutput().orElseThrow());
-      }
+    if (foreground != null) {
+      foreground.complete(new PublishedOutput(List.of(), Optional.empty()));
+    } else if (!retainedIngress && result.inputOutput().isPresent()) {
+      runtime.get().writeDetachedOutput(result.taskPlayer(), result.inputOutput().orElseThrow());
     }
   }
 
@@ -1178,18 +1204,11 @@ public final class PublicationScheduler implements AutoCloseable {
               try {
                 TimeUnit.MILLISECONDS.sleep(delayMillis);
                 synchronized (this) {
-                  if (!timedWork.remove(timed.work().taskId(), timed)) {
+                  if (closed || !timed.equals(timedWork.get(timed.work().taskId()))) {
                     return;
                   }
-                  if (checkpointingWork.putIfAbsent(timed.work().taskId(), timed) != null) {
-                    throw new IllegalStateException(
-                        "task already has checkpointing state " + timed.work().taskId());
-                  }
-                }
-                if (timed.wakeResult().isPresent()) {
-                  enqueueWake(timed.work(), timed.wakeResult().orElseThrow());
-                } else {
-                  enqueueReady(timed.work());
+                  dueTimers.addLast(timed);
+                  dispatch();
                 }
               } catch (InterruptedException interrupted) {
                 Thread.currentThread().interrupt();
@@ -1404,11 +1423,13 @@ public final class PublicationScheduler implements AutoCloseable {
       closed = true;
       pending = List.copyOf(ingress.values());
       ingress.clear();
+      dueTimers.clear();
     }
     executor.shutdownNow();
     IllegalStateException failure = new IllegalStateException("publication scheduler is closed");
     for (Ingress input : pending) {
-      if (input.operation() == MooRuntime.Operation.STARTUP) {
+      if (input.operation() == MooRuntime.Operation.STARTUP
+          || input.operation() == MooRuntime.Operation.CLOSE) {
         input.future().complete(new PublishedOutput(input.output(), Optional.empty()));
       } else if (input.operation() == MooRuntime.Operation.TIMEOUT) {
         input.future().complete(new PublishedOutput(

@@ -8,12 +8,12 @@ import static world.mongoose.banteng.persistence.DbScanner.requireExact;
 import static world.mongoose.banteng.persistence.DbScanner.requiredLine;
 import static world.mongoose.banteng.persistence.ValueTagDecoder.readV5;
 
-import java.io.BufferedReader;
 import java.io.BufferedWriter;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -27,7 +27,6 @@ import world.mongoose.banteng.world.Checkpoint;
 import world.mongoose.banteng.world.DurableTask;
 import world.mongoose.banteng.value.MooValue.ListValue;
 import world.mongoose.banteng.value.MooValue.ObjectValue;
-import world.mongoose.banteng.value.MooValue.StringValue;
 import world.mongoose.banteng.value.MooValue;
 import world.mongoose.banteng.world.PropertyPerms;
 import world.mongoose.banteng.world.WorldObject;
@@ -53,8 +52,8 @@ public final class LambdaMooV5Reader implements DbCodec {
   @Override
   public Checkpoint read(Path database) throws IOException {
     Objects.requireNonNull(database, "database");
-    try (BufferedReader input =
-        Files.newBufferedReader(database, StringValue.charset())) {
+    try (DbScanner input =
+        new DbScanner(Files.newInputStream(database))) {
       requireExact(input, HEADER, "v5 header");
       int objectSlotCount = readCount(input, "object slot count");
       int programCount = readCount(input, "program count");
@@ -113,7 +112,7 @@ public final class LambdaMooV5Reader implements DbCodec {
     output.writePanic(checkpoint, world, tasks, activeConnections);
   }
 
-  private static Optional<RawObject> readObject(BufferedReader input, long expectedId)
+  private static Optional<RawObject> readObject(DbScanner input, long expectedId)
       throws IOException {
     String header = requiredLine(input, "object #" + expectedId + " header");
     if (header.equals("#" + expectedId + " recycled")
@@ -209,12 +208,14 @@ public final class LambdaMooV5Reader implements DbCodec {
     serverLog.info("VALIDATE: checking inheritance graph for cycles ...");
     Set<Long> parentCycles = new LinkedHashSet<>();
     Set<Long> locationCycles = new LinkedHashSet<>();
+    Map<Long, Boolean> checkedParents = new HashMap<>();
+    Map<Long, Boolean> checkedLocations = new HashMap<>();
     for (long objectId : objects.keySet()) {
-      if (hasParentCycle(objectId, repaired, new LinkedHashSet<>())) {
+      if (hasParentCycle(objectId, repaired, new LinkedHashSet<>(), checkedParents)) {
         serverLog.error("*** VALIDATE: Cycle in parent chain of #" + objectId + ".");
         parentCycles.add(objectId);
       }
-      if (hasLocationCycle(objectId, repaired)) {
+      if (hasLocationCycle(objectId, repaired, checkedLocations)) {
         serverLog.error("*** VALIDATE: Cycle in location chain of #" + objectId + ".");
         locationCycles.add(objectId);
       }
@@ -222,10 +223,18 @@ public final class LambdaMooV5Reader implements DbCodec {
     if (!parentCycles.isEmpty() || !locationCycles.isEmpty()) {
       throw malformed("cyclic parent or location hierarchy");
     }
+    Map<Long, Set<Long>> contents = new HashMap<>();
+    Map<Long, Set<Long>> children = new HashMap<>();
+    Map<Long, Set<Long>> parents = new HashMap<>();
+    for (Map.Entry<Long, RepairedObject> entry : repaired.entrySet()) {
+      contents.put(entry.getKey(), Set.copyOf(entry.getValue().contents()));
+      children.put(entry.getKey(), Set.copyOf(entry.getValue().children()));
+      parents.put(entry.getKey(), Set.copyOf(entry.getValue().parents()));
+    }
     for (Map.Entry<Long, RepairedObject> entry : repaired.entrySet()) {
       long id = entry.getKey();
       RepairedObject object = entry.getValue();
-      if (object.location() != -1 && !Objects.requireNonNull(repaired.get(object.location())).contents().contains(id)) {
+      if (object.location() != -1 && !Objects.requireNonNull(contents.get(object.location())).contains(id)) {
         serverLog.error("*** VALIDATE: #" + id + " not in it's location's (#" + object.location() + ") contents.");
         broken = true;
       }
@@ -239,7 +248,7 @@ public final class LambdaMooV5Reader implements DbCodec {
       }
       for (long parent : object.parents()) {
         if (parent == -1) continue;
-        if (!Objects.requireNonNull(repaired.get(parent)).children().contains(id)) {
+        if (!Objects.requireNonNull(children.get(parent)).contains(id)) {
           serverLog.error("*** VALIDATE: #" + id + " not in it's parent's (#" + parent + ") children.");
           broken = true;
           break;
@@ -247,7 +256,7 @@ public final class LambdaMooV5Reader implements DbCodec {
       }
       for (long child : object.children()) {
         if (child == -1) continue;
-        if (!Objects.requireNonNull(repaired.get(child)).parents().contains(id)) {
+        if (!Objects.requireNonNull(parents.get(child)).contains(id)) {
           serverLog.error("*** VALIDATE: #" + id + " not in it's child's (#" + child + ") parents.");
           broken = true;
           break;
@@ -335,30 +344,45 @@ public final class LambdaMooV5Reader implements DbCodec {
   }
 
   private static boolean hasParentCycle(
-      long objectId, Map<Long, RepairedObject> objects, Set<Long> path) {
+      long objectId, Map<Long, RepairedObject> objects, Set<Long> path,
+      Map<Long, Boolean> checked) {
+    Boolean known = checked.get(objectId);
+    if (known != null) return known;
     if (!path.add(objectId)) {
       return true;
     }
+    boolean cyclic = false;
     for (long parent : Objects.requireNonNull(objects.get(objectId)).parents()) {
       if (parent == -1) continue;
-      if (hasParentCycle(parent, objects, path)) {
-        return true;
+      if (hasParentCycle(parent, objects, path, checked)) {
+        cyclic = true;
+        break;
       }
     }
     path.remove(objectId);
-    return false;
+    checked.put(objectId, cyclic);
+    return cyclic;
   }
 
-  private static boolean hasLocationCycle(long objectId, Map<Long, RepairedObject> objects) {
+  private static boolean hasLocationCycle(long objectId, Map<Long, RepairedObject> objects,
+      Map<Long, Boolean> checked) {
     Set<Long> path = new LinkedHashSet<>();
     long cursor = objectId;
+    boolean cyclic = false;
     while (cursor != -1) {
+      Boolean known = checked.get(cursor);
+      if (known != null) {
+        cyclic = known;
+        break;
+      }
       if (!path.add(cursor)) {
-        return true;
+        cyclic = true;
+        break;
       }
       cursor = Objects.requireNonNull(objects.get(cursor)).location();
     }
-    return false;
+    for (long visited : path) checked.put(visited, cyclic);
+    return cyclic;
   }
 
   private static List<WorldObject> restoreObjects(

@@ -292,4 +292,97 @@ final class MooValueTest {
         IllegalArgumentException.class,
         () -> initial.with(new MapValue(Map.of()), new IntegerValue(1)));
   }
+
+  @Test
+  void bulkMapsPreserveLookupTopologyAndDetectToastEqualKeys() {
+    MapValue.Builder builder = new MapValue.Builder();
+    MapValue incremental = new MapValue(Map.of());
+    List<MooValue> keys = List.of(
+        new IntegerValue(9), StringValue.of("z"), StringValue.of("A"),
+        new FloatValue(0.0), BooleanValue.TRUE, BooleanValue.FALSE,
+        new AnonymousObjectValue(), new AnonymousObjectValue());
+    for (int index = 0; index < keys.size(); index++) {
+      MooValue key = keys.get(index);
+      MooValue value = new IntegerValue(index);
+      assertTrue(builder.add(key, value));
+      incremental = incremental.with(key, value);
+    }
+    assertFalse(builder.add(StringValue.of("a"), new IntegerValue(100)));
+    assertFalse(builder.add(new FloatValue(-0.0), new IntegerValue(100)));
+    assertFalse(builder.add(keys.getLast(), new IntegerValue(100)));
+    MapValue built = builder.build();
+    assertEquals(incremental.orderedEntries(), built.orderedEntries());
+    assertEquals(incremental.entries(), built.entries());
+    builder.put(StringValue.of("later"), new IntegerValue(99));
+    assertEquals(1, builder.build().size());
+    assertEquals(keys.size(), built.size());
+  }
+
+  @Test
+  void bulkMapUpdatesRetainNonTotalKeyReplacementOrder() {
+    AnonymousObjectValue first = new AnonymousObjectValue();
+    AnonymousObjectValue second = new AnonymousObjectValue();
+    AnonymousObjectValue third = new AnonymousObjectValue();
+    List<MooValue> keys = List.of(first, second, third, first,
+        StringValue.of("Key"), StringValue.of("KEY"));
+    MapValue incremental = new MapValue(Map.of());
+    MapValue.Builder builder = new MapValue.Builder();
+    for (int index = 0; index < keys.size(); index++) {
+      MooValue value = new IntegerValue(index);
+      incremental = incremental.with(keys.get(index), value);
+      builder.put(keys.get(index), value);
+    }
+    MapValue built = builder.build();
+    assertEquals(incremental.toLiteral(), built.toLiteral());
+    assertEquals(incremental.orderedEntries(), built.orderedEntries());
+  }
+
+  @Test
+  void bulkMapUpdatesPreserveNanDelimitedFloatOrdering() {
+    FloatValue nan = new FloatValue(Double.NaN);
+    List<MooValue> keys = List.of(new FloatValue(50), nan, new FloatValue(100),
+        new FloatValue(0.0), new FloatValue(Double.NaN), new FloatValue(50),
+        new FloatValue(-0.0), nan, new FloatValue(Double.POSITIVE_INFINITY));
+    MapValue incremental = new MapValue(Map.of());
+    MapValue.Builder builder = new MapValue.Builder();
+    for (int index = 0; index < keys.size(); index++) {
+      MooValue value = new IntegerValue(index);
+      incremental = incremental.with(keys.get(index), value);
+      builder.put(keys.get(index), value);
+    }
+    MapValue built = builder.build();
+    assertEquals(List.copyOf(incremental.entries().entrySet()),
+        List.copyOf(built.entries().entrySet()));
+    assertEquals(incremental.orderedEntries(), built.orderedEntries());
+  }
+
+  @Test
+  void collectibleReferenceSummaryFollowsFinalImmutableContents() {
+    AnonymousObjectValue anonymous = new AnonymousObjectValue();
+    WaifValue waif = new WaifValue(new ObjectValue(0), new ObjectValue(0));
+    StringValue key = StringValue.of("key");
+    ListValue pure = new ListValue(List.of(new IntegerValue(1), key,
+        new ObjectValue(0), new MapValue(Map.of())));
+    assertFalse(pure.containsCollectibleReferences());
+    assertTrue(anonymous.containsCollectibleReferences());
+    assertTrue(waif.containsCollectibleReferences());
+    assertTrue(pure.append(anonymous).containsCollectibleReferences());
+    assertTrue(pure.concatenate(new ListValue(List.of(waif))).containsCollectibleReferences());
+
+    MapValue nested = new MapValue(Map.of(key, new ListValue(List.of(anonymous))));
+    assertTrue(nested.containsCollectibleReferences());
+    assertFalse(nested.with(key, pure).containsCollectibleReferences());
+    assertTrue(nested.containsCollectibleReferences());
+    assertTrue(new MapValue(Map.of(waif, pure)).containsCollectibleReferences());
+
+    MapValue.Builder builder = new MapValue.Builder();
+    builder.put(key, anonymous);
+    builder.put(key, pure);
+    assertFalse(builder.build().containsCollectibleReferences());
+    builder.put(anonymous, pure);
+    MapValue frozen = builder.build();
+    assertTrue(frozen.containsCollectibleReferences());
+    assertFalse(builder.build().containsCollectibleReferences());
+    assertTrue(frozen.containsCollectibleReferences());
+  }
 }

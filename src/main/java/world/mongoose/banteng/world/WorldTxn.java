@@ -37,6 +37,7 @@ public final class WorldTxn implements AutoCloseable {
   private final Set<AnonymousObjectValue> anonymousReads = new LinkedHashSet<>();
   private final Set<AnonymousObjectValue> anonymousWrites = new LinkedHashSet<>();
   private final Set<WaifValue> waifWrites = new LinkedHashSet<>();
+  private final Map<WaifValue, Optional<WorldWaif>> pendingWaifEdits = new LinkedHashMap<>();
   private final Set<ScanPredicate> scanPredicates = new LinkedHashSet<>();
   private final List<MooValue> stagedEffects = new ArrayList<>();
   private World working;
@@ -85,7 +86,7 @@ public final class WorldTxn implements AutoCloseable {
 
   /** Returns an immutable committed snapshot on the root or local snapshot on a transaction. */
   public WorldSnapshot snapshot() {
-    return transaction ? working.snapshot() : history.snapshot();
+    return transaction ? workingWorld().snapshot() : history.snapshot();
   }
 
   /** Retains one committed revision until a checkpoint writer closes the returned lease. */
@@ -183,16 +184,17 @@ public final class WorldTxn implements AutoCloseable {
     return Optional.ofNullable(working.anonymousObjects().get(requested));
   }
 
-  /** Removes one anonymous body while preserving the identity of every other body. */
-  public WorldResult<Boolean> removeAnonymousObject(AnonymousObjectValue identity) {
+  /** Removes the present anonymous bodies in one world update. */
+  public WorldResult<Boolean> removeAnonymousObjects(Set<AnonymousObjectValue> identities) {
     ensureActiveTransaction();
-    Objects.requireNonNull(identity, "identity");
-    if (!working.anonymousObjects().containsKey(identity)) {
+    Set<AnonymousObjectValue> removed = new LinkedHashSet<>(identities);
+    removed.retainAll(working.anonymousObjects().keySet());
+    if (removed.isEmpty()) {
       return WorldResult.failed(ErrorValue.E_INVARG);
     }
     Map<AnonymousObjectValue, WorldAnonymousObject> anonymousObjects =
         new LinkedHashMap<>(working.anonymousObjects());
-    anonymousObjects.remove(identity);
+    anonymousObjects.keySet().removeAll(removed);
     World next =
         new World(
             base.revision(),
@@ -202,7 +204,7 @@ public final class WorldTxn implements AutoCloseable {
             anonymousObjects,
             working.waifs(),
             working.pendingFinalization());
-    anonymousWrites.add(identity);
+    anonymousWrites.addAll(removed);
     working = next;
     return WorldResult.ok(true);
   }
@@ -210,30 +212,20 @@ public final class WorldTxn implements AutoCloseable {
   /** Returns one WAIF body by reference identity. */
   public Optional<WorldWaif> waif(WaifValue identity) {
     ensureActiveTransaction();
-    return Optional.ofNullable(working.waifs().get(Objects.requireNonNull(identity, "identity")));
+    Objects.requireNonNull(identity, "identity");
+    Optional<WorldWaif> edited = pendingWaifEdits.get(identity);
+    return edited != null ? edited : Optional.ofNullable(working.waifs().get(identity));
   }
 
-  /** Removes one WAIF body while preserving the identity of every other body. */
-  public WorldResult<Boolean> removeWaif(WaifValue identity) {
+  /** Removes the present bodies of one WAIF component in one world update. */
+  public void removeWaifs(Set<WaifValue> identities) {
     ensureActiveTransaction();
-    Objects.requireNonNull(identity, "identity");
-    if (!working.waifs().containsKey(identity)) {
-      return WorldResult.failed(ErrorValue.E_INVARG);
+    for (WaifValue identity : identities) {
+      if (waif(identity).isPresent()) {
+        pendingWaifEdits.put(identity, Optional.empty());
+        waifWrites.add(identity);
+      }
     }
-    Map<WaifValue, WorldWaif> waifs = new LinkedHashMap<>(working.waifs());
-    waifs.remove(identity);
-    World next =
-        new World(
-            base.revision(),
-            working.players(),
-            working.objects(),
-            working.lastUsedObjectId(),
-            working.anonymousObjects(),
-            waifs,
-            working.pendingFinalization());
-    waifWrites.add(identity);
-    working = next;
-    return WorldResult.ok(true);
   }
 
   /** Looks up a zero-based verb slot on an object. */
@@ -1688,12 +1680,7 @@ public final class WorldTxn implements AutoCloseable {
 
   private static Optional<WorldProperty> localProperty(
       PropertyHolder object, String propertyName) {
-    for (WorldProperty property : object.properties()) {
-      if (property.name().equalsIgnoreCase(propertyName)) {
-        return Optional.of(property);
-      }
-    }
-    return Optional.empty();
+    return Optional.ofNullable(((WorldProperties) object.properties()).findByName(propertyName));
   }
 
   private Optional<PropertyHolder> propertyHolder(Object identity) {
@@ -1765,9 +1752,17 @@ public final class WorldTxn implements AutoCloseable {
   }
 
   private void replaceObject(WorldObject replacement) {
-    Map<Long, WorldObject> objects = new LinkedHashMap<>(working.objects());
-    objects.put(replacement.id(), replacement);
-    replaceWorld(working.players(), objects);
+    ensureActiveTransaction();
+    Map<Long, WorldObject> objects = WorldRecords.with(working.objects(), replacement.id(), replacement);
+    World next = new World(base.revision(), working.players(), objects,
+        working.lastUsedObjectId(), working.anonymousObjects(), working.waifs(),
+        working.pendingFinalization());
+    if (Objects.equals(base.objects().get(replacement.id()), replacement)) {
+      recordWrites.remove(replacement.id());
+    } else {
+      recordWrites.add(replacement.id());
+    }
+    working = next;
   }
 
   private void replacePropertyHolder(Object identity, PropertyHolder replacement) {
@@ -1813,8 +1808,7 @@ public final class WorldTxn implements AutoCloseable {
       AnonymousObjectValue identity, WorldAnonymousObject replacement) {
     ensureActiveTransaction();
     Map<AnonymousObjectValue, WorldAnonymousObject> anonymousObjects =
-        new LinkedHashMap<>(working.anonymousObjects());
-    anonymousObjects.put(identity, replacement);
+        WorldRecords.with(working.anonymousObjects(), identity, replacement);
     World next =
         new World(
             base.revision(),
@@ -1834,23 +1828,12 @@ public final class WorldTxn implements AutoCloseable {
 
   private void replaceWaif(WaifValue identity, WorldWaif replacement) {
     ensureActiveTransaction();
-    Map<WaifValue, WorldWaif> waifs = new LinkedHashMap<>(working.waifs());
-    waifs.put(identity, replacement);
-    World next =
-        new World(
-            base.revision(),
-            working.players(),
-            working.objects(),
-            working.lastUsedObjectId(),
-            working.anonymousObjects(),
-            waifs,
-            working.pendingFinalization());
+    pendingWaifEdits.put(identity, Optional.of(replacement));
     if (Objects.equals(base.waifs().get(identity), replacement)) {
       waifWrites.remove(identity);
     } else {
       waifWrites.add(identity);
     }
-    working = next;
   }
 
   private void replaceWorld(List<Long> players, Map<Long, WorldObject> objects) {
@@ -1889,7 +1872,25 @@ public final class WorldTxn implements AutoCloseable {
   }
 
   World workingWorld() {
+    if (!pendingWaifEdits.isEmpty()) {
+      Map<WaifValue, WorldWaif> replacements = new LinkedHashMap<>();
+      for (Map.Entry<WaifValue, Optional<WorldWaif>> edit : pendingWaifEdits.entrySet()) {
+        if (edit.getValue().isPresent()) {
+          replacements.put(edit.getKey(), edit.getValue().orElseThrow());
+        }
+      }
+      Map<WaifValue, WorldWaif> waifs =
+          WorldRecords.updated(working.waifs(), pendingWaifEdits.keySet(), replacements);
+      working = new World(base.revision(), working.players(), working.objects(),
+          working.lastUsedObjectId(), working.anonymousObjects(), waifs,
+          working.pendingFinalization());
+      pendingWaifEdits.clear();
+    }
     return working;
+  }
+
+  boolean hasPendingWaifEdits() {
+    return !pendingWaifEdits.isEmpty();
   }
 
   Set<Long> recordReads() {

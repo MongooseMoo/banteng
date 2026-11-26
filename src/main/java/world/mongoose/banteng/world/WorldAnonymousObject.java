@@ -16,7 +16,7 @@ public record WorldAnonymousObject(
     Objects.requireNonNull(name, "name");
     parents = List.copyOf(parents);
     verbs = List.copyOf(verbs);
-    properties = List.copyOf(properties);
+    properties = WorldProperties.copyOf(properties);
   }
 
   /** Adapts a singular parent supplied by older callers and database formats. */

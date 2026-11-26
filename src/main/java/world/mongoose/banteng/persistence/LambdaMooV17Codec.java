@@ -20,7 +20,6 @@ import world.mongoose.banteng.world.QueuedTask;
 import world.mongoose.banteng.world.SuspendedStackSlot;
 import world.mongoose.banteng.world.SuspendedActivation;
 import world.mongoose.banteng.world.SuspendedTask;
-import java.io.BufferedReader;
 import java.io.BufferedWriter;
 import java.io.IOException;
 import java.io.OutputStreamWriter;
@@ -34,6 +33,7 @@ import java.nio.file.attribute.PosixFilePermissions;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.IdentityHashMap;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -43,9 +43,12 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import jdk.jfr.FlightRecorder;
 import world.mongoose.banteng.value.MooValue;
-import world.mongoose.banteng.value.ValueSemantics;
 import world.mongoose.banteng.value.MooValue.AnonymousObjectValue;
 import world.mongoose.banteng.value.MooValue.BooleanValue;
 import world.mongoose.banteng.value.MooValue.ErrorValue;
@@ -202,8 +205,8 @@ public final class LambdaMooV17Codec implements DbCodec {
   @Override
   public Checkpoint read(Path database) throws IOException {
     Objects.requireNonNull(database, "database");
-    try (BufferedReader input =
-        Files.newBufferedReader(database, StringValue.charset())) {
+    try (DbScanner input =
+        new DbScanner(Files.newInputStream(database))) {
       requireExact(input, HEADER, "v17 header");
       int playerCount = readCount(input, "player count");
       List<Long> players = new ArrayList<>(playerCount);
@@ -268,23 +271,27 @@ public final class LambdaMooV17Codec implements DbCodec {
       }
 
       objects = validateAndRepairHierarchy(objects, permanentSlotCount);
-      Map<Long, List<WorldProperty>> restoredProperties = restoreAllProperties(objects);
-      List<WorldObject> restored =
-          restoreObjects(objects, programs, restoredProperties, permanentSlotCount);
-      Map<AnonymousObjectValue, WorldAnonymousObject> anonymousObjects =
-          restoreAnonymousObjects(
-              objects, programs, restoredProperties, context, permanentSlotCount);
-      Map<WaifValue, WorldWaif> waifs = restoreWaifs(restored, context);
-      return new Checkpoint(
-          new WorldTxn(
-              players,
-              restored,
-              anonymousObjects,
-              waifs,
-              pendingFinalization,
-              permanentSlotCount - 1L),
-          tasks,
-          activeConnections);
+      int compilerCount = Math.max(1, Runtime.getRuntime().availableProcessors() - 1);
+      try (ExecutorService compilers = Executors.newFixedThreadPool(compilerCount)) {
+        Map<ProgramSlot, Future<WorldVerb>> compiled = compilePrograms(compilers, objects, programs);
+        Map<Long, List<WorldProperty>> restoredProperties = restoreAllProperties(objects);
+        List<WorldObject> restored =
+            restoreObjects(objects, compiled, restoredProperties, permanentSlotCount);
+        Map<AnonymousObjectValue, WorldAnonymousObject> anonymousObjects =
+            restoreAnonymousObjects(
+                objects, compiled, restoredProperties, context, permanentSlotCount);
+        Map<WaifValue, WorldWaif> waifs = restoreWaifs(restored, context);
+        return new Checkpoint(
+            new WorldTxn(
+                players,
+                restored,
+                anonymousObjects,
+                waifs,
+                pendingFinalization,
+                permanentSlotCount - 1L),
+            tasks,
+            activeConnections);
+      }
     }
   }
 
@@ -766,39 +773,33 @@ public final class LambdaMooV17Codec implements DbCodec {
   }
 
   private static @Nullable RawObject readObject(
-      BufferedReader input, long expectedId, ReadContext context)
+      DbScanner input, long expectedId, ReadContext context)
       throws IOException {
-    String header = requiredLine(input, "object #" + expectedId + " header");
-    if (header.equals("#" + expectedId + " recycled")
+    String identifier = "#" + expectedId;
+    String field = "object " + identifier;
+    String header = requiredLine(input, field + " header");
+    if (header.equals(identifier + " recycled")
         || header.equals("# " + expectedId + " recycled")) {
       return null;
     }
-    if (!header.equals("#" + expectedId)) {
-      throw malformed("invalid object #" + expectedId + " header: " + header);
+    if (!header.equals(identifier)) {
+      throw malformed("invalid " + field + " header: " + header);
     }
-    String name = requiredLine(input, "object #" + expectedId + " name");
-    int flags = readInt(input, "object #" + expectedId + " flags");
-    long owner = readLong(input, "object #" + expectedId + " owner");
-    long location =
-        requireObject(
-            readValue(input, context, "object #" + expectedId + " location"),
-            "object #" + expectedId + " location");
-    MooValue lastMove = readValue(input, context, "object #" + expectedId + " last move");
-    List<Long> contents =
-        requireObjectList(
-            readValue(input, context, "object #" + expectedId + " contents"),
-            "object #" + expectedId + " contents");
-    List<Long> parents =
-        requireParents(
-            readValue(input, context, "object #" + expectedId + " parents"),
-            "object #" + expectedId + " parents");
-    List<Long> children =
-        requireObjectList(
-            readValue(input, context, "object #" + expectedId + " children"),
-            "object #" + expectedId + " children");
+    String name = requiredLine(input, field + " name");
+    int flags = readInt(input, field + " flags");
+    long owner = readLong(input, field + " owner");
+    String locationField = field + " location";
+    int locationTag = readInt(input, locationField + " tag");
+    long location = locationTag == V17Format.ValueTag.OBJECT.code()
+        ? readLong(input, "object value")
+        : requireObject(readValue(input, locationTag, context, locationField), locationField);
+    MooValue lastMove = readValue(input, context, field + " last move");
+    List<Long> contents = readObjectLinks(input, context, field + " contents", false);
+    List<Long> parents = readObjectLinks(input, context, field + " parents", true);
+    List<Long> children = readObjectLinks(input, context, field + " children", false);
 
-    int verbCount = readCount(input, "object #" + expectedId + " verb count");
-    List<RawVerb> verbs = new ArrayList<>(verbCount);
+    int verbCount = readCount(input, field + " verb count");
+    List<RawVerb> verbs = verbCount == 0 ? List.of() : new ArrayList<>(verbCount);
     for (int index = 0; index < verbCount; index++) {
       verbs.add(
           new RawVerb(
@@ -808,13 +809,14 @@ public final class LambdaMooV17Codec implements DbCodec {
               readInt(input, "verb preposition")));
     }
 
-    int propertyNameCount = readCount(input, "object #" + expectedId + " property-name count");
-    List<String> propertyNames = new ArrayList<>(propertyNameCount);
+    int propertyNameCount = readCount(input, field + " property-name count");
+    List<String> propertyNames = propertyNameCount == 0 ? List.of() : new ArrayList<>(propertyNameCount);
     for (int index = 0; index < propertyNameCount; index++) {
       propertyNames.add(requiredLine(input, "property name"));
     }
-    int propertyValueCount = readCount(input, "object #" + expectedId + " property-value count");
-    List<RawPropertySlot> propertySlots = new ArrayList<>(propertyValueCount);
+    int propertyValueCount = readCount(input, field + " property-value count");
+    List<RawPropertySlot> propertySlots =
+        propertyValueCount == 0 ? List.of() : new ArrayList<>(propertyValueCount);
     for (int index = 0; index < propertyValueCount; index++) {
       try {
         int tag = readInt(input, "property value tag");
@@ -826,13 +828,13 @@ public final class LambdaMooV17Codec implements DbCodec {
                         input,
                         tag,
                         context,
-                        "object #" + expectedId + " property slot " + index + " value"),
+                        field + " property slot " + index + " value"),
                 tag == V17Format.ValueTag.CLEAR.code(),
                 readLong(input, "property owner"),
                 readInt(input, "property permissions")));
       } catch (IOException error) {
         throw malformed(
-            "object #" + expectedId + " property slot " + index + ": " + error.getMessage());
+            field + " property slot " + index + ": " + error.getMessage());
       }
     }
     return new RawObject(
@@ -850,9 +852,39 @@ public final class LambdaMooV17Codec implements DbCodec {
         propertySlots);
   }
 
+  private static Map<ProgramSlot, Future<WorldVerb>> compilePrograms(
+      ExecutorService compilers, Map<Long, RawObject> objects, Map<ProgramSlot, String> programs) {
+    Map<ProgramSlot, Future<WorldVerb>> compiled = HashMap.newHashMap(programs.size());
+    for (Map.Entry<ProgramSlot, String> entry : programs.entrySet()) {
+      ProgramSlot slot = entry.getKey();
+      RawVerb verb = Objects.requireNonNull(objects.get(slot.objectId())).verbs().get(slot.verbIndex());
+      String source = entry.getValue();
+      compiled.put(slot, compilers.submit(() -> verb.compile(source)));
+    }
+    return compiled;
+  }
+
+  private static WorldVerb restoreVerb(RawVerb verb, @Nullable Future<WorldVerb> compiled)
+      throws IOException {
+    if (compiled == null) return verb.compile("");
+    try {
+      return compiled.get();
+    } catch (InterruptedException error) {
+      Thread.currentThread().interrupt();
+      throw new IOException("interrupted while compiling database verb " + verb.names(), error);
+    } catch (ExecutionException error) {
+      switch (error.getCause()) {
+        case IOException failure -> throw failure;
+        case RuntimeException failure -> throw failure;
+        case Error failure -> throw failure;
+        case null, default -> throw new IOException("cannot compile database verb " + verb.names(), error);
+      }
+    }
+  }
+
   private static List<WorldObject> restoreObjects(
       Map<Long, RawObject> objects,
-      Map<ProgramSlot, String> programs,
+      Map<ProgramSlot, Future<WorldVerb>> programs,
       Map<Long, List<WorldProperty>> restoredProperties,
       int permanentSlotCount)
       throws IOException {
@@ -864,9 +896,7 @@ public final class LambdaMooV17Codec implements DbCodec {
       List<WorldVerb> verbs = new ArrayList<>(object.verbs().size());
       for (int index = 0; index < object.verbs().size(); index++) {
         RawVerb verb = object.verbs().get(index);
-        String source = programs.getOrDefault(new ProgramSlot(object.id(), index), "");
-        verbs.add(
-            verb.compile(source));
+        verbs.add(restoreVerb(verb, programs.get(new ProgramSlot(object.id(), index))));
       }
       restored.add(
           new WorldObject(
@@ -887,7 +917,7 @@ public final class LambdaMooV17Codec implements DbCodec {
 
   private static Map<AnonymousObjectValue, WorldAnonymousObject> restoreAnonymousObjects(
       Map<Long, RawObject> objects,
-      Map<ProgramSlot, String> programs,
+      Map<ProgramSlot, Future<WorldVerb>> programs,
       Map<Long, List<WorldProperty>> restoredProperties,
       ReadContext context,
       int permanentSlotCount)
@@ -904,9 +934,7 @@ public final class LambdaMooV17Codec implements DbCodec {
       List<WorldVerb> verbs = new ArrayList<>(object.verbs().size());
       for (int index = 0; index < object.verbs().size(); index++) {
         RawVerb verb = object.verbs().get(index);
-        String source = programs.getOrDefault(new ProgramSlot(object.id(), index), "");
-        verbs.add(
-            verb.compile(source));
+        verbs.add(restoreVerb(verb, programs.get(new ProgramSlot(object.id(), index))));
       }
       restored.put(
           entry.getValue(),
@@ -938,6 +966,7 @@ public final class LambdaMooV17Codec implements DbCodec {
       objectsById.put(object.id(), object);
     }
     Map<WaifValue, WorldWaif> restored = new LinkedHashMap<>();
+    Map<Long, List<WorldProperty>> classLayouts = new HashMap<>();
     for (WaifValue waif : context.waifs.values()) {
       RawWaif raw = context.waifBodies.get(waif);
       if (raw == null) {
@@ -945,11 +974,11 @@ public final class LambdaMooV17Codec implements DbCodec {
       }
       WorldObject waifClass = objectsById.get(waif.classObject().value());
       if (waifClass == null) {
-        throw malformed("WAIF names missing class #" + waif.classObject().value());
+        restored.put(waif, new WorldWaif(List.of()));
+        continue;
       }
-      List<WorldProperty> classProperties =
-          waifClass.properties().stream().filter(property -> property.name().startsWith(":"))
-              .toList();
+      List<WorldProperty> classProperties = classLayouts.computeIfAbsent(waifClass.id(), ignored ->
+          waifClass.properties().stream().filter(property -> property.name().startsWith(":")).toList());
       if (raw.propertyCount() != classProperties.size()) {
         throw malformed(
             "WAIF property count "
@@ -1079,13 +1108,21 @@ public final class LambdaMooV17Codec implements DbCodec {
 
   private static void validateHierarchyReciprocity(
       Map<Long, RawObject> objects, int permanentSlotCount) throws IOException {
+    Map<Long, Set<Long>> contents = new LinkedHashMap<>();
+    Map<Long, Set<Long>> children = new LinkedHashMap<>();
+    Map<Long, Set<Long>> parents = new LinkedHashMap<>();
+    for (RawObject object : objects.values()) {
+      contents.put(object.id(), Set.copyOf(object.contents()));
+      children.put(object.id(), Set.copyOf(object.children()));
+      parents.put(object.id(), Set.copyOf(object.parents()));
+    }
     for (RawObject object : objects.values()) {
       if (object.id() >= permanentSlotCount) {
         continue;
       }
       if (object.location() != -1) {
         RawObject location = requireHierarchyObject(object.location(), objects);
-        if (!location.contents().contains(object.id())) {
+        if (!Objects.requireNonNull(contents.get(location.id())).contains(object.id())) {
           throw malformed(
               "object #"
                   + object.id()
@@ -1109,7 +1146,7 @@ public final class LambdaMooV17Codec implements DbCodec {
           continue;
         }
         RawObject parent = requireHierarchyObject(parentId, objects);
-        if (!parent.children().contains(object.id())) {
+        if (!Objects.requireNonNull(children.get(parent.id())).contains(object.id())) {
           throw malformed(
               "object #"
                   + object.id()
@@ -1123,7 +1160,7 @@ public final class LambdaMooV17Codec implements DbCodec {
           continue;
         }
         RawObject child = requireHierarchyObject(childId, objects);
-        if (!child.parents().contains(object.id())) {
+        if (!Objects.requireNonNull(parents.get(child.id())).contains(object.id())) {
           throw malformed(
               "object #" + childId + " has non-reciprocal inheritance parent #" + object.id());
         }
@@ -1148,13 +1185,13 @@ public final class LambdaMooV17Codec implements DbCodec {
 
 
   private static MooValue readValue(
-      BufferedReader input, ReadContext context, String location) throws IOException {
+      DbScanner input, ReadContext context, String location) throws IOException {
     int tag = readInt(input, location + " tag");
     return readValue(input, tag, context, location);
   }
 
   private static MooValue readValue(
-      BufferedReader input, int tag, ReadContext context, String location) throws IOException {
+      DbScanner input, int tag, ReadContext context, String location) throws IOException {
     Optional<MooValue> common =
         ValueTagDecoder.readCommon(
             input,
@@ -1170,22 +1207,17 @@ public final class LambdaMooV17Codec implements DbCodec {
     return switch (V17Format.ValueTag.fromCode(tag)) {
       case MAP -> {
         int count = readCount(input, "map count");
-        List<MooValue> keys = new ArrayList<>(count);
-        MapValue values = new MapValue(Map.of());
+        MapValue.Builder values = new MapValue.Builder();
         for (int index = 0; index < count; index++) {
           MooValue key =
               readValue(input, context, location + " map entry " + (index + 1) + " key");
           MooValue value =
               readValue(input, context, location + " map entry " + (index + 1) + " value");
-          for (MooValue existing : keys) {
-            if (ValueSemantics.STANDARD.compare(existing, key, false) == 0) {
-              throw malformed("duplicate map key in v17 value");
-            }
+          if (!values.add(key, value)) {
+            throw malformed("duplicate map key in v17 value");
           }
-          keys.add(key);
-          values = values.with(key, value);
         }
-        yield values;
+        yield values.build();
       }
       case ANONYMOUS -> {
         long objectId = readLong(input, "anonymous object reference");
@@ -1205,7 +1237,7 @@ public final class LambdaMooV17Codec implements DbCodec {
   }
 
   private static WaifValue readWaif(
-      BufferedReader input, ReadContext context, String location) throws IOException {
+      DbScanner input, ReadContext context, String location) throws IOException {
     String header = requiredLine(input, "WAIF identity header");
     if (header.length() < 3 || header.charAt(1) != ' ') {
       throw malformed("invalid WAIF identity header: " + header);
@@ -1256,21 +1288,36 @@ public final class LambdaMooV17Codec implements DbCodec {
     throw malformed(field + " must be an object reference");
   }
 
-  private static List<Long> requireParents(MooValue value, String field) throws IOException {
-    if (value instanceof ObjectValue object) {
-      return object.value() == -1 ? List.of() : List.of(object.value());
+  private static List<Long> readObjectLinks(
+      DbScanner input, ReadContext context, String field, boolean singularParent) throws IOException {
+    int tag = readInt(input, field + " tag");
+    if (singularParent && tag == V17Format.ValueTag.OBJECT.code()) {
+      long parent = readLong(input, "object value");
+      return parent == -1 ? List.of() : List.of(parent);
     }
-    return requireObjectList(value, field);
-  }
-
-  private static List<Long> requireObjectList(MooValue value, String field) throws IOException {
-    if (!(value instanceof ListValue list)) {
+    if (tag != V17Format.ValueTag.LIST.code()) {
+      readValue(input, tag, context, field);
       throw malformed(field + " must be a list");
     }
-    List<Long> result = new ArrayList<>(list.size());
-    for (MooValue element : list.elements()) {
-      result.add(requireObject(element, field));
+    int count = readCount(input, "list count");
+    if (count == 0) return List.of();
+    List<Long> result = new ArrayList<>(count);
+    boolean invalidElement = false;
+    for (int index = 0; index < count; index++) {
+      int elementTag;
+      try {
+        elementTag = readInt(input, "object link tag");
+      } catch (IOException failure) {
+        throw malformed(field + " list element " + (index + 1) + ": " + failure.getMessage(), failure);
+      }
+      if (elementTag == V17Format.ValueTag.OBJECT.code()) {
+        result.add(readLong(input, "object value"));
+      } else {
+        readValue(input, elementTag, context, field + " list element " + (index + 1));
+        invalidElement = true;
+      }
     }
+    if (invalidElement) throw malformed(field + " must be an object reference");
     return List.copyOf(result);
   }
 
@@ -1287,7 +1334,7 @@ public final class LambdaMooV17Codec implements DbCodec {
     output.write('\n');
   }
 
-  private static int readPendingFinalizationCount(BufferedReader input) throws IOException {
+  private static int readPendingFinalizationCount(DbScanner input) throws IOException {
     String line = requiredLine(input, "pending-finalization count");
     String suffix = " values pending finalization";
     if (!line.endsWith(suffix)) {

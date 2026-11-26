@@ -44,6 +44,18 @@ final class StartupScriptCallbacksTest {
   }
 
   @Test
+  void serverStartedReleasesServingAtItsFirstPublishedSuspension() {
+    WorldTxn world = world(List.of(verb("server_started", 12,
+        "#0.executed = 1; suspend(60); #0.executed = 2;")));
+    try (MooRuntime runtime = runtime(world)) {
+      assertTimeoutPreemptively(Duration.ofSeconds(5), runtime::startServer);
+      try (WorldTxn read = world.begin()) {
+        assertEquals(new IntegerValue(1), read.readObjectProperty(0, "executed").orElseThrow());
+      }
+    }
+  }
+
+  @Test
   void absentAndNonexecutableHooksDoNotEvaluateScriptArguments() {
     for (List<WorldVerb> hooks : List.of(List.<WorldVerb>of(),
         List.of(verb("do_start_script", 8, "#0.executed = 2;")))) {
