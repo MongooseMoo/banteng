@@ -9,7 +9,7 @@ import world.mongoose.banteng.world.*;
 
 /** Version-aware Toast task records; values remain owned by the database reader. */
 final class TaskSectionReader {
-  interface ValueReader { MooValue read(BufferedReader input, int tag, String location) throws IOException; }
+  interface ValueReader { MooValue read(DbScanner input, int tag, String location) throws IOException; }
   interface ObjectNumbers { long read(MooValue value) throws IOException; }
   private final ObjectNumbers objectNumbers;
   private final int version;
@@ -19,7 +19,7 @@ final class TaskSectionReader {
     this.version = version; this.values = values; this.objectNumbers = objectNumbers;
   }
   record Tail(List<DurableTask> tasks, List<ActiveConnection> connections) {}
-  Tail read(BufferedReader input) throws IOException {
+  Tail read(DbScanner input) throws IOException {
     int clocks = readSectionCount(input, " clocks", "clock count");
     for (int index = 0; index < clocks; index++) {
       String[] fields = requiredLine(input, "obsolete clock").split(" ", -1);
@@ -29,11 +29,9 @@ final class TaskSectionReader {
     List<DurableTask> tasks = new ArrayList<>();
     int queued = readSectionCount(input, " queued tasks", "queued task count");
     for (int index = 0; index < queued; index++) tasks.add(readQueuedTask(input));
-    input.mark(4096);
     String suspended = input.readLine();
     if (suspended == null) return new Tail(List.copyOf(tasks), List.of());
-    input.reset();
-    int count = readSectionCount(input, " suspended tasks", "suspended task count");
+    int count = parseSectionCount(suspended, " suspended tasks", "suspended task count");
     for (int index = 0; index < count; index++) tasks.add(readSuspendedTask(input));
     if (version >= 10) {
       int interrupted = readSectionCount(input, " interrupted tasks", "interrupted task count");
@@ -54,14 +52,16 @@ final class TaskSectionReader {
     }
     return new Tail(List.copyOf(tasks), List.copyOf(result));
   }
-  private MooValue readValue(BufferedReader input, String location) throws IOException {
+  private MooValue readValue(DbScanner input, String location) throws IOException {
     return readValue(input, readInt(input, location + " tag"), location);
   }
-  private MooValue readValue(BufferedReader input, int tag, String location) throws IOException {
+  private MooValue readValue(DbScanner input, int tag, String location) throws IOException {
     return values.read(input, tag, location);
   }
-  private static int readSectionCount(BufferedReader input, String suffix, String field) throws IOException {
-    String line = requiredLine(input, field);
+  private static int readSectionCount(DbScanner input, String suffix, String field) throws IOException {
+    return parseSectionCount(requiredLine(input, field), suffix, field);
+  }
+  private static int parseSectionCount(String line, String suffix, String field) throws IOException {
     if (!line.endsWith(suffix)) throw malformed("invalid " + field + ": " + line);
     return parseCount(line.substring(0, line.length() - suffix.length()), field);
   }
@@ -72,7 +72,7 @@ final class TaskSectionReader {
   private record ActivationHeader(MooValue receiver, MooValue verbLocation, boolean threadMode,
       long player, long programmer, boolean debug, String verb, String verbNames,
       long legacyReceiver, long legacyVerbLocation, String debugText) {}
-  private QueuedTask readQueuedTask(BufferedReader input)
+  private QueuedTask readQueuedTask(DbScanner input)
       throws IOException {
     String header = requiredLine(input, "queued-task header");
     String[] fields = header.split(" ", -1);
@@ -138,7 +138,7 @@ final class TaskSectionReader {
   }
 
   private ActivationHeader readActivationHeader(
-      BufferedReader input, String field, String location) throws IOException {
+      DbScanner input, String field, String location) throws IOException {
     MooValue sentinel = readValue(input, location + " sentinel");
     if (!sentinel.equals(new IntegerValue(V17Format.ACTIVATION_PLACEHOLDER))) {
       throw malformed("invalid " + field + " activation sentinel");
@@ -170,7 +170,7 @@ final class TaskSectionReader {
   }
 
   private SuspendedTask readSuspendedTask(
-      BufferedReader input) throws IOException {
+      DbScanner input) throws IOException {
     String header = requiredLine(input, "suspended-task header");
     int firstSpace = header.indexOf(' ');
     int secondSpace = firstSpace < 0 ? -1 : header.indexOf(' ', firstSpace + 1);
@@ -195,7 +195,7 @@ final class TaskSectionReader {
   }
 
   private SuspendedTask readInterruptedTask(
-      BufferedReader input) throws IOException {
+      DbScanner input) throws IOException {
     String header = requiredLine(input, "interrupted-task header");
     int separator = header.indexOf(' ');
     if (separator <= 0 || separator == header.length() - 1) {
@@ -211,7 +211,7 @@ final class TaskSectionReader {
   }
 
   private SuspendedTask readSuspendedVm(
-      BufferedReader input,
+      DbScanner input,
       long taskId,
       long scheduledEpochSecond,
       MooValue resumeValue,
@@ -251,7 +251,7 @@ final class TaskSectionReader {
   }
 
   private SuspendedActivation readSuspendedActivation(
-      BufferedReader input, long taskId, int activationIndex)
+      DbScanner input, long taskId, int activationIndex)
       throws IOException {
     String versionLine = requiredLine(input, "suspended activation language version");
     String versionPrefix = "language version ";
@@ -379,13 +379,13 @@ final class TaskSectionReader {
   }
 
   private Optional<MooValue> readRuntimeVariable(
-      BufferedReader input, String location) throws IOException {
+      DbScanner input, String location) throws IOException {
     int tag = readInt(input, location + " tag");
     return tag == V17Format.ValueTag.NONE.code()
         ? Optional.empty()
         : Optional.of(readValue(input, tag, location));
   }
-  private SuspendedActivation.BuiltinContinuation readBuiltin(BufferedReader input, String name) throws IOException {
+  private SuspendedActivation.BuiltinContinuation readBuiltin(DbScanner input, String name) throws IOException {
     return switch (name) {
       case "eval" -> new SuspendedActivation.EvalContinuation();
       case "create", "recreate" -> new SuspendedActivation.CreateContinuation(name.equals("recreate"),
@@ -407,7 +407,7 @@ final class TaskSectionReader {
     };
   }
 
-  private static long[] readBuiltinNumbers(BufferedReader input, String pattern, int count) throws IOException {
+  private static long[] readBuiltinNumbers(DbScanner input, String pattern, int count) throws IOException {
     String line = requiredLine(input, "builtin continuation data");
     java.util.regex.Matcher matcher = java.util.regex.Pattern.compile(pattern).matcher(line);
     if (!matcher.matches()) throw malformed("invalid builtin continuation data: " + line);

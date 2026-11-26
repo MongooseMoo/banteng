@@ -1,6 +1,8 @@
 package world.mongoose.banteng.persistence;
 
 import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Objects;
@@ -156,34 +158,41 @@ public final class ToastV17ProgramLayout {
       }
       controls.add(new IndexedControl(index, instruction, instruction.astPath().orElseThrow()));
     }
-    List<IndexedControl> clauses =
-        controls.stream()
-            .filter(
-                candidate ->
-                    controls.stream()
-                        .anyMatch(owner -> isClauseOf(owner.path(), candidate.path())))
-            .toList();
-    List<IndexedControl> owners =
-        controls.stream()
-            .filter(control -> !clauses.contains(control))
-            .filter(control -> isBodyDescendant(control.path(), callPath, 0))
-            .collect(java.util.stream.Collectors.toCollection(ArrayList::new));
+    Map<AstPath, Integer> pathCounts = new HashMap<>();
+    for (IndexedControl control : controls) {
+      pathCounts.merge(control.path(), 1, Integer::sum);
+    }
+    Map<AstPath, List<IndexedControl>> clausesByOwner = new HashMap<>();
+    List<IndexedControl> owners = new ArrayList<>();
+    for (IndexedControl control : controls) {
+      List<Integer> components = control.path().components();
+      AstPath parent = components.size() < 3 ? control.path()
+          : new AstPath(components.subList(0, components.size() - 2));
+      boolean clause = components.size() >= 3
+          && (components.get(components.size() - 2) == 1
+              || components.get(components.size() - 2) == 2)
+          && pathCounts.containsKey(parent);
+      if (clause) {
+        clausesByOwner.computeIfAbsent(parent, ignored -> new ArrayList<>()).add(control);
+      } else if (isBodyDescendant(control.path(), callPath, 0)) {
+        owners.add(control);
+      }
+    }
     owners.sort(
         Comparator.comparingInt((IndexedControl control) -> control.path().components().size())
             .reversed());
 
     List<EnclosingHandler> result = new ArrayList<>();
     for (IndexedControl owner : owners) {
-      requireUniquePath(owners, owner.path(), "handler owner");
+      requireUniquePath(pathCounts, owner.path(), "handler owner");
       List<IndexedControl> ownedClauses =
-          clauses.stream()
-              .filter(clause -> isClauseOf(owner.path(), clause.path()))
+          clausesByOwner.getOrDefault(owner.path(), List.of()).stream()
               .sorted(
                   Comparator.comparingInt(
                       clause -> clause.path().components().getLast()))
               .toList();
       for (IndexedControl clause : ownedClauses) {
-        requireUniquePath(clauses, clause.path(), "handler clause");
+        requireUniquePath(pathCounts, clause.path(), "handler clause");
         result.add(enclosingHandler(clause));
       }
       result.add(enclosingHandler(owner));
@@ -243,18 +252,9 @@ public final class ToastV17ProgramLayout {
         && descendantComponents.get(ownerComponents.size()) == bodyComponent;
   }
 
-  private static boolean isClauseOf(AstPath owner, AstPath clause) {
-    List<Integer> ownerComponents = owner.components();
-    List<Integer> clauseComponents = clause.components();
-    return clauseComponents.size() == ownerComponents.size() + 2
-        && clauseComponents.subList(0, ownerComponents.size()).equals(ownerComponents)
-        && (clauseComponents.get(ownerComponents.size()) == 1
-            || clauseComponents.get(ownerComponents.size()) == 2);
-  }
-
   private static void requireUniquePath(
-      List<IndexedControl> controls, AstPath path, String description) {
-    long matches = controls.stream().filter(control -> control.path().equals(path)).count();
+      Map<AstPath, Integer> pathCounts, AstPath path, String description) {
+    int matches = pathCounts.getOrDefault(path, 0);
     if (matches != 1) {
       throw new IllegalArgumentException(description + " path resolved " + matches + " times");
     }

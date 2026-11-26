@@ -153,7 +153,8 @@ final class LegacyDatabaseRestorationTest {
         """;
     for (int version : List.of(4, 5)) {
       var result = new TaskSectionReader(version, (input, tag, location) -> ValueTagDecoder.readV5(input, tag))
-          .read(new java.io.BufferedReader(new java.io.StringReader(tail)));
+          .read(new DbScanner(new java.io.ByteArrayInputStream(
+              tail.getBytes(java.nio.charset.StandardCharsets.ISO_8859_1))));
       QueuedTask queued = (QueuedTask) result.tasks().getFirst();
       assertEquals(91, queued.taskId()); assertTrue(queued.debug());
       assertEquals(17, DurableTaskCodec.restoreQueuedProgram(queued).sourceLine(0));
@@ -211,7 +212,8 @@ final class LegacyDatabaseRestorationTest {
             """);
     for (int version : List.of(4, 5)) {
       var tail = new TaskSectionReader(version, (input, tag, location) -> ValueTagDecoder.readV5(input, tag))
-          .read(new java.io.BufferedReader(new java.io.StringReader(text)));
+          .read(new DbScanner(new java.io.ByteArrayInputStream(
+              text.getBytes(java.nio.charset.StandardCharsets.ISO_8859_1))));
       SuspendedTask task = (SuspendedTask) tail.tasks().getFirst();
       assertEquals(Long.MAX_VALUE, task.scheduledEpochSecond());
       assertEquals(new IntegerValue(0), task.resumeValue());

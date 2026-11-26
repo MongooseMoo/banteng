@@ -107,6 +107,7 @@ final class WorldHistory {
   synchronized VerbCache.Resolution findCallableVerb(
       WorldTxn transaction, Object receiver, String verbName) {
     if (transaction.baseWorld() != current
+        || transaction.hasPendingWaifEdits()
         || transaction.workingWorld() != transaction.baseWorld()) {
       return transaction.findCallableVerbUncached(receiver, verbName);
     }
@@ -141,35 +142,14 @@ final class WorldHistory {
           validation.conflictingPredicates());
     }
 
-    Map<Long, WorldObject> objects = new LinkedHashMap<>(current.objects());
-    for (long objectId : transaction.recordWrites()) {
-      WorldObject replacement = transaction.workingWorld().objects().get(objectId);
-      if (replacement == null) {
-        objects.remove(objectId);
-      } else {
-        objects.put(objectId, replacement);
-      }
-    }
+    World working = transaction.workingWorld();
+    Map<Long, WorldObject> objects =
+        WorldRecords.updated(current.objects(), transaction.recordWrites(), working.objects());
     Map<AnonymousObjectValue, WorldAnonymousObject> anonymousObjects =
-        new LinkedHashMap<>(current.anonymousObjects());
-    for (AnonymousObjectValue identity : transaction.anonymousWrites()) {
-      WorldAnonymousObject replacement =
-          transaction.workingWorld().anonymousObjects().get(identity);
-      if (replacement == null) {
-        anonymousObjects.remove(identity);
-      } else {
-        anonymousObjects.put(identity, replacement);
-      }
-    }
-    Map<WaifValue, WorldWaif> waifs = new LinkedHashMap<>(current.waifs());
-    for (WaifValue identity : transaction.waifWrites()) {
-      WorldWaif replacement = transaction.workingWorld().waifs().get(identity);
-      if (replacement == null) {
-        waifs.remove(identity);
-      } else {
-        waifs.put(identity, replacement);
-      }
-    }
+        WorldRecords.updated(current.anonymousObjects(), transaction.anonymousWrites(),
+            working.anonymousObjects());
+    Map<WaifValue, WorldWaif> waifs =
+        WorldRecords.updated(current.waifs(), transaction.waifWrites(), working.waifs());
     List<Long> players =
         transaction.playersWritten() ? transaction.workingWorld().players() : current.players();
     List<MooValue> pendingFinalization =

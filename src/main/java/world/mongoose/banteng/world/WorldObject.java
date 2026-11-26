@@ -27,7 +27,7 @@ public record WorldObject(
     contents = List.copyOf(contents);
     children = List.copyOf(children);
     verbs = List.copyOf(verbs);
-    properties = List.copyOf(properties);
+    properties = WorldProperties.copyOf(properties);
   }
 
   /** Creates a permanent object whose server-maintained move history is initially empty. */

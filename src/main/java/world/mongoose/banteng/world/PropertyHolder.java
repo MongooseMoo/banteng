@@ -15,4 +15,9 @@ public sealed interface PropertyHolder permits WorldObject, WorldAnonymousObject
   List<WorldVerb> verbs();
 
   List<WorldProperty> properties();
+
+  /** Property roots which can retain anonymous objects or WAIFs. */
+  default List<WorldProperty> collectibleProperties() {
+    return ((WorldProperties) properties()).collectibleProperties();
+  }
 }

@@ -3,7 +3,6 @@ package world.mongoose.banteng.bytecode;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -91,6 +90,7 @@ public final class LayoutCompiler {
 
   sealed interface PendingStructuralEntry
       permits PendingCatchGroup,
+          PendingCatchSelector,
           PendingProtectedFinally,
           PendingFinallyContinuation,
           PendingCollectionLoop,
@@ -98,6 +98,9 @@ public final class LayoutCompiler {
           PendingIndex {}
 
   record PendingIndex(AstPath ownerPath, int baseDepth, OptionalInt keyDepth)
+      implements PendingStructuralEntry {}
+
+  record PendingCatchSelector(PendingToastClause clause, int baseDepth)
       implements PendingStructuralEntry {}
 
   record PendingCatchGroup(
@@ -140,15 +143,10 @@ public final class LayoutCompiler {
       implements PendingStructuralEntry {}
 
   record VectorLayout(
-      List<UnitKind> units,
+      List<Integer> unitOffsets,
       List<PendingCall> calls,
       List<PendingToastHandlerGroup> pendingHandlerGroups,
-      List<PendingToastFinally> pendingFinallyLabels,
-      int literalWidth,
-      int forkWidth,
-      int variableWidth,
-      int labelWidth,
-      int stackWidth) {
+      List<PendingToastFinally> pendingFinallyLabels) {
     List<CallBoundary> boundaries(int vector) {
       return calls.stream()
           .map(
@@ -197,17 +195,23 @@ public final class LayoutCompiler {
             "Toast structural call resolved " + matches.size() + " times");
       }
       PendingCall call = matches.getFirst();
+      Map<ControlKey, List<IndexedControl>> controls = indexControls(bantengProgram);
       List<StructuralStackEntry> entries =
           call.structuresBaseToTop().stream()
-              .map(entry -> structuralEntry(entry, bantengProgram))
+              .map(entry -> structuralEntry(entry, controls))
               .toList();
       return new StructuralStackShape(call.postArgumentDepth(), entries);
     }
 
     private StructuralStackEntry structuralEntry(
-        PendingStructuralEntry entry, BytecodeProgram bantengProgram) {
+        PendingStructuralEntry entry, Map<ControlKey, List<IndexedControl>> controls) {
       if (entry instanceof PendingIndex index) {
         return new ToastV17ProgramModel.IndexContext(index.ownerPath(), index.baseDepth(), index.keyDepth());
+      }
+      if (entry instanceof PendingCatchSelector selector) {
+        PendingToastClause clause = selector.clause();
+        return new ToastV17ProgramModel.CatchSelector(clause.path(), selector.baseDepth(),
+            clause.selector(), labelTarget(clause.label()));
       }
       if (entry instanceof PendingCatchGroup caught) {
         ToastHandlerGroup group = handlerGroup(caught.group());
@@ -216,9 +220,9 @@ public final class LayoutCompiler {
             group.clauses(),
             caught.baseDepth(),
             caught.markerDepth(),
-            handlerControl(bantengProgram, caught.ownerPath()),
+            handlerControl(controls, caught.ownerPath()),
             group.clauses().stream()
-                .map(clause -> handlerControl(bantengProgram, clause.astPath()))
+                .map(clause -> handlerControl(controls, clause.astPath()))
                 .toList(),
             caught.phase(),
             caught.activeClauseIndex());
@@ -229,7 +233,7 @@ public final class LayoutCompiler {
             protectedFinally.baseDepth(),
             protectedFinally.markerDepth(),
             labelTarget(protectedFinally.label().label()),
-            handlerControl(bantengProgram, protectedFinally.ownerPath()));
+            handlerControl(controls, protectedFinally.ownerPath()));
       }
       if (entry instanceof PendingFinallyContinuation continuation) {
         return new FinallyContinuation(
@@ -237,7 +241,7 @@ public final class LayoutCompiler {
             continuation.baseDepth(),
             continuation.reasonDepth(),
             continuation.valueDepth(),
-            handlerControl(bantengProgram, continuation.ownerPath()),
+            handlerControl(controls, continuation.ownerPath()),
             StructuralPhase.FINALLY_HANDLER,
             continuation.exitTargets().stream()
                 .map(
@@ -246,7 +250,7 @@ public final class LayoutCompiler {
                             target.targetStackDepth(),
                             target.bantengOperandDepth(),
                             labelTarget(target.targetLabel()),
-                            exitControl(bantengProgram, target)))
+                            exitControl(controls, target)))
                 .distinct()
                 .toList());
       }
@@ -257,7 +261,7 @@ public final class LayoutCompiler {
             loop.iteratorDepth(),
             loop.variableNames(),
             loop.staticallyKnownKind(),
-            iterateControl(bantengProgram, loop.ownerPath()));
+            iterateControl(controls, loop.ownerPath()));
       }
       PendingRangeLoop loop = (PendingRangeLoop) entry;
       return new RangeLoop(
@@ -267,7 +271,7 @@ public final class LayoutCompiler {
           loop.endDepth(),
           loop.variableNames(),
           loop.staticallyKnownKind(),
-          iterateControl(bantengProgram, loop.ownerPath()));
+          iterateControl(controls, loop.ownerPath()));
     }
 
     private ToastHandlerGroup handlerGroup(PendingToastHandlerGroup group) {
@@ -282,22 +286,7 @@ public final class LayoutCompiler {
     }
 
     private int offset(int unitIndex) {
-      int offset = 0;
-      for (int index = 0; index < unitIndex; index++) {
-        offset += width(units.get(index));
-      }
-      return offset;
-    }
-
-    private int width(UnitKind kind) {
-      return switch (kind) {
-        case BYTE -> 1;
-        case LITERAL -> literalWidth;
-        case FORK -> forkWidth;
-        case VARIABLE -> variableWidth;
-        case LABEL -> labelWidth;
-        case STACK -> stackWidth;
-      };
+      return unitOffsets.get(unitIndex);
     }
   }
 
@@ -314,20 +303,12 @@ public final class LayoutCompiler {
   }
 
   static final class GlobalState {
-    final LinkedHashSet<LiteralKey> literals = new LinkedHashSet<>();
+    final Map<LiteralKey, Integer> literals = new LinkedHashMap<>();
     final List<VectorLayout> forks = new ArrayList<>();
     int totalVariableReferences;
 
     int addLiteral(LiteralKey literal) {
-      literals.add(literal);
-      int index = 0;
-      for (LiteralKey candidate : literals) {
-        if (candidate.equals(literal)) {
-          return index;
-        }
-        index++;
-      }
-      throw new AssertionError("new literal was not retained");
+      return literals.computeIfAbsent(literal, ignored -> literals.size());
     }
   }
 
@@ -336,23 +317,35 @@ public final class LayoutCompiler {
   private record IndexedControl(
       int index, BytecodeProgram.Instruction instruction, AstPath path) {}
 
+  private record ControlKey(AstPath path, Opcode opcode) {}
+
+  private static Map<ControlKey, List<IndexedControl>> indexControls(BytecodeProgram program) {
+    Map<ControlKey, List<IndexedControl>> controls = new LinkedHashMap<>();
+    for (int index = 0; index < program.instructions().size(); index++) {
+      BytecodeProgram.Instruction instruction = program.instructions().get(index);
+      if (instruction.astPath().isPresent()
+          && (instruction.opcode() == Opcode.ENTER_HANDLER || instruction.opcode() == Opcode.JUMP
+              || instruction.opcode() == Opcode.ITERATE || instruction.opcode() == Opcode.ITERATE_RANGE)) {
+        AstPath path = instruction.astPath().orElseThrow();
+        controls.computeIfAbsent(new ControlKey(path, instruction.opcode()),
+            ignored -> new ArrayList<>()).add(new IndexedControl(index, instruction, path));
+      }
+    }
+    return controls;
+  }
+
   private static BantengHandlerControl handlerControl(
-      BytecodeProgram program, AstPath path) {
-    IndexedControl control = uniqueControl(program, path, Opcode.ENTER_HANDLER, "handler");
+      Map<ControlKey, List<IndexedControl>> controls, AstPath path) {
+    IndexedControl control = uniqueControl(controls, path, Opcode.ENTER_HANDLER, "handler");
     return new BantengHandlerControl(
         control.index(), control.instruction().handler().orElseThrow(), path);
   }
 
-  private static EnclosingIterate iterateControl(BytecodeProgram program, AstPath path) {
-    List<IndexedControl> matches = new ArrayList<>();
-    for (int index = 0; index < program.instructions().size(); index++) {
-      BytecodeProgram.Instruction instruction = program.instructions().get(index);
-      if ((instruction.opcode() == Opcode.ITERATE
-              || instruction.opcode() == Opcode.ITERATE_RANGE)
-          && instruction.astPath().filter(path::equals).isPresent()) {
-        matches.add(new IndexedControl(index, instruction, path));
-      }
-    }
+  private static EnclosingIterate iterateControl(
+      Map<ControlKey, List<IndexedControl>> controls, AstPath path) {
+    List<IndexedControl> matches = new ArrayList<>(
+        controls.getOrDefault(new ControlKey(path, Opcode.ITERATE), List.of()));
+    matches.addAll(controls.getOrDefault(new ControlKey(path, Opcode.ITERATE_RANGE), List.of()));
     if (matches.size() != 1) {
       throw new IllegalArgumentException(
           "Banteng iterate path " + path.components() + " resolved " + matches.size() + " times");
@@ -367,9 +360,9 @@ public final class LayoutCompiler {
   }
 
   private static BantengExitControl exitControl(
-      BytecodeProgram program, PendingToastExitTarget target) {
+      Map<ControlKey, List<IndexedControl>> controls, PendingToastExitTarget target) {
     IndexedControl control =
-        uniqueControl(program, target.exitPath(), Opcode.JUMP, "loop exit");
+        uniqueControl(controls, target.exitPath(), Opcode.JUMP, "loop exit");
     return new BantengExitControl(
         Math.toIntExact(control.instruction().operand().orElseThrow()),
         target.targetLoopPath(),
@@ -377,14 +370,9 @@ public final class LayoutCompiler {
   }
 
   private static IndexedControl uniqueControl(
-      BytecodeProgram program, AstPath path, Opcode opcode, String description) {
-    List<IndexedControl> matches = new ArrayList<>();
-    for (int index = 0; index < program.instructions().size(); index++) {
-      BytecodeProgram.Instruction instruction = program.instructions().get(index);
-      if (instruction.opcode() == opcode && instruction.astPath().filter(path::equals).isPresent()) {
-        matches.add(new IndexedControl(index, instruction, path));
-      }
-    }
+      Map<ControlKey, List<IndexedControl>> controls,
+      AstPath path, Opcode opcode, String description) {
+    List<IndexedControl> matches = controls.getOrDefault(new ControlKey(path, opcode), List.of());
     if (matches.size() != 1) {
       throw new IllegalArgumentException(
           "Banteng "
@@ -450,12 +438,11 @@ public final class LayoutCompiler {
     collectSymbols(program.statements());
   }
 
-  static List<String> variableNames(Ast.Program program) {
-    return List.copyOf(new LayoutCompiler(program).symbols.keySet());
-  }
+  record Variables(List<String> names, List<String> spellings) {}
 
-  static List<String> variableSpellings(Ast.Program program) {
-    return List.copyOf(new LayoutCompiler(program).symbolSpellings);
+  static Variables variables(Ast.Program program) {
+    LayoutCompiler layout = new LayoutCompiler(program);
+    return new Variables(List.copyOf(layout.symbols.keySet()), List.copyOf(layout.symbolSpellings));
   }
 
   /** Returns every exact call boundary in one Toast vector. */
@@ -599,6 +586,7 @@ public final class LayoutCompiler {
       collectSymbols(guarded.body());
       for (Ast.ExceptClause clause : guarded.exceptClauses()) {
         clause.variable().ifPresent(this::register);
+        collectErrorSymbols(clause.errors());
         collectSymbols(clause.body());
       }
       guarded.finallyClause().ifPresent(clause -> collectSymbols(clause.body()));
@@ -686,7 +674,14 @@ public final class LayoutCompiler {
     }
     if (expression instanceof Ast.Catch caught) {
       collectExpressionSymbols(caught.guarded());
+      collectErrorSymbols(caught.errors());
       caught.fallback().ifPresent(this::collectExpressionSymbols);
+    }
+  }
+
+  private void collectErrorSymbols(Ast.ErrorSelector selector) {
+    if (selector instanceof Ast.ErrorList list) {
+      list.expressions().forEach(this::collectExpressionSymbols);
     }
   }
 
@@ -938,9 +933,10 @@ public final class LayoutCompiler {
     int baseDepth = vector.stackDepth();
     AstPath ownerPath = astPath(path);
     List<PendingToastClause> pendingClauses = new ArrayList<>();
+    List<PendingCatchSelector> pendingSelectors = new ArrayList<>();
     for (int index = 0; index < guarded.exceptClauses().size(); index++) {
       Ast.ExceptClause clause = guarded.exceptClauses().get(index);
-      emitErrorCodes(clause.errors(), vector);
+      emitErrorCodes(clause.errors(), append(path, 3), index, vector);
       vector.extended();
       LabelReference handlerLabel = vector.labelReference();
       pendingClauses.add(
@@ -949,7 +945,12 @@ public final class LayoutCompiler {
               toastSelector(clause.errors()),
               handlerLabel));
       vector.push(1);
+      PendingCatchSelector selector = new PendingCatchSelector(pendingClauses.getLast(),
+          baseDepth + index * 2);
+      pendingSelectors.add(selector);
+      vector.enterStructure(selector);
     }
+    for (PendingCatchSelector selector : pendingSelectors.reversed()) vector.leaveStructure(selector);
     PendingToastHandlerGroup group = vector.handlerGroup(ownerPath, pendingClauses);
     vector.extended();
     vector.bytecode();
@@ -1025,20 +1026,15 @@ public final class LayoutCompiler {
     vector.pop(2);
   }
 
-  private void emitErrorCodes(Ast.ErrorSelector errors, VectorBuilder vector) {
+  private void emitErrorCodes(Ast.ErrorSelector errors, List<Integer> path,
+      int childSlot, VectorBuilder vector) {
     if (errors instanceof Ast.AnyErrors) {
       vector.bytecode();
       vector.push(1);
       return;
     }
     Ast.ErrorList list = (Ast.ErrorList) errors;
-    for (int index = 0; index < list.names().size(); index++) {
-      vector.literal(new LiteralKey("error", list.names().get(index).toLowerCase(Locale.ROOT)));
-      vector.bytecode();
-      if (index > 0) {
-        vector.pop(1);
-      }
-    }
+    emitArguments(list.expressions(), path, childSlot, vector);
   }
 
   private static ToastErrorSelector toastSelector(Ast.ErrorSelector errors) {
@@ -1046,7 +1042,8 @@ public final class LayoutCompiler {
       return new ToastErrorSelector(true, List.of());
     }
     Ast.ErrorList list = (Ast.ErrorList) errors;
-    return new ToastErrorSelector(false, list.names());
+    return new ToastErrorSelector(false, list.staticNames().orElse(List.of()),
+        list.staticNames().isEmpty());
   }
 
   private static Optional<CollectionKind> collectionKind(Ast.Expression expression) {
@@ -1233,7 +1230,7 @@ public final class LayoutCompiler {
     if (expression instanceof Ast.Catch caught) {
       int baseDepth = vector.stackDepth();
       AstPath ownerPath = astPath(path);
-      emitErrorCodes(caught.errors(), vector);
+      emitErrorCodes(caught.errors(), path, 3, vector);
       vector.extended();
       LabelReference handlerLabel = vector.labelReference();
       PendingToastHandlerGroup group =

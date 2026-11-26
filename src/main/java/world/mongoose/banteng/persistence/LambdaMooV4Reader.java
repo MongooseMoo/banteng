@@ -7,7 +7,6 @@ import static world.mongoose.banteng.persistence.DbScanner.readLong;
 import static world.mongoose.banteng.persistence.DbScanner.requireExact;
 import static world.mongoose.banteng.persistence.DbScanner.requiredLine;
 
-import java.io.BufferedReader;
 import java.io.BufferedWriter;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -24,7 +23,6 @@ import world.mongoose.banteng.world.ActiveConnection;
 import world.mongoose.banteng.world.Checkpoint;
 import world.mongoose.banteng.world.DurableTask;
 import world.mongoose.banteng.value.MooValue.ObjectValue;
-import world.mongoose.banteng.value.MooValue.StringValue;
 import world.mongoose.banteng.world.PropertyPerms;
 import world.mongoose.banteng.world.WorldObject;
 import world.mongoose.banteng.world.WorldProperty;
@@ -47,7 +45,7 @@ public final class LambdaMooV4Reader implements DbCodec {
   @Override
   public Checkpoint read(Path database) throws IOException {
     Objects.requireNonNull(database, "database");
-    try (BufferedReader input = Files.newBufferedReader(database, StringValue.charset())) {
+    try (DbScanner input = new DbScanner(Files.newInputStream(database))) {
       requireExact(input, HEADER, "v4 header");
       int objectSlotCount = readCount(input, "object slot count");
       int programCount = readCount(input, "program count");
@@ -108,7 +106,7 @@ public final class LambdaMooV4Reader implements DbCodec {
     output.writePanic(checkpoint, world, tasks, activeConnections);
   }
 
-  private static @org.jspecify.annotations.Nullable RawObject readObject(BufferedReader input, int slot) throws IOException {
+  private static @org.jspecify.annotations.Nullable RawObject readObject(DbScanner input, int slot) throws IOException {
     String header = requiredLine(input, "object slot " + slot);
     if (header.equals("#" + slot + " recycled")) return null;
     if (!header.equals("#" + slot)) throw malformed("invalid object slot " + slot);
@@ -258,15 +256,21 @@ public final class LambdaMooV4Reader implements DbCodec {
   private static void validateRelations(
       Map<Long, RawObject> objects, Map<Long, List<Long>> children, Map<Long, List<Long>> contents)
       throws IOException {
+    Set<Long> checkedParents = new HashSet<>();
+    Set<Long> checkedLocations = new HashSet<>();
     for (RawObject raw : objects.values()) {
       Set<Long> parents = new HashSet<>();
-      for (long id = raw.id(); id != -1; id = Objects.requireNonNull(objects.get(id)).parent()) {
+      for (long id = raw.id(); id != -1 && !checkedParents.contains(id);
+          id = Objects.requireNonNull(objects.get(id)).parent()) {
         if (!parents.add(id)) throw malformed("cyclic parent hierarchy at object #" + raw.id());
       }
+      checkedParents.addAll(parents);
       Set<Long> locations = new HashSet<>();
-      for (long id = raw.id(); id != -1; id = Objects.requireNonNull(objects.get(id)).location()) {
+      for (long id = raw.id(); id != -1 && !checkedLocations.contains(id);
+          id = Objects.requireNonNull(objects.get(id)).location()) {
         if (!locations.add(id)) throw malformed("cyclic location hierarchy at object #" + raw.id());
       }
+      checkedLocations.addAll(locations);
     }
     Set<Long> linkedChildren = flatten(children);
     Set<Long> linkedContents = flatten(contents);

@@ -32,7 +32,6 @@ promote_numbers="$(
 )"
 
 exec /opt/java/25/bin/java \
-  -XX:TieredStopAtLevel=1 \
   --enable-native-access=ALL-UNNAMED \
   -classpath "$distribution_lib/*" \
   world.mongoose.banteng.app.Banteng \

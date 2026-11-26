@@ -45,6 +45,7 @@ import world.mongoose.banteng.bytecode.MooCompiler;
 import world.mongoose.banteng.bytecode.ToastV17ProgramModel;
 import world.mongoose.banteng.persistence.DurableTaskCodec;
 import world.mongoose.banteng.world.ActiveConnection;
+import world.mongoose.banteng.world.DurableTask;
 import world.mongoose.banteng.world.QueuedEnvironment;
 import world.mongoose.banteng.world.QueuedTask;
 import world.mongoose.banteng.world.SuspendedActivation;
@@ -639,6 +640,50 @@ final class PublicationSchedulerTest {
                 outer.iteratorDepth(), valueSlot(new IntegerValue(2)),
                 inner.nextDepth(), valueSlot(new ObjectValue(2)),
                 inner.endDepth(), valueSlot(new ObjectValue(3)))));
+  }
+
+  @Test
+  void admitsInputBeforeDrainingRestoredTimers() throws Exception {
+    try (Harness harness = Harness.open(1, new RecordingListener())) {
+      CountDownLatch entered = new CountDownLatch(1);
+      CountDownLatch release = new CountDownLatch(1);
+      ThreadPoolExecutor executor = field(harness.scheduler, "executor", ThreadPoolExecutor.class);
+      executor.execute(() -> {
+        entered.countDown();
+        awaitRelease(release);
+      });
+      try {
+        assertTrue(entered.await(3, TimeUnit.SECONDS));
+        String source = "suspend(); #0.scheduler_counter = #0.scheduler_counter + 1; return 0;\n";
+        List<DurableTask> timers = IntStream.range(0, 8)
+            .<DurableTask>mapToObj(index -> suspendedTask(900_100_000L + index, source,
+                new IntegerValue(0), List.of()))
+            .toList();
+        long first = harness.scheduler.nextTicket();
+        harness.scheduler.restoreTasks(timers);
+        harness.scheduler.activateRestoredTasks();
+        Queue<?> dueTimers = field(harness.scheduler, "dueTimers", Queue.class);
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(3);
+        while (true) {
+          synchronized (harness.scheduler) {
+            if (dueTimers.size() == timers.size() - 1) break;
+          }
+          assertTrue(System.nanoTime() < deadline);
+          Thread.onSpinWait();
+        }
+        assertEquals(first + 1, harness.scheduler.nextTicket());
+        assertEquals(timers.size(), harness.scheduler.durableTasks().size());
+        var input = harness.lineAsync("; return #0.scheduler_counter;");
+        while (harness.scheduler.nextTicket() != first + 2) {
+          assertTrue(System.nanoTime() < deadline);
+          Thread.onSpinWait();
+        }
+        release.countDown();
+        assertTrue(input.get(3, TimeUnit.SECONDS).contains("{1, 1}"));
+      } finally {
+        release.countDown();
+      }
+    }
   }
 
   @Test

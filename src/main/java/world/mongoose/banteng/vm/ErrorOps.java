@@ -218,6 +218,8 @@ final class ErrorOps {
 
   private static boolean catches(ActiveHandler handler, MooValue error) {
     return handler.specification.catchesAny()
+        || handler.selector.map(list -> list.elements().stream().anyMatch(value ->
+            world.mongoose.banteng.value.ValueSemantics.STANDARD.equal(value, error, false))).orElse(false)
         || (error instanceof ErrorValue code && handler.specification.caughtErrors().contains(code.name()));
   }
 }

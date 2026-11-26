@@ -14,11 +14,16 @@ final class PropertySlotRestorer {
   record Input(long id, List<Long> parents, List<String> propertyNames,
       List<RawPropertySlot> propertySlots) {}
 
+  private record ParentValues(Map<String, MooValue> byName, List<MooValue> bySlot) {}
+
   static Map<Long, List<WorldProperty>> restore(
       Map<Long, Input> objects) throws IOException {
     Map<Long, List<WorldProperty>> restored = new LinkedHashMap<>();
+    Map<Long, List<Long>> definitions = new HashMap<>();
+    Map<Long, ParentValues> parentValues = new HashMap<>();
+    Set<Long> ancestry = new HashSet<>();
     for (Input object : objects.values()) {
-      restoreProperties(object, objects, restored, new ArrayList<>());
+      restoreProperties(object, objects, restored, definitions, parentValues, ancestry);
     }
     return restored;
   }
@@ -27,17 +32,20 @@ final class PropertySlotRestorer {
       Input object,
       Map<Long, Input> objects,
       Map<Long, List<WorldProperty>> restored,
-      List<Long> ancestry)
+      Map<Long, List<Long>> definitions,
+      Map<Long, ParentValues> parentValues,
+      Set<Long> ancestry)
       throws IOException {
     List<WorldProperty> existing = restored.get(object.id());
     if (existing != null) {
       return existing;
     }
-    if (ancestry.contains(object.id())) {
+    if (!ancestry.add(object.id())) {
       throw malformed("cyclic property ancestry at object #" + object.id());
     }
-    ancestry.add(object.id());
-
+    List<Long> canonical = object.propertyNames().isEmpty() ? List.of() : List.of(object.id());
+    Set<Long> multipleParents = object.parents().size() > 1 ? new LinkedHashSet<>(canonical) : null;
+    List<ParentValues> inherited = new ArrayList<>(object.parents().size());
     for (long parentId : object.parents()) {
       if (parentId == -1) {
         continue;
@@ -46,10 +54,23 @@ final class PropertySlotRestorer {
       if (parent == null) {
         throw malformed("object #" + object.id() + " has missing parent #" + parentId);
       }
-      restoreProperties(parent, objects, restored, ancestry);
+      List<WorldProperty> parentProperties =
+          restoreProperties(parent, objects, restored, definitions, parentValues, ancestry);
+      List<Long> parentDefinitions = Objects.requireNonNull(definitions.get(parentId));
+      if (multipleParents != null) {
+        multipleParents.addAll(parentDefinitions);
+      } else if (canonical.isEmpty()) {
+        canonical = parentDefinitions;
+      } else if (!parentDefinitions.isEmpty()) {
+        List<Long> ownAndInherited = new ArrayList<>(1 + parentDefinitions.size());
+        ownAndInherited.add(object.id());
+        ownAndInherited.addAll(parentDefinitions);
+        canonical = ownAndInherited;
+      }
+      inherited.add(parentValues.computeIfAbsent(parentId, ignored -> firstByName(parentProperties)));
     }
+    if (multipleParents != null) canonical = List.copyOf(multipleParents);
 
-    List<Long> canonical = rawAncestry(object.id(), objects);
     int expectedSlots = 0;
     for (long ancestorId : canonical) {
       expectedSlots =
@@ -82,7 +103,18 @@ final class PropertySlotRestorer {
         }
         MooValue value = slot.value();
         if (value == null) {
-          value = clearFallback(object, name, restored);
+          if (inherited.size() == 1) {
+            value = inherited.getFirst().bySlot().get(slotIndex - 1 - object.propertyNames().size());
+          } else {
+            for (ParentValues parent : inherited) {
+              value = parent.byName().get(name);
+              if (value != null) break;
+            }
+          }
+          if (value == null) {
+            throw malformed("object #" + object.id()
+                + " has clear property without direct-parent fallback " + name);
+          }
         }
         properties.add(
             new WorldProperty(
@@ -94,67 +126,23 @@ final class PropertySlotRestorer {
                 defined));
       }
     }
-    ancestry.removeLast();
+    ancestry.remove(object.id());
     List<WorldProperty> result = List.copyOf(properties);
     restored.put(object.id(), result);
+    definitions.put(object.id(), List.copyOf(canonical));
     return result;
   }
 
-  private static MooValue clearFallback(
-      Input object, String propertyName, Map<Long, List<WorldProperty>> restored)
-      throws IOException {
-    for (long parentId : object.parents()) {
-      if (parentId == -1) {
-        continue;
-      }
-      List<WorldProperty> parentProperties = restored.get(parentId);
-      if (parentProperties == null) {
-        continue;
-      }
-      for (WorldProperty property : parentProperties) {
-        if (property.name().equalsIgnoreCase(propertyName)) {
-          return property.value();
-        }
-      }
+  private static ParentValues firstByName(List<WorldProperty> properties) {
+    Map<String, MooValue> values = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
+    for (WorldProperty property : properties) {
+      values.putIfAbsent(property.name(), property.value());
     }
-    throw malformed(
-        "object #" + object.id() + " has clear property without direct-parent fallback "
-            + propertyName);
+    List<MooValue> slots = new ArrayList<>(properties.size());
+    for (WorldProperty property : properties) {
+      slots.add(Objects.requireNonNull(values.get(property.name())));
+    }
+    return new ParentValues(values, List.copyOf(slots));
   }
-
-  private static List<Long> rawAncestry(long objectId, Map<Long, Input> objects)
-      throws IOException {
-    List<Long> result = new ArrayList<>();
-    collectRawAncestry(objectId, objects, new LinkedHashSet<>(), new LinkedHashSet<>(), result);
-    return List.copyOf(result);
-  }
-
-  private static void collectRawAncestry(
-      long objectId,
-      Map<Long, Input> objects,
-      Set<Long> visiting,
-      Set<Long> visited,
-      List<Long> result)
-      throws IOException {
-    if (visited.contains(objectId)) {
-      return;
-    }
-    Input object = objects.get(objectId);
-    if (object == null) {
-      throw malformed("missing inheritance object #" + objectId);
-    }
-    if (!visiting.add(objectId)) {
-      throw malformed("cyclic property ancestry at object #" + objectId);
-    }
-    visited.add(objectId);
-    result.add(objectId);
-    for (long parentId : object.parents()) {
-      if (parentId != -1) {
-        collectRawAncestry(parentId, objects, visiting, visited, result);
-      }
-    }
-    visiting.remove(objectId);
-  }
-
 }
 

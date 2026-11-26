@@ -105,7 +105,10 @@ public final class ToastV17ProgramModel {
   }
 
   /** Toast selector payload paired with one saved catch-handler label. */
-  public record ToastErrorSelector(boolean catchesAny, List<String> errors) {
+  public record ToastErrorSelector(boolean catchesAny, List<String> errors, boolean dynamic) {
+    public ToastErrorSelector(boolean catchesAny, List<String> errors) {
+      this(catchesAny, errors, false);
+    }
     public ToastErrorSelector {
       errors = List.copyOf(errors);
       if (catchesAny && !errors.isEmpty()) {
@@ -226,7 +229,7 @@ public final class ToastV17ProgramModel {
 
   /** One typed structural entry in Toast base-to-top runtime-stack order. */
   public sealed interface StructuralStackEntry
-      permits CatchGroup, ProtectedFinally, FinallyContinuation, CollectionLoop, RangeLoop, IndexContext {
+      permits CatchGroup, CatchSelector, ProtectedFinally, FinallyContinuation, CollectionLoop, RangeLoop, IndexContext {
     AstPath ownerPath();
 
     int baseDepth();
@@ -235,6 +238,10 @@ public final class ToastV17ProgramModel {
   /** Collection retained while evaluating an index or range, with an optional saved parent key. */
   public record IndexContext(AstPath ownerPath, int baseDepth, OptionalInt keyDepth)
       implements StructuralStackEntry {}
+
+  /** Completed selector and label while later except selectors are still being evaluated. */
+  public record CatchSelector(AstPath ownerPath, int baseDepth, ToastErrorSelector selector,
+      int handlerLabelProgramCounter) implements StructuralStackEntry {}
 
   /** Catch structure, including raw marker placement and Banteng controls for synthesis. */
   public record CatchGroup(

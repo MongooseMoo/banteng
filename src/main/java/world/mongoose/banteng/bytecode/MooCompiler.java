@@ -246,8 +246,9 @@ public final class MooCompiler {
               ? OptionalInt.of(1)
               : OptionalInt.of(instructions.get(firstImplicitInstruction - 1).sourceLine()));
     }
-    List<String> names = new ArrayList<>(LayoutCompiler.variableNames(program));
-    List<String> spellings = new ArrayList<>(LayoutCompiler.variableSpellings(program));
+    LayoutCompiler.Variables variables = LayoutCompiler.variables(program);
+    List<String> names = new ArrayList<>(variables.names());
+    List<String> spellings = new ArrayList<>(variables.spellings());
     collectTemporaryNames(instructions, forkVectors, names);
     spellings.addAll(names.subList(spellings.size(), names.size()));
     return slotProgram(new BytecodeProgram(instructions, forkVectors, MooUnparser.unparse(program)), names, spellings);
@@ -279,12 +280,12 @@ public final class MooCompiler {
       Optional<HandlerSpec> handler = instruction.handler().map(spec -> new HandlerSpec(
           spec.catchTarget(), spec.catchVariable(), spec.catchesAny(), spec.caughtErrors(),
           spec.structuredCatchBinding(), spec.finallyTarget(), spec.endTarget(),
-          spec.catchVariable().map(names::indexOf).orElse(-1)));
+          spec.catchVariable().map(names::indexOf).orElse(-1), spec.dynamicErrors()));
+      int slot = local ? names.indexOf(instruction.text().orElseThrow()
+          .toLowerCase(java.util.Locale.ROOT)) : -1;
       code.add(new Instruction(opcode,
-          local ? java.util.OptionalLong.of(names.indexOf(instruction.text().orElseThrow()
-              .toLowerCase(java.util.Locale.ROOT))) : instruction.operand(),
-          opcode == Opcode.LOAD_LOCAL ? Optional.of(spellings.get(names.indexOf(
-              instruction.text().orElseThrow().toLowerCase(java.util.Locale.ROOT))))
+          local ? java.util.OptionalLong.of(slot) : instruction.operand(),
+          opcode == Opcode.LOAD_LOCAL ? Optional.of(spellings.get(slot))
               : local ? Optional.empty() : instruction.text(), handler, instruction.sourceLine(),
           instruction.astPath(), local ? Math.toIntExact(instruction.operand().orElse(0)) : 0,
           destinations));
@@ -297,9 +298,12 @@ public final class MooCompiler {
   /** Toast's reverse basic-block pass: only definite replacement/end makes a read clearable. */
   private static void clearLastReads(List<Instruction> code) {
     java.util.SortedSet<Integer> boundaries = new java.util.TreeSet<>();
+    java.util.BitSet insideHandler = new java.util.BitSet(code.size());
+    int protectedUntil = 0;
     boundaries.add(0);
     boundaries.add(code.size());
     for (int index = 0; index < code.size(); index++) {
+      if (index < protectedUntil) insideHandler.set(index);
       Instruction instruction = code.get(index);
       switch (instruction.opcode()) {
         case JUMP, JUMP_IF_FALSE, JUMP_IF_TRUE, ITERATE, ITERATE_RANGE -> {
@@ -309,6 +313,10 @@ public final class MooCompiler {
         case ENTER_HANDLER -> {
           boundaries.add(index); boundaries.add(index + 1);
           HandlerSpec handler = instruction.handler().orElseThrow();
+          int protectedEnd =
+              handler.finallyTarget() >= 0 ? handler.finallyTarget() : handler.endTarget();
+          if (handler.catchTarget() >= 0) protectedEnd = Math.min(protectedEnd, handler.catchTarget());
+          protectedUntil = Math.max(protectedUntil, protectedEnd);
           if (handler.catchTarget() >= 0) boundaries.add(handler.catchTarget());
           if (handler.finallyTarget() >= 0) boundaries.add(handler.finallyTarget());
           boundaries.add(handler.endTarget());
@@ -330,8 +338,8 @@ public final class MooCompiler {
           default -> 0;
         };
         switch (instruction.opcode()) {
-          case RETURN -> { if (!insideHandler(code, index)) unused.set(0, 32); }
-          case STORE_LOCAL -> { if (slot < 32 && !insideHandler(code, index)) unused.set(slot); }
+          case RETURN -> { if (!insideHandler.get(index)) unused.set(0, 32); }
+          case STORE_LOCAL -> { if (slot < 32 && !insideHandler.get(index)) unused.set(slot); }
           case LOAD_LOCAL -> {
             if (slot < 32 && unused.get(slot)) {
               unused.clear(slot);
@@ -351,19 +359,6 @@ public final class MooCompiler {
         }
       }
     }
-  }
-
-  private static boolean insideHandler(List<Instruction> code, int index) {
-    for (int earlier = 0; earlier < index; earlier++) {
-      Instruction instruction = code.get(earlier);
-      if (instruction.opcode() == Opcode.ENTER_HANDLER) {
-        HandlerSpec handler = instruction.handler().orElseThrow();
-        int protectedEnd = handler.finallyTarget() >= 0 ? handler.finallyTarget() : handler.endTarget();
-        if (handler.catchTarget() >= 0) protectedEnd = Math.min(protectedEnd, handler.catchTarget());
-        if (index < protectedEnd) return true;
-      }
-    }
-    return false;
   }
 
   private AstPath callPath(Ast.Expression call) {
@@ -433,6 +428,7 @@ public final class MooCompiler {
       for (int index = 0; index < guarded.exceptClauses().size(); index++) {
         Ast.ExceptClause clause = guarded.exceptClauses().get(index);
         controlPaths.put(clause, path.child(1, index));
+        indexErrorSelector(clause.errors(), path.child(3, index));
         indexStatements(clause.body(), path.child(1, index));
       }
       guarded.finallyClause().ifPresent(clause -> indexStatements(clause.body(), path.child(2)));
@@ -525,8 +521,17 @@ public final class MooCompiler {
     }
     if (expression instanceof Ast.Catch caught) {
       controlPaths.put(caught, path);
+      indexErrorSelector(caught.errors(), path.child(3));
       indexExpression(caught.guarded(), path.child(0));
       caught.fallback().ifPresent(value -> indexExpression(value, path.child(1)));
+    }
+  }
+
+  private void indexErrorSelector(Ast.ErrorSelector selector, AstPath path) {
+    if (selector instanceof Ast.ErrorList list) {
+      for (int index = 0; index < list.expressions().size(); index++) {
+        indexExpression(list.expressions().get(index), path.child(index));
+      }
     }
   }
 
@@ -734,6 +739,9 @@ public final class MooCompiler {
 
   private void compileTry(
       Ast.Try statement, List<Instruction> instructions, List<BytecodeProgram> forkVectors) {
+    for (Ast.ExceptClause clause : statement.exceptClauses()) {
+      compileDynamicErrors(clause.errors(), instructions);
+    }
     int ownerEnter = instructions.size();
     instructions.add(new Instruction(Opcode.JUMP, -1));
 
@@ -774,13 +782,15 @@ public final class MooCompiler {
         new Instruction(
             new HandlerSpec(
                 -1, Optional.empty(), false, List.of(), false, finallyTarget, endTarget),
-            controlPath(statement)));
+            controlPath(statement), (int) statement.exceptClauses().stream()
+                .filter(clause -> dynamicErrors(clause.errors())).count()));
 
+    int pendingSelectors = 0;
     for (int index = 0; index < clauseCount; index++) {
       Ast.ExceptClause clause = statement.exceptClauses().get(index);
       boolean catchesAny = clause.errors() instanceof Ast.AnyErrors;
       List<String> caughtErrors =
-          clause.errors() instanceof Ast.ErrorList errors ? errors.names() : List.of();
+          clause.errors() instanceof Ast.ErrorList errors ? errors.staticNames().orElse(List.of()) : List.of();
       int nextCleanupTarget =
           index + 1 < clauseCount ? normalCleanupTargets[index + 1] : ownerCleanupTarget;
       instructions.set(
@@ -793,8 +803,9 @@ public final class MooCompiler {
                   caughtErrors,
                   true,
                   -1,
-                  nextCleanupTarget),
-              controlPath(clause)));
+                  nextCleanupTarget, -1, dynamicErrors(clause.errors())),
+              controlPath(clause), pendingSelectors));
+      if (dynamicErrors(clause.errors())) pendingSelectors++;
     }
   }
 
@@ -932,7 +943,7 @@ public final class MooCompiler {
   }
 
   private void compileArguments(List<Ast.Expression> arguments, List<Instruction> instructions) {
-    instructions.add(new Instruction(Opcode.BUILD_LIST, 0));
+    if (arguments.isEmpty()) instructions.add(new Instruction(Opcode.BUILD_LIST, 0));
     for (int index = 0; index < arguments.size(); index++) {
       Ast.Expression argument = arguments.get(index);
       if (argument instanceof Ast.Splice splice) {
@@ -1052,6 +1063,7 @@ public final class MooCompiler {
   }
 
   private void compileCatch(Ast.Catch expression, List<Instruction> instructions) {
+    compileDynamicErrors(expression.errors(), instructions);
     String caughtLocal = "$caught" + catchSequence++;
     AstPath ownerPath = controlPath(expression);
     int ownerEnter = instructions.size();
@@ -1072,12 +1084,13 @@ public final class MooCompiler {
     int endTarget = instructions.size();
     boolean catchesAny = expression.errors() instanceof Ast.AnyErrors;
     List<String> caughtErrors =
-        expression.errors() instanceof Ast.ErrorList errors ? errors.names() : List.of();
+        expression.errors() instanceof Ast.ErrorList errors ? errors.staticNames().orElse(List.of()) : List.of();
     instructions.set(
         ownerEnter,
         new Instruction(
             new HandlerSpec(
-                -1, Optional.empty(), false, List.of(), false, -1, endTarget), ownerPath));
+                -1, Optional.empty(), false, List.of(), false, -1, endTarget), ownerPath,
+            dynamicErrors(expression.errors()) ? 1 : 0));
     instructions.set(
         clauseEnter,
         new Instruction(
@@ -1088,8 +1101,18 @@ public final class MooCompiler {
                 caughtErrors,
                 false,
                 -1,
-                ownerCleanupTarget),
+                ownerCleanupTarget, -1, dynamicErrors(expression.errors())),
             ownerPath.child(2, 0)));
+  }
+
+  private static boolean dynamicErrors(Ast.ErrorSelector selector) {
+    return selector instanceof Ast.ErrorList list && list.staticNames().isEmpty();
+  }
+
+  private void compileDynamicErrors(Ast.ErrorSelector selector, List<Instruction> instructions) {
+    if (dynamicErrors(selector)) {
+      compileArguments(((Ast.ErrorList) selector).expressions(), instructions);
+    }
   }
 
   private static OptionalInt statementSourceLine(Ast.Statement statement) {

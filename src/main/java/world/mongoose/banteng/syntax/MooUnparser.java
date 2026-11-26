@@ -479,7 +479,9 @@ public final class MooUnparser {
       return "ANY";
     }
     if (selector instanceof Ast.ErrorList errors) {
-      return String.join(", ", errors.names());
+      Renderer renderer = new Renderer(false);
+      return String.join(", ", errors.expressions().stream()
+          .map(value -> renderer.expression(value, ASSIGNMENT_PRECEDENCE)).toList());
     }
     throw new IllegalArgumentException("unsupported error selector: " + selector);
   }

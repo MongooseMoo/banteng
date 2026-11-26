@@ -420,6 +420,32 @@ final class V17RoundTripTest {
   }
 
   @Test
+  void restoresInvalidatedWaifFromMongoose(@TempDir Path temporaryDirectory) throws IOException {
+    String raw;
+    try (var input = Objects.requireNonNull(
+        getClass().getResourceAsStream("/mongoose-invalidated-waif.txt"))) {
+      raw = new String(input.readAllBytes(), java.nio.charset.StandardCharsets.ISO_8859_1);
+    }
+    List<String> fields = raw.lines().toList();
+    WaifValue waif = new WaifValue(new ObjectValue(Long.parseLong(fields.get(1))),
+        new ObjectValue(Long.parseLong(fields.get(2))));
+    WorldObject root = new WorldObject(1, "root", 4, 1, -1, -1,
+        List.of(), List.of(), List.of(), List.of(property("value", waif)));
+    WorldSnapshot world = new WorldSnapshot(0, List.of(1L), Map.of(1L, root), Map.of(),
+        Map.of(waif, new WorldWaif(List.of())));
+    LambdaMooV17Codec codec = new LambdaMooV17Codec();
+    Path dump = temporaryDirectory.resolve("invalidated-waif.db");
+    codec.writeAtomic(dump, world, List.of(), List.of());
+    assertEquals(true, java.nio.file.Files.readString(dump).contains(raw.replace("c 6853", "c 0")));
+    WorldSnapshot restored = codec.read(dump).world().snapshot();
+    WaifValue identity = assertInstanceOf(WaifValue.class,
+        Objects.requireNonNull(restored.objects().get(1L)).properties().getFirst().value());
+    assertEquals(waif.classObject(), identity.classObject());
+    assertEquals(waif.owner(), identity.owner());
+    assertEquals(List.of(), Objects.requireNonNull(restored.waifs().get(identity)).properties());
+  }
+
+  @Test
   void reinsertsNonTotalMapKeysAcrossV17Read(@TempDir Path temporaryDirectory)
       throws IOException {
     WaifValue firstWaif = new WaifValue(new ObjectValue(0), new ObjectValue(0));

@@ -4,9 +4,8 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import java.io.BufferedReader;
+import java.io.ByteArrayInputStream;
 import java.io.IOException;
-import java.io.StringReader;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -24,7 +23,7 @@ import org.junit.jupiter.api.Test;
 final class SharedDbReaderInfrastructureTest {
   @Test
   void scannerOwnsTheSharedLineAndNumberContract() throws IOException {
-    BufferedReader input = input("2\n-3\n4.5\nexpected\n");
+    DbScanner input = input("2\n-3\n4.5\nexpected\n");
 
     assertEquals(2, DbScanner.readCount(input, "count"));
     assertEquals(-3, DbScanner.readLong(input, "long"));
@@ -92,7 +91,7 @@ final class SharedDbReaderInfrastructureTest {
   }
 
   private static MooValue readTestV17Value(
-      BufferedReader input, AnonymousObjectValue anonymous, AtomicLong decodedObjectId)
+      DbScanner input, AnonymousObjectValue anonymous, AtomicLong decodedObjectId)
       throws IOException {
     int tag = DbScanner.readInt(input, "value tag");
     ValueTagDecoder.NestedValueDecoder nested =
@@ -119,8 +118,22 @@ final class SharedDbReaderInfrastructureTest {
     };
   }
 
-  private static BufferedReader input(String contents) {
-    return new BufferedReader(new StringReader(contents));
+  @Test
+  void readsLatin1AndCrLfAcrossBufferBoundaries() throws IOException {
+    String fullBuffer = "é".repeat(65535);
+    try (DbScanner input = input(fullBuffer + "\r\n-2147483648\r+7\n-9223372036854775808")) {
+      assertEquals(fullBuffer, DbScanner.requiredLine(input, "text"));
+      assertEquals(Integer.MIN_VALUE, DbScanner.readInt(input, "int"));
+      assertEquals(7, DbScanner.readInt(input, "int"));
+      assertEquals(Long.MIN_VALUE, DbScanner.readLong(input, "long"));
+      assertEquals("unexpected end of file while reading long",
+          assertThrows(IOException.class, () -> DbScanner.readLong(input, "long")).getMessage());
+    }
+  }
+
+  private static DbScanner input(String contents) {
+    return new DbScanner(new ByteArrayInputStream(
+        contents.getBytes(java.nio.charset.StandardCharsets.ISO_8859_1)));
   }
 
   private static StringValue string(String value) {

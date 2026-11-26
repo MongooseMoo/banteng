@@ -1,7 +1,5 @@
 package world.mongoose.banteng.world;
 
-import java.util.Collections;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -20,14 +18,13 @@ record World(
     List<MooValue> pendingFinalization) {
   World {
     Objects.requireNonNull(revision, "revision");
+    objects = WorldRecords.copyOf(objects);
     if (lastUsedObjectId < greatestObjectId(objects)) {
       throw new IllegalArgumentException("last used object ID precedes a live object");
     }
     players = List.copyOf(players);
-    objects = Collections.unmodifiableMap(new LinkedHashMap<>(objects));
-    anonymousObjects =
-        Collections.unmodifiableMap(new LinkedHashMap<>(anonymousObjects));
-    waifs = Collections.unmodifiableMap(new LinkedHashMap<>(waifs));
+    anonymousObjects = WorldRecords.copyOf(anonymousObjects);
+    waifs = WorldRecords.copyOf(waifs);
     pendingFinalization = List.copyOf(pendingFinalization);
   }
 
@@ -95,10 +92,6 @@ record World(
   }
 
   private static long greatestObjectId(Map<Long, WorldObject> objects) {
-    long greatest = -1;
-    for (long objectId : objects.keySet()) {
-      greatest = Math.max(greatest, objectId);
-    }
-    return greatest;
+    return WorldRecords.greatestObjectId(objects);
   }
 }

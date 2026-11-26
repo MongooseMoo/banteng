@@ -2,7 +2,6 @@ package world.mongoose.banteng.vm;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
 import world.mongoose.banteng.builtin.BuiltinResult;
 import world.mongoose.banteng.builtin.ValueLimits;
 import world.mongoose.banteng.value.MooValue;
@@ -19,15 +18,15 @@ final class ListOps {
   static void buildList(Frame frame, int count) {
     List<MooValue> elements = new ArrayList<>(count);
     for (int index = 0; index < count; index++) {
-      elements.addFirst(frame.operandStack.pop());
+      elements.add(frame.operandStack.pop());
     }
-    frame.operandStack.push(new ListValue(elements));
+    frame.operandStack.push(new ListValue(elements.reversed()));
     frame.instructionPointer++;
   }
 
-  static void appendList(Frame frame, VmState state, WorldTxn world) {
+  static void appendList(Frame frame, VmState state, WorldTxn world, boolean first) {
     MooValue value = frame.operandStack.pop();
-    MooValue collection = frame.operandStack.pop();
+    MooValue collection = first ? new ListValue(List.of()) : frame.operandStack.pop();
     if (!(collection instanceof ListValue list)) {
       ErrorOps.raise(state, ErrorValue.E_TYPE, world);
       return;
@@ -37,9 +36,9 @@ final class ListOps {
     pushCheckedList(frame, state, world, new ListValue(elements));
   }
 
-  static void extendList(Frame frame, VmState state, WorldTxn world) {
+  static void extendList(Frame frame, VmState state, WorldTxn world, boolean first) {
     MooValue extension = frame.operandStack.pop();
-    MooValue collection = frame.operandStack.pop();
+    MooValue collection = first ? new ListValue(List.of()) : frame.operandStack.pop();
     if (!(collection instanceof ListValue list) || !(extension instanceof ListValue appended)) {
       ErrorOps.raise(state, ErrorValue.E_TYPE, world);
       return;
@@ -64,12 +63,12 @@ final class ListOps {
     List<MooValue> keys = new ArrayList<>(count);
     List<MooValue> values = new ArrayList<>(count);
     for (int index = 0; index < count; index++) {
-      keys.addFirst(frame.operandStack.pop());
-      values.addFirst(frame.operandStack.pop());
+      keys.add(frame.operandStack.pop());
+      values.add(frame.operandStack.pop());
     }
     final MapValue map;
     try {
-      map = mapFrom(keys, values);
+      map = mapFrom(keys.reversed(), values.reversed());
     } catch (IllegalArgumentException error) {
       ErrorOps.raise(state, ErrorValue.E_TYPE, world);
       return;
@@ -79,10 +78,10 @@ final class ListOps {
   }
 
   private static MapValue mapFrom(List<MooValue> keys, List<MooValue> values) {
-    MapValue map = new MapValue(Map.of());
+    MapValue.Builder map = new MapValue.Builder();
     for (int index = 0; index < keys.size(); index++) {
-      map = map.with(keys.get(index), values.get(index));
+      map.put(keys.get(index), values.get(index));
     }
-    return map;
+    return map.build();
   }
 }

@@ -170,6 +170,14 @@ public final class DurableTaskCodec {
       switch (entry) {
         case ToastV17ProgramModel.CatchGroup group ->
             importCatchGroup(group, baseToTop, consumed, handlerGroups);
+        case ToastV17ProgramModel.CatchSelector selector -> {
+          if (!selector.selector().dynamic()) {
+            requireExactValue(baseToTop, consumed, selector.baseDepth(),
+                toastSelectorValue(selector.selector()), "pending catch selector");
+          }
+          requireExactValue(baseToTop, consumed, selector.baseDepth() + 1,
+              new IntegerValue(selector.handlerLabelProgramCounter()), "pending catch label");
+        }
         case ToastV17ProgramModel.ProtectedFinally protectedFinally -> {
           requireControl(
               baseToTop,
@@ -223,16 +231,17 @@ public final class DurableTaskCodec {
 
     handlerGroups.sort(
         java.util.Comparator.comparingInt(ImportedHandlerGroup::baseDepth).reversed());
+    int[] operandDepths = translatedDepths(consumed);
     List<VmSnapshot.HandlerState> handlers =
         handlerGroups.stream()
             .flatMap(
                 group -> {
-                  int operandDepth = translatedDepth(consumed, group.baseDepth());
+                  int operandDepth = operandDepths[group.baseDepth()];
                   return group.handlers().stream()
                       .map(
                           handler ->
                               handlerState(
-                                  handler.control(), operandDepth, handler.phase()));
+                                  handler.control(), operandDepth, handler.phase(), handler.selector()));
                 })
             .toList();
     finallyStates.sort(
@@ -255,13 +264,14 @@ public final class DurableTaskCodec {
     List<VmSnapshot.IndexState> indices = new ArrayList<>();
     for (ToastV17ProgramModel.StructuralStackEntry entry : shape.entriesBaseToTop()) {
       if (entry instanceof ToastV17ProgramModel.IndexContext index) {
-        indices.addFirst(new VmSnapshot.IndexState(
+        indices.add(new VmSnapshot.IndexState(
             baseToTop.get(index.baseDepth()).value().orElseThrow(),
             index.keyDepth().isPresent()
                 ? baseToTop.get(index.keyDepth().getAsInt()).value() : Optional.empty(),
-            translatedDepth(consumed, index.baseDepth()) + 1));
+            operandDepths[index.baseDepth()] + 1));
       }
     }
+    Collections.reverse(indices);
     return new ImportedActivationStack(ordinary, handlers, finalizers, loops, indices);
   }
 
@@ -275,12 +285,15 @@ public final class DurableTaskCodec {
       case PROTECTED -> {
         for (int index = 0; index < group.clauses().size(); index++) {
           ToastV17ProgramModel.ToastHandlerClause clause = group.clauses().get(index);
-          requireExactValue(
-              baseToTop,
-              consumed,
-              group.baseDepth() + index * 2,
-              toastSelectorValue(clause.selector()),
-              "catch selector");
+          MooValue selector = requireValue(baseToTop, consumed,
+              group.baseDepth() + index * 2, "catch selector");
+          if (clause.selector().dynamic()) {
+            if (!(selector instanceof ListValue)) {
+              throw new IllegalArgumentException("dynamic catch selector is not a list");
+            }
+          } else if (!selector.equals(toastSelectorValue(clause.selector()))) {
+            throw new IllegalArgumentException("catch selector disagrees with v17 structure");
+          }
           requireExactValue(
               baseToTop,
               consumed,
@@ -289,7 +302,8 @@ public final class DurableTaskCodec {
               "catch handler label");
           handlers.add(
               new ImportedHandler(
-                  group.clauseControls().get(index), VmSnapshot.HandlerPhase.TRY));
+                  group.clauseControls().get(index), VmSnapshot.HandlerPhase.TRY,
+                  clause.selector().dynamic() ? Optional.of((ListValue) selector) : Optional.empty()));
         }
         requireControl(
             baseToTop,
@@ -320,8 +334,9 @@ public final class DurableTaskCodec {
   private static VmSnapshot.HandlerState handlerState(
       ToastV17ProgramModel.BantengHandlerControl control,
       int operandDepth,
-      VmSnapshot.HandlerPhase phase) {
-    return new VmSnapshot.HandlerState(control.specification(), operandDepth, phase);
+      VmSnapshot.HandlerPhase phase,
+      Optional<ListValue> selector) {
+    return new VmSnapshot.HandlerState(control.specification(), operandDepth, phase, selector);
   }
 
   private static MooValue toastSelectorValue(
@@ -479,12 +494,10 @@ public final class DurableTaskCodec {
     return baseToTop.get(depth);
   }
 
-  private static int translatedDepth(boolean[] consumed, int rawDepth) {
-    int result = 0;
-    for (int depth = 0; depth < rawDepth; depth++) {
-      if (!consumed[depth]) {
-        result++;
-      }
+  private static int[] translatedDepths(boolean[] consumed) {
+    int[] result = new int[consumed.length + 1];
+    for (int depth = 0; depth < consumed.length; depth++) {
+      result[depth + 1] = result[depth] + (consumed[depth] ? 0 : 1);
     }
     return result;
   }
@@ -541,6 +554,12 @@ public final class DurableTaskCodec {
       ToastV17ProgramModel.StructuralStackShape shape, VmSnapshot.Frame frame) {
     SuspendedStackSlot[] baseToTop = new SuspendedStackSlot[shape.postArgumentDepth()];
     boolean[] structural = new boolean[baseToTop.length];
+    Map<Integer, VmSnapshot.HandlerState> catchHandlers = new LinkedHashMap<>();
+    for (VmSnapshot.HandlerState handler : frame.handlers()) {
+      if (handler.specification().catchTarget() >= 0) {
+        catchHandlers.put(handler.specification().catchTarget(), handler);
+      }
+    }
     List<ImportedHandlerGroup> expectedHandlerGroups = new ArrayList<>();
     List<ToastV17ProgramModel.StructuralStackEntry> innerToOuter =
         new ArrayList<>(shape.entriesBaseToTop());
@@ -565,6 +584,14 @@ public final class DurableTaskCodec {
             putValue(baseToTop, structural, index.keyDepth().getAsInt(), saved.key().orElseThrow(), "indexed parent key");
           }
         }
+        case ToastV17ProgramModel.CatchSelector selector -> {
+          if (!selector.selector().dynamic()) {
+            putValue(baseToTop, structural, selector.baseDepth(),
+                toastSelectorValue(selector.selector()), "pending catch selector");
+          }
+          putValue(baseToTop, structural, selector.baseDepth() + 1,
+              new IntegerValue(selector.handlerLabelProgramCounter()), "pending catch label");
+        }
         case ToastV17ProgramModel.CatchGroup group -> {
           if (group.phase() == ToastV17ProgramModel.StructuralPhase.PROTECTED) {
             for (int index = 0; index < group.clauses().size(); index++) {
@@ -573,7 +600,11 @@ public final class DurableTaskCodec {
                   baseToTop,
                   structural,
                   group.baseDepth() + index * 2,
-                  toastSelectorValue(clause.selector()),
+                  clause.selector().dynamic()
+                      ? java.util.Objects.requireNonNull(catchHandlers.get(
+                          group.clauseControls().get(index).specification().catchTarget()), "missing catch handler")
+                          .selector().orElseThrow()
+                      : toastSelectorValue(clause.selector()),
                   "catch selector");
               putValue(
                   baseToTop,
@@ -684,8 +715,9 @@ public final class DurableTaskCodec {
     groups.sort(
         java.util.Comparator.comparingInt(ImportedHandlerGroup::baseDepth).reversed());
     int actualIndex = 0;
+    int[] operandDepths = translatedDepths(structural);
     for (ImportedHandlerGroup group : groups) {
-      int operandDepth = translatedDepth(structural, group.baseDepth());
+      int operandDepth = operandDepths[group.baseDepth()];
       for (ImportedHandler expected : group.handlers()) {
         if (actualIndex >= actualHandlers.size()) {
           throw new IllegalStateException("missing Banteng handler state");
@@ -695,7 +727,8 @@ public final class DurableTaskCodec {
         BytecodeProgram.HandlerSpec rebound = new BytecodeProgram.HandlerSpec(
             canonical.catchTarget(), canonical.catchVariable(), canonical.catchesAny(),
             canonical.caughtErrors(), canonical.structuredCatchBinding(), canonical.finallyTarget(),
-            canonical.endTarget(), canonical.catchVariable().map(variableNames::indexOf).orElse(-1));
+            canonical.endTarget(), canonical.catchVariable().map(variableNames::indexOf).orElse(-1),
+            canonical.dynamicErrors());
         if (!actual.specification().equals(rebound)
             || actual.operandDepth() != operandDepth
             || actual.phase() != expected.phase()) {
@@ -975,7 +1008,12 @@ public final class DurableTaskCodec {
 
   private record ImportedHandler(
       ToastV17ProgramModel.BantengHandlerControl control,
-      VmSnapshot.HandlerPhase phase) {}
+      VmSnapshot.HandlerPhase phase,
+      Optional<ListValue> selector) {
+    ImportedHandler(ToastV17ProgramModel.BantengHandlerControl control, VmSnapshot.HandlerPhase phase) {
+      this(control, phase, Optional.empty());
+    }
+  }
 
   private record ImportedHandlerGroup(int baseDepth, List<ImportedHandler> handlers) {
     ImportedHandlerGroup {

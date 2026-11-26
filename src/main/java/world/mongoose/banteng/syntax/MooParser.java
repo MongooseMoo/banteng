@@ -530,10 +530,13 @@ public final class MooParser {
                     token.column())));
       }
       case DOLLAR -> {
-        if (indexDepth == 0) {
-          yield parseSystemProperty();
-        }
         advance();
+        if (current.kind() == TokenKind.IDENTIFIER) {
+          yield parseSystemProperty(token);
+        }
+        if (indexDepth == 0) {
+          throw error(token, "'$' is only valid inside an index expression");
+        }
         yield new Ast.LastIndex(
             Optional.of(
                 new Ast.SourceSpan(
@@ -585,12 +588,7 @@ public final class MooParser {
     };
   }
 
-  private Ast.Expression parseSystemProperty() {
-    Token dollar = current;
-    advance();
-    if (current.kind() != TokenKind.IDENTIFIER) {
-      throw error(dollar, "'$' is only valid inside an index expression");
-    }
+  private Ast.Expression parseSystemProperty(Token dollar) {
     String property = expect(TokenKind.IDENTIFIER, "system property name").lexeme();
     advance();
     if (match(TokenKind.LEFT_PAREN)) {
@@ -694,10 +692,11 @@ public final class MooParser {
     if (match(TokenKind.ANY)) {
       return new Ast.AnyErrors();
     }
-    List<String> errors = new ArrayList<>();
+    List<Ast.Expression> errors = new ArrayList<>();
     do {
-      errors.add(expect(TokenKind.ERROR, "error name or ANY").lexeme());
-      advance();
+      boolean splice = match(TokenKind.AT);
+      Ast.Expression expression = parseExpression(ASSIGNMENT_PRECEDENCE);
+      errors.add(splice ? new Ast.Splice(expression) : expression);
     } while (match(TokenKind.COMMA));
     return new Ast.ErrorList(errors);
   }
