@@ -145,7 +145,7 @@ public final class Banteng implements Callable<Integer> {
       MooVm vm = new MooVm(semantics);
       try (ProcessSignals signals = new ProcessSignals();
           MooServer server =
-              new MooServer(listenAddress, port, this::runtime);
+              new MooServer(listenAddress, port, this::runtime, serverLog);
           PublicationScheduler scheduler = new PublicationScheduler(
               loaded.world(), this::runtime,
               Math.max(2, Runtime.getRuntime().availableProcessors()), tasks)) {

@@ -94,6 +94,23 @@ public record ValueSemantics(boolean promoteNumbers) {
     };
   }
 
+  /** Returns the one-based position of a matching list element or map value. */
+  public int memberIndex(MooValue requested, MooValue collection, boolean caseMatters) {
+    int index = 0;
+    if (collection instanceof ListValue list) {
+      for (MooValue element : list.elements()) {
+        index++;
+        if (equal(requested, element, caseMatters)) return index;
+      }
+    } else if (collection instanceof MapValue map) {
+      for (var entry : map.orderedEntries()) {
+        index++;
+        if (equal(requested, entry.getValue(), caseMatters)) return index;
+      }
+    }
+    return 0;
+  }
+
   private static int compareNumbers(double left, double right) {
     return left == right ? 0 : (left - right < 0.0 ? -1 : 1);
   }

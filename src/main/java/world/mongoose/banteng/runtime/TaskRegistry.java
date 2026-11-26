@@ -288,10 +288,9 @@ public final class TaskRegistry {
 
   BuiltinResult queuedTasks(BuiltinCall call) {
     boolean includeVariables =
-        call.arguments().size() == 1
-            && ((IntegerValue) call.arguments().getFirst()).isTruthy();
+        !call.arguments().isEmpty() && call.arguments().getFirst().isTruthy();
     boolean returnCount =
-        call.arguments().size() == 2 && ((IntegerValue) call.arguments().get(1)).isTruthy();
+        call.arguments().size() == 2 && call.arguments().get(1).isTruthy();
     boolean wizard = call.world().isWizard(call.programmer());
     List<TaskInfo> visible = visibleTo(call.programmer(), wizard).stream()
         .filter(task -> task.taskId() != call.taskId()).toList();

@@ -158,6 +158,7 @@ final class BuiltinCatalogTest {
           "index",
           "isa",
           "is_player",
+          "is_member",
           "is_clear_property",
           "length",
           "kill_task",
@@ -445,7 +446,7 @@ final class BuiltinCatalogTest {
         List.of(
             new CallShape(
                 List.of(Set.of(ArgType.STRING)),
-                List.of(Set.of(ArgType.STRING), Set.of(ArgType.INTEGER)),
+                List.of(Set.of(ArgType.STRING), Set.of(ArgType.FLAG)),
                 Optional.empty())),
         spec.callShapes());
     assertSame(BuiltinPermissionRule.ANY, spec.permission());
@@ -550,7 +551,7 @@ final class BuiltinCatalogTest {
                           List.of(
                               new IntegerValue(2),
                               new IntegerValue(2),
-                              new IntegerValue(0)))))),
+                              new IntegerValue(-3)))))),
           value(functionInfo));
     }
   }
@@ -690,7 +691,7 @@ final class BuiltinCatalogTest {
         List.of(
             new CallShape(
                 List.of(),
-                List.of(Set.of(ArgType.INTEGER), Set.of(ArgType.INTEGER)),
+                List.of(Set.of(ArgType.FLAG), Set.of(ArgType.FLAG)),
                 Optional.empty())),
         spec.callShapes());
     assertSame(BuiltinPermissionRule.ANY, spec.permission());
@@ -743,7 +744,7 @@ final class BuiltinCatalogTest {
         List.of(
             new CallShape(
                 List.of(Set.of(ArgType.OBJECT), Set.of(ArgType.OBJECT)),
-                List.of(Set.of(ArgType.INTEGER)),
+                List.of(Set.of(ArgType.FLAG)),
                 Optional.empty())),
         spec.callShapes());
     WorldObject wizard =
@@ -3172,7 +3173,7 @@ final class BuiltinCatalogTest {
         List.of(
             new CallShape(
                 List.of(Set.of(ArgType.STRING)),
-                List.of(Set.of(ArgType.INTEGER)),
+                List.of(Set.of(ArgType.FLAG)),
                 Optional.empty())),
         spec.callShapes());
     assertSame(BuiltinPermissionRule.WIZARD_ONLY, spec.permission());
@@ -3217,7 +3218,7 @@ final class BuiltinCatalogTest {
         List.of(
             new CallShape(
                 List.of(Set.of(ArgType.OBJECT)),
-                List.of(Set.of(ArgType.OBJECT), Set.of(ArgType.INTEGER)),
+                List.of(Set.of(ArgType.OBJECT), Set.of(ArgType.FLAG)),
                 Optional.empty())),
         spec.callShapes());
     try (WorldTxn transaction = new WorldTxn(List.of(), List.of(base, room, item)).begin()) {
@@ -3371,7 +3372,7 @@ final class BuiltinCatalogTest {
         List.of(
             new CallShape(
                 List.of(Set.of(ArgType.ANY), Set.of(ArgType.ANY)),
-                List.of(Set.of(ArgType.INTEGER)),
+                List.of(Set.of(ArgType.FLAG)),
                 Optional.empty())),
         spec.callShapes());
     assertSame(BuiltinPermissionRule.ANY, spec.permission());
@@ -6021,7 +6022,7 @@ final class BuiltinCatalogTest {
         new ListValue(List.of(string("A"), new IntegerValue(7), string("a")));
 
     assertEquals(
-        List.of(new CallShape(List.of(), List.of(Set.of(ArgType.INTEGER)), Optional.empty())),
+        List.of(new CallShape(List.of(), List.of(Set.of(ArgType.FLAG)), Optional.empty())),
         setThreadMode.callShapes());
     assertSame(BuiltinPermissionRule.ANY, setThreadMode.permission());
     assertEquals(false, setThreadMode.irrevocable());
@@ -6081,8 +6082,8 @@ final class BuiltinCatalogTest {
                 List.of(Set.of(ArgType.LIST)),
                 List.of(
                     Set.of(ArgType.LIST),
-                    Set.of(ArgType.INTEGER),
-                    Set.of(ArgType.INTEGER)),
+                    Set.of(ArgType.FLAG),
+                    Set.of(ArgType.FLAG)),
                 Optional.empty())),
         sort.callShapes());
     assertSame(BuiltinPermissionRule.ANY, sort.permission());

@@ -75,7 +75,8 @@ public final class SchedulerTestHarness implements AutoCloseable {
     var connections = new ConnectionRegistry();
     var reference = new AtomicReference<MooRuntime>();
     var server = new MooServer(
-        "127.0.0.1", 0, () -> java.util.Objects.requireNonNull(reference.get()));
+        "127.0.0.1", 0, () -> java.util.Objects.requireNonNull(reference.get()),
+        ServerLog.stderr(System.Logger.Level.INFO));
     MooRuntime runtime = runtime(world, connections, Math.max(2, Runtime.getRuntime().availableProcessors()),
         System::nanoTime, MooRuntime::resolveCanonicalConnectionName,
         Optional.of(server), database, Optional.of(checkpoint), tasks, activeConnections);

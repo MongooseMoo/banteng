@@ -64,7 +64,7 @@ public final class ServerBuiltins {
         registrar.builtin("usage", List.of(new CallShape(List.of(), List.of(), Optional.empty()))).permission(BuiltinPermissionRule.WIZARD_ONLY).implementation(call -> usage());
         registrar.builtin("memory_usage", List.of(new CallShape(List.of(), List.of(), Optional.empty()))).implementation(call -> memoryUsage());
         registrar.builtin("load_server_options", List.of(new CallShape(List.of(), List.of(), Optional.empty()))).permission(BuiltinPermissionRule.WIZARD_ONLY).irrevocable().implementation(call -> {
-            catalog.reloadProtectedFunctions(call.world());
+            catalog.reloadServerOptions(call.world());
             return BuiltinResult.value(new IntegerValue(0));
         });
         registrar.builtin("run_gc", List.of(new CallShape(List.of(), List.of(), Optional.empty()))).permission(BuiltinPermissionRule.WIZARD_ONLY).implementation(call -> BuiltinResult.value(new IntegerValue(0)));
@@ -184,6 +184,7 @@ public final class ServerBuiltins {
         return switch (types.iterator().next()) {
             case ANY -> -1;
             case NUMBER -> -2;
+            case FLAG -> -3;
             case INTEGER -> 0;
             case OBJECT -> 1;
             case STRING -> 2;

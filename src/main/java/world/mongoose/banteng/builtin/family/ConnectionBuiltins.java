@@ -10,6 +10,7 @@ import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.Set;
 import java.util.function.LongBinaryOperator;
+import java.util.function.LongSupplier;
 import world.mongoose.banteng.builtin.ArgType;
 import world.mongoose.banteng.builtin.BuiltinCall;
 import world.mongoose.banteng.builtin.BuiltinHosts;
@@ -41,10 +42,12 @@ public final class ConnectionBuiltins {
 
     public static void registerSwitchPlayer(List<BuiltinSpec> entries, Optional<ListenerControl> listenerControl) {
         BuiltinRegistrar registrar = new BuiltinRegistrar(entries);
-        registrar.builtin("switch_player", List.of(new CallShape(List.of(OBJECT, OBJECT), List.of(INTEGER), Optional.empty()))).permission(BuiltinPermissionRule.WIZARD_ONLY).implementation(ConnectionBuiltins::switchPlayer);
+        registrar.builtin("switch_player", List.of(new CallShape(List.of(OBJECT, OBJECT), List.of(Set.of(ArgType.FLAG)), Optional.empty()))).permission(BuiltinPermissionRule.WIZARD_ONLY).implementation(ConnectionBuiltins::switchPlayer);
     }
 
-    public static void registerInventory(List<BuiltinSpec> entries, Optional<ListenerControl> listenerControl) {
+    public static void registerInventory(List<BuiltinSpec> entries,
+                                         Optional<ListenerControl> listenerControl,
+                                         LongSupplier outputCapacity) {
         BuiltinRegistrar registrar = new BuiltinRegistrar(entries);
         registrar.builtin("read", List.of(new CallShape(List.of(), List.of(OBJECT, ANY), Optional.empty()))).implementation(call -> {
             if (call.arguments().isEmpty() && !BuiltinPermissionRule.WIZARD_ONLY.allows(call.world(), call.programmer())) {
@@ -72,7 +75,9 @@ public final class ConnectionBuiltins {
         registrar.builtin("idle_seconds", List.of(new CallShape(List.of(OBJECT), List.of(), Optional.empty()))).implementation(call -> call.hosts().idleSeconds().invoke(call));
         registrar.builtin("connected_seconds", List.of(new CallShape(List.of(OBJECT), List.of(), Optional.empty()))).implementation(call -> call.hosts().connectedSeconds().invoke(call));
         registrar.builtin("buffered_output_length", List.of(new CallShape(List.of(), List.of(OBJECT), Optional.empty()))).implementation(call ->
-                bufferedOutputLength(listenerControl, call.hosts(),
+                call.arguments().isEmpty()
+                        ? BuiltinResult.value(new IntegerValue(outputCapacity.getAsLong()))
+                        : bufferedOutputLength(listenerControl, call.hosts(),
                         call.arguments(),
                         call.world(),
                         call.programmer(),
@@ -129,9 +134,6 @@ public final class ConnectionBuiltins {
                                                WorldTxn world,
                                                long programmer,
                                                LongBinaryOperator stagedBufferedOutputLength) {
-        if (arguments.isEmpty()) {
-            return BuiltinResult.value(new IntegerValue(DEFAULT_MAX_QUEUED_OUTPUT));
-        }
         long target = ((ObjectValue) arguments.getFirst()).value();
         OptionalLong connectionId = connections(invocationHosts).connectionId(target);
         if (connectionId.isEmpty()) {
@@ -471,7 +473,6 @@ public final class ConnectionBuiltins {
         return new BuiltinResult.Notify(
                 connectionId.orElseThrow(), line.text(), noFlush, noNewline);
     }
-    private static final int DEFAULT_MAX_QUEUED_OUTPUT = 65_536;
 
     /** Concrete host capability required by the MOO listener builtins. */
     public interface ListenerControl {

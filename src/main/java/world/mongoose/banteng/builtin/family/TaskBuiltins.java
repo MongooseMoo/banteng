@@ -57,7 +57,7 @@ public final class TaskBuiltins {
                 call.world(), call.programmer()));
         registrar.builtin("call_function", List.of(new CallShape(List.of(STRING), List.of(), Optional.of(ANY)))).irrevocable().implementation(call -> callFunction(call, catalog));
         registrar.builtin("queue_info", List.of(new CallShape(List.of(), List.of(OBJECT), Optional.empty()))).implementation(call -> call.hosts().queueInfo().invoke(call));
-        registrar.builtin("queued_tasks", List.of(new CallShape(List.of(), List.of(INTEGER, INTEGER), Optional.empty()))).irrevocable().implementation(call -> call.hosts().queuedTasks().invoke(call));
+        registrar.builtin("queued_tasks", List.of(new CallShape(List.of(), List.of(Set.of(ArgType.FLAG), Set.of(ArgType.FLAG)), Optional.empty()))).irrevocable().implementation(call -> call.hosts().queuedTasks().invoke(call));
         registrar.builtin("task_stack", List.of(new CallShape(List.of(INTEGER), List.of(ANY, ANY), Optional.empty()))).irrevocable().implementation(call -> call.hosts().taskStack().invoke(call));
         registrar.builtin("kill_task", List.of(new CallShape(List.of(INTEGER), List.of(), Optional.empty()))).irrevocable().implementation(call -> call.hosts().killTask().invoke(call));
         registrar.builtin("thread_pool", List.of(
@@ -73,7 +73,7 @@ public final class TaskBuiltins {
         registrar.builtin("ticks_left", List.of(new CallShape(List.of(), List.of(), Optional.empty()))).implementation(call -> BuiltinResult.value(new IntegerValue(call.remainingTicks())));
         registrar.builtin("seconds_left", List.of(new CallShape(List.of(), List.of(), Optional.empty()))).implementation(call -> BuiltinResult.value(new IntegerValue(call.remainingSeconds())));
         registrar.builtin("set_task_perms", List.of(new CallShape(List.of(OBJECT), List.of(), Optional.empty()))).implementation(call -> setTaskPerms(call.arguments(), call.world(), call.programmer()));
-        registrar.builtin("set_thread_mode", List.of(new CallShape(List.of(), List.of(INTEGER), Optional.empty()))).implementation(call -> setThreadMode(call.arguments(), call.threadMode()));
+        registrar.builtin("set_thread_mode", List.of(new CallShape(List.of(), List.of(Set.of(ArgType.FLAG)), Optional.empty()))).implementation(call -> setThreadMode(call.arguments(), call.threadMode()));
     }
 
     public static void registerGroup4(List<BuiltinSpec> entries, BuiltinCatalog catalog) {

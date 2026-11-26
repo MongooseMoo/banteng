@@ -31,7 +31,7 @@ public final class StringBuiltins {
 
     public static void registerExplode(List<BuiltinSpec> entries) {
         BuiltinRegistrar registrar = new BuiltinRegistrar(entries);
-        registrar.builtin("explode", List.of(new CallShape(List.of(STRING), List.of(STRING, INTEGER), Optional.empty()))).implementation(call -> explode(call.arguments()));
+        registrar.builtin("explode", List.of(new CallShape(List.of(STRING), List.of(STRING, Set.of(ArgType.FLAG)), Optional.empty()))).implementation(call -> explode(call.arguments()));
     }
 
     public static void registerSubstitutionAndAnsi(List<BuiltinSpec> entries, Random random) {

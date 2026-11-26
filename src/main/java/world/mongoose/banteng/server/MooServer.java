@@ -31,6 +31,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import world.mongoose.banteng.builtin.family.ConnectionBuiltins;
+import world.mongoose.banteng.logging.ServerLog;
 import world.mongoose.banteng.runtime.MooRuntime;
 import world.mongoose.banteng.value.MooValue;
 import world.mongoose.banteng.value.MooValue.IntegerValue;
@@ -39,7 +40,9 @@ import world.mongoose.banteng.value.MooValue.StringValue;
 
 /** The concrete blocking socket server for the first managed vertical slice. */
 public final class MooServer implements AutoCloseable, ConnectionBuiltins.ListenerControl {
+  private static final int MAX_LINE_BYTES = 5_242_880;
   private final java.util.function.Supplier<MooRuntime> runtime;
+  private final ServerLog serverLog;
   private final InetAddress listenAddress;
   private final ServerSocket primaryListener;
   private final Listener primary;
@@ -55,8 +58,10 @@ public final class MooServer implements AutoCloseable, ConnectionBuiltins.Listen
 
   /** Binds the transport around the application's deferred runtime reference. */
   public MooServer(
-      String address, int port, java.util.function.Supplier<MooRuntime> runtime) throws IOException {
+      String address, int port, java.util.function.Supplier<MooRuntime> runtime, ServerLog serverLog)
+      throws IOException {
     this.runtime = Objects.requireNonNull(runtime, "runtime");
+    this.serverLog = Objects.requireNonNull(serverLog, "serverLog");
     listenAddress = InetAddress.getByName(address);
     primaryListener = new ServerSocket();
     try {
@@ -152,8 +157,13 @@ public final class MooServer implements AutoCloseable, ConnectionBuiltins.Listen
       ByteArrayOutputStream subnegotiation = null;
       boolean afterSubnegotiationIac = false;
       byte[] inputBuffer = new byte[1024];
-      int inputCount;
-      while ((inputCount = input.read(inputBuffer)) != -1) {
+      while (true) {
+        int inputCount = input.read(inputBuffer);
+        if (line.size() >= MAX_LINE_BYTES) {
+          logInputLimit(socket, "closed for exceeding MAX_LINE_BYTES!", line.size());
+          return;
+        }
+        if (inputCount == -1) break;
         if (binaryConnections.containsKey(connectionId)) {
           connectionOutput.writeLines(
               runtime.get().receiveLine(
@@ -164,6 +174,10 @@ public final class MooServer implements AutoCloseable, ConnectionBuiltins.Listen
         for (int inputIndex = 0; inputIndex < inputCount; inputIndex++) {
           int inputByte = Byte.toUnsignedInt(inputBuffer[inputIndex]);
           if (subnegotiation != null) {
+            if (subnegotiation.size() >= MAX_LINE_BYTES) {
+              logInputLimit(socket, "exceeded MAX_LINE_BYTES in telnet command!", subnegotiation.size());
+              return;
+            }
             subnegotiation.write(inputByte);
             if (afterSubnegotiationIac) {
               afterSubnegotiationIac = false;
@@ -252,6 +266,11 @@ public final class MooServer implements AutoCloseable, ConnectionBuiltins.Listen
       binaryConnections.remove(connectionId);
       connections.remove(connectionId, socket);
     }
+  }
+
+  private void logInputLimit(Socket socket, String message, int bytes) {
+    serverLog.error("Connection `%s` %s (%d /%d)".formatted(
+        socket.getRemoteSocketAddress(), message, bytes, MAX_LINE_BYTES));
   }
 
   private static MapValue connectionInfo(Socket socket, boolean outbound) {

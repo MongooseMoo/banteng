@@ -25,6 +25,8 @@ import org.jspecify.annotations.Nullable;
 final class PcreService {
   private static final int MAX_CACHE_ENTRIES = 20;
   private static final int MAX_REPLACEMENT_REFERENCES = 32;
+  private static final int MAX_QUANTIFIER_COUNT = 65_535;
+  private static final Pattern COUNTED_QUANTIFIER = Pattern.compile("\\{([0-9]+)(?:,([0-9]*))?\\}");
   private final LinkedHashMap<CacheKey, CacheEntry> cache = new LinkedHashMap<>();
 
   synchronized BuiltinResult match(BuiltinCall call) {
@@ -35,16 +37,15 @@ final class PcreService {
       return invalidArgument();
     }
     boolean caseMatters = arguments.size() >= 3 && arguments.get(2).isTruthy();
-    boolean findAll = arguments.size() < 4 || ((IntegerValue) arguments.get(3)).value() != 0;
-    NamedPattern named = translateNamedGroups(source);
-    Pattern pattern;
+    boolean findAll = arguments.size() < 4 || arguments.get(3).isTruthy();
+    CacheEntry cachedPattern;
     try {
-      pattern = cached(source, named.source, caseMatters);
+      cachedPattern = cached(source, caseMatters);
     } catch (PatternSyntaxException failure) {
       return invalidArgument();
     }
 
-    Matcher matcher = pattern.matcher(subject);
+    Matcher matcher = cachedPattern.pattern.matcher(subject);
     List<MooValue> matches = new ArrayList<>();
     int limit = matchIterationLimit(call.world());
     int offset = 0;
@@ -58,7 +59,7 @@ final class PcreService {
         if (matcher.start(group) < 0) {
           continue;
         }
-        String key = named.names.getOrDefault(group, Integer.toString(group));
+        String key = cachedPattern.names.getOrDefault(group, Integer.toString(group));
         Map<MooValue, MooValue> detail = new LinkedHashMap<>();
         detail.put(
             StringValue.of("position"),
@@ -95,9 +96,9 @@ final class PcreService {
     if (substitution == null) {
       return invalidArgument();
     }
-    NamedPattern named = translateNamedGroups(substitution.pattern);
     final Pattern pattern;
     try {
+      NamedPattern named = translatePattern(substitution.pattern);
       pattern =
           Pattern.compile(
               named.source,
@@ -178,43 +179,74 @@ final class PcreService {
     return BuiltinResult.value(new ListValue(entries));
   }
 
-  private Pattern cached(String source, String translated, boolean caseMatters) {
+  private CacheEntry cached(String source, boolean caseMatters) {
     CacheKey key = new CacheKey(source, caseMatters);
     CacheEntry entry = cache.get(key);
     if (entry != null) {
       entry.hits++;
-      return entry.pattern;
+      return entry;
     }
     if (cache.size() >= MAX_CACHE_ENTRIES) {
       var leastUsed = cache.entrySet().stream()
           .min(Comparator.comparingLong(candidate -> candidate.getValue().hits)).orElseThrow();
       cache.remove(leastUsed.getKey());
     }
+    NamedPattern named = translatePattern(source);
     Pattern compiled =
         Pattern.compile(
-            translated, caseMatters ? 0 : Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE);
-    cache.put(key, new CacheEntry(compiled));
-    return compiled;
+            named.source, caseMatters ? 0 : Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE);
+    CacheEntry added = new CacheEntry(compiled, named.names);
+    cache.put(key, added);
+    return added;
   }
 
-  private static NamedPattern translateNamedGroups(String source) {
+  private static NamedPattern translatePattern(String source) {
     StringBuilder translated = new StringBuilder(source.length());
     Map<Integer, String> names = new LinkedHashMap<>();
-    boolean escaped = false;
+    Matcher quantifier = COUNTED_QUANTIFIER.matcher(source);
+    boolean quoted = false;
+    boolean inClass = false;
     int group = 0;
     for (int index = 0; index < source.length(); index++) {
       char current = source.charAt(index);
-      if (escaped) {
-        translated.append(current);
-        escaped = false;
+      if (source.startsWith("\\E", index) && quoted) {
+        translated.append("\\E");
+        quoted = false;
+        index++;
         continue;
       }
-      if (current == '\\') {
+      if (quoted) {
         translated.append(current);
-        escaped = true;
         continue;
       }
-      if (current != '(') {
+      if (current == '\\' && index + 1 < source.length()) {
+        char escape = source.charAt(index + 1);
+        if ((escape == 'x' || escape == 'p' || escape == 'P') && source.startsWith("{", index + 2)) {
+          int end = source.indexOf('}', index + 3);
+          if (end < 0) throw new PatternSyntaxException("Unclosed escape", source, index);
+          translated.append(source, index, end + 1);
+          index = end;
+          continue;
+        }
+        translated.append(current).append(escape);
+        quoted = escape == 'Q';
+        index++;
+        continue;
+      }
+      if (current == '[') inClass = true;
+      if (current == ']') inClass = false;
+      if (!inClass && current == '{') {
+        if (quantifier.region(index, source.length()).lookingAt()) {
+          checkQuantifierCount(source, quantifier, 1);
+          checkQuantifierCount(source, quantifier, 2);
+          translated.append(source, index, quantifier.end());
+          index = quantifier.end() - 1;
+        } else {
+          translated.append("\\{");
+        }
+        continue;
+      }
+      if (inClass || current != '(') {
         translated.append(current);
         continue;
       }
@@ -236,6 +268,16 @@ final class PcreService {
     return new NamedPattern(translated.toString(), names);
   }
 
+  private static void checkQuantifierCount(String source, Matcher quantifier, int group) {
+    int count = 0;
+    for (int index = quantifier.start(group); index < quantifier.end(group); index++) {
+      count = 10 * count + source.charAt(index) - '0';
+      if (count > MAX_QUANTIFIER_COUNT) {
+        throw new PatternSyntaxException("Quantifier count exceeds 65535", source, index);
+      }
+    }
+  }
+
   private static BuiltinResult invalidArgument() {
     return BuiltinResult.error(ErrorValue.E_INVARG);
   }
@@ -245,9 +287,11 @@ final class PcreService {
   private static final class CacheEntry {
     private long hits;
     private final Pattern pattern;
+    private final Map<Integer, String> names;
 
-    private CacheEntry(Pattern pattern) {
+    private CacheEntry(Pattern pattern, Map<Integer, String> names) {
       this.pattern = pattern;
+      this.names = names;
     }
   }
 

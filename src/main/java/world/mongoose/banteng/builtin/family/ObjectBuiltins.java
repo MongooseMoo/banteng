@@ -54,7 +54,7 @@ public final class ObjectBuiltins {
         registrar.builtin("parent", List.of(new CallShape(List.of(ANY), List.of(), Optional.empty()))).implementation(call -> parent(call.arguments(), call.world()));
         registrar.builtin("parents", List.of(new CallShape(List.of(ANY), List.of(), Optional.empty()))).implementation(call -> parents(call.arguments(), call.world()));
         registrar.builtin("ancestors", List.of(new CallShape(List.of(ANY), List.of(ANY), Optional.empty()))).implementation(call -> ancestors(call.arguments(), call.world()));
-        registrar.builtin("isa", List.of(new CallShape(List.of(ANY, ANY), List.of(INTEGER), Optional.empty()))).implementation(call -> isa(call.arguments(), call.world()));
+        registrar.builtin("isa", List.of(new CallShape(List.of(ANY, ANY), List.of(Set.of(ArgType.FLAG)), Optional.empty()))).implementation(call -> isa(call.arguments(), call.world()));
         registrar.builtin("children", List.of(new CallShape(List.of(ANY), List.of(), Optional.empty()))).implementation(call -> children(call.arguments(), call.world()));
         registrar.builtin("chparent", List.of(new CallShape(List.of(ANY, OBJECT), List.of(), Optional.empty()))).implementation(call -> changeParents(call.arguments(), call.world(), call.programmer()));
         registrar.builtin("chparents", List.of(new CallShape(List.of(ANY, Set.of(ArgType.LIST)), List.of(), Optional.empty()))).implementation(call -> changeParents(call.arguments(), call.world(), call.programmer()));
@@ -62,8 +62,8 @@ public final class ObjectBuiltins {
         registrar.builtin("valid", List.of(new CallShape(List.of(ANY), List.of(), Optional.empty()))).implementation(call -> valid(call.arguments(), call.world()));
         registrar.builtin("max_object", List.of(new CallShape(List.of(), List.of(), Optional.empty()))).implementation(call ->
                 BuiltinResult.value(new ObjectValue(call.world().maximumObjectId())));
-        registrar.builtin("locate_by_name", List.of(new CallShape(List.of(STRING), List.of(INTEGER), Optional.empty()))).permission(BuiltinPermissionRule.WIZARD_ONLY).implementation(call -> locateByName(call.arguments(), call.world()));
-        registrar.builtin("locations", List.of(new CallShape(List.of(OBJECT), List.of(OBJECT, INTEGER), Optional.empty()))).implementation(call -> locations(call.arguments(), call.world()));
+        registrar.builtin("locate_by_name", List.of(new CallShape(List.of(STRING), List.of(Set.of(ArgType.FLAG)), Optional.empty()))).permission(BuiltinPermissionRule.WIZARD_ONLY).implementation(call -> locateByName(call.arguments(), call.world()));
+        registrar.builtin("locations", List.of(new CallShape(List.of(OBJECT), List.of(OBJECT, Set.of(ArgType.FLAG)), Optional.empty()))).implementation(call -> locations(call.arguments(), call.world()));
         registrar.builtin("recycled_objects", List.of(new CallShape(List.of(), List.of(), Optional.empty()))).implementation(call -> recycledObjects(call.world()));
         registrar.builtin("next_recycled_object", List.of(new CallShape(List.of(), List.of(OBJECT), Optional.empty()))).implementation(call -> nextRecycledObject(call.arguments(), call.world()));
         registrar.builtin("owned_objects", List.of(new CallShape(List.of(OBJECT), List.of(), Optional.empty()))).implementation(call -> ownedObjects(call.arguments(), call.world()));

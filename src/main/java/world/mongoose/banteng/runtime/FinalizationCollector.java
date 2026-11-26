@@ -152,6 +152,7 @@ final class FinalizationCollector {
     Set<AnonymousObjectValue> reachable = new LinkedHashSet<>();
     Set<WaifValue> visitedWaifs = new LinkedHashSet<>();
     for (WorldObject object : snapshot.objects().values()) {
+      FinalizationCollector.markReachableAnonymous(object.lastMove(), snapshot, reachable, visitedWaifs);
       for (WorldProperty property : object.properties()) {
         FinalizationCollector.markReachableAnonymous(
             property.value(), snapshot, reachable, visitedWaifs);

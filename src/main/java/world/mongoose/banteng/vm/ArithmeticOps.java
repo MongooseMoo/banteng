@@ -45,32 +45,11 @@ final class ArithmeticOps {
       frame.instructionPointer++;
       return;
     }
-    if (collection instanceof MapValue map) {
-      long position = 0;
-      int index = 0;
-      for (var entry : map.orderedEntries()) {
-        index++;
-        if (valueSemantics.equal(requested, entry.getValue(), false)) {
-          position = index;
-          break;
-        }
-      }
-      frame.operandStack.push(new IntegerValue(position));
-      frame.instructionPointer++;
-      return;
-    }
-    if (!(collection instanceof ListValue list)) {
+    if (!(collection instanceof ListValue || collection instanceof MapValue)) {
       ErrorOps.raise(state, ErrorValue.E_TYPE, world);
       return;
     }
-    long position = 0;
-    for (int index = 0; index < list.elements().size(); index++) {
-      if (valueSemantics.equal(requested, list.elements().get(index), false)) {
-        position = index + 1L;
-        break;
-      }
-    }
-    frame.operandStack.push(new IntegerValue(position));
+    frame.operandStack.push(new IntegerValue(valueSemantics.memberIndex(requested, collection, false)));
     frame.instructionPointer++;
   }
 

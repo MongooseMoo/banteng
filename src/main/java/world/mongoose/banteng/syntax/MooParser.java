@@ -329,7 +329,11 @@ public final class MooParser {
     }
 
     Optional<Ast.FinallyClause> finallyClause = Optional.empty();
-    if (match(TokenKind.FINALLY)) {
+    if (current.kind() == TokenKind.FINALLY) {
+      if (!exceptClauses.isEmpty()) {
+        throw error("finally cannot follow except in the same try statement");
+      }
+      advance();
       finallyClause = Optional.of(new Ast.FinallyClause(parseStatementsUntil(TokenKind.ENDTRY)));
     }
     if (exceptClauses.isEmpty() && finallyClause.isEmpty()) {

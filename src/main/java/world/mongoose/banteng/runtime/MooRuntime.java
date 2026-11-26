@@ -139,7 +139,7 @@ public final class MooRuntime implements AutoCloseable, SchedulerRuntime {
     loginFlow = new LoginFlow(this, scheduler, listenerControl);
     connectionIo = new ConnectionIo(this, scheduler, listenerControl);
     try (WorldTxn initialOptions = committedWorld.begin()) {
-      builtins.reloadProtectedFunctions(initialOptions);
+      builtins.reloadServerOptions(initialOptions);
     }
   }
 
