@@ -12,7 +12,9 @@ The sixth batch covers input and Telnet buffer bounds, cached output capacity, s
 
 The sixth managed run completed with 50 failures and all four admission probes passed. Its Java report identified two fixtures that use the combined `except` and `finally` grammar. The fixtures now use nested statements and retain their disassembly and round-trip checks. The seventh batch reuses the computed-selector and checkpoint work from the original checkout, selecting only relevant changes. It fixes first-argument and first-splice quota checks, uses the existing formatters for verb-code float display and timeout traceback output, registers SQLite's regex function with the existing pattern translator, and reduces large string copies. The final focused test run passed. Hosted stock reported 32 failures, 12,986 passes, and 1,456 declared skips. Promotion was skipped after the stock failure. Hosted Java reported one architecture violation in the new unparser dependency.
 
-The eighth batch supplies the float formatter from the verb builtin, accounts for decoded binary notification bytes and no-flush queue limits, keeps raw carriage returns in stored property names, preserves and reports pre-existing reserved definitions while blocking new definitions, and sets SQLite connection defaults for SQL text and function arguments. The complete patch passed a clean `installDist compileTestJava`.
+The eighth batch supplies the float formatter from the verb builtin, accounts for decoded binary notification bytes and no-flush queue limits, keeps raw carriage returns in stored property names, preserves and reports pre-existing reserved definitions while blocking new definitions, and sets SQLite connection defaults for SQL text and function arguments. The complete patch passed a clean `installDist compileTestJava` and is on PR #140. The hosted architecture check passed. `WorldResultTest` rejected the added public boolean method in `WorldTxn`. Stock finished with 19 failures, 12,999 passes, and 1,456 declared skips. Promotion was skipped after the stock failure.
+
+The ninth batch moves the pure reserved-name lookup to `WorldProperty`, accepts empty source when exporting a compiled queued fork, and preserves the VM's enclosing handler phase when exporting and importing suspended catch and except bodies. The empty-fork and catch-handler regressions reproduced the original failures and passed with the fixes. The empty-string comparison fast path made the exact shared argument-list setup pass within its three-second socket timeout in a focused diagnostic test.
 
 ## Decisions and why
 
@@ -26,8 +28,10 @@ The eighth batch supplies the float formatter from the verb builtin, accounts fo
 - The verified Toast v17 activation writer passes a two-word location value to one integer slot. The slot read as the debug flag contains the location type. Keep the existing nonzero interpretation for older Banteng checkpoints. Live queued forks separately preserve their actual debug state in VM snapshots.
 - The latest Java tests passed after aligning older assertions with verified boolean and map ordering, parser diagnostics, integer boundaries, and suspended-only `task_stack()` visibility.
 - The seventh stock report still has checkpoint failures at `dump_database()`, PCRE lookbehind differences, SQLite execution and library limits, argument-list timeouts, database property metadata, and connection output mismatches.
+- The seventh run's argument-list timeouts occur in shared fixture setup before the assertions. The exact setup reproduced the timeout during `#0.arglist_parent:build()`. A worker thread dump captured `StringValue.equals` decoding and Unicode-folding a large string while comparing it to the previous empty property value. The eighth hosted run executed the argument-list assertions and found two semantic failures. For the empty-fork fixture, the compiler produces a valid program with empty source, which the queued-task exporter previously rejected.
+- `ErrorOps` sets the selected expression clause to `CATCH` and leaves its enclosing handler in `TRY`. The checkpoint codec now preserves that phase in catch fallbacks and except bodies.
 
 ## Next step
 
-1. Verify the eighth batch in hosted Java and managed stock CI.
-2. Fix the remaining mismatches in their owning runtime paths and verify both managed profiles and admission.
+1. Verify the ninth batch in hosted CI.
+2. Fix the remaining mismatches and verify both managed profiles and admission.

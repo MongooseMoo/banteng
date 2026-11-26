@@ -134,7 +134,7 @@ public final class PropertyBuiltins {
             return BuiltinResult.error(ErrorValue.E_INVARG);
         }
         String name = ((StringValue) arguments.get(1)).text();
-        if (WorldTxn.isBuiltinPropertyName(name)) {
+        if (WorldProperty.isReservedName(name)) {
             return BuiltinResult.value(new IntegerValue(0));
         }
         WorldProperty property = receiver instanceof ObjectValue object
@@ -167,7 +167,7 @@ public final class PropertyBuiltins {
             return BuiltinResult.error(ErrorValue.E_INVARG);
         }
         String name = ((StringValue) arguments.get(1)).text();
-        if (WorldTxn.isBuiltinPropertyName(name)) {
+        if (WorldProperty.isReservedName(name)) {
             return BuiltinResult.error(ErrorValue.E_PROPNF);
         }
         WorldProperty property = receiver instanceof ObjectValue object
@@ -203,7 +203,7 @@ public final class PropertyBuiltins {
             return BuiltinResult.error(ErrorValue.E_INVARG);
         }
         String name = ((StringValue) arguments.get(1)).text();
-        if (WorldTxn.isBuiltinPropertyName(name)) {
+        if (WorldProperty.isReservedName(name)) {
             return BuiltinResult.error(ErrorValue.E_PERM);
         }
         WorldProperty property = world.property(object.value(), name).orElse(null);

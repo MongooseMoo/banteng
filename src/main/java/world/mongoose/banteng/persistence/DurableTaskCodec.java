@@ -315,14 +315,14 @@ public final class DurableTaskCodec {
       }
       case EXCEPT_CLAUSE ->
           handlers.add(
-              new ImportedHandler(group.ownerControl(), VmSnapshot.HandlerPhase.CATCH));
+              new ImportedHandler(group.ownerControl(), VmSnapshot.HandlerPhase.TRY));
       case EXPRESSION_FALLBACK -> {
         int active = group.activeClauseIndex().orElseThrow();
         handlers.add(
             new ImportedHandler(
                 group.clauseControls().get(active), VmSnapshot.HandlerPhase.CATCH));
         handlers.add(
-            new ImportedHandler(group.ownerControl(), VmSnapshot.HandlerPhase.CATCH));
+            new ImportedHandler(group.ownerControl(), VmSnapshot.HandlerPhase.TRY));
       }
       case FINALLY_HANDLER -> throw new IllegalArgumentException("catch group is in finally phase");
     }
@@ -504,9 +504,6 @@ public final class DurableTaskCodec {
 
   public static QueuedTask exportQueuedTask(
       long taskId, long scheduledEpochMilli, BytecodeProgram program, VmSnapshot snapshot) {
-    if (program.source().isEmpty()) {
-      throw new IllegalStateException("queued fork has no durable source");
-    }
     return new QueuedTask(
         taskId,
         Math.floorDiv(scheduledEpochMilli, 1_000L),
@@ -693,14 +690,14 @@ public final class DurableTaskCodec {
       }
       case EXCEPT_CLAUSE ->
           handlers.add(
-              new ImportedHandler(group.ownerControl(), VmSnapshot.HandlerPhase.CATCH));
+              new ImportedHandler(group.ownerControl(), VmSnapshot.HandlerPhase.TRY));
       case EXPRESSION_FALLBACK -> {
         handlers.add(
             new ImportedHandler(
                 group.clauseControls().get(group.activeClauseIndex().orElseThrow()),
                 VmSnapshot.HandlerPhase.CATCH));
         handlers.add(
-            new ImportedHandler(group.ownerControl(), VmSnapshot.HandlerPhase.CATCH));
+            new ImportedHandler(group.ownerControl(), VmSnapshot.HandlerPhase.TRY));
       }
       case FINALLY_HANDLER -> throw new IllegalStateException("catch group is in finally phase");
     }

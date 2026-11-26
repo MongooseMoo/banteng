@@ -560,15 +560,6 @@ public final class WorldTxn implements AutoCloseable {
     return readPropertyFor(objectId, propertyName);
   }
 
-  /** Reports whether the name is reserved by an intrinsic object property. */
-  public static boolean isBuiltinPropertyName(String name) {
-    return switch (name.toLowerCase(Locale.ROOT)) {
-      case "name", "owner", "programmer", "wizard", "r", "w", "f", "a", "location",
-          "last_move", "contents" -> true;
-      default -> false;
-    };
-  }
-
   /** Reads an ordinary or built-in property on an anonymous object. */
   public Optional<MooValue> readObjectProperty(
       AnonymousObjectValue identity, String propertyName) {
@@ -1453,7 +1444,7 @@ public final class WorldTxn implements AutoCloseable {
     Objects.requireNonNull(name, "name");
     Objects.requireNonNull(value, "value");
     PropertyHolder holder = propertyHolder(identity).orElse(null);
-    if (holder == null || isBuiltinPropertyName(name) || propertyFor(identity, name).isPresent()) {
+    if (holder == null || WorldProperty.isReservedName(name) || propertyFor(identity, name).isPresent()) {
       return WorldResult.failed(ErrorValue.E_INVARG);
     }
     Map<Long, WorldObject> oldObjects = working.objects();

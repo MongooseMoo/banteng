@@ -17,7 +17,6 @@ import world.mongoose.banteng.persistence.DbCodec;
 import world.mongoose.banteng.world.Checkpoint;
 import world.mongoose.banteng.world.WorldObject;
 import world.mongoose.banteng.world.WorldProperty;
-import world.mongoose.banteng.world.WorldTxn;
 import world.mongoose.banteng.runtime.MooRuntime;
 import world.mongoose.banteng.runtime.PublicationScheduler;
 import world.mongoose.banteng.runtime.TaskRegistry;
@@ -146,7 +145,7 @@ public final class Banteng implements Callable<Integer> {
       for (WorldObject object : loaded.world().snapshot().objects().values()) {
         for (WorldProperty property : object.properties()) {
           if (!property.defined()) break;
-          if (WorldTxn.isBuiltinPropertyName(property.name())) {
+          if (WorldProperty.isReservedName(property.name())) {
             serverLog.info("DB_WARNING: Property #%d.%s has a reserved name"
                 .formatted(object.id(), property.name()));
           }

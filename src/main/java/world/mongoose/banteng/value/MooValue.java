@@ -353,6 +353,9 @@ public sealed interface MooValue
       if (!(other instanceof StringValue string)) {
         return false;
       }
+      if (bytes.length == 0 || string.bytes.length == 0) {
+        return bytes.length == string.bytes.length;
+      }
       Optional<String> decoded = decodeValidUtf8(bytes);
       Optional<String> otherDecoded = decodeValidUtf8(string.bytes);
       if (decoded.isPresent() && otherDecoded.isPresent()) {

@@ -25,6 +25,26 @@ final class DynamicCatchSelectorTest {
     }
   }
 
+  @Test
+  void retainsEnclosingOperandsWhenACatchHandlerSuspends() {
+    for (String source : List.of(
+        "return {1 + `1/0 ! ANY => 5 + suspend()', {`1/0 ! E_DIV => \"d\"'}};",
+        "try 1/0; except err (E_DIV, \"unused\") return {err[1], suspend()}; endtry")) {
+      var program = new MooCompiler().compile(source);
+      VmState state = new VmState(new TaskOrigin(Map.of(), 0, new ObjectValue(-1), "", "", true),
+          new TaskBudget(60_000, 5, 50));
+      var vm = new PureVmFixture();
+      vm.execute(program, state);
+      assertEquals(VmState.Outcome.SUSPENDED, state.outcome(), source);
+      var snapshot = state.snapshot();
+      var durable = DurableTaskCodec.durableSuspension(12, 0, snapshot, new IntegerValue(10));
+      var before = snapshot.frames().getFirst();
+      var imported = DurableTaskCodec.importActivation(durable.activations().getFirst(), -1, true);
+      assertEquals(before.operandStack(), imported.operandStack(), source);
+      assertEquals(before.handlers(), imported.handlers(), source);
+    }
+  }
+
   private static void assertResumesWithSameSelectors(String source) {
     var program = new MooCompiler().compile(source);
     VmState state = new VmState(new TaskOrigin(Map.of(), 0, new ObjectValue(-1), "", "", true),
