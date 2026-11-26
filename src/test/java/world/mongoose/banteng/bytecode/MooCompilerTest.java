@@ -656,13 +656,12 @@ final class MooCompilerTest {
         """
         0 PUSH_OBJECT 0
         1 PUSH_STRING test
-        2 BUILD_LIST 0
-        3 PUSH_INTEGER 1
-        4 LIST_APPEND 1
-        5 PUSH_CLEAR 9
-        6 LIST_EXTEND 0
-        7 CALL_VERB
-        8 RETURN""",
+        2 PUSH_INTEGER 1
+        3 LIST_APPEND 1
+        4 PUSH_CLEAR 9
+        5 LIST_EXTEND 0
+        6 CALL_VERB
+        7 RETURN""",
         staticCall.disassemble());
   }
 

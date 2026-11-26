@@ -1926,7 +1926,7 @@ final class MooVmTest {
         31 PUSH_CLEAR 24
         32 RETURN""",
         program.disassemble());
-    assertEquals(Opcode.SET_PARENT_INDEX, program.instructions().get(28).opcode());
+    assertEquals(Opcode.SET_PARENT_INDEX, program.instructions().get(27).opcode());
     VmState state = new VmState(new TaskOrigin(java.util.Map.of(), 0, new world.mongoose.banteng.value.MooValue.ObjectValue(-1),
         "", "", true), new TaskBudget(60_000, 5, 50));
 
@@ -1998,7 +1998,7 @@ final class MooVmTest {
         26 PUSH_CLEAR 24
         27 RETURN""",
         program.disassemble());
-    assertEquals(Opcode.SET_PARENT_INDEX, program.instructions().get(25).opcode());
+    assertEquals(Opcode.SET_PARENT_INDEX, program.instructions().get(22).opcode());
     VmState state = new VmState(new TaskOrigin(java.util.Map.of(), 0, new world.mongoose.banteng.value.MooValue.ObjectValue(-1),
         "", "", true), new TaskBudget(60_000, 5, 50));
 
