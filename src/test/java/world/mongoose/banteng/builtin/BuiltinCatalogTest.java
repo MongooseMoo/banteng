@@ -1806,7 +1806,7 @@ final class BuiltinCatalogTest {
         List.of(new CallShape(List.of(Set.of(ArgType.OBJECT)), List.of(), Optional.empty())),
         spec.callShapes());
     assertSame(BuiltinPermissionRule.ANY, spec.permission());
-    assertEquals(false, spec.irrevocable());
+    assertTrue(spec.irrevocable());
     try (WorldTxn transaction = world().begin()) {
       BuiltinResult self =
           invoke(catalog, spec, List.of(new ObjectValue(2)), transaction, 2);

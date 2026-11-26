@@ -16,7 +16,7 @@ The eighth batch supplies the float formatter from the verb builtin, accounts fo
 
 The ninth batch is on PR #140. It moves the pure reserved-name lookup to `WorldProperty`, accepts empty source when exporting a compiled queued fork, and preserves the VM's enclosing handler phase when exporting and importing suspended catch and except bodies. The empty-fork and catch-handler regressions reproduced the original failures and passed with the fixes. The empty-string comparison fast path made the exact shared argument-list setup pass within its three-second socket timeout in a focused diagnostic test. Hosted CI passed the four other jobs and reported 16 stock failures, 13,002 passes and 1,456 declared skips. All three checkpoint cases passed. Stock failure prevented promotion.
 
-The tenth batch applies `boot_player()` through the scheduler's existing synchronous host path, advances past a non-debug list quota error, checks exhaustion before running any charged instruction, handles empty SQLite statements before JDBC registers a null statement pointer, and times out an active outbound connect when its socket timeout or `SIGALRM` fires. Before the fixes, focused tests reproduced the non-debug operand-stack underflow and the duplicate JDBC statement pointer. The complete batch passed `installDist compileTestJava` and the edited `MooVmTest`.
+The tenth batch is on PR #140. It applies `boot_player()` through the scheduler's existing synchronous host path, advances past a non-debug list quota error, checks exhaustion before running any charged instruction, handles empty SQLite statements before JDBC registers a null statement pointer, and times out an active outbound connect when its socket timeout or `SIGALRM` fires. Before the fixes, focused tests reproduced the non-debug operand-stack underflow and the duplicate JDBC statement pointer. The complete batch passed `installDist compileTestJava` and the edited `MooVmTest`. Hosted stock reported 10 failures, 13,008 passes, and 1,456 declared skips. All four admission probes passed. Stock failure prevented promotion. Hosted Java found one stale scheduling assertion. The test-only correction for `boot_player()` passed its focused test.
 
 ## Decisions and why
 
@@ -34,9 +34,9 @@ The tenth batch applies `boot_player()` through the scheduler's existing synchro
 - `ErrorOps` sets the selected expression clause to `CATCH` and leaves its enclosing handler in `TRY`. The checkpoint codec now preserves that phase in catch fallbacks and except bodies.
 - The pinned Toast dispatcher aborts on tick exhaustion for charged extended opcodes as well as ordinary opcodes. A different Toast checkout contained the old dispatch, so compare against the suite's pinned source.
 - Banteng's outbound socket uses a blocking `Socket.connect` without the configured timeout, and queues `SIGALRM` behind the same authorized builtin. Pinned Toast installs a connect timer and raises `E_INVARG` with `Connection failure` for timeout.
-- SQLite raised the minimum length limit from 1 to 30 in version 3.48. Banteng's bundled version uses 30, which the ninth run confirmed. The stock assertions expect 1 and behavior below 30.
+- The reference build linked SQLite 3.45.1 and PCRE2 10.42. SQLite raised the minimum length limit from 1 to 30 in version 3.48. Banteng's bundled SQLite uses 30, which the ninth run confirmed. The stock assertions expect 1 and behavior below 30.
 
 ## Next step
 
-1. Verify the tenth batch in hosted CI.
-2. Review the remaining PCRE2 and SQLite version differences, SQLite multi-statement execution and `set_property_info()` against the pinned Toast behavior. Verify both managed profiles and admission after resolving the remaining failures.
+1. Verify the corrected Java assertion in hosted CI.
+2. The stock report still has six PCRE2 lookbehind failures, three SQLite failures covering native length limits and multi-statement execution, and one missing `set_property_info()` failure. Verify both managed profiles after resolving those differences.
