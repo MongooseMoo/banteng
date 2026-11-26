@@ -26,6 +26,7 @@ import java.util.Map;
 import java.util.OptionalLong;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.regex.Pattern;
+import java.util.regex.PatternSyntaxException;
 import world.mongoose.banteng.value.MooValue;
 import world.mongoose.banteng.value.MooValue.ErrorValue;
 import world.mongoose.banteng.value.MooValue.FloatValue;
@@ -35,6 +36,7 @@ import world.mongoose.banteng.value.MooValue.MapValue;
 import world.mongoose.banteng.value.MooValue.ObjectValue;
 import world.mongoose.banteng.value.MooValue.StringValue;
 import org.jspecify.annotations.Nullable;
+import org.sqlite.Function;
 import org.sqlite.SQLiteConnection;
 import org.sqlite.SQLiteLimits;
 import org.sqlite.SQLiteException;
@@ -108,8 +110,7 @@ public final class SqliteBuiltins {
     }
 
     try {
-      Connection opened = DriverManager.getConnection(url);
-      SQLiteConnection connection = opened.unwrap(SQLiteConnection.class);
+      SQLiteConnection connection = openConnection(url);
       long handle = nextHandle++;
       String displayPath =
           path == null
@@ -123,6 +124,39 @@ public final class SqliteBuiltins {
       return BuiltinResult.value(new IntegerValue(handle));
     } catch (SQLException failure) {
       return BuiltinResult.error(ErrorValue.E_NONE);
+    }
+  }
+
+  private static SQLiteConnection openConnection(String url) throws SQLException {
+    Connection opened = DriverManager.getConnection(url);
+    try {
+      SQLiteConnection connection = opened.unwrap(SQLiteConnection.class);
+      Function.create(connection, "regexp", new Function() {
+        @Override
+        protected void xFunc() throws SQLException {
+          String pattern = value_text(0);
+          String subject = value_text(1);
+          if (pattern == null) {
+            error("SQLite REGEXP called with invalid pattern.");
+          } else if (subject == null) {
+            error("SQLite REGEXP called with invalid string.");
+          } else {
+            try {
+              result(PcreService.containsMatch(subject, pattern) ? 1 : 0);
+            } catch (PatternSyntaxException failure) {
+              error(failure.getDescription());
+            }
+          }
+        }
+      }, 2, Function.FLAG_DETERMINISTIC);
+      return connection;
+    } catch (SQLException failure) {
+      try {
+        opened.close();
+      } catch (SQLException closeFailure) {
+        failure.addSuppressed(closeFailure);
+      }
+      throw failure;
     }
   }
 

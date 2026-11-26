@@ -10,6 +10,7 @@ import world.mongoose.banteng.value.MooValue.IntegerValue;
 import world.mongoose.banteng.value.MooValue.ListValue;
 import world.mongoose.banteng.value.MooValue.ObjectValue;
 import world.mongoose.banteng.value.MooValue.StringValue;
+import world.mongoose.banteng.value.ValueSemantics;
 import world.mongoose.banteng.vm.VmState.ActiveHandler;
 import world.mongoose.banteng.vm.VmState.Frame;
 import world.mongoose.banteng.vm.VmState.HandlerPhase;
@@ -218,6 +219,8 @@ final class ErrorOps {
 
   private static boolean catches(ActiveHandler handler, MooValue error) {
     return handler.specification.catchesAny()
+        || handler.selector.map(selector ->
+            ValueSemantics.STANDARD.memberIndex(error, selector, false) != 0).orElse(false)
         || (error instanceof ErrorValue code && handler.specification.caughtErrors().contains(code.name()));
   }
 }

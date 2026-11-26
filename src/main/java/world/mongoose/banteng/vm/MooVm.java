@@ -265,8 +265,8 @@ public final class MooVm {
         frame.instructionPointer++;
       }
       case BUILD_LIST -> ListOps.buildList(frame, Math.toIntExact(instruction.operand().orElseThrow()));
-      case LIST_APPEND -> ListOps.appendList(frame, state, world);
-      case LIST_EXTEND -> ListOps.extendList(frame, state, world);
+      case LIST_APPEND -> ListOps.appendList(frame, state, world, instruction.operand().orElse(0) == 1);
+      case LIST_EXTEND -> ListOps.extendList(frame, state, world, instruction.operand().orElse(0) == 1);
       case BUILD_MAP -> ListOps.buildMap(frame, state, world, Math.toIntExact(instruction.operand().orElseThrow()));
       case LOAD_LOCAL, PUSH_CLEAR -> PropertyOps.loadLocal(frame,
           Math.toIntExact(instruction.operand().orElseThrow()), opcode == BytecodeProgram.Opcode.PUSH_CLEAR, state, world);
@@ -374,8 +374,13 @@ public final class MooVm {
       case JUMP_IF_FALSE -> LoopOps.conditionalJump(instruction, frame, false);
       case JUMP_IF_TRUE -> LoopOps.conditionalJump(instruction, frame, true);
       case ENTER_HANDLER -> {
-        frame.handlers.push(new VmState.ActiveHandler(
-            instruction.handler().orElseThrow(), frame.operandStack.size()));
+        var specification = instruction.handler().orElseThrow();
+        Optional<MooValue.ListValue> selector = specification.dynamicErrors()
+            ? Optional.of((MooValue.ListValue) frame.operandStack.pop()) : Optional.empty();
+        var handler = new VmState.ActiveHandler(specification,
+            frame.operandStack.size() - Math.toIntExact(instruction.operand().orElse(0)));
+        handler.selector = selector;
+        frame.handlers.push(handler);
         frame.instructionPointer++;
       }
       case LEAVE_HANDLER -> LoopOps.leaveHandler(frame);
@@ -406,7 +411,7 @@ public final class MooVm {
       case JUMP -> instruction.astPath().isPresent() ? 1 : 0;
       case ENTER_HANDLER -> {
         var handler = instruction.handler().orElseThrow();
-        yield handler.catchTarget() < 0 || !handler.catchesAny() ? 1 : 0;
+        yield handler.dynamicErrors() ? 0 : handler.catchTarget() < 0 || !handler.catchesAny() ? 1 : 0;
       }
       default -> COUNTED_OPCODES.contains(opcode) ? 1 : 0;
     };

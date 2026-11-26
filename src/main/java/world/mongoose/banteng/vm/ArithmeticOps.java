@@ -134,12 +134,7 @@ final class ArithmeticOps {
         }
         return;
       }
-      byte[] leftBytes = left.bytes();
-      byte[] rightBytes = right.bytes();
-      byte[] concatenated = new byte[Math.addExact(leftBytes.length, rightBytes.length)];
-      System.arraycopy(leftBytes, 0, concatenated, 0, leftBytes.length);
-      System.arraycopy(rightBytes, 0, concatenated, leftBytes.length, rightBytes.length);
-      frame.operandStack.push(StringValue.of(concatenated));
+      frame.operandStack.push(left.concatenate(right));
       frame.instructionPointer++;
       return;
     }

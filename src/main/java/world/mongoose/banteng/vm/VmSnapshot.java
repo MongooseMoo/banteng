@@ -172,6 +172,8 @@ public record VmSnapshot(
     size = add(size, Integer.BYTES);
     for (HandlerState handler : frame.handlers()) {
       size = add(size, handlerSpecSize(handler.specification()));
+      size = add(size, Byte.BYTES);
+      if (handler.selector().isPresent()) size = add(size, valueSize(handler.selector().orElseThrow()));
       size = add(size, Integer.BYTES);
       size = add(size, Byte.BYTES);
     }
@@ -285,6 +287,7 @@ public record VmSnapshot(
 
   private static long handlerSpecSize(HandlerSpec handler) {
     long size = multiply(4, Integer.BYTES);
+    size = add(size, Byte.BYTES);
     size = add(size, Byte.BYTES);
     if (handler.catchVariable().isPresent()) {
       size = add(size, textSize(handler.catchVariable().orElseThrow()));
@@ -503,7 +506,11 @@ public record VmSnapshot(
   }
 
   /** One active exception handler and its current execution phase. */
-  public record HandlerState(HandlerSpec specification, int operandDepth, HandlerPhase phase) {
+  public record HandlerState(HandlerSpec specification, int operandDepth, HandlerPhase phase,
+      Optional<ListValue> selector) {
+    public HandlerState(HandlerSpec specification, int operandDepth, HandlerPhase phase) {
+      this(specification, operandDepth, phase, Optional.empty());
+    }
     public HandlerState {
       if (operandDepth < 0) {
         throw new IllegalArgumentException("negative operand depth");

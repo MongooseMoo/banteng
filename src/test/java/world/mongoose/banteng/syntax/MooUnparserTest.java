@@ -43,9 +43,10 @@ final class MooUnparserTest {
         else return;
         endif
         for item in({1,2}) fork(0) notify(#1,item); endfork endfor
-        try danger();
+        try try danger();
         except problem(E_INVARG,E_TYPE) return problem;
         except(ANY) return 0;
+        endtry
         finally cleanup();
         endtry
         """;
@@ -66,11 +67,13 @@ final class MooUnparserTest {
           endfork
         endfor
         try
-          danger();
-        except problem (E_INVARG, E_TYPE)
-          return problem;
-        except (ANY)
-          return 0;
+          try
+            danger();
+          except problem (E_INVARG, E_TYPE)
+            return problem;
+          except (ANY)
+            return 0;
+          endtry
         finally
           cleanup();
         endtry""";

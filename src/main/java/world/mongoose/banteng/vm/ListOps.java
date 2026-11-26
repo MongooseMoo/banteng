@@ -25,28 +25,37 @@ final class ListOps {
     frame.instructionPointer++;
   }
 
-  static void appendList(Frame frame, VmState state, WorldTxn world) {
+  static void appendList(Frame frame, VmState state, WorldTxn world, boolean first) {
     MooValue value = frame.operandStack.pop();
-    MooValue collection = frame.operandStack.pop();
-    if (!(collection instanceof ListValue list)) {
+    if (first) {
+      frame.operandStack.push(new ListValue(List.of(value)));
+      frame.instructionPointer++;
+      return;
+    }
+    if (!(frame.operandStack.pop() instanceof ListValue list)) {
       ErrorOps.raise(state, ErrorValue.E_TYPE, world);
       return;
     }
-    List<MooValue> elements = new ArrayList<>(list.elements());
-    elements.add(value);
-    pushCheckedList(frame, state, world, new ListValue(elements));
+    pushCheckedList(frame, state, world, list.append(value));
   }
 
-  static void extendList(Frame frame, VmState state, WorldTxn world) {
+  static void extendList(Frame frame, VmState state, WorldTxn world, boolean first) {
     MooValue extension = frame.operandStack.pop();
-    MooValue collection = frame.operandStack.pop();
-    if (!(collection instanceof ListValue list) || !(extension instanceof ListValue appended)) {
+    if (!(extension instanceof ListValue appended)) {
+      if (!first) frame.operandStack.pop();
       ErrorOps.raise(state, ErrorValue.E_TYPE, world);
       return;
     }
-    List<MooValue> elements = new ArrayList<>(list.elements());
-    elements.addAll(appended.elements());
-    pushCheckedList(frame, state, world, new ListValue(elements));
+    if (first) {
+      frame.operandStack.push(appended);
+      frame.instructionPointer++;
+      return;
+    }
+    if (!(frame.operandStack.pop() instanceof ListValue list)) {
+      ErrorOps.raise(state, ErrorValue.E_TYPE, world);
+      return;
+    }
+    pushCheckedList(frame, state, world, list.concatenate(appended));
   }
 
   private static void pushCheckedList(

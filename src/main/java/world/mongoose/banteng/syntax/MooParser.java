@@ -31,6 +31,7 @@ public final class MooParser {
   private int previousEndOffset;
   private int indexDepth;
   private int expressionDepth;
+  private int groupingDepth;
   private @Nullable List<ParseDiagnostic> recoveringDiagnostics = null;
 
   private MooParser(String source) {
@@ -549,12 +550,7 @@ public final class MooParser {
                     token.column())));
       }
       case DOLLAR -> parseDollarExpression();
-      case LEFT_PAREN -> {
-        advance();
-        Ast.Expression expression = parseExpression(ASSIGNMENT_PRECEDENCE);
-        expectAndAdvance(TokenKind.RIGHT_PAREN, "')'");
-        yield expression;
-      }
+      case LEFT_PAREN -> parseGroupedExpression();
       case LEFT_BRACE -> parseListLiteral();
       case LEFT_BRACKET -> parseMapLiteral();
       case CARET -> {
@@ -593,6 +589,24 @@ public final class MooParser {
       case BACKTICK -> parseCatch();
       default -> throw error("expected expression");
     };
+  }
+
+  private Ast.Expression parseGroupedExpression() {
+    if (groupingDepth >= MAX_EXPRESSION_DEPTH) {
+      throw error("expression nesting limit exceeded");
+    }
+    groupingDepth++;
+    // Groups do not add a node to the expression tree.
+    expressionDepth--;
+    try {
+      advance();
+      Ast.Expression expression = parseExpression(ASSIGNMENT_PRECEDENCE);
+      expectAndAdvance(TokenKind.RIGHT_PAREN, "')'");
+      return expression;
+    } finally {
+      expressionDepth++;
+      groupingDepth--;
+    }
   }
 
   private Ast.Expression parseDollarExpression() {
@@ -708,10 +722,11 @@ public final class MooParser {
     if (match(TokenKind.ANY)) {
       return new Ast.AnyErrors();
     }
-    List<String> errors = new ArrayList<>();
+    List<Ast.Expression> errors = new ArrayList<>();
     do {
-      errors.add(expect(TokenKind.ERROR, "error name or ANY").lexeme());
-      advance();
+      boolean splice = match(TokenKind.AT);
+      Ast.Expression expression = parseExpression(ASSIGNMENT_PRECEDENCE);
+      errors.add(splice ? new Ast.Splice(expression) : expression);
     } while (match(TokenKind.COMMA));
     return new Ast.ErrorList(errors);
   }

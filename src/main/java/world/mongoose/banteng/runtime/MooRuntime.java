@@ -969,11 +969,12 @@ public final class MooRuntime implements AutoCloseable, SchedulerRuntime {
                       .getOrDefault("player", new ObjectValue(continuation.first())),
                   new IntegerValue(0))));
     }
-    ListValue traceback =
-        new ListValue(
-            List.of(StringValue.of("Task ran out of " + resource), StringValue.of("(End of traceback)")));
+    ListValue frames = new ListValue(stack);
+    ListValue traceback = new ListValue(
+        formatTraceback(context, frames, "Task ran out of " + resource).stream()
+            .map(StringValue::of).toList());
     ListValue arguments =
-        new ListValue(List.of(StringValue.of(resource), new ListValue(stack), traceback));
+        new ListValue(List.of(StringValue.of(resource), frames, traceback));
     return startStored(context,
         handler.orElseThrow(),
         new RootVerbCall(0, continuation.first(), -1, "handle_task_timeout", arguments, ""),
@@ -1351,8 +1352,11 @@ public final class MooRuntime implements AutoCloseable, SchedulerRuntime {
           code instanceof ErrorValue error ? error.description() : code.toLiteral(),
           "(End of traceback)");
     }
+    return formatTraceback(context, traceback, message.text());
+  }
+
+  private List<String> formatTraceback(AttemptContext context, ListValue traceback, String description) {
     List<String> lines = new ArrayList<>();
-    String description = message.text();
     for (int index = 0; index < traceback.size(); index++) {
       if (!(traceback.elements().get(index) instanceof ListValue frame) || frame.size() < 6) {
         continue;

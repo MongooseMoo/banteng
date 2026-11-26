@@ -6,6 +6,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.math.BigDecimal;
+import world.mongoose.banteng.value.MooValue.FloatValue;
 
 /** Canonically renders the complete MOO syntax tree accepted by {@link MooParser}. */
 public final class MooUnparser {
@@ -46,13 +47,17 @@ public final class MooUnparser {
 
   /** Returns deterministic line-oriented MOO source for {@code program}. */
   public static String unparse(Ast.Program program) {
-    return unparse(program, false);
+    return render(program, false, false);
   }
 
-  /** Renders optional parentheses around compound child expressions. */
-  public static String unparse(Ast.Program program, boolean parenthesize) {
+  /** Renders verb code for inspection with Toast's display precision. */
+  public static String unparseVerbCode(Ast.Program program, boolean parenthesize) {
+    return render(program, parenthesize, true);
+  }
+
+  private static String render(Ast.Program program, boolean parenthesize, boolean displayFloats) {
     Objects.requireNonNull(program, "program");
-    Renderer renderer = new Renderer(parenthesize);
+    Renderer renderer = new Renderer(parenthesize, displayFloats);
     renderer.statements(program.statements(), 0);
     return renderer.text.toString();
   }
@@ -60,9 +65,11 @@ public final class MooUnparser {
   private static final class Renderer {
     private final StringBuilder text = new StringBuilder();
     private final boolean parenthesize;
+    private final boolean displayFloats;
 
-    private Renderer(boolean parenthesize) {
+    private Renderer(boolean parenthesize, boolean displayFloats) {
       this.parenthesize = parenthesize;
+      this.displayFloats = displayFloats;
     }
 
     private void statements(List<Ast.Statement> statements, int indentation) {
@@ -204,6 +211,13 @@ public final class MooUnparser {
       text.append("  ".repeat(indentation)).append(line);
     }
 
+    private String errors(Ast.ErrorSelector selector) {
+      return switch (selector) {
+        case Ast.AnyErrors ignored -> "ANY";
+        case Ast.ErrorList list -> joinExpressions(list.expressions());
+      };
+    }
+
     private String expression(Ast.Expression expression, int minimumPrecedence) {
       int precedence = precedence(expression);
       String rendered;
@@ -217,6 +231,10 @@ public final class MooUnparser {
         case Ast.FloatLiteral floating -> {
           if (!Double.isFinite(floating.value())) {
             throw new IllegalArgumentException("non-finite float literal");
+          }
+          if (displayFloats) {
+            rendered = new FloatValue(floating.value()).toLiteral();
+            break;
           }
           rendered = Double.toString(floating.value());
           double magnitude = Math.abs(floating.value());
@@ -471,16 +489,6 @@ public final class MooUnparser {
       case "bool" -> "BOOL";
       default -> name;
     };
-  }
-
-  private static String errors(Ast.ErrorSelector selector) {
-    if (selector instanceof Ast.AnyErrors) {
-      return "ANY";
-    }
-    if (selector instanceof Ast.ErrorList errors) {
-      return String.join(", ", errors.names());
-    }
-    throw new IllegalArgumentException("unsupported error selector: " + selector);
   }
 
   private static int precedence(Ast.Expression expression) {

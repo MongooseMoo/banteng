@@ -169,6 +169,10 @@ final class PcreService {
     return value >= '0' && value <= '9';
   }
 
+  static boolean containsMatch(String subject, String source) {
+    return Pattern.compile(translatePattern(source).source).matcher(subject).find();
+  }
+
   synchronized BuiltinResult cacheStats() {
     List<MooValue> entries = new ArrayList<>();
     for (Map.Entry<CacheKey, CacheEntry> entry : cache.entrySet()) {

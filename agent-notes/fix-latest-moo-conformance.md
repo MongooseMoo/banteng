@@ -10,6 +10,8 @@ PR #140 is open. The complete stock run reduced failures from 232 to 219, then 1
 
 The sixth batch covers input and Telnet buffer bounds, cached output capacity, separate try grammar forms, `is_member()`, PCRE2 counted quantifiers, the anonymous reference in a permanent object's `last_move`, and eleven verified integer-or-boolean builtin signatures. The existing Java assertions track the Toast diagnostics, ordering and call contracts. A clean Linux distribution build and Java test compilation both passed for this batch.
 
+The sixth managed run completed with 50 failures and all four admission probes passed. Its Java report identified two fixtures that use the combined `except` and `finally` grammar. The fixtures now use nested statements and retain their disassembly and round-trip checks. The seventh batch reuses the computed-selector and checkpoint work from the original checkout, selecting only relevant changes. It fixes the first-argument and first-splice quota checks, uses the existing formatters for verb-code float display and timeout traceback output, registers SQLite's regex function with the existing pattern translator, and reduces large string copies. The final focused run passed the edited compiler, VM, unparser and parser tests and the two new suspension tests.
+
 ## Decisions and why
 
 - Use Banteng's existing managed stock Test.db with admission and the separate promotion run. Keep the suite expectations, profiles, and strict skip handling.
@@ -25,5 +27,5 @@ The sixth batch covers input and Telnet buffer bounds, cached output capacity, s
 
 ## Next step
 
-1. Compare the sixth batch's hosted stock JUnit report to the 78-failure run.
+1. Compare the seventh batch's hosted stock JUnit report with the 50-failure run.
 2. Fix the remaining mismatches in their owning runtime paths and verify both managed profiles and admission.

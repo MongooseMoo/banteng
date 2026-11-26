@@ -166,6 +166,9 @@ final class FinalizationCollector {
         FinalizationCollector.markReachableAnonymous(value, snapshot, reachable, visitedWaifs);
       }
       for (VmSnapshot.Frame frame : task.frames()) {
+        for (VmSnapshot.HandlerState handler : frame.handlers()) {
+          handler.selector().ifPresent(value -> markReachableAnonymous(value, snapshot, reachable, visitedWaifs));
+        }
         frame.temporary().ifPresent(value ->
             FinalizationCollector.markReachableAnonymous(value, snapshot, reachable, visitedWaifs));
         for (MooValue value : frame.operandStack()) {

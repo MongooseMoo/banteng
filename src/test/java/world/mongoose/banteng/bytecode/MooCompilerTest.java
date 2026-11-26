@@ -398,41 +398,33 @@ final class MooCompilerTest {
         0 PUSH_INTEGER 1
         1 FORK 0
         2 POP
-        3 BUILD_LIST 0
-        4 PUSH_INTEGER 1
-        5 LIST_APPEND 1
-        6 BUILD_LIST 0
-        7 PUSH_INTEGER 2
-        8 LIST_APPEND 1
-        9 LIST_APPEND 0
-        10 BUILD_LIST 0
-        11 BUILD_LIST 0
-        12 PUSH_INTEGER 0
-        13 LIST_APPEND 1
+        3 PUSH_INTEGER 1
+        4 LIST_APPEND 1
+        5 PUSH_INTEGER 2
+        6 LIST_APPEND 1
+        7 LIST_APPEND 0
+        8 PUSH_INTEGER 0
+        9 LIST_APPEND 1
+        10 LIST_APPEND 1
+        11 PUSH_INTEGER 1
+        12 LIST_APPEND 1
+        13 PUSH_INTEGER 2
         14 LIST_APPEND 1
-        15 BUILD_LIST 0
-        16 PUSH_INTEGER 1
-        17 LIST_APPEND 1
-        18 BUILD_LIST 0
-        19 PUSH_INTEGER 2
-        20 LIST_APPEND 1
-        21 LIST_APPEND 0
-        22 LIST_APPEND 0
-        23 IN
-        24 RETURN
+        15 LIST_APPEND 0
+        16 LIST_APPEND 0
+        17 IN
+        18 RETURN
         fork 0:
-          0 BUILD_LIST 0
-          1 PUSH_INTEGER 1
-          2 LIST_APPEND 1
-          3 CALL suspend
-          4 POP
-          5 BUILD_LIST 0
-          6 PUSH_CLEAR 24
-          7 LIST_APPEND 1
-          8 CALL sqlite_interrupt
-          9 POP
-          10 PUSH_INTEGER 0
-          11 RETURN""",
+          0 PUSH_INTEGER 1
+          1 LIST_APPEND 1
+          2 CALL suspend
+          3 POP
+          4 PUSH_CLEAR 24
+          5 LIST_APPEND 1
+          6 CALL sqlite_interrupt
+          7 POP
+          8 PUSH_INTEGER 0
+          9 RETURN""",
         program.disassemble());
   }
 
@@ -500,11 +492,13 @@ final class MooCompilerTest {
         MooParser.parse(
             """
             try
-              raise(E_ARGS);
-            except first (E_TYPE)
-              return 1;
-            except second (E_ARGS)
-              return 2;
+              try
+                raise(E_ARGS);
+              except first (E_TYPE)
+                return 1;
+              except second (E_ARGS)
+                return 2;
+              endtry
             finally
               marker = 3;
             endtry
@@ -517,10 +511,10 @@ final class MooCompilerTest {
     assertEquals(first, second);
     assertEquals(
         """
-        0 ENTER_HANDLER catch=-1:-:,binding=NONE,finally=17,end=22
-        1 ENTER_HANDLER catch=14:second:E_ARGS,binding=STRUCTURED,finally=-1,end=10
-        2 ENTER_HANDLER catch=11:first:E_TYPE,binding=STRUCTURED,finally=-1,end=9
-        3 BUILD_LIST 0
+        0 ENTER_HANDLER catch=-1:-:,binding=NONE,finally=18,end=23
+        1 ENTER_HANDLER catch=-1:-:,binding=NONE,finally=-1,end=17
+        2 ENTER_HANDLER catch=14:second:E_ARGS,binding=STRUCTURED,finally=-1,end=10
+        3 ENTER_HANDLER catch=11:first:E_TYPE,binding=STRUCTURED,finally=-1,end=9
         4 PUSH_ERROR E_ARGS
         5 LIST_APPEND 1
         6 CALL raise
@@ -534,13 +528,14 @@ final class MooCompilerTest {
         14 PUSH_INTEGER 2
         15 RETURN
         16 LEAVE_HANDLER
-        17 PUSH_INTEGER 3
-        18 DUP
-        19 STORE_LOCAL 26
-        20 POP
-        21 END_FINALLY
-        22 PUSH_INTEGER 0
-        23 RETURN""",
+        17 LEAVE_HANDLER
+        18 PUSH_INTEGER 3
+        19 DUP
+        20 STORE_LOCAL 26
+        21 POP
+        22 END_FINALLY
+        23 PUSH_INTEGER 0
+        24 RETURN""",
         first.disassemble());
     assertEquals(first.disassemble(), second.disassemble());
   }
@@ -554,36 +549,34 @@ final class MooCompilerTest {
 
     assertEquals(
         """
-        0 BUILD_LIST 0
-        1 PUSH_INTEGER 1
-        2 LIST_APPEND 1
-        3 DUP
-        4 STORE_LOCAL 24
-        5 POP
-        6 PUSH_INTEGER 2
-        7 PUSH_INTEGER 1
-        8 BUILD_MAP 1
-        9 DUP
-        10 STORE_LOCAL 25
-        11 POP
-        12 PUSH_CLEAR 25
-        13 ENTER_INDEX
-        14 PUSH_INTEGER 1
-        15 PUSH_INTEGER 3
-        16 PUT_TEMP
-        17 SET_INDEX
-        18 STORE_LOCAL 25
-        19 PUSH_TEMP
-        20 POP
-        21 BUILD_LIST 0
-        22 PUSH_CLEAR 24
-        23 LIST_EXTEND 1
-        24 PUSH_CLEAR 25
-        25 ENTER_INDEX
-        26 PUSH_INTEGER 1
-        27 INDEX
-        28 LIST_APPEND 0
-        29 RETURN""",
+        0 PUSH_INTEGER 1
+        1 LIST_APPEND 1
+        2 DUP
+        3 STORE_LOCAL 24
+        4 POP
+        5 PUSH_INTEGER 2
+        6 PUSH_INTEGER 1
+        7 BUILD_MAP 1
+        8 DUP
+        9 STORE_LOCAL 25
+        10 POP
+        11 PUSH_CLEAR 25
+        12 ENTER_INDEX
+        13 PUSH_INTEGER 1
+        14 PUSH_INTEGER 3
+        15 PUT_TEMP
+        16 SET_INDEX
+        17 STORE_LOCAL 25
+        18 PUSH_TEMP
+        19 POP
+        20 PUSH_CLEAR 24
+        21 LIST_EXTEND 1
+        22 PUSH_CLEAR 25
+        23 ENTER_INDEX
+        24 PUSH_INTEGER 1
+        25 INDEX
+        26 LIST_APPEND 0
+        27 RETURN""",
         program.disassemble());
   }
 
@@ -594,21 +587,19 @@ final class MooCompilerTest {
 
     assertEquals(
         """
-        0 BUILD_LIST 0
-        1 PUSH_INTEGER 1
-        2 LIST_APPEND 1
-        3 PUSH_INTEGER 2
-        4 LIST_APPEND 0
-        5 PUSH_INTEGER 3
-        6 LIST_APPEND 0
-        7 DUP
-        8 STORE_LOCAL 9
-        9 POP
-        10 BUILD_LIST 0
-        11 PUSH_CLEAR 9
-        12 LIST_EXTEND 1
-        13 CALL max
-        14 RETURN""",
+        0 PUSH_INTEGER 1
+        1 LIST_APPEND 1
+        2 PUSH_INTEGER 2
+        3 LIST_APPEND 0
+        4 PUSH_INTEGER 3
+        5 LIST_APPEND 0
+        6 DUP
+        7 STORE_LOCAL 9
+        8 POP
+        9 PUSH_CLEAR 9
+        10 LIST_EXTEND 1
+        11 CALL max
+        12 RETURN""",
         program.disassemble());
   }
 
@@ -654,13 +645,12 @@ final class MooCompilerTest {
         3 POP
         4 PUSH_OBJECT 0
         5 PUSH_CLEAR 24
-        6 BUILD_LIST 0
-        7 PUSH_STRING missing
-        8 DUP
-        9 STORE_LOCAL 24
-        10 LIST_APPEND 1
-        11 CALL_VERB
-        12 RETURN""",
+        6 PUSH_STRING missing
+        7 DUP
+        8 STORE_LOCAL 24
+        9 LIST_APPEND 1
+        10 CALL_VERB
+        11 RETURN""",
         computed.disassemble());
 
     BytecodeProgram staticCall =
@@ -670,13 +660,12 @@ final class MooCompilerTest {
         """
         0 PUSH_OBJECT 0
         1 PUSH_STRING test
-        2 BUILD_LIST 0
-        3 PUSH_INTEGER 1
-        4 LIST_APPEND 1
-        5 PUSH_CLEAR 9
-        6 LIST_EXTEND 0
-        7 CALL_VERB
-        8 RETURN""",
+        2 PUSH_INTEGER 1
+        3 LIST_APPEND 1
+        4 PUSH_CLEAR 9
+        5 LIST_EXTEND 0
+        6 CALL_VERB
+        7 RETURN""",
         staticCall.disassemble());
   }
 

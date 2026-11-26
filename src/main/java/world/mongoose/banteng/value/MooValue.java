@@ -250,14 +250,13 @@ public sealed interface MooValue
     private static final Charset CHARSET = StandardCharsets.ISO_8859_1;
     private final byte[] bytes;
 
-    /** Creates a string by taking a defensive copy of {@code bytes}. */
-    private StringValue(byte[] bytes) {
-      this.bytes = Arrays.copyOf(bytes, bytes.length);
+    private StringValue(byte[] ownedBytes) {
+      bytes = ownedBytes;
     }
 
     /** Creates a binary string by taking a defensive copy of {@code bytes}. */
     public static StringValue of(byte[] bytes) {
-      return new StringValue(bytes);
+      return new StringValue(Arrays.copyOf(bytes, bytes.length));
     }
 
     /** Encodes {@code text} as one Latin-1 byte per character. */
@@ -288,6 +287,19 @@ public sealed interface MooValue
     /** Returns the byte length of this string. */
     public int length() {
       return bytes.length;
+    }
+
+    /** Concatenates two immutable strings into one allocation. */
+    public StringValue concatenate(StringValue right) {
+      byte[] combined = Arrays.copyOf(bytes, Math.addExact(bytes.length, right.bytes.length));
+      System.arraycopy(right.bytes, 0, combined, bytes.length, right.bytes.length);
+      return new StringValue(combined);
+    }
+
+    /** Copies the requested zero-based range of this string. */
+    public StringValue slice(int start, int end) {
+      Objects.checkFromToIndex(start, end, bytes.length);
+      return new StringValue(Arrays.copyOfRange(bytes, start, end));
     }
 
     /** Returns the zero-based case-insensitive byte position of {@code needle}, or -1. */

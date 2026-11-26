@@ -302,7 +302,7 @@ public final class MooCompiler {
       Optional<HandlerSpec> handler = instruction.handler().map(spec -> new HandlerSpec(
           spec.catchTarget(), spec.catchVariable(), spec.catchesAny(), spec.caughtErrors(),
           spec.structuredCatchBinding(), spec.finallyTarget(), spec.endTarget(),
-          spec.catchVariable().map(names::indexOf).orElse(-1)));
+          spec.catchVariable().map(names::indexOf).orElse(-1), spec.dynamicErrors()));
       code.add(new Instruction(opcode,
           local ? java.util.OptionalLong.of(names.indexOf(instruction.text().orElseThrow()
               .toLowerCase(java.util.Locale.ROOT))) : instruction.operand(),
@@ -463,6 +463,7 @@ public final class MooCompiler {
       for (int index = 0; index < guarded.exceptClauses().size(); index++) {
         Ast.ExceptClause clause = guarded.exceptClauses().get(index);
         controlPaths.put(clause, path.child(1, index));
+        indexErrorSelector(clause.errors(), path.child(3, index));
         indexStatements(clause.body(), path.child(1, index));
       }
       guarded.finallyClause().ifPresent(clause -> indexStatements(clause.body(), path.child(2)));
@@ -555,8 +556,17 @@ public final class MooCompiler {
     }
     if (expression instanceof Ast.Catch caught) {
       controlPaths.put(caught, path);
+      indexErrorSelector(caught.errors(), path.child(3));
       indexExpression(caught.guarded(), path.child(0));
       caught.fallback().ifPresent(value -> indexExpression(value, path.child(1)));
+    }
+  }
+
+  private void indexErrorSelector(Ast.ErrorSelector selector, AstPath path) {
+    if (selector instanceof Ast.ErrorList list) {
+      for (int index = 0; index < list.expressions().size(); index++) {
+        indexExpression(list.expressions().get(index), path.child(index));
+      }
     }
   }
 
@@ -764,6 +774,9 @@ public final class MooCompiler {
 
   private void compileTry(
       Ast.Try statement, List<Instruction> instructions, List<BytecodeProgram> forkVectors) {
+    for (Ast.ExceptClause clause : statement.exceptClauses()) {
+      compileDynamicErrors(clause.errors(), instructions);
+    }
     int ownerEnter = instructions.size();
     instructions.add(new Instruction(Opcode.JUMP, -1));
 
@@ -804,13 +817,15 @@ public final class MooCompiler {
         new Instruction(
             new HandlerSpec(
                 -1, Optional.empty(), false, List.of(), false, finallyTarget, endTarget),
-            controlPath(statement)));
+            controlPath(statement), (int) statement.exceptClauses().stream()
+                .filter(clause -> dynamicErrors(clause.errors())).count()));
 
+    int pendingSelectors = 0;
     for (int index = 0; index < clauseCount; index++) {
       Ast.ExceptClause clause = statement.exceptClauses().get(index);
       boolean catchesAny = clause.errors() instanceof Ast.AnyErrors;
       List<String> caughtErrors =
-          clause.errors() instanceof Ast.ErrorList errors ? errors.names() : List.of();
+          clause.errors() instanceof Ast.ErrorList errors ? errors.staticNames().orElse(List.of()) : List.of();
       int nextCleanupTarget =
           index + 1 < clauseCount ? normalCleanupTargets[index + 1] : ownerCleanupTarget;
       instructions.set(
@@ -823,8 +838,9 @@ public final class MooCompiler {
                   caughtErrors,
                   true,
                   -1,
-                  nextCleanupTarget),
-              controlPath(clause)));
+                  nextCleanupTarget, -1, dynamicErrors(clause.errors())),
+              controlPath(clause), pendingSelectors));
+      if (dynamicErrors(clause.errors())) pendingSelectors++;
     }
   }
 
@@ -962,7 +978,7 @@ public final class MooCompiler {
   }
 
   private void compileArguments(List<Ast.Expression> arguments, List<Instruction> instructions) {
-    instructions.add(new Instruction(Opcode.BUILD_LIST, 0));
+    if (arguments.isEmpty()) instructions.add(new Instruction(Opcode.BUILD_LIST, 0));
     for (int index = 0; index < arguments.size(); index++) {
       Ast.Expression argument = arguments.get(index);
       if (argument instanceof Ast.Splice splice) {
@@ -1084,6 +1100,7 @@ public final class MooCompiler {
   }
 
   private void compileCatch(Ast.Catch expression, List<Instruction> instructions) {
+    compileDynamicErrors(expression.errors(), instructions);
     String caughtLocal = "$caught" + catchSequence++;
     AstPath ownerPath = controlPath(expression);
     int ownerEnter = instructions.size();
@@ -1104,12 +1121,13 @@ public final class MooCompiler {
     int endTarget = instructions.size();
     boolean catchesAny = expression.errors() instanceof Ast.AnyErrors;
     List<String> caughtErrors =
-        expression.errors() instanceof Ast.ErrorList errors ? errors.names() : List.of();
+        expression.errors() instanceof Ast.ErrorList errors ? errors.staticNames().orElse(List.of()) : List.of();
     instructions.set(
         ownerEnter,
         new Instruction(
             new HandlerSpec(
-                -1, Optional.empty(), false, List.of(), false, -1, endTarget), ownerPath));
+                -1, Optional.empty(), false, List.of(), false, -1, endTarget), ownerPath,
+            dynamicErrors(expression.errors()) ? 1 : 0));
     instructions.set(
         clauseEnter,
         new Instruction(
@@ -1120,8 +1138,18 @@ public final class MooCompiler {
                 caughtErrors,
                 false,
                 -1,
-                ownerCleanupTarget),
+                ownerCleanupTarget, -1, dynamicErrors(expression.errors())),
             ownerPath.child(2, 0)));
+  }
+
+  private static boolean dynamicErrors(Ast.ErrorSelector selector) {
+    return selector instanceof Ast.ErrorList list && list.staticNames().isEmpty();
+  }
+
+  private void compileDynamicErrors(Ast.ErrorSelector selector, List<Instruction> instructions) {
+    if (dynamicErrors(selector)) {
+      compileArguments(((Ast.ErrorList) selector).expressions(), instructions);
+    }
   }
 
   private static OptionalInt statementSourceLine(Ast.Statement statement) {
