@@ -417,7 +417,7 @@ public final class LambdaMooV17Codec implements DbCodec {
             + task.taskId());
     MooValue receiver = task.initialLocals().getOrDefault("this", new ObjectValue(-1));
     writeActivationHeader(output, receiver, task.verbLocation(), task.threadMode(),
-        task.taskPlayer(), task.programmer(), task.debug(), task.calledVerb(),
+        task.taskPlayer(), task.programmer(), task.calledVerb(),
         task.fullVerbName(), context);
     line(output, task.environment().slots().size() + " variables");
     for (Map.Entry<String, Optional<MooValue>> local : task.environment().slots().entrySet()) {
@@ -479,7 +479,7 @@ public final class LambdaMooV17Codec implements DbCodec {
     }
     writeActivationHeader(output, activation.receiver(), activation.verbLocation(),
         activation.threadMode(), activation.taskPlayer(), activation.programmer(),
-        activation.debug(), activation.verb(), activation.verbNames(), context);
+        activation.verb(), activation.verbNames(), context);
     if (activation.temporary().isPresent()) {
       writeValue(output, activation.temporary().orElseThrow(), context);
     } else {
@@ -522,17 +522,18 @@ public final class LambdaMooV17Codec implements DbCodec {
   /** Writes only Toast's common activation header; task-specific tails stay with their callers. */
   private static void writeActivationHeader(
       BufferedWriter output, MooValue receiver, MooValue verbLocation, boolean threadMode,
-      long player, long programmer, boolean debug, String verb, String verbNames,
+      long player, long programmer, String verb, String verbNames,
       WriteContext context) throws IOException {
     writeValue(output, new IntegerValue(V17Format.ACTIVATION_PLACEHOLDER), context);
     writeValue(output, receiver, context);
     writeValue(output, verbLocation, context);
     line(output, threadMode ? 1 : 0);
     long legacyReceiver = receiver instanceof ObjectValue object ? object.value() : -1;
+    // Toast writes the definer's runtime type in the field its reader uses for debug mode.
     line(output, legacyReceiver + " " + V17Format.LEGACY_DOBJ + " "
         + V17Format.LEGACY_IOBJ + " " + player + " " + V17Format.LEGACY_PREPOSITION + " "
         + programmer + " " + encodedObjectNumber(verbLocation, context) + " "
-        + V17Format.LEGACY_VERB + " " + (debug ? 1 : 0));
+        + V17Format.LEGACY_VERB + " " + verbLocation.type().runtimeCode());
     line(output, "No");
     line(output, "More");
     line(output, "Parse");

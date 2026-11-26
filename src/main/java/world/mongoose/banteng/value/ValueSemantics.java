@@ -69,7 +69,7 @@ public record ValueSemantics(boolean promoteNumbers) {
       return compareNumbers(number(left), number(right));
     }
     if (left.type() != right.type()) {
-      return runtimeType(left.type()) - runtimeType(right.type());
+      return left.type().runtimeCode() - right.type().runtimeCode();
     }
     return switch (left) {
       case IntegerValue integer -> Long.compare(integer.value(), ((IntegerValue) right).value());
@@ -77,7 +77,7 @@ public record ValueSemantics(boolean promoteNumbers) {
       case ErrorValue error -> error.code() - ((ErrorValue) right).code();
       case StringValue string -> compareStrings(string, (StringValue) right, caseMatters);
       case FloatValue floating -> compareNumbers(floating.value(), ((FloatValue) right).value());
-      case BooleanValue bool -> bool == right ? 0 : 1;
+      case BooleanValue bool -> Boolean.compare(bool.value(), ((BooleanValue) right).value());
       case MooValue.AnonymousObjectValue anonymous -> anonymous == right ? 0 : 1;
       case MooValue.WaifValue waif -> waif == right ? 0 : 1;
       case ListValue ignored -> throw new IllegalArgumentException("list comparison");
@@ -96,13 +96,6 @@ public record ValueSemantics(boolean promoteNumbers) {
 
   private static double number(MooValue value) {
     return value instanceof IntegerValue integer ? integer.value() : ((FloatValue) value).value();
-  }
-
-  private static int runtimeType(MooValue.Type type) {
-    return switch (type) {
-      case STRING, LIST, MAP, ANONYMOUS, WAIF -> type.code() | 0x80;
-      default -> type.code();
-    };
   }
 
   private static int compareStrings(StringValue left, StringValue right, boolean caseMatters) {

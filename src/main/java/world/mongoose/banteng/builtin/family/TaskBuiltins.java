@@ -1,7 +1,6 @@
 package world.mongoose.banteng.builtin.family;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Locale;
 import java.util.Optional;
 import java.util.Set;
 import world.mongoose.banteng.builtin.ArgType;
@@ -113,10 +112,11 @@ public final class TaskBuiltins {
 
     private static BuiltinResult callFunction(BuiltinCall call, BuiltinCatalog catalog) {
         List<MooValue> arguments = call.arguments();
-        String name = ((StringValue) arguments.getFirst()).text().toLowerCase(Locale.ROOT);
-        BuiltinSpec target = catalog.spec(name).orElse(null);
+        StringValue name = (StringValue) arguments.getFirst();
+        BuiltinSpec target = catalog.spec(name.text()).orElse(null);
         if (target == null) {
-            return BuiltinResult.error(ErrorValue.E_INVARG);
+            return BuiltinResult.raised(
+                    ErrorValue.E_INVARG, StringValue.of("Unknown built-in function"), name);
         }
         BuiltinResult result = catalog.invoke(target, new BuiltinCall(
                 arguments.subList(1, arguments.size()), call.world(), call.programmer(),

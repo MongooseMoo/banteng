@@ -529,16 +529,7 @@ public final class MooParser {
                     token.line(),
                     token.column())));
       }
-      case DOLLAR -> {
-        if (indexDepth == 0) {
-          yield parseSystemProperty();
-        }
-        advance();
-        yield new Ast.LastIndex(
-            Optional.of(
-                new Ast.SourceSpan(
-                    token.startOffset(), token.endOffset(), token.line(), token.column())));
-      }
+      case DOLLAR -> parseDollarExpression();
       case LEFT_PAREN -> {
         advance();
         Ast.Expression expression = parseExpression(ASSIGNMENT_PRECEDENCE);
@@ -585,10 +576,14 @@ public final class MooParser {
     };
   }
 
-  private Ast.Expression parseSystemProperty() {
+  private Ast.Expression parseDollarExpression() {
     Token dollar = current;
     advance();
     if (current.kind() != TokenKind.IDENTIFIER) {
+      if (indexDepth > 0) {
+        return new Ast.LastIndex(Optional.of(new Ast.SourceSpan(
+            dollar.startOffset(), dollar.endOffset(), dollar.line(), dollar.column())));
+      }
       throw error(dollar, "'$' is only valid inside an index expression");
     }
     String property = expect(TokenKind.IDENTIFIER, "system property name").lexeme();
@@ -777,9 +772,10 @@ public final class MooParser {
       property = parseExpression(ASSIGNMENT_PRECEDENCE);
       expectAndAdvance(TokenKind.RIGHT_PAREN, "')' after computed property name");
     } else {
+      boolean colonPrefix = match(TokenKind.COLON);
       String name = expect(TokenKind.IDENTIFIER, "property name").lexeme();
       advance();
-      property = new Ast.StringLiteral(name);
+      property = new Ast.StringLiteral(colonPrefix ? ":" + name : name);
     }
     return new Ast.PropertyAccess(receiver, property);
   }

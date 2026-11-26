@@ -443,14 +443,13 @@ public final class MooUnparser {
 
   private static boolean isIdentifier(String value) {
     if (value.isEmpty()
-        || !(Character.isLetter(value.charAt(0)) || value.charAt(0) == '_')
+        || !MooLexer.isIdentifierStart(value.charAt(0))
         || value.startsWith("E_")
         || KEYWORDS.contains(value.toLowerCase(Locale.ROOT))) {
       return false;
     }
     for (int index = 1; index < value.length(); index++) {
-      char character = value.charAt(index);
-      if (!(Character.isLetterOrDigit(character) || character == '_')) {
+      if (!MooLexer.isIdentifierPart(value.charAt(index))) {
         return false;
       }
     }

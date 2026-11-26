@@ -64,6 +64,14 @@ public sealed interface MooValue
       return code;
     }
 
+    /** Returns the runtime type code, including Toast's flag for complex values. */
+    public int runtimeCode() {
+      return switch (this) {
+        case STRING, LIST, MAP, ANONYMOUS, WAIF -> code | 0x80;
+        default -> code;
+      };
+    }
+
   }
 
   /** A signed 64-bit MOO integer. */

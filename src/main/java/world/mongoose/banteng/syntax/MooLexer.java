@@ -100,7 +100,7 @@ final class MooLexer {
     skipIgnored();
     int tokenLine = line;
     int tokenColumn = column;
-    if (atEnd()) {
+    if (atEnd() || peek() > 0x7f) {
       return new Token(TokenKind.EOF, "", tokenLine, tokenColumn, offset, offset);
     }
 
@@ -302,7 +302,7 @@ final class MooLexer {
     boolean skipped;
     do {
       skipped = false;
-      while (!atEnd() && Character.isWhitespace(peek())) {
+      while (!atEnd() && (peek() == ' ' || (peek() >= '\t' && peek() <= '\r'))) {
         advance();
         skipped = true;
       }
@@ -387,11 +387,11 @@ final class MooLexer {
     return value >= '0' && value <= '9';
   }
 
-  private static boolean isIdentifierStart(char value) {
-    return Character.isLetter(value) || value == '_';
+  static boolean isIdentifierStart(char value) {
+    return (value >= 'A' && value <= 'Z') || (value >= 'a' && value <= 'z') || value == '_';
   }
 
-  private static boolean isIdentifierPart(char value) {
+  static boolean isIdentifierPart(char value) {
     return isIdentifierStart(value) || isDigit(value);
   }
 

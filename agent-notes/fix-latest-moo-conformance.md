@@ -6,7 +6,7 @@ Make the current Banteng checkout pass the latest MOO conformance tests under it
 
 ## State
 
-Banteng's most recent master CI passed the stock and promotion runs against the October 27 suite checkout. There is no current Banteng result for the latest suite in the GitHub runs inspected. This branch includes the workflow fixture checkout and VM repairs for map range reads and floating-point power. The Linux Java distribution built in the original working tree. GitHub CI will verify these changes in isolation from the original tree's existing edits. A fresh Linux suite checkout fetched the pinned ToastCore database, and the checksum matched the suite manifest.
+Banteng's most recent master CI passed the stock and promotion runs against the October 27 suite checkout. PR #140 is open with the workflow fixture checkout and VM repairs for map range reads and floating-point power. All four non-conformance jobs passed. The hosted current suite ran against the complete fixture checkout and reported 232 failures, 12,278 passes, and 1,826 skips. Promotion did not run after stock failed. All nine floating underflow cases passed. Seventeen of eighteen map-range cases passed. The log and XML evidence are in the GitHub run and its `conformance-results` artifact.
 
 ## Decisions and why
 
@@ -20,11 +20,17 @@ Source inspection found that the working implementations already check the new J
 
 Two further current cases have contradictions in the source. `IndexOps.range` handles inverted integer map bounds before lookup but reports E_RANGE for inverted bounds of other types when a key is absent. `ArithmeticOps.arithmetic` accepts a floating power of zero when a finite nonzero base underflows.
 
-The current unknown-builtin startup fixture also expects load-time diagnostics, source normalization to `call_function`, and the structured `E_INVARG` from that call. The database readers use `RawVerb.compile` with the original source, and `TaskBuiltins.callFunction` returns a bare error for an unknown name. This still needs a repair across the load and builtin paths. The pinned Toast checkpoint source reads and writes the fork activation's debug flag, while the suite expects a previously non-debug fork to run in debug mode after restart. Keep that case open until runtime evidence explains the difference.
+The current unknown-builtin startup fixture also expects load-time diagnostics, source normalization to `call_function`, and the structured `E_INVARG` from that call. The latter is implemented locally. The database readers still use `RawVerb.compile` with the original source and need a load-path repair.
+
+The pinned Toast suite's 64-bit artifact confirms that all four queued-fork restart cases actually passed. The Toast writer passes a two-word `Var` to one integer conversion; the last field prints the definer's runtime type and is read as the debug flag. The previous Barn investigation captured the bytes and disassembly. Banteng writes the actual debug flag in the shared v17 activation header; write the definer type there and keep the existing `debug != 0` import semantics for older files.
+
+The parser now lowers `obj.:name` to a computed string name with a colon prefix. Outside strings and comments, the lexer treats a high byte as end-of-input, and the unparser shares its ASCII identifier rules. The baseline found that the ToastCore fixture's `$string_utils` reference inside an index was treated as the last-index marker, and that the comparator treated `false` as greater than `true`. Both paths are corrected in the follow-up. Integer power of `1` or `-1` now preserves the result and sign for negative exponents.
+
+An isolated Linux build was still reading source when the checkpoint patch was applied. Error Prone reported `NoSuchElementException` in `StringConcatToTextBlock` at an unchanged literal. The follow-up local build was stopped to allow the remaining edits. The next hosted build will verify a stable checkout.
 
 ## Next step
 
-1. Run PR CI against the latest suite with the complete startup fixtures. Use the JUnit failures and admission evidence to identify each remaining difference.
+1. Publish the follow-up and compare its JUnit results against the baseline. The largest baseline groups were callback stack frames, scatter assignment, SQLite, and PCRE. The unknown-builtin load path still needs normalization and logging. Live non-debug fork/suspend cases failed separately from the checkpoint field behavior.
 2. Fix verified Banteng differences at their source. Re-run the existing managed stock and promotion checks against the latest suite and read the resulting JUnit reports and admission evidence.
 
 Q authorized publication of the pull request. Leave the pull request open for review.

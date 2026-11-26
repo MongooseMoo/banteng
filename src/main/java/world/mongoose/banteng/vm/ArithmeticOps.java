@@ -280,6 +280,9 @@ final class ArithmeticOps {
 
   private static long integerPower(long base, long exponent) {
     if (exponent < 0) {
+      if (base == 1 || base == -1) {
+        return (exponent & 1) == 0 ? 1 : base;
+      }
       return 0;
     }
     long result = 1;
