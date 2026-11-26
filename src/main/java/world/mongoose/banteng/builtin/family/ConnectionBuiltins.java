@@ -1,5 +1,8 @@
 package world.mongoose.banteng.builtin.family;
 import java.io.IOException;
+import java.net.ConnectException;
+import java.net.NoRouteToHostException;
+import java.net.SocketTimeoutException;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -82,7 +85,7 @@ public final class ConnectionBuiltins {
                         call.world(),
                         call.programmer(),
                         call.stagedBufferedOutputLength()));
-        registrar.builtin("boot_player", List.of(new CallShape(List.of(OBJECT), List.of(), Optional.empty()))).implementation(call -> bootPlayer(call.arguments(), call.world(), call.programmer()));
+        registrar.builtin("boot_player", List.of(new CallShape(List.of(OBJECT), List.of(), Optional.empty()))).irrevocable().implementation(call -> bootPlayer(call.arguments(), call.world(), call.programmer()));
         registrar.builtin("connection_info", List.of(new CallShape(List.of(OBJECT), List.of(), Optional.empty()))).implementation(call -> connectionInfo(call.hosts(), call.arguments(), call.world(), call.programmer()));
         registrar.builtin("connection_name", List.of(new CallShape(List.of(OBJECT), List.of(INTEGER), Optional.empty()))).implementation(call -> connectionName(call.hosts(), call.arguments(), call.world(), call.programmer()));
     }
@@ -432,14 +435,26 @@ public final class ConnectionBuiltins {
         } catch (ArithmeticException invalid) {
             return BuiltinResult.error(ErrorValue.E_INVARG);
         }
+        long timeoutSeconds = 5;
+        if (call.world().readObjectProperty(0, "server_options").orElse(null) instanceof ObjectValue options
+                && call.world().readObjectProperty(options.value(), "outbound_connect_timeout")
+                        .orElse(null) instanceof IntegerValue configured) {
+            timeoutSeconds = configured.value();
+        }
+        int timeoutMillis = (int) Math.clamp(
+                Math.clamp(timeoutSeconds, 0L, Integer.MAX_VALUE) * 1_000L, 1L, Integer.MAX_VALUE);
         try {
             return BuiltinResult.value(
                     new ObjectValue(
                             listenerControl
                                     .orElseThrow()
-                                    .openNetworkConnection(host, port, ipv6, listenerHandler, call.hosts().registerOutboundConnection())));
+                                    .openNetworkConnection(host, port, ipv6, listenerHandler, timeoutMillis,
+                                            call.hosts().registerOutboundConnection())));
         } catch (IllegalArgumentException invalid) {
             return BuiltinResult.error(ErrorValue.E_INVARG);
+        } catch (SocketTimeoutException | ConnectException | NoRouteToHostException unavailable) {
+            return BuiltinResult.raised(ErrorValue.E_INVARG, StringValue.of("Connection failure"),
+                    StringValue.of(Objects.toString(unavailable.getMessage(), "Connection failure")));
         } catch (IOException unavailable) {
             return BuiltinResult.error(ErrorValue.E_QUOTA);
         }
@@ -509,7 +524,7 @@ public final class ConnectionBuiltins {
 
         /** Opens and registers one outbound network connection. */
         long openNetworkConnection(
-                String host, int port, boolean ipv6, long listenerHandler,
+                String host, int port, boolean ipv6, long listenerHandler, int timeoutMillis,
                 BuiltinHosts.OutboundConnectionRegistrar registration)
                 throws IOException;
 

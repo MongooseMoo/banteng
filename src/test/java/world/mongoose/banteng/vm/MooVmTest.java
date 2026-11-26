@@ -65,6 +65,44 @@ final class MooVmTest {
   }
 
   @Test
+  void nonDebugActivationContinuesAfterARejectedArgumentList() {
+    WorldObject system = new WorldObject(0, "System", 0, 0, -1, -1, List.of(), List.of(), List.of(),
+        List.of(new WorldProperty("server_options", new ObjectValue(1), 0, new PropertyPerms(0), false, true)));
+    WorldObject options = new WorldObject(1, "Options", 0, 0, -1, -1, List.of(), List.of(), List.of(),
+        List.of(new WorldProperty("max_list_value_bytes", new IntegerValue(1100), 0, new PropertyPerms(0), false, true),
+            new WorldProperty("max_concat_catchable", new IntegerValue(1), 0, new PropertyPerms(0), false, true)));
+    var program = new MooCompiler().compile("mark = 0; result = equal(x, x, mark = 1); return {result, mark};");
+    var state = new VmState(new TaskOrigin(Map.of("x", text("x".repeat(600))), 0,
+        new ObjectValue(0), "", "", false), new TaskBudget(60_000, 5, 50));
+    executeAndClose(program, state, new WorldTxn(List.of(), List.of(system, options)),
+        new BuiltinCatalog(BuiltinHosts.builder().build()));
+    assertEquals(VmState.Outcome.RETURNED, state.outcome());
+    assertEquals(new ListValue(List.of(ErrorValue.E_TYPE, new IntegerValue(1))),
+        state.returnValue().orElseThrow());
+  }
+
+  @Test
+  void sqliteDistinguishesEmptyQueriesFromEmptyPreparedStatements() {
+    var program = new MooCompiler().compile("""
+        set_thread_mode(0);
+        db = sqlite_open(":memory:");
+        r = {sqlite_execute(db, "", {}), sqlite_execute(db, "  -- comment", {1}),
+             sqlite_query(db, ""), sqlite_query(db, " ; ")};
+        sqlite_close(db);
+        return r;
+        """);
+    WorldObject wizard = new WorldObject(0, "Wizard", ObjectFlags.FLAG_WIZARD, 0, -1, -1,
+        List.of(), List.of(), List.of(), List.of());
+    VmState state = new VmState(new TaskOrigin(Map.of(), 0, new ObjectValue(0), "", "", true),
+        new TaskBudget(60_000, 5, 50));
+    executeAndClose(program, state, new WorldTxn(List.of(), List.of(wizard)),
+        new BuiltinCatalog(BuiltinHosts.builder().build()));
+    assertEquals(VmState.Outcome.RETURNED, state.outcome());
+    assertEquals(new ListValue(List.of(text("not an error"), text("not an error"),
+        new ListValue(List.of()), new ListValue(List.of()))), state.returnValue().orElseThrow());
+  }
+
+  @Test
   void calledVerbUsesItsOwnDebugPermission() {
     WorldVerb nonDebug =
         new WorldVerb(

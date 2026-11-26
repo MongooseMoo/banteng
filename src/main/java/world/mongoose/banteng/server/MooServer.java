@@ -18,6 +18,7 @@ import java.net.InetSocketAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.net.SocketException;
+import java.net.SocketTimeoutException;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
@@ -30,6 +31,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReference;
 import world.mongoose.banteng.builtin.family.ConnectionBuiltins;
 import world.mongoose.banteng.logging.ServerLog;
 import world.mongoose.banteng.runtime.MooRuntime;
@@ -55,6 +57,8 @@ public final class MooServer implements AutoCloseable, ConnectionBuiltins.Listen
   private final AtomicBoolean closed = new AtomicBoolean();
   private final CountDownLatch closedLatch = new CountDownLatch(1);
   private final AtomicLong nextConnectionId = new AtomicLong(-2);
+  private final AtomicReference<Optional<Socket>> pendingConnect =
+      new AtomicReference<>(Optional.empty());
 
   /** Binds the transport around the application's deferred runtime reference. */
   public MooServer(
@@ -387,7 +391,7 @@ public final class MooServer implements AutoCloseable, ConnectionBuiltins.Listen
   /** Opens an outbound socket and registers its negative MOO connection object atomically. */
   @Override
   public long openNetworkConnection(
-      String host, int port, boolean ipv6, long listenerHandler,
+      String host, int port, boolean ipv6, long listenerHandler, int timeoutMillis,
       world.mongoose.banteng.builtin.BuiltinHosts.OutboundConnectionRegistrar registration)
       throws IOException {
     if (closed.get() || port < 0 || port > 65_535) {
@@ -406,7 +410,7 @@ public final class MooServer implements AutoCloseable, ConnectionBuiltins.Listen
     Socket socket = new Socket();
     long connectionId = nextConnectionId.getAndDecrement();
     try {
-      socket.connect(new InetSocketAddress(remote, port));
+      connectWithAlarm(socket, new InetSocketAddress(remote, port), timeoutMillis);
       BufferedWriter output =
           new BufferedWriter(
               new OutputStreamWriter(socket.getOutputStream(), StringValue.charset()));
@@ -421,6 +425,34 @@ public final class MooServer implements AutoCloseable, ConnectionBuiltins.Listen
       closeSocket(socket);
       throw failure;
     }
+  }
+
+  private void connectWithAlarm(Socket socket, InetSocketAddress remote, int timeoutMillis)
+      throws IOException {
+    Optional<Socket> pending = Optional.of(socket);
+    // Network builtins run one at a time on the scheduler's irrevocable path.
+    pendingConnect.set(pending);
+    try {
+      if (closed.get()) throw new SocketException("Server is closed");
+      socket.connect(remote, timeoutMillis);
+    } catch (IOException failure) {
+      if (!pendingConnect.compareAndSet(pending, Optional.empty())) {
+        throw new SocketTimeoutException("Connection timed out");
+      }
+      throw failure;
+    } catch (RuntimeException failure) {
+      pendingConnect.compareAndSet(pending, Optional.empty());
+      throw failure;
+    }
+    if (!pendingConnect.compareAndSet(pending, Optional.empty())) {
+      throw new SocketTimeoutException("Connection timed out");
+    }
+  }
+
+  private boolean closePendingConnect() {
+    Optional<Socket> pending = pendingConnect.getAndSet(Optional.empty());
+    pending.ifPresent(MooServer::closeSocket);
+    return pending.isPresent();
   }
 
   /** Writes ordered lines to one accepted socket without closing it. */
@@ -516,7 +548,7 @@ public final class MooServer implements AutoCloseable, ConnectionBuiltins.Listen
   public void handleSignal(int signal) {
     if (signal == 2 || signal == 15) {
       gracefulShutdown();
-    } else {
+    } else if (signal != 14 || !closePendingConnect()) {
       runtime.get().handleSignal(signal);
     }
   }
@@ -616,6 +648,7 @@ public final class MooServer implements AutoCloseable, ConnectionBuiltins.Listen
     if (!closed.compareAndSet(false, true)) {
       return Optional.empty();
     }
+    closePendingConnect();
 
     IOException failure = null;
     for (Listener listener : listeners.values()) {

@@ -6599,7 +6599,7 @@ final class BuiltinCatalogTest {
 
     @Override
     public long openNetworkConnection(
-        String host, int port, boolean ipv6, long listenerHandler,
+        String host, int port, boolean ipv6, long listenerHandler, int timeoutMillis,
         world.mongoose.banteng.builtin.BuiltinHosts.OutboundConnectionRegistrar registration) {
       return -77;
     }

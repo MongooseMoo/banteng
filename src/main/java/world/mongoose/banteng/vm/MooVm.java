@@ -229,15 +229,9 @@ public final class MooVm {
       state.abortSecondsExhaustion();
       return;
     }
-    boolean extended = switch (opcode) {
-      case POWER, BITOR, BITAND, BITXOR, BITSHL, BITSHR, COMPLEMENT, SCATTER, ITERATE -> true;
-      case ENTER_HANDLER -> instruction.handler().orElseThrow().catchTarget() < 0;
-      case JUMP -> instruction.astPath().isPresent();
-      default -> false;
-    };
     for (int tick = 0; tick < instructionTicks(opcode, instruction, frame); tick++) {
       state.budget().decrementRemainingTicks();
-      if (!extended && state.budget().remainingTicks() <= 0) {
+      if (state.budget().remainingTicks() <= 0) {
         state.abortTickExhaustion();
         return;
       }

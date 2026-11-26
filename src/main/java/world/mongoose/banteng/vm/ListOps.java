@@ -66,6 +66,10 @@ final class ListOps {
       frame.instructionPointer++;
       return;
     }
+    if (checked instanceof BuiltinResult.ErrorResult error) {
+      ErrorOps.raise(state, error.error(), world);
+      return;
+    }
     MooVm.applyBuiltinResult(checked, frame, state, world);
   }
 

@@ -14,7 +14,9 @@ The sixth managed run completed with 50 failures and all four admission probes p
 
 The eighth batch supplies the float formatter from the verb builtin, accounts for decoded binary notification bytes and no-flush queue limits, keeps raw carriage returns in stored property names, preserves and reports pre-existing reserved definitions while blocking new definitions, and sets SQLite connection defaults for SQL text and function arguments. The complete patch passed a clean `installDist compileTestJava` and is on PR #140. The hosted architecture check passed. `WorldResultTest` rejected the added public boolean method in `WorldTxn`. Stock finished with 19 failures, 12,999 passes, and 1,456 declared skips. Promotion was skipped after the stock failure.
 
-The ninth batch moves the pure reserved-name lookup to `WorldProperty`, accepts empty source when exporting a compiled queued fork, and preserves the VM's enclosing handler phase when exporting and importing suspended catch and except bodies. The empty-fork and catch-handler regressions reproduced the original failures and passed with the fixes. The empty-string comparison fast path made the exact shared argument-list setup pass within its three-second socket timeout in a focused diagnostic test.
+The ninth batch is on PR #140. It moves the pure reserved-name lookup to `WorldProperty`, accepts empty source when exporting a compiled queued fork, and preserves the VM's enclosing handler phase when exporting and importing suspended catch and except bodies. The empty-fork and catch-handler regressions reproduced the original failures and passed with the fixes. The empty-string comparison fast path made the exact shared argument-list setup pass within its three-second socket timeout in a focused diagnostic test. Hosted CI passed the four other jobs and reported 16 stock failures, 13,002 passes and 1,456 declared skips. All three checkpoint cases passed. Stock failure prevented promotion.
+
+The tenth batch applies `boot_player()` through the scheduler's existing synchronous host path, advances past a non-debug list quota error, checks exhaustion before running any charged instruction, handles empty SQLite statements before JDBC registers a null statement pointer, and times out an active outbound connect when its socket timeout or `SIGALRM` fires. Before the fixes, focused tests reproduced the non-debug operand-stack underflow and the duplicate JDBC statement pointer. The complete batch passed `installDist compileTestJava` and the edited `MooVmTest`.
 
 ## Decisions and why
 
@@ -30,8 +32,11 @@ The ninth batch moves the pure reserved-name lookup to `WorldProperty`, accepts 
 - The seventh stock report still has checkpoint failures at `dump_database()`, PCRE lookbehind differences, SQLite execution and library limits, argument-list timeouts, database property metadata, and connection output mismatches.
 - The seventh run's argument-list timeouts occur in shared fixture setup before the assertions. The exact setup reproduced the timeout during `#0.arglist_parent:build()`. A worker thread dump captured `StringValue.equals` decoding and Unicode-folding a large string while comparing it to the previous empty property value. The eighth hosted run executed the argument-list assertions and found two semantic failures. For the empty-fork fixture, the compiler produces a valid program with empty source, which the queued-task exporter previously rejected.
 - `ErrorOps` sets the selected expression clause to `CATCH` and leaves its enclosing handler in `TRY`. The checkpoint codec now preserves that phase in catch fallbacks and except bodies.
+- The pinned Toast dispatcher aborts on tick exhaustion for charged extended opcodes as well as ordinary opcodes. A different Toast checkout contained the old dispatch, so compare against the suite's pinned source.
+- Banteng's outbound socket uses a blocking `Socket.connect` without the configured timeout, and queues `SIGALRM` behind the same authorized builtin. Pinned Toast installs a connect timer and raises `E_INVARG` with `Connection failure` for timeout.
+- SQLite raised the minimum length limit from 1 to 30 in version 3.48. Banteng's bundled version uses 30, which the ninth run confirmed. The stock assertions expect 1 and behavior below 30.
 
 ## Next step
 
-1. Verify the ninth batch in hosted CI.
-2. Fix the remaining mismatches and verify both managed profiles and admission.
+1. Verify the tenth batch in hosted CI.
+2. Review the remaining PCRE2 and SQLite version differences, SQLite multi-statement execution and `set_property_info()` against the pinned Toast behavior. Verify both managed profiles and admission after resolving the remaining failures.

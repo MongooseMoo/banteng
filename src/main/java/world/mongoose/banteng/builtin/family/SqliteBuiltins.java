@@ -10,6 +10,7 @@ import world.mongoose.banteng.builtin.CallShape;
 import world.mongoose.banteng.builtin.ConfinedFileRoot;
 
 
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.sql.Connection;
 import java.sql.DriverManager;
@@ -292,6 +293,9 @@ public final class SqliteBuiltins {
   private BuiltinResult executeQuery(Database database, String sql, boolean headers) {
     synchronized (database.executionLock) {
       try (Statement statement = database.connection.createStatement()) {
+        if (emptySql(database, sql)) {
+          return BuiltinResult.value(new ListValue(List.of()));
+        }
         database.activeStatement = statement;
         boolean hasRows = statement.execute(sql);
         if (!hasRows) {
@@ -310,15 +314,20 @@ public final class SqliteBuiltins {
 
   private BuiltinResult executePrepared(Database database, String sql, ListValue parameters) {
     synchronized (database.executionLock) {
-      try (PreparedStatement statement = database.connection.prepareStatement(sql)) {
-        database.activeStatement = statement;
-        bind(statement, parameters);
-        boolean hasRows = statement.execute();
-        if (!hasRows) {
-          return BuiltinResult.value(new ListValue(List.of()));
+      try {
+        if (emptySql(database, sql)) {
+          return BuiltinResult.value(StringValue.of("not an error"));
         }
-        try (ResultSet result = statement.getResultSet()) {
-          return BuiltinResult.value(rows(database, result, false));
+        try (PreparedStatement statement = database.connection.prepareStatement(sql)) {
+          database.activeStatement = statement;
+          bind(statement, parameters);
+          boolean hasRows = statement.execute();
+          if (!hasRows) {
+            return BuiltinResult.value(new ListValue(List.of()));
+          }
+          try (ResultSet result = statement.getResultSet()) {
+            return BuiltinResult.value(rows(database, result, false));
+          }
         }
       } catch (SQLException failure) {
         return errorResult(failure);
@@ -326,6 +335,31 @@ public final class SqliteBuiltins {
         database.activeStatement = null;
       }
     }
+  }
+
+  /** JDBC expects a statement handle, which SQLite does not create for SQL containing only separators. */
+  private static boolean emptySql(Database database, String sql) throws SQLException {
+    int end = sql.indexOf('\0');
+    if (end < 0) end = sql.length();
+    int offset = 0;
+    while (offset < end) {
+      switch (sql.charAt(offset)) {
+        case ' ', '\t', '\r', '\n', '\f', ';', '\uFEFF' -> offset++;
+        case '-' -> {
+          if (!sql.startsWith("--", offset)) return false;
+          int newline = sql.indexOf('\n', offset + 2);
+          offset = newline < 0 || newline >= end ? end : newline + 1;
+        }
+        case '/' -> {
+          if (!sql.startsWith("/*", offset) || offset + 2 >= end) return false;
+          int close = sql.indexOf("*/", offset + 2);
+          offset = close < 0 || close >= end ? end : close + 2;
+        }
+        default -> { return false; }
+      }
+    }
+    return sql.getBytes(StandardCharsets.UTF_8).length <= database.connection.getDatabase()
+        .limit(SQLiteLimits.SQLITE_LIMIT_SQL_LENGTH.getId(), -1);
   }
 
   private static BuiltinResult run(Database database, SqlWork work) {
