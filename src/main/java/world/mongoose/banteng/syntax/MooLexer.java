@@ -287,15 +287,19 @@ final class MooLexer {
           case "endtry" -> TokenKind.ENDTRY;
           case "return" -> TokenKind.RETURN;
           case "any" -> TokenKind.ANY;
-          default -> ERROR_NAMES.contains(lexeme) ? TokenKind.ERROR : TokenKind.IDENTIFIER;
+          default -> isErrorName(lexeme) ? TokenKind.ERROR : TokenKind.IDENTIFIER;
         };
     return new Token(
         kind,
-        lexeme,
+        kind == TokenKind.ERROR ? lexeme.toUpperCase(Locale.ROOT) : lexeme,
         tokenLine,
         tokenColumn,
         tokenStart(tokenLine, tokenColumn),
         offset);
+  }
+
+  static boolean isErrorName(String value) {
+    return ERROR_NAMES.contains(value.toUpperCase(Locale.ROOT));
   }
 
   private void skipIgnored() {

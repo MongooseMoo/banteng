@@ -444,7 +444,7 @@ public final class MooUnparser {
   private static boolean isIdentifier(String value) {
     if (value.isEmpty()
         || !MooLexer.isIdentifierStart(value.charAt(0))
-        || value.startsWith("E_")
+        || MooLexer.isErrorName(value)
         || KEYWORDS.contains(value.toLowerCase(Locale.ROOT))) {
       return false;
     }

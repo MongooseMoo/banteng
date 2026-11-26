@@ -167,6 +167,8 @@ public sealed interface MooValue
       if (value == 0.0) {
         return Double.doubleToRawLongBits(value) < 0 ? "-0.0" : "0.0";
       }
+      if (Double.isInfinite(value)) return value < 0.0 ? "-inf.0" : "inf.0";
+      if (Double.isNaN(value)) return "nan.0";
       String formatted = String.format(Locale.ROOT, "%.15g", new BigDecimal(value));
       int exponent = Math.max(formatted.indexOf('e'), formatted.indexOf('E'));
       String significand = exponent < 0 ? formatted : formatted.substring(0, exponent);
@@ -430,6 +432,12 @@ public sealed interface MooValue
 
   /** An anonymous MOO object whose runtime identity is its Java reference. */
   final class AnonymousObjectValue implements MooValue {
+    private final long keyOrder = ValueSemantics.nextIdentityKeyOrder();
+
+    long keyOrder() {
+      return keyOrder;
+    }
+
     @Override
     public Type type() {
       return Type.ANONYMOUS;
@@ -453,12 +461,17 @@ public sealed interface MooValue
 
   /** A MOO WAIF with identity semantics and immutable class and owner references. */
   final class WaifValue implements MooValue {
+    private final long keyOrder = ValueSemantics.nextIdentityKeyOrder();
     private final ObjectValue classObject;
     private final ObjectValue owner;
 
     public WaifValue(ObjectValue classObject, ObjectValue owner) {
       this.classObject = classObject;
       this.owner = owner;
+    }
+
+    long keyOrder() {
+      return keyOrder;
     }
 
     /** Returns this WAIF's class object. */

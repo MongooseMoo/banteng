@@ -32,7 +32,7 @@ public final class RegexBuiltins {
         PcreService pcre = new PcreService();
         registrar.builtin("pcre_match", List.of(
                 new CallShape(
-                        List.of(STRING, STRING), List.of(INTEGER, INTEGER), Optional.empty()))).irrevocable().implementation(call -> pcre.match(call.arguments()));
+                        List.of(STRING, STRING), List.of(INTEGER, INTEGER), Optional.empty()))).irrevocable().implementation(pcre::match);
         registrar.builtin("pcre_replace", List.of(new CallShape(List.of(STRING, STRING), List.of(), Optional.empty()))).implementation(call -> pcre.replace(call.arguments()));
         registrar.builtin("pcre_cache_stats", List.of(new CallShape(List.of(), List.of(), Optional.empty()))).permission(BuiltinPermissionRule.WIZARD_ONLY).implementation(call -> pcre.cacheStats());
     }

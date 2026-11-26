@@ -2806,8 +2806,8 @@ final class BuiltinCatalogTest {
                   1)
               ));
       assertEquals(
-          Optional.of(ErrorValue.E_TYPE),
-          error(invoke(catalog, hasKey, List.of(map, new AnonymousObjectValue()), transaction, 1)
+          Optional.of(new IntegerValue(0)),
+          value(invoke(catalog, hasKey, List.of(map, new AnonymousObjectValue()), transaction, 1)
               ));
 
       assertEquals(

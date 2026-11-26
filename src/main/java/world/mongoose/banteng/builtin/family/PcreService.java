@@ -1,8 +1,10 @@
 package world.mongoose.banteng.builtin.family;
 
+import world.mongoose.banteng.builtin.BuiltinCall;
 import world.mongoose.banteng.builtin.BuiltinResult;
 
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -14,15 +16,19 @@ import world.mongoose.banteng.value.MooValue.ErrorValue;
 import world.mongoose.banteng.value.MooValue.IntegerValue;
 import world.mongoose.banteng.value.MooValue.ListValue;
 import world.mongoose.banteng.value.MooValue.MapValue;
+import world.mongoose.banteng.value.MooValue.ObjectValue;
 import world.mongoose.banteng.value.MooValue.StringValue;
+import world.mongoose.banteng.world.WorldTxn;
 import org.jspecify.annotations.Nullable;
 
 /** Toast-compatible PCRE surface backed by Java's bounded regular-expression engine. */
 final class PcreService {
-  private static final int MAX_CACHE_ENTRIES = 256;
+  private static final int MAX_CACHE_ENTRIES = 20;
+  private static final int MAX_REPLACEMENT_REFERENCES = 32;
   private final LinkedHashMap<CacheKey, CacheEntry> cache = new LinkedHashMap<>();
 
-  synchronized BuiltinResult match(List<MooValue> arguments) {
+  synchronized BuiltinResult match(BuiltinCall call) {
+    List<MooValue> arguments = call.arguments();
     String subject = ((StringValue) arguments.get(0)).text();
     String source = ((StringValue) arguments.get(1)).text();
     if (source.isEmpty()) {
@@ -33,14 +39,20 @@ final class PcreService {
     NamedPattern named = translateNamedGroups(source);
     Pattern pattern;
     try {
-      pattern = cached(named.source, caseMatters);
+      pattern = cached(source, named.source, caseMatters);
     } catch (PatternSyntaxException failure) {
       return invalidArgument();
     }
 
     Matcher matcher = pattern.matcher(subject);
     List<MooValue> matches = new ArrayList<>();
-    while (matcher.find()) {
+    int limit = matchIterationLimit(call.world());
+    int offset = 0;
+    for (int iteration = 1; offset < subject.length() && matcher.find(offset); iteration++) {
+      if (iteration >= limit) {
+        return BuiltinResult.raised(ErrorValue.E_MAXREC,
+            StringValue.of("Too many iterations of matching loop: " + iteration), new IntegerValue(0));
+      }
       Map<MooValue, MooValue> groups = new LinkedHashMap<>();
       for (int group = 0; group <= matcher.groupCount(); group++) {
         if (matcher.start(group) < 0) {
@@ -61,8 +73,19 @@ final class PcreService {
       if (!findAll) {
         break;
       }
+      offset = matcher.end();
     }
     return BuiltinResult.value(new ListValue(matches));
+  }
+
+  private static int matchIterationLimit(WorldTxn world) {
+    if (world.readObjectProperty(0, "server_options").orElse(null) instanceof ObjectValue options
+        && world.readObjectProperty(options.value(), "pcre_match_max_iterations").orElse(null)
+            instanceof IntegerValue configured) {
+      long limit = Integer.toUnsignedLong((int) configured.value());
+      return (int) Math.clamp(limit, 100L, 100_000_000L);
+    }
+    return 1_000;
   }
 
   synchronized BuiltinResult replace(List<MooValue> arguments) {
@@ -84,8 +107,11 @@ final class PcreService {
     } catch (PatternSyntaxException failure) {
       return invalidArgument();
     }
-    String replacement = substitution.replacement.replace("$&", "$0");
     Matcher matcher = pattern.matcher(subject);
+    String replacement = translateReplacement(substitution.replacement, matcher.groupCount());
+    if (replacement == null) {
+      return invalidArgument();
+    }
     final String replaced;
     try {
       replaced =
@@ -98,6 +124,50 @@ final class PcreService {
     return BuiltinResult.value(StringValue.of(replaced));
   }
 
+  private static @Nullable String translateReplacement(String source, int groupCount) {
+    StringBuilder translated = new StringBuilder(source.length());
+    int references = 0;
+    for (int index = 0; index < source.length(); index++) {
+      char current = source.charAt(index);
+      if (current == '\\' && index + 1 < source.length()) {
+        translated.append('\\').append(source.charAt(++index));
+        continue;
+      }
+      if (current == '$' && index + 1 < source.length()) {
+        char next = source.charAt(index + 1);
+        long group = switch (next) {
+          case '&' -> 0;
+          case '+' -> groupCount;
+          default -> -1;
+        };
+        if (isDecimalDigit(next)) {
+          group = 0;
+          while (index + 1 < source.length() && isDecimalDigit(source.charAt(index + 1))) {
+            group = 10 * group + source.charAt(++index) - '0';
+            if (group > groupCount) return null;
+          }
+        } else if (group >= 0) {
+          index++;
+        }
+        if (group >= 0) {
+          if (++references > MAX_REPLACEMENT_REFERENCES) return null;
+          translated.append('$').append(group);
+          continue;
+        }
+      }
+      // Quoting digits also keeps them from extending a preceding group number.
+      if (current == '$' || current == '\\' || isDecimalDigit(current)) {
+        translated.append('\\');
+      }
+      translated.append(current);
+    }
+    return translated.toString();
+  }
+
+  private static boolean isDecimalDigit(char value) {
+    return value >= '0' && value <= '9';
+  }
+
   synchronized BuiltinResult cacheStats() {
     List<MooValue> entries = new ArrayList<>();
     for (Map.Entry<CacheKey, CacheEntry> entry : cache.entrySet()) {
@@ -108,20 +178,21 @@ final class PcreService {
     return BuiltinResult.value(new ListValue(entries));
   }
 
-  private Pattern cached(String source, boolean caseMatters) {
+  private Pattern cached(String source, String translated, boolean caseMatters) {
     CacheKey key = new CacheKey(source, caseMatters);
     CacheEntry entry = cache.get(key);
     if (entry != null) {
       entry.hits++;
       return entry.pattern;
     }
+    if (cache.size() >= MAX_CACHE_ENTRIES) {
+      var leastUsed = cache.entrySet().stream()
+          .min(Comparator.comparingLong(candidate -> candidate.getValue().hits)).orElseThrow();
+      cache.remove(leastUsed.getKey());
+    }
     Pattern compiled =
         Pattern.compile(
-            source, caseMatters ? 0 : Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE);
-    if (cache.size() >= MAX_CACHE_ENTRIES) {
-      CacheKey first = cache.keySet().iterator().next();
-      cache.remove(first);
-    }
+            translated, caseMatters ? 0 : Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE);
     cache.put(key, new CacheEntry(compiled));
     return compiled;
   }

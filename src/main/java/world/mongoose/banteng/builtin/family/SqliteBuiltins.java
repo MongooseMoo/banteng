@@ -19,12 +19,13 @@ import java.sql.ResultSetMetaData;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.OptionalLong;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.regex.Pattern;
 import world.mongoose.banteng.value.MooValue;
 import world.mongoose.banteng.value.MooValue.ErrorValue;
 import world.mongoose.banteng.value.MooValue.FloatValue;
@@ -64,8 +65,13 @@ public final class SqliteBuiltins {
   private static final int PARSE_OBJECTS = 4;
   private static final int SANITIZE_STRINGS = 8;
   private static final Map<String, Integer> LIMIT_CATEGORIES = limitCategories();
+  private static final Pattern DECIMAL_INTEGER = Pattern.compile("[+-]?[0-9]+");
+  private static final Pattern DECIMAL_REAL = Pattern.compile(
+      "[+-]?(?:[0-9]+(?:\\.[0-9]*)?|\\.[0-9]+)(?:e[+-]?[0-9]+)?");
+  private static final Pattern HEX_REAL = Pattern.compile(
+      "[+-]?0x(?:[0-9a-f]+(?:\\.[0-9a-f]*)?|\\.[0-9a-f]+)(?:p[+-]?[0-9]+)?");
 
-  private final Map<Long, Database> databases = new LinkedHashMap<>();
+  private final LinkedHashMap<Long, Database> databases = new LinkedHashMap<>();
   private final ConfinedFileRoot files;
   private long nextHandle = 1;
 
@@ -144,8 +150,7 @@ public final class SqliteBuiltins {
   private synchronized BuiltinResult handles() {
     return BuiltinResult.value(
         new ListValue(
-            databases.keySet().stream()
-                .sorted(Comparator.naturalOrder())
+            databases.sequencedKeySet().reversed().stream()
                 .map(IntegerValue::new)
                 .map(MooValue.class::cast)
                 .toList()));
@@ -296,11 +301,13 @@ public final class SqliteBuiltins {
   }
 
   private static void bind(PreparedStatement statement, ListValue parameters) throws SQLException {
+    int available = statement.getParameterMetaData().getParameterCount();
     int index = 1;
     for (MooValue parameter : parameters.elements()) {
+      if (index > available) break;
       switch (parameter) {
         case StringValue string -> statement.setString(index, string.text());
-        case IntegerValue integer -> statement.setLong(index, integer.value());
+        case IntegerValue integer -> statement.setInt(index, (int) integer.value());
         case FloatValue floating -> statement.setDouble(index, floating.value());
         case ObjectValue object -> statement.setString(index, "#" + object.value());
         default -> statement.setObject(index, null);
@@ -317,7 +324,10 @@ public final class SqliteBuiltins {
     while (result.next()) {
       List<MooValue> row = new ArrayList<>();
       for (int column = 1; column <= columns; column++) {
-        MooValue value = databaseValue(database.options, result.getString(column));
+        Object typed = result.getObject(column);
+        String raw = typed instanceof Double real && Double.isFinite(real)
+            ? new FloatValue(real).toLiteral() : result.getString(column);
+        MooValue value = databaseValue(database.options, raw);
         if (headers) {
           row.add(
               new ListValue(
@@ -332,36 +342,56 @@ public final class SqliteBuiltins {
   }
 
   private static MooValue databaseValue(int options, @Nullable String raw) {
-    String value = raw == null ? "NULL" : raw;
+    if (raw == null) {
+      return StringValue.of((options & PARSE_TYPES) == 0 ? "" : "NULL");
+    }
+    int terminator = raw.indexOf('\0');
+    String value = terminator < 0 ? raw : raw.substring(0, terminator);
     if ((options & PARSE_TYPES) == 0) {
       return StringValue.of(sanitize(options, value));
     }
-    if ((options & PARSE_OBJECTS) != 0 && value.matches("#[+-]?[0-9]+")) {
-      try {
-        return new ObjectValue(Long.parseLong(value.substring(1)));
-      } catch (NumberFormatException ignored) {
-        // Preserve a numeric-looking value that exceeds Banteng's object range as a string.
-      }
+    if ((options & PARSE_OBJECTS) != 0 && value.startsWith("#")) {
+      OptionalLong object = parseDecimalInteger(numericText(value.substring(1)));
+      if (object.isPresent()) return new ObjectValue(object.orElseThrow());
     }
-    if (value.matches("[+-]?[0-9]+")) {
-      try {
-        return new IntegerValue(Long.parseLong(value));
-      } catch (NumberFormatException ignored) {
-        // SQLite may return arbitrary-precision text; fall through to float/string parsing.
-      }
+    String number = numericText(value).toLowerCase(Locale.ROOT);
+    OptionalLong integer = parseDecimalInteger(number);
+    if (integer.isPresent()) return new IntegerValue(integer.orElseThrow());
+    if (number.equals("inf") || number.equals("+inf")
+        || number.equals("infinity") || number.equals("+infinity")) {
+      return new FloatValue(Double.POSITIVE_INFINITY);
     }
-    if (looksFloating(value)) {
-      try {
-        return new FloatValue(Double.parseDouble(value));
-      } catch (NumberFormatException ignored) {
-        // Not a Java-representable floating value.
-      }
+    if (number.equals("-inf") || number.equals("-infinity")) {
+      return new FloatValue(Double.NEGATIVE_INFINITY);
+    }
+    if (DECIMAL_REAL.matcher(number).matches()) {
+      return new FloatValue(Double.parseDouble(number));
+    }
+    if (HEX_REAL.matcher(number).matches()) {
+      return new FloatValue(Double.parseDouble(number.indexOf('p') >= 0 ? number : number + "p0"));
     }
     return StringValue.of(sanitize(options, value));
   }
 
-  private static boolean looksFloating(String value) {
-    return value.matches("[+-]?(?:[0-9]+\\.[0-9]*|[0-9]*\\.[0-9]+|[0-9]+[eE][+-]?[0-9]+)(?:[eE][+-]?[0-9]+)?");
+  private static OptionalLong parseDecimalInteger(String value) {
+    if (!DECIMAL_INTEGER.matcher(value).matches()) return OptionalLong.empty();
+    try {
+      return OptionalLong.of(Long.parseLong(value));
+    } catch (NumberFormatException overflow) {
+      return OptionalLong.of(value.charAt(0) == '-' ? Long.MIN_VALUE : Long.MAX_VALUE);
+    }
+  }
+
+  private static String numericText(String value) {
+    int start = 0;
+    while (start < value.length()) {
+      char current = value.charAt(start);
+      if (current != ' ' && (current < '\t' || current > '\r')) break;
+      start++;
+    }
+    int end = value.length();
+    while (end > start && value.charAt(end - 1) == ' ') end--;
+    return value.substring(start, end);
   }
 
   private static String sanitize(int options, String value) {

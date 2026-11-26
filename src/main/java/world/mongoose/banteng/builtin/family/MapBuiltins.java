@@ -11,7 +11,6 @@ import world.mongoose.banteng.builtin.BuiltinResult;
 import world.mongoose.banteng.builtin.BuiltinSpec;
 import world.mongoose.banteng.builtin.CallShape;
 import world.mongoose.banteng.value.MooValue;
-import world.mongoose.banteng.value.MooValue.AnonymousObjectValue;
 import world.mongoose.banteng.value.MooValue.ErrorValue;
 import world.mongoose.banteng.value.MooValue.IntegerValue;
 import world.mongoose.banteng.value.MooValue.ListValue;
@@ -119,8 +118,6 @@ public final class MapBuiltins {
     }
 
     private static boolean invalidMapBuiltinKey(MooValue key) {
-        return key instanceof ListValue
-                || key instanceof MapValue
-                || key instanceof AnonymousObjectValue;
+        return key instanceof ListValue || key instanceof MapValue;
     }
 }

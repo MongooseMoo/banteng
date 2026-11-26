@@ -228,8 +228,8 @@ final class ArithmeticOps {
       case ADD -> left + right;
       case SUBTRACT -> left - right;
       case MULTIPLY -> left * right;
-      case DIVIDE -> left == -Long.MAX_VALUE && right == -1 ? -Long.MAX_VALUE : left / right;
-      case REMAINDER -> (left % right + right) % right;
+      case DIVIDE -> left / right;
+      case REMAINDER -> Math.floorMod(left, right);
       case POWER -> integerPower(left, right);
       default -> throw new IllegalArgumentException("unsupported arithmetic opcode: " + operation);
     };

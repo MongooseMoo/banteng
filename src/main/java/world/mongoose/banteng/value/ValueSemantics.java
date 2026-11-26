@@ -1,5 +1,6 @@
 package world.mongoose.banteng.value;
 
+import java.util.concurrent.atomic.AtomicLong;
 import world.mongoose.banteng.value.MooValue.BooleanValue;
 import world.mongoose.banteng.value.MooValue.ErrorValue;
 import world.mongoose.banteng.value.MooValue.FloatValue;
@@ -13,6 +14,12 @@ import world.mongoose.banteng.value.MooValue.StringValue;
 public record ValueSemantics(boolean promoteNumbers) {
   /** Stock Toast-compatible value behavior. */
   public static final ValueSemantics STANDARD = new ValueSemantics(false);
+  private static final AtomicLong NEXT_IDENTITY_KEY_ORDER = new AtomicLong();
+
+  // Java references, unlike Toast's native pointers, have no stable total order of their own.
+  static long nextIdentityKeyOrder() {
+    return NEXT_IDENTITY_KEY_ORDER.getAndIncrement();
+  }
 
   /** Toast equality(), including recursive collections and the configured numeric extension. */
   // Toast listequal (list.cc:359) and mapequal (map.cc:766) test collection identity first.
@@ -78,8 +85,10 @@ public record ValueSemantics(boolean promoteNumbers) {
       case StringValue string -> compareStrings(string, (StringValue) right, caseMatters);
       case FloatValue floating -> compareNumbers(floating.value(), ((FloatValue) right).value());
       case BooleanValue bool -> Boolean.compare(bool.value(), ((BooleanValue) right).value());
-      case MooValue.AnonymousObjectValue anonymous -> anonymous == right ? 0 : 1;
-      case MooValue.WaifValue waif -> waif == right ? 0 : 1;
+      case MooValue.AnonymousObjectValue anonymous ->
+          Long.compareUnsigned(anonymous.keyOrder(), ((MooValue.AnonymousObjectValue) right).keyOrder());
+      case MooValue.WaifValue waif ->
+          Long.compareUnsigned(waif.keyOrder(), ((MooValue.WaifValue) right).keyOrder());
       case ListValue ignored -> throw new IllegalArgumentException("list comparison");
       case MapValue ignored -> throw new IllegalArgumentException("map comparison");
     };

@@ -5,7 +5,6 @@ import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
-import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -420,7 +419,7 @@ final class V17RoundTripTest {
   }
 
   @Test
-  void restoresBooleanAndNonTotalMapKeysAcrossV17Read(@TempDir Path temporaryDirectory)
+  void restoresBooleanAndIdentityMapKeysAcrossV17Read(@TempDir Path temporaryDirectory)
       throws IOException {
     WaifValue firstWaif = new WaifValue(new ObjectValue(0), new ObjectValue(0));
     WaifValue secondWaif = new WaifValue(new ObjectValue(0), new ObjectValue(0));
@@ -458,10 +457,10 @@ final class V17RoundTripTest {
     assertEquals(
         List.of(BooleanValue.FALSE, BooleanValue.TRUE),
         List.copyOf(booleanReverse.entries().keySet()));
-    assertEquals(List.of(secondWaif, firstWaif), List.copyOf(waifForward.entries().keySet()));
+    assertEquals(List.of(firstWaif, secondWaif), List.copyOf(waifForward.entries().keySet()));
     assertEquals(List.of(firstWaif, secondWaif), List.copyOf(waifReverse.entries().keySet()));
     assertEquals(
-        List.of(secondAnonymous, firstAnonymous),
+        List.of(firstAnonymous, secondAnonymous),
         List.copyOf(anonymousForward.entries().keySet()));
     assertEquals(
         List.of(firstAnonymous, secondAnonymous),
@@ -566,20 +565,20 @@ final class V17RoundTripTest {
         List.of(restoredFirstWaif, restoredSecondWaif),
         List.copyOf(restoredWaifForward.entries().keySet()));
     assertEquals(
-        List.of(restoredSecondWaif, restoredFirstWaif),
+        List.of(restoredFirstWaif, restoredSecondWaif),
         List.copyOf(restoredWaifReverse.entries().keySet()));
     assertEquals(
         List.of(restoredFirstAnonymous, restoredSecondAnonymous),
         List.copyOf(restoredAnonymousForward.entries().keySet()));
     assertEquals(
-        List.of(restoredSecondAnonymous, restoredFirstAnonymous),
+        List.of(restoredFirstAnonymous, restoredSecondAnonymous),
         List.copyOf(restoredAnonymousReverse.entries().keySet()));
     assertEquals(booleanForward.toLiteral(), restoredBooleanForward.toLiteral());
     assertEquals(booleanReverse.toLiteral(), restoredBooleanReverse.toLiteral());
-    assertNotEquals(waifForward.toLiteral(), restoredWaifForward.toLiteral());
-    assertNotEquals(waifReverse.toLiteral(), restoredWaifReverse.toLiteral());
-    assertNotEquals(anonymousForward.toLiteral(), restoredAnonymousForward.toLiteral());
-    assertNotEquals(anonymousReverse.toLiteral(), restoredAnonymousReverse.toLiteral());
+    assertEquals(waifForward.toLiteral(), restoredWaifForward.toLiteral());
+    assertEquals(waifReverse.toLiteral(), restoredWaifReverse.toLiteral());
+    assertEquals(anonymousForward.toLiteral(), restoredAnonymousForward.toLiteral());
+    assertEquals(anonymousReverse.toLiteral(), restoredAnonymousReverse.toLiteral());
   }
 
   private static WorldTxn world() {
